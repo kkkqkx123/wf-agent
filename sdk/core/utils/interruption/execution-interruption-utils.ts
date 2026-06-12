@@ -5,9 +5,7 @@
  */
 
 import type { InterruptionType } from "../../types/interruption-types.js";
-import {
-  checkInterruption as baseCheckInterruption,
-} from "./abort-signal-utils.js";
+import { checkInterruption as baseCheckInterruption } from "./abort-signal-utils.js";
 
 /**
  * Unified interruption check result
@@ -67,7 +65,9 @@ export function shouldContinueExecution(result: ExecutionInterruptionCheckResult
 /**
  * Get the execution interrupt type
  */
-export function getExecutionInterruptionType(result: ExecutionInterruptionCheckResult): InterruptionType {
+export function getExecutionInterruptionType(
+  result: ExecutionInterruptionCheckResult,
+): InterruptionType {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {
@@ -83,7 +83,9 @@ export function getExecutionInterruptionType(result: ExecutionInterruptionCheckR
  * Replaces agent-specific getAgentInterruptionDescription() and workflow-specific
  * getWorkflowInterruptionDescription() with a single unified function.
  */
-export function getExecutionInterruptionDescription(result: ExecutionInterruptionCheckResult): string {
+export function getExecutionInterruptionDescription(
+  result: ExecutionInterruptionCheckResult,
+): string {
   switch (result.type) {
     case "continue":
       return "Execution continuing";
@@ -107,5 +109,3 @@ export function getExecutionInterruptionDescription(result: ExecutionInterruptio
       return "Unknown execution interruption state";
   }
 }
-
-

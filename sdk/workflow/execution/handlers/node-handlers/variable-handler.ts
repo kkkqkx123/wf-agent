@@ -37,7 +37,7 @@ function evaluateExpression(
 
     // Use AST-based evaluator (safe, preserves types)
     const result = expressionEvaluator.evaluate(expression, context);
-    
+
     return result;
   } catch (error) {
     throw new RuntimeValidationError(`Failed to evaluate expression: ${expression}`, {
@@ -126,7 +126,9 @@ export async function variableHandler(
 
   // Check if the variable is read-only.
   const workflowExecution = executionEntity.getExecution();
-  const existingVariable = workflowExecution.variables?.find((v: { name: string; readonly?: boolean }) => v.name === config.variableName);
+  const existingVariable = workflowExecution.variables?.find(
+    (v: { name: string; readonly?: boolean }) => v.name === config.variableName,
+  );
   if (existingVariable && existingVariable.readonly) {
     return {
       nodeId: node.id,

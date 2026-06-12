@@ -46,7 +46,9 @@ function createMockConversationSession(): ConversationSession {
   } as unknown as ConversationSession;
 }
 
-function createMockEntity(overrides: Partial<WorkflowExecutionEntity> = {}): WorkflowExecutionEntity {
+function createMockEntity(
+  overrides: Partial<WorkflowExecutionEntity> = {},
+): WorkflowExecutionEntity {
   const errors: string[] = [];
   return {
     id: "test-exec-1",
@@ -119,7 +121,9 @@ function createMockGlobalContext(): GlobalContext {
   } as unknown as GlobalContext;
 }
 
-function createWorkflowExecutionResult(overrides: Partial<WorkflowExecutionResult> = {}): WorkflowExecutionResult {
+function createWorkflowExecutionResult(
+  overrides: Partial<WorkflowExecutionResult> = {},
+): WorkflowExecutionResult {
   return {
     executionId: "test-exec-1",
     output: {},
@@ -175,9 +179,7 @@ describe("WorkflowStateTransitor", () => {
     it("should throw on invalid transition (COMPLETED -> RUNNING)", async () => {
       vi.mocked(mockEntity.getStatus).mockReturnValue("COMPLETED");
 
-      await expect(
-        transitor.startWorkflowExecution(mockEntity),
-      ).rejects.toThrow();
+      await expect(transitor.startWorkflowExecution(mockEntity)).rejects.toThrow();
     });
   });
 
@@ -203,9 +205,7 @@ describe("WorkflowStateTransitor", () => {
     it("should throw on invalid transition (CREATED -> PAUSED)", async () => {
       vi.mocked(mockEntity.getStatus).mockReturnValue("CREATED");
 
-      await expect(
-        transitor.pauseWorkflowExecution(mockEntity),
-      ).rejects.toThrow();
+      await expect(transitor.pauseWorkflowExecution(mockEntity)).rejects.toThrow();
     });
   });
 
@@ -272,9 +272,7 @@ describe("WorkflowStateTransitor", () => {
       vi.mocked(mockEntity.getStatus).mockReturnValue("CREATED");
       const result = createWorkflowExecutionResult();
 
-      await expect(
-        transitor.completeWorkflowExecution(mockEntity, result),
-      ).rejects.toThrow();
+      await expect(transitor.completeWorkflowExecution(mockEntity, result)).rejects.toThrow();
     });
   });
 
@@ -306,9 +304,7 @@ describe("WorkflowStateTransitor", () => {
       vi.mocked(mockEntity.getStatus).mockReturnValue("CREATED");
       const error = new Error("fail");
 
-      await expect(
-        transitor.failWorkflowExecution(mockEntity, error),
-      ).rejects.toThrow();
+      await expect(transitor.failWorkflowExecution(mockEntity, error)).rejects.toThrow();
     });
   });
 

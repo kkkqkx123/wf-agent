@@ -64,7 +64,6 @@ export class SandboxRuntime {
     options: StrategyExecuteOptions,
     config?: SandboxConfig,
   ): Promise<SandboxRuntimeResult> {
-
     if (!this.isEnabled(config)) {
       return { strategy: null, vfs: null, policy: DEFAULT_SANDBOX_POLICY };
     }
@@ -121,7 +120,9 @@ export class SandboxRuntime {
     }
 
     if (config.profile && this.globalConfig?.profiles) {
-      const profile = this.globalConfig.profiles.find((p: { name: string }) => p.name === config.profile);
+      const profile = this.globalConfig.profiles.find(
+        (p: { name: string }) => p.name === config.profile,
+      );
       if (profile) {
         resolved = this.mergeConfig(profile, resolved);
       }
@@ -132,7 +133,18 @@ export class SandboxRuntime {
     return resolved;
   }
 
-  private mergeConfig(base: { mode?: SandboxMode; policy?: Partial<SandboxPolicy>; shellStrategy?: string[]; pythonStrategy?: string[]; javascriptStrategy?: string[]; luaStrategy?: string[]; vfs?: VFSConfig }, override: SandboxConfig): SandboxConfig {
+  private mergeConfig(
+    base: {
+      mode?: SandboxMode;
+      policy?: Partial<SandboxPolicy>;
+      shellStrategy?: string[];
+      pythonStrategy?: string[];
+      javascriptStrategy?: string[];
+      luaStrategy?: string[];
+      vfs?: VFSConfig;
+    },
+    override: SandboxConfig,
+  ): SandboxConfig {
     return {
       mode: override.mode ?? base.mode ?? "disabled",
       policy: { ...base.policy, ...override.policy },
@@ -185,7 +197,7 @@ export class SandboxRuntime {
       case "shell":
         preferredIds = config.shellStrategy ?? ["os-hook", "static-analyzer"];
         // Map user-facing "os-hook" to platform-specific strategy ID before resolution
-        preferredIds = preferredIds.map((id) => {
+        preferredIds = preferredIds.map(id => {
           if (id !== "os-hook") return id;
           switch (process.platform) {
             case "linux":
@@ -196,22 +208,39 @@ export class SandboxRuntime {
               return "proot-redirect";
           }
         });
-        return this.resolver.resolveBest("shell", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
+        return this.resolver.resolveBest(
+          "shell",
+          preferredIds,
+        ) as StrategyImplementation<ScriptExecutionResult>;
       case "python":
         preferredIds = config.pythonStrategy ?? ["ast-analyzer", "builtin-hook"];
-        return this.resolver.resolveBest("python", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
+        return this.resolver.resolveBest(
+          "python",
+          preferredIds,
+        ) as StrategyImplementation<ScriptExecutionResult>;
       case "javascript":
         preferredIds = config.javascriptStrategy ?? ["vm-context"];
-        return this.resolver.resolveBest("javascript", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
+        return this.resolver.resolveBest(
+          "javascript",
+          preferredIds,
+        ) as StrategyImplementation<ScriptExecutionResult>;
       case "lua":
         preferredIds = config.luaStrategy ?? ["static-analyzer", "builtin-hook"];
-        return this.resolver.resolveBest("lua", preferredIds) as StrategyImplementation<ScriptExecutionResult>;
+        return this.resolver.resolveBest(
+          "lua",
+          preferredIds,
+        ) as StrategyImplementation<ScriptExecutionResult>;
       default:
-        return this.resolver.resolveBest("shell", ["static-analyzer"]) as StrategyImplementation<ScriptExecutionResult>;
+        return this.resolver.resolveBest("shell", [
+          "static-analyzer",
+        ]) as StrategyImplementation<ScriptExecutionResult>;
     }
   }
 
-  private resolveVFSConfig(config: SandboxConfig, _language: ScriptLanguage): VFSConfig | undefined {
+  private resolveVFSConfig(
+    config: SandboxConfig,
+    _language: ScriptLanguage,
+  ): VFSConfig | undefined {
     return config.vfs;
   }
 

@@ -27,7 +27,12 @@
  * @see AgentLoopFactory - Factory for creating instances
  */
 
-import type { ID, LLMMessage, AgentLoopRuntimeConfig, AgentLoopStateSnapshot } from "@wf-agent/types";
+import type {
+  ID,
+  LLMMessage,
+  AgentLoopRuntimeConfig,
+  AgentLoopStateSnapshot,
+} from "@wf-agent/types";
 import type {
   ParentExecutionContext,
   ChildExecutionReference,
@@ -36,11 +41,6 @@ import type {
 import { AgentLoopStatus } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import { AgentLoopState } from "../state-managers/agent-loop-state.js";
-import {
-  ConversationSession,
-  type ConversationSessionConfig,
-} from "../../core/messaging/conversation-session.js";
-import { buildInitialMessages, type InitialMessagesConfig } from "../../core/messaging/prompt/index.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
 import { createAgentInterruptionAbortReason } from "../execution/utils/index.js";
@@ -96,9 +96,6 @@ export class AgentLoopEntity implements Abortable {
   /** Execution state manager (mutable, serializable) */
   readonly state: AgentLoopState;
 
-  /** Dialogue Manager (unified message management) - private for encapsulation */
-  private conversationManager: ConversationSession;
-
   /** Tool Failure Protection State Manager */
   readonly toolFailureProtection: ToolFailureProtectionState;
 
@@ -108,7 +105,7 @@ export class AgentLoopEntity implements Abortable {
   /** Execution Hierarchy Manager (unified parent-child relationship management) */
   private hierarchyManager: ExecutionHierarchyManager;
 
-  /** 
+  /**
    * Interruption State Manager (optional, should be set by coordinator)
    * This ensures that getAbortSignal() returns the same signal used by the coordinator
    */
@@ -146,7 +143,6 @@ export class AgentLoopEntity implements Abortable {
     id: string,
     config: AgentLoopRuntimeConfig,
     state?: AgentLoopState,
-    conversationManagerConfig?: Partial<ConversationSessionConfig>,
     toolFailureProtectionConfig?: ToolFailureProtectionConfig,
     registry?: ExecutionHierarchyRegistry,
   ) {
@@ -155,30 +151,19 @@ export class AgentLoopEntity implements Abortable {
     this.state = state ?? new AgentLoopState();
 
     // Initialize hierarchy manager as root node (Agent loops are typically root executions)
-    this.hierarchyManager = new ExecutionHierarchyManager(id, 'AGENT_LOOP', undefined, registry);
-
-    // Initialize the ConversationSession (without setting an initial message).
-    // The initial message will be set asynchronously in the factory method.
-    this.conversationManager = new ConversationSession({
-      executionId: id,
-      initialMessages: [],
-      ...conversationManagerConfig,
-    });
+    this.hierarchyManager = new ExecutionHierarchyManager(id, "AGENT_LOOP", undefined, registry);
 
     // Initialize tool failure protection state
     this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);
   }
 
   /**
-   * Asynchronous initialization message (called by factory method)
-   * @param config Message configuration
+   * Asynchronous initialization message
+   * Deprecated: Conversation session is now managed externally by AgentStateCoordinator.
+   * @param _config Message configuration (ignored)
    */
-  async initializeMessages(config: InitialMessagesConfig): Promise<void> {
-    const initialMessages = await buildInitialMessages(config);
-    this.conversationManager = new ConversationSession({
-      executionId: this.id,
-      initialMessages,
-    });
+  async initializeMessages(): Promise<void> {
+    // No-op: ConversationSession is managed externally by AgentStateCoordinator
   }
 
   // Status Access
@@ -225,89 +210,6 @@ export class AgentLoopEntity implements Abortable {
     return this.state.status === AgentLoopStatus.CANCELLED;
   }
 
-  // ========== Conversation Manager Access ==========
-
-  /**
-   * Get the conversation manager
-   * 
-   * Provides read-only access to the ConversationSession for coordinators
-   * and other components that need to manage messages.
-   * 
-   * @returns The ConversationSession instance
-   */
-  getConversationManager(): ConversationSession {
-    return this.conversationManager;
-  }
-
-  /**
-   * Set the conversation manager (for checkpoint restoration)
-   * 
-   * This method is used during checkpoint restoration to replace
-   * the conversation manager with a restored instance.
-   * 
-   * @param conversationManager The new ConversationSession instance
-   */
-  setConversationManager(conversationManager: ConversationSession): void {
-    this.conversationManager = conversationManager;
-  }
-
-  // ========== Message Management (delegated to ConversationSession) ==========
-
-  /**
-   * Adding a Message
-   * @param message LLM message
-   */
-  addMessage(message: LLMMessage): void {
-    this.conversationManager.addMessage(message);
-  }
-
-  /**
-   * Get all messages (visible messages)
-   */
-  getMessages(): LLMMessage[] {
-    return this.conversationManager.getMessages();
-  }
-
-  /**
-   * Get all messages (including invisible messages)
-   */
-  getAllMessages(): LLMMessage[] {
-    return this.conversationManager.getAllMessages();
-  }
-
-  /**
-   * Get the most recent messages
-   * @param count number of messages
-   */
-  getRecentMessages(count: number): LLMMessage[] {
-    return this.conversationManager.getRecentMessages(count);
-  }
-
-  /**
-   * Setting the message history
-   * @param messages List of messages
-   */
-  setMessages(messages: LLMMessage[]): void {
-    this.conversationManager.clear();
-    for (const msg of messages) {
-      this.conversationManager.addMessage(msg);
-    }
-  }
-
-  /**
-   * Empty message history
-   */
-  clearMessages(): void {
-    this.conversationManager.clear();
-  }
-
-  /**
-   * Normalizing Message History
-   */
-  normalizeHistory(): void {
-    // No-op for compatibility
-  }
-
   // Stop control ==========
 
   /**
@@ -317,7 +219,7 @@ export class AgentLoopEntity implements Abortable {
   setInterruptionState(interruptionState: InterruptionState): void {
     this.interruptionState = interruptionState;
   }
-  
+
   /**
    * Get the interruption state manager
    * @returns The InterruptionState instance or undefined if not set
@@ -445,20 +347,24 @@ export class AgentLoopEntity implements Abortable {
       }
     } else {
       // Fallback: abort own controller if no InterruptionState is configured
-      const abortReason = createAgentInterruptionAbortReason(type, this.id, this.state.currentIteration);
+      const abortReason = createAgentInterruptionAbortReason(
+        type,
+        this.id,
+        this.state.currentIteration,
+      );
       this.abortController?.abort(abortReason);
     }
   }
 
   /**
    * Reset interrupt flag
-   * 
+   *
    * NOTE: This method now also calls interruptionState.resume() to trigger
    * automatic cascade propagation to all children (if interruption state is set).
    */
   resetInterrupt(): void {
     this.state.resetInterrupt();
-    
+
     // Trigger resume on interruption state to auto-propagate to children
     if (this.interruptionState) {
       this.interruptionState.resume();
@@ -617,10 +523,10 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Set parent execution context (unified API)
-   * 
+   *
    * Replaces parentExecutionId and nodeId fields for unified parent-child relationship management.
    * Supports both Workflow and Agent parents with type safety.
-   * 
+   *
    * @param parentContext Parent execution context
    * @example
    * ```typescript
@@ -629,7 +535,7 @@ export class AgentLoopEntity implements Abortable {
    *   parentType: 'WORKFLOW',
    *   parentId: 'parent-workflow-id'
    * });
-   * 
+   *
    * // Set Agent parent (Agent delegation/sub-agent)
    * entity.setParentContext({
    *   parentType: 'AGENT_LOOP',
@@ -644,7 +550,7 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get parent execution context (unified API)
-   * 
+   *
    * @returns Parent execution context or undefined if root node
    */
   getParentContext(): ParentExecutionContext | undefined {
@@ -653,12 +559,12 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get node ID from parent context (if parent is a workflow)
-   * 
+   *
    * @returns Node ID if parent is a workflow, undefined otherwise
    */
   get nodeId(): string | undefined {
     const parent = this.hierarchyManager.getParent();
-    if (parent && parent.parentType === 'WORKFLOW') {
+    if (parent && parent.parentType === "WORKFLOW") {
       return parent.nodeId;
     }
     return undefined;
@@ -666,9 +572,9 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Register child execution reference (unified API)
-   * 
+   *
    * Supports tracking both Workflow and Agent children spawned by this Agent.
-   * 
+   *
    * @param childRef Child execution reference
    * @example
    * ```typescript
@@ -679,7 +585,7 @@ export class AgentLoopEntity implements Abortable {
    *   nodeId: undefined, // Not applicable for agent-spawned agents
    *   spawnedAt: Date.now()
    * });
-   * 
+   *
    * // Register triggered Workflow child
    * entity.registerChild({
    *   childType: 'WORKFLOW',
@@ -693,17 +599,17 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Unregister child execution reference (unified API)
-   * 
+   *
    * @param childId Child execution ID
    * @param childType Child execution type (defaults to 'AGENT_LOOP' for backward compatibility)
    */
-  unregisterChild(childId: ID, childType: 'WORKFLOW' | 'AGENT_LOOP' = 'AGENT_LOOP'): void {
+  unregisterChild(childId: ID, childType: "WORKFLOW" | "AGENT_LOOP" = "AGENT_LOOP"): void {
     this.hierarchyManager.removeChild(childId, childType);
   }
 
   /**
    * Get all child execution references (unified API)
-   * 
+   *
    * @returns Array of child execution references
    */
   getChildReferences(): ChildExecutionReference[] {
@@ -712,7 +618,7 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get hierarchy depth (unified API)
-   * 
+   *
    * @returns Depth in hierarchy tree (0 for root)
    */
   getHierarchyDepth(): number {
@@ -721,7 +627,7 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get root execution ID (unified API)
-   * 
+   *
    * @returns Root execution ID
    */
   getRootExecutionId(): ID {
@@ -730,16 +636,16 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get root execution type (unified API)
-   * 
+   *
    * @returns Root execution type
    */
-  getRootExecutionType(): 'WORKFLOW' | 'AGENT_LOOP' {
+  getRootExecutionType(): "WORKFLOW" | "AGENT_LOOP" {
     return this.hierarchyManager.getRootExecutionType();
   }
 
   /**
    * Check if this is a root execution (unified API)
-   * 
+   *
    * @returns True if no parent
    */
   isRootExecution(): boolean {
@@ -748,7 +654,7 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get complete hierarchy metadata (unified API)
-   * 
+   *
    * @returns Hierarchy metadata for serialization
    */
   getHierarchyMetadata(): ExecutionHierarchyMetadata | undefined {
@@ -757,18 +663,14 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Restore hierarchy from metadata (unified API)
-   * 
+   *
    * Used during checkpoint restoration.
-   * 
+   *
    * @param metadata Hierarchy metadata
    */
   restoreHierarchy(metadata: ExecutionHierarchyMetadata): void {
     // Create new manager with restored metadata
-    const newManager = new ExecutionHierarchyManager(
-      this.id,
-      'AGENT_LOOP',
-      metadata
-    );
+    const newManager = new ExecutionHierarchyManager(this.id, "AGENT_LOOP", metadata);
     // Replace the manager
     this.hierarchyManager = newManager;
   }
@@ -777,10 +679,10 @@ export class AgentLoopEntity implements Abortable {
 
   /**
    * Get currently available tools from configuration
-   * 
+   *
    * Agent does NOT support dynamic tool changes.
    * Tools are fixed at initialization time.
-   * 
+   *
    * @returns Set of all available tool IDs
    */
   getAvailableTools(): Set<string> {
@@ -788,17 +690,17 @@ export class AgentLoopEntity implements Abortable {
     if (this.cachedAvailableTools) {
       return this.cachedAvailableTools;
     }
-    
+
     // Compute from config and cache (static, never changes)
     const configuredTools = getAvailableTools(this.config.availableTools);
     this.cachedAvailableTools = new Set(configuredTools);
-    
+
     return this.cachedAvailableTools;
   }
 
   /**
    * Check if a specific tool is available
-   * 
+   *
    * @param toolId Tool ID to check
    * @returns true if tool is available
    */
@@ -823,7 +725,7 @@ export class AgentLoopEntity implements Abortable {
         error,
       });
     }
-    
+
     // Step 2: Cleanup sub-resources with error isolation
     try {
       this.state.cleanup();
@@ -833,16 +735,7 @@ export class AgentLoopEntity implements Abortable {
         error,
       });
     }
-    
-    try {
-      this.conversationManager.cleanup();
-    } catch (error) {
-      logger.error("Failed to cleanup conversation manager during cleanup", {
-        agentLoopId: this.id,
-        error,
-      });
-    }
-    
+
     try {
       this.toolFailureProtection.cleanup();
     } catch (error) {
@@ -851,21 +744,17 @@ export class AgentLoopEntity implements Abortable {
         error,
       });
     }
-    
+
     this.abortController = undefined;
-    
+
     // Clear queues
     this.clearAllQueues();
-    
+
     // Clear tool cache
     this.cachedAvailableTools = undefined;
-    
+
     // Clear hierarchy manager
-    this.hierarchyManager = new ExecutionHierarchyManager(
-      this.id,
-      'AGENT_LOOP',
-      undefined
-    );
+    this.hierarchyManager = new ExecutionHierarchyManager(this.id, "AGENT_LOOP", undefined);
   }
 
   /**
@@ -892,8 +781,7 @@ export class AgentLoopEntity implements Abortable {
    *   callback functions (`transformContext`, `convertToLlm`) that cannot be serialized.
    * - The application must provide the config when restoring from checkpoint.
    * - Only `AgentLoopState` is restored from the snapshot (iteration count, tool calls, status).
-   * - Messages are NOT restored here; they are managed by `ConversationSession`
-   *   and should be restored through a separate mechanism (e.g., workflow checkpoint path).
+   * - Messages are managed externally by `AgentStateCoordinator` and restored via checkpoint.
    *
    * @throws Error if config is not provided
    */
@@ -905,8 +793,8 @@ export class AgentLoopEntity implements Abortable {
     if (!config) {
       throw new Error(
         "AgentLoopRuntimeConfig is required to restore from snapshot. " +
-        "Config contains callback functions and cannot be serialized in checkpoints. " +
-        "The application must re-provide config when restoring from checkpoint."
+          "Config contains callback functions and cannot be serialized in checkpoints. " +
+          "The application must re-provide config when restoring from checkpoint.",
       );
     }
 

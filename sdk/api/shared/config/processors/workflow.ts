@@ -162,7 +162,7 @@ function applyParameterSubstitution(
  * @returns Array of transformed nodes
  */
 function transformNodes(nodeConfigs: unknown[]): StaticNode[] {
-  return nodeConfigs.map((nodeConfig) => {
+  return nodeConfigs.map(nodeConfig => {
     const node = nodeConfig as {
       id: string;
       type: string;
@@ -199,7 +199,7 @@ function transformNodes(nodeConfigs: unknown[]): StaticNode[] {
  * @returns Array of transformed edges
  */
 function transformEdges(edgeConfigs: unknown[]): Edge[] {
-  return edgeConfigs.map((edgeConfig) => {
+  return edgeConfigs.map(edgeConfig => {
     const edge = edgeConfig as {
       id?: string;
       sourceNodeId?: string;

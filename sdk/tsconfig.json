@@ -5,37 +5,15 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@sdk/core/*": [
-        "./core/*"
-      ],
-      "@sdk/services/*": [
-        "./services/*"
-      ],
-      "@sdk/utils/*": [
-        "./utils/*"
-      ],
-      "@sdk/workflow/*": [
-        "./workflow/*"
-      ],
-      "@sdk/agent/*": [
-        "./agent/*"
-      ],
-      "@sdk/api/*": [
-        "./api/*"
-      ]
+      "@/*": ["./*"],
+      "@sdk/core/*": ["./core/*"],
+      "@sdk/services/*": ["./services/*"],
+      "@sdk/utils/*": ["./utils/*"],
+      "@sdk/workflow/*": ["./workflow/*"],
+      "@sdk/agent/*": ["./agent/*"],
+      "@sdk/api/*": ["./api/*"]
     }
   },
-  "include": [
-    "index.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/*.test.ts",
-    "**/*.spec.ts",
-    "**/test-d/**/*"
-  ]
+  "include": ["index.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "**/test-d/**/*"]
 }

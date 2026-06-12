@@ -28,8 +28,8 @@ vi.mock("../../../utils/index.js", () => ({
   mergeMetadata: vi.fn((...args) => Object.assign({}, ...args)),
 }));
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+vi.mock("@wf-agent/common-utils", async importOriginal => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     now: vi.fn(() => 1234567890),
@@ -45,8 +45,12 @@ vi.mock("../../../core/messaging/conversation-session.js", () => ({
       originalIndices: [],
       boundaryToBatch: [],
     });
-    getTokenUsage = vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
-    getCurrentRequestUsage = vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
+    getTokenUsage = vi
+      .fn()
+      .mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
+    getCurrentRequestUsage = vi
+      .fn()
+      .mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 });
     addMessages = vi.fn();
     setMarkMap = vi.fn();
     setTokenUsageState = vi.fn();
@@ -94,8 +98,12 @@ vi.mock("../../state-managers/workflow-state-coordinator.js", () => ({
         originalIndices: [],
         boundaryToBatch: [],
       }),
-      getTokenUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
-      getCurrentRequestUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
+      getTokenUsage: vi
+        .fn()
+        .mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
+      getCurrentRequestUsage: vi
+        .fn()
+        .mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
     });
   },
 }));
@@ -124,7 +132,9 @@ function createMockWorkflowExecution(): WorkflowExecution {
   };
 }
 
-function createMockDependencies(overrides?: Partial<CheckpointDependencies>): CheckpointDependencies {
+function createMockDependencies(
+  overrides?: Partial<CheckpointDependencies>,
+): CheckpointDependencies {
   const mockCheckpointState = {
     list: vi.fn().mockResolvedValue([]),
     get: vi.fn().mockResolvedValue(null),
@@ -410,9 +420,7 @@ describe("CheckpointCoordinator", () => {
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
       // Should not throw despite file checkpoint failure
-      await expect(
-        CheckpointCoordinator.createCheckpoint("exec-1", deps),
-      ).resolves.toBeDefined();
+      await expect(CheckpointCoordinator.createCheckpoint("exec-1", deps)).resolves.toBeDefined();
     });
   });
 
@@ -470,9 +478,9 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowGraphRegistry.get = vi.fn().mockReturnValue(null);
 
-      await expect(
-        CheckpointCoordinator.restoreFromCheckpoint("cp-1", deps),
-      ).rejects.toThrow("Processed workflow not found");
+      await expect(CheckpointCoordinator.restoreFromCheckpoint("cp-1", deps)).rejects.toThrow(
+        "Processed workflow not found",
+      );
     });
 
     it("should successfully restore from FULL checkpoint", async () => {
@@ -512,9 +520,7 @@ describe("CheckpointCoordinator", () => {
 
       const mockGraph = {
         id: "graph-1",
-        nodes: [
-          { id: "node-1", name: "Start Node", type: "START" },
-        ],
+        nodes: [{ id: "node-1", name: "Start Node", type: "START" }],
         edges: [],
         getNode: vi.fn().mockReturnValue({ id: "node-1", name: "Start Node", type: "START" }),
       };
@@ -583,7 +589,11 @@ describe("CheckpointCoordinator", () => {
   describe("validateCheckpoint (private static)", () => {
     it("should throw for missing required fields", () => {
       expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({ id: "", executionId: "", workflowId: "" }),
+        (CheckpointCoordinator as any).validateCheckpoint({
+          id: "",
+          executionId: "",
+          workflowId: "",
+        }),
       ).toThrow("Invalid checkpoint: missing required fields");
     });
 
@@ -667,7 +677,10 @@ describe("CheckpointCoordinator", () => {
         list: vi.fn().mockResolvedValue([]),
       } as unknown as CheckpointState;
 
-      const result = await (CheckpointCoordinator as any).findChildCheckpoint("child-exec-1", mockCheckpointState);
+      const result = await (CheckpointCoordinator as any).findChildCheckpoint(
+        "child-exec-1",
+        mockCheckpointState,
+      );
 
       expect(result).toBeUndefined();
     });
@@ -677,7 +690,10 @@ describe("CheckpointCoordinator", () => {
         list: vi.fn().mockResolvedValue(["cp-latest", "cp-old"]),
       } as unknown as CheckpointState;
 
-      const result = await (CheckpointCoordinator as any).findChildCheckpoint("child-exec-1", mockCheckpointState);
+      const result = await (CheckpointCoordinator as any).findChildCheckpoint(
+        "child-exec-1",
+        mockCheckpointState,
+      );
 
       expect(result).toBe("cp-latest");
     });

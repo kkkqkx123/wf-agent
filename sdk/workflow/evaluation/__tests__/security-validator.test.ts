@@ -79,12 +79,17 @@ describe("validatePath", () => {
   });
 
   it("should throw for path exceeding max depth", () => {
-    const deepPath = Array.from({ length: SECURITY_CONFIG.MAX_PATH_DEPTH + 2 }, (_, i) => `p${i}`).join(".");
+    const deepPath = Array.from(
+      { length: SECURITY_CONFIG.MAX_PATH_DEPTH + 2 },
+      (_, i) => `p${i}`,
+    ).join(".");
     expect(() => validatePath(deepPath)).toThrow(ExpressionSecurityError);
   });
 
   it("should accept path at max depth boundary", () => {
-    const path = Array.from({ length: SECURITY_CONFIG.MAX_PATH_DEPTH }, (_, i) => `p${i}`).join(".");
+    const path = Array.from({ length: SECURITY_CONFIG.MAX_PATH_DEPTH }, (_, i) => `p${i}`).join(
+      ".",
+    );
     expect(() => validatePath(path)).not.toThrow();
   });
 });

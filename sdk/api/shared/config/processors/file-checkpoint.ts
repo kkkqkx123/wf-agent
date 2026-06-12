@@ -40,13 +40,16 @@ export function mergeFileCheckpointConfig(
   resolvedWorkspaceRoot?: string,
 ): Required<FileCheckpointConfig> {
   const workspaceRoot = userConfig.workspaceRoot ?? resolvedWorkspaceRoot ?? "";
-  const dbPath = userConfig.storage?.dbPath ?? path.join(workspaceRoot, "data", "file-checkpoints.db");
+  const dbPath =
+    userConfig.storage?.dbPath ?? path.join(workspaceRoot, "data", "file-checkpoints.db");
 
   return {
     enabled: userConfig.enabled ?? DEFAULT_FILE_CHECKPOINT_CONFIG.enabled,
     workspaceRoot,
-    maxDeltaChainLength: userConfig.maxDeltaChainLength ?? DEFAULT_FILE_CHECKPOINT_CONFIG.maxDeltaChainLength,
-    customIgnorePatterns: userConfig.customIgnorePatterns ?? DEFAULT_FILE_CHECKPOINT_CONFIG.customIgnorePatterns,
+    maxDeltaChainLength:
+      userConfig.maxDeltaChainLength ?? DEFAULT_FILE_CHECKPOINT_CONFIG.maxDeltaChainLength,
+    customIgnorePatterns:
+      userConfig.customIgnorePatterns ?? DEFAULT_FILE_CHECKPOINT_CONFIG.customIgnorePatterns,
     storage: {
       type: userConfig.storage?.type ?? DEFAULT_FILE_CHECKPOINT_CONFIG.storage.type,
       dbPath,

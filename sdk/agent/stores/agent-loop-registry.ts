@@ -11,6 +11,7 @@ import { AgentLoopStatus } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "@wf-agent/storage";
 import type { AgentEntityMetadata } from "@wf-agent/types";
 import type { IAgentExecutionRegistry, AgentExecutionFilter } from "./agent-execution-registry.js";
+import type { AgentStateCoordinator } from "../state-managers/agent-state-coordinator.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 
@@ -22,6 +23,7 @@ const logger = createContextualLogger({ component: "AgentLoopRegistry" });
  * Core Responsibilities:
  * - Manage active AgentLoopEntity instances.
  * - Provide registration, query and deletion of instances
+ * - Store AgentStateCoordinator alongside entities
  *
  * Design Principles:
  * - Singleton model (managed via DI container)
@@ -31,6 +33,8 @@ const logger = createContextualLogger({ component: "AgentLoopRegistry" });
 export class AgentLoopRegistry implements IAgentExecutionRegistry {
   /** Instance Storage */
   private entities: Map<ID, AgentLoopEntity> = new Map();
+  /** State Coordinator Storage */
+  private stateCoordinatorMap: Map<ID, AgentStateCoordinator> = new Map();
   private storageAdapter?: AgentLoopStorageAdapter;
 
   /**
@@ -65,7 +69,9 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   unregister(id: ID): boolean {
     const result = this.entities.delete(id);
 
+    // Also clean up associated state coordinator
     if (result) {
+      this.stateCoordinatorMap.delete(id);
       // Remove from storage (async, non-blocking)
       this.removeFromStorage(id).catch(error => {
         logger.error("Failed to remove agent loop from storage during unregister", {
@@ -76,6 +82,24 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     }
 
     return result;
+  }
+
+  /**
+   * Register AgentStateCoordinator
+   * @param agentLoopId Agent Loop ID
+   * @param stateCoordinator AgentStateCoordinator instance
+   */
+  registerStateCoordinator(agentLoopId: ID, stateCoordinator: AgentStateCoordinator): void {
+    this.stateCoordinatorMap.set(agentLoopId, stateCoordinator);
+  }
+
+  /**
+   * Get AgentStateCoordinator
+   * @param agentLoopId Agent Loop ID
+   * @returns AgentStateCoordinator instance or null
+   */
+  getStateCoordinator(agentLoopId: ID): AgentStateCoordinator | null {
+    return this.stateCoordinatorMap.get(agentLoopId) || null;
   }
 
   /**
@@ -231,6 +255,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
       entity.cleanup();
     }
     this.entities.clear();
+    this.stateCoordinatorMap.clear();
   }
 
   /**

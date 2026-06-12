@@ -1,10 +1,10 @@
 /**
  * ExecutionEventEmitter - Per-Execution Event Emitter
- * 
+ *
  * Provides isolated event management for a single workflow execution.
  * Each execution gets its own ExecutionEventEmitter instance, eliminating the need
  * to pass executionId parameters everywhere.
- * 
+ *
  * Design Principles:
  * - One emitter per execution (isolated state)
  * - No cross-execution events (by design)
@@ -50,19 +50,19 @@ export interface EventEmitterOptions<T extends BaseEvent = BaseEvent> {
 
 /**
  * ExecutionEventEmitter - Manages events for a single execution
- * 
+ *
  * @example
  * ```typescript
  * const emitter = new ExecutionEventEmitter('exec-123');
- * 
+ *
  * // Register listener (no executionId needed!)
  * emitter.on('NODE_COMPLETED', (event) => {
  *   console.log('Node completed:', event.nodeId);
  * });
- * 
+ *
  * // Emit event
  * await emitter.emit({ type: 'NODE_COMPLETED', nodeId: 'node-1' });
- * 
+ *
  * // Cleanup all listeners
  * emitter.removeAllListeners();
  * ```
@@ -70,7 +70,7 @@ export interface EventEmitterOptions<T extends BaseEvent = BaseEvent> {
 export class ExecutionEventEmitter {
   /** Execution ID this emitter belongs to */
   public readonly executionId: string;
-  
+
   private listeners: Map<string, Array<ListenerWrapper<unknown>>> = new Map();
   private metrics: Map<string, Map<string, ListenerMetrics>> = new Map();
   private isDisposed: boolean = false;
@@ -84,20 +84,20 @@ export class ExecutionEventEmitter {
 
   /**
    * Register event listener
-   * 
+   *
    * @param eventType Event type
    * @param listener Event listener function
    * @param options Optional filter and timeout
    * @returns Unsubscribe function
-   * 
+   *
    * @example
    * ```typescript
    * emitter.on('NODE_STARTED', (event) => {
    *   console.log('Node started:', event.nodeId);
    * });
-   * 
+   *
    * // With filter
-   * emitter.on('NODE_COMPLETED', 
+   * emitter.on('NODE_COMPLETED',
    *   (event) => console.log('LLM node done'),
    *   { filter: (e) => e.nodeType === 'llm' }
    * );
@@ -135,7 +135,7 @@ export class ExecutionEventEmitter {
       slowExecutionCount: 0,
     });
 
-    logger.debug('Listener registered', {
+    logger.debug("Listener registered", {
       executionId: this.executionId,
       eventType,
       listenerId: wrapper.id,
@@ -149,12 +149,12 @@ export class ExecutionEventEmitter {
 
   /**
    * Register one-time event listener (automatically removed after first trigger)
-   * 
+   *
    * @param eventType Event type
    * @param listener Event listener function
    * @param options Optional filter and timeout
    * @returns Unsubscribe function
-   * 
+   *
    * @example
    * ```typescript
    * emitter.once('WORKFLOW_COMPLETED', (event) => {
@@ -186,12 +186,12 @@ export class ExecutionEventEmitter {
 
   /**
    * Wait for a specific event (returns a promise)
-   * 
+   *
    * @param eventType Event type to wait for
    * @param timeout Timeout in milliseconds (optional)
    * @param filter Optional filter function
    * @returns Promise that resolves with the event
-   * 
+   *
    * @example
    * ```typescript
    * // Wait for next node completion
@@ -206,14 +206,18 @@ export class ExecutionEventEmitter {
     return new Promise((resolve, reject) => {
       let timeoutId: NodeJS.Timeout | undefined;
 
-      const unsubscribe = this.once(eventType, (event: T) => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        resolve(event);
-      }, {
-        filter: options?.filter,
-      });
+      const unsubscribe = this.once(
+        eventType,
+        (event: T) => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          resolve(event);
+        },
+        {
+          filter: options?.filter,
+        },
+      );
 
       // Set timeout if specified
       if (options?.timeout) {
@@ -227,7 +231,7 @@ export class ExecutionEventEmitter {
 
   /**
    * Remove a specific listener
-   * 
+   *
    * @param eventType Event type
    * @param listenerId Listener ID (from registration)
    */
@@ -240,14 +244,14 @@ export class ExecutionEventEmitter {
     const index = wrappers.findIndex(w => w.id === listenerId);
     if (index !== -1) {
       wrappers.splice(index, 1);
-      
+
       // Clean up metrics
       const eventMetrics = this.metrics.get(eventType);
       if (eventMetrics) {
         eventMetrics.delete(listenerId);
       }
 
-      logger.debug('Listener removed', {
+      logger.debug("Listener removed", {
         executionId: this.executionId,
         eventType,
         listenerId,
@@ -257,10 +261,10 @@ export class ExecutionEventEmitter {
 
   /**
    * Emit event to all registered listeners
-   * 
+   *
    * @param event Event object
    * @returns Promise that waits for all listeners to complete
-   * 
+   *
    * @example
    * ```typescript
    * await emitter.emit({
@@ -284,14 +288,14 @@ export class ExecutionEventEmitter {
     const wrappers = this.listeners.get(event.type) || [];
 
     if (wrappers.length === 0) {
-      logger.debug('No listeners for event', {
+      logger.debug("No listeners for event", {
         executionId: this.executionId,
         eventType: event.type,
       });
       return;
     }
 
-    logger.debug('Emitting event', {
+    logger.debug("Emitting event", {
       executionId: this.executionId,
       eventType: event.type,
       listenerCount: wrappers.length,
@@ -299,7 +303,7 @@ export class ExecutionEventEmitter {
 
     // Execute all listeners
     const errors: Error[] = [];
-    
+
     for (const wrapper of wrappers) {
       // Check filter
       if (wrapper.filter && !wrapper.filter(event)) {
@@ -318,7 +322,7 @@ export class ExecutionEventEmitter {
           metrics.totalDuration += now() - startTime;
 
           // Check if execution was slow
-          if (wrapper.timeout && (now() - startTime) > wrapper.timeout) {
+          if (wrapper.timeout && now() - startTime > wrapper.timeout) {
             metrics.slowExecutionCount++;
           }
         }
@@ -331,7 +335,7 @@ export class ExecutionEventEmitter {
           metrics.failureCount++;
         }
 
-        logger.error('Listener execution failed', {
+        logger.error("Listener execution failed", {
           executionId: this.executionId,
           eventType: event.type,
           listenerId: wrapper.id,
@@ -358,7 +362,7 @@ export class ExecutionEventEmitter {
     this.metrics.clear();
     this.isDisposed = true;
 
-    logger.info('All listeners removed', {
+    logger.info("All listeners removed", {
       executionId: this.executionId,
     });
   }
@@ -369,7 +373,7 @@ export class ExecutionEventEmitter {
    */
   getListenerCount(): Map<string, number> {
     const counts = new Map<string, number>();
-    
+
     for (const [eventType, wrappers] of this.listeners.entries()) {
       counts.set(eventType, wrappers.length);
     }
@@ -417,19 +421,20 @@ export class ExecutionEventEmitter {
     for (const [eventType, wrappers] of this.listeners.entries()) {
       for (const wrapper of wrappers) {
         const metrics = this.metrics.get(eventType)?.get(wrapper.id);
-        
+
         result.push({
           id: wrapper.id,
           eventType,
           registeredAt: wrapper.timestamp,
-          metrics: metrics ? {
-            totalExecutions: metrics.totalExecutions,
-            averageDuration: metrics.totalExecutions > 0
-              ? metrics.totalDuration / metrics.totalExecutions
-              : 0,
-            failureCount: metrics.failureCount,
-            slowExecutionCount: metrics.slowExecutionCount,
-          } : undefined,
+          metrics: metrics
+            ? {
+                totalExecutions: metrics.totalExecutions,
+                averageDuration:
+                  metrics.totalExecutions > 0 ? metrics.totalDuration / metrics.totalExecutions : 0,
+                failureCount: metrics.failureCount,
+                slowExecutionCount: metrics.slowExecutionCount,
+              }
+            : undefined,
         });
       }
     }
@@ -452,7 +457,7 @@ export class ExecutionEventEmitter {
     if (this.isDisposed) {
       throw new Error(
         `EventEmitter for execution ${this.executionId} has been disposed. ` +
-        'Cannot register listeners or emit events after disposal.'
+          "Cannot register listeners or emit events after disposal.",
       );
     }
   }

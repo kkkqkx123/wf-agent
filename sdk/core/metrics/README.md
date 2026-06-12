@@ -17,17 +17,19 @@
 ### 1. 指标类型 (Metric Types)
 
 #### Counter (计数器)
+
 单调递增的计数器，用于统计事件发生次数。
 
 ```typescript
 // 示例：工作流执行次数
 collector.incrementCounter("workflow.execution.count", {
   workflow_id: "wf-123",
-  status: "completed"
+  status: "completed",
 });
 ```
 
 #### Gauge (仪表盘)
+
 可增可减的数值，用于表示当前状态。
 
 ```typescript
@@ -36,23 +38,25 @@ collector.setGauge("resource.active.executions", 42);
 ```
 
 #### Histogram (直方图)
+
 跟踪值分布，用于延迟、响应时间等统计分析。
 
 ```typescript
 // 示例：节点执行时长分布
 collector.observeHistogram("node.execution.duration", 1250, {
   node_type: "LLM",
-  success: "true"
+  success: "true",
 });
 ```
 
 #### Summary (摘要)
+
 提供百分位计算（p95, p99等）。
 
 ```typescript
 // 示例：P95响应时间
 collector.observeSummary("tool.call.duration", 850, {
-  tool_id: "search-api"
+  tool_id: "search-api",
 });
 ```
 
@@ -104,7 +108,9 @@ const collectors = createMetricsCollectors({
 collectors.workflow.recordExecutionStart("wf-123", "exec-456");
 collectors.agentLoop.recordExecutionStart("agent-789", "exec-789");
 collectors.tool.recordToolCallStart("search-api", "exec-456");
-collectors.token.recordTokenUsage({ /* ... */ });
+collectors.token.recordTokenUsage({
+  /* ... */
+});
 collectors.node.recordNodeStart("node-1", "LLM", "wf-123", "exec-456");
 collectors.template.recordUsage("system-prompt", { workflow_id: "wf-123" });
 collectors.config.recordAccess("llms.provider.openai", "config");
@@ -119,8 +125,8 @@ import { WorkflowMetricsCollector } from "@wf-agent/sdk/core/metrics";
 
 // 1. 创建收集器
 const collector = new WorkflowMetricsCollector({
-  bufferSize: 100,        // 缓冲区大小
-  flushInterval: 5000,    // 自动刷新间隔(ms)
+  bufferSize: 100, // 缓冲区大小
+  flushInterval: 5000, // 自动刷新间隔(ms)
 });
 
 // 2. 记录指标
@@ -130,15 +136,15 @@ collector.recordNodeExecution(
   "exec-456",
   "node-1",
   "LLM",
-  1200,  // duration in ms
-  true   // success
+  1200, // duration in ms
+  true, // success
 );
 collector.recordExecutionComplete(
   "wf-123",
   "exec-456",
-  2500,  // total duration
-  5,     // node count
-  true   // success
+  2500, // total duration
+  5, // node count
+  true, // success
 );
 
 // 3. 查询指标
@@ -167,9 +173,9 @@ workflowCollector.recordExecutionStart("wf-123", "exec-456");
 workflowCollector.recordExecutionComplete(
   "wf-123",
   "exec-456",
-  2500,     // duration in ms
-  5,        // node count
-  true      // success
+  2500, // duration in ms
+  5, // node count
+  true, // success
 );
 
 // 记录节点执行
@@ -178,8 +184,8 @@ workflowCollector.recordNodeExecution(
   "exec-456",
   "node-1",
   "LLM",
-  1200,     // duration
-  true      // success
+  1200, // duration
+  true, // success
 );
 
 // 获取统计信息
@@ -202,10 +208,10 @@ agentLoopCollector.recordExecutionStart("agent-123", "exec-456");
 agentLoopCollector.recordExecutionComplete(
   "agent-123",
   "exec-456",
-  5000,     // duration in ms
-  10,       // iterations
-  25,       // tool calls
-  true      // success
+  5000, // duration in ms
+  10, // iterations
+  25, // tool calls
+  true, // success
 );
 
 // 记录迭代
@@ -232,22 +238,22 @@ import { NodeMetricsCollector } from "@wf-agent/sdk/core/metrics";
 const nodeCollector = new NodeMetricsCollector();
 
 // 记录节点开始
-nodeCollector.recordNodeStart('node-1', 'LLM', 'wf-123', 'exec-456');
+nodeCollector.recordNodeStart("node-1", "LLM", "wf-123", "exec-456");
 
 // 记录节点完成
 nodeCollector.recordNodeComplete(
-  'node-1',
-  'LLM',
-  'wf-123',
-  'exec-456',
-  1200,  // duration in ms
-  true,  // success
-  512,   // input size
-  1024   // output size
+  "node-1",
+  "LLM",
+  "wf-123",
+  "exec-456",
+  1200, // duration in ms
+  true, // success
+  512, // input size
+  1024, // output size
 );
 
 // 记录节点重试
-nodeCollector.recordNodeRetry('node-1', 'LLM', 'wf-123', 1);
+nodeCollector.recordNodeRetry("node-1", "LLM", "wf-123", 1);
 
 // 获取节点性能摘要
 const performance = nodeCollector.getNodePerformanceByType();
@@ -263,20 +269,20 @@ import { ToolMetricsCollector } from "@wf-agent/sdk/core/metrics";
 const toolCollector = new ToolMetricsCollector();
 
 // 记录工具调用开始
-toolCollector.recordToolCallStart('search-api', 'exec-123');
+toolCollector.recordToolCallStart("search-api", "exec-123");
 
 // 记录工具调用完成
 toolCollector.recordToolCallComplete(
-  'search-api',
-  'exec-123',
-  850,  // duration in ms
+  "search-api",
+  "exec-123",
+  850, // duration in ms
   true, // success
-  256,  // parameter size in bytes
-  1024  // result size in bytes
+  256, // parameter size in bytes
+  1024, // result size in bytes
 );
 
 // 查询工具性能
-const stats = toolCollector.getToolStats('search-api');
+const stats = toolCollector.getToolStats("search-api");
 const summary = toolCollector.getToolPerformanceSummary();
 ```
 
@@ -291,9 +297,9 @@ const tokenCollector = new TokenMetricsCollector();
 
 // 记录 Token 使用
 tokenCollector.recordTokenUsage({
-  profileId: 'gpt-4',
-  executionId: 'exec-123',
-  nodeId: 'node-1',
+  profileId: "gpt-4",
+  executionId: "exec-123",
+  nodeId: "node-1",
   totalTokens: 1500,
   promptTokens: 1000,
   completionTokens: 500,
@@ -302,8 +308,8 @@ tokenCollector.recordTokenUsage({
 
 // 获取 Token 使用摘要
 const summary = tokenCollector.getTokenUsageSummary();
-console.log('Total tokens:', summary.totalTokens);
-console.log('Total cost:', summary.totalCost);
+console.log("Total tokens:", summary.totalTokens);
+console.log("Total cost:", summary.totalCost);
 
 // 获取每个 profile 的平均 Token 使用
 const averages = tokenCollector.getAverageTokensPerRequest();
@@ -327,9 +333,9 @@ templateCollector.recordUsage("system-prompt", {
 // 记录渲染完成
 templateCollector.recordRenderComplete(
   "system-prompt",
-  50,      // render duration in ms
-  true,    // success
-  { workflow_id: "wf-123" }
+  50, // render duration in ms
+  true, // success
+  { workflow_id: "wf-123" },
 );
 
 // 记录缓存命中/未命中
@@ -359,10 +365,10 @@ configCollector.recordAccess("llms.provider.openai", "config", {
 // 记录加载完成
 configCollector.recordLoadComplete(
   "llms.provider.openai",
-  100,     // load duration in ms
-  true,    // success
+  100, // load duration in ms
+  true, // success
   "config",
-  { workflow_id: "wf-123" }
+  { workflow_id: "wf-123" },
 );
 
 // 记录缓存命中/未命中
@@ -373,7 +379,7 @@ configCollector.recordCacheMiss("llms.provider.openai", "config");
 configCollector.recordValidationError(
   "workflow.invalid-node",
   "schema_validation_failed",
-  "workflow"
+  "workflow",
 );
 
 // 获取统计信息
@@ -392,20 +398,15 @@ import { ErrorMetricsCollector } from "@wf-agent/sdk/core/metrics";
 const errorCollector = new ErrorMetricsCollector();
 
 // 记录错误
-errorCollector.recordError(
-  'LLM_ERROR',
-  'exec-123',
-  'node-1',
-  'Rate limit exceeded'
-);
+errorCollector.recordError("LLM_ERROR", "exec-123", "node-1", "Rate limit exceeded");
 
 // 记录错误恢复
-errorCollector.recordErrorRecovery('LLM_ERROR', 'exec-123');
+errorCollector.recordErrorRecovery("LLM_ERROR", "exec-123");
 
 // 获取错误摘要
 const summary = errorCollector.getErrorSummary();
-console.log('Total errors:', summary.totalErrors);
-console.log('Top errors:', summary.topErrors);
+console.log("Total errors:", summary.totalErrors);
+console.log("Top errors:", summary.topErrors);
 ```
 
 ### Resource 指标
@@ -426,9 +427,9 @@ resourceCollector.recordResourceSnapshot({
 });
 
 // 或者单独记录
-resourceCollector.recordMemoryUsage(256.5, 'executor');
+resourceCollector.recordMemoryUsage(256.5, "executor");
 resourceCollector.recordActiveExecutions(5);
-resourceCollector.recordQueuedTasks(12, 'workflow');
+resourceCollector.recordQueuedTasks(12, "workflow");
 resourceCollector.recordEventQueueLength(3);
 
 // 获取资源摘要
@@ -449,22 +450,22 @@ const eventCollector = new EventMetricsCollector({
 });
 
 // 记录事件
-eventCollector.recordEvent('NODE_COMPLETED', 'exec-123', {
-  workflow_id: 'wf-456',
-  node_id: 'node-1',
-  node_type: 'LLM',
+eventCollector.recordEvent("NODE_COMPLETED", "exec-123", {
+  workflow_id: "wf-456",
+  node_id: "node-1",
+  node_type: "LLM",
 });
 
 // 查询统计
-const stats = eventCollector.getStatistics('NODE_COMPLETED');
+const stats = eventCollector.getStatistics("NODE_COMPLETED");
 console.log(`Total NODE_COMPLETED events: ${stats?.count}`);
 
 // 按执行清理
-eventCollector.cleanupExecution('exec-123');
+eventCollector.cleanupExecution("exec-123");
 
 // 订阅周期性报告
-const unsubscribe = eventCollector.onReport((report) => {
-  console.log('Total events:', report.summary.totalMetrics);
+const unsubscribe = eventCollector.onReport(report => {
+  console.log("Total events:", report.summary.totalMetrics);
 });
 ```
 
@@ -472,98 +473,98 @@ const unsubscribe = eventCollector.onReport((report) => {
 
 ### WORKFLOW_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
+| 指标名称                      | 类型      | 说明           |
+| ----------------------------- | --------- | -------------- |
 | `workflow.execution.duration` | Histogram | 工作流执行时长 |
-| `workflow.execution.count` | Counter | 工作流执行次数 |
-| `workflow.node.count` | Gauge | 节点数量 |
-| `workflow.error.count` | Counter | 错误次数 |
-| `workflow.success.rate` | Gauge | 成功率 |
+| `workflow.execution.count`    | Counter   | 工作流执行次数 |
+| `workflow.node.count`         | Gauge     | 节点数量       |
+| `workflow.error.count`        | Counter   | 错误次数       |
+| `workflow.success.rate`       | Gauge     | 成功率         |
 
 ### AGENT_LOOP_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `agent_loop.execution.duration` | Histogram | Agent Loop 执行时长 |
-| `agent_loop.execution.count` | Counter | Agent Loop 执行次数 |
-| `agent_loop.active.count` | Gauge | 活跃 Agent Loop 数量 |
-| `agent_loop.iteration.count` | Gauge | 迭代次数 |
-| `agent_loop.iteration.duration` | Histogram | 迭代时长分布 |
-| `agent_loop.iteration.limit_reached` | Counter | 达到最大迭代次数 |
-| `agent_loop.tool_calls.total` | Gauge | 总工具调用数 |
-| `agent_loop.tool_calls.per_iteration` | Gauge | 每次迭代的工具调用数 |
-| `agent_loop.pause.count` | Counter | 暂停次数 |
-| `agent_loop.resume.count` | Counter | 恢复次数 |
-| `agent_loop.pause.duration` | Histogram | 暂停时长分布 |
-| `agent_loop.success.rate` | Gauge | 成功率 |
-| `agent_loop.error.count` | Counter | 错误次数 |
+| 指标名称                              | 类型      | 说明                 |
+| ------------------------------------- | --------- | -------------------- |
+| `agent_loop.execution.duration`       | Histogram | Agent Loop 执行时长  |
+| `agent_loop.execution.count`          | Counter   | Agent Loop 执行次数  |
+| `agent_loop.active.count`             | Gauge     | 活跃 Agent Loop 数量 |
+| `agent_loop.iteration.count`          | Gauge     | 迭代次数             |
+| `agent_loop.iteration.duration`       | Histogram | 迭代时长分布         |
+| `agent_loop.iteration.limit_reached`  | Counter   | 达到最大迭代次数     |
+| `agent_loop.tool_calls.total`         | Gauge     | 总工具调用数         |
+| `agent_loop.tool_calls.per_iteration` | Gauge     | 每次迭代的工具调用数 |
+| `agent_loop.pause.count`              | Counter   | 暂停次数             |
+| `agent_loop.resume.count`             | Counter   | 恢复次数             |
+| `agent_loop.pause.duration`           | Histogram | 暂停时长分布         |
+| `agent_loop.success.rate`             | Gauge     | 成功率               |
+| `agent_loop.error.count`              | Counter   | 错误次数             |
 
 ### NODE_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
+| 指标名称                  | 类型      | 说明         |
+| ------------------------- | --------- | ------------ |
 | `node.execution.duration` | Histogram | 节点执行时长 |
-| `node.execution.count` | Counter | 节点执行次数 |
-| `node.retry.count` | Counter | 重试次数 |
-| `node.error.count` | Counter | 错误次数 |
-| `node.input.size` | Gauge | 输入大小 |
-| `node.output.size` | Gauge | 输出大小 |
+| `node.execution.count`    | Counter   | 节点执行次数 |
+| `node.retry.count`        | Counter   | 重试次数     |
+| `node.error.count`        | Counter   | 错误次数     |
+| `node.input.size`         | Gauge     | 输入大小     |
+| `node.output.size`        | Gauge     | 输出大小     |
 
 ### TOOL_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `tool.call.duration` | Histogram | 工具调用时长 |
-| `tool.call.count` | Counter | 工具调用次数 |
-| `tool.error.count` | Counter | 工具错误次数 |
-| `tool.parameter.size` | Gauge | 参数大小 |
-| `tool.result.size` | Gauge | 结果大小 |
+| 指标名称              | 类型      | 说明         |
+| --------------------- | --------- | ------------ |
+| `tool.call.duration`  | Histogram | 工具调用时长 |
+| `tool.call.count`     | Counter   | 工具调用次数 |
+| `tool.error.count`    | Counter   | 工具错误次数 |
+| `tool.parameter.size` | Gauge     | 参数大小     |
+| `tool.result.size`    | Gauge     | 结果大小     |
 
 ### TOKEN_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `token.usage.total` | Counter | 总 Token 数 |
-| `token.usage.prompt` | Counter | Prompt Token 数 |
+| 指标名称                 | 类型    | 说明                |
+| ------------------------ | ------- | ------------------- |
+| `token.usage.total`      | Counter | 总 Token 数         |
+| `token.usage.prompt`     | Counter | Prompt Token 数     |
 | `token.usage.completion` | Counter | Completion Token 数 |
-| `token.cost.total` | Counter | 总成本 |
-| `token.request.count` | Counter | 请求次数 |
+| `token.cost.total`       | Counter | 总成本              |
+| `token.request.count`    | Counter | 请求次数            |
 
 ### TEMPLATE_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `template.usage.count` | Counter | 模板使用次数 |
-| `template.render.duration` | Histogram | 渲染时长分布 |
-| `template.cache.hit_count` | Counter | 缓存命中次数 |
-| `template.cache.miss_count` | Counter | 缓存未命中次数 |
-| `template.error.count` | Counter | 错误次数 |
+| 指标名称                    | 类型      | 说明           |
+| --------------------------- | --------- | -------------- |
+| `template.usage.count`      | Counter   | 模板使用次数   |
+| `template.render.duration`  | Histogram | 渲染时长分布   |
+| `template.cache.hit_count`  | Counter   | 缓存命中次数   |
+| `template.cache.miss_count` | Counter   | 缓存未命中次数 |
+| `template.error.count`      | Counter   | 错误次数       |
 
 ### CONFIG_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `config.access.count` | Counter | 配置访问次数 |
-| `config.load.duration` | Histogram | 加载时长分布 |
-| `config.validation_error.count` | Counter | 验证错误次数 |
-| `config.cache.hit_count` | Counter | 缓存命中次数 |
-| `config.cache.miss_count` | Counter | 缓存未命中次数 |
+| 指标名称                        | 类型      | 说明           |
+| ------------------------------- | --------- | -------------- |
+| `config.access.count`           | Counter   | 配置访问次数   |
+| `config.load.duration`          | Histogram | 加载时长分布   |
+| `config.validation_error.count` | Counter   | 验证错误次数   |
+| `config.cache.hit_count`        | Counter   | 缓存命中次数   |
+| `config.cache.miss_count`       | Counter   | 缓存未命中次数 |
 
 ### ERROR_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `error.occurrence.count` | Counter | 错误发生次数 |
-| `error.recovery.rate` | Gauge | 恢复率 |
-| `error.affected.executions` | Gauge | 受影响的执行数 |
+| 指标名称                    | 类型    | 说明           |
+| --------------------------- | ------- | -------------- |
+| `error.occurrence.count`    | Counter | 错误发生次数   |
+| `error.recovery.rate`       | Gauge   | 恢复率         |
+| `error.affected.executions` | Gauge   | 受影响的执行数 |
 
 ### RESOURCE_METRICS
 
-| 指标名称 | 类型 | 说明 |
-|---------|------|------|
-| `resource.memory.usage` | Gauge | 内存使用 |
-| `resource.active.executions` | Gauge | 活跃执行数 |
-| `resource.queued.tasks` | Gauge | 排队任务数 |
+| 指标名称                      | 类型  | 说明         |
+| ----------------------------- | ----- | ------------ |
+| `resource.memory.usage`       | Gauge | 内存使用     |
+| `resource.active.executions`  | Gauge | 活跃执行数   |
+| `resource.queued.tasks`       | Gauge | 排队任务数   |
 | `resource.event.queue.length` | Gauge | 事件队列长度 |
 
 ## 高级用法
@@ -582,10 +583,10 @@ class CustomMetricsCollector extends BaseMetricCollector {
   // 实现持久化逻辑
   async flush(): Promise<void> {
     const metrics = this.metricsBuffer;
-    
+
     // TODO: 写入数据库或发送到监控服务
     await sendToMonitoringService(metrics);
-    
+
     this.metricsBuffer = [];
   }
 }
@@ -606,18 +607,14 @@ class WorkflowExecutorWithMetrics {
 
     try {
       this.metrics.recordExecutionStart(workflowId, executionId);
-      
+
       // ... 执行工作流 ...
-      
+
       const duration = Date.now() - startTime;
-      this.metrics.recordExecutionComplete(
-        workflowId, executionId, duration, nodeCount, true
-      );
+      this.metrics.recordExecutionComplete(workflowId, executionId, duration, nodeCount, true);
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.metrics.recordExecutionComplete(
-        workflowId, executionId, duration, 0, false
-      );
+      this.metrics.recordExecutionComplete(workflowId, executionId, duration, 0, false);
       this.metrics.recordError(workflowId, executionId, error.name);
       throw error;
     }
@@ -633,9 +630,9 @@ const result = collector.query({
   labels: { workflow_id: "wf-123" },
   timeRange: {
     from: Date.now() - 3600000, // 最近1小时
-    to: Date.now()
+    to: Date.now(),
   },
-  limit: 100
+  limit: 100,
 });
 
 console.log("Total metrics:", result.totalCount);
@@ -651,7 +648,7 @@ const collector = new WorkflowMetricsCollector({
 });
 
 // 订阅报告
-const unsubscribe = collector.onReport((report) => {
+const unsubscribe = collector.onReport(report => {
   console.log("📊 Report:", report.summary);
   console.log("Top metrics:", report.topMetrics);
 });
@@ -674,13 +671,17 @@ unsubscribe();
 ### 2. 合理使用标签
 
 ✅ 好的做法：
+
 ```typescript
 { workflow_id: "wf-123", node_type: "LLM" }
 ```
 
 ❌ 避免高基数标签：
+
 ```typescript
-{ execution_id: "exec-unique-uuid-every-time" } // 会导致内存爆炸
+{
+  execution_id: "exec-unique-uuid-every-time";
+} // 会导致内存爆炸
 ```
 
 ### 3. 控制缓冲区大小
@@ -744,6 +745,7 @@ try {
 - ✅ `EventMetricsCollector` - 事件统计指标
 
 下一步可以：
+
 - 在模板引擎和配置加载器中集成指标收集
 - 实现持久化层（数据库、监控系统如 Prometheus/Grafana）
 - 添加更多高级查询和聚合功能
@@ -752,10 +754,12 @@ try {
 ## 示例代码
 
 查看完整示例：
+
 - [examples.ts](./examples.ts) - 通用指标使用示例集合
-- [__examples__/event-collector-example.ts](__examples__/event-collector-example.ts) - EventMetricsCollector 使用示例
+- [**examples**/event-collector-example.ts](__examples__/event-collector-example.ts) - EventMetricsCollector 使用示例
 
 运行示例：
+
 ```bash
 cd sdk
 npx tsx core/metrics/examples.ts

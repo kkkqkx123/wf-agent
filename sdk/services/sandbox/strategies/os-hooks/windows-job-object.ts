@@ -100,10 +100,14 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
       const CreateJobObjectW = k32.func("void* __stdcall CreateJobObjectW(void*, char*)");
 
       // BOOL SetInformationJobObject(HANDLE, int, void*, DWORD)
-      const SetInformationJobObject = k32.func("int __stdcall SetInformationJobObject(void*, int, void*, int)");
+      const SetInformationJobObject = k32.func(
+        "int __stdcall SetInformationJobObject(void*, int, void*, int)",
+      );
 
       // BOOL AssignProcessToJobObject(HANDLE, HANDLE)
-      const AssignProcessToJobObject = k32.func("int __stdcall AssignProcessToJobObject(void*, void*)");
+      const AssignProcessToJobObject = k32.func(
+        "int __stdcall AssignProcessToJobObject(void*, void*)",
+      );
 
       // BOOL TerminateJobObject(HANDLE, UINT)
       const TerminateJobObject = k32.func("int __stdcall TerminateJobObject(void*, unsigned int)");
@@ -152,10 +156,10 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
           // LimitFlags (uint32) at offset 0x2C
           let flags = 0;
           if (processTimeMs > 0) flags |= 0x00000040; // JOB_OBJECT_LIMIT_PROCESS_TIME
-          if (jobTimeMs > 0) flags |= 0x00000080;    // JOB_OBJECT_LIMIT_JOB_TIME
+          if (jobTimeMs > 0) flags |= 0x00000080; // JOB_OBJECT_LIMIT_JOB_TIME
           if (activeProcessLimit > 0) flags |= 0x00000008; // JOB_OBJECT_LIMIT_ACTIVE_PROCESS
           if (memoryLimitMb > 0) flags |= 0x00000200; // JOB_OBJECT_LIMIT_JOB_MEMORY (Win8+)
-          view.setUint32(0x2C, flags, true);
+          view.setUint32(0x2c, flags, true);
 
           // ActiveProcessLimit (uint32) at offset 0x30
           if (activeProcessLimit > 0) {
@@ -207,7 +211,12 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
       const limitStruct = binding.createExtendedLimitStruct(limits);
       const infoClass = 9; // JobObjectExtendedLimitInformation
 
-      const setResult = binding.SetInformationJobObject(hJob, infoClass, limitStruct, limitStruct.byteLength);
+      const setResult = binding.SetInformationJobObject(
+        hJob,
+        infoClass,
+        limitStruct,
+        limitStruct.byteLength,
+      );
       if (!setResult) {
         return {
           success: false,
@@ -242,7 +251,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
     hJob: any,
     startTime: number,
   ): Promise<ScriptExecutionResult> {
-    return new Promise((resolvePromise) => {
+    return new Promise(resolvePromise => {
       // Use cmd.exe /c to wrap the command (so echo, dir, etc. work)
       const isCmd = !options.command.includes(" ") && !options.command.includes(".");
       const spawnCmd = process.env["COMSPEC"] || "cmd.exe";
@@ -256,7 +265,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
       });
 
       // Assign child process to the job object immediately
-      const PROCESS_ALL_ACCESS = 0x1F0FFF;
+      const PROCESS_ALL_ACCESS = 0x1f0fff;
       const hProcess = binding.OpenProcess(PROCESS_ALL_ACCESS, 0, child.pid!);
       if (hProcess) {
         binding.AssignProcessToJobObject(hJob, hProcess);
@@ -266,8 +275,12 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
       let stdout = "";
       let stderr = "";
 
-      child.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
-      child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
+      child.stdout?.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
+      child.stderr?.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
 
       // Resource limit timeout
       let timeoutHandle: NodeJS.Timeout | undefined;
@@ -298,7 +311,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
         }, timeoutMs);
       }
 
-      child.on("close", (code) => {
+      child.on("close", code => {
         cleanup();
         resolvePromise({
           success: code === 0,
@@ -310,7 +323,7 @@ export class WindowsJobObjectStrategy implements StrategyImplementation<ScriptEx
         });
       });
 
-      child.on("error", (err) => {
+      child.on("error", err => {
         cleanup();
         resolvePromise({
           success: false,
@@ -367,7 +380,12 @@ interface JobLimits {
 
 interface WindowsJobObjectBinding {
   CreateJobObjectW: (attrs: any, name: string) => any;
-  SetInformationJobObject: (handle: any, infoClass: number, data: ArrayBuffer, size: number) => number;
+  SetInformationJobObject: (
+    handle: any,
+    infoClass: number,
+    data: ArrayBuffer,
+    size: number,
+  ) => number;
   AssignProcessToJobObject: (handle: any, processHandle: any) => number;
   TerminateJobObject: (handle: any, exitCode: number) => number;
   CloseHandle: (handle: any) => number;

@@ -15,7 +15,12 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { InteractionMode, InteractiveScriptNodeConfig, LLMMessage, Script } from "@wf-agent/types";
+import type {
+  InteractionMode,
+  InteractiveScriptNodeConfig,
+  LLMMessage,
+  Script,
+} from "@wf-agent/types";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { ScriptRegistry } from "../../../core/registry/script-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
@@ -178,11 +183,9 @@ export class ScriptInteractionCoordinator {
       };
     }
 
-    const bgResult = await this.terminalService.startBackgroundCommand(
-      session.sessionId,
-      command,
-      { timeout: roundTimeout * maxRounds },
-    );
+    const bgResult = await this.terminalService.startBackgroundCommand(session.sessionId, command, {
+      timeout: roundTimeout * maxRounds,
+    });
 
     if (!bgResult.success) {
       await this.terminalService.terminateSession(session.sessionId);
@@ -274,7 +277,10 @@ export class ScriptInteractionCoordinator {
       const templateEngine = new ScriptTemplateEngine();
       const args = script.arguments || [];
       const resolvedArgs = templateEngine.resolveArguments(args);
-      const renderResult = templateEngine.render(script.template, resolvedArgs as Record<string, unknown>);
+      const renderResult = templateEngine.render(
+        script.template,
+        resolvedArgs as Record<string, unknown>,
+      );
       if (!renderResult.resolved) {
         logger.warn("Template has unresolved placeholders", {
           scriptName: script.name,

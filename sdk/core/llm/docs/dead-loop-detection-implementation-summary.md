@@ -18,6 +18,7 @@
 - **通用周期检测**: 类型1和类型2共用同一套周期检测逻辑
 
 **关键特性**:
+
 - 仅在检查点触发检测，避免性能开销
 - 支持重置检测状态
 - 完善的错误处理和日志记录
@@ -29,6 +30,7 @@
 对MessageStream进行了以下扩展：
 
 1. **新增MessageStreamOptions接口**:
+
    ```typescript
    export interface MessageStreamOptions {
      enableDeadLoopDetection?: boolean;
@@ -67,6 +69,7 @@
 在generateStream方法中添加了推理内容的推送：
 
 1. **在创建MessageStream后重置检测器**:
+
    ```typescript
    const stream = new MessageStream();
    stream.resetDeadLoopDetector();
@@ -101,21 +104,25 @@
 ## 设计亮点
 
 ### 1. 最小侵入性
+
 - 仅修改3个核心文件（detector、message-stream、wrapper）
 - 使用可选参数，保持向后兼容
 - 默认启用但可以配置禁用
 
 ### 2. 高性能
+
 - 检查点机制避免频繁检测
 - 早期退出优化
 - 检测范围限制（仅检测新片段）
 
 ### 3. 健壮性
+
 - 检测器异常不会中断正常流程
 - 完善的日志记录
 - 支持自定义回调
 
 ### 4. 灵活性
+
 - 可配置检测参数
 - 可启用/禁用检测
 - 支持多种LLM提供商（OpenAI、Anthropic、Gemini）
@@ -137,9 +144,9 @@ const stream = new MessageStream({
     minPeriodElements: 6,
     maxPeriodLength: 50,
   },
-  onDeadLoopDetected: (result) => {
-    console.log('Dead loop detected:', result);
-  }
+  onDeadLoopDetected: result => {
+    console.log("Dead loop detected:", result);
+  },
 });
 
 // 在wrapper中使用（自动处理）
@@ -152,11 +159,13 @@ const result = await wrapper.generateStream(request);
 虽然用户只要求完成步骤1-2，但步骤3也已一并完成。剩余的步骤包括：
 
 ### 步骤4: 配置化和优化
+
 - 添加更多配置选项
 - 性能测试和优化
 - 完善日志和错误处理
 
 ### 步骤5: 集成测试和文档
+
 - 编写更多端到端测试
 - 更新API文档
 - Code review和修复问题

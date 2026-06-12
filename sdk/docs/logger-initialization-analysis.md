@@ -66,7 +66,7 @@ export function configureSDKLogger(config: {...}): void {
     stream: config.stream,
   };
   // ... similar for graph and agent
-  
+
   // If loggers already exist, update them
   if (sdkLoggerInstance) {
     sdkLoggerInstance.setLevel(...);
@@ -93,11 +93,11 @@ function initializeSDKLogger(config?: {...}): Logger {
   if (isSDKInitialized && sdkLoggerInstance) {
     return sdkLoggerInstance;
   }
-  
+
   // Priority: explicit config > pending config > env vars > default
   const level = config?.level ?? pendingSDKConfig?.level ?? getSDKLogLevel();
   const stream = config?.stream ?? pendingSDKConfig?.stream;
-  
+
   sdkLoggerInstance = createSDKLoggerInstance(level, stream);
   isSDKInitialized = true;
   return sdkLoggerInstance;
@@ -111,6 +111,7 @@ function initializeSDKLogger(config?: {...}): Logger {
 **Scenario**: What if SDK module imports trigger logger access before `configureSDKLogger()` is called?
 
 **Analysis**:
+
 ```typescript
 // In SDK modules like sdk/core/utils/callback.ts
 import { sdkLogger as logger } from "../../utils/logger.js";
@@ -130,6 +131,7 @@ logger.error("Error in callback", { error });
 **Scenario**: SDK constructor starts async bootstrap immediately. Could it access logger before CLI configures it?
 
 **Analysis**:
+
 ```typescript
 // sdk/api/shared/core/sdk.ts
 class SDK {
@@ -137,19 +139,19 @@ class SDK {
     this.pendingOptions = options;
     this.factory = new APIFactory(globalContext);
     this.dependencies = new APIDependencyManager();
-    
+
     // Async bootstrap starts immediately
     this.bootstrapPromise = this.bootstrap(options).catch(error => {
       logger.error(`Failed to bootstrap SDK: ${getErrorMessage(error)}`);
       // ↑ This is inside .catch(), won't execute unless bootstrap fails
     });
   }
-  
+
   private async bootstrap(options?: SDKOptions): Promise<void> {
     await options?.hooks?.onBootstrapStart?.();
-    
+
     // ... initialization code ...
-    
+
     logger.info("DI container initialized with storage adapters", {...});
     // ↑ This WILL execute during bootstrap
   }
@@ -157,6 +159,7 @@ class SDK {
 ```
 
 **Timeline**:
+
 ```
 T0: CLI calls initSDKLogger() → sets pendingSDKConfig
 T1: CLI calls getSDK() → creates SDK instance
@@ -166,6 +169,7 @@ T4: initializeSDKLogger() uses pendingSDKConfig ✅
 ```
 
 **Conclusion**: ✅ **Safe** - Even though bootstrap is async, JavaScript's single-threaded nature ensures:
+
 1. `initSDKLogger()` completes fully (sets pendingSDKConfig)
 2. Then `getSDK()` is called
 3. Bootstrap runs asynchronously but logger access happens after T0
@@ -175,6 +179,7 @@ T4: initializeSDKLogger() uses pendingSDKConfig ✅
 **Scenario**: Do any SDK modules call logger methods during module load (not inside functions)?
 
 **Verification**:
+
 ```bash
 # Check for top-level logger calls (not inside functions)
 grep -r "sdkLogger\." sdk/ --include="*.ts" | grep -v "import" | grep -v "function" | grep -v "//"
@@ -190,36 +195,36 @@ To verify the initialization order works correctly, you can add this test:
 
 ```typescript
 // __tests__/logger-initialization.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { configureSDKLogger, sdkLogger } from '../sdk/utils/logger.js';
-import { createConsoleStream } from '@wf-agent/common-utils';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { configureSDKLogger, sdkLogger } from "../sdk/utils/logger.js";
+import { createConsoleStream } from "@wf-agent/common-utils";
 
-describe('SDK Logger Initialization', () => {
+describe("SDK Logger Initialization", () => {
   beforeEach(() => {
     // Reset logger state before each test
     // (You may need to export reset functions for testing)
   });
-  
-  it('should use configured settings even when accessed after configuration', () => {
+
+  it("should use configured settings even when accessed after configuration", () => {
     // Configure logger
     configureSDKLogger({
-      level: 'debug',
+      level: "debug",
       stream: createConsoleStream({ json: true }),
     });
-    
+
     // Access logger (triggers initialization)
-    sdkLogger.info('Test message');
-    
+    sdkLogger.info("Test message");
+
     // Verify logger was created with correct config
     // (You may need to export getSDKLoggerInstance for testing)
   });
-  
-  it('should handle early access gracefully', async () => {
+
+  it("should handle early access gracefully", async () => {
     // Don't configure first - let it use defaults
     const promise = Promise.resolve().then(() => {
-      sdkLogger.info('Early access message');
+      sdkLogger.info("Early access message");
     });
-    
+
     await promise;
     // Should not throw, should use env vars or defaults
   });

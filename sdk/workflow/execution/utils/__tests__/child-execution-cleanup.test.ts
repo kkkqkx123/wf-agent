@@ -82,10 +82,7 @@ describe("cleanupChildExecution", () => {
 
       await cleanupChildExecution(mockChildEntity, mockParentEntity, "COMPLETED");
 
-      expect(mockParentEntity.unregisterChild).toHaveBeenCalledWith(
-        "child-exec-1",
-        "WORKFLOW"
-      );
+      expect(mockParentEntity.unregisterChild).toHaveBeenCalledWith("child-exec-1", "WORKFLOW");
     });
 
     it("should not unregister child when no parent context", async () => {
@@ -157,7 +154,7 @@ describe("cleanupChildExecution", () => {
 
       // Should not throw
       await expect(
-        cleanupChildExecution(mockChildEntity, mockParentEntity, "COMPLETED")
+        cleanupChildExecution(mockChildEntity, mockParentEntity, "COMPLETED"),
       ).resolves.not.toThrow();
     });
 
@@ -172,7 +169,7 @@ describe("cleanupChildExecution", () => {
 
       // Should not throw
       await expect(
-        cleanupChildExecution(mockChildEntity, mockParentEntity, "COMPLETED")
+        cleanupChildExecution(mockChildEntity, mockParentEntity, "COMPLETED"),
       ).resolves.not.toThrow();
     });
 

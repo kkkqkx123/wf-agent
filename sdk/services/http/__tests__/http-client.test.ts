@@ -75,7 +75,9 @@ describe("HttpClient", () => {
 
     it("should make HEAD request", async () => {
       const headHeaders = new Headers({ "content-type": "text/plain" });
-      globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200, headers: headHeaders }));
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(null, { status: 200, headers: headHeaders }));
       await client.head("/check");
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
@@ -85,7 +87,9 @@ describe("HttpClient", () => {
 
     it("should make OPTIONS request", async () => {
       const optHeaders = new Headers({ "content-type": "text/plain" });
-      globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200, headers: optHeaders }));
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(null, { status: 200, headers: optHeaders }));
       await client.options("/options");
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.any(String),
@@ -150,14 +154,22 @@ describe("HttpClient", () => {
     });
 
     it("should throw InternalServerError on 500", async () => {
-      const noRetryClient = new HttpClient({ baseURL: "https://api.test.com", timeout: 5000, maxRetries: 0 });
+      const noRetryClient = new HttpClient({
+        baseURL: "https://api.test.com",
+        timeout: 5000,
+        maxRetries: 0,
+      });
       mockFetch(500, "Server Error");
       const { InternalServerError } = await import("../errors.js");
       await expect(noRetryClient.get("/test")).rejects.toThrow(InternalServerError);
     });
 
     it("should throw ServiceUnavailableError on 503", async () => {
-      const noRetryClient = new HttpClient({ baseURL: "https://api.test.com", timeout: 5000, maxRetries: 0 });
+      const noRetryClient = new HttpClient({
+        baseURL: "https://api.test.com",
+        timeout: 5000,
+        maxRetries: 0,
+      });
       mockFetch(503, "Unavailable");
       const { ServiceUnavailableError } = await import("../errors.js");
       await expect(noRetryClient.get("/test")).rejects.toThrow(ServiceUnavailableError);
@@ -187,7 +199,7 @@ describe("HttpClient", () => {
     it("should apply request interceptor", async () => {
       mockFetch(200, {});
       client.interceptors.addRequestInterceptor({
-        intercept: (config) => ({
+        intercept: config => ({
           ...config,
           headers: { ...config.headers, "X-Interceptor": "applied" },
         }),
@@ -201,7 +213,7 @@ describe("HttpClient", () => {
     it("should apply response interceptor", async () => {
       mockFetch(200, { original: true });
       client.interceptors.addResponseInterceptor({
-        intercept: (resp) => ({
+        intercept: resp => ({
           ...resp,
           data: { ...(resp.data as object), interceptor: true },
         }),
@@ -215,7 +227,7 @@ describe("HttpClient", () => {
     it("should apply error interceptor", async () => {
       mockFetchError(new Error("network failure"));
       client.interceptors.addErrorInterceptor({
-        intercept: (error) => {
+        intercept: error => {
           error.message = `Enhanced: ${error.message}`;
           return error;
         },
@@ -267,9 +279,13 @@ describe("HttpClient", () => {
             reject(new DOMException("The operation was aborted", "AbortError"));
             return;
           }
-          signal.addEventListener("abort", () => {
-            reject(new DOMException("The operation was aborted", "AbortError"));
-          }, { once: true });
+          signal.addEventListener(
+            "abort",
+            () => {
+              reject(new DOMException("The operation was aborted", "AbortError"));
+            },
+            { once: true },
+          );
           // Never resolve — the signal.abort() after timeout will reject
         });
       });

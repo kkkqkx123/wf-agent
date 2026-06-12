@@ -1,6 +1,6 @@
 /**
  * OnEventSubscription - Registering an event listener
- * 
+ *
  * All event listeners must be execution-scoped:
  * - executionId is REQUIRED
  * - Automatically cleaned up when execution ends
@@ -36,7 +36,7 @@ export function createExecutionScopedSubscription(
   eventType: EventType,
   listener: EventListener<BaseEvent>,
   dependencies: APIDependencyManager,
-  additionalOptions?: Omit<OnEventParams['options'], 'executionId'>,
+  additionalOptions?: Omit<OnEventParams["options"], "executionId">,
 ): OnEventSubscription {
   return new OnEventSubscription(
     {

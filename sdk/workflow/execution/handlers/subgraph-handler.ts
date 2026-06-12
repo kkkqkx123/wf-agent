@@ -1,6 +1,6 @@
 /**
  * Subgraph Processing Function (Phase 1: Scheme C - Message Context Only)
- * 
+ *
  * NOTE: This module now ONLY handles message context passing for subgraphs.
  * Variable import/export is handled directly in the SUBGRAPH node handler
  * using WorkflowExecutionBuilder.createChildExecution() and VariableManager.importVariables/exportVariables.
@@ -17,11 +17,17 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { StaticNode, WorkflowNode, WorkflowStartConfig, NamedMessageContext, MessageContextRegistry, WorkflowExecution, SubgraphNodeConfig } from "@wf-agent/types";
+import type {
+  StaticNode,
+  WorkflowNode,
+  WorkflowStartConfig,
+  NamedMessageContext,
+  MessageContextRegistry,
+  WorkflowExecution,
+  SubgraphNodeConfig,
+} from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import {
-  executeWithInterruptionHandling,
-} from "../../../core/utils/interruption/index.js";
+import { executeWithInterruptionHandling } from "../../../core/utils/interruption/index.js";
 import {
   getWorkflowInterruptionDescription,
   toWorkflowInterruptionResult,
@@ -30,8 +36,6 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { validateAndMapMessageContexts } from "../../validation/utils/message-context-validator.js";
 
 const logger = createContextualLogger({ component: "subgraph-handler" });
-
-
 
 /**
  * Enter the subgraph
@@ -51,29 +55,26 @@ export async function enterSubgraph(
   const abortSignal = executionEntity.getAbortSignal();
 
   // Use unified interruption handling wrapper
-  const result = await executeWithInterruptionHandling(
-    async () => {
-      // Phase 1: Variable import is handled by SUBGRAPH node handler via createSubgraph()
-      // This function only handles message context passing
-      logger.debug("Entering subgraph (variables handled by SUBGRAPH node handler)", {
+  const result = await executeWithInterruptionHandling(async () => {
+    // Phase 1: Variable import is handled by SUBGRAPH node handler via createSubgraph()
+    // This function only handles message context passing
+    logger.debug("Entering subgraph (variables handled by SUBGRAPH node handler)", {
+      executionId: executionEntity.id,
+      workflowId,
+    });
+
+    try {
+      // Handle message context passing (required)
+      await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
+
+      executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
+    } catch (error) {
+      logger.debug("Subgraph entry failed", {
         executionId: executionEntity.id,
-        workflowId,
       });
-
-      try {
-        // Handle message context passing (required)
-        await handleEnterSubgraphMessageContexts(executionEntity, subgraphNode, workflowId);
-
-        executionEntity.enterSubgraph(workflowId, parentWorkflowId, input);
-      } catch (error) {
-        logger.debug("Subgraph entry failed", {
-          executionId: executionEntity.id,
-        });
-        throw error;
-      }
-    },
-    abortSignal,
-  );
+      throw error;
+    }
+  }, abortSignal);
 
   // Handle interruption gracefully
   if (!result.success) {
@@ -83,8 +84,10 @@ export async function enterSubgraph(
       workflowId,
       interruptionType: interruption.type,
     });
-    
-    throw new Error(`Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
+
+    throw new Error(
+      `Subgraph entry interrupted: ${getWorkflowInterruptionDescription(interruption)}`,
+    );
   }
 }
 
@@ -100,21 +103,18 @@ export async function exitSubgraph(
   const abortSignal = executionEntity.getAbortSignal();
 
   // Use unified interruption handling wrapper
-  const result = await executeWithInterruptionHandling(
-    async () => {
-      // Phase 1: Variable export is handled by SUBGRAPH node handler via exportVariables()
-      // This function only handles message context passing
-      logger.debug("Exiting subgraph (variables handled by SUBGRAPH node handler)", {
-        executionId: executionEntity.id,
-      });
+  const result = await executeWithInterruptionHandling(async () => {
+    // Phase 1: Variable export is handled by SUBGRAPH node handler via exportVariables()
+    // This function only handles message context passing
+    logger.debug("Exiting subgraph (variables handled by SUBGRAPH node handler)", {
+      executionId: executionEntity.id,
+    });
 
-      // Handle message context passing (required)
-      await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
+    // Handle message context passing (required)
+    await handleExitSubgraphMessageContexts(executionEntity, subgraphNode);
 
-      await executionEntity.exitSubgraph();
-    },
-    abortSignal,
-  );
+    await executionEntity.exitSubgraph();
+  }, abortSignal);
 
   // Handle interruption gracefully
   if (!result.success) {
@@ -123,15 +123,17 @@ export async function exitSubgraph(
       executionId: executionEntity.id,
       interruptionType: interruption.type,
     });
-    
-    throw new Error(`Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`);
+
+    throw new Error(
+      `Subgraph exit interrupted: ${getWorkflowInterruptionDescription(interruption)}`,
+    );
   }
 }
 
 /**
  * Handle message context passing when entering a subgraph
  * Copies parent workflow contexts to subgraph internal names
- * 
+ *
  * @param executionEntity WorkflowExecution entity
  * @param subgraphNode The SUBGRAPH node with SubgraphNodeConfig
  * @param subgraphWorkflowId Subgraph workflow ID
@@ -142,12 +144,14 @@ async function handleEnterSubgraphMessageContexts(
   subgraphWorkflowId: string,
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
-  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };
+  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & {
+    messageContextRegistry?: MessageContextRegistry;
+  };
   const registry = workflowExecution.messageContextRegistry;
-  
+
   if (!registry) {
     throw new Error(
-      `MessageContextRegistry not available for subgraph '${subgraphWorkflowId}'. This is required for message context passing.`
+      `MessageContextRegistry not available for subgraph '${subgraphWorkflowId}'. This is required for message context passing.`,
     );
   }
 
@@ -156,26 +160,28 @@ async function handleEnterSubgraphMessageContexts(
   const startNodeId = subgraphGraph.startNodeId;
   if (!startNodeId) {
     throw new Error(
-      `Subgraph '${subgraphWorkflowId}' has no START node. Cannot validate message context configuration.`
+      `Subgraph '${subgraphWorkflowId}' has no START node. Cannot validate message context configuration.`,
     );
   }
-  
+
   const startNode = subgraphGraph.getNode(startNodeId);
-  
+
   if (!startNode) {
     throw new Error(
-      `Subgraph '${subgraphWorkflowId}' START node not found. Cannot validate message context configuration.`
+      `Subgraph '${subgraphWorkflowId}' START node not found. Cannot validate message context configuration.`,
     );
   }
 
   // Validate and get mapping (this will throw if validation fails)
-  const startNodeAsStatic = ('originalNode' in startNode ? (startNode as WorkflowNode).originalNode : startNode) as StaticNode;
+  const startNodeAsStatic = (
+    "originalNode" in startNode ? (startNode as WorkflowNode).originalNode : startNode
+  ) as StaticNode;
   const mappingResult = validateAndMapMessageContexts(subgraphNode, startNodeAsStatic);
-  
+
   if (mappingResult.isErr()) {
-    const errorMessages = mappingResult.error.map(e => e.message).join('; ');
+    const errorMessages = mappingResult.error.map(e => e.message).join("; ");
     throw new Error(
-      `Message context validation failed for subgraph '${subgraphWorkflowId}': ${errorMessages}`
+      `Message context validation failed for subgraph '${subgraphWorkflowId}': ${errorMessages}`,
     );
   }
 
@@ -185,23 +191,23 @@ async function handleEnterSubgraphMessageContexts(
   // Copy input contexts from parent to subgraph
   for (const [parentContextId, internalName] of mapping.inputMapping) {
     const parentContext = registry.get(parentContextId);
-    
+
     if (!parentContext) {
       // Check if this is a required input
       const inputDef = startConfig.messageInputs?.find(
-        (i: { internalName: string }) => i.internalName === internalName
+        (i: { internalName: string }) => i.internalName === internalName,
       );
-      
+
       if (inputDef?.required !== false) {
         // Default to required if not explicitly marked as optional
         throw new Error(
           `Required context '${parentContextId}' not found in parent workflow. ` +
-          `Cannot pass to subgraph '${subgraphWorkflowId}' as '${internalName}'.`
+            `Cannot pass to subgraph '${subgraphWorkflowId}' as '${internalName}'.`,
         );
       }
-      
+
       // Optional input with default messages
-      if (inputDef && 'defaultMessages' in inputDef && inputDef.defaultMessages) {
+      if (inputDef && "defaultMessages" in inputDef && inputDef.defaultMessages) {
         const defaultContext: NamedMessageContext = {
           id: internalName,
           messages: inputDef.defaultMessages,
@@ -218,7 +224,7 @@ async function handleEnterSubgraphMessageContexts(
       }
       continue;
     }
-    
+
     // Create a shallow copy of messages to avoid conflicts
     const copiedContext: NamedMessageContext = {
       id: internalName,
@@ -231,9 +237,9 @@ async function handleEnterSubgraphMessageContexts(
         passedFromParent: true,
       } as Record<string, unknown>,
     };
-    
+
     registry.register(copiedContext);
-    
+
     logger.debug(`Passed context '${parentContextId}' as '${internalName}' to subgraph`, {
       executionId: executionEntity.id,
       messageCount: parentContext.messages.length,
@@ -244,7 +250,7 @@ async function handleEnterSubgraphMessageContexts(
 /**
  * Handle message context passing when exiting a subgraph
  * Copies subgraph output contexts back to parent workflow
- * 
+ *
  * @param executionEntity WorkflowExecution entity
  * @param subgraphNode The SUBGRAPH node with SubgraphNodeConfig
  */
@@ -253,47 +259,49 @@ async function handleExitSubgraphMessageContexts(
   subgraphNode: StaticNode & { config: SubgraphNodeConfig },
 ): Promise<void> {
   // Access the MessageContextRegistry attached to workflowExecution
-  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };
+  const workflowExecution = executionEntity.getWorkflowExecutionData() as WorkflowExecution & {
+    messageContextRegistry?: MessageContextRegistry;
+  };
   const registry = workflowExecution.messageContextRegistry;
-  
+
   if (!registry) {
     throw new Error(
-      `MessageContextRegistry not available. This is required for message context returning.`
+      `MessageContextRegistry not available. This is required for message context returning.`,
     );
   }
 
   // Get the subgraph's START node to access its messageOutputs declaration
   const subgraphContext = executionEntity.getCurrentSubgraphContext();
   if (!subgraphContext) {
-    throw new Error(
-      `No active subgraph context. Cannot return message contexts.`
-    );
+    throw new Error(`No active subgraph context. Cannot return message contexts.`);
   }
 
   const subgraphGraph = executionEntity.getGraph();
   const startNodeId = subgraphGraph.startNodeId;
   if (!startNodeId) {
     throw new Error(
-      `Subgraph '${subgraphContext.workflowId}' has no START node. Cannot validate message context configuration.`
+      `Subgraph '${subgraphContext.workflowId}' has no START node. Cannot validate message context configuration.`,
     );
   }
-  
+
   const startNode = subgraphGraph.getNode(startNodeId);
-  
+
   if (!startNode) {
     throw new Error(
-      `Subgraph '${subgraphContext.workflowId}' START node not found. Cannot validate message context configuration.`
+      `Subgraph '${subgraphContext.workflowId}' START node not found. Cannot validate message context configuration.`,
     );
   }
 
   // Validate and get mapping (this will throw if validation fails)
-  const startNodeAsStatic = ('originalNode' in startNode ? (startNode as WorkflowNode).originalNode : startNode) as StaticNode;
+  const startNodeAsStatic = (
+    "originalNode" in startNode ? (startNode as WorkflowNode).originalNode : startNode
+  ) as StaticNode;
   const mappingResult = validateAndMapMessageContexts(subgraphNode, startNodeAsStatic);
-  
+
   if (mappingResult.isErr()) {
-    const errorMessages = mappingResult.error.map(e => e.message).join('; ');
+    const errorMessages = mappingResult.error.map(e => e.message).join("; ");
     throw new Error(
-      `Message context validation failed on exit for subgraph '${subgraphContext.workflowId}': ${errorMessages}`
+      `Message context validation failed on exit for subgraph '${subgraphContext.workflowId}': ${errorMessages}`,
     );
   }
 
@@ -302,18 +310,18 @@ async function handleExitSubgraphMessageContexts(
   // Copy output contexts from subgraph back to parent
   for (const [internalName, parentContextId] of mapping.outputMapping) {
     const childContext = registry.get(internalName);
-    
+
     if (!childContext) {
       throw new Error(
         `Expected output context '${internalName}' not found in subgraph. ` +
-        `Cannot return to parent workflow as '${parentContextId}'.`
+          `Cannot return to parent workflow as '${parentContextId}'.`,
       );
     }
-    
+
     // Update or create parent workflow's context
     if (registry.has(parentContextId)) {
       registry.update(parentContextId, [...childContext.messages]);
-      
+
       logger.debug(`Returned context '${internalName}' as '${parentContextId}'`, {
         executionId: executionEntity.id,
         messageCount: childContext.messages.length,
@@ -329,11 +337,14 @@ async function handleExitSubgraphMessageContexts(
           sourceSubgraph: subgraphContext.workflowId,
         } as Record<string, unknown>,
       });
-      
-      logger.debug(`Created new context '${parentContextId}' from subgraph output '${internalName}'`, {
-        executionId: executionEntity.id,
-        messageCount: childContext.messages.length,
-      });
+
+      logger.debug(
+        `Created new context '${parentContextId}' from subgraph output '${internalName}'`,
+        {
+          executionId: executionEntity.id,
+          messageCount: childContext.messages.length,
+        },
+      );
     }
   }
 }
@@ -343,7 +354,9 @@ async function handleExitSubgraphMessageContexts(
  * @param executionEntity WorkflowExecution entity
  * @returns Subgraph input data (using the variable system)
  */
-export function getSubgraphInput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+export function getSubgraphInput(
+  executionEntity: WorkflowExecutionEntity,
+): Record<string, unknown> {
   // Using a variable system to retrieve input data
   return executionEntity.getAllVariables();
 }
@@ -353,7 +366,9 @@ export function getSubgraphInput(executionEntity: WorkflowExecutionEntity): Reco
  * @param executionEntity WorkflowExecution entity
  * @returns Subgraph output data
  */
-export function getSubgraphOutput(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+export function getSubgraphOutput(
+  executionEntity: WorkflowExecutionEntity,
+): Record<string, unknown> {
   const subgraphContext = executionEntity.getCurrentSubgraphContext();
   if (!subgraphContext) return {};
 

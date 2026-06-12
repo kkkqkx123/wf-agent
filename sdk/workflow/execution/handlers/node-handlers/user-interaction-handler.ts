@@ -37,13 +37,13 @@ interface VariableManagerAccess {
  */
 interface WorkflowInteractionRequest {
   interactionId: string;
-  operationType: 'UPDATE_VARIABLES' | 'ADD_MESSAGE';
+  operationType: "UPDATE_VARIABLES" | "ADD_MESSAGE";
   variables?: Array<{
     variableName: string;
     expression: string;
   }>;
   message?: {
-    role: 'user';
+    role: "user";
     contentTemplate: string;
   };
   prompt: string;
@@ -172,9 +172,9 @@ async function getUserInput(
   try {
     // Convert WorkflowInteractionRequest to UserInteractionRequest for compatibility
     // Map workflow operation types to app-level operation types
-    const mappedOperationType: import("@wf-agent/types").UserInteractionOperationType = 
-      request.operationType === 'UPDATE_VARIABLES' ? 'TOOL_APPROVAL' : 'ASK_FOLLOWUP_QUESTION';
-    
+    const mappedOperationType: import("@wf-agent/types").UserInteractionOperationType =
+      request.operationType === "UPDATE_VARIABLES" ? "TOOL_APPROVAL" : "ASK_FOLLOWUP_QUESTION";
+
     const appRequest: import("@wf-agent/types").UserInteractionRequest = {
       interactionId: request.interactionId,
       operationType: mappedOperationType,
@@ -182,7 +182,7 @@ async function getUserInput(
       timeout: request.timeout,
       metadata: request.metadata,
     };
-    
+
     // Competition: User input, timeouts, cancellations
     return await Promise.race([handler.handle(appRequest, context), timeoutPromise, cancelPromise]);
   } finally {
@@ -236,7 +236,10 @@ async function processVariableUpdate(
   variableManager?: VariableManagerAccess,
 ): Promise<Record<string, unknown>> {
   if (!config.variables || config.variables.length === 0) {
-    throw new ExecutionError("No variables defined for UPDATE_VARIABLES operation", workflowExecution.id);
+    throw new ExecutionError(
+      "No variables defined for UPDATE_VARIABLES operation",
+      workflowExecution.id,
+    );
   }
 
   const results: Record<string, unknown> = {};
@@ -361,12 +364,16 @@ export async function userInteractionHandler(
     userInput: inputData,
   };
 
-  if (config.operationType === 'UPDATE_VARIABLES' && typeof results === 'object' && results !== null) {
+  if (
+    config.operationType === "UPDATE_VARIABLES" &&
+    typeof results === "object" &&
+    results !== null
+  ) {
     output.updatedVariables = Object.entries(results).map(([variableName, newValue]) => ({
       variableName,
       newValue,
     }));
-  } else if (config.operationType === 'ADD_MESSAGE') {
+  } else if (config.operationType === "ADD_MESSAGE") {
     output.addedMessages = 1;
   }
 

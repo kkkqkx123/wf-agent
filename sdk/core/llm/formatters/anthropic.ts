@@ -5,7 +5,13 @@
  */
 
 import { BaseFormatter } from "./base.js";
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
+import type {
+  LLMRequest,
+  LLMResult,
+  LLMMessage,
+  LLMToolCall,
+  ToolCallFormat,
+} from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToAnthropicFormat } from "./tool-converter.js";
@@ -72,35 +78,31 @@ export class AnthropicFormatter extends BaseFormatter {
   /**
    * Build request in text-based mode (XML/JSON)
    */
-  protected override buildTextModeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+  protected override buildTextModeRequest(
+    request: LLMRequest,
+    config: FormatterConfig,
+  ): BuildRequestResult {
     const format = this.getToolCallFormat(config);
 
     // 1. Generate tool declarations
-    const toolDeclarations = ToolDeclarationFormatter.formatTools(
-      request.tools || [],
-      {
-        format: format === 'json_wrapped' || format === 'json_raw' ? 'json' : 'xml',
-        xmlTags: config.toolCallFormat?.xmlTags,
-        markers: config.toolCallFormat?.markers,
-        includeDescription: config.toolCallFormat?.includeDescription,
-      }
-    );
+    const toolDeclarations = ToolDeclarationFormatter.formatTools(request.tools || [], {
+      format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
+      xmlTags: config.toolCallFormat?.xmlTags,
+      markers: config.toolCallFormat?.markers,
+      includeDescription: config.toolCallFormat?.includeDescription,
+    });
 
     // 2. Convert history to text mode (if needed)
-    const convertedMessages = HistoryConverter.convertToTextMode(
-      request.messages,
-      format,
-      {
-        xmlTags: config.toolCallFormat?.xmlTags,
-        markers: config.toolCallFormat?.markers,
-      }
-    );
+    const convertedMessages = HistoryConverter.convertToTextMode(request.messages, format, {
+      xmlTags: config.toolCallFormat?.xmlTags,
+      markers: config.toolCallFormat?.markers,
+    });
 
     // 3. For Anthropic, inject tools into system field
     const { systemMessage, filteredMessages } = this.extractSystemMessage(convertedMessages);
-    const existingSystem = systemMessage?.content || '';
+    const existingSystem = systemMessage?.content || "";
     const instructions = this.getToolUsageInstructions(format);
-    
+
     const systemContent = `${existingSystem}\n\n${instructions}\n\n${toolDeclarations}`.trim();
 
     // 3. Build request WITHOUT tools field
@@ -202,7 +204,7 @@ export class AnthropicFormatter extends BaseFormatter {
     const toolCalls = config.toolCallFormat
       ? ToolCallParser.parseFromText(
           content,
-          getToolCallParserOptions(config.toolCallFormat.format, config.toolCallFormat.markers)
+          getToolCallParserOptions(config.toolCallFormat.format, config.toolCallFormat.markers),
         )
       : [];
 
@@ -242,7 +244,7 @@ export class AnthropicFormatter extends BaseFormatter {
    * Get tool usage instructions based on format
    */
   private getToolUsageInstructions(format: ToolCallFormat): string {
-    if (format === 'xml') {
+    if (format === "xml") {
       return `## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -256,7 +258,7 @@ When you need to use a tool, format your response as follows:
 </tool_use>
 
 You can use multiple tools in one response by including multiple <tool_use> blocks.`;
-    } else if (format === 'json_wrapped') {
+    } else if (format === "json_wrapped") {
       return `## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -274,7 +276,7 @@ When you need to use a tool, format your response as follows:
 You can use multiple tools in one response by including multiple blocks.`;
     }
 
-    return '';
+    return "";
   }
 
   parseStreamChunk(data: unknown): ParseStreamChunkResult {

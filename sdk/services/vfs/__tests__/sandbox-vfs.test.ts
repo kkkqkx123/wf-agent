@@ -83,7 +83,7 @@ describe("SandboxVFS", () => {
       const entries = await vfs.readdir("/subdir");
       expect(entries.length).toBe(2);
 
-      const names = entries.map((e) => e.name).sort();
+      const names = entries.map(e => e.name).sort();
       expect(names).toEqual(["file1.txt", "file2.txt"]);
     });
 

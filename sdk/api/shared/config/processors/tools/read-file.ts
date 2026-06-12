@@ -25,8 +25,8 @@ export interface ReadFileConfigInput {
  */
 const DEFAULTS: ReadFileConfig = {
   maxFileSize: 500000, // 500KB
-  maxChars: 200000,     // 200K chars
-  maxLines: 2000,      // 2000 lines
+  maxChars: 200000, // 200K chars
+  maxLines: 2000, // 2000 lines
   enableIgnore: false,
   enableProtect: false,
 };
@@ -37,9 +37,10 @@ const DEFAULTS: ReadFileConfig = {
  * @param input - Raw configuration input
  * @returns Validation result with errors if any
  */
-export function validateReadFileConfig(
-  input: ReadFileConfigInput
-): { valid: boolean; errors: string[] } {
+export function validateReadFileConfig(input: ReadFileConfigInput): {
+  valid: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
   if (input.maxFileSize !== undefined && input.maxFileSize < 0) {
@@ -67,9 +68,7 @@ export function validateReadFileConfig(
  * @param input - Raw configuration input
  * @returns Validated ReadFileConfig
  */
-export function transformReadFileConfig(
-  input: ReadFileConfigInput = {}
-): ReadFileConfig {
+export function transformReadFileConfig(input: ReadFileConfigInput = {}): ReadFileConfig {
   const validation = validateReadFileConfig(input);
   if (!validation.valid) {
     throw new Error(`Invalid ReadFileConfig: ${validation.errors.join("; ")}`);
@@ -93,9 +92,7 @@ export function transformReadFileConfig(
  * @param config - Validated ReadFileConfig
  * @returns Serializable configuration object
  */
-export function exportReadFileConfig(
-  config: ReadFileConfig
-): ReadFileConfigInput {
+export function exportReadFileConfig(config: ReadFileConfig): ReadFileConfigInput {
   return {
     workspaceDir: config.workspaceDir,
     maxFileSize: config.maxFileSize,

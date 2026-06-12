@@ -24,6 +24,7 @@ This document summarizes the improvements made to the SDK's timeout management s
 - Maintains all original functionality (warning emission, timeout handling)
 
 **Benefits**:
+
 - Consistent API across all timeout operations
 - Better resource management through centralized control
 - Easier maintenance and debugging
@@ -38,13 +39,15 @@ This document summarizes the improvements made to the SDK's timeout management s
 - Introduced logger for better diagnostics
 
 **Key Features**:
+
 - Automatic cleanup of inactive timeout managers
 - Resource monitoring interval (default: 5 minutes)
 - Proper cleanup on dispose()
 
 ### 3. Improved Interruption System Integration ✅
 
-**Files Modified**: 
+**Files Modified**:
+
 - `sdk/workflow/execution/utils/pause-timeout-manager.ts`
 - `sdk/core/state-managers/timeout-manager.ts` (already had support)
 
@@ -53,6 +56,7 @@ This document summarizes the improvements made to the SDK's timeout management s
 - Proper cleanup on resume/cancel operations
 
 **Benefits**:
+
 - Prevents resource leaks when executions are interrupted
 - Ensures timeout lifecycle matches execution lifecycle
 - Better integration with the interruption system
@@ -60,16 +64,19 @@ This document summarizes the improvements made to the SDK's timeout management s
 ### 4. Enhanced Observability ✅
 
 **Files Modified**:
+
 - `sdk/core/metrics/timeout-collector.ts`
 - `sdk/core/registry/timeout-registry.ts`
 
 **Fixes Applied**:
+
 - Fixed BaseMetricCollector constructor call
 - Added override modifier to query method
 - Fixed PrometheusFormatter usage (using formatMetric instead of non-existent formatGauge)
 - Added contextual logger to TimeoutRegistry
 
 **Improvements**:
+
 - Better error handling in metrics collection
 - Proper Prometheus metric formatting
 - Enhanced logging for debugging
@@ -83,6 +90,7 @@ This document summarizes the improvements made to the SDK's timeout management s
 - Reduces redundant iterations over execution managers
 
 **Benefits**:
+
 - Better performance for bulk timeout operations
 - Reduced overhead when cancelling multiple tags
 - Optimized tag index cleanup
@@ -107,6 +115,7 @@ This document summarizes the improvements made to the SDK's timeout management s
 ## Migration Notes
 
 The changes are backward compatible:
+
 - PauseTimeoutManager maintains the same public API
 - Existing code using PauseTimeoutManager will continue to work
 - New features (batch operations, resource monitoring) are opt-in
@@ -114,6 +123,7 @@ The changes are backward compatible:
 ## Future Enhancements
 
 Potential areas for future improvement:
+
 1. Add hierarchical timeout support (parent-child relationships)
 2. Implement idle timeout strategy
 3. Add adaptive timeout calculations based on historical data
@@ -123,6 +133,7 @@ Potential areas for future improvement:
 ## Conclusion
 
 The timeout management system has been significantly improved with:
+
 - Unified implementation across all modules
 - Better resource management and automatic cleanup
 - Proper integration with the interruption system

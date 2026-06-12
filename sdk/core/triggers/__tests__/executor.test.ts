@@ -49,7 +49,10 @@ beforeEach(() => {
 describe("executeTriggers", () => {
   it("should execute matched triggers and return results", async () => {
     const triggers = [
-      createTrigger({ id: "t1", action: { type: "webhook", parameters: { url: "http://example.com" } } }),
+      createTrigger({
+        id: "t1",
+        action: { type: "webhook", parameters: { url: "http://example.com" } },
+      }),
     ];
     const event = createEvent();
     const handler: TriggerHandler = vi.fn().mockResolvedValue({
@@ -138,7 +141,7 @@ describe("executeTriggers", () => {
     ];
     const event = createEvent();
     const executionOrder: string[] = [];
-    const handler: TriggerHandler = vi.fn().mockImplementation(async (trigger) => {
+    const handler: TriggerHandler = vi.fn().mockImplementation(async trigger => {
       executionOrder.push(trigger.id);
       return {
         triggerId: trigger.id,
@@ -175,7 +178,7 @@ describe("executeTriggers", () => {
       createTrigger({ id: "t2", action: { type: "test", parameters: {} } }),
     ];
     const event = createEvent();
-    const handler: TriggerHandler = vi.fn().mockImplementation(async (trigger) => {
+    const handler: TriggerHandler = vi.fn().mockImplementation(async trigger => {
       if (trigger.id === "t1") {
         throw new Error("handler error");
       }

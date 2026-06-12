@@ -62,7 +62,7 @@ let isSDKConfigured = false;
 function getLogLevelFromEnvChain(
   primaryKey: string,
   globalKey: string = ENV_VARS.GLOBAL_LOG_LEVEL,
-  defaultLevel: LogLevel = "info"
+  defaultLevel: LogLevel = "info",
 ): LogLevel {
   return getLogLevelFromEnv(primaryKey, globalKey, defaultLevel);
 }
@@ -101,7 +101,7 @@ function initializeLogger(
   key: keyof typeof loggerStates,
   loggerName: string,
   envVarKey: string,
-  showWarning = false
+  showWarning = false,
 ): Logger {
   const state = loggerStates[key];
 
@@ -110,10 +110,10 @@ function initializeLogger(
   }
 
   // Show warning for SDK logger if accessed before configuration
-  if (showWarning && !isSDKConfigured && process.env['NODE_ENV'] !== 'test') {
+  if (showWarning && !isSDKConfigured && process.env["NODE_ENV"] !== "test") {
     process.stderr.write(
-      '[SDK Logger] Warning: SDK logger accessed before configureSDKLogger() was called. '
-      + 'Using environment variables or defaults. Call configureSDKLogger() before SDK initialization.\n'
+      "[SDK Logger] Warning: SDK logger accessed before configureSDKLogger() was called. " +
+        "Using environment variables or defaults. Call configureSDKLogger() before SDK initialization.\n",
     );
   }
 
@@ -133,7 +133,7 @@ function getLoggerInstance(
   key: keyof typeof loggerStates,
   loggerName: string,
   envVarKey: string,
-  showWarning = false
+  showWarning = false,
 ): Logger {
   const state = loggerStates[key];
 
@@ -151,7 +151,7 @@ function createLazyLogger(
   key: keyof typeof loggerStates,
   loggerName: string,
   envVarKey: string,
-  showWarning = false
+  showWarning = false,
 ): Logger {
   return new Proxy({} as Logger, {
     get(_, prop: string | symbol) {
@@ -177,7 +177,7 @@ function createLazyLogger(
  */
 export function initializeSDKLogger(config?: LoggerConfig): Logger {
   applyLoggerConfig(loggerStates.sdk, config ?? {});
-  return initializeLogger('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true);
+  return initializeLogger("sdk", "sdk", ENV_VARS.SDK_LOG_LEVEL, true);
 }
 
 // ============================================
@@ -190,7 +190,7 @@ export function initializeSDKLogger(config?: LoggerConfig): Logger {
  * @returns An instance of the module-level Logger
  */
 export function createSDKModuleLogger(moduleName: string): Logger {
-  return getLoggerInstance('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true).child(moduleName);
+  return getLoggerInstance("sdk", "sdk", ENV_VARS.SDK_LOG_LEVEL, true).child(moduleName);
 }
 
 // ============================================
@@ -202,10 +202,7 @@ export function createSDKModuleLogger(moduleName: string): Logger {
  * Must be called by CLI-APP before any SDK usage to ensure proper configuration
  * @param config Configuration options
  */
-export function configureSDKLogger(config: {
-  level?: LogLevel;
-  stream?: LogStream;
-}): void {
+export function configureSDKLogger(config: { level?: LogLevel; stream?: LogStream }): void {
   isSDKConfigured = true;
 
   // Apply configuration to SDK logger
@@ -224,4 +221,4 @@ export function configureSDKLogger(config: {
  * Uses Proxy for lazy initialization - no side effects on module load
  * First access triggers initialization, subsequent accesses use cached instance
  */
-export const sdkLogger: Logger = createLazyLogger('sdk', 'sdk', ENV_VARS.SDK_LOG_LEVEL, true);
+export const sdkLogger: Logger = createLazyLogger("sdk", "sdk", ENV_VARS.SDK_LOG_LEVEL, true);

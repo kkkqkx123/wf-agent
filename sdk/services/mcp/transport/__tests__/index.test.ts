@@ -24,9 +24,9 @@ describe("createTransport", () => {
   });
 
   it("should throw for unknown transport type", () => {
-    expect(() =>
-      createTransport({ type: "unknown" as "stdio", command: "echo" }),
-    ).toThrow("Unknown transport type");
+    expect(() => createTransport({ type: "unknown" as "stdio", command: "echo" })).toThrow(
+      "Unknown transport type",
+    );
   });
 });
 

@@ -231,7 +231,11 @@ describe("getInvisibleMessageCount", () => {
 describe("Integration tests", () => {
   it("should handle complex scenarios correctly", () => {
     const messages = createMockMessages(10);
-    const markMap = createMockMarkMap(1, [0, 5, 10], Array.from({ length: 10 }, (_, i) => i));
+    const markMap = createMockMarkMap(
+      1,
+      [0, 5, 10],
+      Array.from({ length: 10 }, (_, i) => i),
+    );
 
     // Current batch is 1, boundary is 5
     expect(getCurrentBoundary(markMap)).toBe(5);

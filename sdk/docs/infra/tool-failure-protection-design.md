@@ -7,6 +7,7 @@ This document describes a lightweight mechanism to protect execution instances f
 ### Core Problem
 
 When an Agent Loop or Workflow encounters repeated tool failures:
+
 - The system continues retrying the same failing tool in each iteration
 - No detection exists for consecutive failures of the same tool
 - Resources are wasted on futile attempts
@@ -25,6 +26,7 @@ Track tool failure counts per execution instance and temporarily block tools aft
 ### Analysis
 
 The critical question is whether tool failure protection should be:
+
 1. **Integrated** into existing state managers (`AgentLoopState`, `WorkflowExecutionState`)
 2. **Separate** as an independent state module held by execution entities
 
@@ -33,12 +35,14 @@ The critical question is whether tool failure protection should be:
 Examining the existing codebase reveals two patterns:
 
 **Pattern A: Integrated State (AgentLoopState)**
+
 - `AgentLoopState` manages all execution state in one class
 - Includes: status, iteration count, history, streaming state, pending tool calls
 - All state is serialized together in checkpoints
 - Simple but can become monolithic
 
 **Pattern B: Composed State Managers (Workflow)**
+
 - `WorkflowExecutionEntity` holds multiple independent state managers:
   - `WorkflowExecutionState`: Execution status and control flags
   - `VariableState`: Variable management (separate module)
@@ -66,6 +70,7 @@ Examining the existing codebase reveals two patterns:
 ### Implementation Strategy
 
 Create `ToolFailureProtectionState` as an independent state manager that:
+
 - Implements the `StateManager` interface
 - Is held by execution entities (`AgentLoopEntity`, `WorkflowExecutionEntity`)
 - Can be composed with other state managers
@@ -78,6 +83,7 @@ Create `ToolFailureProtectionState` as an independent state manager that:
 A standalone state manager responsible for tracking tool failures and determining if a tool should be blocked.
 
 **Responsibilities:**
+
 - Track consecutive failure counts per tool
 - Determine if a tool can be executed based on failure history
 - Record successful and failed executions
@@ -85,6 +91,7 @@ A standalone state manager responsible for tracking tool failures and determinin
 - Provide serialization support for checkpoints
 
 **Key Characteristics:**
+
 - Independent lifecycle from execution state
 - Configuration-driven behavior (thresholds, cooldown periods)
 - Pure state management with no side effects
@@ -95,6 +102,7 @@ A standalone state manager responsible for tracking tool failures and determinin
 Each execution entity owns its own `ToolFailureProtectionState` instance:
 
 **Agent Loop:**
+
 ```
 AgentLoopEntity
   ├─ config: AgentLoopRuntimeConfig
@@ -104,6 +112,7 @@ AgentLoopEntity
 ```
 
 **Workflow:**
+
 ```
 WorkflowExecutionEntity
   ├─ workflowExecution: WorkflowExecution (data object)
@@ -121,6 +130,7 @@ WorkflowExecutionEntity
 **How It Works:**
 
 When a parent workflow triggers a sub-workflow:
+
 1. A new `WorkflowExecutionEntity` is created with a unique ID
 2. This new entity gets a fresh `ToolFailureProtectionState` instance
 3. The fresh state starts with empty failure counts
@@ -141,6 +151,7 @@ This isolation is automatic because each execution entity creates its own state 
 `ToolCallExecutor` receives an optional state manager parameter when executing tools:
 
 **Flow:**
+
 1. Before executing a tool, check with the state manager if allowed
 2. If blocked, return immediately with appropriate error message and emit event
 3. If allowed, proceed with execution
@@ -150,6 +161,7 @@ This isolation is automatic because each execution entity creates its own state 
 **Interface Contract:**
 
 The executor expects a simple interface with three methods:
+
 - Check if tool can execute
 - Record successful execution
 - Record failed execution
@@ -161,24 +173,29 @@ This keeps the executor decoupled from the specific implementation.
 ### 4.1 Failure Tracking Logic
 
 **Initial State:**
+
 - All tools start with zero failure count
 - All tools are executable
 
 **On Tool Failure:**
+
 - Increment failure count for that specific tool
 - Update last failure timestamp
 - Store error message for debugging
 
 **On Tool Success:**
+
 - Reset failure count to zero for that tool
 - Clear any blocking state
 
 **Blocking Decision:**
+
 - If failure count reaches threshold (default: 3), block the tool
 - Calculate remaining cooldown time
 - Block persists until cooldown expires
 
 **Recovery:**
+
 - After cooldown period (default: 60 seconds), automatically unblock
 - Reset failure count on next successful execution
 - Manual reset also supported via API
@@ -188,16 +205,19 @@ This keeps the executor decoupled from the specific implementation.
 Three configurable parameters control behavior:
 
 **Max Consecutive Failures:**
+
 - Default: 3
 - Determines how many failures trigger blocking
 - Can be adjusted per execution instance
 
 **Cooldown Period:**
+
 - Default: 60 seconds (60000 milliseconds)
 - Duration a tool remains blocked after reaching threshold
 - Allows transient issues to resolve
 
 **Enabled Flag:**
+
 - Default: true
 - Can disable protection entirely if needed
 - Useful for testing or special scenarios
@@ -212,6 +232,7 @@ Each tool tracks failures independently. One blocked tool does not affect others
 
 **Checkpoint Restoration:**
 When restoring from checkpoint, failure counts are restored to their saved state. This means:
+
 - If a tool was blocked before checkpoint, it remains blocked after restore
 - Cooldown timers continue from where they left off (based on timestamps)
 - This is correct behavior - we don't want to lose protection state
@@ -226,17 +247,20 @@ When an execution completes (success or failure), all failure counts are cleared
 Two key events are emitted:
 
 **Tool Call Blocked:**
+
 - Triggered when a tool is prevented from executing due to failure protection
 - Includes: execution ID, tool name, failure count, last error, remaining cooldown
 - Allows monitoring and user notification
 
 **Tool Call Failed:**
+
 - Existing event, enhanced with failure count information
 - Helps correlate individual failures with blocking decisions
 
 ### 5.2 Event Consumption
 
 Applications can listen for these events to:
+
 - Display warnings to users
 - Log metrics for analysis
 - Trigger alternative actions (e.g., switch to backup tool)
@@ -249,11 +273,13 @@ Applications can listen for these events to:
 `ToolFailureProtectionState` must support snapshot creation and restoration:
 
 **Snapshot Contents:**
+
 - Failure count map (tool name → count, timestamp, last error)
 - Configuration parameters
 - Timestamps for cooldown calculation
 
 **Serialization Format:**
+
 - Convert Map to array of entries for JSON compatibility
 - Include all necessary fields for accurate restoration
 - Keep format stable for backward compatibility
@@ -261,6 +287,7 @@ Applications can listen for these events to:
 ### 6.2 Restoration Behavior
 
 When restoring from checkpoint:
+
 1. Reconstruct failure count map from snapshot
 2. Restore configuration parameters
 3. Calculate current blocking state based on timestamps
@@ -275,6 +302,7 @@ This ensures protection state survives pause/resume cycles.
 Test `ToolFailureProtectionState` in isolation:
 
 **Basic Functionality:**
+
 - Initial state allows all tools
 - Failure count increments correctly
 - Success resets failure count
@@ -282,11 +310,13 @@ Test `ToolFailureProtectionState` in isolation:
 - Recovery happens after cooldown
 
 **Configuration:**
+
 - Custom thresholds work correctly
 - Cooldown periods are respected
 - Enable/disable flag functions properly
 
 **Edge Cases:**
+
 - Mixed success/failure patterns
 - Multiple tools tracked independently
 - Timestamp-based cooldown calculations
@@ -296,22 +326,26 @@ Test `ToolFailureProtectionState` in isolation:
 Test integration with execution entities:
 
 **Agent Loop:**
+
 - Create entity with protection state
 - Execute iterations with failing tool
 - Verify blocking occurs after threshold
 - Confirm events are emitted
 
 **Workflow:**
+
 - Similar tests for workflow execution
 - Verify LLM nodes respect blocking
 
 **Hierarchy Isolation:**
+
 - Create parent workflow with blocked tool
 - Trigger sub-workflow
 - Verify sub-workflow can use the tool freely
 - Confirm states are completely independent
 
 **Checkpoint:**
+
 - Create execution with failure state
 - Create checkpoint
 - Restore from checkpoint
@@ -323,6 +357,7 @@ Test integration with execution entities:
 Full scenario tests:
 
 **Agent Loop Scenario:**
+
 1. Create agent loop with mock failing tool
 2. Execute multiple iterations
 3. Verify tool gets blocked
@@ -330,6 +365,7 @@ Full scenario tests:
 5. Verify tool becomes available again
 
 **Nested Workflow Scenario:**
+
 1. Create parent workflow with failing tool
 2. Block tool in parent
 3. Trigger sub-workflow
@@ -339,6 +375,7 @@ Full scenario tests:
 ## 8. Implementation Phases
 
 ### Phase 1: Core Module (Week 1)
+
 - Create `ToolFailureProtectionState` class
 - Implement failure tracking logic
 - Add configuration support
@@ -346,6 +383,7 @@ Full scenario tests:
 - Define snapshot interface
 
 ### Phase 2: Entity Integration (Week 1-2)
+
 - Add state to `AgentLoopEntity`
 - Add state to `WorkflowExecutionEntity`
 - Update entity constructors
@@ -353,6 +391,7 @@ Full scenario tests:
 - Test basic integration
 
 ### Phase 3: Executor Integration (Week 2)
+
 - Modify `ToolCallExecutor` to accept state manager
 - Implement pre-execution checks
 - Implement post-execution recording
@@ -360,6 +399,7 @@ Full scenario tests:
 - Write integration tests
 
 ### Phase 4: Checkpoint Support (Week 2-3)
+
 - Implement snapshot creation
 - Implement snapshot restoration
 - Test checkpoint round-trip
@@ -367,6 +407,7 @@ Full scenario tests:
 - Test pause/resume scenarios
 
 ### Phase 5: Hierarchy Validation (Week 3)
+
 - Test parent-child isolation
 - Verify triggered sub-workflows
 - Test nested scenarios
@@ -374,6 +415,7 @@ Full scenario tests:
 - Write comprehensive isolation tests
 
 ### Phase 6: Polish and Documentation (Week 3-4)
+
 - Add CLI commands for inspection/reset
 - Update API documentation
 - Add error messages
@@ -385,6 +427,7 @@ Full scenario tests:
 ### 9.1 Separate Module vs. Integrated State
 
 **Separate Module Advantages:**
+
 - Cleaner separation of concerns
 - Follows existing Workflow pattern
 - Easier to test and maintain
@@ -392,6 +435,7 @@ Full scenario tests:
 - Consistent with composed state manager approach
 
 **Separate Module Disadvantages:**
+
 - Slightly more files to manage
 - Need to ensure proper initialization
 - One additional dependency in entities
@@ -403,6 +447,7 @@ Full scenario tests:
 **Decision:** Strictly per-instance
 
 **Rationale:**
+
 - Different executions have different contexts
 - A tool failing in one execution doesn't indicate global problems
 - Critical for nested workflow isolation
@@ -413,6 +458,7 @@ Full scenario tests:
 **Default:** 3 consecutive failures
 
 **Rationale:**
+
 - Balances early detection vs. false positives
 - Allows for transient network issues
 - Not too aggressive to block prematurely
@@ -423,6 +469,7 @@ Full scenario tests:
 **Default:** 60 seconds
 
 **Rationale:**
+
 - Gives time for most transient issues to resolve
 - Not so long as to cause excessive delays
 - Can be tuned based on typical failure patterns

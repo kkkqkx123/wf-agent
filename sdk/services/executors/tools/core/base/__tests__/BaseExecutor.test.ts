@@ -105,7 +105,11 @@ describe("BaseExecutor", () => {
 
         await executor.execute(tool, { input: "test-value" }, {}, "workflowExecution-123");
 
-        expect(mockExecute).toHaveBeenCalledWith(tool, { input: "test-value" }, "workflowExecution-123");
+        expect(mockExecute).toHaveBeenCalledWith(
+          tool,
+          { input: "test-value" },
+          "workflowExecution-123",
+        );
       });
     });
 

@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { ShellAnalysisResult, ShellAnalysisContext, ShellAnalyzer, ShellType, ShellPolicy } from "../base.js";
+import type {
+  ShellAnalysisResult,
+  ShellAnalysisContext,
+  ShellAnalyzer,
+  ShellType,
+  ShellPolicy,
+} from "../base.js";
 
 // =========================================================================
 // Type Exports

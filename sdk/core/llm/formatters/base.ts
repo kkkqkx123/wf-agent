@@ -5,7 +5,13 @@
  * Format converters from all providers inherit from this class
  */
 
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
+import type {
+  LLMRequest,
+  LLMResult,
+  LLMMessage,
+  LLMToolCall,
+  ToolCallFormat,
+} from "@wf-agent/types";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import type { ToolSchema } from "@wf-agent/types";
@@ -33,7 +39,7 @@ export abstract class BaseFormatter {
   /**
    * Construct an HTTP request
    *
-   * NOTE: Do not override this method. Override buildNativeRequest 
+   * NOTE: Do not override this method. Override buildNativeRequest
    * and optionally buildTextModeRequest instead.
    *
    * @param request: A unified LLM request
@@ -47,7 +53,7 @@ export abstract class BaseFormatter {
   /**
    * Parse non-streaming responses
    *
-   * NOTE: Do not override this method. Override parseNativeResponse 
+   * NOTE: Do not override this method. Override parseNativeResponse
    * and optionally parseTextModeResponse instead.
    *
    * @param data: Raw response data
@@ -435,15 +441,15 @@ export abstract class BaseFormatter {
    * Check if using text-based tool format (XML/JSON)
    */
   protected isTextBasedToolMode(config: FormatterConfig): boolean {
-    const format = config.toolCallFormat?.format || 'function_call';
-    return format === 'xml' || format === 'json_wrapped' || format === 'json_raw';
+    const format = config.toolCallFormat?.format || "function_call";
+    return format === "xml" || format === "json_wrapped" || format === "json_raw";
   }
 
   /**
    * Get tool call format from config
    */
   protected getToolCallFormat(config: FormatterConfig): ToolCallFormat {
-    return config.toolCallFormat?.format || 'function_call';
+    return config.toolCallFormat?.format || "function_call";
   }
 
   /**
@@ -452,7 +458,7 @@ export abstract class BaseFormatter {
    */
   protected buildModeAwareRequest(
     request: LLMRequest,
-    config: FormatterConfig
+    config: FormatterConfig,
   ): BuildRequestResult {
     if (this.isTextBasedToolMode(config)) {
       return this.buildTextModeRequest(request, config);
@@ -464,10 +470,7 @@ export abstract class BaseFormatter {
    * Parse response with mode awareness
    * Routes to either native or text mode based on configuration
    */
-  protected parseModeAwareResponse(
-    data: unknown,
-    config: FormatterConfig
-  ): LLMResult {
+  protected parseModeAwareResponse(data: unknown, config: FormatterConfig): LLMResult {
     if (this.isTextBasedToolMode(config)) {
       return this.parseTextModeResponse(data, config);
     }
@@ -480,24 +483,21 @@ export abstract class BaseFormatter {
    */
   protected abstract buildNativeRequest(
     request: LLMRequest,
-    config: FormatterConfig
+    config: FormatterConfig,
   ): BuildRequestResult;
 
   /**
    * Build request in text-based mode (XML/JSON)
-   * 
+   *
    * OPTIONAL: Override only if your provider supports text-based tool formats.
    * Default implementation delegates to native mode, which is suitable for most providers
    * that don't have a separate text-based tool calling mechanism.
-   * 
+   *
    * @param request: LLM request
    * @param config: Format converter configuration
    * @returns: HTTP request options
    */
-  protected buildTextModeRequest(
-    request: LLMRequest,
-    config: FormatterConfig
-  ): BuildRequestResult {
+  protected buildTextModeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
     // Default: delegate to native mode for providers without text mode support
     return this.buildNativeRequest(request, config);
   }
@@ -505,35 +505,29 @@ export abstract class BaseFormatter {
   /**
    * Parse response in native function-calling mode
    * Subclasses must implement this method
-   * 
+   *
    * Note: Some providers (e.g., Gemini) need config to get model name
    * as their API response doesn't include it. Others (OpenAI, Anthropic)
    * can extract all info from the response data alone.
-   * 
+   *
    * @param data - Raw response data from the provider
    * @param config - Formatter configuration
    * @returns Parsed LLM result
    */
-  protected abstract parseNativeResponse(
-    data: unknown,
-    config: FormatterConfig
-  ): LLMResult;
+  protected abstract parseNativeResponse(data: unknown, config: FormatterConfig): LLMResult;
 
   /**
    * Parse response in text-based mode (XML/JSON)
-   * 
+   *
    * OPTIONAL: Override only if your provider supports text-based tool formats.
    * Default implementation delegates to native mode, which is suitable for most providers
    * that don't have a separate text-based tool calling mechanism.
-   * 
+   *
    * @param data: Raw response data
    * @param config: Format converter configuration
    * @returns: LLM result
    */
-  protected parseTextModeResponse(
-    data: unknown,
-    config: FormatterConfig
-  ): LLMResult {
+  protected parseTextModeResponse(data: unknown, config: FormatterConfig): LLMResult {
     // Default: delegate to native mode for providers without text mode support
     return this.parseNativeResponse(data, config);
   }

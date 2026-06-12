@@ -51,7 +51,7 @@ export class WorkflowExecutionRegistry {
    */
   register(workflowExecutionEntity: WorkflowExecutionEntity): void {
     this.workflowExecutionEntities.set(workflowExecutionEntity.id, workflowExecutionEntity);
-    
+
     // Persist to storage (async, non-blocking)
     this.persistToStorage(workflowExecutionEntity).catch(error => {
       logger.error("Failed to persist workflow execution to storage during register", {
@@ -95,7 +95,7 @@ export class WorkflowExecutionRegistry {
   delete(executionId: string): void {
     this.workflowExecutionEntities.delete(executionId);
     this.stateCoordinatorMap.delete(executionId);
-    
+
     // Remove from storage (async, non-blocking)
     this.removeFromStorage(executionId).catch(error => {
       logger.error("Failed to remove workflow execution from storage during delete", {
@@ -168,7 +168,9 @@ export class WorkflowExecutionRegistry {
    * @returns: Whether the workflow is active
    */
   isWorkflowActive(workflowId: string): boolean {
-    return this.getAll().some(workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId);
+    return this.getAll().some(
+      workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId,
+    );
   }
 
   /**
@@ -177,7 +179,9 @@ export class WorkflowExecutionRegistry {
    * @returns: Array of WorkflowExecutionEntity
    */
   getByStatus(status: WorkflowExecutionStatus): WorkflowExecutionEntity[] {
-    return this.getAll().filter(workflowExecutionEntity => workflowExecutionEntity.getStatus() === status);
+    return this.getAll().filter(
+      workflowExecutionEntity => workflowExecutionEntity.getStatus() === status,
+    );
   }
 
   /**
@@ -197,7 +201,9 @@ export class WorkflowExecutionRegistry {
    * @returns: Array of WorkflowExecutionEntity
    */
   getByWorkflowId(workflowId: string): WorkflowExecutionEntity[] {
-    return this.getAll().filter(workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId);
+    return this.getAll().filter(
+      workflowExecutionEntity => workflowExecutionEntity.getWorkflowId() === workflowId,
+    );
   }
 
   /**
@@ -247,7 +253,7 @@ export class WorkflowExecutionRegistry {
   /**
    * Get child WorkflowExecutionEntities by parent execution ID
    * Supports Workflow → Workflow hierarchy relationships
-   * 
+   *
    * @param parentExecutionId Parent execution ID (can be Workflow or Agent)
    * @returns Array of child WorkflowExecutionEntity instances
    */
@@ -260,7 +266,7 @@ export class WorkflowExecutionRegistry {
 
   /**
    * Get child WorkflowExecutionEntity IDs by parent execution ID
-   * 
+   *
    * @param parentExecutionId Parent execution ID
    * @returns Array of child WorkflowExecutionEntity IDs
    */
@@ -337,7 +343,9 @@ export class WorkflowExecutionRegistry {
    */
   private async removeFromStorage(executionId: string): Promise<void> {
     if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping workflow execution removal from storage");
+      logger.debug(
+        "No storage adapter configured, skipping workflow execution removal from storage",
+      );
       return;
     }
 
@@ -367,7 +375,7 @@ export class WorkflowExecutionRegistry {
     try {
       const executionIds = await this.storageAdapter.list();
       logger.info("Found workflow executions in storage", { count: executionIds.length });
-      
+
       // Note: We don't automatically load all executions into memory
       // Executions are typically loaded on-demand when needed
       // This method can be extended to implement caching strategies if needed

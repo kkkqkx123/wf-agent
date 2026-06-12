@@ -37,7 +37,7 @@ vi.mock("../../../../core/utils/event/emit-event.js", () => ({
   }),
 }));
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
+vi.mock("@wf-agent/common-utils", async importOriginal => {
   const actual = await importOriginal();
   return {
     ...(actual as Record<string, unknown>),
@@ -164,7 +164,9 @@ describe("AgentErrorHandler", () => {
 
       // Check that eventManager.emit was called (by our emit mock forwarding)
       const emitCalls = vi.mocked(mockEventManager.emit).mock.calls;
-      const pauseCall = emitCalls.find(([event]) => (event as { type?: string })?.type === "AGENT_PAUSED");
+      const pauseCall = emitCalls.find(
+        ([event]) => (event as { type?: string })?.type === "AGENT_PAUSED",
+      );
       expect(pauseCall).toBeDefined();
       const event = pauseCall![0] as unknown as Record<string, unknown>;
       expect(event["agentLoopId"]).toBe("agent-loop-1");
@@ -181,7 +183,9 @@ describe("AgentErrorHandler", () => {
       expect(mockEntity.state.pause).not.toHaveBeenCalled();
 
       const emitCalls = vi.mocked(mockEventManager.emit).mock.calls;
-      const cancelCall = emitCalls.find(([event]) => (event as { type?: string })?.type === "AGENT_CANCELLED");
+      const cancelCall = emitCalls.find(
+        ([event]) => (event as { type?: string })?.type === "AGENT_CANCELLED",
+      );
       expect(cancelCall).toBeDefined();
       const event = cancelCall![0] as unknown as Record<string, unknown>;
       expect(event["agentLoopId"]).toBe("agent-loop-1");
@@ -210,7 +214,9 @@ describe("AgentErrorHandler", () => {
       await handleAgentInterruption(mockEntity, interruption, "stream", mockEventManager);
 
       const emitCalls = vi.mocked(mockEventManager.emit).mock.calls;
-      const pauseCall = emitCalls.find(([event]) => (event as { type?: string })?.type === "AGENT_PAUSED");
+      const pauseCall = emitCalls.find(
+        ([event]) => (event as { type?: string })?.type === "AGENT_PAUSED",
+      );
       expect(pauseCall).toBeDefined();
       const event = pauseCall![0] as unknown as Record<string, unknown>;
       expect(event["isStreaming"]).toBe(true);
@@ -251,7 +257,13 @@ describe("AgentErrorHandler", () => {
     });
 
     it("should create a warning level error when specified", () => {
-      const result = createAgentExecutionError(mockEntity, "Warning message", "op", undefined, "warning");
+      const result = createAgentExecutionError(
+        mockEntity,
+        "Warning message",
+        "op",
+        undefined,
+        "warning",
+      );
 
       expect(result.severity).toBe("warning");
     });

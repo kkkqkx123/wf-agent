@@ -9,4 +9,8 @@
  * - AgentExecutionCoordinator: Coordinates execution flow (exported from coordinators)
  */
 
-export { AgentLoopExecutor, type AgentLoopExecutorDependencies, type AgentLoopStreamEvent } from "./agent-loop-executor.js";
+export {
+  AgentLoopExecutor,
+  type AgentLoopExecutorDependencies,
+  type AgentLoopStreamEvent,
+} from "./agent-loop-executor.js";

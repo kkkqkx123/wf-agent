@@ -126,7 +126,9 @@ describe("AgentLoopCheckpointCoordinator", () => {
     it("should throw error when checkpoint not found", async () => {
       dependencies.getCheckpoint = vi.fn().mockResolvedValue(null);
 
-      await expect(coordinator.restoreFromCheckpoint("nonexistent", dependencies)).rejects.toThrow();
+      await expect(
+        coordinator.restoreFromCheckpoint("nonexistent", dependencies),
+      ).rejects.toThrow();
     });
   });
 });

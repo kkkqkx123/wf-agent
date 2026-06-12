@@ -200,10 +200,18 @@ export class AgentLoopResourceAPI extends CrudResourceAPI<
       if (filter.profileId && entity.config.profileId !== filter.profileId) {
         return false;
       }
-      if (filter.createdAfter && entity.state.startTime && entity.state.startTime < filter.createdAfter) {
+      if (
+        filter.createdAfter &&
+        entity.state.startTime &&
+        entity.state.startTime < filter.createdAfter
+      ) {
         return false;
       }
-      if (filter.createdBefore && entity.state.startTime && entity.state.startTime > filter.createdBefore) {
+      if (
+        filter.createdBefore &&
+        entity.state.startTime &&
+        entity.state.startTime > filter.createdBefore
+      ) {
         return false;
       }
       // TODO: Add tag filtering when tags are supported
@@ -284,7 +292,7 @@ export class AgentLoopResourceAPI extends CrudResourceAPI<
    */
   async listSummaries(filter?: AgentLoopFilter): Promise<AgentLoopSummary[]> {
     const result = await this.getAll();
-    
+
     if (!isSuccess(result) || !getData(result)) {
       return [];
     }
@@ -312,7 +320,7 @@ export class AgentLoopResourceAPI extends CrudResourceAPI<
     byStatus: Record<AgentLoopStatus, number>;
   }> {
     const result = await this.getAll();
-    
+
     if (!isSuccess(result) || !getData(result)) {
       return {
         total: 0,
@@ -322,7 +330,7 @@ export class AgentLoopResourceAPI extends CrudResourceAPI<
 
     const entities = getData(result)!;
     const byStatus: Record<string, number> = {};
-    
+
     for (const entity of entities) {
       const status = entity.getStatus();
       byStatus[status] = (byStatus[status] || 0) + 1;

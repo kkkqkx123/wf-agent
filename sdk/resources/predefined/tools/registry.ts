@@ -59,11 +59,7 @@ import {
 } from "./stateless/filesystem/glob/index.js";
 
 // Import knowledge tools (skill)
-import {
-  skillSchema,
-  createSkillHandler,
-  SKILL_TOOL_DESCRIPTION,
-} from "./builtin/skill/index.js";
+import { skillSchema, createSkillHandler, SKILL_TOOL_DESCRIPTION } from "./builtin/skill/index.js";
 import {
   updateTodoListSchema,
   createUpdateTodoListHandler,

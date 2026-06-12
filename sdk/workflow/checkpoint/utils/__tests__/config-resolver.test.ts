@@ -298,12 +298,16 @@ describe("buildNodeCheckpointLayers", () => {
       triggerType: "NODE_BEFORE_EXECUTE",
     };
 
-    const layers = buildNodeCheckpointLayers(undefined, {
-      id: "node-1",
-      name: "Test Node",
-      type: "LLM",
-      checkpointBeforeExecute: true,
-    } as any, context);
+    const layers = buildNodeCheckpointLayers(
+      undefined,
+      {
+        id: "node-1",
+        name: "Test Node",
+        type: "LLM",
+        checkpointBeforeExecute: true,
+      } as any,
+      context,
+    );
 
     expect(layers).toHaveLength(1);
     expect(layers[0]!.source).toBe("node");
@@ -316,12 +320,16 @@ describe("buildNodeCheckpointLayers", () => {
       triggerType: "NODE_AFTER_EXECUTE",
     };
 
-    const layers = buildNodeCheckpointLayers(undefined, {
-      id: "node-2",
-      name: "After Node",
-      type: "SCRIPT",
-      checkpointAfterExecute: true,
-    } as any, context);
+    const layers = buildNodeCheckpointLayers(
+      undefined,
+      {
+        id: "node-2",
+        name: "After Node",
+        type: "SCRIPT",
+        checkpointAfterExecute: true,
+      } as any,
+      context,
+    );
 
     expect(layers).toHaveLength(1);
     expect(layers[0]!.source).toBe("node");
@@ -376,11 +384,7 @@ describe("buildNodeCheckpointLayers", () => {
       triggerType: "NODE_AFTER_EXECUTE",
     };
 
-    const layers = buildNodeCheckpointLayers(
-      { checkpointAfterNode: true },
-      undefined,
-      context,
-    );
+    const layers = buildNodeCheckpointLayers({ checkpointAfterNode: true }, undefined, context);
 
     expect(layers).toHaveLength(1);
     expect(layers[0]!.source).toBe("global");

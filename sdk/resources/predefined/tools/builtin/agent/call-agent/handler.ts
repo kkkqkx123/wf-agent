@@ -91,13 +91,14 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
       const hasProfile = config.loader.hasAgentProfile(agentProfileId);
       if (!hasProfile) {
         const available = config.loader.getAvailableAgentProfiles();
-        const availableStr = available.length > 0
-          ? available.map(a => `  - ${a.id}: ${a.description || a.name}`).join("\n")
-          : "  (no agent profiles available)";
+        const availableStr =
+          available.length > 0
+            ? available.map(a => `  - ${a.id}: ${a.description || a.name}`).join("\n")
+            : "  (no agent profiles available)";
         throw new RuntimeValidationError(
           `Agent profile '${agentProfileId}' not found.\n\nAvailable agent profiles:\n${availableStr}\n\n` +
-          `Use the 'call_agent' tool with one of the available agent profile IDs listed above, ` +
-          `or provide a valid agent profile configuration file path.`,
+            `Use the 'call_agent' tool with one of the available agent profile IDs listed above, ` +
+            `or provide a valid agent profile configuration file path.`,
           {
             operation: "call_agent",
             field: "agentProfileId",
@@ -112,16 +113,18 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
     }
 
     const startTime = Date.now();
-    
+
     // Get GlobalContext from execution context
     // The context object may have a globalContext property or be the GlobalContext itself
-    const globalContext = (context as unknown as { globalContext?: import("@sdk/core/global-context.js").GlobalContext }).globalContext;
+    const globalContext = (
+      context as unknown as { globalContext?: import("@sdk/core/global-context.js").GlobalContext }
+    ).globalContext;
     if (!globalContext) {
       throw new RuntimeValidationError("GlobalContext not available in execution context", {
         operation: "call_agent",
       });
     }
-    
+
     const coordinatorFactory = globalContext.container.get(Identifiers.AgentLoopCoordinator);
 
     if (!coordinatorFactory) {
@@ -130,19 +133,21 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
       });
     }
 
-    const agentLoopCoordinator = (coordinatorFactory as unknown as ServiceFactory<AgentLoopCoordinator, []>).create();
+    const agentLoopCoordinator = (
+      coordinatorFactory as unknown as ServiceFactory<AgentLoopCoordinator, []>
+    ).create();
 
     try {
       // Load agent profile configuration
       let runtimeConfig: AgentLoopRuntimeConfig;
-      
+
       // Check if agentProfileId is a file path
       if (existsSync(agentProfileId)) {
         // Load from configuration file using injected loader
         if (!config?.loader?.loadAgentLoopConfig) {
           throw new ConfigurationError(
             "Agent loop config loader not provided. " +
-            "The application layer must inject loadAgentLoopConfig via AgentHandlerConfig.loader.",
+              "The application layer must inject loadAgentLoopConfig via AgentHandlerConfig.loader.",
             undefined,
             { operation: "call_agent", agentProfileId },
           );
@@ -180,14 +185,16 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
       });
 
       // Validate and filter tools from ToolRegistry
-      const toolService = globalContext.container.get(Identifiers.ToolRegistry) as ToolRegistry | undefined;
+      const toolService = globalContext.container.get(Identifiers.ToolRegistry) as
+        | ToolRegistry
+        | undefined;
       let validTools: string[] = [];
-      
+
       if (runtimeConfig.availableTools?.tools && runtimeConfig.availableTools.tools.length > 0) {
         if (!toolService) {
           throw new ConfigurationError("ToolRegistry not available for tool validation");
         }
-        
+
         // Filter out invalid tool IDs/names
         // Note: getTool() now supports both ID and name lookup for LLM compatibility
         validTools = runtimeConfig.availableTools.tools.filter((toolId: string) => {
@@ -199,7 +206,7 @@ export function createCallAgentHandler(config?: AgentHandlerConfig) {
             return false;
           }
         });
-        
+
         if (validTools.length === 0 && runtimeConfig.availableTools.tools.length > 0) {
           // All tools were invalid, use empty array
           validTools = [];

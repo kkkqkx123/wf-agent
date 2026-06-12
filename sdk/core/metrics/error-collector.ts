@@ -1,6 +1,6 @@
 /**
  * Error Metrics Collector
- * 
+ *
  * Collects and aggregates metrics related to errors and exceptions including:
  * - Error occurrence counts by type
  * - Error recovery rates
@@ -44,12 +44,13 @@ export class ErrorMetricsCollector extends BaseMetricCollector {
     };
 
     if (nodeId) {
-      labels['node_id'] = nodeId;
+      labels["node_id"] = nodeId;
     }
 
     if (errorMessage) {
       // Truncate long messages to avoid excessive label size
-      labels['error_message'] = errorMessage.length > 200 ? errorMessage.substring(0, 200) + '...' : errorMessage;
+      labels["error_message"] =
+        errorMessage.length > 200 ? errorMessage.substring(0, 200) + "..." : errorMessage;
     }
 
     this.incrementCounter(ERROR_METRICS.OCCURRENCE_COUNT, labels);
@@ -125,24 +126,30 @@ export class ErrorMetricsCollector extends BaseMetricCollector {
    */
   getErrorSummary(): {
     totalErrors: number;
-    byType: Map<string, {
-      count: number;
-      affectedExecutions: number;
-      recoveryRate: number;
-    }>;
+    byType: Map<
+      string,
+      {
+        count: number;
+        affectedExecutions: number;
+        recoveryRate: number;
+      }
+    >;
     topErrors: Array<{
       errorType: string;
       count: number;
     }>;
   } {
     const result = this.query({});
-    
+
     let totalErrors = 0;
-    const byType = new Map<string, {
-      count: number;
-      affectedExecutions: number;
-      recoveryRate: number;
-    }>();
+    const byType = new Map<
+      string,
+      {
+        count: number;
+        affectedExecutions: number;
+        recoveryRate: number;
+      }
+    >();
     const errorCounts = new Map<string, number>();
 
     for (const [metricName, aggregated] of result.metrics.entries()) {
@@ -198,49 +205,49 @@ export class ErrorMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const summary = this.getErrorSummary();
     const metrics: PrometheusMetric[] = [];
-    
+
     // Total errors counter
     metrics.push({
-      name: 'error_total',
-      type: 'counter',
-      help: 'Total errors',
-      samples: [{ value: summary.totalErrors }]
+      name: "error_total",
+      type: "counter",
+      help: "Total errors",
+      samples: [{ value: summary.totalErrors }],
     });
-    
+
     // Errors by type
     for (const [errorType, stats] of summary.byType) {
       metrics.push({
-        name: 'error_by_type_total',
-        type: 'counter',
-        help: 'Errors grouped by type',
-        samples: [{ labels: { error_type: errorType }, value: stats.count }]
+        name: "error_by_type_total",
+        type: "counter",
+        help: "Errors grouped by type",
+        samples: [{ labels: { error_type: errorType }, value: stats.count }],
       });
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     const summary = this.getErrorSummary();
     const errorsByType: Record<string, unknown> = {};
-    
+
     for (const [errorType, stats] of summary.byType) {
       errorsByType[errorType] = {
         count: stats.count,
         affectedExecutions: stats.affectedExecutions,
-        recoveryRate: stats.recoveryRate
+        recoveryRate: stats.recoveryRate,
       };
     }
-    
+
     return {
-      type: 'error',
+      type: "error",
       totalErrors: summary.totalErrors,
       byType: errorsByType,
-      topErrors: summary.topErrors
+      topErrors: summary.topErrors,
     };
   }
 }

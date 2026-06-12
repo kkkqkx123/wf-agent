@@ -1,6 +1,6 @@
 /**
  * Metrics System - Metric Factory Functions
- * 
+ *
  * Utility functions for creating metric instances and collectors.
  */
 

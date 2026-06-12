@@ -115,18 +115,15 @@ export class StreamableHttpTransport implements IMcpTransport {
 
     try {
       // Use retry handler for automatic retries
-      const response = await executeWithRetry(
-        async () => {
-          return await this.httpClient.post("", message, {
-            headers: {
-              Accept: "application/json, text/event-stream",
-            },
-            signal: this.abortController!.signal,
-            stream: true, // Get raw ReadableStream for SSE support
-          });
-        },
-        this.retryConfig,
-      );
+      const response = await executeWithRetry(async () => {
+        return await this.httpClient.post("", message, {
+          headers: {
+            Accept: "application/json, text/event-stream",
+          },
+          signal: this.abortController!.signal,
+          stream: true, // Get raw ReadableStream for SSE support
+        });
+      }, this.retryConfig);
 
       // Handle streaming response
       const contentType = response.headers?.["content-type"] || "";
@@ -181,5 +178,4 @@ export class StreamableHttpTransport implements IMcpTransport {
   setHandlers(handlers: TransportEventHandlers): void {
     this.handlers = handlers;
   }
-
 }

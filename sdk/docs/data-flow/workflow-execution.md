@@ -15,35 +15,35 @@ WorkflowExecution is an execution instance of a Workflow, containing runtime dat
 ```typescript
 interface WorkflowExecution {
   // Basic identifiers
-  id: ID;                                    // Unique identifier for the execution instance
-  workflowId: ID;                            // Associated Workflow ID
-  workflowVersion: Version;                  // Workflow version
-  
+  id: ID; // Unique identifier for the execution instance
+  workflowId: ID; // Associated Workflow ID
+  workflowVersion: Version; // Workflow version
+
   // Execution status
-  currentNodeId: ID;                         // Current executing node ID
-  
+  currentNodeId: ID; // Current executing node ID
+
   // Graph structure reference
-  graph: WorkflowGraph;                      // Preprocessed graph (reference)
-  
+  graph: WorkflowGraph; // Preprocessed graph (reference)
+
   // Variable management
-  variables: WorkflowExecutionVariable[];    // Variable array (for persistence)
-  variableScopes: VariableScopes;            // Four-layer scope variable storage
-  
+  variables: WorkflowExecutionVariable[]; // Variable array (for persistence)
+  variableScopes: VariableScopes; // Four-layer scope variable storage
+
   // Input/Output
-  input: Record<string, unknown>;            // Input data
-  output: Record<string, unknown>;           // Output data
-  
+  input: Record<string, unknown>; // Input data
+  output: Record<string, unknown>; // Output data
+
   // Execution history
-  nodeResults: NodeExecutionResult[];        // Node execution results
-  errors: unknown[];                         // Error information
-  
+  nodeResults: NodeExecutionResult[]; // Node execution results
+  errors: unknown[]; // Error information
+
   // Context data
-  contextData?: Record<string, unknown>;     // Context data
-  
+  contextData?: Record<string, unknown>; // Context data
+
   // Execution type and relationships
-  executionType?: WorkflowExecutionType;     // Execution type
-  forkJoinContext?: ForkJoinContext;         // Fork/Join context
-  triggeredSubworkflowContext?: TriggeredSubworkflowContext;  // Triggered subworkflow context
+  executionType?: WorkflowExecutionType; // Execution type
+  forkJoinContext?: ForkJoinContext; // Fork/Join context
+  triggeredSubworkflowContext?: TriggeredSubworkflowContext; // Triggered subworkflow context
 }
 ```
 
@@ -51,9 +51,9 @@ interface WorkflowExecution {
 
 ```typescript
 enum WorkflowExecutionType {
-  MAIN = "MAIN",                           // Main execution
-  FORK_JOIN = "FORK_JOIN",                 // Fork/Join child execution
-  TRIGGERED_SUBWORKFLOW = "TRIGGERED_SUBWORKFLOW"  // Triggered subworkflow
+  MAIN = "MAIN", // Main execution
+  FORK_JOIN = "FORK_JOIN", // Fork/Join child execution
+  TRIGGERED_SUBWORKFLOW = "TRIGGERED_SUBWORKFLOW", // Triggered subworkflow
 }
 ```
 
@@ -63,13 +63,13 @@ enum WorkflowExecutionType {
 
 ```typescript
 enum WorkflowExecutionStatus {
-  CREATED = "CREATED",       // Created
-  RUNNING = "RUNNING",       // Running
-  PAUSED = "PAUSED",         // Paused
-  COMPLETED = "COMPLETED",   // Completed
-  FAILED = "FAILED",         // Failed
-  CANCELLED = "CANCELLED",   // Cancelled
-  TIMEOUT = "TIMEOUT"        // Timeout
+  CREATED = "CREATED", // Created
+  RUNNING = "RUNNING", // Running
+  PAUSED = "PAUSED", // Paused
+  COMPLETED = "COMPLETED", // Completed
+  FAILED = "FAILED", // Failed
+  CANCELLED = "CANCELLED", // Cancelled
+  TIMEOUT = "TIMEOUT", // Timeout
 }
 ```
 
@@ -79,10 +79,10 @@ enum WorkflowExecutionStatus {
 
 ```typescript
 interface VariableScopes {
-  global: Record<string, unknown>;      // Global scope
-  execution: Record<string, unknown>;   // Execution scope
-  local: Record<string, unknown>[];     // Local scope stack
-  loop: Record<string, unknown>[];      // Loop scope stack
+  global: Record<string, unknown>; // Global scope
+  execution: Record<string, unknown>; // Execution scope
+  local: Record<string, unknown>[]; // Local scope stack
+  loop: Record<string, unknown>[]; // Loop scope stack
 }
 ```
 
@@ -92,15 +92,15 @@ interface VariableScopes {
 
 ```typescript
 interface NodeExecutionResult {
-  nodeId: ID;                           // Node ID
-  nodeType: NodeType;                   // Node type
-  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED";  // Execution status
-  step: number;                         // Execution step
-  startTime: Timestamp;                 // Start time
-  endTime: Timestamp;                   // End time
-  executionTime: number;                // Execution duration
-  error?: unknown;                      // Error information
-  output?: unknown;                     // Output data
+  nodeId: ID; // Node ID
+  nodeType: NodeType; // Node type
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED"; // Execution status
+  step: number; // Execution step
+  startTime: Timestamp; // Start time
+  endTime: Timestamp; // End time
+  executionTime: number; // Execution duration
+  error?: unknown; // Error information
+  output?: unknown; // Output data
 }
 ```
 
@@ -111,6 +111,7 @@ interface NodeExecutionResult {
 ### Responsibilities
 
 WorkflowExecutionEntity is the entity wrapper for WorkflowExecution, providing:
+
 - Data access interfaces (getter/setter)
 - Runtime state management
 - Multiple state manager instances
@@ -121,20 +122,20 @@ WorkflowExecutionEntity is the entity wrapper for WorkflowExecution, providing:
 
 ```typescript
 class WorkflowExecutionEntity {
-  readonly id: string;                           // Execution ID
-  
-  private readonly workflowExecution: WorkflowExecution;  // WorkflowExecution data object
-  readonly state: WorkflowExecutionState;        // Runtime state
-  private readonly executionState: ExecutionState;  // Subgraph execution stack
-  readonly messageHistoryManager: MessageHistory;   // Message history
-  readonly variableStateManager: VariableState;     // Variable state
-  
-  abortController?: AbortController;             // Stop controller
-  conversationManager?: ConversationSession;     // Conversation session
-  triggerManager?: unknown;                      // Trigger management
-  toolVisibilityCoordinator?: unknown;           // Tool visibility coordination
-  
-  private childAgentLoopIds: Set<string>;        // Child AgentLoop IDs
+  readonly id: string; // Execution ID
+
+  private readonly workflowExecution: WorkflowExecution; // WorkflowExecution data object
+  readonly state: WorkflowExecutionState; // Runtime state
+  private readonly executionState: ExecutionState; // Subgraph execution stack
+  readonly messageHistoryManager: MessageHistory; // Message history
+  readonly variableStateManager: VariableState; // Variable state
+
+  abortController?: AbortController; // Stop controller
+  conversationManager?: ConversationSession; // Conversation session
+  triggerManager?: unknown; // Trigger management
+  toolVisibilityCoordinator?: unknown; // Tool visibility coordination
+
+  private childAgentLoopIds: Set<string>; // Child AgentLoop IDs
 }
 ```
 
@@ -321,34 +322,37 @@ entity.registerChild({
 
 ```typescript
 class WorkflowExecutionBuilder {
-  async build(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionEntity> {
+  async build(
+    workflowId: string,
+    options: WorkflowExecutionOptions = {},
+  ): Promise<WorkflowExecutionEntity> {
     // 1. Get preprocessed graph from GraphRegistry
     const workflowGraph = this.getGraphRegistry().get(workflowId);
-    
+
     if (!workflowGraph) {
       throw new ExecutionError(`Workflow '${workflowId}' not found or not preprocessed`);
     }
-    
+
     // 2. Build WorkflowExecutionEntity from preprocessed graph
     const workflowExecutionEntity = await this.buildFromWorkflowGraph(workflowGraph, options);
-    
+
     return workflowExecutionEntity;
   }
-  
+
   private async buildFromWorkflowGraph(
     workflowGraph: WorkflowGraph,
-    options: WorkflowExecutionOptions = {}
+    options: WorkflowExecutionOptions = {},
   ): Promise<WorkflowExecutionEntity> {
     // 1. Validate preprocessed graph
     if (!workflowGraph.nodes || workflowGraph.nodes.size === 0) {
       throw new RuntimeValidationError("Preprocessed graph must have at least one node");
     }
-    
+
     const startNode = Array.from(workflowGraph.nodes.values()).find(n => n.type === "START");
     if (!startNode) {
       throw new RuntimeValidationError("Preprocessed graph must have a START node");
     }
-    
+
     // 2. Create WorkflowExecution object
     const executionId = generateId();
     const workflowExecution: WorkflowExecution = {
@@ -370,24 +374,29 @@ class WorkflowExecutionBuilder {
       errors: [],
       executionType: "MAIN",
     };
-    
+
     // 3. Initialize variables
     const variableCoordinator = this.getVariableCoordinator();
     variableCoordinator.initializeFromWorkflow(workflowGraph.variables || []);
-    
+
     // 4. Create ExecutionState
     const executionState = new ExecutionState();
-    
+
     // 5. Create ConversationSession
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
       executionId: workflowExecution.id,
       workflowId: workflowGraph.workflowId,
     });
-    
+
     // 6. Create WorkflowExecutionEntity
-    const workflowExecutionEntity = new WorkflowExecutionEntity(workflowExecution, executionState, undefined, conversationManager);
-    
+    const workflowExecutionEntity = new WorkflowExecutionEntity(
+      workflowExecution,
+      executionState,
+      undefined,
+      conversationManager,
+    );
+
     return workflowExecutionEntity;
   }
 }
@@ -435,22 +444,25 @@ WorkflowExecutionRegistry.register(workflowExecutionEntity)
 
 ```typescript
 class WorkflowExecutor {
-  async executeWorkflow(workflowExecutionEntity: WorkflowExecutionEntity): Promise<WorkflowExecutionResult> {
+  async executeWorkflow(
+    workflowExecutionEntity: WorkflowExecutionEntity,
+  ): Promise<WorkflowExecutionResult> {
     const executionId = workflowExecutionEntity.id;
     const workflowId = workflowExecutionEntity.getWorkflowId();
-    
+
     // 1. Verify workflow graph exists
     const workflowGraph = this.graphRegistry.get(workflowId);
     if (!workflowGraph) {
       throw new Error(`Graph not found for workflow: ${workflowId}`);
     }
-    
+
     // 2. Create WorkflowExecutionCoordinator
-    const workflowExecutionCoordinator = this.workflowExecutionCoordinatorFactory.create(workflowExecutionEntity);
-    
+    const workflowExecutionCoordinator =
+      this.workflowExecutionCoordinatorFactory.create(workflowExecutionEntity);
+
     // 3. Execute workflow
     const result = await workflowExecutionCoordinator.execute();
-    
+
     return result;
   }
 }
@@ -465,34 +477,34 @@ class WorkflowExecutionCoordinator {
   async execute(): Promise<WorkflowExecutionResult> {
     const executionId = this.workflowExecutionEntity.id;
     const startTime = this.workflowExecutionEntity.getStartTime();
-    
+
     // Execution loop
     while (true) {
       // 1. Check interrupt status
       if (this.interruptionManager.shouldPause()) {
         throw new WorkflowExecutionInterruptedException("Workflow execution paused", "PAUSE", ...);
       }
-      
+
       if (this.interruptionManager.shouldStop()) {
         throw new WorkflowExecutionInterruptedException("Workflow execution stopped", "STOP", ...);
       }
-      
+
       // 2. Get current node
       const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
       if (!currentNodeId) break;
-      
+
       const graphNode = this.navigator.getGraph().getNode(currentNodeId);
       if (!graphNode) break;
-      
+
       // 3. Execute node
       const result = await this.nodeExecutionCoordinator.executeNode(
         this.workflowExecutionEntity,
         currentNode
       );
-      
+
       // 4. Record result
       this.workflowExecutionEntity.addNodeResult(result);
-      
+
       // 5. Move to next node
       if (result.status === "COMPLETED") {
         const nextNode = this.navigator.getNextNode(currentNodeId);
@@ -505,11 +517,11 @@ class WorkflowExecutionCoordinator {
         break;
       }
     }
-    
+
     // 6. Build execution result
     const endTime = this.workflowExecutionEntity.getEndTime() || Date.now();
     const executionTime = endTime - (startTime || Date.now());
-    
+
     return {
       executionId,
       output: this.workflowExecutionEntity.getOutput(),
@@ -569,67 +581,73 @@ WorkflowExecutionCoordinator.execute()
 ```typescript
 class WorkflowLifecycleCoordinator {
   // Execute workflow
-  async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
+  async execute(
+    workflowId: string,
+    options: WorkflowExecutionOptions = {},
+  ): Promise<WorkflowExecutionResult> {
     // Step 1: Build WorkflowExecutionEntity
     const workflowExecutionEntity = await this.workflowExecutionBuilder.build(workflowId, options);
-    
+
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
-    
+
     // Step 3: Start workflow execution
     await this.workflowStateTransitor.startWorkflowExecution(workflowExecutionEntity);
-    
+
     // Step 4: Execute workflow
     const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
-    
+
     // Step 5: Update status based on execution result
     if (result.metadata?.status === "COMPLETED") {
       await this.workflowStateTransitor.completeWorkflowExecution(workflowExecutionEntity, result);
     } else {
       await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, error);
     }
-    
+
     return result;
   }
-  
+
   // Pause workflow execution
   async pauseWorkflowExecution(executionId: string): Promise<void> {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
-    
+
     // 1. Request pause
     workflowExecutionEntity.interrupt("PAUSE");
-    
+
     // 2. Delegate state transition
     await this.workflowStateTransitor.pauseWorkflowExecution(workflowExecutionEntity);
   }
-  
+
   // Resume workflow execution
   async resumeWorkflowExecution(executionId: string): Promise<WorkflowExecutionResult> {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
-    
+
     // 1. Delegate state transition
     await this.workflowStateTransitor.resumeWorkflowExecution(workflowExecutionEntity);
-    
+
     // 2. Reset interrupt status
     workflowExecutionEntity.resetInterrupt();
-    
+
     // 3. Continue execution
     return await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
   }
-  
+
   // Stop workflow execution
   async stopWorkflowExecution(executionId: string): Promise<void> {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
-    
+
     // 1. Request stop
     workflowExecutionEntity.interrupt("STOP");
-    
+
     // 2. Delegate state transition
-    await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, "user_requested");
-    
+    await this.workflowStateTransitor.cancelWorkflowExecution(
+      workflowExecutionEntity,
+      "user_requested",
+    );
+
     // 3. Cascade cancel child executions
     await this.workflowStateTransitor.cascadeCancel(executionId);
-    
+
     // 4. Cleanup child AgentLoops
     await this.cleanupChildAgentLoops(executionId);
   }
@@ -651,21 +669,21 @@ class WorkflowStateTransitor {
     await emit(this.eventManager, buildWorkflowExecutionStartedEvent(workflowExecutionEntity));
     await emit(this.eventManager, buildWorkflowExecutionStateChangedEvent(...));
   }
-  
+
   // Pause workflow execution
   async pauseWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     validateTransition(workflowExecutionEntity.id, currentStatus, "PAUSED");
     workflowExecutionEntity.setStatus("PAUSED");
     await emit(this.eventManager, buildWorkflowExecutionPausedEvent(workflowExecutionEntity));
   }
-  
+
   // Resume workflow execution
   async resumeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     validateTransition(workflowExecutionEntity.id, currentStatus, "RUNNING");
     workflowExecutionEntity.setStatus("RUNNING");
     await emit(this.eventManager, buildWorkflowExecutionResumedEvent(workflowExecutionEntity));
   }
-  
+
   // Complete workflow execution
   async completeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, result: WorkflowExecutionResult): Promise<void> {
     validateTransition(workflowExecutionEntity.id, previousStatus, "COMPLETED");
@@ -674,7 +692,7 @@ class WorkflowStateTransitor {
     this.graphConversationSession.cleanup();
     await emit(this.eventManager, buildWorkflowExecutionCompletedEvent(workflowExecutionEntity, result));
   }
-  
+
   // Fail workflow execution
   async failWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, error: Error): Promise<void> {
     validateTransition(workflowExecutionEntity.id, previousStatus, "FAILED");
@@ -682,7 +700,7 @@ class WorkflowStateTransitor {
     workflowExecutionEntity.state.fail(error);
     await emit(this.eventManager, buildWorkflowExecutionFailedEvent(...));
   }
-  
+
   // Cancel workflow execution
   async cancelWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, reason?: string): Promise<void> {
     validateTransition(workflowExecutionEntity.id, currentStatus, "CANCELLED");
@@ -717,11 +735,11 @@ class WorkflowStateTransitor {
          ┌───────────┐
          │ CANCELLED │
          └───────────┘
-              
+
          ┌───────────┐
          │ COMPLETED │  (Normal completion)
          └───────────┘
-              
+
          ┌───────────┐
          │  FAILED   │  (Execution failure)
          └───────────┘
@@ -740,42 +758,42 @@ WorkflowExecutionRegistry is responsible for storing and querying WorkflowExecut
 ```typescript
 class WorkflowExecutionRegistry {
   private workflowExecutionEntities: Map<string, WorkflowExecutionEntity> = new Map();
-  
+
   // Register
   register(workflowExecutionEntity: WorkflowExecutionEntity): void {
     this.workflowExecutionEntities.set(workflowExecutionEntity.id, workflowExecutionEntity);
   }
-  
+
   // Get
   get(executionId: string): WorkflowExecutionEntity | null {
     return this.workflowExecutionEntities.get(executionId) || null;
   }
-  
+
   // Delete
   delete(executionId: string): void {
     this.workflowExecutionEntities.delete(executionId);
   }
-  
+
   // Get all
   getAll(): WorkflowExecutionEntity[] {
     return Array.from(this.workflowExecutionEntities.values());
   }
-  
+
   // Query by status
   getByStatus(status: WorkflowExecutionStatus): WorkflowExecutionEntity[] {
     return this.getAll().filter(entity => entity.getStatus() === status);
   }
-  
+
   // Get running executions
   getRunning(): WorkflowExecutionEntity[] {
     return this.getByStatus("RUNNING");
   }
-  
+
   // Get paused executions
   getPaused(): WorkflowExecutionEntity[] {
     return this.getByStatus("PAUSED");
   }
-  
+
   // Cleanup completed executions
   cleanupCompleted(): number {
     const completedIds = this.getCompleted().map(e => e.id);

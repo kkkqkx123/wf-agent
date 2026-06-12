@@ -21,19 +21,17 @@ export class ToolVisibilityMessageBuilder {
   /**
    * Build visibility declaration message
    * Generates a complete tool visibility declaration for scope changes
-   * 
+   *
    * @param availableTools List of available tool IDs
    * @returns Declaration message content
    */
-  buildVisibilityDeclarationMessage(
-    availableTools: string[],
-  ): string {
+  buildVisibilityDeclarationMessage(availableTools: string[]): string {
     return this.buildUpdateNotification(
       availableTools.map(id => {
         const tool = this.toolService.getTool(id);
         return {
           id,
-          description: tool?.description || 'No description',
+          description: tool?.description || "No description",
         };
       }),
       undefined,
@@ -42,7 +40,7 @@ export class ToolVisibilityMessageBuilder {
 
   /**
    * Build metadata for visibility declaration
-   * 
+   *
    * @param scope Current scope
    * @param scopeId Scope ID
    * @param availableTools List of available tool IDs
@@ -68,7 +66,7 @@ export class ToolVisibilityMessageBuilder {
   /**
    * Build lightweight tool update notification
    * Only includes added/removed tools without exposing internal details
-   * 
+   *
    * @param addedTools List of newly added tools with descriptions
    * @param removedTools List of removed tool IDs
    * @returns Notification message content
@@ -78,14 +76,14 @@ export class ToolVisibilityMessageBuilder {
     removedTools?: string[],
   ): string {
     // Format added tools
-    const addedSection = addedTools && addedTools.length > 0
-      ? addedTools.map(t => `- ${t.id}: ${t.description}`).join("\n")
-      : "";
+    const addedSection =
+      addedTools && addedTools.length > 0
+        ? addedTools.map(t => `- ${t.id}: ${t.description}`).join("\n")
+        : "";
 
     // Format removed tools
-    const removedSection = removedTools && removedTools.length > 0
-      ? removedTools.map(id => `- ${id}`).join("\n")
-      : "";
+    const removedSection =
+      removedTools && removedTools.length > 0 ? removedTools.map(id => `- ${id}`).join("\n") : "";
 
     // Render template (empty sections will be omitted)
     return renderTemplate(TOOL_VISIBILITY_DECLARATION_TEMPLATE.content, {
@@ -97,7 +95,7 @@ export class ToolVisibilityMessageBuilder {
   /**
    * Build metadata for tool update event (for logging/debugging)
    * Note: This is NOT sent to LLM, only used for internal tracking
-   * 
+   *
    * @param scope Scope (internal use only)
    * @param scopeId Scope ID (internal use only)
    * @param addedToolIds Added tool IDs

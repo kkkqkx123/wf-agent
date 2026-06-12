@@ -13,5 +13,9 @@ This tool is designed for interaction scenarios requiring flexible, user-defined
 Import and register the tool in your agent configuration:
 
 ```ts
-import { createSkillHandler, skillSchema, SKILL_TOOL_DESCRIPTION } from "@wf-agent/sdk/resources/predefined/tools/builtin/skill";
+import {
+  createSkillHandler,
+  skillSchema,
+  SKILL_TOOL_DESCRIPTION,
+} from "@wf-agent/sdk/resources/predefined/tools/builtin/skill";
 ```

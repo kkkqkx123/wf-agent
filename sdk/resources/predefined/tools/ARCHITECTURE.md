@@ -50,6 +50,7 @@ A utility should remain in `sdk/utils/misc` if it meets **ANY** of these criteri
 4. **Part of core SDK capabilities** - e.g., token estimation, streaming reads
 
 **Examples:**
+
 - `file-reader.ts` - Any tool that reads files can use this
 - `binary-detector.ts` - Search, grep, and other tools need binary detection
 - `text-extractor.ts` - Generic PDF/DOCX extraction usable anywhere
@@ -69,6 +70,7 @@ A utility should be in a tool's local `utils/` directory if it meets **ALL** of 
 4. **Format-specific processing** - e.g., patch format, diff format
 
 **Examples:**
+
 - `apply-diff/utils/diff-stats.ts` - Only applies to unified diff format
 - `apply-diff/utils/text-normalization.ts` - Specific to diff content from LLMs
 - `apply-patch/utils/parser.ts` - Custom Codex patch format parser
@@ -77,26 +79,31 @@ A utility should be in a tool's local `utils/` directory if it meets **ALL** of 
 ## Benefits of This Architecture
 
 ### 1. **Clear Separation of Concerns**
+
 - General utilities are easy to find and reuse
 - Tool-specific logic stays close to where it's used
 - Reduces cognitive load when navigating codebase
 
 ### 2. **Better Encapsulation**
+
 - Tool-specific utilities are implementation details
 - Changes to tool internals don't affect other parts of the system
 - Easier to refactor or replace individual tools
 
 ### 3. **Improved Discoverability**
+
 - Developers know where to look:
   - Need general file handling? → `sdk/utils/misc/`
   - Need to understand apply-diff? → `apply-diff/utils/`
 
 ### 4. **Reduced Coupling**
+
 - Tools don't depend on unrelated utilities
 - Easier to extract tools into separate packages if needed
 - Cleaner dependency graph
 
 ### 5. **Easier Testing**
+
 - Tool-specific utilities can be tested alongside the tool
 - General utilities have their own comprehensive test suites
 - Clear test organization matches code organization
@@ -106,6 +113,7 @@ A utility should be in a tool's local `utils/` directory if it meets **ALL** of 
 ### When to Move a Utility to Tool-Specific
 
 **Move if:**
+
 ```typescript
 // ❌ Before: In sdk/utils/misc but only used by one tool
 import { computeDiffStats } from "@wf-agent/sdk";
@@ -115,6 +123,7 @@ import { computeDiffStats } from "./utils/diff-stats.js";
 ```
 
 **Criteria checklist:**
+
 - [ ] Used by only ONE tool
 - [ ] Tied to specific format (diff, patch, etc.)
 - [ ] Not part of general SDK capabilities
@@ -123,12 +132,14 @@ import { computeDiffStats } from "./utils/diff-stats.js";
 ### When to Keep in General Utilities
 
 **Keep if:**
+
 ```typescript
 // ✅ Already in right place: used by multiple tools
 import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 ```
 
 **Criteria checklist:**
+
 - [ ] Used by 2+ tools OR likely to be reused
 - [ ] Solves a general problem (file I/O, text processing)
 - [ ] Part of SDK's public API surface
@@ -137,6 +148,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 ## Current Status
 
 ### ✅ Correctly Placed (sdk/utils/misc)
+
 - `file-reader.ts` - Multi-tool usage
 - `binary-detector.ts` - Multi-tool usage
 - `text-extractor.ts` - General capability
@@ -147,6 +159,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 - `token-aware-reader.ts` - LLM integration pattern
 
 ### ✅ Correctly Placed (tool-specific)
+
 - `apply-diff/utils/diff-stats.ts` - Unified diff specific
 - `apply-diff/utils/text-normalization.ts` - Diff content specific
 - `apply-patch/utils/*` - Custom patch format specific
@@ -158,6 +171,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 **Scenario:** Another tool starts needing diff statistics
 
 **Action:**
+
 1. Move from `apply-diff/utils/diff-stats.ts` to `sdk/utils/misc/diff-stats.ts`
 2. Update imports in both tools
 3. Add comprehensive tests in `sdk/utils/misc/__tests__/`
@@ -168,6 +182,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 **Scenario:** No tools use `image-processor.ts` anymore
 
 **Action:**
+
 1. Verify no external dependencies
 2. Deprecate with warning in next minor version
 3. Remove in next major version
@@ -192,6 +207,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 ### For Refactoring
 
 1. **Search before moving**
+
    ```bash
    grep -r "computeDiffStats" sdk/
    ```
@@ -208,6 +224,7 @@ import { detectBinaryFile } from "@wf-agent/sdk"; // read-file, grep, etc.
 ## Conclusion
 
 This two-layer architecture provides:
+
 - **Clarity**: Easy to understand where utilities belong
 - **Flexibility**: Easy to move utilities as usage patterns evolve
 - **Maintainability**: Reduced coupling and better encapsulation

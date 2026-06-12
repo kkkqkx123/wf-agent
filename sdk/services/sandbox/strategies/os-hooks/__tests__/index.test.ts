@@ -100,7 +100,11 @@ describe("executePassthrough (base.ts)", () => {
       exitCode: 0,
     });
 
-    const result = await executePassthrough(mockTerminal as unknown as TerminalService, options, Date.now());
+    const result = await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      options,
+      Date.now(),
+    );
 
     expect(result.success).toBe(true);
     expect(result.stdout).toBe("hello world");
@@ -124,7 +128,11 @@ describe("executePassthrough (base.ts)", () => {
       error: "command failed",
     });
 
-    const result = await executePassthrough(mockTerminal as unknown as TerminalService, options, Date.now());
+    const result = await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      options,
+      Date.now(),
+    );
 
     expect(result.success).toBe(false);
     expect(result.stderr).toBe("error occurred");
@@ -135,7 +143,11 @@ describe("executePassthrough (base.ts)", () => {
   it("should return failure result when terminalService throws", async () => {
     mockTerminal.executeOneOff.mockRejectedValue(new Error("connection lost"));
 
-    const result = await executePassthrough(mockTerminal as unknown as TerminalService, options, Date.now());
+    const result = await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      options,
+      Date.now(),
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("connection lost");
@@ -146,7 +158,11 @@ describe("executePassthrough (base.ts)", () => {
   it("should return failure with string message when terminalService throws non-Error", async () => {
     mockTerminal.executeOneOff.mockRejectedValue("string error");
 
-    const result = await executePassthrough(mockTerminal as unknown as TerminalService, options, Date.now());
+    const result = await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      options,
+      Date.now(),
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("string error");
@@ -157,7 +173,11 @@ describe("executePassthrough (base.ts)", () => {
     const startTime = Date.now();
 
     vi.setSystemTime(2500); // 1500ms later
-    const result = await executePassthrough(mockTerminal as unknown as TerminalService, options, startTime);
+    const result = await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      options,
+      startTime,
+    );
 
     expect(result.executionTime).toBe(1500);
   });
@@ -167,7 +187,11 @@ describe("executePassthrough (base.ts)", () => {
       command: "ls",
     };
 
-    await executePassthrough(mockTerminal as unknown as TerminalService, minimalOptions, Date.now());
+    await executePassthrough(
+      mockTerminal as unknown as TerminalService,
+      minimalOptions,
+      Date.now(),
+    );
 
     expect(mockTerminal.executeOneOff).toHaveBeenCalledWith("ls", {
       cwd: undefined,

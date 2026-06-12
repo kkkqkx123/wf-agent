@@ -8,13 +8,13 @@
 
 ### 2.1 分层职责
 
-| 层级 | 路径 | 职责 |
-|------|------|------|
-| **执行框架** | `packages/tool-executors` | 工具执行基础设施（StatelessExecutor、StatefulExecutor、RestExecutor、McpExecutor） |
-| **提示词模板** | `packages/prompt-templates` | 工具描述模板、参数 schema 模板 |
-| **预定义资源** | `sdk/resources/predefined` | 开箱即用的工作流、触发器、工具定义 |
-| **核心服务** | `sdk/core` | ToolService、验证器、资源管理（不含具体工具实现） |
-| **应用层** | `apps/*` | 界面、配置、应用特有工具覆盖 |
+| 层级           | 路径                        | 职责                                                                               |
+| -------------- | --------------------------- | ---------------------------------------------------------------------------------- |
+| **执行框架**   | `packages/tool-executors`   | 工具执行基础设施（StatelessExecutor、StatefulExecutor、RestExecutor、McpExecutor） |
+| **提示词模板** | `packages/prompt-templates` | 工具描述模板、参数 schema 模板                                                     |
+| **预定义资源** | `sdk/resources/predefined`  | 开箱即用的工作流、触发器、工具定义                                                 |
+| **核心服务**   | `sdk/core`                  | ToolService、验证器、资源管理（不含具体工具实现）                                  |
+| **应用层**     | `apps/*`                    | 界面、配置、应用特有工具覆盖                                                       |
 
 ### 2.2 工具作为资源的理由
 
@@ -82,22 +82,22 @@ sdk/resources/predefined/
 
 对应 `packages/tool-executors` 中的四种执行器：
 
-| 目录 | 执行器 | 特性 |
-|------|--------|------|
-| `stateless/` | `StatelessExecutor` | 纯函数，无状态，幂等 |
-| `stateful/` | `StatefulExecutor` | 维护实例状态，生命周期管理 |
-| `rest/` | `RestExecutor` | HTTP API 调用，配置驱动 |
-| `mcp/` | `McpExecutor` | MCP 协议，动态发现 |
+| 目录         | 执行器              | 特性                       |
+| ------------ | ------------------- | -------------------------- |
+| `stateless/` | `StatelessExecutor` | 纯函数，无状态，幂等       |
+| `stateful/`  | `StatefulExecutor`  | 维护实例状态，生命周期管理 |
+| `rest/`      | `RestExecutor`      | HTTP API 调用，配置驱动    |
+| `mcp/`       | `McpExecutor`       | MCP 协议，动态发现         |
 
 ### 4.2 第二层：按功能分类
 
-| 分类 | 用途 | 示例工具 |
-|------|------|----------|
-| `filesystem/` | 文件操作 | read_file, write_file, edit_file |
-| `shell/` | 命令执行 | bash |
-| `memory/` | 内存/会话管理 | session_note |
-| `code/` | 代码相关 | search, analyze |
-| `http/` | HTTP 请求 | http_request |
+| 分类          | 用途          | 示例工具                         |
+| ------------- | ------------- | -------------------------------- |
+| `filesystem/` | 文件操作      | read_file, write_file, edit_file |
+| `shell/`      | 命令执行      | bash                             |
+| `memory/`     | 内存/会话管理 | session_note                     |
+| `code/`       | 代码相关      | search, analyze                  |
+| `http/`       | HTTP 请求     | http_request                     |
 
 ## 5. 工具定义结构
 
@@ -106,35 +106,35 @@ sdk/resources/predefined/
 ### 5.1 schema.ts - 参数 Schema
 
 ```typescript
-import type { ToolParameterSchema } from '@modular-agent/types';
+import type { ToolParameterSchema } from "@modular-agent/types";
 
 export const readFileSchema: ToolParameterSchema = {
-  type: 'object',
+  type: "object",
   properties: {
     path: {
-      type: 'string',
-      description: '文件的绝对路径或相对工作目录的路径'
+      type: "string",
+      description: "文件的绝对路径或相对工作目录的路径",
     },
     offset: {
-      type: 'integer',
-      description: '起始行号（1-indexed，可选）',
-      minimum: 1
+      type: "integer",
+      description: "起始行号（1-indexed，可选）",
+      minimum: 1,
     },
     limit: {
-      type: 'integer',
-      description: '读取的最大行数（可选）',
-      minimum: 1
-    }
+      type: "integer",
+      description: "读取的最大行数（可选）",
+      minimum: 1,
+    },
   },
-  required: ['path']
+  required: ["path"],
 };
 ```
 
 ### 5.2 handler.ts - 执行逻辑
 
 ```typescript
-import type { ToolOutput } from '@modular-agent/types';
-import { readFile } from 'fs/promises';
+import type { ToolOutput } from "@modular-agent/types";
+import { readFile } from "fs/promises";
 
 export interface ReadFileConfig {
   workspaceDir: string;
@@ -142,24 +142,20 @@ export interface ReadFileConfig {
 }
 
 export function createReadFileHandler(config: ReadFileConfig) {
-  return async (params: {
-    path: string;
-    offset?: number;
-    limit?: number;
-  }): Promise<ToolOutput> => {
+  return async (params: { path: string; offset?: number; limit?: number }): Promise<ToolOutput> => {
     try {
       // 实现逻辑
-      const content = await readFile(fullPath, 'utf-8');
+      const content = await readFile(fullPath, "utf-8");
       // 处理 offset/limit
       // ...
       return {
         success: true,
-        result: processedContent
+        result: processedContent,
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : '未知错误'
+        error: error instanceof Error ? error.message : "未知错误",
       };
     }
   };
@@ -169,8 +165,8 @@ export function createReadFileHandler(config: ReadFileConfig) {
 ### 5.3 index.ts - 统一导出
 
 ```typescript
-export { readFileSchema } from './schema.js';
-export { createReadFileHandler, type ReadFileConfig } from './handler.js';
+export { readFileSchema } from "./schema.js";
+export { createReadFileHandler, type ReadFileConfig } from "./handler.js";
 ```
 
 ## 6. 与现有架构的集成
@@ -179,13 +175,13 @@ export { createReadFileHandler, type ReadFileConfig } from './handler.js';
 
 ```typescript
 // sdk/resources/predefined/tools/stateless/filesystem/read-file/handler.ts
-import { FunctionRegistry } from '@modular-agent/tool-executors';
+import { FunctionRegistry } from "@modular-agent/tool-executors";
 
 // handler 被包装为 StatelessExecutor 可调用的形式
 export function createReadFileHandler(config: ReadFileConfig) {
   const registry = new FunctionRegistry();
   // 注册执行逻辑
-  return registry.wrap(async (params) => {
+  return registry.wrap(async params => {
     // 实现
   });
 }
@@ -195,13 +191,13 @@ export function createReadFileHandler(config: ReadFileConfig) {
 
 ```typescript
 // sdk/resources/predefined/tools/index.ts
-import { TOOL_DESCRIPTION_TABLE_TEMPLATE } from '@modular-agent/prompt-templates';
+import { TOOL_DESCRIPTION_TABLE_TEMPLATE } from "@modular-agent/prompt-templates";
 
 function generateToolDescription(tool: PredefinedTool): string {
   // 使用 prompt-templates 渲染
   return renderTemplate(TOOL_DESCRIPTION_TABLE_TEMPLATE.content, {
     toolName: tool.name,
-    parameters: JSON.stringify(tool.parameters, null, 2)
+    parameters: JSON.stringify(tool.parameters, null, 2),
   });
 }
 ```
@@ -210,10 +206,10 @@ function generateToolDescription(tool: PredefinedTool): string {
 
 ```typescript
 // 注册时验证（sdk/core/validation/tool-static-validator.ts）
-import { validateToolStatic } from '@modular-agent/sdk/core/validation';
+import { validateToolStatic } from "@modular-agent/sdk/core/validation";
 
 // 执行时验证（sdk/core/validation/tool-runtime-validator.ts）
-import { validateToolRuntime } from '@modular-agent/sdk/core/validation';
+import { validateToolRuntime } from "@modular-agent/sdk/core/validation";
 ```
 
 ## 7. 注册机制
@@ -222,13 +218,13 @@ import { validateToolRuntime } from '@modular-agent/sdk/core/validation';
 
 ```typescript
 // sdk/resources/predefined/tools/index.ts
-import { ToolService } from '@modular-agent/sdk/core/services';
-import { readFileSchema, createReadFileHandler } from './stateless/filesystem/read-file/index.js';
+import { ToolService } from "@modular-agent/sdk/core/services";
+import { readFileSchema, createReadFileHandler } from "./stateless/filesystem/read-file/index.js";
 // ... 其他工具
 
 export interface PredefinedToolsOptions {
-  enabled?: string[];      // 只启用指定工具（白名单）
-  disabled?: string[];     // 禁用指定工具（黑名单）
+  enabled?: string[]; // 只启用指定工具（白名单）
+  disabled?: string[]; // 禁用指定工具（黑名单）
   config?: {
     readFile?: { workspaceDir: string };
     sessionNote?: { memoryFile: string };
@@ -238,16 +234,16 @@ export interface PredefinedToolsOptions {
 
 export function registerPredefinedTools(
   toolService: ToolService,
-  options?: PredefinedToolsOptions
+  options?: PredefinedToolsOptions,
 ): void {
   const tools = [
     {
-      id: 'read_file',
-      name: 'read_file',
-      type: 'STATELESS' as const,
-      category: 'filesystem',
+      id: "read_file",
+      name: "read_file",
+      type: "STATELESS" as const,
+      category: "filesystem",
       parameters: readFileSchema,
-      createHandler: () => createReadFileHandler(options?.config?.readFile)
+      createHandler: () => createReadFileHandler(options?.config?.readFile),
     },
     // ... 其他工具定义
   ];
@@ -264,8 +260,8 @@ export function registerPredefinedTools(
       description: generateToolDescription(tool),
       parameters: tool.parameters,
       config: {
-        execute: tool.createHandler()
-      }
+        execute: tool.createHandler(),
+      },
     });
   }
 }
@@ -323,27 +319,27 @@ sdk/resources/predefined/tools/
 
 将 `apps/cli-app/src/tools/` 中的工具实现迁移到 SDK：
 
-| CLI App 原位置 | SDK 新位置 | 说明 |
-|----------------|-----------|------|
-| `tools/stateless/read-tool.ts` | `stateless/filesystem/read-file/` | 拆分 schema 和 handler |
-| `tools/stateless/write-tool.ts` | `stateless/filesystem/write-file/` | 拆分 schema 和 handler |
-| `tools/stateful/background-shell-tool.ts` | `stateful/memory/session-note/` | 使用 StatefulExecutor |
+| CLI App 原位置                            | SDK 新位置                         | 说明                   |
+| ----------------------------------------- | ---------------------------------- | ---------------------- |
+| `tools/stateless/read-tool.ts`            | `stateless/filesystem/read-file/`  | 拆分 schema 和 handler |
+| `tools/stateless/write-tool.ts`           | `stateless/filesystem/write-file/` | 拆分 schema 和 handler |
+| `tools/stateful/background-shell-tool.ts` | `stateful/memory/session-note/`    | 使用 StatefulExecutor  |
 
 ### 8.3 Apps 层简化
 
 ```typescript
 // apps/cli-app/src/index.ts (迁移后)
-import { getSDK } from '@modular-agent/sdk';
+import { getSDK } from "@modular-agent/sdk";
 
 // SDK 初始化时已自动注册预定义工具
 const sdk = getSDK({
   predefinedTools: {
     // 可选配置
-    enabled: ['read_file', 'write_file', 'run_shell'],
+    enabled: ["read_file", "write_file", "run_shell"],
     config: {
-      readFile: { workspaceDir: process.cwd() }
-    }
-  }
+      readFile: { workspaceDir: process.cwd() },
+    },
+  },
 });
 
 // 如有 CLI 特有工具，可额外注册

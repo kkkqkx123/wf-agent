@@ -24,7 +24,11 @@ import { MockLLMWrapper } from "./__shared/mock-llm-wrapper.js";
 import { LLMExecutor } from "@/core/executors/llm-executor.js";
 import { ToolRegistry } from "@/core/registry/tool-registry.js";
 import { AgentLoopExecutor } from "@/agent/execution/executors/agent-loop-executor.js";
-import { createBasicAgentConfig, createMockGlobalContext, createMockEventManager } from "./__shared/fixtures.js";
+import {
+  createBasicAgentConfig,
+  createMockGlobalContext,
+  createMockEventManager,
+} from "./__shared/fixtures.js";
 
 describe("Agent Loop Hook Triggering", () => {
   it("should invoke hooks at each lifecycle stage for single iteration", async () => {

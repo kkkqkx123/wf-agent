@@ -9,7 +9,11 @@
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 import type { FileCheckpointMetadata, FileCheckpointInfo } from "@wf-agent/types";
-import type { FileCheckpointManager, FileCheckpointCreateResult, FileCheckpointRestoreResult } from "@wf-agent/common-utils";
+import type {
+  FileCheckpointManager,
+  FileCheckpointCreateResult,
+  FileCheckpointRestoreResult,
+} from "@wf-agent/common-utils";
 
 /**
  * File checkpoint filter options
@@ -127,7 +131,10 @@ export class FileCheckpointResourceAPI extends CrudResourceAPI<
     if (!existing) {
       throw new Error(`File checkpoint not found: ${id}`);
     }
-    const updated: FileCheckpointMetadata = { ...existing.metadata, ...updates } as FileCheckpointMetadata;
+    const updated: FileCheckpointMetadata = {
+      ...existing.metadata,
+      ...updates,
+    } as FileCheckpointMetadata;
     await storage.save(id, updated, existing.files);
   }
 

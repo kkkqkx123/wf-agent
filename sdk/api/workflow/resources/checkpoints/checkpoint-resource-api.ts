@@ -228,7 +228,10 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
    * @param metadata Checkpoint metadata
    * @returns Checkpoint ID
    */
-  async createWorkflowExecutionCheckpoint(executionId: string, metadata?: CheckpointMetadata): Promise<string> {
+  async createWorkflowExecutionCheckpoint(
+    executionId: string,
+    metadata?: CheckpointMetadata,
+  ): Promise<string> {
     const executionRegistry = this.deps.getWorkflowExecutionRegistry();
     const workflowRegistry = this.deps.getWorkflowRegistry();
     const graphRegistry = this.deps.getWorkflowGraphRegistry();
@@ -240,11 +243,9 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
       workflowGraphRegistry: graphRegistry,
     };
 
-    const checkpointId = await CheckpointCoordinator.createCheckpoint(
-      executionId,
-      dependencies,
-      { metadata },
-    );
+    const checkpointId = await CheckpointCoordinator.createCheckpoint(executionId, dependencies, {
+      metadata,
+    });
     return checkpointId;
   }
 
@@ -401,9 +402,8 @@ export class CheckpointResourceAPI extends CrudResourceAPI<Checkpoint, string, C
       transitions.push(transition);
     }
 
-    const totalElapsed = sorted.length >= 2
-      ? sorted[sorted.length - 1]!.timestamp - sorted[0]!.timestamp
-      : 0;
+    const totalElapsed =
+      sorted.length >= 2 ? sorted[sorted.length - 1]!.timestamp - sorted[0]!.timestamp : 0;
 
     return {
       executionId,

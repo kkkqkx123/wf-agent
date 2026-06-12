@@ -1,6 +1,6 @@
 /**
  * Tool Call Metrics Collector
- * 
+ *
  * Collects and aggregates metrics specific to tool executions including:
  * - Tool call duration distribution
  * - Success/failure rates
@@ -109,7 +109,8 @@ export class ToolMetricsCollector extends BaseMetricCollector {
 
     if (errorMessage) {
       // Truncate long messages to avoid excessive label size
-      labels['error_message'] = errorMessage.length > 200 ? errorMessage.substring(0, 200) + '...' : errorMessage;
+      labels["error_message"] =
+        errorMessage.length > 200 ? errorMessage.substring(0, 200) + "..." : errorMessage;
     }
 
     this.incrementCounter(TOOL_METRICS.ERROR_COUNT, labels);
@@ -135,19 +136,25 @@ export class ToolMetricsCollector extends BaseMetricCollector {
    * Returns average duration, success rate, and error count for each tool
    * @returns Map of tool ID to performance metrics
    */
-  getToolPerformanceSummary(): Map<string, {
-    avgDuration: number;
-    successRate: number;
-    totalCalls: number;
-    errorCount: number;
-  }> {
-    const result = this.query({});
-    const summary = new Map<string, {
+  getToolPerformanceSummary(): Map<
+    string,
+    {
       avgDuration: number;
       successRate: number;
       totalCalls: number;
       errorCount: number;
-    }>();
+    }
+  > {
+    const result = this.query({});
+    const summary = new Map<
+      string,
+      {
+        avgDuration: number;
+        successRate: number;
+        totalCalls: number;
+        errorCount: number;
+      }
+    >();
 
     // Aggregate by tool_id
     for (const [metricName, aggregated] of result.metrics.entries()) {
@@ -168,13 +175,10 @@ export class ToolMetricsCollector extends BaseMetricCollector {
             }
 
             const toolStats = summary.get(toolId)!;
-            
+
             // Calculate average duration from time series
             if (aggregated.timeSeries && aggregated.timeSeries.length > 0) {
-              const totalDuration = aggregated.timeSeries.reduce(
-                (sum, ts) => sum + ts.value,
-                0,
-              );
+              const totalDuration = aggregated.timeSeries.reduce((sum, ts) => sum + ts.value, 0);
               toolStats.avgDuration = totalDuration / aggregated.timeSeries.length;
             }
 
@@ -195,71 +199,71 @@ export class ToolMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const summary = this.getToolPerformanceSummary();
     const metrics: PrometheusMetric[] = [];
-    
+
     // Total tool calls counter
     let totalCalls = 0;
     for (const [, stats] of summary) {
       totalCalls += stats.totalCalls;
     }
-    
+
     metrics.push({
-      name: 'tool_call_total',
-      type: 'counter',
-      help: 'Total tool calls',
-      samples: [{ value: totalCalls }]
+      name: "tool_call_total",
+      type: "counter",
+      help: "Total tool calls",
+      samples: [{ value: totalCalls }],
     });
-    
+
     // Tool calls by tool_id
     for (const [toolId, stats] of summary) {
       metrics.push({
-        name: 'tool_call_by_tool_total',
-        type: 'counter',
-        help: 'Tool calls grouped by tool ID',
-        samples: [{ labels: { tool_id: toolId }, value: stats.totalCalls }]
+        name: "tool_call_by_tool_total",
+        type: "counter",
+        help: "Tool calls grouped by tool ID",
+        samples: [{ labels: { tool_id: toolId }, value: stats.totalCalls }],
       });
-      
+
       // Average duration per tool
       metrics.push({
-        name: 'tool_call_duration_seconds',
-        type: 'gauge',
-        help: 'Average tool call duration in seconds',
-        samples: [{ labels: { tool_id: toolId }, value: stats.avgDuration / 1000 }]
+        name: "tool_call_duration_seconds",
+        type: "gauge",
+        help: "Average tool call duration in seconds",
+        samples: [{ labels: { tool_id: toolId }, value: stats.avgDuration / 1000 }],
       });
-      
+
       // Error count per tool
       if (stats.errorCount > 0) {
         metrics.push({
-          name: 'tool_call_error_total',
-          type: 'counter',
-          help: 'Tool call errors',
-          samples: [{ labels: { tool_id: toolId }, value: stats.errorCount }]
+          name: "tool_call_error_total",
+          type: "counter",
+          help: "Tool call errors",
+          samples: [{ labels: { tool_id: toolId }, value: stats.errorCount }],
         });
       }
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     const summary = this.getToolPerformanceSummary();
     const toolsData: Record<string, unknown> = {};
-    
+
     for (const [toolId, stats] of summary) {
       toolsData[toolId] = {
         totalCalls: stats.totalCalls,
         avgDuration: stats.avgDuration,
         successRate: stats.successRate,
-        errorCount: stats.errorCount
+        errorCount: stats.errorCount,
       };
     }
-    
+
     return {
-      type: 'tool',
-      tools: toolsData
+      type: "tool",
+      tools: toolsData,
     };
   }
 }

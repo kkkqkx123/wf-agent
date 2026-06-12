@@ -87,7 +87,7 @@ describe("Universal Matcher", () => {
 
   describe("normalizedMatch", () => {
     it("should match with Unicode normalization", () => {
-      const lines = ['console.log(\u201chello\u201d)'];
+      const lines = ["console.log(\u201chello\u201d)"];
       const pattern = ['console.log("hello")'];
       expect(normalizedMatch(lines, pattern, 0)).toBe(true);
     });
@@ -146,7 +146,7 @@ describe("Universal Matcher", () => {
       });
 
       it("should match with Unicode differences (pass 4)", () => {
-        const lines = ['console.log(\u201chello\u201d)', "next"];
+        const lines = ["console.log(\u201chello\u201d)", "next"];
         const pattern = ['console.log("hello")'];
         expect(seekSequence(lines, pattern, 0)).toBe(0);
       });
@@ -228,7 +228,7 @@ describe("Universal Matcher", () => {
       });
 
       it("should use unicode normalization as last resort", () => {
-        const lines = ['console.log(\u201chello\u201d)'];
+        const lines = ["console.log(\u201chello\u201d)"];
         const pattern = ['console.log("hello")'];
         const result = seekSequence(lines, pattern, 0);
         expect(result).toBe(0);
@@ -237,12 +237,7 @@ describe("Universal Matcher", () => {
 
     describe("complex scenarios", () => {
       it("should handle multi-line patterns", () => {
-        const lines = [
-          "function test() {",
-          "  return 1;",
-          "}",
-          "other code",
-        ];
+        const lines = ["function test() {", "  return 1;", "}", "other code"];
         const pattern = ["function test() {", "  return 1;", "}"];
         expect(seekSequence(lines, pattern, 0)).toBe(0);
       });

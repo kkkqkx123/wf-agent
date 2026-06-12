@@ -15,10 +15,12 @@ This document describes the design for distinguishing and managing execution-sco
 ### Current Issue
 
 All event listeners are treated equally as "global" listeners with no distinction between:
+
 - **Temporary listeners**: Tied to specific workflow executions (should be auto-cleaned)
 - **Permanent listeners**: Application-wide monitoring (should persist)
 
 This leads to:
+
 - Manual cleanup boilerplate code
 - Risk of memory leaks if cleanup is forgotten
 - No automatic lifecycle management
@@ -40,6 +42,7 @@ This leads to:
 Add optional `executionId` parameter to listener registration options.
 
 **Rationale:**
+
 - ✅ Backward compatible (optional parameter)
 - ✅ Explicit intent (clear from code)
 - ✅ Flexible (can mix scoped and global)
@@ -47,6 +50,7 @@ Add optional `executionId` parameter to listener registration options.
 - ✅ No breaking changes
 
 **Rejected Alternatives:**
+
 - Separate methods: Breaking change, less flexible
 - Context-based scoping: Implicit behavior, thread-safety issues
 - WeakRef-based cleanup: Unpredictable GC timing, complex debugging
@@ -58,11 +62,13 @@ Add optional `executionId` parameter to listener registration options.
 ### 3.1 Listener Scopes
 
 **Execution-Scoped Listeners:**
+
 - Associated with a specific workflow execution via `executionId`
 - Automatically cleaned up when execution ends
 - Used for: Internal coordination, temporary handlers, streaming commands
 
 **Global Listeners:**
+
 - No execution association
 - Persist for application lifetime
 - Used for: External monitoring, dashboards, cross-execution coordination
@@ -99,17 +105,18 @@ Global listeners continue working
 
 ```typescript
 interface ListenerOptions<T extends BaseEvent> {
-  priority?: number;           // Execution order priority
-  filter?: (event: T) => boolean;  // Selective event handling
-  timeout?: number;            // Listener execution timeout
-  executionId?: string;        // Associate with execution (NEW)
-  autoCleanup?: boolean;       // Auto-cleanup flag (default: true)
+  priority?: number; // Execution order priority
+  filter?: (event: T) => boolean; // Selective event handling
+  timeout?: number; // Listener execution timeout
+  executionId?: string; // Associate with execution (NEW)
+  autoCleanup?: boolean; // Auto-cleanup flag (default: true)
 }
 ```
 
 ### 4.2 Registration Methods
 
 **Execution-Scoped Listener:**
+
 ```typescript
 eventManager.on("NODE_COMPLETED", handler, {
   executionId: workflowExecution.id,
@@ -118,28 +125,32 @@ eventManager.on("NODE_COMPLETED", handler, {
 ```
 
 **Global Listener:**
+
 ```typescript
 eventManager.on("WORKFLOW_COMPLETED", monitorHandler);
 // Persists indefinitely, manual cleanup if needed
 ```
 
 **Opt-out of Auto-Cleanup:**
+
 ```typescript
 eventManager.on("NODE_COMPLETED", handler, {
   executionId: workflowExecution.id,
-  autoCleanup: false,  // Keep association but manage manually
+  autoCleanup: false, // Keep association but manage manually
 });
 ```
 
 ### 4.3 Cleanup Methods
 
 **Bulk Cleanup:**
+
 ```typescript
 const cleanedCount = eventRegistry.cleanupExecutionListeners(executionId);
 // Removes all listeners associated with this execution
 ```
 
 **Statistics:**
+
 ```typescript
 const stats = eventRegistry.getExecutionListenerStats();
 // Returns Map<executionId, listenerCount>
@@ -167,6 +178,7 @@ Modified `stopWorkflowExecution` flow:
 ### 5.2 Streaming Commands Simplification
 
 **Before:**
+
 ```typescript
 const unsubscribers: Array<() => void> = [];
 try {
@@ -177,16 +189,17 @@ try {
   // ... execution logic
 } finally {
   for (const unsubscribe of unsubscribers) {
-    unsubscribe();  // Manual cleanup
+    unsubscribe(); // Manual cleanup
   }
 }
 ```
 
 **After:**
+
 ```typescript
 for (const eventType of eventTypes) {
   eventManager.on(eventType, handler, {
-    executionId: executionEntity.id,  // Auto-cleanup
+    executionId: executionEntity.id, // Auto-cleanup
   });
 }
 // ... execution logic
@@ -218,6 +231,7 @@ try {
 ### 6.1 Concurrent Executions
 
 Multiple executions running simultaneously work correctly:
+
 - Each execution has its own listener set
 - Cleanup of one execution doesn't affect others
 - Both can listen to same event types independently
@@ -225,6 +239,7 @@ Multiple executions running simultaneously work correctly:
 ### 6.2 Nested Executions (Subworkflows)
 
 Parent and child workflows maintain separate listener scopes:
+
 - Parent cleanup only removes parent's listeners
 - Child cleanup only removes child's listeners
 - No interference between levels
@@ -232,6 +247,7 @@ Parent and child workflows maintain separate listener scopes:
 ### 6.3 Listener Re-registration
 
 Same listener function registered for different executions:
+
 - Each registration creates separate wrapper with unique ID
 - Cleanup of one execution doesn't affect other registrations
 - This is correct behavior - logically separate subscriptions
@@ -239,6 +255,7 @@ Same listener function registered for different executions:
 ### 6.4 Filter Interaction
 
 Execution-scoped listeners can have filters:
+
 - Filter determines which events trigger the listener
 - executionId determines when listener is cleaned up
 - These concerns are orthogonal and independent
@@ -246,6 +263,7 @@ Execution-scoped listeners can have filters:
 ### 6.5 Priority Across Scopes
 
 Listener priority is independent of scope:
+
 - Higher priority listeners execute first
 - Works consistently across scoped and global listeners
 - No special handling needed
@@ -259,6 +277,7 @@ Listener priority is independent of scope:
 Additional tracking structure: `Map<executionId, Set<listenerId>>`
 
 **Cost per execution:**
+
 - ~100 bytes base overhead
 - ~50 bytes per tracked listener
 
@@ -277,6 +296,7 @@ Additional tracking structure: `Map<executionId, Set<listenerId>>`
 ### 7.3 Optimization Opportunities
 
 If performance becomes a concern:
+
 - Lazy cleanup: Only cleanup under memory pressure
 - Batch cleanup: Process multiple executions together
 - LRU cache: Limit number of tracked executions
@@ -373,7 +393,7 @@ eventManager.on("WORKFLOW_COMPLETED", monitoringListener);
 
 **Files Modified**: 4 files  
 **Lines Changed**: ~200 lines  
-**Breaking Changes**: 0  
+**Breaking Changes**: 0
 
 See [event-system-improvements-summary.md](./event-system-improvements-summary.md) for detailed implementation documentation.
 

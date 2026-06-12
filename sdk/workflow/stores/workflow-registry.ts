@@ -266,7 +266,11 @@ export class WorkflowRegistry {
    * @throws NotFoundError If the workflow does not exist
    * @throws ValidationError If the updated configuration is invalid
    */
-  async update(workflowId: string, updates: Partial<WorkflowTemplate>, options?: UpdateOptions): Promise<void> {
+  async update(
+    workflowId: string,
+    updates: Partial<WorkflowTemplate>,
+    options?: UpdateOptions,
+  ): Promise<void> {
     const workflow = this.workflows.get(workflowId);
     if (!workflow) {
       if (options?.createIfNotExists && updates.id === workflowId) {
@@ -413,7 +417,7 @@ export class WorkflowRegistry {
     if (this.storageAdapter) {
       try {
         const storageIds = await this.storageAdapter.list();
-        const missingIds = storageIds.filter((id) => !allWorkflows.has(id));
+        const missingIds = storageIds.filter(id => !allWorkflows.has(id));
 
         if (missingIds.length > 0) {
           logger.debug("Loading missing workflows from storage during list", {

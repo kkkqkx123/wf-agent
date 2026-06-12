@@ -85,8 +85,8 @@ describe("Workflow Hook Context Builder", () => {
 
       const hookContext = buildHookEvaluationContext(context);
 
-      expect(hookContext['nodeOutput']).toBeDefined();
-      expect(hookContext['nodeOutput']).toEqual({ transformedData: [1, 2, 3], count: 3 });
+      expect(hookContext["nodeOutput"]).toBeDefined();
+      expect(hookContext["nodeOutput"]).toEqual({ transformedData: [1, 2, 3], count: 3 });
     });
 
     it("should handle missing result gracefully", () => {
@@ -99,7 +99,7 @@ describe("Workflow Hook Context Builder", () => {
 
       const hookContext = buildHookEvaluationContext(context);
 
-      expect(hookContext['nodeOutput']).toBeUndefined();
+      expect(hookContext["nodeOutput"]).toBeUndefined();
       expect(hookContext.status).toBe("PENDING");
       expect(hookContext.executionTime).toBe(0);
     });
@@ -157,9 +157,9 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input).toBeDefined();
-      expect(evalContext.input['userName']).toBe("testUser");
-      expect(evalContext.input['messages']).toBeDefined();
-      expect((evalContext.input['messages'] as any[]).length).toBe(1);
+      expect(evalContext.input["userName"]).toBe("testUser");
+      expect(evalContext.input["messages"]).toBeDefined();
+      expect((evalContext.input["messages"] as any[]).length).toBe(1);
     });
 
     it("should expose node output in output namespace", () => {
@@ -177,8 +177,8 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.output).toBeDefined();
-      expect(evalContext.output['result']).toEqual({ finalResult: "done" });
-      expect(evalContext.output['nodeOutput']).toEqual({ transformedData: [1, 2, 3] });
+      expect(evalContext.output["result"]).toEqual({ finalResult: "done" });
+      expect(evalContext.output["nodeOutput"]).toEqual({ transformedData: [1, 2, 3] });
     });
 
     it("should handle undefined node output", () => {
@@ -195,7 +195,7 @@ describe("Workflow Hook Context Builder", () => {
 
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.output['nodeOutput']).toBeUndefined();
+      expect(evalContext.output["nodeOutput"]).toBeUndefined();
     });
 
     it("should preserve all evaluation context fields", () => {
@@ -214,14 +214,14 @@ describe("Workflow Hook Context Builder", () => {
 
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.input['param1']).toBe("value1");
-      expect((evalContext.input['messages'] as any[]).length).toBe(1);
-      expect(evalContext.output['result']).toEqual({ result: "final" });
-      expect(evalContext.output['nodeOutput']).toEqual({ data: "test" });
-      expect(evalContext.output['status']).toBe("FAILED");
-      expect(evalContext.output['executionTime']).toBe(200);
-      expect(evalContext.output['error']).toBeInstanceOf(Error);
-      expect(evalContext.variables['var1']).toBe(123);
+      expect(evalContext.input["param1"]).toBe("value1");
+      expect((evalContext.input["messages"] as any[]).length).toBe(1);
+      expect(evalContext.output["result"]).toEqual({ result: "final" });
+      expect(evalContext.output["nodeOutput"]).toEqual({ data: "test" });
+      expect(evalContext.output["status"]).toBe("FAILED");
+      expect(evalContext.output["executionTime"]).toBe(200);
+      expect(evalContext.output["error"]).toBeInstanceOf(Error);
+      expect(evalContext.variables["var1"]).toBe(123);
     });
   });
 
@@ -234,19 +234,21 @@ describe("Workflow Hook Context Builder", () => {
         status: "COMPLETED",
         step: 2,
         executionTime: 150,
-        output: { 
+        output: {
           transformedCount: 10,
           errors: 0,
-          data: [/* transformed data */]
+          data: [
+            /* transformed data */
+          ],
         },
       };
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { 
-          ...mockNode, 
+        node: {
+          ...mockNode,
           type: "SCRIPT",
-          config: { scriptName: "test_script", risk: "low" }
+          config: { scriptName: "test_script", risk: "low" },
         },
         result: scriptResult,
         conversationManager: {} as any,
@@ -256,14 +258,14 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Verify we can access node output for condition evaluation
-      expect(evalContext.output['nodeOutput']).toBeDefined();
-      expect((evalContext.output['nodeOutput'] as any).transformedCount).toBe(10);
-      
+      expect(evalContext.output["nodeOutput"]).toBeDefined();
+      expect((evalContext.output["nodeOutput"] as any).transformedCount).toBe(10);
+
       // Verify workflow input is accessible
-      expect(evalContext.input['userName']).toBe("testUser");
-      
+      expect(evalContext.input["userName"]).toBe("testUser");
+
       // Verify messages are accessible
-      expect((evalContext.input['messages'] as any[]).length).toBe(2);
+      expect((evalContext.input["messages"] as any[]).length).toBe(2);
     });
 
     it("should support SUBGRAPH node output checking", () => {
@@ -284,10 +286,10 @@ describe("Workflow Hook Context Builder", () => {
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { 
-          ...mockNode, 
+        node: {
+          ...mockNode,
           type: "SUBGRAPH",
-          config: { subgraphId: "test-subgraph", async: false }
+          config: { subgraphId: "test-subgraph", async: false },
         },
         result: subgraphResult,
         conversationManager: {} as any,
@@ -297,8 +299,8 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Verify subgraph execution status can be checked
-      expect(evalContext.output['nodeOutput']).toBeDefined();
-      expect((evalContext.output['nodeOutput'] as any).executionResult.status).toBe("COMPLETED");
+      expect(evalContext.output["nodeOutput"]).toBeDefined();
+      expect((evalContext.output["nodeOutput"] as any).executionResult.status).toBe("COMPLETED");
     });
 
     it("should support LLM node content checking", () => {
@@ -316,10 +318,10 @@ describe("Workflow Hook Context Builder", () => {
 
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
-        node: { 
-          ...mockNode, 
+        node: {
+          ...mockNode,
           type: "LLM",
-          config: { profileId: "test-profile" }
+          config: { profileId: "test-profile" },
         },
         result: llmResult,
         conversationManager: {} as any,
@@ -329,8 +331,8 @@ describe("Workflow Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Verify LLM content is accessible
-      expect(evalContext.output['nodeOutput']).toBeDefined();
-      expect((evalContext.output['nodeOutput'] as any).content).toBe("This is the LLM response");
+      expect(evalContext.output["nodeOutput"]).toBeDefined();
+      expect((evalContext.output["nodeOutput"] as any).content).toBe("This is the LLM response");
     });
   });
 });

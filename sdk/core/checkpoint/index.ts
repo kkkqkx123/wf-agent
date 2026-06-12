@@ -1,6 +1,6 @@
 /**
  * Universal Checkpoint System
- * 
+ *
  * Provides a unified checkpoint architecture that eliminates code duplication
  * between Workflow and Agent checkpoint implementations.
  */

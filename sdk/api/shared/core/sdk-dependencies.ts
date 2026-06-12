@@ -27,7 +27,12 @@ import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registr
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
 import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
-import type { CheckpointStorageAdapter, WorkflowStorageAdapter, WorkflowExecutionStorageAdapter, TaskStorageAdapter } from "@wf-agent/storage";
+import type {
+  CheckpointStorageAdapter,
+  WorkflowStorageAdapter,
+  WorkflowExecutionStorageAdapter,
+  TaskStorageAdapter,
+} from "@wf-agent/storage";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { GlobalContext } from "../../../core/global-context.js";
@@ -73,7 +78,9 @@ export class APIDependencyManager {
    * Obtain the checkpoint status manager
    */
   getCheckpointStateManager(): CheckpointState {
-    return this.globalContext.container.get(Identifiers.CheckpointState as ServiceIdentifier<CheckpointState>);
+    return this.globalContext.container.get(
+      Identifiers.CheckpointState as ServiceIdentifier<CheckpointState>,
+    );
   }
 
   /**
@@ -156,7 +163,9 @@ export class APIDependencyManager {
    * Get the Skill registry
    */
   getSkillRegistry(): SkillRegistry {
-    return this.globalContext.container.get(Identifiers.SkillRegistry as ServiceIdentifier<SkillRegistry>);
+    return this.globalContext.container.get(
+      Identifiers.SkillRegistry as ServiceIdentifier<SkillRegistry>,
+    );
   }
 
   /**

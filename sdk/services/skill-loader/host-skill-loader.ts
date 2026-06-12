@@ -21,9 +21,7 @@ export class HostSkillLoader implements SkillFileLoader {
 
   async listFiles(dirPath: string): Promise<string[]> {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    return entries
-      .filter((entry: Dirent) => entry.isFile())
-      .map((entry: Dirent) => entry.name);
+    return entries.filter((entry: Dirent) => entry.isFile()).map((entry: Dirent) => entry.name);
   }
 
   async exists(filePath: string): Promise<boolean> {

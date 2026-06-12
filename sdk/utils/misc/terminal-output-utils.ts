@@ -1,6 +1,6 @@
 /**
  * Terminal output processing utilities.
- * 
+ *
  * Provides functionality for:
  * - Processing carriage returns (\r) to simulate real terminal behavior
  * - Processing backspace characters (\b) in terminal output
@@ -11,14 +11,14 @@
  * Processes carriage returns (\r) in terminal output to simulate how a real terminal would display content.
  * This function is optimized for performance by using in-place string operations and avoiding memory-intensive
  * operations like split/join.
- * 
+ *
  * Key features:
  * 1. Processes output line-by-line to maximize chunk processing
  * 2. Uses string indexes and substring operations instead of arrays
  * 3. Single-pass traversal of the entire input
  * 4. Special handling for multi-byte characters (like emoji) to prevent corruption
  * 5. Replacement of partially overwritten multi-byte characters with spaces
- * 
+ *
  * @param input - The terminal output to process
  * @returns The processed terminal output with carriage returns handled
  */
@@ -61,7 +61,7 @@ export function processCarriageReturns(input: string): string {
 /**
  * Helper function to process a single line with carriage returns.
  * Handles the overwrite logic for a line that contains one or more carriage returns.
- * 
+ *
  * @param input - The original input string
  * @param initialLine - The line content up to the first carriage return
  * @param initialCrPos - The position of the first carriage return in the line
@@ -72,7 +72,7 @@ function processLineWithCarriageReturns(
   input: string,
   initialLine: string,
   initialCrPos: number,
-  lineEnd: number
+  lineEnd: number,
 ): string {
   let curLine = initialLine;
   let crPos = initialCrPos;
@@ -101,7 +101,9 @@ function processLineWithCarriageReturns(
         if (
           (segmentLastCharCode >= 0xd800 && segmentLastCharCode <= 0xdbff) || // High surrogate at end of segment
           (partialCharCode >= 0xdc00 && partialCharCode <= 0xdfff) || // Low surrogate at overwrite position
-          (curLine.length > segment.length + 1 && partialCharCode >= 0xd800 && partialCharCode <= 0xdbff) // High surrogate followed by another character
+          (curLine.length > segment.length + 1 &&
+            partialCharCode >= 0xd800 &&
+            partialCharCode <= 0xdbff) // High surrogate followed by another character
         ) {
           // If a partially overwritten multi-byte character is detected, replace with space
           const remainPart = curLine.substring(segment.length + 1);
@@ -122,11 +124,11 @@ function processLineWithCarriageReturns(
 /**
  * Processes backspace characters (\b) in terminal output using index operations.
  * Uses indexOf to efficiently locate and handle backspaces.
- * 
+ *
  * Technically terminal only moves the cursor and overwrites in-place,
  * but we assume \b is destructive as an optimization which is acceptable
  * for all progress spinner cases and most terminal output cases.
- * 
+ *
  * @param input - The terminal output to process
  * @returns The processed output with backspaces handled
  */
@@ -169,7 +171,7 @@ export function processBackspaces(input: string): string {
 /**
  * Applies run-length encoding to compress repeated lines in text.
  * Only compresses when the compression description is shorter than the repeated content.
- * 
+ *
  * @param content - The text content to compress
  * @returns The compressed text with run-length encoding applied
  */
@@ -185,7 +187,8 @@ export function applyRunLengthEncoding(content: string): string {
 
   while (pos < content.length) {
     const nextNewlineIdx = content.indexOf("\n", pos); // Find next newline index
-    const currentLine = nextNewlineIdx === -1 ? content.slice(pos) : content.slice(pos, nextNewlineIdx + 1);
+    const currentLine =
+      nextNewlineIdx === -1 ? content.slice(pos) : content.slice(pos, nextNewlineIdx + 1);
 
     if (prevLine === null) {
       prevLine = currentLine;

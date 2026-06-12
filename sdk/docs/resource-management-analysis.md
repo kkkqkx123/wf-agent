@@ -13,38 +13,41 @@
 **位置**: `sdk/agent/services/agent-loop-registry.ts`
 
 **职责**:
+
 - 管理所有活跃的 AgentLoopEntity 实例
 - 提供实例的注册、查询和删除功能
 - 支持按状态过滤实例
 - 提供资源清理功能
 
 **核心方法**:
+
 ```typescript
 class AgentLoopRegistry {
   // 实例管理
-  register(entity: AgentLoopEntity): void
-  unregister(id: ID): boolean
-  get(id: ID): AgentLoopEntity | undefined
-  has(id: ID): boolean
-  getAll(): AgentLoopEntity[]
-  getAllIds(): ID[]
-  size(): number
+  register(entity: AgentLoopEntity): void;
+  unregister(id: ID): boolean;
+  get(id: ID): AgentLoopEntity | undefined;
+  has(id: ID): boolean;
+  getAll(): AgentLoopEntity[];
+  getAllIds(): ID[];
+  size(): number;
 
   // 状态查询
-  getByStatus(status: AgentLoopStatus): AgentLoopEntity[]
-  getRunning(): AgentLoopEntity[]
-  getPaused(): AgentLoopEntity[]
-  getCompleted(): AgentLoopEntity[]
-  getFailed(): AgentLoopEntity[]
+  getByStatus(status: AgentLoopStatus): AgentLoopEntity[];
+  getRunning(): AgentLoopEntity[];
+  getPaused(): AgentLoopEntity[];
+  getCompleted(): AgentLoopEntity[];
+  getFailed(): AgentLoopEntity[];
 
   // 资源清理
-  cleanupCompleted(): number
-  clear(): void
-  cleanup(): void
+  cleanupCompleted(): number;
+  clear(): void;
+  cleanup(): void;
 }
 ```
 
 **设计特点**:
+
 - 单例模式（通过 DI 容器管理）
 - 线程安全（Map 操作）
 - 支持清理过期实例
@@ -54,11 +57,13 @@ class AgentLoopRegistry {
 **位置**: `sdk/agent/entities/agent-loop-entity.ts`
 
 **职责**:
+
 - 封装执行实例的所有数据
 - 提供数据访问接口（getter/setter）
 - 持有状态管理器实例
 
 **核心属性**:
+
 ```typescript
 class AgentLoopEntity {
   readonly id: string;
@@ -73,6 +78,7 @@ class AgentLoopEntity {
 ```
 
 **资源管理组件**:
+
 - `ConversationManager`: 对话管理器（消息历史、Token 统计）
 - `VariableStateManager`: 变量状态管理器
 - `AbortController`: 中止控制器
@@ -82,18 +88,20 @@ class AgentLoopEntity {
 **位置**: `sdk/agent/execution/handlers/agent-loop-lifecycle.ts`
 
 **职责**:
+
 - 检查点创建
 - 资源清理
 - 实例克隆
 
 **核心函数**:
+
 ```typescript
 // 创建检查点
 async function createAgentLoopCheckpoint(
   entity: AgentLoopEntity,
   dependencies: AgentLoopCheckpointDependencies,
-  options?: AgentLoopCheckpointOptions
-): Promise<string>
+  options?: AgentLoopCheckpointOptions,
+): Promise<string>;
 
 // 清理资源
 function cleanupAgentLoop(entity: AgentLoopEntity): void {
@@ -104,7 +112,7 @@ function cleanupAgentLoop(entity: AgentLoopEntity): void {
 }
 
 // 克隆实例
-function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity
+function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity;
 ```
 
 ### 1.2 资源清理流程
@@ -129,26 +137,28 @@ entities.clear()
 **位置**: `sdk/api/agent/resources/agent-loop-registry-api.ts`
 
 **职责**:
+
 - 封装 AgentLoopRegistry
 - 提供统一的 CRUD 操作
 - 提供统计信息和状态查询
 
 **核心方法**:
+
 ```typescript
 class AgentLoopRegistryAPI extends GenericResourceAPI {
   // 查询方法
-  getAgentLoopSummaries(filter?: AgentLoopFilter): Promise<AgentLoopSummary[]>
-  getAgentLoopStatus(id: ID): Promise<AgentLoopStatus | null>
-  getRunningAgentLoops(): Promise<AgentLoopEntity[]>
-  getPausedAgentLoops(): Promise<AgentLoopEntity[]>
-  getCompletedAgentLoops(): Promise<AgentLoopEntity[]>
-  getFailedAgentLoops(): Promise<AgentLoopEntity[]>
+  getAgentLoopSummaries(filter?: AgentLoopFilter): Promise<AgentLoopSummary[]>;
+  getAgentLoopStatus(id: ID): Promise<AgentLoopStatus | null>;
+  getRunningAgentLoops(): Promise<AgentLoopEntity[]>;
+  getPausedAgentLoops(): Promise<AgentLoopEntity[]>;
+  getCompletedAgentLoops(): Promise<AgentLoopEntity[]>;
+  getFailedAgentLoops(): Promise<AgentLoopEntity[]>;
 
   // 统计方法
-  getAgentLoopStatistics(): Promise<{ total, byStatus }>
+  getAgentLoopStatistics(): Promise<{ total; byStatus }>;
 
   // 清理方法
-  cleanupCompletedAgentLoops(): Promise<number>
+  cleanupCompletedAgentLoops(): Promise<number>;
 }
 ```
 
@@ -163,23 +173,26 @@ class AgentLoopRegistryAPI extends GenericResourceAPI {
 **位置**: `sdk/graph/services/thread-registry.ts`
 
 **职责**:
+
 - ThreadEntity 的内存存储和基本查询
 - 不处理状态转换、持久化或序列化
 
 **核心方法**:
+
 ```typescript
 class ThreadRegistry {
-  register(threadEntity: ThreadEntity): void
-  get(threadId: string): ThreadEntity | null
-  delete(threadId: string): void
-  getAll(): ThreadEntity[]
-  clear(): void
-  has(threadId: string): boolean
-  isWorkflowActive(workflowId: string): boolean
+  register(threadEntity: ThreadEntity): void;
+  get(threadId: string): ThreadEntity | null;
+  delete(threadId: string): void;
+  getAll(): ThreadEntity[];
+  clear(): void;
+  has(threadId: string): boolean;
+  isWorkflowActive(workflowId: string): boolean;
 }
 ```
 
 **设计特点**:
+
 - 简单的内存存储
 - 通过 SingletonRegistry 管理实例
 - 不包含资源清理逻辑
@@ -189,11 +202,13 @@ class ThreadRegistry {
 **位置**: `sdk/graph/entities/thread-entity.ts`
 
 **职责**:
+
 - 封装 Thread 实例的所有数据
 - 提供数据访问接口
 - 持有状态管理器实例
 
 **核心属性**:
+
 ```typescript
 class ThreadEntity {
   readonly id: string;
@@ -210,6 +225,7 @@ class ThreadEntity {
 ```
 
 **资源管理组件**:
+
 - `MessageHistoryManager`: 消息历史管理器
 - `VariableStateManager`: 变量状态管理器
 - `ConversationManager`: 对话管理器（可选）
@@ -220,20 +236,22 @@ class ThreadEntity {
 **位置**: `sdk/graph/execution/managers/thread-lifecycle-manager.ts`
 
 **职责**:
+
 - Thread 状态转换（原子操作）
 - 状态转换验证
 - 生命周期事件触发
 - 生命周期钩子执行
 
 **核心方法**:
+
 ```typescript
 class ThreadLifecycleManager {
-  async startThread(thread: Thread): Promise<void>
-  async pauseThread(thread: Thread): Promise<void>
-  async resumeThread(thread: Thread): Promise<void>
-  async completeThread(thread: Thread, result: ThreadResult): Promise<void>
-  async failThread(thread: Thread, error: Error): Promise<void>
-  async cancelThread(thread: Thread, reason?: string): Promise<void>
+  async startThread(thread: Thread): Promise<void>;
+  async pauseThread(thread: Thread): Promise<void>;
+  async resumeThread(thread: Thread): Promise<void>;
+  async completeThread(thread: Thread, result: ThreadResult): Promise<void>;
+  async failThread(thread: Thread, error: Error): Promise<void>;
+  async cancelThread(thread: Thread, reason?: string): Promise<void>;
 }
 ```
 
@@ -258,29 +276,30 @@ thread.endTime = now()
 
 ### 3.1 相似之处
 
-| 特性 | Agent | Graph |
-|------|-------|-------|
-| 注册表模式 | ✅ AgentLoopRegistry | ✅ ThreadRegistry |
-| 实体封装 | ✅ AgentLoopEntity | ✅ ThreadEntity |
-| 状态管理器 | ✅ VariableStateManager | ✅ VariableStateManager |
-| 消息管理器 | ✅ ConversationManager | ✅ MessageHistoryManager |
-| 中止控制 | ✅ AbortController | ✅ AbortController |
-| 生命周期管理 | ✅ AgentLoopLifecycle | ✅ ThreadLifecycleManager |
+| 特性         | Agent                   | Graph                     |
+| ------------ | ----------------------- | ------------------------- |
+| 注册表模式   | ✅ AgentLoopRegistry    | ✅ ThreadRegistry         |
+| 实体封装     | ✅ AgentLoopEntity      | ✅ ThreadEntity           |
+| 状态管理器   | ✅ VariableStateManager | ✅ VariableStateManager   |
+| 消息管理器   | ✅ ConversationManager  | ✅ MessageHistoryManager  |
+| 中止控制     | ✅ AbortController      | ✅ AbortController        |
+| 生命周期管理 | ✅ AgentLoopLifecycle   | ✅ ThreadLifecycleManager |
 
 ### 3.2 差异之处
 
-| 特性 | Agent | Graph | 影响 |
-|------|-------|-------|------|
-| 统一清理方法 | ✅ cleanup() | ❌ 缺失 | 高 |
-| 按状态查询 | ✅ getByStatus() | ❌ 缺失 | 中 |
-| 清理已完成实例 | ✅ cleanupCompleted() | ❌ 缺失 | 高 |
-| API 层封装 | ✅ AgentLoopRegistryAPI | ❌ 缺失 | 中 |
-| 检查点支持 | ✅ 完整 | ✅ 完整 | - |
-| 克隆功能 | ✅ cloneAgentLoop() | ❌ 缺失 | 低 |
+| 特性           | Agent                   | Graph   | 影响 |
+| -------------- | ----------------------- | ------- | ---- |
+| 统一清理方法   | ✅ cleanup()            | ❌ 缺失 | 高   |
+| 按状态查询     | ✅ getByStatus()        | ❌ 缺失 | 中   |
+| 清理已完成实例 | ✅ cleanupCompleted()   | ❌ 缺失 | 高   |
+| API 层封装     | ✅ AgentLoopRegistryAPI | ❌ 缺失 | 中   |
+| 检查点支持     | ✅ 完整                 | ✅ 完整 | -    |
+| 克隆功能       | ✅ cloneAgentLoop()     | ❌ 缺失 | 低   |
 
 ### 3.3 资源清理完整性对比
 
 **Agent 清理流程**:
+
 ```
 ✅ 状态清理 (state.cleanup)
 ✅ 消息历史清理 (conversationManager.cleanup)
@@ -290,6 +309,7 @@ thread.endTime = now()
 ```
 
 **Graph 清理流程**:
+
 ```
 ✅ 消息历史清理 (messageHistoryManager.cleanup)
 ❌ 变量状态清理 (缺失)
@@ -308,17 +328,17 @@ thread.endTime = now()
 ```typescript
 class ThreadRegistry {
   // 按状态查询
-  getByStatus(status: ThreadStatus): ThreadEntity[]
-  getRunning(): ThreadEntity[]
-  getPaused(): ThreadEntity[]
-  getCompleted(): ThreadEntity[]
-  getFailed(): ThreadEntity[]
+  getByStatus(status: ThreadStatus): ThreadEntity[];
+  getRunning(): ThreadEntity[];
+  getPaused(): ThreadEntity[];
+  getCompleted(): ThreadEntity[];
+  getFailed(): ThreadEntity[];
 
   // 清理已完成实例
-  cleanupCompleted(): number
+  cleanupCompleted(): number;
 
   // 统一资源清理
-  cleanup(): void
+  cleanup(): void;
 }
 ```
 
@@ -416,9 +436,9 @@ export type ExecutionInstance = AgentLoopEntity | ThreadEntity;
 ```typescript
 export interface TaskInfo {
   id: string;
-  instanceType: ExecutionInstanceType;  // 新增
-  instance: ExecutionInstance;          // 新增
-  threadEntity?: ThreadEntity;          // 废弃，保留向后兼容
+  instanceType: ExecutionInstanceType; // 新增
+  instance: ExecutionInstance; // 新增
+  threadEntity?: ThreadEntity; // 废弃，保留向后兼容
   status: TaskStatus;
   submitTime: number;
   startTime?: number;
@@ -433,12 +453,12 @@ export interface TaskInfo {
 
 ```typescript
 // 类型守卫
-export function isAgentInstance(instance: ExecutionInstance): instance is AgentLoopEntity
-export function isThreadInstance(instance: ExecutionInstance): instance is ThreadEntity
+export function isAgentInstance(instance: ExecutionInstance): instance is AgentLoopEntity;
+export function isThreadInstance(instance: ExecutionInstance): instance is ThreadEntity;
 
 // 工具函数
-export function getExecutionInstanceType(instance: ExecutionInstance): ExecutionInstanceType
-export function getExecutionInstanceId(instance: ExecutionInstance): string
+export function getExecutionInstanceType(instance: ExecutionInstance): ExecutionInstanceType;
+export function getExecutionInstanceId(instance: ExecutionInstance): string;
 ```
 
 ### 5.2 向后兼容性
@@ -481,11 +501,13 @@ sdk/
 ### 6.2 依赖关系分析
 
 **packages/types 的使用情况**:
+
 - 被 SDK 广泛使用（150+ 处导入）
 - 被 apps 层使用
 - 独立于 SDK 实现细节
 
 **SDK 内部 types 的使用情况**:
+
 - `api/shared/types/`: API 层特定类型
 - `graph/execution/types/`: Graph 执行层特定类型
 
@@ -555,12 +577,12 @@ sdk/
 
 ### 7.2 优先级建议
 
-| 任务 | 优先级 | 工作量 |
-|------|--------|--------|
-| ThreadRegistry 增强 | 高 | 低 |
-| ThreadEntity 清理方法 | 高 | 低 |
-| ThreadRegistryAPI 实现 | 中 | 中 |
-| 类型文档完善 | 低 | 中 |
+| 任务                   | 优先级 | 工作量 |
+| ---------------------- | ------ | ------ |
+| ThreadRegistry 增强    | 高     | 低     |
+| ThreadEntity 清理方法  | 高     | 低     |
+| ThreadRegistryAPI 实现 | 中     | 中     |
+| 类型文档完善           | 低     | 中     |
 
 ### 7.3 后续工作
 
@@ -575,17 +597,20 @@ sdk/
 ## 附录 A: 相关文件路径
 
 ### Agent 相关
+
 - `sdk/agent/services/agent-loop-registry.ts`
 - `sdk/agent/entities/agent-loop-entity.ts`
 - `sdk/agent/execution/handlers/agent-loop-lifecycle.ts`
 - `sdk/api/agent/resources/agent-loop-registry-api.ts`
 
 ### Graph 相关
+
 - `sdk/graph/services/thread-registry.ts`
 - `sdk/graph/entities/thread-entity.ts`
 - `sdk/graph/execution/managers/thread-lifecycle-manager.ts`
 
 ### Types 相关
+
 - `packages/types/src/`
 - `sdk/api/shared/types/`
 - `sdk/graph/execution/types/task.types.ts`

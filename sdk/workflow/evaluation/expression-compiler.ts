@@ -92,11 +92,11 @@ export class ExpressionCompiler {
 
       case "call":
         this.collectDependencies(node.callee, deps);
-        node.arguments.forEach((arg) => this.collectDependencies(arg, deps));
+        node.arguments.forEach(arg => this.collectDependencies(arg, deps));
         break;
 
       case "arrayLiteral":
-        node.elements.forEach((el) => this.collectDependencies(el, deps));
+        node.elements.forEach(el => this.collectDependencies(el, deps));
         break;
 
       case "literal":
@@ -165,10 +165,20 @@ export class ExpressionCompiler {
         return 1 + this.calculateComplexity(node.operand);
 
       case "ternary":
-        return 3 + this.calculateComplexity(node.condition) + Math.max(this.calculateComplexity(node.consequent), this.calculateComplexity(node.alternate));
+        return (
+          3 +
+          this.calculateComplexity(node.condition) +
+          Math.max(
+            this.calculateComplexity(node.consequent),
+            this.calculateComplexity(node.alternate),
+          )
+        );
 
       case "call": {
-        const argComplexity = node.arguments.reduce((sum, arg) => sum + this.calculateComplexity(arg), 0);
+        const argComplexity = node.arguments.reduce(
+          (sum, arg) => sum + this.calculateComplexity(arg),
+          0,
+        );
         return 4 + this.calculateComplexity(node.callee) + argComplexity;
       }
 

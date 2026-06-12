@@ -155,12 +155,7 @@ describe("AgentHookHandler", () => {
       result: 3,
     };
 
-    await executeAgentHook(
-      mockEntity,
-      "AFTER_TOOL_CALL",
-      mockEmitEvent,
-      toolCallInfo,
-    );
+    await executeAgentHook(mockEntity, "AFTER_TOOL_CALL", mockEmitEvent, toolCallInfo);
 
     expect(executeHooks).toHaveBeenCalledWith(
       matchingHooks,
@@ -175,9 +170,7 @@ describe("AgentHookHandler", () => {
   });
 
   it("should pass llm response info to context when provided", async () => {
-    const matchingHooks = [
-      { hookType: "AFTER_LLM_CALL", eventName: "llm.after", enabled: true },
-    ];
+    const matchingHooks = [{ hookType: "AFTER_LLM_CALL", eventName: "llm.after", enabled: true }];
     vi.mocked(filterAndSortHooks).mockReturnValue(matchingHooks);
 
     const llmResponse = {
@@ -185,13 +178,7 @@ describe("AgentHookHandler", () => {
       toolCalls: [{ id: "tc-1", name: "search" }],
     };
 
-    await executeAgentHook(
-      mockEntity,
-      "AFTER_LLM_CALL",
-      mockEmitEvent,
-      undefined,
-      llmResponse,
-    );
+    await executeAgentHook(mockEntity, "AFTER_LLM_CALL", mockEmitEvent, undefined, llmResponse);
 
     expect(executeHooks).toHaveBeenCalledWith(
       matchingHooks,

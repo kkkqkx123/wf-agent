@@ -290,9 +290,9 @@ export function injectAllMetadata(
 
   // 1. Inject skill metadata
   try {
-    const skillRegistry = globalContext.container.get(
-      Identifiers.SkillRegistry,
-    ) as SkillRegistry | undefined;
+    const skillRegistry = globalContext.container.get(Identifiers.SkillRegistry) as
+      | SkillRegistry
+      | undefined;
 
     const skillResult = injectSkillMetadata(skillRegistry, {
       systemPrompt: currentPrompt,
@@ -355,5 +355,9 @@ export function applyMetadataToConfig(
   config.systemPrompt = result.systemPrompt;
   config.availableTools = result.availableTools as AgentToolConfig | undefined;
 
-  return result.summary.skillsInjected || result.summary.workflowsInjected || result.summary.agentsInjected;
+  return (
+    result.summary.skillsInjected ||
+    result.summary.workflowsInjected ||
+    result.summary.agentsInjected
+  );
 }

@@ -29,7 +29,9 @@ function createMockRegistry(entries: Record<string, any>): IHierarchyRegistry {
   };
 }
 
-const makeHierarchy = (overrides?: Partial<ExecutionHierarchyMetadata>): ExecutionHierarchyMetadata => ({
+const makeHierarchy = (
+  overrides?: Partial<ExecutionHierarchyMetadata>,
+): ExecutionHierarchyMetadata => ({
   parent: { parentId: "parent-1", parentType: "WORKFLOW" },
   children: [
     { childId: "child-1", childType: "AGENT_LOOP", createdAt: Date.now() },
@@ -98,7 +100,11 @@ describe("HierarchyIntegrityService", () => {
     });
 
     it("should be valid when hierarchy has no parent", () => {
-      const hierarchy = makeHierarchy({ parent: undefined, rootExecutionId: "root-1", rootExecutionType: "WORKFLOW" });
+      const hierarchy = makeHierarchy({
+        parent: undefined,
+        rootExecutionId: "root-1",
+        rootExecutionType: "WORKFLOW",
+      });
       const registry = createMockRegistry({
         "child-1": {},
         "child-2": {},

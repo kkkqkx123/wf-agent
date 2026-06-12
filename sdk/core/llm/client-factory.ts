@@ -111,7 +111,7 @@ export class ClientFactory {
   /**
    * Register a mock client for testing.
    * When a profile with the given ID creates a client, the mock client will be used instead.
-   * 
+   *
    * @param profileId The profile ID to associate with the mock client
    * @param client The mock LLM client instance
    */

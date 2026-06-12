@@ -7,9 +7,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ## Completed Fixes (Batch 2)
 
 ### 1. sdk/workflow/builder/workflow-graph-builder.ts ✅
+
 **Lines Fixed:** 6 occurrences
 
 **Changes:**
+
 - Line 383-384: `as any` → `as Record<string, unknown>` for config objects
 - Line 401: `Array<any>` → `Array<Record<string, unknown>>`
 - Line 417-418: Same changes for END node config
@@ -20,9 +22,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 2. sdk/workflow/execution/handlers/node-handlers/context-processor-handler.ts ✅
+
 **Lines Fixed:** 6 occurrences
 
 **Changes:**
+
 - Line 18: Added `MessageContextRegistry` import
 - Line 102: `(workflowExecution as any)` → Proper typed intersection
 - Line 222: Same fix for second occurrence
@@ -34,9 +38,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 3. sdk/workflow/checkpoint/checkpoint-state-manager.ts ✅
+
 **Lines Fixed:** 5 occurrences
 
 **Changes:**
+
 - Line 9-10: Removed unused imports `CleanupPolicy`, `CleanupResult`
 - Line 18: Removed unused import `buildCheckpointDeletedEvent`
 - Line 39: `_cleanupScheduler?: any` → `_cleanupScheduler?: unknown`
@@ -47,9 +53,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 4. sdk/api/shared/core/sdk-instance.ts ✅
+
 **Lines Fixed:** 5 occurrences
 
 **Changes:**
+
 - Lines 480-485: Removed all `as any` casts from GracefulShutdownManager constructor
 - Used direct references instead of type-casted values
 
@@ -58,9 +66,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 5. sdk/workflow/execution/coordinators/node-execution-coordinator.ts ✅
+
 **Lines Fixed:** 5 occurrences
 
 **Changes:**
+
 - Lines 363, 455: Convert RuntimeNode/WorkflowNode to StaticNode before passing to buildNodeCheckpointLayers
 - Lines 400, 440: Removed `node as any` - used direct reference
 - Line 558: `originalNode?: any` → `originalNode?: RuntimeNode`
@@ -70,9 +80,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 6. sdk/core/checkpoint/base-delta-restorer.ts ✅
+
 **Lines Fixed:** 3 occurrences
 
 **Changes:**
+
 - Line 27: `BaseCheckpoint<any, any>` → `BaseCheckpoint<unknown, unknown>`
 - Line 104: `Record<string, any>` → `Record<string, unknown>`
 - Line 105: Added type assertion for delta parameter
@@ -82,9 +94,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 7. sdk/core/checkpoint/base-checkpoint-coordinator.ts ✅
+
 **Lines Fixed:** 3 occurrences
 
 **Changes:**
+
 - Line 40: `BaseCheckpoint<any, any>` → `BaseCheckpoint<unknown, unknown>`
 
 **Impact:** Generic constraint improvement for base coordinator.
@@ -92,9 +106,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 8. sdk/core/coordinators/followup-question-coordinator.ts ✅
+
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Line 8: Added `generateId` import
 - Lines 91, 107: Added `id` field to events
 - Lines 97, 116: `as any` → `as unknown as BaseEvent`
@@ -104,9 +120,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 9. sdk/workflow/execution/handlers/node-handlers/continue-from-trigger-handler.ts ✅
+
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Line 8: Added `MessageContextRegistry`, `WorkflowExecution` imports
 - Lines 73-74: Proper typed intersection for registry access
 - Line 92: Added type assertion for metadata object
@@ -116,9 +134,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 10. sdk/workflow/execution/handlers/node-handlers/llm-handler.ts ✅
+
 **Lines Fixed:** 4 occurrences
 
 **Changes:**
+
 - Line 13: Added `MessageContextRegistry` import
 - Lines 66, 155: Proper typed intersection for registry access
 
@@ -127,9 +147,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 11. sdk/workflow/execution/handlers/node-handlers/agent-loop-handler.ts ✅
+
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Line 9: Replaced `NamedMessageContext` with `MessageContextRegistry` import
 - Line 77: Proper typed intersection for registry access
 
@@ -138,9 +160,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 12. sdk/workflow/execution/utils/checkpoint-restoration.ts ✅
+
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Line 116: `FullCheckpoint<any>` → `FullCheckpoint<WorkflowExecutionStateSnapshot>`
 - Line 122: `Map<string, any>[]` → Properly typed scope stack
 - Line 119, 124: Changed `variableScopes` → `variableState` (correct property name)
@@ -152,9 +176,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 13. sdk/workflow/execution/factories/workflow-execution-builder.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 16: Added `MessageContextRegistry` import
 - Line 270: Proper typed intersection for attaching registry
 
@@ -163,9 +189,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 14. sdk/workflow/execution/handlers/node-handlers/start-from-trigger-handler.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 6: Added `MessageContextRegistry`, `WorkflowExecution` imports
 - Line 133: Proper typed intersection for registry access
 - Line 169: Added type assertion for metadata object
@@ -175,9 +203,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 15. sdk/core/registry/event-emitter.ts ✅
+
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Line 74: `ListenerWrapper<any>[]` → `Array<ListenerWrapper<unknown>>`
 - Line 347: `(aggregatedError as any).causes` → `(aggregatedError as Error & { causes: Error[] }).causes`
 
@@ -186,9 +216,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 16. sdk/core/executors/script-executor.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 9: Added `TerminalService` type import
 - Line 21: Added explicit type annotation for terminalService
 - Line 23: Parameter type `any` → `TerminalService`
@@ -198,9 +230,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 17. sdk/core/di/service-identifiers.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 276: `ServiceIdentifier<any>` → `ServiceIdentifier<VariableManager>`
 
 **Impact:** Type-safe DI container registration for VariableManager.
@@ -208,9 +242,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 18. sdk/core/metrics/base-collector.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 396: `byType as any` → `byType as Record<string, number>`
 
 **Impact:** Proper typing for metrics summary data.
@@ -218,9 +254,11 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ---
 
 ### 19. sdk/workflow/checkpoint/checkpoint-coordinator.ts ✅
+
 **Lines Fixed:** 1 occurrence
 
 **Changes:**
+
 - Line 419: `Map<string, any>[]` → Properly typed scope stack array
 
 **Impact:** Consistent typing with checkpoint restoration logic.
@@ -230,11 +268,13 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ## Overall Statistics
 
 ### Total Files Modified
+
 - **Batch 1**: 4 files (25 fixes)
 - **Batch 2**: 19 files (57 fixes)
 - **Total**: 23 files (82 fixes)
 
 ### Fix Categories
+
 1. **Generic Constraints**: `BaseCheckpoint<any, any>` → `BaseCheckpoint<unknown, unknown>` (6 occurrences)
 2. **Type Assertions**: `as any` → Proper typed intersections or specific types (45 occurrences)
 3. **Unused Imports**: Removed unused type imports (15 occurrences)
@@ -245,39 +285,45 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ### Key Patterns Applied
 
 1. **MessageContextRegistry Access Pattern**
+
    ```typescript
    // Before
    const registry = (workflowExecution as any).messageContextRegistry;
-   
+
    // After
-   const registry = (workflowExecution as WorkflowExecution & { 
-     messageContextRegistry?: MessageContextRegistry 
-   }).messageContextRegistry;
+   const registry = (
+     workflowExecution as WorkflowExecution & {
+       messageContextRegistry?: MessageContextRegistry;
+     }
+   ).messageContextRegistry;
    ```
 
 2. **Unknown Over Any**
+
    ```typescript
    // Before
-   function process(data: any): any
-   
+   function process(data: any): any;
+
    // After
-   function process(data: unknown): unknown
+   function process(data: unknown): unknown;
    ```
 
 3. **Proper Generic Constraints**
+
    ```typescript
    // Before
    class MyClass<T extends BaseCheckpoint<any, any>>
-   
+
    // After
    class MyClass<T extends BaseCheckpoint<unknown, unknown>>
    ```
 
 4. **Type-Safe Event Emission**
+
    ```typescript
    // Before
    await emitter.emit(event as any);
-   
+
    // After
    await emitter.emit(event as unknown as BaseEvent);
    ```
@@ -293,6 +339,7 @@ Successfully fixed **all remaining `any` type issues** reported in the analysis 
 ## Remaining Warnings
 
 The following warnings remain but are not related to `any` types:
+
 - Unused variables/imports (marked with underscore prefix convention)
 - Console statements (intentional for debugging/logging)
 - Minor linting issues (not type-related)

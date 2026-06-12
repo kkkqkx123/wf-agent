@@ -23,9 +23,7 @@ export class ConditionLexer {
    * Get formatted error messages
    */
   formatErrors(result: ILexingResult): string[] {
-    return result.errors.map(err => 
-      `Lexer error at offset ${err.offset}: ${err.message}`
-    );
+    return result.errors.map(err => `Lexer error at offset ${err.offset}: ${err.message}`);
   }
 
   /**

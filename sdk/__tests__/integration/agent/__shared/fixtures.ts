@@ -109,7 +109,8 @@ export function createMockEventManager(): any {
 
 export function createMockGlobalContext(): any {
   const interruptionStateFactory = {
-    create: (executionId: string, context?: ExecutionDomainContext) => new InterruptionState({ contextId: executionId, context }),
+    create: (executionId: string, context?: ExecutionDomainContext) =>
+      new InterruptionState({ contextId: executionId, context }),
   };
   return {
     container: {
@@ -227,7 +228,9 @@ export async function createFullAgentLoopFixture(
 /**
  * Create a basic Agent Loop Runtime Config for testing
  */
-export function createBasicAgentConfig(overrides?: Partial<AgentLoopRuntimeConfig>): AgentLoopRuntimeConfig {
+export function createBasicAgentConfig(
+  overrides?: Partial<AgentLoopRuntimeConfig>,
+): AgentLoopRuntimeConfig {
   return {
     profileId: MOCK_PROFILE_ID,
     maxIterations: 1,

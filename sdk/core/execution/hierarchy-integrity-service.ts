@@ -1,14 +1,14 @@
 /**
  * Hierarchy Integrity Service
- * 
+ *
  * Handles the integrity validation and repair of execution hierarchy metadata
  * during checkpoint restoration. Ensures that parent and child references point
  * to valid entities in the registry and repairs any inconsistencies.
  */
 
-import type { ExecutionHierarchyMetadata, ID } from '@wf-agent/types';
-import type { AnyExecutionEntity } from '../registry/execution-hierarchy-registry.js';
-import { sdkLogger as logger } from '../../utils/logger.js';
+import type { ExecutionHierarchyMetadata, ID } from "@wf-agent/types";
+import type { AnyExecutionEntity } from "../registry/execution-hierarchy-registry.js";
+import { sdkLogger as logger } from "../../utils/logger.js";
 
 export interface HierarchyValidationResult {
   valid: boolean;
@@ -26,7 +26,7 @@ export interface IHierarchyRegistry {
 export class HierarchyIntegrityService {
   /**
    * Validates hierarchy integrity against the registry
-   * 
+   *
    * Checks:
    * 1. Parent reference exists in registry (if present)
    * 2. All child references exist in registry
@@ -34,7 +34,7 @@ export class HierarchyIntegrityService {
    */
   static validateIntegrity(
     hierarchy: ExecutionHierarchyMetadata,
-    registry: IHierarchyRegistry
+    registry: IHierarchyRegistry,
   ): HierarchyValidationResult {
     const issues: string[] = [];
 
@@ -49,9 +49,7 @@ export class HierarchyIntegrityService {
     // Validate child references
     for (const child of hierarchy.children) {
       if (!registry.has(child.childId)) {
-        issues.push(
-          `Child ${child.childId} (${child.childType}) not found in registry`
-        );
+        issues.push(`Child ${child.childId} (${child.childType}) not found in registry`);
       }
     }
 
@@ -63,12 +61,12 @@ export class HierarchyIntegrityService {
 
   /**
    * Cleans up orphaned references in hierarchy metadata
-   * 
+   *
    * Removes references to entities that no longer exist in the registry.
    */
   static cleanupOrphanedReferences(
     hierarchy: ExecutionHierarchyMetadata,
-    registry: IHierarchyRegistry
+    registry: IHierarchyRegistry,
   ): ExecutionHierarchyMetadata {
     const cleaned: ExecutionHierarchyMetadata = {
       ...hierarchy,
@@ -79,7 +77,7 @@ export class HierarchyIntegrityService {
     if (hierarchy.parent && registry.has(hierarchy.parent.parentId)) {
       cleaned.parent = hierarchy.parent;
     } else if (hierarchy.parent) {
-      logger.warn('Removing orphaned parent reference', {
+      logger.warn("Removing orphaned parent reference", {
         parentId: hierarchy.parent.parentId,
         parentType: hierarchy.parent.parentType,
       });
@@ -91,7 +89,7 @@ export class HierarchyIntegrityService {
       if (registry.has(child.childId)) {
         cleaned.children.push(child);
       } else {
-        logger.warn('Removing orphaned child reference', {
+        logger.warn("Removing orphaned child reference", {
           childId: child.childId,
           childType: child.childType,
         });
@@ -103,13 +101,13 @@ export class HierarchyIntegrityService {
 
   /**
    * Repairs hierarchy by recalculating root information
-   * 
+   *
    * If parent reference is valid but root info is incorrect,
    * this function recalculates the correct root execution info.
    */
   static repairRootInfo(
     hierarchy: ExecutionHierarchyMetadata,
-    registry: IHierarchyRegistry
+    registry: IHierarchyRegistry,
   ): ExecutionHierarchyMetadata {
     if (!hierarchy.parent) {
       // No parent, this is root - root info should match own identity
@@ -117,9 +115,9 @@ export class HierarchyIntegrityService {
     }
 
     const parentEntity = registry.get(hierarchy.parent.parentId);
-    if (!parentEntity || !('getRootExecutionId' in parentEntity)) {
+    if (!parentEntity || !("getRootExecutionId" in parentEntity)) {
       // Cannot repair without parent entity
-      logger.warn('Cannot repair root info: parent entity not available', {
+      logger.warn("Cannot repair root info: parent entity not available", {
         parentId: hierarchy.parent.parentId,
       });
       return hierarchy;
@@ -132,7 +130,7 @@ export class HierarchyIntegrityService {
       rootExecutionType: parentEntity.getRootExecutionType(),
     };
 
-    logger.info('Repaired root execution info', {
+    logger.info("Repaired root execution info", {
       oldRootId: hierarchy.rootExecutionId,
       newRootId: repaired.rootExecutionId,
       oldRootType: hierarchy.rootExecutionType,

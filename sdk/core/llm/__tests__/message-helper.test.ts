@@ -243,9 +243,7 @@ describe("message-helper", () => {
     });
 
     it("should ignore messages with unknown roles", () => {
-      const messages = [
-        msg({ role: "custom_role" as any, content: "test" }),
-      ];
+      const messages = [msg({ role: "custom_role" as any, content: "test" })];
       const counts = countMessagesByRole(messages);
       expect(counts).toEqual({
         system: 0,

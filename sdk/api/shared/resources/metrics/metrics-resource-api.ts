@@ -1,9 +1,9 @@
 /**
  * MetricsResourceAPI - Metrics Resource Management API
- * 
+ *
  * Provides read-only access to metrics data collected during execution.
  * Supports querying workflow, node, agent, and event metrics.
- * 
+ *
  * Design Principles:
  * - Read-only API (metrics are collected automatically, not manually created)
  * - Provides aggregated statistics and query capabilities
@@ -55,7 +55,7 @@ export type MetricsExportFormat = "json" | "prometheus";
 /**
  * Metrics Resource API
  * Provides access to all metrics collectors and their data
- * 
+ *
  * Note: This is not a traditional resource API, but a specialized metrics query API.
  * It doesn't follow the typical CRUD pattern since metrics are collected automatically.
  */
@@ -86,13 +86,13 @@ export class MetricsResourceAPI {
   }> {
     const collector = this.metricsRegistry.getWorkflowCollector();
     if (!collector) {
-      throw new Error('Workflow metrics collector not available');
+      throw new Error("Workflow metrics collector not available");
     }
-    
+
     if (options?.workflowId) {
       return collector.getWorkflowUsageStats(options.workflowId);
     }
-    
+
     // Return overall stats if no specific workflow ID
     return collector.getWorkflowUsageStats();
   }
@@ -102,14 +102,16 @@ export class MetricsResourceAPI {
    * @param limit Maximum number of workflows to return (default: 10)
    * @returns Array of workflow statistics sorted by execution count
    */
-  async getTopWorkflows(limit: number = 10): Promise<Array<{
-    workflowId: string;
-    executionCount: number;
-    successRate: number;
-  }>> {
+  async getTopWorkflows(limit: number = 10): Promise<
+    Array<{
+      workflowId: string;
+      executionCount: number;
+      successRate: number;
+    }>
+  > {
     const collector = this.metricsRegistry.getWorkflowCollector();
     if (!collector) {
-      throw new Error('Workflow metrics collector not available');
+      throw new Error("Workflow metrics collector not available");
     }
     return collector.getTopWorkflows(limit);
   }
@@ -123,14 +125,16 @@ export class MetricsResourceAPI {
    * @param options Query options
    * @returns Node template statistics
    */
-  async getNodeTemplateMetrics(options?: NodeMetricsQuery): Promise<Array<{
-    templateName: string;
-    nodeType: string;
-    instantiationCount: number;
-  }>> {
+  async getNodeTemplateMetrics(options?: NodeMetricsQuery): Promise<
+    Array<{
+      templateName: string;
+      nodeType: string;
+      instantiationCount: number;
+    }>
+  > {
     const collector = this.metricsRegistry.getNodeCollector();
     if (!collector) {
-      throw new Error('Node metrics collector not available');
+      throw new Error("Node metrics collector not available");
     }
     const limit = options?.topN || 10;
     return collector.getTopNodeTemplates(limit);
@@ -140,14 +144,19 @@ export class MetricsResourceAPI {
    * Get node execution statistics by type
    * @returns Statistics grouped by node type
    */
-  async getNodeExecutionStatsByType(): Promise<Record<string, {
-    totalCount: number;
-    successRate: number;
-    avgDuration: number;
-  }>> {
+  async getNodeExecutionStatsByType(): Promise<
+    Record<
+      string,
+      {
+        totalCount: number;
+        successRate: number;
+        avgDuration: number;
+      }
+    >
+  > {
     const collector = this.metricsRegistry.getNodeCollector();
     if (!collector) {
-      throw new Error('Node metrics collector not available');
+      throw new Error("Node metrics collector not available");
     }
     return collector.getNodeExecutionStatsByType();
   }
@@ -168,13 +177,13 @@ export class MetricsResourceAPI {
   }> {
     const collector = this.metricsRegistry.getAgentCollector();
     if (!collector) {
-      throw new Error('Agent metrics collector not available');
+      throw new Error("Agent metrics collector not available");
     }
-    
+
     if (options?.profileId) {
       return collector.getAgentStats(options.profileId);
     }
-    
+
     // Return overall stats if no specific profile ID
     return collector.getAgentStats();
   }
@@ -216,7 +225,7 @@ export class MetricsResourceAPI {
    */
   async exportMetrics(format: MetricsExportFormat): Promise<string> {
     logger.debug("Exporting metrics", { format });
-    
+
     switch (format) {
       case "json":
         return await this.exportAsJSON();
@@ -236,11 +245,11 @@ export class MetricsResourceAPI {
     const nodeCollector = this.metricsRegistry.getNodeCollector();
     const agentCollector = this.metricsRegistry.getAgentCollector();
     const eventCollector = this.metricsRegistry.getEventCollector();
-    
+
     if (!workflowCollector || !nodeCollector || !agentCollector) {
-      throw new Error('One or more metrics collectors not available');
+      throw new Error("One or more metrics collectors not available");
     }
-    
+
     const result = {
       timestamp: Date.now(),
       workflow: workflowCollector.toJSON(),
@@ -248,13 +257,13 @@ export class MetricsResourceAPI {
       agent: agentCollector.toJSON(),
       event: eventCollector?.toJSON() || null,
     };
-    
+
     return JSON.stringify(result, null, 2);
   }
 
   /**
    * Export metrics in Prometheus format
-   * 
+   *
    * This is now MUCH simpler - just delegate to each collector!
    */
   private async exportAsPrometheus(): Promise<string> {
@@ -262,18 +271,18 @@ export class MetricsResourceAPI {
     const nodeCollector = this.metricsRegistry.getNodeCollector();
     const agentCollector = this.metricsRegistry.getAgentCollector();
     const eventCollector = this.metricsRegistry.getEventCollector();
-    
+
     if (!workflowCollector || !nodeCollector || !agentCollector) {
-      throw new Error('One or more metrics collectors not available');
+      throw new Error("One or more metrics collectors not available");
     }
-    
+
     // Each collector exports its own metrics
     const allMetrics: string[][] = [
       workflowCollector.toPrometheus(),
       nodeCollector.toPrometheus(),
       agentCollector.toPrometheus(),
     ];
-    
+
     // Add event metrics if available
     if (eventCollector) {
       try {
@@ -282,7 +291,7 @@ export class MetricsResourceAPI {
         logger.warn("Failed to export event metrics", { error });
       }
     }
-    
+
     // Combine all metrics with proper formatting
     return PrometheusFormatter.combine(allMetrics);
   }

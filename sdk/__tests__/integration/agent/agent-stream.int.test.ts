@@ -8,10 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  createFullAgentLoopFixture,
-  createBasicAgentConfig,
-} from "./__shared/fixtures.js";
+import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
 import type { AgentLoopStreamEvent } from "@/agent/execution/executors/agent-loop-executor.js";
 

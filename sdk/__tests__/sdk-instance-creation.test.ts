@@ -4,10 +4,10 @@
  * Verifies that the GlobalContext binding order issue is resolved
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { createSDK } from '../api/index.js';
-import type { SDKInstance } from '../api/index.js';
-import type { CheckpointStorageAdapter } from '@wf-agent/storage';
+import { describe, it, expect, afterEach } from "vitest";
+import { createSDK } from "../api/index.js";
+import type { SDKInstance } from "../api/index.js";
+import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 
 // Minimal mock checkpoint adapter
 const createMockCheckpointAdapter = (): CheckpointStorageAdapter => ({
@@ -43,7 +43,7 @@ const createMockCheckpointAdapter = (): CheckpointStorageAdapter => ({
   deleteBatch: async () => {},
 });
 
-describe('SDK Instance Creation (DI Fix Verification)', () => {
+describe("SDK Instance Creation (DI Fix Verification)", () => {
   const sdkInstances: SDKInstance[] = [];
 
   afterEach(async () => {
@@ -58,136 +58,136 @@ describe('SDK Instance Creation (DI Fix Verification)', () => {
     sdkInstances.length = 0;
   });
 
-  describe('Basic SDK Creation', () => {
-    it('should create SDK instance with checkpoint adapter (minimal config)', () => {
+  describe("Basic SDK Creation", () => {
+    it("should create SDK instance with checkpoint adapter (minimal config)", () => {
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
       sdkInstances.push(sdk);
-      
+
       expect(sdk).toBeDefined();
     });
 
-    it('should create SDK instance with debug mode enabled', () => {
+    it("should create SDK instance with debug mode enabled", () => {
       const sdk = createSDK({
         debug: true,
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
       sdkInstances.push(sdk);
-      
+
       expect(sdk).toBeDefined();
     });
 
-    it('should create SDK instance with logging configuration', () => {
+    it("should create SDK instance with logging configuration", () => {
       const sdk = createSDK({
         logging: {
-          level: 'info',
-          output: 'console',
-          format: 'text',
+          level: "info",
+          output: "console",
+          format: "text",
         },
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
       sdkInstances.push(sdk);
-      
+
       expect(sdk).toBeDefined();
     });
   });
 
-  describe('SDK Bootstrap Process', () => {
-    it('should bootstrap SDK successfully with checkpoint adapter', async () => {
+  describe("SDK Bootstrap Process", () => {
+    it("should bootstrap SDK successfully with checkpoint adapter", async () => {
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
       sdkInstances.push(sdk);
-      
+
       // Wait for bootstrap to complete
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       expect(sdk).toBeDefined();
     });
 
-    it('should call lifecycle hooks in correct order', async () => {
+    it("should call lifecycle hooks in correct order", async () => {
       const callOrder: string[] = [];
-      
+
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         hooks: {
           onBootstrapStart: async () => {
-            callOrder.push('start');
+            callOrder.push("start");
           },
           onBootstrapComplete: async () => {
-            callOrder.push('complete');
+            callOrder.push("complete");
           },
         },
       });
       sdkInstances.push(sdk);
-      
+
       // Wait for bootstrap to complete
       await new Promise(resolve => setTimeout(resolve, 150));
-      
-      expect(callOrder).toEqual(['start', 'complete']);
+
+      expect(callOrder).toEqual(["start", "complete"]);
     });
   });
 
-  describe('Multiple SDK Instances', () => {
-    it('should create multiple independent SDK instances', () => {
+  describe("Multiple SDK Instances", () => {
+    it("should create multiple independent SDK instances", () => {
       const sdk1 = createSDK({
         debug: true,
         logging: {
-          level: 'debug',
+          level: "debug",
         },
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
-      
+
       const sdk2 = createSDK({
         debug: false,
         logging: {
-          level: 'warn',
+          level: "warn",
         },
         checkpointStorageAdapter: createMockCheckpointAdapter(),
       });
-      
+
       sdkInstances.push(sdk1, sdk2);
-      
+
       expect(sdk1).toBeDefined();
       expect(sdk2).toBeDefined();
       expect(sdk1).not.toBe(sdk2);
     });
 
-    it('should isolate containers between instances', async () => {
+    it("should isolate containers between instances", async () => {
       const sdk1 = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         logging: {
-          level: 'debug',
+          level: "debug",
         },
       });
-      
+
       const sdk2 = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         logging: {
-          level: 'error',
+          level: "error",
         },
       });
-      
+
       sdkInstances.push(sdk1, sdk2);
-      
+
       // Wait for both to bootstrap
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       // Both should be defined and independent
       expect(sdk1).toBeDefined();
       expect(sdk2).toBeDefined();
     });
   });
 
-  describe('Complex Configurations', () => {
-    it('should create SDK with comprehensive configuration', async () => {
+  describe("Complex Configurations", () => {
+    it("should create SDK with comprehensive configuration", async () => {
       const sdk = createSDK({
         debug: true,
         logging: {
-          level: 'debug',
-          output: 'console',
-          format: 'text',
+          level: "debug",
+          output: "console",
+          format: "text",
         },
         defaultTimeout: 60000,
         enableCheckpoints: true,
@@ -211,14 +211,14 @@ describe('SDK Instance Creation (DI Fix Verification)', () => {
         },
       });
       sdkInstances.push(sdk);
-      
+
       // Wait for bootstrap to complete
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       expect(sdk).toBeDefined();
     });
 
-    it('should handle minimal viable configuration', async () => {
+    it("should handle minimal viable configuration", async () => {
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         debug: false,
@@ -234,28 +234,27 @@ describe('SDK Instance Creation (DI Fix Verification)', () => {
         },
       });
       sdkInstances.push(sdk);
-      
+
       // Wait for bootstrap to complete
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       expect(sdk).toBeDefined();
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle bootstrap errors gracefully', async () => {
+  describe("Error Handling", () => {
+    it("should handle bootstrap errors gracefully", async () => {
       const sdk = createSDK({
         checkpointStorageAdapter: createMockCheckpointAdapter(),
         hooks: {
-          onBootstrapError: (_error) => {
-          },
+          onBootstrapError: _error => {},
         },
       });
       sdkInstances.push(sdk);
-      
+
       // Wait for potential bootstrap
       await new Promise(resolve => setTimeout(resolve, 150));
-      
+
       // SDK should still be created even if bootstrap had issues
       expect(sdk).toBeDefined();
     });

@@ -48,7 +48,9 @@ export function isAgentInstance(instance: ExecutionInstance): instance is AgentL
  * @param instance Execution instance
  * @returns True if the instance is a WorkflowExecutionEntity
  */
-export function isWorkflowExecutionInstance(instance: ExecutionInstance): instance is WorkflowExecutionEntity {
+export function isWorkflowExecutionInstance(
+  instance: ExecutionInstance,
+): instance is WorkflowExecutionEntity {
   return "getExecutionId" in instance && "getWorkflowId" in instance;
 }
 

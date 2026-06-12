@@ -41,7 +41,9 @@ function createMockTerminalService() {
   };
 }
 
-function createMockGlobalContext(scriptRegistry: ReturnType<typeof createMockScriptRegistry>): GlobalContext {
+function createMockGlobalContext(
+  scriptRegistry: ReturnType<typeof createMockScriptRegistry>,
+): GlobalContext {
   return {
     container: {
       get: vi.fn().mockReturnValue(scriptRegistry),
@@ -71,7 +73,11 @@ describe("ScriptInteractionCoordinator", () => {
     mockGlobalContext = createMockGlobalContext(mockScriptRegistry);
     mockInputProvider = vi.fn().mockResolvedValue("user-input");
 
-    coordinator = new FastTestCoordinator(mockGlobalContext, {} as any, mockInputProvider as unknown as InputProvider);
+    coordinator = new FastTestCoordinator(
+      mockGlobalContext,
+      {} as any,
+      mockInputProvider as unknown as InputProvider,
+    );
     (coordinator as any).terminalService = mockTerminalService;
   });
 
@@ -92,7 +98,11 @@ describe("ScriptInteractionCoordinator", () => {
       const abortController = new AbortController();
       abortController.abort();
 
-      const result = await coordinator.executeWithInteraction("test-script", undefined, abortController.signal);
+      const result = await coordinator.executeWithInteraction(
+        "test-script",
+        undefined,
+        abortController.signal,
+      );
 
       expect(result.success).toBe(false);
       expect(result.status).toBe("FAILED");
@@ -159,13 +169,15 @@ describe("ScriptInteractionCoordinator", () => {
     });
 
     it("should perform interaction rounds when script prompts for input", async () => {
-      mockScriptRegistry.getScript.mockReturnValue(createTestScript({
-        config: {
-          interactionMode: "blocking",
-          maxRounds: 2,
-          promptPatterns: [":\\s*$"],
-        },
-      }));
+      mockScriptRegistry.getScript.mockReturnValue(
+        createTestScript({
+          config: {
+            interactionMode: "blocking",
+            maxRounds: 2,
+            promptPatterns: [":\\s*$"],
+          },
+        }),
+      );
       // First output shows a prompt, then returns empty on subsequent polls
       mockTerminalService.getOutput
         .mockResolvedValueOnce("What is your name: ") // initial prompt
@@ -188,9 +200,7 @@ describe("ScriptInteractionCoordinator", () => {
     it("should use the input provider in blocking mode", async () => {
       mockScriptRegistry.getScript.mockReturnValue(createTestScript());
       // First poll returns content matching prompt pattern ">"
-      mockTerminalService.getOutput
-        .mockResolvedValueOnce("Proceed?> ")
-        .mockResolvedValue("");
+      mockTerminalService.getOutput.mockResolvedValueOnce("Proceed?> ").mockResolvedValue("");
 
       const result = await coordinator.executeWithInteraction("test-script", {
         scriptName: "test-script",

@@ -1,6 +1,6 @@
 /**
  * OnceEventSubscription - Registers a one-time event listener.
- * 
+ *
  * All event listeners must be execution-scoped:
  * - executionId is REQUIRED
  * - Automatically cleaned up when execution ends

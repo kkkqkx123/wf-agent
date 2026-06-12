@@ -39,7 +39,7 @@ When you call `getSDK(options)`, the following happens automatically:
 ### 1. Simple Initialization (Automatic)
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 // Simplest usage - bootstrap happens automatically
 const sdk = getSDK({
@@ -59,7 +59,7 @@ const sdk = getSDK({
 ### 2. Explicit Initialization Control
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 const sdk = getSDK({
   debug: true,
@@ -81,7 +81,7 @@ console.log("SDK is fully ready:", sdk.isReady());
 ### 3. Using Lifecycle Hooks
 
 ```typescript
-import { getSDK, type SDKLifecycleHooks } from '@wf-agent/sdk/api';
+import { getSDK, type SDKLifecycleHooks } from "@wf-agent/sdk/api";
 
 const hooks: SDKLifecycleHooks = {
   onBootstrapStart: () => {
@@ -115,7 +115,7 @@ await sdk.waitForReady();
 ### 4. Storage Adapter Integration
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 // Apps implement storage adapters
 const checkpointAdapter = new JsonCheckpointStorage(config);
@@ -144,7 +144,7 @@ await sdk.waitForReady();
 ### 5. Selective Preset Configuration
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 const sdk = getSDK({
   presets: {
@@ -152,14 +152,14 @@ const sdk = getSDK({
     contextCompression: {
       enabled: true,
     },
-    
+
     // Enable only specific tools
     predefinedTools: {
       enabled: true,
       allowList: ["read_file", "write_file"], // Only these tools
       blockList: ["run_shell"], // Except this one
     },
-    
+
     // Disable predefined prompts
     predefinedPrompts: {
       enabled: false,
@@ -173,7 +173,7 @@ await sdk.waitForReady();
 ### 6. Health Check Pattern
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 const sdk = getSDK({
   presets: { predefinedTools: { enabled: true } },
@@ -195,7 +195,7 @@ if (health.status === "unhealthy") {
 ### 7. Graceful Shutdown
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 const sdk = getSDK({
   presets: { predefinedTools: { enabled: true } },
@@ -221,7 +221,7 @@ console.log("SDK destroyed");
 ### 8. Readiness Check Pattern
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
+import { getSDK } from "@wf-agent/sdk/api";
 
 const sdk = getSDK({
   presets: { predefinedTools: { enabled: true } },
@@ -245,9 +245,9 @@ if (sdk.isReady()) {
 Here's how the CLI app initializes the SDK (simplified):
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk/api';
-import { initializeStorageManager, getStorageManager } from './storage';
-import { loadConfigWithEnvOverride } from './config';
+import { getSDK } from "@wf-agent/sdk/api";
+import { initializeStorageManager, getStorageManager } from "./storage";
+import { loadConfigWithEnvOverride } from "./config";
 
 async function initializeCLI(options: CLIOptions) {
   // 1. Load app configuration
@@ -264,8 +264,12 @@ async function initializeCLI(options: CLIOptions) {
   });
 
   // 3. Initialize loggers
-  initLogger({ /* ... */ });
-  initSDKLogger({ /* ... */ });
+  initLogger({
+    /* ... */
+  });
+  initSDKLogger({
+    /* ... */
+  });
 
   // 4. Initialize storage manager
   await initializeStorageManager(config);
@@ -350,29 +354,29 @@ async function initializeCLI(options: CLIOptions) {
 interface SDKOptions {
   // Debug mode
   debug?: boolean;
-  
+
   // Log level
   logLevel?: "debug" | "info" | "warn" | "error";
-  
+
   // Default timeout (milliseconds)
   defaultTimeout?: number;
-  
+
   // Enable checkpoints
   enableCheckpoints?: boolean;
-  
+
   // Storage adapters (implemented by apps)
   checkpointStorageAdapter?: CheckpointStorageAdapter;
   workflowStorageAdapter?: WorkflowStorageAdapter;
   taskStorageAdapter?: TaskStorageAdapter;
   workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
   agentLoopCheckpointStorageAdapter?: AgentLoopCheckpointStorageAdapter;
-  
+
   // Enable validation
   enableValidation?: boolean;
-  
+
   // Preset configuration
   presets?: PresetsConfig;
-  
+
   // Lifecycle hooks
   hooks?: SDKLifecycleHooks;
 }
@@ -384,13 +388,13 @@ interface SDKOptions {
 interface SDKLifecycleHooks {
   // Called when bootstrap starts
   onBootstrapStart?: () => void | Promise<void>;
-  
+
   // Called when bootstrap completes successfully
   onBootstrapComplete?: () => void | Promise<void>;
-  
+
   // Called when bootstrap fails
   onBootstrapError?: (error: Error) => void | Promise<void>;
-  
+
   // Called when SDK is being destroyed
   onDestroy?: () => void | Promise<void>;
 }
@@ -403,6 +407,7 @@ interface SDKLifecycleHooks {
 **Problem**: Calling SDK methods before bootstrap completes.
 
 **Solution**: Use `waitForReady()`:
+
 ```typescript
 const sdk = getSDK(options);
 await sdk.waitForReady();
@@ -413,7 +418,8 @@ await sdk.waitForReady();
 
 **Problem**: Expected tools/workflows not available.
 
-**Solution**: 
+**Solution**:
+
 1. Check preset configuration in options
 2. Verify `waitForReady()` was called
 3. Check logs for bootstrap errors
@@ -423,6 +429,7 @@ await sdk.waitForReady();
 **Problem**: Data not persisting.
 
 **Solution**:
+
 1. Ensure adapter is passed in options
 2. Check adapter initialization in app layer
 3. Verify adapter implements correct interface
@@ -432,19 +439,21 @@ await sdk.waitForReady();
 **Problem**: SDK fails to initialize.
 
 **Solution**:
+
 1. Use `onBootstrapError` hook to capture errors
 2. Check logs for detailed error messages
 3. Verify storage adapters are properly configured
 
 ## Summary
 
-The SDK initialization design follows the principle: **"SDK provides the mechanism, apps provide the policy"**. 
+The SDK initialization design follows the principle: **"SDK provides the mechanism, apps provide the policy"**.
 
 - Apps control WHAT gets initialized through configuration
 - SDK handles HOW initialization happens internally
 - This separation keeps apps simple and SDK flexible
 
 For most use cases, simple initialization is sufficient:
+
 ```typescript
 const sdk = getSDK({ presets: { predefinedTools: { enabled: true } } });
 await sdk.waitForReady();

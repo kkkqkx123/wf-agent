@@ -4,9 +4,12 @@
  */
 
 import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
-import { CheckpointCoordinator, type CheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
+import {
+  CheckpointCoordinator,
+  type CheckpointDependencies,
+} from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { 
+import {
   createPlatformSignalHandler,
   getPlatformSignals,
   getMaxShutdownTimeout,
@@ -90,14 +93,17 @@ export class GracefulShutdownManager {
     // Adjust timeout based on platform limitations
     const adjustedTimeout = getMaxShutdownTimeout(this.config.timeoutMs);
     if (adjustedTimeout !== this.config.timeoutMs) {
-      logger.info(`Adjusted shutdown timeout from ${this.config.timeoutMs}ms to ${adjustedTimeout}ms for platform compatibility`, {
-        platform: platformInfo.platform,
-      });
+      logger.info(
+        `Adjusted shutdown timeout from ${this.config.timeoutMs}ms to ${adjustedTimeout}ms for platform compatibility`,
+        {
+          platform: platformInfo.platform,
+        },
+      );
       this.config.timeoutMs = adjustedTimeout;
     }
 
     // Use platform-aware signal handler
-    this.signalHandler.register(async (signal) => {
+    this.signalHandler.register(async signal => {
       await this.handleShutdown(signal as ShutdownSignal);
     });
 
@@ -192,9 +198,7 @@ export class GracefulShutdownManager {
     );
 
     // Log summary
-    const successCount = results.filter(
-      (r) => r.status === "fulfilled" && r.value.success,
-    ).length;
+    const successCount = results.filter(r => r.status === "fulfilled" && r.value.success).length;
     const failureCount = results.length - successCount;
 
     logger.info("Shutdown checkpoint summary", {
@@ -205,8 +209,8 @@ export class GracefulShutdownManager {
 
     if (failureCount > 0) {
       const failures = results
-        .filter((r) => r.status === "rejected" || !r.value.success)
-        .map((r) => ({
+        .filter(r => r.status === "rejected" || !r.value.success)
+        .map(r => ({
           executionId: r.status === "fulfilled" ? r.value.executionId : "unknown",
           error: r.status === "rejected" ? String(r.reason) : r.value.error,
         }));

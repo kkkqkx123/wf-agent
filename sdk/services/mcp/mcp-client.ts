@@ -35,8 +35,8 @@ export class McpClient {
    */
   private setupTransportHandlers(): void {
     this.transport.setHandlers({
-      onData: (data) => this.handleResponse(data),
-      onError: (error) => this.handleError(error),
+      onData: data => this.handleResponse(data),
+      onError: error => this.handleError(error),
       onClose: () => this.handleClose(),
     });
   }
@@ -148,10 +148,7 @@ export class McpClient {
   /**
    * Call a tool
    */
-  async callTool(
-    toolName: string,
-    args?: Record<string, unknown>,
-  ): Promise<McpToolCallResult> {
+  async callTool(toolName: string, args?: Record<string, unknown>): Promise<McpToolCallResult> {
     return this.request<McpToolCallResult>("tools/call", {
       name: toolName,
       arguments: args,
@@ -171,7 +168,7 @@ export class McpClient {
    */
   async listResourceTemplates(): Promise<McpResourceTemplate[]> {
     const result = await this.request<{ resourceTemplates: McpResourceTemplate[] }>(
-      "resources/templates/list"
+      "resources/templates/list",
     );
     return result.resourceTemplates || [];
   }

@@ -1,12 +1,17 @@
 /**
  * Script Executor using Terminal Service
- * 
+ *
  * Simplified script execution that leverages the Terminal Service.
  * Scripts are treated as shell commands without type distinctions.
  * Supports template rendering and executor mode selection including sandbox modes.
  */
 
-import type { Script, ScriptExecutionOptions, ScriptExecutionResult, ExecutorMode } from "@wf-agent/types";
+import type {
+  Script,
+  ScriptExecutionOptions,
+  ScriptExecutionResult,
+  ExecutorMode,
+} from "@wf-agent/types";
 import { getTerminalService, type TerminalService } from "../../services/terminal/index.js";
 import { ScriptTemplateEngine } from "../script/engine/script-template.js";
 import { DirectExecutor } from "../script/executors/direct-executor.js";
@@ -21,7 +26,7 @@ const logger = createContextualLogger({ component: "ScriptExecutor" });
 
 /**
  * Script Executor
- * 
+ *
  * Executes scripts using the Terminal Service's executeOneOff method.
  * All scripts are treated as shell commands - no type distinctions needed.
  */
@@ -48,10 +53,7 @@ export class ScriptExecutor {
    * @param options Execution options
    * @returns Execution result
    */
-  async execute(
-    script: Script,
-    options?: ScriptExecutionOptions
-  ): Promise<ScriptExecutionResult> {
+  async execute(script: Script, options?: ScriptExecutionOptions): Promise<ScriptExecutionResult> {
     const startTime = Date.now();
 
     let command: string;
@@ -59,10 +61,13 @@ export class ScriptExecutor {
     if (script.template) {
       const args = script.arguments || [];
       const resolvedArgs = this.templateEngine.resolveArguments(args, options?.environment || {});
-      const renderResult = this.templateEngine.render(script.template, resolvedArgs as Record<string, unknown>);
+      const renderResult = this.templateEngine.render(
+        script.template,
+        resolvedArgs as Record<string, unknown>,
+      );
       command = renderResult.command;
     } else {
-      command = script.content || '';
+      command = script.content || "";
     }
 
     if (!command) {
@@ -71,7 +76,7 @@ export class ScriptExecutor {
         success: false,
         scriptName: script.name,
         executionTime,
-        error: 'Script content is empty',
+        error: "Script content is empty",
       };
     }
 
@@ -129,7 +134,7 @@ export class ScriptExecutor {
       };
     } catch (error) {
       const executionTime = Date.now() - startTime;
-      
+
       logger.error("Script execution failed", {
         scriptName: script.name,
         error: error instanceof Error ? error.message : String(error),

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { continueFromTriggerHandler } from '../continue-from-trigger-handler.js';
-import type { WorkflowExecutionEntity } from '../../../../entities/workflow-execution-entity.js';
-import type { RuntimeNode, ContinueFromTriggerNodeConfig } from '@wf-agent/types';
-import type { ContinueFromTriggerHandlerContext } from '../continue-from-trigger-handler.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { continueFromTriggerHandler } from "../continue-from-trigger-handler.js";
+import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
+import type { RuntimeNode, ContinueFromTriggerNodeConfig } from "@wf-agent/types";
+import type { ContinueFromTriggerHandlerContext } from "../continue-from-trigger-handler.js";
 
 const mockMainEntity = {
   getExecution: vi.fn(),
@@ -16,7 +16,7 @@ const mockSubEntity = {
   getNodeResults: vi.fn().mockReturnValue([]),
   getExecution: vi.fn(),
   addNodeResult: vi.fn(),
-  getWorkflowId: vi.fn().mockReturnValue('sub-wf'),
+  getWorkflowId: vi.fn().mockReturnValue("sub-wf"),
   getOutput: vi.fn().mockReturnValue({}),
   setOutput: vi.fn(),
   variableStateManager: {
@@ -44,30 +44,28 @@ const mockParentRegistry = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  (mockSubEntity.getStatus as any).mockReturnValue('RUNNING');
+  (mockSubEntity.getStatus as any).mockReturnValue("RUNNING");
   (mockSubEntity.getExecution as any).mockReturnValue(mockSubExecution);
   (mockMainEntity.getExecution as any).mockReturnValue(mockMainExecution);
   (mockSubEntity.getNodeResults as any).mockReturnValue([]);
 });
 
-describe('continueFromTriggerHandler', () => {
-  it('should copy message contexts to parent', async () => {
+describe("continueFromTriggerHandler", () => {
+  it("should copy message contexts to parent", async () => {
     const context: ContinueFromTriggerHandlerContext = {
       mainWorkflowExecutionEntity: mockMainEntity,
     };
     const config: ContinueFromTriggerNodeConfig = {
-      messageOutputs: [
-        { internalName: 'subCtx', externalName: 'parentCtx' },
-      ],
+      messageOutputs: [{ internalName: "subCtx", externalName: "parentCtx" }],
     };
-    const node = { id: 'continue-trigger-1', type: 'CONTINUE_FROM_TRIGGER', config } as RuntimeNode;
+    const node = { id: "continue-trigger-1", type: "CONTINUE_FROM_TRIGGER", config } as RuntimeNode;
 
     (mockSubExecution as any).messageContextRegistry = mockSubRegistry;
     (mockMainExecution as any).messageContextRegistry = mockParentRegistry;
     mockSubRegistry.get.mockReturnValue({
-      id: 'subCtx',
-      messages: [{ role: 'assistant', content: 'result' }],
-      metadata: { source: 'test' },
+      id: "subCtx",
+      messages: [{ role: "assistant", content: "result" }],
+      metadata: { source: "test" },
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -76,36 +74,37 @@ describe('continueFromTriggerHandler', () => {
 
     expect(mockParentRegistry.register).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'parentCtx',
-        messages: [{ role: 'assistant', content: 'result' }],
-      })
+        id: "parentCtx",
+        messages: [{ role: "assistant", content: "result" }],
+      }),
     );
   });
 
-  it('should copy variables to parent when configured', async () => {
+  it("should copy variables to parent when configured", async () => {
     const context: ContinueFromTriggerHandlerContext = {
       mainWorkflowExecutionEntity: mockMainEntity,
     };
     const config: ContinueFromTriggerNodeConfig = {
-      variableOutputs: [
-        { internalName: 'childResult', externalName: 'parentResult' },
-      ],
+      variableOutputs: [{ internalName: "childResult", externalName: "parentResult" }],
     };
-    const node = { id: 'continue-trigger-2', type: 'CONTINUE_FROM_TRIGGER', config } as RuntimeNode;
+    const node = { id: "continue-trigger-2", type: "CONTINUE_FROM_TRIGGER", config } as RuntimeNode;
 
-    (mockSubEntity.variableStateManager.getVariable as any).mockReturnValue('some-value');
+    (mockSubEntity.variableStateManager.getVariable as any).mockReturnValue("some-value");
 
     await continueFromTriggerHandler(mockSubEntity, node, context);
 
-    expect(mockMainEntity.setVariable).toHaveBeenCalledWith('parentResult', 'some-value');
+    expect(mockMainEntity.setVariable).toHaveBeenCalledWith("parentResult", "some-value");
   });
 
-  it('should throw when main workflow execution entity is missing', async () => {
-    const node = { id: 'continue-trigger-3', type: 'CONTINUE_FROM_TRIGGER', config: {} } as RuntimeNode;
+  it("should throw when main workflow execution entity is missing", async () => {
+    const node = {
+      id: "continue-trigger-3",
+      type: "CONTINUE_FROM_TRIGGER",
+      config: {},
+    } as RuntimeNode;
 
-    await expect(
-      continueFromTriggerHandler(mockSubEntity, node, {})
-    ).rejects.toThrow('Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node');
+    await expect(continueFromTriggerHandler(mockSubEntity, node, {})).rejects.toThrow(
+      "Main workflow execution entity is required for CONTINUE_FROM_TRIGGER node",
+    );
   });
-
-  });
+});

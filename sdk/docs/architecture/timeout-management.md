@@ -16,6 +16,7 @@ This document describes the unified timeout management architecture for the wf-a
    - Task registry: Passive timeout tracking only
 
 2. **Inconsistent Patterns**
+
    ```typescript
    // Different units and approaches
    timeout: 30000              // LLM (milliseconds in config)
@@ -84,6 +85,7 @@ packages/types/src/
 **Location**: `sdk/core/state-managers/timeout-manager.ts`
 
 **Responsibilities**:
+
 - Manage individual timeout lifecycle
 - Track timeout state (active/expired/cancelled)
 - Execute timeout callbacks
@@ -91,20 +93,21 @@ packages/types/src/
 - Support checkpoint serialization
 
 **Key Features**:
+
 ```typescript
 class TimeoutManager implements StateManager<TimeoutSnapshot> {
   // Per-timeout tracking
   private timeouts: Map<string, TimeoutEntry> = new Map();
-  
+
   // Configuration
   private config: Required<TimeoutManagerConfig>;
-  
+
   // Methods
   register(options: TimeoutRegistration): TimeoutHandle;
   cancel(handle: TimeoutHandle): void;
   refresh(handle: TimeoutHandle): void;
   getRemainingTime(handle: TimeoutHandle): number;
-  
+
   // StateManager interface
   size(): number;
   isEmpty(): boolean;
@@ -115,6 +118,7 @@ class TimeoutManager implements StateManager<TimeoutSnapshot> {
 ```
 
 **Integration with InterruptionState**:
+
 ```typescript
 // Automatically cancel timeout when parent execution is interrupted
 if (options.interruptionState) {
@@ -122,7 +126,7 @@ if (options.interruptionState) {
     // Refresh timeout on resume
     this.refresh(handle);
   });
-  
+
   if (options.interruptionState.shouldStop()) {
     this.cancel(handle);
     return;
@@ -135,20 +139,22 @@ if (options.interruptionState) {
 **Location**: `sdk/core/registry/timeout-registry.ts`
 
 **Responsibilities**:
+
 - Centralized timeout registration across all modules
 - Batch operations by tag or execution ID
 - Cross-execution metrics aggregation
 - Lifecycle management (cleanup on execution end)
 
 **Key Features**:
+
 ```typescript
 class TimeoutRegistry {
   // Per-execution TimeoutManager instances
   private managers: Map<string, TimeoutManager> = new Map();
-  
+
   // Global metrics
   private metricsCollector: TimeoutMetricsCollector;
-  
+
   // Methods
   getManager(executionId: string): TimeoutManager;
   cancelByExecutionId(executionId: string): void;
@@ -159,18 +165,19 @@ class TimeoutRegistry {
 ```
 
 **Usage Pattern**:
+
 ```typescript
 // Get or create manager for execution
 const manager = timeoutRegistry.getManager(executionId);
 
 // Register timeout
 const handle = manager.register({
-  id: 'llm-call-123',
+  id: "llm-call-123",
   duration: 30000,
   onTimeout: () => cancelLLMCall(),
   interruptionState: executionEntity.getInterruptionState(),
-  tag: 'llm',
-  metadata: { nodeId: 'node-1' }
+  tag: "llm",
+  metadata: { nodeId: "node-1" },
 });
 
 // Cleanup when execution ends
@@ -184,23 +191,26 @@ timeoutRegistry.cleanup(executionId);
 **Supported Strategies**:
 
 1. **Absolute Timeout**: Fixed duration from registration
+
    ```typescript
    register({ duration: 30000, ... })
    ```
 
 2. **Idle Timeout**: Triggers after period of inactivity
+
    ```typescript
    registerIdleTimeout({
      idleDuration: 60000,
-     activityDetector: () => isStillProcessing()
-   })
+     activityDetector: () => isStillProcessing(),
+   });
    ```
 
 3. **Hierarchical Timeout**: Parent-child timeout relationships
+
    ```typescript
    const parentHandle = register({
      duration: 120000,
-     children: [child1Handle, child2Handle]
+     children: [child1Handle, child2Handle],
    });
    ```
 
@@ -210,8 +220,8 @@ timeoutRegistry.cleanup(executionId);
      duration: 300000,
      warningThreshold: 60000,
      onWarning: emitWarning,
-     onTimeout: cancelOperation
-   })
+     onTimeout: cancelOperation,
+   });
    ```
 
 #### 4. Timeout Utilities
@@ -219,25 +229,26 @@ timeoutRegistry.cleanup(executionId);
 **Location**: `sdk/core/utils/timeout/timeout-utils.ts`
 
 **Helper Functions**:
+
 ```typescript
 // Combine timeout with AbortSignal
 function combineTimeoutWithSignal(
   duration: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): { signal: AbortSignal; clearTimeout: () => void };
 
 // Create timeout promise
 function createTimeoutPromise<T>(
   promise: Promise<T>,
   duration: number,
-  message?: string
+  message?: string,
 ): Promise<T>;
 
 // Adaptive timeout calculation
 function calculateAdaptiveTimeout(
   baseTimeout: number,
   retryCount: number,
-  maxTimeout: number
+  maxTimeout: number,
 ): number;
 ```
 
@@ -254,28 +265,28 @@ function calculateAdaptiveTimeout(
 export interface TimeoutRegistration {
   /** Unique identifier for this timeout */
   id: string;
-  
+
   /** Timeout duration in milliseconds */
   duration: number;
-  
+
   /** Callback invoked when timeout expires */
   onTimeout: () => void | Promise<void>;
-  
+
   /** Optional: Warning threshold (ms before timeout) */
   warningThreshold?: number;
-  
+
   /** Optional: Warning callback */
   onWarning?: () => void | Promise<void>;
-  
+
   /** Optional: Bind to interruption state for automatic cancellation */
   interruptionState?: InterruptionState;
-  
+
   /** Optional: Tag for batch operations */
   tag?: string;
-  
+
   /** Optional: Execution context ID */
   executionId?: string;
-  
+
   /** Optional: Metadata for observability */
   metadata?: Record<string, unknown>;
 }
@@ -286,13 +297,13 @@ export interface TimeoutRegistration {
 export interface TimeoutHandle {
   /** Timeout ID */
   id: string;
-  
+
   /** Check if timeout is still active */
   isActive(): boolean;
-  
+
   /** Get remaining time in milliseconds */
   getRemainingTime(): number;
-  
+
   /** Cancel this timeout */
   cancel(): void;
 }
@@ -306,7 +317,7 @@ export interface TimeoutEntry {
   duration: number;
   timerId?: NodeJS.Timeout;
   warningTimerId?: NodeJS.Timeout;
-  status: 'active' | 'expired' | 'cancelled';
+  status: "active" | "expired" | "cancelled";
   warningEmitted: boolean;
   interruptionUnsubscribe?: () => void;
   onTimeout: () => void | Promise<void>;
@@ -324,7 +335,7 @@ export interface TimeoutSnapshot {
     id: string;
     startTime: number;
     duration: number;
-    status: 'active' | 'expired' | 'cancelled';
+    status: "active" | "expired" | "cancelled";
     warningEmitted: boolean;
     metadata?: Record<string, unknown>;
   }>;
@@ -355,16 +366,16 @@ export interface TimeoutStats {
 export interface TimeoutManagerConfig {
   /** Default timeout duration (ms) */
   defaultTimeout?: number;
-  
+
   /** Maximum allowed timeout duration (ms) */
   maxTimeout?: number;
-  
+
   /** Enable warning emissions */
   enableWarnings?: boolean;
-  
+
   /** Default warning threshold (ms before timeout) */
   defaultWarningThreshold?: number;
-  
+
   /** Enable metrics collection */
   enableMetrics?: boolean;
 }
@@ -375,10 +386,10 @@ export interface TimeoutManagerConfig {
 export interface TimeoutRegistryConfig {
   /** Default manager configuration */
   defaultManagerConfig?: TimeoutManagerConfig;
-  
+
   /** Auto-cleanup on execution end */
   autoCleanup?: boolean;
-  
+
   /** Metrics collection interval (ms) */
   metricsInterval?: number;
 }
@@ -389,6 +400,7 @@ export interface TimeoutRegistryConfig {
 ### 1. LLM Module Integration
 
 **Current**:
+
 ```typescript
 // BaseLLMClient uses HTTP client timeout
 this.httpClient = new HttpClient({
@@ -397,6 +409,7 @@ this.httpClient = new HttpClient({
 ```
 
 **Proposed**:
+
 ```typescript
 // Use TimeoutManager for entire LLM call lifecycle
 const timeoutManager = timeoutRegistry.getManager(executionId);
@@ -406,11 +419,11 @@ const handle = timeoutManager.register({
   duration: profile.timeout || 30000,
   onTimeout: () => {
     messageStream.abort();
-    logger.warn('LLM call timed out', { requestId });
+    logger.warn("LLM call timed out", { requestId });
   },
   interruptionState: executionEntity.getInterruptionState(),
-  tag: 'llm',
-  metadata: { profileId, nodeId }
+  tag: "llm",
+  metadata: { profileId, nodeId },
 });
 
 try {
@@ -426,6 +439,7 @@ try {
 ### 2. Tool Executor Integration
 
 **Current**:
+
 ```typescript
 // No timeout, only relies on AbortSignal
 async executeToolCalls(toolCalls, options?: { abortSignal?: AbortSignal }) {
@@ -434,25 +448,26 @@ async executeToolCalls(toolCalls, options?: { abortSignal?: AbortSignal }) {
 ```
 
 **Proposed**:
+
 ```typescript
 async executeToolCalls(
   toolCalls,
-  options?: { 
+  options?: {
     abortSignal?: AbortSignal;
     toolTimeout?: number; // Per-tool timeout
   }
 ) {
   const timeoutManager = timeoutRegistry.getManager(executionId);
-  
+
   const executionPromises = toolCalls.map(async (toolCall) => {
     // Register per-tool timeout
     const handle = timeoutManager.register({
       id: `tool-${toolCall.id}`,
       duration: options?.toolTimeout || DEFAULT_TOOL_TIMEOUT,
       onTimeout: () => {
-        logger.warn('Tool execution timed out', { 
+        logger.warn('Tool execution timed out', {
           toolCallId: toolCall.id,
-          toolName: toolCall.name 
+          toolName: toolCall.name
         });
         // Mark tool as timed out
       },
@@ -460,7 +475,7 @@ async executeToolCalls(
       tag: 'tool',
       metadata: { toolName: toolCall.name }
     });
-    
+
     try {
       const result = await executeSingleTool(toolCall, options);
       handle.cancel();
@@ -470,7 +485,7 @@ async executeToolCalls(
       throw error;
     }
   });
-  
+
   return Promise.allSettled(executionPromises);
 }
 ```
@@ -478,6 +493,7 @@ async executeToolCalls(
 ### 3. Workflow Join Operation
 
 **Current**:
+
 ```typescript
 // Uses polling fallback when EventRegistry unavailable
 async function waitForCompletionByPolling(...) {
@@ -489,6 +505,7 @@ async function waitForCompletionByPolling(...) {
 ```
 
 **Proposed**:
+
 ```typescript
 async function join(
   childExecutionIds: string[],
@@ -496,7 +513,7 @@ async function join(
   timeout: number = 0
 ): Promise<JoinResult> {
   const timeoutManager = timeoutRegistry.getManager(parentExecutionId);
-  
+
   // Register join timeout
   let timeoutHandle: TimeoutHandle | undefined;
   if (timeout > 0) {
@@ -515,14 +532,14 @@ async function join(
       metadata: { childCount: childExecutionIds.length, strategy: joinStrategy }
     });
   }
-  
+
   try {
     // Wait using event-driven approach (no polling)
     const result = await waitForCompletion(...);
-    
+
     // Success, cancel timeout
     timeoutHandle?.cancel();
-    
+
     return result;
   } catch (error) {
     // Error or timeout, cancel timeout
@@ -535,10 +552,11 @@ async function join(
 ### 4. Pause Timeout Manager Refactor
 
 **Current**:
+
 ```typescript
 class PauseTimeoutManager {
   private entries: Map<string, PauseTimeoutEntry> = new Map();
-  
+
   startMonitoring(executionId: string): void {
     entry.timerId = setTimeout(() => this.handleTimeout(...), maxDuration);
   }
@@ -546,24 +564,25 @@ class PauseTimeoutManager {
 ```
 
 **Proposed**:
+
 ```typescript
 class PauseTimeoutManager {
   constructor(private timeoutRegistry: TimeoutRegistry) {}
-  
+
   startMonitoring(executionId: string): void {
     const manager = this.timeoutRegistry.getManager(executionId);
-    
+
     manager.register({
       id: `pause-${executionId}`,
       duration: this.config.maxPauseDuration,
       warningThreshold: this.config.warningThreshold,
       onWarning: () => this.emitWarning(executionId),
       onTimeout: () => this.handleTimeout(executionId),
-      tag: 'pause',
-      metadata: { executionId }
+      tag: "pause",
+      metadata: { executionId },
     });
   }
-  
+
   stopMonitoring(executionId: string): void {
     // TimeoutRegistry handles cleanup
     this.timeoutRegistry.cleanup(executionId);
@@ -674,6 +693,7 @@ class PauseTimeoutManager {
 ### Risk 1: Breaking Changes
 
 **Mitigation**:
+
 - Maintain backward compatibility during migration
 - Provide deprecation warnings
 - Offer migration scripts and guides
@@ -681,6 +701,7 @@ class PauseTimeoutManager {
 ### Risk 2: Performance Overhead
 
 **Mitigation**:
+
 - Lazy initialization of TimeoutManager
 - Efficient timer management
 - Benchmarking before production deployment
@@ -688,6 +709,7 @@ class PauseTimeoutManager {
 ### Risk 3: Complexity
 
 **Mitigation**:
+
 - Clear documentation and examples
 - Simple default behavior
 - Progressive enhancement for advanced features
@@ -721,6 +743,7 @@ The unified timeout management architecture provides a robust, consistent, and o
 The phased migration approach ensures minimal disruption while delivering immediate benefits. The architecture is designed for extensibility, allowing future enhancements without breaking changes.
 
 **Next Steps**:
+
 1. Review and approve this design document
 2. Begin Phase 1 implementation (type definitions and core components)
 3. Schedule weekly progress reviews

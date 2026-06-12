@@ -78,12 +78,9 @@ describe("executeWithInterruptionHandling", () => {
     const controller = new AbortController();
 
     await expect(
-      executeWithInterruptionHandling(
-        async () => {
-          throw new Error("unexpected error");
-        },
-        controller.signal,
-      ),
+      executeWithInterruptionHandling(async () => {
+        throw new Error("unexpected error");
+      }, controller.signal),
     ).rejects.toThrow("unexpected error");
   });
 
@@ -188,7 +185,9 @@ describe("iterateWithInterruptionHandling", () => {
     }
 
     const results: string[] = [];
-    for await (const item of iterateWithInterruptionHandling(source(), controller.signal, { checkFrequency: 2 })) {
+    for await (const item of iterateWithInterruptionHandling(source(), controller.signal, {
+      checkFrequency: 2,
+    })) {
       if (item.type === "value") {
         results.push(item.value);
       }

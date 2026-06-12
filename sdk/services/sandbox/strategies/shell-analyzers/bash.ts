@@ -92,7 +92,12 @@ export class BashAnalyzer implements ShellAnalyzer {
     // Layer 1: Extract primary command and check whitelist/blacklist
     const primaryCommand = this.extractPrimaryCommand(ctx.command);
     if (!primaryCommand) {
-      return { allowed: false, reason: "Empty command", command: ctx.command, shellType: SHELL_TYPE };
+      return {
+        allowed: false,
+        reason: "Empty command",
+        command: ctx.command,
+        shellType: SHELL_TYPE,
+      };
     }
 
     if (policy.allowedCommands.length > 0 && !policy.allowedCommands.includes(primaryCommand)) {

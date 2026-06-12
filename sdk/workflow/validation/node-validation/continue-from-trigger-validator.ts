@@ -43,13 +43,10 @@ export function validateContinueFromTriggerNode(
   // If `variableCallback` is configured, `includeAll` and `includeVariables` cannot be set at the same time.
   if (config.variableCallback?.includeAll && config.variableCallback?.includeVariables) {
     return err([
-      new ConfigurationValidationError(
-        "Cannot specify both includeAll and includeVariables",
-        {
-          configType: "node",
-          configPath: `node.${node.id}.config.variableCallback`,
-        },
-      ),
+      new ConfigurationValidationError("Cannot specify both includeAll and includeVariables", {
+        configType: "node",
+        configPath: `node.${node.id}.config.variableCallback`,
+      }),
     ]);
   }
 

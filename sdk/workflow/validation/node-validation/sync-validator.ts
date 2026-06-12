@@ -14,7 +14,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateSyncNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateSyncNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "SYNC");
   if (typeResult.isErr()) {
     return typeResult;

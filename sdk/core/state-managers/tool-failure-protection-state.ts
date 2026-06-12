@@ -1,9 +1,9 @@
 /**
  * ToolFailureProtectionState - Tool Failure Protection State Manager
- * 
+ *
  * Tracks tool failure counts per execution instance and temporarily blocks tools
  * after reaching a threshold to prevent resource waste from repeated failures.
- * 
+ *
  * Key Features:
  * - Per-instance isolation (parent/child workflows have independent states)
  * - Consecutive failure tracking
@@ -32,7 +32,7 @@ const DEFAULT_CONFIG: Required<ToolFailureProtectionConfig> = {
 
 /**
  * ToolFailureProtectionState - Standalone state manager for tool failure protection
- * 
+ *
  * Responsibilities:
  * - Track consecutive failure counts per tool
  * - Determine if a tool can be executed based on failure history
@@ -40,12 +40,10 @@ const DEFAULT_CONFIG: Required<ToolFailureProtectionConfig> = {
  * - Manage cooldown periods for blocked tools
  * - Provide serialization support for checkpoints
  */
-export class ToolFailureProtectionState
-  implements StateManager<ToolFailureProtectionSnapshot>
-{
+export class ToolFailureProtectionState implements StateManager<ToolFailureProtectionSnapshot> {
   /** Map of tool name to failure tracking info */
   private failureMap: Map<string, ToolFailureInfo> = new Map();
-  
+
   /** Configuration parameters */
   private config: Required<ToolFailureProtectionConfig>;
 
@@ -179,7 +177,7 @@ export class ToolFailureProtectionState
    */
   recordFailure(toolName: string, errorMessage: string): void {
     const existing = this.failureMap.get(toolName);
-    
+
     if (existing) {
       // Increment existing failure count
       this.failureMap.set(toolName, {

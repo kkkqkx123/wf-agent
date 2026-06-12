@@ -29,7 +29,10 @@ describe("SseTransport", () => {
 
   describe("execute (non-streaming)", () => {
     it("should return response data", async () => {
-      const mockHeaders = new Headers({ "content-type": "application/json", "x-request-id": "req-1" });
+      const mockHeaders = new Headers({
+        "content-type": "application/json",
+        "x-request-id": "req-1",
+      });
       const mockResponse = new Response(JSON.stringify({ result: "ok" }), {
         status: 200,
         headers: mockHeaders,
@@ -104,7 +107,9 @@ describe("SseTransport", () => {
       transport = new SseTransport();
 
       const generator = transport.executeStream("/stream");
-      await expect(generator[Symbol.asyncIterator]().next()).rejects.toThrow("Response body is null");
+      await expect(generator[Symbol.asyncIterator]().next()).rejects.toThrow(
+        "Response body is null",
+      );
     });
 
     it("should abort on timeout", async () => {

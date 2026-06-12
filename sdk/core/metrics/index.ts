@@ -38,12 +38,7 @@ export {
 } from "./constants.js";
 
 // Factory functions
-export {
-  createCounter,
-  createGauge,
-  createHistogram,
-  createSummary,
-} from "./factories.js";
+export { createCounter, createGauge, createHistogram, createSummary } from "./factories.js";
 
 // Collectors
 // ===== Runtime Metrics =====
@@ -51,7 +46,12 @@ export { BaseMetricCollector } from "./base-collector.js";
 export { WorkflowMetricsCollector } from "./workflow-collector.js";
 export { NodeMetricsCollector } from "./node-collector.js";
 export { AgentMetricsCollector } from "./agent-collector.js";
-export { EventMetricsCollector, type EventMetricLabels, type AggregatedEventStat, type EventMetricsSummary } from "./event-collector.js";
+export {
+  EventMetricsCollector,
+  type EventMetricLabels,
+  type AggregatedEventStat,
+  type EventMetricsSummary,
+} from "./event-collector.js";
 
 // ===== Resource Metrics =====
 export { ToolMetricsCollector } from "./tool-collector.js";
@@ -74,5 +74,5 @@ export { PrometheusFormatter } from "./utils/prometheus-formatter.js";
 export type {
   PrometheusMetricType,
   PrometheusMetric,
-  PrometheusSample
+  PrometheusSample,
 } from "./utils/prometheus-formatter.js";

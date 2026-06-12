@@ -11,7 +11,12 @@ export { WorkflowExecutionRegistry } from "./workflow-execution-registry.js";
 
 export { WorkflowRelationshipRegistry } from "./workflow-relationship-registry.js";
 export { preprocessWorkflow } from "./utils/workflow-preprocessor.js";
-export { persistWorkflow, removeWorkflow, loadWorkflow, initializeWorkflowsFromStorage } from "./utils/workflow-storage-utils.js";
+export {
+  persistWorkflow,
+  removeWorkflow,
+  loadWorkflow,
+  initializeWorkflowsFromStorage,
+} from "./utils/workflow-storage-utils.js";
 
 export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task/task-registry.js";
 export { TaskQueue } from "./task/task-queue.js";

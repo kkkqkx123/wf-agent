@@ -14,7 +14,15 @@
  */
 
 import { randomUUID } from "crypto";
-import type { LLMMessage, AgentLoopRuntimeConfig, ID, IterationRecord, TokenUsageStats, MessageMarkMap, AgentLoopStateSnapshot } from "@wf-agent/types";
+import type {
+  LLMMessage,
+  AgentLoopRuntimeConfig,
+  ID,
+  IterationRecord,
+  TokenUsageStats,
+  MessageMarkMap,
+  AgentLoopStateSnapshot,
+} from "@wf-agent/types";
 import { getAvailableTools, AgentLoopStatus } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -25,6 +33,7 @@ import { AgentLoopCheckpointCoordinator } from "../../checkpoint/index.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentLoopFactory" });
 
@@ -59,7 +68,7 @@ export interface ConversationHistoryMemory {
   turnStates?: Record<number, Record<string, unknown>>;
   /** Parent execution context */
   parentContext?: {
-    parentType: 'WORKFLOW' | 'AGENT_LOOP';
+    parentType: "WORKFLOW" | "AGENT_LOOP";
     parentId: ID;
     nodeId?: ID;
   };
@@ -79,7 +88,7 @@ export interface ConversationHistoryMemory {
  * ## Architecture Context
  *
  * This factory bridges the gap between configuration and runtime:
- * 
+ *
  * ```
  * AgentLoopRuntimeConfig (with functions)
  *     ↓ Factory.create()
@@ -124,19 +133,21 @@ export class AgentLoopFactory {
    * @param globalContext: Global context for accessing DI container
    * @param config: Loop configuration
    * @param options: Creation options
-   * @returns: AgentLoopEntity instance
+   * @returns: AgentLoopEntity instance and AgentStateCoordinator
    */
   static async create(
     globalContext: GlobalContext,
     config: AgentLoopRuntimeConfig,
     options: AgentLoopEntityOptions = {},
-  ): Promise<AgentLoopEntity> {
+  ): Promise<{ entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator }> {
     const id = `agent-loop-${randomUUID()}`;
-    
+
     // Get execution hierarchy registry from DI container
-    const registry = globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
-    
-    const entity = new AgentLoopEntity(id, config, undefined, undefined, undefined, registry);
+    const registry = globalContext.container.get(
+      Identifiers.ExecutionHierarchyRegistry,
+    ) as ExecutionHierarchyRegistry;
+
+    const entity = new AgentLoopEntity(id, config, undefined, undefined, registry);
 
     logger.info("Creating new Agent Loop entity", {
       agentLoopId: id,
@@ -145,34 +156,58 @@ export class AgentLoopFactory {
       profileId: config.profileId || "DEFAULT",
     });
 
-    // Asynchronous initialization message
-    await entity.initializeMessages({
-      systemPrompt: config.systemPrompt,
-      systemPromptTemplateId: config.systemPromptTemplateId,
-      systemPromptTemplateVariables: config.systemPromptTemplateVariables,
-      initialUserMessage: config.initialUserMessage,
-      initialMessages: options.initialMessages,
+    // Create ConversationSession externally
+    const conversationSession = new ConversationSession({
+      executionId: id,
+      initialMessages: options.initialMessages ?? [],
     });
 
-    // Initialize message history (via ConversationSession)
-    // Note: The AgentLoopEntity constructor has already initialized the messages using buildInitialMessages
-    // Only the options.initialMessages override needs to be handled here
+    // Create AgentStateCoordinator wrapping the ConversationSession
+    const stateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
+
+    // Build initial messages if config provides them
+    const initialMessages: LLMMessage[] = [];
+
+    // Add system prompt if provided
+    if (config.systemPrompt) {
+      initialMessages.push({
+        role: "system",
+        content: config.systemPrompt,
+      });
+    }
+
+    // Add initial user message if provided
+    if (config.initialUserMessage) {
+      initialMessages.push({
+        role: "user",
+        content: config.initialUserMessage,
+      });
+    }
+
+    // Add any additional initial messages from options
     if (options.initialMessages && options.initialMessages.length > 0) {
-      entity.setMessages(options.initialMessages);
+      initialMessages.push(...options.initialMessages);
+    }
+
+    // Set messages on state coordinator
+    if (initialMessages.length > 0) {
+      stateCoordinator.setMessages(initialMessages);
       logger.debug("Agent Loop initialized with initial messages", {
         agentLoopId: id,
-        messageCount: options.initialMessages.length,
+        messageCount: initialMessages.length,
       });
     }
 
     // Set parent context using new unified API (Phase 4)
     if (options.parentExecutionId) {
       entity.setParentContext({
-        parentType: 'WORKFLOW',
+        parentType: "WORKFLOW",
         parentId: options.parentExecutionId,
         nodeId: options.nodeId,
       });
-      
+
       logger.debug("Agent Loop set with parent context", {
         agentLoopId: id,
         parentExecutionId: options.parentExecutionId,
@@ -186,7 +221,7 @@ export class AgentLoopFactory {
     }
 
     logger.info("Agent Loop entity created successfully", { agentLoopId: id });
-    return entity;
+    return { entity, stateCoordinator };
   }
 
   /**
@@ -201,7 +236,9 @@ export class AgentLoopFactory {
     parentExecutionId: string,
   ): Promise<void> {
     try {
-      const executionRegistry = globalContext.container.get(Identifiers.WorkflowExecutionRegistry) as WorkflowExecutionRegistry;
+      const executionRegistry = globalContext.container.get(
+        Identifiers.WorkflowExecutionRegistry,
+      ) as WorkflowExecutionRegistry;
 
       if (executionRegistry) {
         const executionEntity = executionRegistry.get(parentExecutionId);
@@ -285,12 +322,20 @@ export class AgentLoopFactory {
     messages: LLMMessage[],
     config: AgentLoopRuntimeConfig,
     id?: string,
-  ): AgentLoopEntity {
+  ): { entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator } {
     const entityId = id || `agent-loop-msg-${randomUUID()}`;
     const entity = new AgentLoopEntity(entityId, config);
 
-    // Set messages directly
-    entity.setMessages(messages);
+    // Create ConversationSession externally
+    const conversationSession = new ConversationSession({
+      executionId: entityId,
+      initialMessages: messages,
+    });
+
+    // Create AgentStateCoordinator wrapping the ConversationSession
+    const stateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
 
     // Derive iteration count and tool call count from message pairs
     let iterationCount = 0;
@@ -299,9 +344,7 @@ export class AgentLoopFactory {
       if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
         for (const tc of msg.toolCalls) {
           // Each tool call in an assistant message increments the count
-          const hasToolResult = messages.some(
-            m => m.role === "tool" && m.toolCallId === tc.id
-          );
+          const hasToolResult = messages.some(m => m.role === "tool" && m.toolCallId === tc.id);
           if (hasToolResult) {
             toolCallCount++;
           }
@@ -330,7 +373,7 @@ export class AgentLoopFactory {
       derivedToolCalls: entity.state.toolCallCount,
     });
 
-    return entity;
+    return { entity, stateCoordinator };
   }
 
   /**
@@ -360,7 +403,7 @@ export class AgentLoopFactory {
     config: AgentLoopRuntimeConfig,
     memory?: ConversationHistoryMemory,
     id?: string,
-  ): AgentLoopEntity {
+  ): { entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator } {
     const entityId = id || `agent-loop-conv-${randomUUID()}`;
 
     // Create fresh entity
@@ -374,7 +417,7 @@ export class AgentLoopFactory {
       // If iteration history is provided, use its last iteration as current
       const lastRecord = memory.iterationHistory[memory.iterationHistory.length - 1];
       currentIteration = lastRecord ? lastRecord.iteration : 0;
-      
+
       // Count all tool calls across all iterations
       toolCallCount = memory.iterationHistory.reduce(
         (count, record) => count + record.toolCalls.length,
@@ -387,9 +430,7 @@ export class AgentLoopFactory {
       for (const msg of messages) {
         if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
           for (const tc of msg.toolCalls) {
-            const hasToolResult = messages.some(
-              m => m.role === "tool" && m.toolCallId === tc.id
-            );
+            const hasToolResult = messages.some(m => m.role === "tool" && m.toolCallId === tc.id);
             if (hasToolResult) {
               toolCnt++;
             }
@@ -433,10 +474,7 @@ export class AgentLoopFactory {
 
     // Restore token usage state if provided
     if (memory?.tokenUsage !== undefined) {
-      restoredSession.setTokenUsageState(
-        memory.tokenUsage,
-        memory.currentRequestUsage ?? null,
-      );
+      restoredSession.setTokenUsageState(memory.tokenUsage, memory.currentRequestUsage ?? null);
     }
 
     // Restore turn states if provided
@@ -448,8 +486,10 @@ export class AgentLoopFactory {
       });
     }
 
-    // Set the restored conversation session on the entity
-    entity.setConversationManager(restoredSession);
+    // Create AgentStateCoordinator wrapping the restored session
+    const stateCoordinator = new AgentStateCoordinator({
+      conversationManager: restoredSession,
+    });
 
     // Set parent context if provided in memory
     if (memory?.parentContext) {
@@ -467,7 +507,7 @@ export class AgentLoopFactory {
       hasTurnStates: !!memory?.turnStates,
     });
 
-    return entity;
+    return { entity, stateCoordinator };
   }
 
   /**
@@ -501,7 +541,12 @@ export class AgentLoopFactory {
       /** Override messages in the restored entity */
       messages?: LLMMessage[];
       /** Override specific state snapshot fields */
-      stateOverrides?: Partial<Pick<AgentLoopStateSnapshot, 'currentIteration' | 'toolCallCount' | 'status' | 'error' | 'startTime' | 'endTime'>>;
+      stateOverrides?: Partial<
+        Pick<
+          AgentLoopStateSnapshot,
+          "currentIteration" | "toolCallCount" | "status" | "error" | "startTime" | "endTime"
+        >
+      >;
       /** Override mark map */
       markMap?: MessageMarkMap;
       /** Override token usage */
@@ -511,7 +556,7 @@ export class AgentLoopFactory {
       /** Override turn states */
       turnStates?: Record<number, Record<string, unknown>>;
     },
-  ): Promise<AgentLoopEntity> {
+  ): Promise<{ entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator }> {
     logger.info("Restoring Agent Loop from checkpoint with overrides", { checkpointId });
 
     // First, restore the entity from the checkpoint as baseline
@@ -520,6 +565,15 @@ export class AgentLoopFactory {
       checkpointId,
       dependencies as CheckpointDependencies,
     );
+
+    // Create ConversationSession and AgentStateCoordinator for the restored entity
+    const conversationSession = new ConversationSession({
+      executionId: entity.id,
+      initialMessages: overrides?.messages ?? [],
+    });
+    const stateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
 
     // Apply state overrides if provided
     if (overrides) {
@@ -538,36 +592,25 @@ export class AgentLoopFactory {
         });
       }
 
-      // Apply messages override
-      if (overrides.messages) {
-        entity.setMessages(overrides.messages);
-        logger.debug("Applied messages override", {
-          agentLoopId: entity.id,
-          messageCount: overrides.messages.length,
-        });
-      }
-
-      // Apply mark map override to conversation session
+      // Apply mark map override to state coordinator
       if (overrides.markMap) {
-        const session = entity.getConversationManager();
-        session.setMarkMap(overrides.markMap);
+        stateCoordinator.setMarkMap(overrides.markMap);
         logger.debug("Applied mark map override", {
           agentLoopId: entity.id,
         });
       }
 
-      // Apply token usage override
+      // Apply token usage override to state coordinator
       if (overrides.tokenUsage !== undefined) {
-        const session = entity.getConversationManager();
-        session.setTokenUsageState(overrides.tokenUsage, overrides.currentRequestUsage ?? null);
+        stateCoordinator.setTokenUsageState(overrides.tokenUsage, overrides.currentRequestUsage ?? null);
         logger.debug("Applied token usage override", {
           agentLoopId: entity.id,
         });
       }
 
-      // Apply turn states override
+      // Apply turn states override to state coordinator
       if (overrides.turnStates) {
-        const session = entity.getConversationManager();
+        const session = stateCoordinator.getConversationManager();
         Object.entries(overrides.turnStates).forEach(([turnIndex, state]) => {
           Object.entries(state as Record<string, unknown>).forEach(([key, value]) => {
             session.setTurnState(Number(turnIndex), key, value);
@@ -587,6 +630,6 @@ export class AgentLoopFactory {
       hadOverrides: !!overrides,
     });
 
-    return entity;
+    return { entity, stateCoordinator };
   }
 }

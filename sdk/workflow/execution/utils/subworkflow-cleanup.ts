@@ -1,6 +1,6 @@
 /**
  * Subworkflow Cleanup Utilities
- * 
+ *
  * Shared cleanup logic for all subworkflow types to ensure
  * consistent resource management on failure.
  */
@@ -13,12 +13,12 @@ const logger = createContextualLogger({ component: "subworkflow-cleanup" });
 
 /**
  * Cleanup failed subworkflow execution
- * 
+ *
  * Performs standard cleanup steps:
  * 1. Stop execution if running
  * 2. Unregister from hierarchy registry
  * 3. Remove from parent's children list
- * 
+ *
  * @param childEntity The failed child execution entity
  * @param parentEntity The parent execution entity
  * @param registry The hierarchy registry
@@ -45,7 +45,7 @@ export async function cleanupFailedSubworkflow(
 
   // Step 2: Unregister from hierarchy registry (independent try-catch)
   try {
-    if (registry && typeof registry.unregister === 'function') {
+    if (registry && typeof registry.unregister === "function") {
       registry.unregister(childEntity.id);
     }
   } catch (unregisterError) {
@@ -57,7 +57,7 @@ export async function cleanupFailedSubworkflow(
 
   // Step 3: Remove from parent's children list (independent try-catch)
   try {
-    parentEntity.unregisterChild(childEntity.id, 'WORKFLOW');
+    parentEntity.unregisterChild(childEntity.id, "WORKFLOW");
   } catch (removeError) {
     logger.warn("Failed to remove child from parent's children list", {
       childExecutionId: childEntity.id,

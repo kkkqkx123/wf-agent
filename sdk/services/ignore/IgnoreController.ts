@@ -161,22 +161,14 @@ export class IgnoreController {
    * Check if gitignore should be used based on mode
    */
   private shouldUseGitignore(): boolean {
-    return (
-      this.mode === "gitignore" ||
-      this.mode === "builtin-gitignore" ||
-      this.mode === "all"
-    );
+    return this.mode === "gitignore" || this.mode === "builtin-gitignore" || this.mode === "all";
   }
 
   /**
    * Check if custom ignore should be used based on mode
    */
   private shouldUseCustom(): boolean {
-    return (
-      this.mode === "custom" ||
-      this.mode === "builtin-custom" ||
-      this.mode === "all"
-    );
+    return this.mode === "custom" || this.mode === "builtin-custom" || this.mode === "all";
   }
 
   /**
@@ -327,7 +319,7 @@ export class IgnoreController {
     dirName: string,
     fullPath: string,
     isTargetDir: boolean = false,
-    insideExplicitTarget: boolean = false
+    insideExplicitTarget: boolean = false,
   ): boolean {
     // If this is the explicitly targeted directory, allow it
     if (isTargetDir) {
@@ -359,7 +351,7 @@ export class IgnoreController {
    * Filter an array of paths, removing those that should be ignored
    */
   filterPaths(paths: string[]): string[] {
-    return paths.filter((p) => this.validateAccess(p));
+    return paths.filter(p => this.validateAccess(p));
   }
 
   /**
@@ -370,8 +362,10 @@ export class IgnoreController {
 
     // Built-in patterns
     if (this.shouldUseBuiltin()) {
-      const builtinList = BUILTIN_IGNORE_DIRS.filter((d) => d !== ".*").join(", ");
-      parts.push(`# Built-in Ignore Patterns\n\nThe following directories are automatically ignored:\n${builtinList}`);
+      const builtinList = BUILTIN_IGNORE_DIRS.filter(d => d !== ".*").join(", ");
+      parts.push(
+        `# Built-in Ignore Patterns\n\nThe following directories are automatically ignored:\n${builtinList}`,
+      );
     }
 
     // Gitignore

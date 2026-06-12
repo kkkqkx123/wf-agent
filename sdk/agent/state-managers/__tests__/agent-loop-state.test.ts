@@ -7,7 +7,7 @@ import { AgentLoopState } from "../agent-loop-state.js";
 import { AgentLoopStatus, RuntimeValidationError } from "@wf-agent/types";
 import type { LLMMessage } from "@wf-agent/types";
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
+vi.mock("@wf-agent/common-utils", async importOriginal => {
   const actual = await importOriginal();
   return {
     ...(actual as Record<string, unknown>),

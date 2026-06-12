@@ -149,7 +149,9 @@ describe("executeWithRetry", () => {
       attempts++;
       throw new SyntaxError("parse error");
     };
-    await expect(executeWithRetry(fn, { maxRetries: 3, baseDelay: 10 })).rejects.toThrow(SyntaxError);
+    await expect(executeWithRetry(fn, { maxRetries: 3, baseDelay: 10 })).rejects.toThrow(
+      SyntaxError,
+    );
     expect(attempts).toBe(1);
   });
 

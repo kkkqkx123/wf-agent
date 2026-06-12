@@ -123,7 +123,9 @@ export async function initializeHookTemplatesFromStorage(
   templates: Map<string, HookTemplate>,
 ): Promise<void> {
   if (!adapter) {
-    logger.debug("No storage adapter configured, skipping hook template initialization from storage");
+    logger.debug(
+      "No storage adapter configured, skipping hook template initialization from storage",
+    );
     return;
   }
 

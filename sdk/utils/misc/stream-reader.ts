@@ -1,6 +1,6 @@
 /**
  * Streaming file reader for optimized large file handling.
- * 
+ *
  * Uses Node.js streams to read large files efficiently without loading
  * the entire file into memory.
  */
@@ -20,10 +20,10 @@ export interface StreamReadResult {
 
 /**
  * Read specific line ranges from a large file using streams.
- * 
+ *
  * This is more memory-efficient than reading the entire file,
  * especially for very large files (100MB+).
- * 
+ *
  * @param filePath - Absolute path to the file
  * @param startLine - Starting line number (1-indexed)
  * @param lineCount - Number of lines to read
@@ -32,31 +32,31 @@ export interface StreamReadResult {
 export async function readLinesWithStream(
   filePath: string,
   startLine: number = 1,
-  lineCount: number = 100
+  lineCount: number = 100,
 ): Promise<StreamReadResult> {
   return new Promise((resolve, reject) => {
     const stream = createReadStream(filePath, { encoding: "utf-8" });
-    
+
     let currentLine = 1;
     const collectedLines: string[] = [];
     let buffer = "";
     let totalLinesRead = 0;
     let isInTargetRange = false;
-    
+
     const targetStartLine = Math.max(1, startLine);
     const targetEndLine = targetStartLine + lineCount - 1;
-    
+
     stream.on("data", (chunk: string) => {
       buffer += chunk;
-      
+
       // Process complete lines in the buffer
       let newlineIndex: number;
       while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
         const line = buffer.substring(0, newlineIndex);
         buffer = buffer.substring(newlineIndex + 1);
-        
+
         totalLinesRead++;
-        
+
         // Check if we're in the target range
         if (currentLine >= targetStartLine && currentLine <= targetEndLine) {
           collectedLines.push(line);
@@ -66,11 +66,11 @@ export async function readLinesWithStream(
           stream.destroy();
           break;
         }
-        
+
         currentLine++;
       }
     });
-    
+
     stream.on("end", () => {
       // Handle last line without newline
       if (buffer.length > 0 && currentLine <= targetEndLine) {
@@ -79,7 +79,7 @@ export async function readLinesWithStream(
           collectedLines.push(buffer);
         }
       }
-      
+
       resolve({
         content: formatLineNumbers(collectedLines, targetStartLine),
         returnedLines: collectedLines.length,
@@ -87,8 +87,8 @@ export async function readLinesWithStream(
         wasTruncated: totalLinesRead > targetEndLine,
       });
     });
-    
-    stream.on("error", (error) => {
+
+    stream.on("error", error => {
       reject(error);
     });
   });
@@ -96,27 +96,27 @@ export async function readLinesWithStream(
 
 /**
  * Count total lines in a file efficiently using streams.
- * 
+ *
  * @param filePath - Absolute path to the file
  * @returns Total number of lines in the file
  */
 export async function countFileLines(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const stream = createReadStream(filePath, { encoding: "utf-8" });
-    
+
     let lineCount = 0;
     let buffer = "";
-    
+
     stream.on("data", (chunk: string) => {
       buffer += chunk;
-      
+
       let newlineIndex: number;
       while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
         buffer = buffer.substring(newlineIndex + 1);
         lineCount++;
       }
     });
-    
+
     stream.on("end", () => {
       // Count last line if it doesn't end with newline
       if (buffer.length > 0) {
@@ -124,8 +124,8 @@ export async function countFileLines(filePath: string): Promise<number> {
       }
       resolve(lineCount);
     });
-    
-    stream.on("error", (error) => {
+
+    stream.on("error", error => {
       reject(error);
     });
   });

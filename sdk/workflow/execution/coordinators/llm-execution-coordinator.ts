@@ -13,7 +13,13 @@
  * - Dependency injection: Manage dependencies through LLMContextFactory
  */
 
-import type { LLMMessage, BaseEvent, LLMToolCall, WorkflowConfig, TransformContextFn } from "@wf-agent/types";
+import type {
+  LLMMessage,
+  BaseEvent,
+  LLMToolCall,
+  WorkflowConfig,
+  TransformContextFn,
+} from "@wf-agent/types";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 import type { ToolPermissionManager } from "../../../core/coordinators/tool-permission-manager.js";
 import { emit } from "../utils/index.js";
@@ -23,14 +29,10 @@ import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
-import {
-  getWorkflowInterruptionDescription,
-} from "../utils/workflow-interruption-utils.js";
+import { getWorkflowInterruptionDescription } from "../utils/workflow-interruption-utils.js";
 import type { WorkflowInterruptionCheckResult } from "../utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import {
-  buildToolApprovalRequestedEvent,
-} from "../../../core/utils/event/builders/index.js";
+import { buildToolApprovalRequestedEvent } from "../../../core/utils/event/builders/index.js";
 import {
   LLMContextFactory,
   type LLMContextFactoryConfig,
@@ -151,7 +153,9 @@ export class LLMExecutionCoordinator {
    */
   setPermissionManager(permissionManager: ToolPermissionManager | null): void {
     // Update the context factory's config
-    (this.contextFactory as unknown as { config?: { permissionManager?: unknown } }).config!.permissionManager = permissionManager;
+    (
+      this.contextFactory as unknown as { config?: { permissionManager?: unknown } }
+    ).config!.permissionManager = permissionManager;
   }
 
   /**
@@ -195,10 +199,12 @@ export class LLMExecutionCoordinator {
 
     // Check if it is in an interrupted state.
     // WorkflowInterruptionCheckResult has a 'type' property, success result does not
-    if ('type' in result) {
+    if ("type" in result) {
       return {
         success: false,
-        error: new Error(getWorkflowInterruptionDescription(result as WorkflowInterruptionCheckResult)),
+        error: new Error(
+          getWorkflowInterruptionDescription(result as WorkflowInterruptionCheckResult),
+        ),
       };
     }
 
@@ -266,11 +272,11 @@ export class LLMExecutionCoordinator {
       const permissionManager = this.contextFactory.getPermissionManager?.() as
         | ToolPermissionManager
         | undefined;
-      
+
       if (permissionManager) {
         // New architecture: use permission manager to get enabled tools
         const enabledToolIds = permissionManager.getEnabledTools();
-        
+
         if (enabledToolIds.length > 0) {
           const toolService = this.contextFactory.getToolService();
           const resolvedTools = enabledToolIds
@@ -308,8 +314,8 @@ export class LLMExecutionCoordinator {
           abortSignal,
           eventManager: this.contextFactory.getEventManager(),
           nodeId,
-          executeTools: false,  // Don't execute tools, we'll handle them with approval
-          transformContext: params.transformContext,  // Pass through transformContext (dynamic context injection, message compression)
+          executeTools: false, // Don't execute tools, we'll handle them with approval
+          transformContext: params.transformContext, // Pass through transformContext (dynamic context injection, message compression)
         },
         conversationState,
       );
@@ -326,7 +332,7 @@ export class LLMExecutionCoordinator {
           // On other errors, clear operation state
           executionEntity?.state.clearOperation();
         }
-        
+
         // Convert error to interruption result
         const isPaused = coreResult.error?.message?.includes("paused") || false;
         return {
@@ -427,7 +433,7 @@ export class LLMExecutionCoordinator {
       executionId,
       nodeId,
       {
-        requestApproval: async (request) => {
+        requestApproval: async request => {
           return this.requestToolApprovalInternal(request, executionId, nodeId);
         },
       },
@@ -528,7 +534,11 @@ export class LLMExecutionCoordinator {
     if (this.contextFactory.hasToolApprovalSupport()) {
       try {
         const approvalContext = this.contextFactory.createToolApprovalContext(executionId, nodeId);
-        if (approvalContext.workflowRegistry && approvalContext.graphRegistry && approvalContext.executionRegistry) {
+        if (
+          approvalContext.workflowRegistry &&
+          approvalContext.graphRegistry &&
+          approvalContext.executionRegistry
+        ) {
           const dependencies = {
             workflowExecutionRegistry: approvalContext.executionRegistry,
             checkpointStateManager: approvalContext.checkpointStateManager,
@@ -574,11 +584,14 @@ export class LLMExecutionCoordinator {
         contextId: executionId,
         timeout: approvalConfig?.approvalTimeout || 0,
       });
-      
+
       try {
         await emit(this.contextFactory.getEventManager(), requestedEvent);
       } catch (error) {
-        logger.debug("Failed to emit TOOL_APPROVAL_REQUESTED event", { eventType: requestedEvent.type, error });
+        logger.debug("Failed to emit TOOL_APPROVAL_REQUESTED event", {
+          eventType: requestedEvent.type,
+          error,
+        });
       }
 
       // Wait for the USER_INTERACTION_RESPONDED event to be triggered.
@@ -630,11 +643,17 @@ export class LLMExecutionCoordinator {
     request: { toolCall: { id: string; function?: { name?: string; arguments?: string } } },
     executionId: string,
     nodeId: string,
-  ): Promise<{ approved: boolean; toolCallId: string; editedParameters?: Record<string, unknown>; userInstruction?: string; rejectionReason?: string }> {
+  ): Promise<{
+    approved: boolean;
+    toolCallId: string;
+    editedParameters?: Record<string, unknown>;
+    userInstruction?: string;
+    rejectionReason?: string;
+  }> {
     const toolCallName = request.toolCall.function?.name || "";
     const toolCallArgs = request.toolCall.function?.arguments || "{}";
 
-    logger.debug('Requesting tool approval', { toolCallName, toolCallArgs });
+    logger.debug("Requesting tool approval", { toolCallName, toolCallArgs });
 
     // Call the approval flow which returns ToolApprovalResult
     const result = await this.requestToolApproval(

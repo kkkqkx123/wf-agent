@@ -5,6 +5,7 @@
 本报告系统分析了SDK中所有涉及父子关系维护和等待操作的代码位置，评估现有timeout覆盖情况，并识别需要补充timeout实现的场景。
 
 **分析范围**：
+
 - Fork/Join并行执行机制
 - 子工作流等待和同步
 - 级联取消操作
@@ -20,6 +21,7 @@
 #### 📍 `sdk/workflow/execution/utils/workflow-operations.ts`
 
 **关键函数**：
+
 1. **`fork()`** (第74-139行)
    - 创建子执行实体
    - 触发FORK_STARTED/FORK_COMPLETED事件
@@ -42,6 +44,7 @@
    - ⚠️ **问题**：使用原始的setTimeout进行延迟，未使用统一timeout工具
 
 **父子关系数据结构**：
+
 ```typescript
 // 在WorkflowExecutionEntity中维护
 parentExecutionId?: string;
@@ -185,23 +188,26 @@ private async waitForChildExecutionCompletion(
 ### 3.1 事件驱动等待（✅ 推荐）
 
 **位置**：
+
 - `event-waiter.ts`中的所有`waitFor*`函数
 - `sync-barrier.ts`的`waitForBranchCompletion()`
 - `workflow-operations.ts`的`waitForCompletion()`（有eventManager时）
 
 **特点**：
+
 - 基于EventRegistry的事件监听
 - 非阻塞，资源效率高
 - 支持超时控制
 - 自动清理事件监听器
 
 **示例**：
+
 ```typescript
 await eventManager.waitFor(
   "WORKFLOW_EXECUTION_COMPLETED",
   executionId,
-  timeoutMs,  // 超时时间
-  event => event.executionId === executionId  // 过滤条件
+  timeoutMs, // 超时时间
+  event => event.executionId === executionId, // 过滤条件
 );
 ```
 
@@ -210,16 +216,19 @@ await eventManager.waitFor(
 ### 3.2 轮询等待（⚠️ 备选方案）
 
 **位置**：
+
 - `workflow-operations.ts`的`waitForCompletionByPolling()`（第655-747行）
 - `workflow-state-transitor.ts`的`waitForChildExecutionCompletion()`（第432-457行）❌
 
 **特点**：
+
 - 使用setInterval定期检查状态
 - 资源消耗较高
 - 需要手动管理定时器清理
 - 仅在无eventManager时使用（降级方案）
 
 **问题**：
+
 1. `waitForChildExecutionCompletion()`不应该存在，应该强制要求eventManager
 2. 轮询间隔硬编码为100ms，不可配置
 3. 定时器泄漏风险（如果异常退出未清理）
@@ -229,21 +238,20 @@ await eventManager.waitFor(
 ### 3.3 Promise.race超时包装
 
 **位置**：
+
 - `core/utils/timeout/timeout-utils.ts`的`createTimeoutPromise()`
 - `sync-barrier.ts`中使用
 
 **特点**：
+
 - 标准的超时实现模式
 - 自动清理定时器
 - 可自定义错误消息
 
 **示例**：
+
 ```typescript
-await createTimeoutPromise(
-  someAsyncOperation(),
-  5000,
-  'Operation timed out'
-);
+await createTimeoutPromise(someAsyncOperation(), 5000, "Operation timed out");
 ```
 
 ---
@@ -252,13 +260,13 @@ await createTimeoutPromise(
 
 ### 4.1 ✅ 已覆盖的场景
 
-| 场景 | 位置 | Timeout实现方式 | 状态 |
-|------|------|----------------|------|
-| Fork/Join等待 | `workflow-operations.ts` | 事件驱动 + 手动超时检查 | ✅ 良好 |
-| SYNC节点等待 | `sync-barrier.ts` | `createTimeoutPromise()` | ✅ 优秀 |
-| 暂停超时监控 | `pause-timeout-manager.ts` | TimeoutManager统一系统 | ✅ 已重构 |
-| LLM调用超时 | `llm-execution-coordinator.ts` | setTimeout + AbortSignal | ✅ 合理 |
-| 用户交互超时 | `user-interaction-handler.ts` | setTimeout + setInterval | ⚠️ 需改进 |
+| 场景          | 位置                           | Timeout实现方式          | 状态      |
+| ------------- | ------------------------------ | ------------------------ | --------- |
+| Fork/Join等待 | `workflow-operations.ts`       | 事件驱动 + 手动超时检查  | ✅ 良好   |
+| SYNC节点等待  | `sync-barrier.ts`              | `createTimeoutPromise()` | ✅ 优秀   |
+| 暂停超时监控  | `pause-timeout-manager.ts`     | TimeoutManager统一系统   | ✅ 已重构 |
+| LLM调用超时   | `llm-execution-coordinator.ts` | setTimeout + AbortSignal | ✅ 合理   |
+| 用户交互超时  | `user-interaction-handler.ts`  | setTimeout + setInterval | ⚠️ 需改进 |
 
 ---
 
@@ -267,6 +275,7 @@ await createTimeoutPromise(
 #### 🔴 高优先级问题
 
 **1. WorkflowStateTransitor.waitForChildExecutionCompletion()**
+
 - **位置**：`workflow-state-transitor.ts`第432-457行
 - **问题**：
   - 使用setInterval + setTimeout原始实现
@@ -277,6 +286,7 @@ await createTimeoutPromise(
 - **建议**：完全删除此方法，改用`waitForWorkflowExecutionCompleted()`
 
 **2. cascadeCancel()缺少超时保护**
+
 - **位置**：`workflow-state-transitor.ts`第263-296行
 - **问题**：
   - 遍历所有子执行逐个取消
@@ -286,17 +296,19 @@ await createTimeoutPromise(
 - **建议**：添加整体超时，使用`executeWithSharedTimeout()`
 
 **3. waitForMultipleWorkflowExecutionsCompleted()的超时语义不明确**
+
 - **位置**：`event-waiter.ts`第178-188行
 - **问题**：
   ```typescript
   // 当前实现：每个执行独立超时
   const promises = executionIds.map(executionId =>
-    waitForWorkflowExecutionCompleted(eventManager, executionId, timeout)
+    waitForWorkflowExecutionCompleted(eventManager, executionId, timeout),
   );
   await Promise.all(promises);
   ```
+
   - 如果timeout=30000ms，每个执行都有30秒超时
-  - 总等待时间可能是 N * 30秒（N个执行依次超时）
+  - 总等待时间可能是 N \* 30秒（N个执行依次超时）
   - 不符合"整体超时30秒"的预期
 - **影响**：多执行等待的实际超时时间不可控
 - **建议**：使用`executeWithSharedTimeout()`或外层包装超时
@@ -306,6 +318,7 @@ await createTimeoutPromise(
 #### 🟡 中优先级问题
 
 **4. 轮询等待的降级方案不够健壮**
+
 - **位置**：`workflow-operations.ts`的`waitForCompletionByPolling()`
 - **问题**：
   - 手动超时检查（第674-687行）
@@ -316,6 +329,7 @@ await createTimeoutPromise(
   - 添加try-finally确保清理
 
 **5. PauseTimeoutManager虽然已重构，但文档未更新**
+
 - **位置**：`pause-timeout-manager.ts`
 - **问题**：
   - 代码已改为使用TimeoutManager
@@ -327,6 +341,7 @@ await createTimeoutPromise(
 #### 🟢 低优先级改进
 
 **6. 缺少统一的等待策略配置**
+
 - **现状**：不同地方使用不同的超时默认值
   - `waitForWorkflowExecutionCompleted()`: 30000ms
   - `waitForWorkflowExecutionPaused()`: 5000ms
@@ -334,6 +349,7 @@ await createTimeoutPromise(
 - **建议**：定义统一的超时配置常量
 
 **7. 缺少等待操作的指标收集**
+
 - **现状**：TimeoutMetricsCollector主要监控注册的timeout
 - **缺失**：
   - 等待操作的持续时间
@@ -352,6 +368,7 @@ await createTimeoutPromise(
 **当前位置**：`workflow-state-transitor.ts`第263-296行
 
 **当前代码**：
+
 ```typescript
 async cascadeCancel(parentExecutionId: string): Promise<number> {
   const parentContext = this.workflowExecutionRegistry.get(parentExecutionId);
@@ -380,6 +397,7 @@ async cascadeCancel(parentExecutionId: string): Promise<number> {
 ```
 
 **改进方案**：
+
 ```typescript
 async cascadeCancel(
   parentExecutionId: string,
@@ -403,16 +421,16 @@ async cascadeCancel(
       // 并行取消，使用共享超时
       const cancelOperations: Record<string, () => Promise<boolean>> = {};
       for (const childExecutionId of childExecutionIds) {
-        cancelOperations[childExecutionId] = () => 
+        cancelOperations[childExecutionId] = () =>
           this.cancelChildWorkflowExecution(childExecutionId);
       }
-      
+
       const results = await executeWithSharedTimeout(
         cancelOperations,
         timeout,
         { message: `Cascade cancel timed out for parent: ${parentExecutionId}` }
       );
-      
+
       return Array.from(results.values()).filter(Boolean).length;
     } else {
       // 顺序取消，每个操作独立超时
@@ -442,6 +460,7 @@ async cascadeCancel(
 ```
 
 **改进要点**：
+
 1. 支持并行/顺序两种策略
 2. 使用`executeWithSharedTimeout()`或`withTimeout()`
 3. 超时后返回部分成功结果，而不是抛出异常
@@ -454,11 +473,13 @@ async cascadeCancel(
 **当前位置**：`workflow-state-transitor.ts`第432-457行
 
 **当前问题**：
+
 - 使用setInterval轮询
 - 未使用事件系统
 - 与架构不一致
 
 **改进方案**：
+
 ```typescript
 // 完全删除waitForChildExecutionCompletion方法
 // 修改waitForAllChildExecutionsCompleted直接调用event-waiter
@@ -511,6 +532,7 @@ async waitForAllChildExecutionsCompleted(
 ```
 
 **改进要点**：
+
 1. 完全移除setInterval实现
 2. 强制依赖EventRegistry
 3. 使用`executeWithSharedTimeout()`提供整体超时
@@ -525,34 +547,36 @@ async waitForAllChildExecutionsCompleted(
 **当前问题**：每个执行独立超时，总超时不可控
 
 **改进方案A - 保持向后兼容**：
+
 ```typescript
 export async function waitForMultipleWorkflowExecutionsCompleted(
   eventManager: EventRegistry,
   executionIds: string[],
   timeout: number = 30000,
   options?: {
-    mode?: 'individual' | 'shared';  // 新增选项
-  }
+    mode?: "individual" | "shared"; // 新增选项
+  },
 ): Promise<void> {
-  const mode = options?.mode ?? 'individual';  // 默认保持现有行为
-  
-  if (mode === 'shared') {
+  const mode = options?.mode ?? "individual"; // 默认保持现有行为
+
+  if (mode === "shared") {
     // 新行为：整体超时
     await executeWithSharedTimeout(
       {
-        wait: () => Promise.all(
-          executionIds.map(id => 
-            waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER)
-          )
-        )
+        wait: () =>
+          Promise.all(
+            executionIds.map(id =>
+              waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER),
+            ),
+          ),
       },
       timeout,
-      { message: `Timeout waiting for multiple executions: ${executionIds.join(', ')}` }
+      { message: `Timeout waiting for multiple executions: ${executionIds.join(", ")}` },
     );
   } else {
     // 旧行为：每个执行独立超时
     const promises = executionIds.map(executionId =>
-      waitForWorkflowExecutionCompleted(eventManager, executionId, timeout)
+      waitForWorkflowExecutionCompleted(eventManager, executionId, timeout),
     );
     await Promise.all(promises);
   }
@@ -560,6 +584,7 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
 ```
 
 **改进方案B - Breaking Change（推荐）**：
+
 ```typescript
 export async function waitForMultipleWorkflowExecutionsCompleted(
   eventManager: EventRegistry,
@@ -569,25 +594,25 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
   // 新行为：timeout是整体超时
   await executeWithSharedTimeout(
     {
-      wait: () => Promise.all(
-        executionIds.map(id => 
-          waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER)
-        )
-      )
+      wait: () =>
+        Promise.all(
+          executionIds.map(id => waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER)),
+        ),
     },
     timeout,
-    { message: `Timeout waiting for multiple executions` }
+    { message: `Timeout waiting for multiple executions` },
   );
 }
 ```
 
 **调用方适配**：
+
 ```typescript
 // 如果需要更长的超时，调用方显式指定
 await waitForMultipleWorkflowExecutionsCompleted(
   eventManager,
   executionIds,
-  60000  // 明确指定60秒
+  60000, // 明确指定60秒
 );
 ```
 
@@ -600,6 +625,7 @@ await waitForMultipleWorkflowExecutionsCompleted(
 **当前位置**：`workflow-operations.ts`第655-747行
 
 **改进方案**：
+
 ```typescript
 async function waitForCompletionByPolling(
   childExecutionIds: string[],
@@ -637,7 +663,7 @@ async function waitForCompletionByPolling(
         }
       },
       timeout ?? 30000,  // 默认30秒
-      { 
+      {
         message: `Polling timeout for child executions: ${childExecutionIds.join(', ')}`,
         onTimeout: () => {
           logger.warn("Polling timed out", {
@@ -660,6 +686,7 @@ async function waitForCompletionByPolling(
 ```
 
 **改进要点**：
+
 1. 使用`withTimeout()`替代手动超时检查
 2. 使用`delay()`替代`setTimeout()`
 3. 添加finally块确保清理
@@ -672,6 +699,7 @@ async function waitForCompletionByPolling(
 **位置**：`event-waiter.ts`
 
 **改进方案**：
+
 ```typescript
 import { TimeoutMetricsCollector } from "../../../core/metrics/timeout-collector.js";
 
@@ -688,28 +716,28 @@ export async function waitForWorkflowExecutionCompleted(
 ): Promise<void> {
   const startTime = Date.now();
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  
+
   try {
     await eventManager.waitFor(
       "WORKFLOW_EXECUTION_COMPLETED",
       executionId,
       actualTimeout,
-      event => event.executionId === executionId
+      event => event.executionId === executionId,
     );
-    
+
     // 记录成功指标
     const duration = Date.now() - startTime;
-    metricsCollector?.recordMetric('wait.completed', duration, {
+    metricsCollector?.recordMetric("wait.completed", duration, {
       executionId,
-      eventType: 'WORKFLOW_EXECUTION_COMPLETED',
+      eventType: "WORKFLOW_EXECUTION_COMPLETED",
     });
   } catch (error) {
     // 记录失败指标
     const duration = Date.now() - startTime;
-    metricsCollector?.recordMetric('wait.failed', duration, {
+    metricsCollector?.recordMetric("wait.failed", duration, {
       executionId,
-      eventType: 'WORKFLOW_EXECUTION_COMPLETED',
-      error: isTimeoutError(error) ? 'timeout' : 'other',
+      eventType: "WORKFLOW_EXECUTION_COMPLETED",
+      error: isTimeoutError(error) ? "timeout" : "other",
     });
     throw error;
   }
@@ -730,24 +758,24 @@ export async function waitForWorkflowExecutionCompleted(
  */
 export const DEFAULT_TIMEOUTS = {
   // Workflow execution waiting
-  WORKFLOW_EXECUTION_COMPLETION: 30000,  // 30 seconds
-  WORKFLOW_EXECUTION_PAUSE: 5000,        // 5 seconds
-  WORKFLOW_EXECUTION_CANCEL: 10000,      // 10 seconds
-  
+  WORKFLOW_EXECUTION_COMPLETION: 30000, // 30 seconds
+  WORKFLOW_EXECUTION_PAUSE: 5000, // 5 seconds
+  WORKFLOW_EXECUTION_CANCEL: 10000, // 10 seconds
+
   // Child execution operations
-  CHILD_EXECUTION_WAIT: 30000,           // 30 seconds
-  CASCADE_CANCEL: 30000,                 // 30 seconds
-  
+  CHILD_EXECUTION_WAIT: 30000, // 30 seconds
+  CASCADE_CANCEL: 30000, // 30 seconds
+
   // Node execution
-  NODE_COMPLETION: 30000,                // 30 seconds
-  NODE_FAILED: 30000,                    // 30 seconds
-  
+  NODE_COMPLETION: 30000, // 30 seconds
+  NODE_FAILED: 30000, // 30 seconds
+
   // Sync/Join operations
-  SYNC_BRANCH_WAIT: 60000,               // 60 seconds
-  JOIN_COMPLETION: 60000,                // 60 seconds
-  
+  SYNC_BRANCH_WAIT: 60000, // 60 seconds
+  JOIN_COMPLETION: 60000, // 60 seconds
+
   // Fallback
-  DEFAULT: 30000,                        // 30 seconds
+  DEFAULT: 30000, // 30 seconds
 } as const;
 
 /**
@@ -757,14 +785,16 @@ export function validateTimeout(timeout: number, context: string): void {
   if (timeout < 0) {
     throw new Error(`Invalid timeout for ${context}: ${timeout}ms (must be non-negative)`);
   }
-  
-  if (timeout > 300000) {  // 5 minutes max
+
+  if (timeout > 300000) {
+    // 5 minutes max
     console.warn(`Very long timeout for ${context}: ${timeout}ms (> 5 minutes)`);
   }
 }
 ```
 
 **使用示例**：
+
 ```typescript
 import { DEFAULT_TIMEOUTS, validateTimeout } from "@wf-agent/sdk/core/config/timeout-config";
 
@@ -773,7 +803,7 @@ export async function waitForWorkflowExecutionCompleted(
   executionId: string,
   timeout: number = DEFAULT_TIMEOUTS.WORKFLOW_EXECUTION_COMPLETION,
 ): Promise<void> {
-  validateTimeout(timeout, 'waitForWorkflowExecutionCompleted');
+  validateTimeout(timeout, "waitForWorkflowExecutionCompleted");
   // ...
 }
 ```
@@ -784,14 +814,14 @@ export async function waitForWorkflowExecutionCompleted(
 
 ### 6.1 优先级排序
 
-| 优先级 | 场景 | 工作量 | 影响范围 | 风险 |
-|--------|------|--------|----------|------|
-| 🔴 P0 | 替换waitForChildExecutionCompletion | 小 | 中 | 低 |
-| 🔴 P0 | cascadeCancel超时保护 | 中 | 中 | 低 |
-| 🔴 P0 | 修复waitForMultiple超时语义 | 小 | 高 | 中（Breaking Change） |
-| 🟡 P1 | 轮询等待健壮性改进 | 中 | 低 | 低 |
-| 🟡 P1 | 添加等待指标收集 | 小 | 低 | 低 |
-| 🟢 P2 | 统一超时配置常量 | 小 | 全局 | 低 |
+| 优先级 | 场景                                | 工作量 | 影响范围 | 风险                  |
+| ------ | ----------------------------------- | ------ | -------- | --------------------- |
+| 🔴 P0  | 替换waitForChildExecutionCompletion | 小     | 中       | 低                    |
+| 🔴 P0  | cascadeCancel超时保护               | 中     | 中       | 低                    |
+| 🔴 P0  | 修复waitForMultiple超时语义         | 小     | 高       | 中（Breaking Change） |
+| 🟡 P1  | 轮询等待健壮性改进                  | 中     | 低       | 低                    |
+| 🟡 P1  | 添加等待指标收集                    | 小     | 低       | 低                    |
+| 🟢 P2  | 统一超时配置常量                    | 小     | 全局     | 低                    |
 
 ---
 
@@ -800,6 +830,7 @@ export async function waitForWorkflowExecutionCompleted(
 #### Phase 1: 修复高优先级问题（1-2天）
 
 **Step 1**: 删除`waitForChildExecutionCompletion()`
+
 ```bash
 # 文件：sdk/workflow/execution/coordinators/workflow-state-transitor.ts
 # 删除第432-457行的方法
@@ -807,6 +838,7 @@ export async function waitForWorkflowExecutionCompleted(
 ```
 
 **Step 2**: 增强cascadeCancel()
+
 ```bash
 # 文件：sdk/workflow/execution/coordinators/workflow-state-transitor.ts
 # 添加超时参数和策略选项
@@ -814,6 +846,7 @@ export async function waitForWorkflowExecutionCompleted(
 ```
 
 **Step 3**: 修复waitForMultiple超时语义
+
 ```bash
 # 文件：sdk/workflow/execution/utils/event/event-waiter.ts
 # 选择方案A（向后兼容）或方案B（Breaking Change）
@@ -825,6 +858,7 @@ export async function waitForWorkflowExecutionCompleted(
 #### Phase 2: 中优先级改进（2-3天）
 
 **Step 4**: 改进轮询等待
+
 ```bash
 # 文件：sdk/workflow/execution/utils/workflow-operations.ts
 # 使用withTimeout()和delay()
@@ -832,6 +866,7 @@ export async function waitForWorkflowExecutionCompleted(
 ```
 
 **Step 5**: 添加指标收集
+
 ```bash
 # 文件：sdk/workflow/execution/utils/event/event-waiter.ts
 # 集成TimeoutMetricsCollector
@@ -843,6 +878,7 @@ export async function waitForWorkflowExecutionCompleted(
 #### Phase 3: 低优先级优化（1天）
 
 **Step 6**: 统一定时配置
+
 ```bash
 # 新建：sdk/core/config/timeout-config.ts
 # 更新所有waitFor*函数使用常量
@@ -853,16 +889,19 @@ export async function waitForWorkflowExecutionCompleted(
 ### 6.3 测试策略
 
 **单元测试**：
+
 - 测试超时触发的正确性
 - 测试定时器清理（无泄漏）
 - 测试并发等待的超时语义
 
 **集成测试**：
+
 - 测试Fork/Join完整流程的超时
 - 测试级联取消的超时行为
 - 测试SYNC节点的等待和超时
 
 **压力测试**：
+
 - 大量并发子执行的等待
 - 长时间运行的超时监控
 - 内存泄漏检测

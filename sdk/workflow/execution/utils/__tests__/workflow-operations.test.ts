@@ -3,13 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  fork,
-  join,
-  copy,
-  type ForkConfig,
-  type JoinStrategy,
-} from "../workflow-operations.js";
+import { fork, join, copy, type ForkConfig, type JoinStrategy } from "../workflow-operations.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
@@ -29,27 +23,27 @@ vi.mock("../../../utils/contextual-logger.js", () => ({
 
 // Mock the event builders
 vi.mock("../../../core/utils/event/builders/index.js", () => ({
-  buildWorkflowExecutionForkStartedEvent: vi.fn((data) => ({
+  buildWorkflowExecutionForkStartedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_FORK_STARTED",
     ...data,
   })),
-  buildWorkflowExecutionForkCompletedEvent: vi.fn((data) => ({
+  buildWorkflowExecutionForkCompletedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_FORK_COMPLETED",
     ...data,
   })),
-  buildWorkflowExecutionJoinStartedEvent: vi.fn((data) => ({
+  buildWorkflowExecutionJoinStartedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_JOIN_STARTED",
     ...data,
   })),
-  buildWorkflowExecutionJoinConditionMetEvent: vi.fn((data) => ({
+  buildWorkflowExecutionJoinConditionMetEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_JOIN_CONDITION_MET",
     ...data,
   })),
-  buildWorkflowExecutionCopyStartedEvent: vi.fn((data) => ({
+  buildWorkflowExecutionCopyStartedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_COPY_STARTED",
     ...data,
   })),
-  buildWorkflowExecutionCopyCompletedEvent: vi.fn((data) => ({
+  buildWorkflowExecutionCopyCompletedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_COPY_COMPLETED",
     ...data,
   })),
@@ -63,7 +57,7 @@ vi.mock("../../../core/utils/event/emit-event.js", () => ({
 // Mock the message array utils
 vi.mock("../../../core/utils/messages/message-array-utils.js", () => ({
   MessageArrayUtils: {
-    cloneMessages: vi.fn((messages) => messages.map((m: unknown) => ({ ...(m as object) }))),
+    cloneMessages: vi.fn(messages => messages.map((m: unknown) => ({ ...(m as object) }))),
   },
 }));
 
@@ -112,9 +106,9 @@ describe("fork", () => {
     it("should throw error when forkId is missing", async () => {
       const forkConfig: ForkConfig = { forkId: "" };
 
-      await expect(
-        fork(mockParentEntity, forkConfig, mockExecutionBuilder)
-      ).rejects.toThrow(RuntimeValidationError);
+      await expect(fork(mockParentEntity, forkConfig, mockExecutionBuilder)).rejects.toThrow(
+        RuntimeValidationError,
+      );
     });
 
     it("should throw error when forkStrategy is invalid", async () => {
@@ -123,9 +117,9 @@ describe("fork", () => {
         forkStrategy: "invalid" as "serial" | "parallel",
       };
 
-      await expect(
-        fork(mockParentEntity, forkConfig, mockExecutionBuilder)
-      ).rejects.toThrow(RuntimeValidationError);
+      await expect(fork(mockParentEntity, forkConfig, mockExecutionBuilder)).rejects.toThrow(
+        RuntimeValidationError,
+      );
     });
 
     it("should accept valid forkStrategy values", async () => {
@@ -147,22 +141,15 @@ describe("fork", () => {
         startNodeId: "node-2",
       };
 
-      const childEntity = await fork(
-        mockParentEntity,
-        forkConfig,
-        mockExecutionBuilder
-      );
+      const childEntity = await fork(mockParentEntity, forkConfig, mockExecutionBuilder);
 
-      expect(mockExecutionBuilder.createChildExecution).toHaveBeenCalledWith(
-        mockParentEntity,
-        {
-          type: "FORK_BRANCH",
-          config: {
-            forkPathId: "path-1",
-            startNodeId: "node-2",
-          },
-        }
-      );
+      expect(mockExecutionBuilder.createChildExecution).toHaveBeenCalledWith(mockParentEntity, {
+        type: "FORK_BRANCH",
+        config: {
+          forkPathId: "path-1",
+          startNodeId: "node-2",
+        },
+      });
       expect(childEntity.id).toBe("child-exec-1");
     });
 
@@ -171,16 +158,13 @@ describe("fork", () => {
 
       await fork(mockParentEntity, forkConfig, mockExecutionBuilder);
 
-      expect(mockExecutionBuilder.createChildExecution).toHaveBeenCalledWith(
-        mockParentEntity,
-        {
-          type: "FORK_BRANCH",
-          config: {
-            forkPathId: undefined,
-            startNodeId: undefined,
-          },
-        }
-      );
+      expect(mockExecutionBuilder.createChildExecution).toHaveBeenCalledWith(mockParentEntity, {
+        type: "FORK_BRANCH",
+        config: {
+          forkPathId: undefined,
+          startNodeId: undefined,
+        },
+      });
     });
   });
 
@@ -212,14 +196,14 @@ describe("fork", () => {
 
     it("should handle event emission errors gracefully", async () => {
       (mockEventManager.emit as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("Emit failed")
+        new Error("Emit failed"),
       );
 
       const forkConfig: ForkConfig = { forkId: "fork-1" };
 
       // Should not throw
       await expect(
-        fork(mockParentEntity, forkConfig, mockExecutionBuilder, mockEventManager)
+        fork(mockParentEntity, forkConfig, mockExecutionBuilder, mockEventManager),
       ).resolves.not.toThrow();
     });
   });
@@ -280,24 +264,13 @@ describe("join", () => {
   describe("validation", () => {
     it("should throw error when joinStrategy is missing", async () => {
       await expect(
-        join(
-          ["child-exec-1"],
-          undefined as unknown as JoinStrategy,
-          mockRegistry,
-          "path-1"
-        )
+        join(["child-exec-1"], undefined as unknown as JoinStrategy, mockRegistry, "path-1"),
       ).rejects.toThrow(RuntimeValidationError);
     });
 
     it("should throw error when timeout is negative", async () => {
       await expect(
-        join(
-          ["child-exec-1"],
-          "ALL_COMPLETED",
-          mockRegistry,
-          "path-1",
-          -1
-        )
+        join(["child-exec-1"], "ALL_COMPLETED", mockRegistry, "path-1", -1),
       ).rejects.toThrow(RuntimeValidationError);
     });
 
@@ -310,8 +283,8 @@ describe("join", () => {
           "path-1",
           0,
           "parent-exec-1",
-          mockEventManager
-        )
+          mockEventManager,
+        ),
       ).resolves.not.toThrow();
     });
   });
@@ -325,7 +298,7 @@ describe("join", () => {
         "path-1",
         0,
         "parent-exec-1",
-        mockEventManager
+        mockEventManager,
       );
 
       expect(result.success).toBe(true);
@@ -341,7 +314,7 @@ describe("join", () => {
         "path-1",
         0,
         "parent-exec-1",
-        mockEventManager
+        mockEventManager,
       );
 
       expect(result.success).toBe(true);
@@ -357,7 +330,7 @@ describe("join", () => {
         "path-1",
         0,
         "parent-exec-1",
-        mockEventManager
+        mockEventManager,
       );
 
       expect(mockEventManager.emit).toHaveBeenCalled();
@@ -365,14 +338,7 @@ describe("join", () => {
 
     it("should throw error when eventManager not provided", async () => {
       await expect(
-        join(
-          ["child-exec-1"],
-          "ALL_COMPLETED",
-          mockRegistry,
-          "path-1",
-          0,
-          "parent-exec-1"
-        )
+        join(["child-exec-1"], "ALL_COMPLETED", mockRegistry, "path-1", 0, "parent-exec-1"),
       ).rejects.toThrow(ExecutionError);
     });
   });
@@ -380,7 +346,9 @@ describe("join", () => {
   describe("message export", () => {
     it("should export messages from main path", async () => {
       const messages = [{ role: "user", content: "test" }];
-      ((mockChildEntity as any).messageHistoryManager.getMessages as ReturnType<typeof vi.fn>).mockReturnValue(messages);
+      (
+        (mockChildEntity as any).messageHistoryManager.getMessages as ReturnType<typeof vi.fn>
+      ).mockReturnValue(messages);
 
       await join(
         ["child-exec-1"],
@@ -389,7 +357,7 @@ describe("join", () => {
         "path-1",
         0,
         "parent-exec-1",
-        mockEventManager
+        mockEventManager,
       );
 
       expect((mockParentEntity as any).messageHistoryManager.addMessage).toHaveBeenCalled();
@@ -410,21 +378,21 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
-        variableOutputs
+        variableOutputs,
       );
 
       expect(mockParentEntity.variableStateManager.setVariable).toHaveBeenCalledWith(
         "targetVar1",
-        "value"
+        "value",
       );
     });
 
     it("should handle missing variables gracefully", async () => {
-      (mockChildEntity.variableStateManager.getVariable as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+      (
+        mockChildEntity.variableStateManager.getVariable as ReturnType<typeof vi.fn>
+      ).mockReturnValue(undefined);
 
-      const variableOutputs = [
-        { sourcePathId: "path-1", variableName: "missingVar" },
-      ];
+      const variableOutputs = [{ sourcePathId: "path-1", variableName: "missingVar" }];
 
       await join(
         ["child-exec-1"],
@@ -434,7 +402,7 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
-        variableOutputs
+        variableOutputs,
       );
 
       // Should not throw
@@ -480,20 +448,32 @@ describe("copy", () => {
   describe("validation", () => {
     it("should throw error when source entity is null", async () => {
       await expect(
-        copy(null as unknown as WorkflowExecutionEntity, mockExecutionBuilder, mockSourceStateCoordinator)
+        copy(
+          null as unknown as WorkflowExecutionEntity,
+          mockExecutionBuilder,
+          mockSourceStateCoordinator,
+        ),
       ).rejects.toThrow(ExecutionError);
     });
 
     it("should throw error when source entity is undefined", async () => {
       await expect(
-        copy(undefined as unknown as WorkflowExecutionEntity, mockExecutionBuilder, mockSourceStateCoordinator)
+        copy(
+          undefined as unknown as WorkflowExecutionEntity,
+          mockExecutionBuilder,
+          mockSourceStateCoordinator,
+        ),
       ).rejects.toThrow(ExecutionError);
     });
   });
 
   describe("copy creation", () => {
     it("should create copy of workflow execution", async () => {
-      const copiedEntity = await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator);
+      const copiedEntity = await copy(
+        mockSourceEntity,
+        mockExecutionBuilder,
+        mockSourceStateCoordinator,
+      );
 
       expect(mockExecutionBuilder.createCopy).toHaveBeenCalledWith(mockSourceEntity);
       expect(copiedEntity.id).toBe("copied-exec-1");
@@ -502,13 +482,23 @@ describe("copy", () => {
 
   describe("event emission", () => {
     it("should emit copy started event when eventManager provided", async () => {
-      await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager);
+      await copy(
+        mockSourceEntity,
+        mockExecutionBuilder,
+        mockSourceStateCoordinator,
+        mockEventManager,
+      );
 
       expect(mockEventManager.emit).toHaveBeenCalled();
     });
 
     it("should emit copy completed event when eventManager provided", async () => {
-      await copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager);
+      await copy(
+        mockSourceEntity,
+        mockExecutionBuilder,
+        mockSourceStateCoordinator,
+        mockEventManager,
+      );
 
       // Should emit both started and completed events
       expect(mockEventManager.emit).toHaveBeenCalledTimes(2);
@@ -522,12 +512,12 @@ describe("copy", () => {
 
     it("should handle event emission errors gracefully", async () => {
       (mockEventManager.emit as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error("Emit failed")
+        new Error("Emit failed"),
       );
 
       // Should not throw
       await expect(
-        copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager)
+        copy(mockSourceEntity, mockExecutionBuilder, mockSourceStateCoordinator, mockEventManager),
       ).resolves.not.toThrow();
     });
   });

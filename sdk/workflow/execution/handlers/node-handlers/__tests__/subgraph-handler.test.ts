@@ -178,112 +178,112 @@ describe("subgraphHandler", () => {
     });
   });
 
-    it("should handle subgraph without variable mappings", async () => {
-      // Arrange
-      const nodeWithoutMappings = createMockSubgraphNode({
-        variableInputs: undefined,
-        variableOutputs: undefined,
-      });
-      const context = {
-        executionBuilder: mockExecutionBuilder as any,
-        workflowExecutor: mockWorkflowExecutor as any,
-      };
-
-      // Act
-      await subgraphHandler(mockGlobalContext, mockParentEntity, nodeWithoutMappings, context);
-
-      // Assert - exportVariables should not be called when no outputs
-      expect(mockParentEntity.variableStateManager.exportVariables).not.toHaveBeenCalled();
+  it("should handle subgraph without variable mappings", async () => {
+    // Arrange
+    const nodeWithoutMappings = createMockSubgraphNode({
+      variableInputs: undefined,
+      variableOutputs: undefined,
     });
+    const context = {
+      executionBuilder: mockExecutionBuilder as any,
+      workflowExecutor: mockWorkflowExecutor as any,
+    };
 
-    it("should throw error when subgraphId is missing", async () => {
-      // Arrange
-      const invalidNode = createMockSubgraphNode({
-        subgraphId: undefined as any,
-      });
-      const context = {
-        executionBuilder: mockExecutionBuilder as any,
-        workflowExecutor: mockWorkflowExecutor as any,
-      };
+    // Act
+    await subgraphHandler(mockGlobalContext, mockParentEntity, nodeWithoutMappings, context);
 
-      // Act & Assert
-      await expect(
-        subgraphHandler(mockGlobalContext, mockParentEntity, invalidNode, context),
-      ).rejects.toThrow("SUBGRAPH node 'subgraph-node-1' missing subgraphId configuration");
-    });
-
-    it("should throw error when executionBuilder is not provided", async () => {
-      // Arrange
-      const node = createMockSubgraphNode();
-      const context = {
-        workflowExecutor: mockWorkflowExecutor as any,
-      };
-
-      // Act & Assert
-      await expect(
-        subgraphHandler(mockGlobalContext, mockParentEntity, node, context as any),
-      ).rejects.toThrow("WorkflowExecutionBuilder required for SUBGRAPH execution");
-    });
-
-    it("should throw error when workflowExecutor is not provided", async () => {
-      // Arrange
-      const node = createMockSubgraphNode();
-      const context = {
-        executionBuilder: mockExecutionBuilder as any,
-      };
-
-      // Act & Assert
-      await expect(
-        subgraphHandler(mockGlobalContext, mockParentEntity, node, context as any),
-      ).rejects.toThrow("WorkflowExecutor required for SUBGRAPH execution");
-    });
-
-    it("should handle subgraph execution failure", async () => {
-      // Arrange
-      const node = createMockSubgraphNode();
-      const executionError = new Error("Subgraph execution failed");
-      mockWorkflowExecutor.executeWorkflow.mockRejectedValue(executionError);
-
-      const context = {
-        executionBuilder: mockExecutionBuilder as any,
-        workflowExecutor: mockWorkflowExecutor as any,
-      };
-
-      // Act & Assert
-      await expect(
-        subgraphHandler(mockGlobalContext, mockParentEntity, node, context),
-      ).rejects.toThrow(
-        `Subgraph execution failed for node 'subgraph-node-1': ${executionError.message}`,
-      );
-
-      // Verify cleanup was attempted
-      expect(mockParentEntity.unregisterChild).toHaveBeenCalled();
-    });
-
-    it("should handle optional output variable that is undefined", async () => {
-      // Arrange
-      const nodeWithOptionalOutput = createMockSubgraphNode({
-        variableOutputs: [{ internalName: "optionalResult", externalName: "parentOptionalResult" }],
-      });
-
-      // Reset mock to return success (previous test set it to reject)
-      mockWorkflowExecutor.executeWorkflow.mockResolvedValue({
-        metadata: { status: "COMPLETED" },
-        output: { result: "success" },
-      });
-
-      const context = {
-        executionBuilder: mockExecutionBuilder as any,
-        workflowExecutor: mockWorkflowExecutor as any,
-      };
-
-      // Act
-      await subgraphHandler(mockGlobalContext, mockParentEntity, nodeWithOptionalOutput, context);
-
-      // Assert - exportVariables should be called even if variable might be undefined
-      expect(mockParentEntity.variableStateManager.exportVariables).toHaveBeenCalledWith(
-        mockSubgraphEntity.variableStateManager,
-        (nodeWithOptionalOutput.config as SubgraphNodeConfig).variableOutputs,
-      );
-    });
+    // Assert - exportVariables should not be called when no outputs
+    expect(mockParentEntity.variableStateManager.exportVariables).not.toHaveBeenCalled();
   });
+
+  it("should throw error when subgraphId is missing", async () => {
+    // Arrange
+    const invalidNode = createMockSubgraphNode({
+      subgraphId: undefined as any,
+    });
+    const context = {
+      executionBuilder: mockExecutionBuilder as any,
+      workflowExecutor: mockWorkflowExecutor as any,
+    };
+
+    // Act & Assert
+    await expect(
+      subgraphHandler(mockGlobalContext, mockParentEntity, invalidNode, context),
+    ).rejects.toThrow("SUBGRAPH node 'subgraph-node-1' missing subgraphId configuration");
+  });
+
+  it("should throw error when executionBuilder is not provided", async () => {
+    // Arrange
+    const node = createMockSubgraphNode();
+    const context = {
+      workflowExecutor: mockWorkflowExecutor as any,
+    };
+
+    // Act & Assert
+    await expect(
+      subgraphHandler(mockGlobalContext, mockParentEntity, node, context as any),
+    ).rejects.toThrow("WorkflowExecutionBuilder required for SUBGRAPH execution");
+  });
+
+  it("should throw error when workflowExecutor is not provided", async () => {
+    // Arrange
+    const node = createMockSubgraphNode();
+    const context = {
+      executionBuilder: mockExecutionBuilder as any,
+    };
+
+    // Act & Assert
+    await expect(
+      subgraphHandler(mockGlobalContext, mockParentEntity, node, context as any),
+    ).rejects.toThrow("WorkflowExecutor required for SUBGRAPH execution");
+  });
+
+  it("should handle subgraph execution failure", async () => {
+    // Arrange
+    const node = createMockSubgraphNode();
+    const executionError = new Error("Subgraph execution failed");
+    mockWorkflowExecutor.executeWorkflow.mockRejectedValue(executionError);
+
+    const context = {
+      executionBuilder: mockExecutionBuilder as any,
+      workflowExecutor: mockWorkflowExecutor as any,
+    };
+
+    // Act & Assert
+    await expect(
+      subgraphHandler(mockGlobalContext, mockParentEntity, node, context),
+    ).rejects.toThrow(
+      `Subgraph execution failed for node 'subgraph-node-1': ${executionError.message}`,
+    );
+
+    // Verify cleanup was attempted
+    expect(mockParentEntity.unregisterChild).toHaveBeenCalled();
+  });
+
+  it("should handle optional output variable that is undefined", async () => {
+    // Arrange
+    const nodeWithOptionalOutput = createMockSubgraphNode({
+      variableOutputs: [{ internalName: "optionalResult", externalName: "parentOptionalResult" }],
+    });
+
+    // Reset mock to return success (previous test set it to reject)
+    mockWorkflowExecutor.executeWorkflow.mockResolvedValue({
+      metadata: { status: "COMPLETED" },
+      output: { result: "success" },
+    });
+
+    const context = {
+      executionBuilder: mockExecutionBuilder as any,
+      workflowExecutor: mockWorkflowExecutor as any,
+    };
+
+    // Act
+    await subgraphHandler(mockGlobalContext, mockParentEntity, nodeWithOptionalOutput, context);
+
+    // Assert - exportVariables should be called even if variable might be undefined
+    expect(mockParentEntity.variableStateManager.exportVariables).toHaveBeenCalledWith(
+      mockSubgraphEntity.variableStateManager,
+      (nodeWithOptionalOutput.config as SubgraphNodeConfig).variableOutputs,
+    );
+  });
+});

@@ -8,7 +8,17 @@
 
 export { AgentLoopCoordinator, type AgentLoopExecuteOptions } from "./agent-loop-coordinator.js";
 export { ConversationCoordinator } from "./conversation-coordinator.js";
-export { AgentExecutionCoordinator, type AgentExecutionCoordinatorDependencies, type AgentLoopStreamEvent } from "./agent-execution-coordinator.js";
-export { AgentIterationCoordinator, type AgentIterationCoordinatorDependencies } from "./agent-iteration-coordinator.js";
+export {
+  AgentExecutionCoordinator,
+  type AgentExecutionCoordinatorDependencies,
+  type AgentLoopStreamEvent,
+} from "./agent-execution-coordinator.js";
+export {
+  AgentIterationCoordinator,
+  type AgentIterationCoordinatorDependencies,
+} from "./agent-iteration-coordinator.js";
 export { AgentLoopStateTransitor } from "./agent-loop-state-transitor.js";
-export { ToolExecutionCoordinator, type ToolExecutionCoordinatorDependencies } from "./tool-execution-coordinator.js";
+export {
+  ToolExecutionCoordinator,
+  type ToolExecutionCoordinatorDependencies,
+} from "./tool-execution-coordinator.js";

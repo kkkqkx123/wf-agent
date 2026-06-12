@@ -3,52 +3,52 @@
  * Tests for trigger runtime state management
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { TriggerState } from '../trigger-state.js';
-import { RuntimeValidationError, ExecutionError, NotFoundError } from '@wf-agent/types';
-import type { TriggerRuntimeState } from '@wf-agent/types';
+import { describe, it, expect, beforeEach } from "vitest";
+import { TriggerState } from "../trigger-state.js";
+import { RuntimeValidationError, ExecutionError, NotFoundError } from "@wf-agent/types";
+import type { TriggerRuntimeState } from "@wf-agent/types";
 
-describe('TriggerState', () => {
+describe("TriggerState", () => {
   let triggerState: TriggerState;
-  const executionId = 'exec-123';
-  const workflowId = 'workflow-456';
+  const executionId = "exec-123";
+  const workflowId = "workflow-456";
 
   beforeEach(() => {
     triggerState = new TriggerState(executionId);
     triggerState.setWorkflowId(workflowId);
   });
 
-  describe('constructor', () => {
-    it('should initialize with execution ID', () => {
-      const state = new TriggerState('test-exec');
-      expect(state.getExecutionId()).toBe('test-exec');
+  describe("constructor", () => {
+    it("should initialize with execution ID", () => {
+      const state = new TriggerState("test-exec");
+      expect(state.getExecutionId()).toBe("test-exec");
       expect(state.getWorkflowId()).toBeNull();
       expect(state.size()).toBe(0);
       expect(state.isEmpty()).toBe(true);
     });
   });
 
-  describe('setWorkflowId and getWorkflowId', () => {
-    it('should set workflow ID', () => {
-      const state = new TriggerState('exec-1');
-      state.setWorkflowId('workflow-1');
-      expect(state.getWorkflowId()).toBe('workflow-1');
+  describe("setWorkflowId and getWorkflowId", () => {
+    it("should set workflow ID", () => {
+      const state = new TriggerState("exec-1");
+      state.setWorkflowId("workflow-1");
+      expect(state.getWorkflowId()).toBe("workflow-1");
     });
 
-    it('should allow null workflow ID', () => {
-      const state = new TriggerState('exec-1');
+    it("should allow null workflow ID", () => {
+      const state = new TriggerState("exec-1");
       expect(state.getWorkflowId()).toBeNull();
     });
   });
 
-  describe('register', () => {
-    it('should register trigger state successfully', () => {
+  describe("register", () => {
+    it("should register trigger state successfully", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -58,100 +58,100 @@ describe('TriggerState', () => {
 
       // Assert
       expect(triggerState.size()).toBe(1);
-      expect(triggerState.hasState('trigger-1')).toBe(true);
-      
-      const registered = triggerState.getState('trigger-1');
+      expect(triggerState.hasState("trigger-1")).toBe(true);
+
+      const registered = triggerState.getState("trigger-1");
       expect(registered).toEqual(state);
     });
 
-    it('should throw error when triggerId is missing', () => {
+    it("should throw error when triggerId is missing", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: '',
+        triggerId: "",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.register(state)).toThrow('Trigger ID cannot be null');
+      expect(() => triggerState.register(state)).toThrow("Trigger ID cannot be null");
     });
 
-    it('should throw error when executionId is missing', () => {
+    it("should throw error when executionId is missing", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
-        executionId: '',
+        triggerId: "trigger-1",
+        executionId: "",
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.register(state)).toThrow('Execution ID cannot be null');
+      expect(() => triggerState.register(state)).toThrow("Execution ID cannot be null");
     });
 
-    it('should throw error when workflowId is missing', () => {
+    it("should throw error when workflowId is missing", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
-        workflowId: '',
-        status: 'enabled',
+        workflowId: "",
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.register(state)).toThrow('Workflow ID cannot be null');
+      expect(() => triggerState.register(state)).toThrow("Workflow ID cannot be null");
     });
 
-    it('should throw error when executionId mismatch', () => {
+    it("should throw error when executionId mismatch", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
-        executionId: 'different-exec',
+        triggerId: "trigger-1",
+        executionId: "different-exec",
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.register(state)).toThrow('Execution ID mismatch');
+      expect(() => triggerState.register(state)).toThrow("Execution ID mismatch");
     });
 
-    it('should throw error when workflowId mismatch', () => {
+    it("should throw error when workflowId mismatch", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
-        workflowId: 'different-workflow',
-        status: 'enabled',
+        workflowId: "different-workflow",
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.register(state)).toThrow('Workflow ID mismatch');
+      expect(() => triggerState.register(state)).toThrow("Workflow ID mismatch");
     });
 
-    it('should allow registration when workflowId is not set', () => {
+    it("should allow registration when workflowId is not set", () => {
       // Arrange
-      const stateWithoutWorkflow = new TriggerState('exec-1');
+      const stateWithoutWorkflow = new TriggerState("exec-1");
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
-        executionId: 'exec-1',
-        workflowId: 'workflow-1',
-        status: 'enabled',
+        triggerId: "trigger-1",
+        executionId: "exec-1",
+        workflowId: "workflow-1",
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -160,16 +160,16 @@ describe('TriggerState', () => {
       stateWithoutWorkflow.register(state);
 
       // Assert
-      expect(stateWithoutWorkflow.hasState('trigger-1')).toBe(true);
+      expect(stateWithoutWorkflow.hasState("trigger-1")).toBe(true);
     });
 
-    it('should throw error when registering duplicate trigger', () => {
+    it("should throw error when registering duplicate trigger", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -178,130 +178,132 @@ describe('TriggerState', () => {
 
       // Act & Assert
       expect(() => triggerState.register(state)).toThrow(ExecutionError);
-      expect(() => triggerState.register(state)).toThrow('Trigger state trigger-1 Existing');
+      expect(() => triggerState.register(state)).toThrow("Trigger state trigger-1 Existing");
     });
   });
 
-  describe('getState', () => {
-    it('should return trigger state', () => {
+  describe("getState", () => {
+    it("should return trigger state", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       triggerState.register(state);
 
       // Act
-      const result = triggerState.getState('trigger-1');
+      const result = triggerState.getState("trigger-1");
 
       // Assert
       expect(result).toEqual(state);
     });
 
-    it('should return undefined when trigger not found', () => {
-      expect(triggerState.getState('non-existent')).toBeUndefined();
+    it("should return undefined when trigger not found", () => {
+      expect(triggerState.getState("non-existent")).toBeUndefined();
     });
   });
 
-  describe('updateStatus', () => {
-    it('should update trigger status', () => {
+  describe("updateStatus", () => {
+    it("should update trigger status", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now() - 1000, // Use past timestamp to ensure update
       };
       triggerState.register(state);
 
       // Act
-      triggerState.updateStatus('trigger-1', 'disabled');
+      triggerState.updateStatus("trigger-1", "disabled");
 
       // Assert
-      const updated = triggerState.getState('trigger-1');
-      expect(updated?.status).toBe('disabled');
+      const updated = triggerState.getState("trigger-1");
+      expect(updated?.status).toBe("disabled");
       expect(updated?.updatedAt).toBeGreaterThan(state.updatedAt);
     });
 
-    it('should throw error when trigger not found', () => {
+    it("should throw error when trigger not found", () => {
       // Act & Assert
-      expect(() => triggerState.updateStatus('non-existent', 'disabled')).toThrow(NotFoundError);
-      expect(() => triggerState.updateStatus('non-existent', 'disabled')).toThrow('Trigger status non-existent not present');
+      expect(() => triggerState.updateStatus("non-existent", "disabled")).toThrow(NotFoundError);
+      expect(() => triggerState.updateStatus("non-existent", "disabled")).toThrow(
+        "Trigger status non-existent not present",
+      );
     });
   });
 
-  describe('incrementTriggerCount', () => {
-    it('should increment trigger count', () => {
+  describe("incrementTriggerCount", () => {
+    it("should increment trigger count", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now() - 1000, // Use past timestamp to ensure update
       };
       triggerState.register(state);
 
       // Act
-      triggerState.incrementTriggerCount('trigger-1');
+      triggerState.incrementTriggerCount("trigger-1");
 
       // Assert
-      const updated = triggerState.getState('trigger-1');
+      const updated = triggerState.getState("trigger-1");
       expect(updated?.triggerCount).toBe(1);
       expect(updated?.updatedAt).toBeGreaterThan(state.updatedAt);
     });
 
-    it('should increment multiple times', () => {
+    it("should increment multiple times", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       triggerState.register(state);
 
       // Act
-      triggerState.incrementTriggerCount('trigger-1');
-      triggerState.incrementTriggerCount('trigger-1');
-      triggerState.incrementTriggerCount('trigger-1');
+      triggerState.incrementTriggerCount("trigger-1");
+      triggerState.incrementTriggerCount("trigger-1");
+      triggerState.incrementTriggerCount("trigger-1");
 
       // Assert
-      const updated = triggerState.getState('trigger-1');
+      const updated = triggerState.getState("trigger-1");
       expect(updated?.triggerCount).toBe(3);
     });
 
-    it('should throw error when trigger not found', () => {
+    it("should throw error when trigger not found", () => {
       // Act & Assert
-      expect(() => triggerState.incrementTriggerCount('non-existent')).toThrow(NotFoundError);
+      expect(() => triggerState.incrementTriggerCount("non-existent")).toThrow(NotFoundError);
     });
   });
 
-  describe('getAllStates', () => {
-    it('should return all trigger states', () => {
+  describe("getAllStates", () => {
+    it("should return all trigger states", () => {
       // Arrange
       const state1: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       const state2: TriggerRuntimeState = {
-        triggerId: 'trigger-2',
+        triggerId: "trigger-2",
         executionId,
         workflowId,
-        status: 'disabled',
+        status: "disabled",
         triggerCount: 5,
         updatedAt: Date.now(),
       };
@@ -313,17 +315,17 @@ describe('TriggerState', () => {
 
       // Assert
       expect(allStates.size).toBe(2);
-      expect(allStates.has('trigger-1')).toBe(true);
-      expect(allStates.has('trigger-2')).toBe(true);
+      expect(allStates.has("trigger-1")).toBe(true);
+      expect(allStates.has("trigger-2")).toBe(true);
     });
 
-    it('should return copy of states', () => {
+    it("should return copy of states", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -331,56 +333,56 @@ describe('TriggerState', () => {
 
       // Act
       const allStates = triggerState.getAllStates();
-      allStates.delete('trigger-1');
+      allStates.delete("trigger-1");
 
       // Assert
-      expect(triggerState.hasState('trigger-1')).toBe(true);
+      expect(triggerState.hasState("trigger-1")).toBe(true);
     });
   });
 
-  describe('deleteState', () => {
-    it('should delete trigger state', () => {
+  describe("deleteState", () => {
+    it("should delete trigger state", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       triggerState.register(state);
 
       // Act
-      triggerState.deleteState('trigger-1');
+      triggerState.deleteState("trigger-1");
 
       // Assert
-      expect(triggerState.hasState('trigger-1')).toBe(false);
+      expect(triggerState.hasState("trigger-1")).toBe(false);
       expect(triggerState.size()).toBe(0);
     });
 
-    it('should throw error when deleting non-existent trigger', () => {
+    it("should throw error when deleting non-existent trigger", () => {
       // Act & Assert
-      expect(() => triggerState.deleteState('non-existent')).toThrow(NotFoundError);
+      expect(() => triggerState.deleteState("non-existent")).toThrow(NotFoundError);
     });
   });
 
-  describe('createSnapshot and restoreFromSnapshot', () => {
-    it('should create snapshot', () => {
+  describe("createSnapshot and restoreFromSnapshot", () => {
+    it("should create snapshot", () => {
       // Arrange
       const state1: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       const state2: TriggerRuntimeState = {
-        triggerId: 'trigger-2',
+        triggerId: "trigger-2",
         executionId,
         workflowId,
-        status: 'disabled',
+        status: "disabled",
         triggerCount: 5,
         updatedAt: Date.now(),
       };
@@ -392,59 +394,59 @@ describe('TriggerState', () => {
 
       // Assert
       expect(snapshot.size).toBe(2);
-      expect(snapshot.has('trigger-1')).toBe(true);
-      expect(snapshot.has('trigger-2')).toBe(true);
+      expect(snapshot.has("trigger-1")).toBe(true);
+      expect(snapshot.has("trigger-2")).toBe(true);
     });
 
-    it('should restore from snapshot', () => {
+    it("should restore from snapshot", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
       triggerState.register(state);
       const snapshot = triggerState.createSnapshot();
-      
-      triggerState.deleteState('trigger-1');
+
+      triggerState.deleteState("trigger-1");
 
       // Act
       triggerState.restoreFromSnapshot(snapshot);
 
       // Assert
-      expect(triggerState.hasState('trigger-1')).toBe(true);
+      expect(triggerState.hasState("trigger-1")).toBe(true);
       expect(triggerState.size()).toBe(1);
     });
 
-    it('should throw error when restoring with mismatched executionId', () => {
+    it("should throw error when restoring with mismatched executionId", () => {
       // Arrange
       const snapshot = new Map<string, TriggerRuntimeState>();
-      snapshot.set('trigger-1', {
-        triggerId: 'trigger-1',
-        executionId: 'different-exec',
+      snapshot.set("trigger-1", {
+        triggerId: "trigger-1",
+        executionId: "different-exec",
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       });
 
       // Act & Assert
       expect(() => triggerState.restoreFromSnapshot(snapshot)).toThrow(RuntimeValidationError);
-      expect(() => triggerState.restoreFromSnapshot(snapshot)).toThrow('Execution ID mismatch');
+      expect(() => triggerState.restoreFromSnapshot(snapshot)).toThrow("Execution ID mismatch");
     });
   });
 
-  describe('cleanup and reset', () => {
-    it('should cleanup all states', () => {
+  describe("cleanup and reset", () => {
+    it("should cleanup all states", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };
@@ -458,13 +460,13 @@ describe('TriggerState', () => {
       expect(triggerState.isEmpty()).toBe(true);
     });
 
-    it('should reset to initial state', () => {
+    it("should reset to initial state", () => {
       // Arrange
       const state: TriggerRuntimeState = {
-        triggerId: 'trigger-1',
+        triggerId: "trigger-1",
         executionId,
         workflowId,
-        status: 'enabled',
+        status: "enabled",
         triggerCount: 0,
         updatedAt: Date.now(),
       };

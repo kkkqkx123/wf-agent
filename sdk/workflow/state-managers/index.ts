@@ -7,10 +7,7 @@
 export { VariableManager, type VariableManagerSnapshot } from "./variable-manager.js";
 
 export { ExecutionState, type SubgraphContext } from "./execution-state.js";
-export {
-  AsyncCompletionManager,
-  type CompletionHandler,
-} from "./async-completion-manager.js";
+export { AsyncCompletionManager, type CompletionHandler } from "./async-completion-manager.js";
 export { TriggerState, type TriggerRuntimeState } from "./trigger-state.js";
 export {
   WorkflowExecutionState,

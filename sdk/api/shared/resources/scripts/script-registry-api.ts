@@ -6,18 +6,18 @@
 import {
   validateRequiredFields,
   validateStringLength,
-  validateBoolean
-} from '../../validation/validation-strategy.js';
+  validateBoolean,
+} from "../../validation/validation-strategy.js";
 
-import type { Script } from '@wf-agent/types';
-import { NotFoundError } from '@wf-agent/types';
-import { CrudResourceAPI } from '../generic-resource-api.js';
-import type { APIDependencyManager } from '../../core/sdk-dependencies.js';
-import type { ScriptFilter } from '../../types/code-types.js';
+import type { Script } from "@wf-agent/types";
+import { NotFoundError } from "@wf-agent/types";
+import { CrudResourceAPI } from "../generic-resource-api.js";
+import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
+import type { ScriptFilter } from "../../types/code-types.js";
 
 /**
  * ScriptRegistryAPI - Script Resource Management API
- * 
+ *
  * Improvements:
  * - Inherits from GenericResourceAPI to reduce duplicate code
  * - Unified cache management
@@ -133,19 +133,19 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
     const errors: string[] = [];
 
     // Use a simplified validation tool to verify the required fields.
-    const requiredResult = validateRequiredFields(script, ['name', 'description'], 'script');
+    const requiredResult = validateRequiredFields(script, ["name", "description"], "script");
     if (requiredResult.isErr()) {
       errors.push(...requiredResult.unwrapOrElse(err => err.map(error => error.message)));
     }
 
     // Please provide at least one validation item or file path.
     if (!script.content && !script.filePath) {
-      errors.push('Either the script content or the file path must be provided.');
+      errors.push("Either the script content or the file path must be provided.");
     }
 
     // Verify the name length.
     if (script.name) {
-      const nameResult = validateStringLength(script.name, 'Script Name', 1, 100);
+      const nameResult = validateStringLength(script.name, "Script Name", 1, 100);
       if (nameResult.isErr()) {
         errors.push(...nameResult.unwrapOrElse(err => err.map(error => error.message)));
       }
@@ -153,7 +153,12 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
 
     // Verify the description length.
     if (script.description) {
-      const descriptionResult = validateStringLength(script.description, 'Script Description', 1, 500);
+      const descriptionResult = validateStringLength(
+        script.description,
+        "Script Description",
+        1,
+        500,
+      );
       if (descriptionResult.isErr()) {
         errors.push(...descriptionResult.unwrapOrElse(err => err.map(error => error.message)));
       }
@@ -161,7 +166,7 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
 
     // Verify the `enabled` field (if provided).
     if (script.enabled !== undefined) {
-      const enabledResult = validateBoolean(script.enabled, 'enabled');
+      const enabledResult = validateBoolean(script.enabled, "enabled");
       if (enabledResult.isErr()) {
         errors.push(...enabledResult.unwrapOrElse(err => err.map(error => error.message)));
       }
@@ -169,7 +174,7 @@ export class ScriptRegistryAPI extends CrudResourceAPI<Script, string, ScriptFil
 
     return {
       valid: errors.length === 0,
-      errors
+      errors,
     };
   }
 

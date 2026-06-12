@@ -1,6 +1,6 @@
 /**
  * TimeoutRegistry Integration Tests
- * 
+ *
  * Tests for the improved TimeoutRegistry implementation
  */
 
@@ -155,7 +155,7 @@ describe("TimeoutRegistry Improvements", () => {
       });
 
       const manager = customRegistry.getManager("test-exec");
-      
+
       // Register up to the limit
       for (let i = 0; i < 10; i++) {
         manager.register({

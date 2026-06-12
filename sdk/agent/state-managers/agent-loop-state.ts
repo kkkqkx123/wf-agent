@@ -251,7 +251,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status !== AgentLoopStatus.CREATED && this._status !== AgentLoopStatus.PAUSED) {
       throw new RuntimeValidationError(
         `Can only start from CREATED or PAUSED status, current status: ${this._status}`,
-        { operation: "start", field: "status", value: this._status }
+        { operation: "start", field: "status", value: this._status },
       );
     }
 
@@ -416,7 +416,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status !== AgentLoopStatus.RUNNING) {
       throw new RuntimeValidationError(
         `Can only pause RUNNING execution, current status: ${this._status}`,
-        { operation: "pause", field: "status", value: this._status }
+        { operation: "pause", field: "status", value: this._status },
       );
     }
 
@@ -432,7 +432,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status !== AgentLoopStatus.PAUSED) {
       throw new RuntimeValidationError(
         `Can only resume PAUSED execution, current status: ${this._status}`,
-        { operation: "resume", field: "status", value: this._status }
+        { operation: "resume", field: "status", value: this._status },
       );
     }
 
@@ -448,7 +448,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status !== AgentLoopStatus.RUNNING) {
       throw new RuntimeValidationError(
         `Can only complete RUNNING execution, current status: ${this._status}`,
-        { operation: "complete", field: "status", value: this._status }
+        { operation: "complete", field: "status", value: this._status },
       );
     }
 
@@ -475,7 +475,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status === AgentLoopStatus.COMPLETED) {
       throw new RuntimeValidationError(
         `Cannot fail completed execution, current status: ${this._status}`,
-        { operation: "fail", field: "status", value: this._status }
+        { operation: "fail", field: "status", value: this._status },
       );
     }
 
@@ -494,7 +494,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     if (this._status === AgentLoopStatus.COMPLETED || this._status === AgentLoopStatus.CANCELLED) {
       throw new RuntimeValidationError(
         `Cannot cancel completed or cancelled execution, current status: ${this._status}`,
-        { operation: "cancel", field: "status", value: this._status }
+        { operation: "cancel", field: "status", value: this._status },
       );
     }
 
@@ -629,9 +629,8 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       // Streaming state for pause/resume precision
       isStreaming: this._isStreaming || undefined,
       streamMessage: this._streamMessage ? { ...this._streamMessage } : undefined,
-      pendingToolCallIds: this._pendingToolCalls.size > 0
-        ? Array.from(this._pendingToolCalls)
-        : undefined,
+      pendingToolCallIds:
+        this._pendingToolCalls.size > 0 ? Array.from(this._pendingToolCalls) : undefined,
     };
   }
 
@@ -659,9 +658,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     // Restore streaming state if present in snapshot
     this._pendingToolCalls.clear();
     this._isStreaming = snapshot.isStreaming ?? false;
-    this._streamMessage = snapshot.streamMessage
-      ? (snapshot.streamMessage as LLMMessage)
-      : null;
+    this._streamMessage = snapshot.streamMessage ? (snapshot.streamMessage as LLMMessage) : null;
 
     // Restore pending tool call IDs if present
     if (snapshot.pendingToolCallIds && snapshot.pendingToolCallIds.length > 0) {
@@ -671,7 +668,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     }
 
     // Restore current iteration record if present
-    const currentIterationRecord = snapshot['currentIterationRecord'] as IterationRecord | undefined;
+    const currentIterationRecord = snapshot["currentIterationRecord"] as
+      | IterationRecord
+      | undefined;
     if (currentIterationRecord) {
       this._currentIterationRecord = {
         iteration: currentIterationRecord.iteration,

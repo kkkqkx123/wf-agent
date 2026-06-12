@@ -3,12 +3,11 @@
  * Provide comprehensive workflow graph analysis capabilities, integrating all analysis algorithms.
  */
 
+import type { ID, EdgeType, WorkflowGraphStructure } from "@wf-agent/types";
 import type {
-  ID,
-  EdgeType,
-  WorkflowGraphStructure,
-} from "@wf-agent/types";
-import type { WorkflowGraphAnalysis, ForkJoinValidationResult } from "../../types/graph/analysis.js";
+  WorkflowGraphAnalysis,
+  ForkJoinValidationResult,
+} from "../../types/graph/analysis.js";
 import { detectCycles } from "./workflow-cycle-detector.js";
 import { analyzeReachability } from "./workflow-reachability-analyzer.js";
 import { topologicalSort } from "./workflow-topological-sorter.js";

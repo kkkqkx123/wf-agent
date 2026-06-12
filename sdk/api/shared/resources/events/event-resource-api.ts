@@ -25,7 +25,7 @@ const logger = createContextualLogger({ component: "EventResourceAPI" });
 export interface EventResourceAPIConfig {
   /** Maximum number of events to keep in history (default: 1000) */
   maxHistorySize?: number;
-  
+
   /** Enable automatic subscription to EventRegistry (default: true) */
   enableAutoSubscription?: boolean;
 }
@@ -145,20 +145,17 @@ export interface ExecutionTimelineSummary {
  */
 export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFilter> {
   private dependencies: APIDependencyManager;
-  
+
   // Event storage
   private eventHistory: Event[] = [];
   private maxHistorySize: number;
   private subscriptions: Array<() => void> = [];
 
-  constructor(
-    dependencies: APIDependencyManager,
-    config?: EventResourceAPIConfig
-  ) {
+  constructor(dependencies: APIDependencyManager, config?: EventResourceAPIConfig) {
     super();
     this.dependencies = dependencies;
     this.maxHistorySize = config?.maxHistorySize ?? 1000;
-    
+
     // Auto-subscribe if enabled
     if (config?.enableAutoSubscription !== false) {
       this.setupEventSubscription();
@@ -171,16 +168,16 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   private setupEventSubscription(): void {
     const eventManager = this.dependencies.getEventManager();
-    
+
     // Subscribe to all events using global listener
     const unsubscribe = eventManager.onGlobal((event: BaseEvent) => {
       // Cast to Event since all emitted events should be full Event types
       this.addToHistory(event as Event);
     });
-    
+
     this.subscriptions.push(unsubscribe);
-    
-    logger.debug('EventResourceAPI subscribed to global event stream', {
+
+    logger.debug("EventResourceAPI subscribed to global event stream", {
       maxHistorySize: this.maxHistorySize,
     });
   }
@@ -190,15 +187,13 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   private addToHistory(event: Event): void {
     this.eventHistory.push(event);
-    
+
     // Enforce size limit using circular buffer pattern
     if (this.eventHistory.length > this.maxHistorySize) {
       // Remove oldest events (keep most recent)
       this.eventHistory = this.eventHistory.slice(-this.maxHistorySize);
     }
   }
-
-
 
   /**
    * Cleanup resources
@@ -209,11 +204,11 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
       unsubscribe();
     }
     this.subscriptions = [];
-    
+
     // Clear event history
     this.eventHistory = [];
-    
-    logger.debug('EventResourceAPI disposed');
+
+    logger.debug("EventResourceAPI disposed");
   }
 
   // ============================================================================
@@ -223,9 +218,9 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   /**
    * Get statistics about execution-scoped listeners
    * Useful for debugging listener lifecycle and detecting memory leaks
-   * 
+   *
    * @returns Map of execution ID to active listener count
-   * 
+   *
    * @example
    * ```typescript
    * const stats = api.getExecutionListenerStats();
@@ -238,13 +233,12 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     return this.dependencies.getEventManager().getExecutionListenerStats();
   }
 
-
   /**
    * Get summary of event system health
    * Combines multiple diagnostic metrics into a single overview
-   * 
+   *
    * @returns Event system health summary
-   * 
+   *
    * @example
    * ```typescript
    * const health = api.getEventSystemHealth();
@@ -301,36 +295,36 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
       if (filter.eventType && event.type !== filter.eventType) {
         return false;
       }
-      
+
       // Filter by event types (multiple, OR logic)
       if (filter.eventTypes && !filter.eventTypes.includes(event.type)) {
         return false;
       }
-      
+
       // Filter by execution ID
       if (filter.executionId && event.executionId !== filter.executionId) {
         return false;
       }
-      
+
       // Filter by workflow ID
       if (filter.workflowId && event.workflowId !== filter.workflowId) {
         return false;
       }
-      
+
       // Filter by node ID (type-safe check)
       if (filter.nodeId) {
-        if (!('nodeId' in event) || event.nodeId !== filter.nodeId) {
+        if (!("nodeId" in event) || event.nodeId !== filter.nodeId) {
           return false;
         }
       }
-      
+
       // Filter by agent loop ID (type-safe check)
       if (filter.agentLoopId) {
-        if (!('agentLoopId' in event) || event.agentLoopId !== filter.agentLoopId) {
+        if (!("agentLoopId" in event) || event.agentLoopId !== filter.agentLoopId) {
           return false;
         }
       }
-      
+
       // Filter by timestamp range
       if (filter.timestampRange) {
         if (filter.timestampRange.start && event.timestamp < filter.timestampRange.start) {
@@ -340,12 +334,12 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
           return false;
         }
       }
-      
+
       // Filter by event IDs list
       if (filter.ids && !filter.ids.includes(event.id)) {
         return false;
       }
-      
+
       return true;
     });
   }
@@ -362,9 +356,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     const command = new DispatchEventCommand({ event }, this.dependencies);
     const validation = command.validate();
     if (!validation.valid) {
-      throw new Error(
-        `Failed to dispatch event: ${validation.errors.join(", ")}`,
-      );
+      throw new Error(`Failed to dispatch event: ${validation.errors.join(", ")}`);
     }
     const result = await command.execute();
     if (result.result.isErr()) {
@@ -379,11 +371,11 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   async getEvents(filter?: EventFilter): Promise<Event[]> {
     let events = [...this.eventHistory];
-    
+
     if (filter) {
       events = this.applyFilter(events, filter);
     }
-    
+
     return events;
   }
 
@@ -395,12 +387,12 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   async getRecentEvents(count: number, filter?: EventFilter): Promise<Event[]> {
     let events = [...this.eventHistory];
-    
+
     // Apply filter first
     if (filter) {
       events = this.applyFilter(events, filter);
     }
-    
+
     // Sort by timestamp (newest first) and take top N
     events.sort((a, b) => b.timestamp - a.timestamp);
     return events.slice(0, count);
@@ -416,37 +408,37 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     if (!query || query.trim().length === 0) {
       return [];
     }
-    
+
     const lowerQuery = query.toLowerCase();
     let events = [...this.eventHistory];
-    
+
     // Apply standard filters first
     if (filter) {
       events = this.applyFilter(events, filter);
     }
-    
+
     // Search in searchable fields
     return events.filter(event => {
       const searchableFields: string[] = [];
-      
+
       // Event type
       searchableFields.push(event.type.toLowerCase());
-      
+
       // Execution ID
       if (event.executionId) {
         searchableFields.push(event.executionId.toLowerCase());
       }
-      
+
       // Workflow ID
       if (event.workflowId) {
         searchableFields.push(event.workflowId.toLowerCase());
       }
-      
+
       // Node ID (if present)
-      if ('nodeId' in event && event.nodeId) {
+      if ("nodeId" in event && event.nodeId) {
         searchableFields.push((event as { nodeId: string }).nodeId.toLowerCase());
       }
-      
+
       // Check if query matches any field
       return searchableFields.some(field => field.includes(lowerQuery));
     });
@@ -460,17 +452,17 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    */
   async getEventTimeline(executionId?: string, workflowId?: string): Promise<Event[]> {
     let events = [...this.eventHistory];
-    
+
     // Filter by execution or workflow
     if (executionId) {
       events = events.filter(e => e.executionId === executionId);
     } else if (workflowId) {
       events = events.filter(e => e.workflowId === workflowId);
     }
-    
+
     // Sort by timestamp (chronological order)
     events.sort((a, b) => a.timestamp - b.timestamp);
-    
+
     return events;
   }
 
@@ -486,7 +478,11 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     { name: "Execution", start: "WORKFLOW_EXECUTION_STARTED", end: "WORKFLOW_EXECUTION_COMPLETED" },
     { name: "Node Execution", start: "NODE_STARTED", end: "NODE_COMPLETED" },
     { name: "Fork", start: "FORK_STARTED", end: "FORK_COMPLETED" },
-    { name: "Join", start: "WORKFLOW_EXECUTION_JOIN_STARTED", end: "WORKFLOW_EXECUTION_JOIN_COMPLETED" },
+    {
+      name: "Join",
+      start: "WORKFLOW_EXECUTION_JOIN_STARTED",
+      end: "WORKFLOW_EXECUTION_JOIN_COMPLETED",
+    },
     { name: "Tool Call", start: "TOOL_CALL_STARTED", end: "TOOL_CALL_COMPLETED" },
     { name: "Agent Turn", start: "AGENT_TURN_STARTED", end: "AGENT_TURN_COMPLETED" },
     { name: "Agent Iteration", start: "AGENT_ITERATION_STARTED", end: "AGENT_ITERATION_COMPLETED" },
@@ -699,7 +695,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     // Convert metrics to stats format
     for (const [eventType, stat] of summary.byEventType.entries()) {
       stats.byType[eventType] = stat.count;
-      
+
       // Aggregate by execution
       for (const [executionId, count] of stat.byExecution.entries()) {
         stats.byExecution[executionId] = (stats.byExecution[executionId] || 0) + count;
@@ -711,7 +707,6 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
 
     return stats;
   }
-
 
   /**
    * Get event type statistics from metrics collector
@@ -738,7 +733,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     const summary = metricsCollector.generateSummary();
 
     const stats: Record<string, number> = {};
-    
+
     // Aggregate counts by execution ID from all event types
     for (const stat of summary.byEventType.values()) {
       for (const [executionId, count] of stat.byExecution.entries()) {
@@ -755,7 +750,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * @returns Empty object (workflow tracking not yet implemented in metrics)
    */
   async getWorkflowEventStatistics(): Promise<Record<string, number>> {
-    logger.warn('getWorkflowEventStatistics: workflow-level tracking not yet implemented');
+    logger.warn("getWorkflowEventStatistics: workflow-level tracking not yet implemented");
     return {};
   }
 
@@ -766,8 +761,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   async clearEventHistory(): Promise<void> {
     const clearedCount = this.eventHistory.length;
     this.eventHistory = [];
-    
-    logger.info('Event history cleared', { clearedCount });
+
+    logger.info("Event history cleared", { clearedCount });
   }
 
   /**
@@ -786,7 +781,7 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
     if (this.eventHistory.length === 0) {
       return null;
     }
-    
+
     const timestamps = this.eventHistory.map(e => e.timestamp);
     return {
       start: Math.min(...timestamps),
@@ -804,8 +799,8 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * @returns Events related to specific agent loop
    */
   async getAgentEvents(agentLoopId: string): Promise<Event[]> {
-    return this.eventHistory.filter(event => 
-      'agentLoopId' in event && event.agentLoopId === agentLoopId
+    return this.eventHistory.filter(
+      event => "agentLoopId" in event && event.agentLoopId === agentLoopId,
     );
   }
 
@@ -815,10 +810,11 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * @returns Turn-related events for agent
    */
   async getAgentTurnEvents(agentLoopId: string): Promise<Event[]> {
-    return this.eventHistory.filter(event => 
-      'agentLoopId' in event && 
-      event.agentLoopId === agentLoopId &&
-      (event.type === 'AGENT_TURN_STARTED' || event.type === 'AGENT_TURN_COMPLETED')
+    return this.eventHistory.filter(
+      event =>
+        "agentLoopId" in event &&
+        event.agentLoopId === agentLoopId &&
+        (event.type === "AGENT_TURN_STARTED" || event.type === "AGENT_TURN_COMPLETED"),
     );
   }
 
@@ -828,11 +824,12 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
    * @returns Tool execution events for agent
    */
   async getAgentToolExecutionEvents(agentLoopId: string): Promise<Event[]> {
-    return this.eventHistory.filter(event => 
-      'agentLoopId' in event && 
-      event.agentLoopId === agentLoopId &&
-      (event.type === 'AGENT_TOOL_EXECUTION_STARTED' || 
-       event.type === 'AGENT_TOOL_EXECUTION_COMPLETED')
+    return this.eventHistory.filter(
+      event =>
+        "agentLoopId" in event &&
+        event.agentLoopId === agentLoopId &&
+        (event.type === "AGENT_TOOL_EXECUTION_STARTED" ||
+          event.type === "AGENT_TOOL_EXECUTION_COMPLETED"),
     );
   }
 
@@ -843,7 +840,9 @@ export class EventResourceAPI extends ReadonlyResourceAPI<Event, string, EventFi
   async getAgentLoopStatistics(): Promise<Record<string, number>> {
     // Note: Agent loop statistics would require metrics with agent_loop_id label
     // Current implementation returns empty as this label is not tracked
-    logger.warn('getAgentLoopStatistics: agent loop tracking requires metrics with agent_loop_id label');
+    logger.warn(
+      "getAgentLoopStatistics: agent loop tracking requires metrics with agent_loop_id label",
+    );
     return {};
   }
 }

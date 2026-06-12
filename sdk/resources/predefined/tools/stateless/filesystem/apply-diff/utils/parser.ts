@@ -40,16 +40,16 @@ export function parseSearchReplaceBlocks(diffContent: string): {
 
   // Regex to match SEARCH/REPLACE blocks
   const pattern =
-    '(?:^|\\n)(?<!\\\\)<<<<<<< SEARCH>?\\s*\\n' +
-    '((?:\\:start_line:\\s*(\\d+)\\s*\\n))?' +
-    '((?:\\:end_line:\\s*(\\d+)\\s*\\n))?' +
-    '((?<!\\\\)-------\\s*\\n)?' +
-    '([\\s\\S]*?)(?:\\n)?' +
-    '(?:(?<=\\n)(?<!\\\\)=======\\s*\\n)' +
-    '([\\s\\S]*?)(?:\\n)?' +
-    '(?:(?<=\\n)(?<!\\\\)>>>>>>> REPLACE)(?=\\n|$)';
+    "(?:^|\\n)(?<!\\\\)<<<<<<< SEARCH>?\\s*\\n" +
+    "((?:\\:start_line:\\s*(\\d+)\\s*\\n))?" +
+    "((?:\\:end_line:\\s*(\\d+)\\s*\\n))?" +
+    "((?<!\\\\)-------\\s*\\n)?" +
+    "([\\s\\S]*?)(?:\\n)?" +
+    "(?:(?<=\\n)(?<!\\\\)=======\\s*\\n)" +
+    "([\\s\\S]*?)(?:\\n)?" +
+    "(?:(?<=\\n)(?<!\\\\)>>>>>>> REPLACE)(?=\\n|$)";
 
-  const blockRegex = new RegExp(pattern, 'g');
+  const blockRegex = new RegExp(pattern, "g");
   const matches = [...diffContent.matchAll(blockRegex)];
 
   if (matches.length === 0) {

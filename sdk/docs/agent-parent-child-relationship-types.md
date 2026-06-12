@@ -9,11 +9,13 @@ This document describes the type definitions added to support parent-child relat
 Following the established workflow pattern, the SDK maintains a clear separation:
 
 ### Types Package (`@wf-agent/types`)
+
 - **Pure data structures** (interfaces, no methods)
 - **Serializable** to JSON/TOML
 - Used for configuration, storage, events, and cross-module contracts
 
 ### SDK Layer
+
 - **Runtime entities** with methods and DI-injected components
 - Manage lifecycle, state transitions, and business logic
 - Implement the contracts defined in types package
@@ -37,6 +39,7 @@ export interface AgentLoopParentContext {
 **Purpose**: Defines the parent-child relationship structure between WorkflowExecution and AgentLoop instances.
 
 **Usage**:
+
 - Establishes bidirectional relationship contract
 - Enables lifecycle management (cleanup when parent stops)
 - Tracked by both `WorkflowExecutionEntity` and `AgentLoopRegistry`
@@ -50,7 +53,7 @@ Already existed, now with enhanced documentation:
 ```typescript
 export interface AgentLoopExecution {
   // ... other fields ...
-  
+
   /**
    * Parent Workflow Execution ID (if executed as Graph node)
    *
@@ -85,7 +88,7 @@ Enhanced documentation for existing fields:
 ```typescript
 export interface AgentLoopExecutionOptions {
   // ... other fields ...
-  
+
   /**
    * Parent Workflow Execution ID (when executed as Graph node)
    *
@@ -116,7 +119,7 @@ Enhanced documentation for runtime context fields:
 ```typescript
 export interface AgentLoopExecutionContext {
   // ... other fields ...
-  
+
   /**
    * Parent execution ID (if executed as Graph node)
    *
@@ -165,7 +168,7 @@ private static async registerWithParentExecution(
 // In WorkflowLifecycleCoordinator.stopWorkflowExecution()
 async stopWorkflowExecution(executionId: string): Promise<void> {
   // ... cancel workflow ...
-  
+
   // Cleanup child AgentLoops
   await this.cleanupChildAgentLoops(executionId);
 }
@@ -179,14 +182,14 @@ private async cleanupChildAgentLoops(executionId: string): Promise<void> {
 
 ## Comparison with Workflow Pattern
 
-| Aspect | Workflow Sub-workflows | Agent-Workflow |
-|--------|----------------------|----------------|
-| Parent Context Type | `TriggeredSubworkflowContext` | `AgentLoopParentContext` ✅ NEW |
-| Data Object | `WorkflowExecution` | `AgentLoopExecution` ✅ ENHANCED |
-| Entity Class | `WorkflowExecutionEntity` | `AgentLoopEntity` |
-| Registry | `WorkflowExecutionRegistry` | `AgentLoopRegistry` |
-| Child Tracking | `childExecutionIds: ID[]` | `childAgentLoopIds: Set<string>` |
-| Cleanup Method | `cascadeCancel()` | `cleanupByParentWorkflowExecutionId()` |
+| Aspect              | Workflow Sub-workflows        | Agent-Workflow                         |
+| ------------------- | ----------------------------- | -------------------------------------- |
+| Parent Context Type | `TriggeredSubworkflowContext` | `AgentLoopParentContext` ✅ NEW        |
+| Data Object         | `WorkflowExecution`           | `AgentLoopExecution` ✅ ENHANCED       |
+| Entity Class        | `WorkflowExecutionEntity`     | `AgentLoopEntity`                      |
+| Registry            | `WorkflowExecutionRegistry`   | `AgentLoopRegistry`                    |
+| Child Tracking      | `childExecutionIds: ID[]`     | `childAgentLoopIds: Set<string>`       |
+| Cleanup Method      | `cascadeCancel()`             | `cleanupByParentWorkflowExecutionId()` |
 
 ## Benefits
 
@@ -211,9 +214,9 @@ External consumers import from "@wf-agent/types"
 ## Usage Example
 
 ```typescript
-import type { 
+import type {
   AgentLoopParentContext,
-  AgentLoopExecutionOptions 
+  AgentLoopExecutionOptions
 } from "@wf-agent/types";
 
 // Define parent context
@@ -244,6 +247,7 @@ const agentLoop = await AgentLoopFactory.create(config, options);
 ## No Breaking Changes
 
 All modifications are additive:
+
 - New interface added (`AgentLoopParentContext`)
 - Existing interfaces enhanced with better documentation
 - No changes to method signatures or behavior

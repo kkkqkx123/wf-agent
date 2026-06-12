@@ -76,7 +76,9 @@ export class WorkflowExecutor {
    * @param workflowExecutionEntity: An instance of WorkflowExecutionEntity
    * @returns: The execution result
    */
-  async executeWorkflow(workflowExecutionEntity: WorkflowExecutionEntity): Promise<WorkflowExecutionResult> {
+  async executeWorkflow(
+    workflowExecutionEntity: WorkflowExecutionEntity,
+  ): Promise<WorkflowExecutionResult> {
     const executionId = workflowExecutionEntity.id;
     const workflowId = workflowExecutionEntity.getWorkflowId();
 
@@ -89,7 +91,8 @@ export class WorkflowExecutor {
     }
 
     // Create a WorkflowExecutionCoordinator using a factory and execute it.
-    const workflowExecutionCoordinator = this.workflowExecutionCoordinatorFactory.create(workflowExecutionEntity);
+    const workflowExecutionCoordinator =
+      this.workflowExecutionCoordinatorFactory.create(workflowExecutionEntity);
 
     // Execute Workflow
     const result = await workflowExecutionCoordinator.execute();

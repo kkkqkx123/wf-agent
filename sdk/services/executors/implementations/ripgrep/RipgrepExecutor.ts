@@ -51,10 +51,7 @@ export class RipgrepExecutor extends BaseExecutor {
     const paths: string[] = [];
 
     if (isWindows) {
-      paths.push(
-        "C:\\Program Files\\ripgrep\\rg.exe",
-        "C:\\Program Files (x86)\\ripgrep\\rg.exe",
-      );
+      paths.push("C:\\Program Files\\ripgrep\\rg.exe", "C:\\Program Files (x86)\\ripgrep\\rg.exe");
 
       // LOCALAPPDATA\Microsoft\WinGet\packages\BurntSushi.ripgrep.MSVC
       const localAppData = process.env["LOCALAPPDATA"];
@@ -74,18 +71,11 @@ export class RipgrepExecutor extends BaseExecutor {
         paths.push(path.join(scoopPath, "apps", "ripgrep", "current", "rg.exe"));
       }
     } else {
-      paths.push(
-        "/usr/local/bin/rg",
-        "/usr/bin/rg",
-        "/opt/homebrew/bin/rg",
-      );
+      paths.push("/usr/local/bin/rg", "/usr/bin/rg", "/opt/homebrew/bin/rg");
 
       const home = process.env["HOME"];
       if (home) {
-        paths.push(
-          path.join(home, ".local", "bin", "rg"),
-          path.join(home, ".cargo", "bin", "rg"),
-        );
+        paths.push(path.join(home, ".local", "bin", "rg"), path.join(home, ".cargo", "bin", "rg"));
       }
     }
 
@@ -130,7 +120,7 @@ export class RipgrepExecutor extends BaseExecutor {
     const results: SearchFileResult[] = [];
     let currentFile: SearchFileResult | null = null;
 
-    result.stdout.split("\n").forEach((line) => {
+    result.stdout.split("\n").forEach(line => {
       if (line) {
         try {
           const parsed = JSON.parse(line);
@@ -181,17 +171,10 @@ export class RipgrepExecutor extends BaseExecutor {
   /**
    * Format search results for display
    */
-  private formatResults(
-    fileResults: SearchFileResult[],
-    cwd: string,
-    maxResults: number,
-  ): string {
+  private formatResults(fileResults: SearchFileResult[], cwd: string, maxResults: number): string {
     const groupedResults: { [key: string]: SearchResult[] } = {};
 
-    const totalResults = fileResults.reduce(
-      (sum, file) => sum + file.searchResults.length,
-      0,
-    );
+    const totalResults = fileResults.reduce((sum, file) => sum + file.searchResults.length, 0);
     let output = "";
 
     if (totalResults >= maxResults) {
@@ -200,7 +183,7 @@ export class RipgrepExecutor extends BaseExecutor {
       output += `Found ${totalResults === 1 ? "1 result" : `${totalResults.toLocaleString()} results`}.\n\n`;
     }
 
-    fileResults.slice(0, maxResults).forEach((file) => {
+    fileResults.slice(0, maxResults).forEach(file => {
       const relativeFilePath = path.relative(cwd, file.file).replace(/\\/g, "/");
       if (!groupedResults[relativeFilePath]) {
         groupedResults[relativeFilePath] = [];
@@ -211,9 +194,9 @@ export class RipgrepExecutor extends BaseExecutor {
     for (const [filePath, results] of Object.entries(groupedResults)) {
       output += `# ${filePath}\n`;
 
-      results.forEach((result) => {
+      results.forEach(result => {
         if (result.lines.length > 0) {
-          result.lines.forEach((line) => {
+          result.lines.forEach(line => {
             const lineNumber = String(line.line).padStart(3, " ");
             output += `${lineNumber} | ${line.text.trimEnd()}\n`;
           });
@@ -281,7 +264,7 @@ export class RipgrepExecutor extends BaseExecutor {
       const dirSet = new Set<string>();
       let count = 0;
 
-      rl.on("line", (line) => {
+      rl.on("line", line => {
         if (timedOut) return;
         if (count < limit) {
           try {
@@ -311,7 +294,7 @@ export class RipgrepExecutor extends BaseExecutor {
       });
 
       let errorOutput = "";
-      proc.stderr.on("data", (data) => {
+      proc.stderr.on("data", data => {
         errorOutput += data.toString();
       });
 
@@ -322,7 +305,7 @@ export class RipgrepExecutor extends BaseExecutor {
         } else if (errorOutput && fileResults.length === 0) {
           reject(new Error(`ripgrep process error: ${errorOutput}`));
         } else {
-          const dirResults = Array.from(dirSet).map((dirPath) => ({
+          const dirResults = Array.from(dirSet).map(dirPath => ({
             path: dirPath,
             type: "folder" as const,
             label: path.basename(dirPath),
@@ -332,7 +315,7 @@ export class RipgrepExecutor extends BaseExecutor {
         }
       });
 
-      proc.on("error", (error) => {
+      proc.on("error", error => {
         if (timeoutId) clearTimeout(timeoutId);
         reject(new Error(`ripgrep process error: ${error.message}`));
       });

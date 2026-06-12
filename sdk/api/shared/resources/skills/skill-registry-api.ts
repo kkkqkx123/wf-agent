@@ -390,17 +390,10 @@ export class SkillRegistryAPI extends ReadonlyResourceAPI<SkillMetadata, string,
       await registry.scanSkills(skillsDir);
       return success(undefined, 0);
     } catch (error) {
-      const sdkError = error instanceof Error
-        ? new SDKError(
-            error.message,
-            "error",
-            undefined,
-            error
-          )
-        : new SDKError(
-            String(error),
-            "error"
-          );
+      const sdkError =
+        error instanceof Error
+          ? new SDKError(error.message, "error", undefined, error)
+          : new SDKError(String(error), "error");
       return failure(sdkError, 0);
     }
   }

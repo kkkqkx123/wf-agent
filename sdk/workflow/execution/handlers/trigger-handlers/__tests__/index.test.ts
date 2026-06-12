@@ -26,15 +26,17 @@ describe("trigger-handlers index", () => {
 
   it("should have triggerHandlers map with all action types", () => {
     expect(Object.keys(triggerHandlers)).toHaveLength(9);
-    expect(triggerHandlers['apply_message_operation']).toBe(applyMessageOperationHandler);
-    expect(triggerHandlers['execute_script']).toBe(executeScriptHandler);
-    expect(triggerHandlers['execute_triggered_subworkflow']).toBe(executeTriggeredSubworkflowHandler);
-    expect(triggerHandlers['pause_workflow_execution']).toBe(pauseExecutionHandler);
-    expect(triggerHandlers['resume_workflow_execution']).toBe(resumeExecutionHandler);
-    expect(triggerHandlers['send_notification']).toBe(sendNotificationHandler);
-    expect(triggerHandlers['set_variable']).toBe(setVariableHandler);
-    expect(triggerHandlers['skip_node']).toBe(skipNodeHandler);
-    expect(triggerHandlers['stop_workflow_execution']).toBe(stopExecutionHandler);
+    expect(triggerHandlers["apply_message_operation"]).toBe(applyMessageOperationHandler);
+    expect(triggerHandlers["execute_script"]).toBe(executeScriptHandler);
+    expect(triggerHandlers["execute_triggered_subworkflow"]).toBe(
+      executeTriggeredSubworkflowHandler,
+    );
+    expect(triggerHandlers["pause_workflow_execution"]).toBe(pauseExecutionHandler);
+    expect(triggerHandlers["resume_workflow_execution"]).toBe(resumeExecutionHandler);
+    expect(triggerHandlers["send_notification"]).toBe(sendNotificationHandler);
+    expect(triggerHandlers["set_variable"]).toBe(setVariableHandler);
+    expect(triggerHandlers["skip_node"]).toBe(skipNodeHandler);
+    expect(triggerHandlers["stop_workflow_execution"]).toBe(stopExecutionHandler);
   });
 
   describe("getTriggerHandler", () => {
@@ -72,8 +74,8 @@ describe("trigger-handlers index", () => {
   });
 
   it("should have correct function signature for all handlers", () => {
-    const sendNotificationFn = triggerHandlers['send_notification'] as TriggerHandlerFn;
-    const pauseFn = triggerHandlers['pause_workflow_execution'] as TriggerHandlerFn;
+    const sendNotificationFn = triggerHandlers["send_notification"] as TriggerHandlerFn;
+    const pauseFn = triggerHandlers["pause_workflow_execution"] as TriggerHandlerFn;
 
     // Type check - functions should accept these parameters
     expect(typeof sendNotificationFn).toBe("function");

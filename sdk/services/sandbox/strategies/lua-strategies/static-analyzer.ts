@@ -8,7 +8,12 @@
  * Architecture reference: docs/infra/sandbox/strategies/lua-sandbox.md
  */
 
-import type { SandboxPolicy, LuaPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  LuaPolicy,
+  ScriptExecutionResult,
+  StrategyExecuteOptions,
+} from "@wf-agent/types";
 import type { StrategyImplementation } from "../../types.js";
 import { LuaBuiltinHookStrategy } from "./builtin-hook.js";
 import { checkLuaAvailable, DEFAULT_DENIED_MODULES } from "./base.js";

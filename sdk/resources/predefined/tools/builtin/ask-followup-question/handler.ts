@@ -12,16 +12,15 @@ import { generateId } from "@wf-agent/common-utils";
 
 /**
  * Create the `ask_followup_question` tool execution function
- * 
- * This handler supports both interactive mode (with event system) 
+ *
+ * This handler supports both interactive mode (with event system)
  * and fallback mode (returns formatted text).
  */
 export function createAskFollowupQuestionHandler() {
   return async (
     params: Record<string, unknown>,
-    context: BuiltinToolExecutionContext
+    context: BuiltinToolExecutionContext,
   ): Promise<ToolOutput> => {
-    
     try {
       const { questions, additionalInfoLabel } = params as {
         questions: Array<{
@@ -52,7 +51,7 @@ export function createAskFollowupQuestionHandler() {
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
         if (!q) continue;
-        
+
         if (!q.text || typeof q.text !== "string" || q.text.trim().length === 0) {
           return {
             success: false,
@@ -60,7 +59,7 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} must have a non-empty 'text' field.`,
           };
         }
-        
+
         if (!q.options || !Array.isArray(q.options) || q.options.length === 0) {
           return {
             success: false,
@@ -68,7 +67,7 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} must have at least 1 option.`,
           };
         }
-        
+
         if (q.options.length > 4) {
           return {
             success: false,
@@ -76,7 +75,7 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} has too many options. Maximum 4 options allowed.`,
           };
         }
-        
+
         // Validate each option is a non-empty string
         for (let j = 0; j < q.options.length; j++) {
           const opt = q.options[j];
@@ -135,7 +134,7 @@ export function createAskFollowupQuestionHandler() {
         eventManager,
         interactionId,
         context.executionId,
-        timeout
+        timeout,
       );
 
       if (!response) {
@@ -164,7 +163,6 @@ export function createAskFollowupQuestionHandler() {
         success: true,
         content: formattedResult,
       };
-
     } catch (error) {
       return {
         success: false,
@@ -180,7 +178,7 @@ export function createAskFollowupQuestionHandler() {
  */
 function createFallbackResponse(
   questions: Array<{ text: string; options: string[] }>,
-  additionalInfoLabel?: string
+  additionalInfoLabel?: string,
 ): ToolOutput {
   const lines: string[] = [];
   lines.push("Interactive mode unavailable. Please provide the following information:");
@@ -211,23 +209,26 @@ async function waitForInteractionResponse(
   eventManager: EventRegistry,
   interactionId: string,
   executionId: string,
-  timeout: number
+  timeout: number,
 ): Promise<{ inputData: unknown } | null> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     let timeoutId: NodeJS.Timeout | null = null;
     let resolved = false;
 
     // Use new EventEmitter API
     const emitter = eventManager.getEmitter(executionId);
-    
-    const unsubscribe = emitter.on("FOLLOWUP_QUESTION_RESPONDED", (event: import("@wf-agent/types").FollowupQuestionRespondedEvent) => {
-      if (event.interactionId === interactionId && !resolved) {
-        resolved = true;
-        if (timeoutId) clearTimeout(timeoutId);
-        unsubscribe(); // Unsubscribe using the returned function
-        resolve({ inputData: { answers: event.answers, additionalInfo: event.additionalInfo } });
-      }
-    });
+
+    const unsubscribe = emitter.on(
+      "FOLLOWUP_QUESTION_RESPONDED",
+      (event: import("@wf-agent/types").FollowupQuestionRespondedEvent) => {
+        if (event.interactionId === interactionId && !resolved) {
+          resolved = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          unsubscribe(); // Unsubscribe using the returned function
+          resolve({ inputData: { answers: event.answers, additionalInfo: event.additionalInfo } });
+        }
+      },
+    );
 
     timeoutId = setTimeout(() => {
       if (!resolved) {
@@ -253,23 +254,27 @@ function formatUserResponse(
     }>;
     additionalInfo?: string;
   },
-  additionalInfoLabel?: string
+  additionalInfoLabel?: string,
 ): string {
   const lines: string[] = [];
   lines.push("User Responses:");
   lines.push("");
 
-  userAnswers.answers.forEach((answer) => {
+  userAnswers.answers.forEach(answer => {
     const question = questions[answer.questionIndex];
     if (!question) return;
 
     lines.push(`Q${answer.questionIndex + 1}: ${question.text}`);
-    
+
     if (answer.selectedOptionIndex >= 0) {
       const option = question.options[answer.selectedOptionIndex];
-      lines.push(`A${answer.questionIndex + 1}: ${option || answer.answer} (selected from options)`);
+      lines.push(
+        `A${answer.questionIndex + 1}: ${option || answer.answer} (selected from options)`,
+      );
     } else {
-      lines.push(`A${answer.questionIndex + 1}: ${answer.customInput || answer.answer} (custom input)`);
+      lines.push(
+        `A${answer.questionIndex + 1}: ${answer.customInput || answer.answer} (custom input)`,
+      );
     }
     lines.push("");
   });

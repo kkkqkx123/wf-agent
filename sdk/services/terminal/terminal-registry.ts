@@ -1,21 +1,17 @@
 /**
  * Terminal Registry
- * 
+ *
  * Singleton registry for managing terminal sessions with:
  * - Session lifecycle management
  * - Intelligent session reuse
  * - Task-based session association
  */
 
-import type {
-  TerminalSession,
-  TerminalSessionOptions,
-  ShellType,
-} from "./types.js";
+import type { TerminalSession, TerminalSessionOptions, ShellType } from "./types.js";
 
 /**
  * Terminal Registry (Singleton)
- * 
+ *
  * Manages all terminal sessions and provides intelligent session reuse.
  */
 export class TerminalRegistry {
@@ -44,7 +40,7 @@ export class TerminalRegistry {
   createSession(
     shellType: ShellType,
     cwd: string,
-    options?: TerminalSessionOptions
+    options?: TerminalSessionOptions,
   ): TerminalSession {
     const sessionId = `session-${this.nextSessionId++}`;
     const now = Date.now();
@@ -109,7 +105,7 @@ export class TerminalRegistry {
 
   /**
    * Find an available session matching criteria
-   * 
+   *
    * Priority:
    * 1. Session with matching taskId and cwd
    * 2. Session with matching cwd (no taskId or different taskId)
@@ -121,10 +117,7 @@ export class TerminalRegistry {
     // First priority: Find a session with matching taskId and cwd
     if (taskId) {
       const matchByTaskAndCwd = sessions.find(
-        (s) =>
-          s.status === "idle" &&
-          s.taskId === taskId &&
-          this.arePathsEqual(s.cwd, cwd)
+        s => s.status === "idle" && s.taskId === taskId && this.arePathsEqual(s.cwd, cwd),
       );
       if (matchByTaskAndCwd) {
         return matchByTaskAndCwd;
@@ -132,9 +125,7 @@ export class TerminalRegistry {
     }
 
     // Second priority: Find a session with matching cwd
-    const matchByCwd = sessions.find(
-      (s) => s.status === "idle" && this.arePathsEqual(s.cwd, cwd)
-    );
+    const matchByCwd = sessions.find(s => s.status === "idle" && this.arePathsEqual(s.cwd, cwd));
 
     return matchByCwd;
   }
@@ -273,14 +264,14 @@ export class TerminalRegistry {
    * Get sessions by status
    */
   getByStatus(status: TerminalSession["status"]): TerminalSession[] {
-    return this.getAll().filter((s) => s.status === status);
+    return this.getAll().filter(s => s.status === status);
   }
 
   /**
    * Get sessions by task ID
    */
   getByTaskId(taskId: string): TerminalSession[] {
-    return this.getAll().filter((s) => s.taskId === taskId);
+    return this.getAll().filter(s => s.taskId === taskId);
   }
 
   /**
@@ -293,7 +284,7 @@ export class TerminalRegistry {
 
   /**
    * Compare two paths for equality
-   * 
+   *
    * Handles platform-specific path comparison.
    */
   private arePathsEqual(path1: string, path2: string): boolean {

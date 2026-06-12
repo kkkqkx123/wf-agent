@@ -36,10 +36,7 @@ import {
   TOOL_USAGE_JSON_SUMMARY_FRAGMENT,
 } from "./tool-usage/summary.js";
 
-import {
-  CODE_REVIEW_FRAGMENT,
-  DATA_ANALYSIS_FRAGMENT,
-} from "../../prompts/user-commands/index.js";
+import { CODE_REVIEW_FRAGMENT, DATA_ANALYSIS_FRAGMENT } from "../../prompts/user-commands/index.js";
 
 /**
  * All predefined segments

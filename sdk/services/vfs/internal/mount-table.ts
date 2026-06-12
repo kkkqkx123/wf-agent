@@ -41,9 +41,7 @@ export class MountTable {
     // Normalize: ensure starts with /, no trailing /
     const normalized = this.normalize(sandboxPath);
     this.mounts.push({ sandboxPath: normalized, vfs });
-    this.mounts.sort(
-      (a, b) => b.sandboxPath.split("/").length - a.sandboxPath.split("/").length,
-    );
+    this.mounts.sort((a, b) => b.sandboxPath.split("/").length - a.sandboxPath.split("/").length);
   }
 
   /**
@@ -77,7 +75,7 @@ export class MountTable {
    */
   removeMount(sandboxPath: string): boolean {
     const normalized = this.normalize(sandboxPath);
-    const index = this.mounts.findIndex((m) => m.sandboxPath === normalized);
+    const index = this.mounts.findIndex(m => m.sandboxPath === normalized);
     if (index !== -1) {
       this.mounts.splice(index, 1);
       return true;
@@ -111,7 +109,10 @@ export class MountTable {
 
     if (path.startsWith(prefix + "/")) {
       const relative = path.slice(prefix.length);
-      return { vfs: mount.vfs, translatedPath: relative.startsWith("/") ? relative : "/" + relative };
+      return {
+        vfs: mount.vfs,
+        translatedPath: relative.startsWith("/") ? relative : "/" + relative,
+      };
     }
 
     return null;

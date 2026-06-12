@@ -11,10 +11,7 @@
  */
 
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
-import type {
-  WorkflowNode,
-  WorkflowEdge,
-} from "@wf-agent/types";
+import type { WorkflowNode, WorkflowEdge } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
 import type { WorkflowGraph } from "../../../../workflow/types/graph/preprocessed-graph.js";
 import type { WorkflowGraphAnalysis } from "../../../../workflow/types/graph/analysis.js";

@@ -55,7 +55,7 @@ export function sortByFuzzyMatch<T>(
   getSearchText: (item: T) => string,
 ): Array<{ item: T; score: number }> {
   const matched = items
-    .map((item) => {
+    .map(item => {
       const searchText = getSearchText(item);
       const match = fuzzyMatch(searchText, query);
       return match ? { item, score: match.score } : null;

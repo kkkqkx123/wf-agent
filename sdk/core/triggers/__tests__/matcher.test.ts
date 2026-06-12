@@ -9,18 +9,36 @@ const { mockConditionEvaluatorEvaluate } = vi.hoisted(() => {
 vi.mock("../../../workflow/evaluation/index.js", () => ({
   conditionEvaluator: { evaluate: mockConditionEvaluatorEvaluate },
   DependencyManager: class {
-    private store = new Map<string, { expression: string; lastResult: boolean; lastEvaluatedAt: number }>();
+    private store = new Map<
+      string,
+      { expression: string; lastResult: boolean; lastEvaluatedAt: number }
+    >();
     register(key: string, _expression: string, ctx: any) {
       const result = Boolean(mockConditionEvaluatorEvaluate({ expression: _expression }, ctx));
-      const tracked = { expression: _expression, dependencies: [], lastResult: result, lastEvaluatedAt: Date.now() };
+      const tracked = {
+        expression: _expression,
+        dependencies: [],
+        lastResult: result,
+        lastEvaluatedAt: Date.now(),
+      };
       this.store.set(key, tracked);
       return tracked;
     }
-    getTrackedExpression(key: string) { return this.store.get(key); }
-    evaluateIfChanged(key: string, _ctx: any) { return this.store.get(key)?.lastResult ?? false; }
-    clear() { this.store.clear(); }
-    unregister(key: string) { this.store.delete(key); }
-    hasDependenciesChanged(_key: string, _ctx: any) { return false; }
+    getTrackedExpression(key: string) {
+      return this.store.get(key);
+    }
+    evaluateIfChanged(key: string, _ctx: any) {
+      return this.store.get(key)?.lastResult ?? false;
+    }
+    clear() {
+      this.store.clear();
+    }
+    unregister(key: string) {
+      this.store.delete(key);
+    }
+    hasDependenciesChanged(_key: string, _ctx: any) {
+      return false;
+    }
   },
 }));
 
@@ -163,7 +181,11 @@ describe("matchTriggers", () => {
   it("should skip disabled triggers", () => {
     const triggers = [
       createTrigger({ id: "t1", condition: createCondition({ eventType: "test.event" }) }),
-      createTrigger({ id: "t2", condition: createCondition({ eventType: "test.event" }), enabled: false }),
+      createTrigger({
+        id: "t2",
+        condition: createCondition({ eventType: "test.event" }),
+        enabled: false,
+      }),
     ];
     const event = createEvent({ type: "test.event" });
     const result = matchTriggers(triggers, event);
@@ -174,7 +196,12 @@ describe("matchTriggers", () => {
   it("should skip expired triggers (maxTriggers reached)", () => {
     const triggers = [
       createTrigger({ id: "t1", condition: createCondition({ eventType: "test.event" }) }),
-      createTrigger({ id: "t2", condition: createCondition({ eventType: "test.event" }), maxTriggers: 3, triggerCount: 3 }),
+      createTrigger({
+        id: "t2",
+        condition: createCondition({ eventType: "test.event" }),
+        maxTriggers: 3,
+        triggerCount: 3,
+      }),
     ];
     const event = createEvent({ type: "test.event" });
     const result = matchTriggers(triggers, event);

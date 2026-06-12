@@ -193,7 +193,9 @@ describe("PythonBuiltinHookStrategy", () => {
 
   describe("wrapWithSandbox", () => {
     // Access the private method via prototype
-    const wrapWithSandbox = (PythonBuiltinHookStrategy.prototype as any).wrapWithSandbox.bind(strategy);
+    const wrapWithSandbox = (PythonBuiltinHookStrategy.prototype as any).wrapWithSandbox.bind(
+      strategy,
+    );
 
     it("should wrap code with safety preamble", () => {
       const wrapped = wrapWithSandbox("print('test')", {
@@ -204,11 +206,11 @@ describe("PythonBuiltinHookStrategy", () => {
         allowDynamicEval: false,
       });
 
-      expect(wrapped).toContain('print(\'test\')');
+      expect(wrapped).toContain("print('test')");
       expect(wrapped).toContain("import sys");
       expect(wrapped).toContain("import builtins as __builtins_module");
       expect(wrapped).toContain("__builtins_module.open = _safe_open");
-      expect(wrapped).toContain("sys.modules[\"subprocess\"] = None");
+      expect(wrapped).toContain('sys.modules["subprocess"] = None');
       expect(wrapped).toContain("sys.path = []");
     });
 
@@ -255,13 +257,18 @@ describe("PythonBuiltinHookStrategy", () => {
     });
 
     it("should include VFS mode and writable directories when enabled", () => {
-      const wrapped = wrapWithSandbox("print(1)", {
-        allowedModules: [],
-        deniedModules: ["os"],
-        allowSubprocess: false,
-        restrictBuiltinOpen: true,
-        allowDynamicEval: false,
-      }, true, ["/workspace", "/tmp"]);
+      const wrapped = wrapWithSandbox(
+        "print(1)",
+        {
+          allowedModules: [],
+          deniedModules: ["os"],
+          allowSubprocess: false,
+          restrictBuiltinOpen: true,
+          allowDynamicEval: false,
+        },
+        true,
+        ["/workspace", "/tmp"],
+      );
 
       expect(wrapped).toContain("_VFS_ENABLED = True");
       expect(wrapped).toContain('"/workspace"');

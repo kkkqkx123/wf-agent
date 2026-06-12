@@ -8,7 +8,11 @@
 export { createPredefinedTriggers } from "./registry.js";
 
 // Export type definitions
-export type { PredefinedTriggersOptions, TriggerCategory, PredefinedTriggerMetadata } from "./types.js";
+export type {
+  PredefinedTriggersOptions,
+  TriggerCategory,
+  PredefinedTriggerMetadata,
+} from "./types.js";
 
 // Export registration-related functions
 export {

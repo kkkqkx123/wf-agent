@@ -48,7 +48,9 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     // Triggers are usually obtained through workflow execution entities, and in this case, it is necessary to iterate through all workflow executions.
     const executionEntities = this.registry.getAll();
     for (const executionEntity of executionEntities) {
-      const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
+      const triggerManager = executionEntity.triggerManager as
+        | { getAll: () => Trigger[] }
+        | undefined;
       const triggers = triggerManager?.getAll() || [];
       const trigger = triggers.find((t: Trigger) => t.id === id);
       if (trigger) {
@@ -67,7 +69,9 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
     const allTriggers: Trigger[] = [];
 
     for (const executionEntity of executionEntities) {
-      const triggerManager = executionEntity.triggerManager as { getAll: () => Trigger[] } | undefined;
+      const triggerManager = executionEntity.triggerManager as
+        | { getAll: () => Trigger[] }
+        | undefined;
       const triggers = triggerManager?.getAll() || [];
       allTriggers.push(...triggers);
     }
@@ -103,8 +107,13 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
    * @param filter: Filter criteria
    * @returns: Array of triggers
    */
-  async getWorkflowExecutionTriggers(executionId: string, filter?: TriggerFilter): Promise<Trigger[]> {
-    const triggerManager = (await this.getTriggerManager(executionId)) as { getAll: () => Trigger[] };
+  async getWorkflowExecutionTriggers(
+    executionId: string,
+    filter?: TriggerFilter,
+  ): Promise<Trigger[]> {
+    const triggerManager = (await this.getTriggerManager(executionId)) as {
+      getAll: () => Trigger[];
+    };
     let triggers = triggerManager.getAll();
 
     // Apply filter criteria
@@ -306,7 +315,10 @@ export class TriggerResourceAPI extends ReadonlyResourceAPI<Trigger, string, Tri
   private async getTriggerManager(executionId: string) {
     const executionContext = this.registry.get(executionId);
     if (!executionContext) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
     return executionContext.triggerManager;
   }

@@ -83,7 +83,10 @@ export class ScriptEngine {
       const resolvedArgs = this.argumentResolver.resolve(args, providedArgs, contextVars);
       const dynamicArgs = this.dynamicResolver.resolve(resolvedArgs, contextVars);
 
-      const renderResult = this.templateEngine.render(script.template, dynamicArgs as Record<string, unknown>);
+      const renderResult = this.templateEngine.render(
+        script.template,
+        dynamicArgs as Record<string, unknown>,
+      );
 
       if (!renderResult.resolved) {
         logger.warn("Template has unresolved placeholders", {

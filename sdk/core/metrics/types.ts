@@ -1,6 +1,6 @@
 /**
  * Metrics System - Type Definitions
- * 
+ *
  * Core type definitions for the metrics collection system.
  */
 
@@ -343,7 +343,7 @@ export interface MetricExporter {
    * @returns Array of formatted metric lines (without trailing newline)
    */
   toPrometheus(): string[];
-  
+
   /**
    * Export metrics as JSON
    * @returns JSON-serializable object

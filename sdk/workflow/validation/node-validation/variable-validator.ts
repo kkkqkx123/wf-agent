@@ -14,7 +14,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node: StaticNode definition
  * @returns: Verification result
  */
-export function validateVariableNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateVariableNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "VARIABLE");
   if (typeResult.isErr()) {
     return typeResult;

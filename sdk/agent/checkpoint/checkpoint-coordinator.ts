@@ -212,12 +212,15 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    * @returns Reconstructed AgentLoopEntity with config injected
    * @throws Error if restoreConfig is not set
    */
-  protected createEntityFromSnapshot(parentId: string, snapshot: AgentLoopStateSnapshot): AgentLoopEntity {
+  protected createEntityFromSnapshot(
+    parentId: string,
+    snapshot: AgentLoopStateSnapshot,
+  ): AgentLoopEntity {
     if (!this.restoreConfig) {
       throw new Error(
         "AgentLoopRuntimeConfig is required for restore. " +
-        "Set it via constructor: new AgentLoopCheckpointCoordinator(config) " +
-        "or via setConfig(config) before calling restoreFromCheckpoint()."
+          "Set it via constructor: new AgentLoopCheckpointCoordinator(config) " +
+          "or via setConfig(config) before calling restoreFromCheckpoint().",
       );
     }
     return AgentLoopEntity.fromSnapshot(parentId, snapshot, this.restoreConfig);
@@ -288,10 +291,10 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Determine the checkpoint type
-   * 
+   *
    * Agent-specific strategy: Creates FULL checkpoint when (checkpointCount + 1) is divisible by baselineInterval.
    * This means: with baselineInterval=5, checkpoints at count 4, 9, 14... will be FULL.
-   * 
+   *
    * @param checkpointCount The current number of checkpoints
    * @param config Incremental storage configuration
    * @returns The type of checkpoint

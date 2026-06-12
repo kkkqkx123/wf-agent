@@ -1,15 +1,15 @@
 /**
  * Modular Agent SDK - Main Entry Point
- * 
+ *
  * This is the main entry point for the SDK.
- * 
+ *
  * Usage patterns:
- * 
+ *
  * 1. Import from specific submodules (recommended):
  *    import { EventRegistry } from "@wf-agent/sdk/core";
  *    import { AgentLoopExecutor } from "@wf-agent/sdk/agent";
  *    import { GracefulShutdownManager } from "@wf-agent/sdk/services";
- * 
+ *
  * 2. Import from main entry (limited exports to avoid conflicts):
  *    import { SDKInstance, createSDK } from "@wf-agent/sdk";
  */

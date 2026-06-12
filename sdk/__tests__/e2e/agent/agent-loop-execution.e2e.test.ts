@@ -71,10 +71,13 @@ interface AgentLoopTestContext {
 }
 
 async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
-  const mockClient = new MockLLMClient({
-    defaultResponse: "This is a mock LLM response for E2E testing.",
-    simulateDelay: 5,
-  }, MOCK_PROFILE_ID);
+  const mockClient = new MockLLMClient(
+    {
+      defaultResponse: "This is a mock LLM response for E2E testing.",
+      simulateDelay: 5,
+    },
+    MOCK_PROFILE_ID,
+  );
 
   const agentLoopStorage = new MemoryAgentLoopStorage();
   await agentLoopStorage.initialize();
@@ -119,7 +122,9 @@ function getRegistry(sdk: SDKInstance) {
   return sdk.getFactory().getDependencies().getAgentLoopRegistry();
 }
 
-function createBasicAgentConfig(overrides?: Partial<AgentLoopRuntimeConfig>): AgentLoopRuntimeConfig {
+function createBasicAgentConfig(
+  overrides?: Partial<AgentLoopRuntimeConfig>,
+): AgentLoopRuntimeConfig {
   return {
     profileId: MOCK_PROFILE_ID,
     maxIterations: 1,
@@ -235,9 +240,7 @@ describe("Agent Loop Execution E2E", () => {
       // - The mock handler was called
       // - The registry properly tracks the entity
       const allEntities = registry.getAll();
-      allEntities.find(
-        (e: { id: string }) => e.id === String(result.iterations),
-      );
+      allEntities.find((e: { id: string }) => e.id === String(result.iterations));
       // At minimum verify the execution completed successfully
       expect(result.success).toBe(true);
       expect(result.iterations).toBeGreaterThanOrEqual(1);

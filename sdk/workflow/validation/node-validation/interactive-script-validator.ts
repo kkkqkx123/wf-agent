@@ -15,7 +15,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateInteractiveScriptNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateInteractiveScriptNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "INTERACTIVE_SCRIPT");
   if (typeResult.isErr()) {
     return typeResult;

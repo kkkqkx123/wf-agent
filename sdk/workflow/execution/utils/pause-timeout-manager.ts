@@ -1,8 +1,8 @@
 /**
  * Pause Timeout Manager
- * 
+ *
  * Manages timeout for paused workflow executions.
- * 
+ *
  * This manager now uses the unified TimeoutManager system instead of direct setTimeout
  * to ensure consistency across the SDK and better resource management.
  */
@@ -73,14 +73,14 @@ export class PauseTimeoutManager {
     this.stopMonitoring(executionId);
 
     const pausedAt = Date.now();
-    
+
     // Register the main timeout using the unified TimeoutManager system
     const timeoutManager = this.timeoutRegistry.getManager(executionId);
-    
+
     // Get the interruption state from the workflow execution entity if available
     const workflowExecutionEntity = this.registry.get(executionId);
     const interruptionState = workflowExecutionEntity?.getInterruptionState();
-    
+
     const handle = timeoutManager.register({
       id: `pause-${executionId}`,
       duration: this.config.maxPauseDuration,
@@ -92,20 +92,20 @@ export class PauseTimeoutManager {
         await this.emitWarning(executionId);
       },
       interruptionState, // Bind to interruption state for automatic cancellation
-      tag: 'workflow-pause',
-      metadata: { 
+      tag: "workflow-pause",
+      metadata: {
         executionId,
         pausedAt,
         maxPauseDuration: this.config.maxPauseDuration,
-        warningThreshold: this.config.warningThreshold
-      }
+        warningThreshold: this.config.warningThreshold,
+      },
     });
 
     const entry: PauseTimeoutEntry = {
       executionId,
       pausedAt,
       warningEmitted: false,
-      timeoutHandle: handle
+      timeoutHandle: handle,
     };
 
     this.entries.set(executionId, entry);
@@ -127,10 +127,10 @@ export class PauseTimeoutManager {
       if (entry.timeoutHandle) {
         entry.timeoutHandle.cancel();
       }
-      
+
       // Clean up the timeout manager for this execution
       this.timeoutRegistry.cleanup(executionId);
-      
+
       this.entries.delete(executionId);
       logger.debug("Stopped monitoring paused workflow", { executionId });
     }
@@ -271,10 +271,10 @@ export class PauseTimeoutManager {
         entry.timeoutHandle.cancel();
       }
     }
-    
+
     // Clean up all timeout managers
     this.timeoutRegistry.cleanupAll();
-    
+
     this.entries.clear();
   }
 }

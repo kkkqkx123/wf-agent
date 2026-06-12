@@ -58,9 +58,7 @@ export {
 } from "./shared/types/execution-options.js";
 
 // Two-Layer Architecture SDK Exports
-export {
-  createSDK,
-} from "./shared/core/sdk.js";
+export { createSDK } from "./shared/core/sdk.js";
 
 // SDK Instance Type
 export type { SDKInstance } from "./shared/core/sdk-instance.js";
@@ -69,7 +67,11 @@ export type { SDKInstance } from "./shared/core/sdk-instance.js";
 export type { GlobalContext } from "../core/global-context.js";
 
 // SDK Types
-export type { SDKOptions, SDKLifecycleHooks, GracefulShutdownConfig } from "./shared/types/core-types.js";
+export type {
+  SDKOptions,
+  SDKLifecycleHooks,
+  GracefulShutdownConfig,
+} from "./shared/types/core-types.js";
 
 // API Factory
 export { APIFactory, type AllAPIs } from "./shared/core/api-factory.js";
@@ -214,12 +216,14 @@ export { DisableTriggerCommand } from "./workflow/operations/triggers/disable-tr
 export type { DisableTriggerParams } from "./workflow/operations/triggers/disable-trigger-command.js";
 
 // Subscriptions
-export { OnEventSubscription, createExecutionScopedSubscription } from "./workflow/operations/events/on-event-subscription.js";
+export {
+  OnEventSubscription,
+  createExecutionScopedSubscription,
+} from "./workflow/operations/events/on-event-subscription.js";
 export type { OnEventParams } from "./workflow/operations/events/on-event-subscription.js";
 
 export { OnceEventSubscription } from "./workflow/operations/events/once-event-subscription.js";
 export type { OnceEventParams } from "./workflow/operations/events/once-event-subscription.js";
-
 
 // ============================================================================
 // Shared - Command class (with side-effect operations)
@@ -316,7 +320,6 @@ export {
   OnEventSubscription as AgentOnEventSubscription,
   type OnAgentEventParams,
 } from "./agent/operations/events/on-event-subscription.js";
-
 
 export {
   OnceEventSubscription as AgentOnceEventSubscription,

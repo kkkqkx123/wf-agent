@@ -2,23 +2,23 @@
 
 ## 1. 文档索引
 
-| 文档 | 说明 |
-|------|------|
+| 文档                                                                             | 说明                                  |
+| -------------------------------------------------------------------------------- | ------------------------------------- |
 | [auto-approval-improvement-analysis.md](./auto-approval-improvement-analysis.md) | 自动审批功能改进分析（参考 roo-code） |
-| [tool-risk-classification-design.md](./tool-risk-classification-design.md) | 工具风险分类与类型改造设计 |
-| [mcp-approval-design.md](./mcp-approval-design.md) | MCP 工具自动审批设计 |
+| [tool-risk-classification-design.md](./tool-risk-classification-design.md)       | 工具风险分类与类型改造设计            |
+| [mcp-approval-design.md](./mcp-approval-design.md)                               | MCP 工具自动审批设计                  |
 
 ## 2. 改进概览
 
 ### 2.1 核心改进点
 
-| 改进项 | 当前状态 | 目标状态 |
-|--------|----------|----------|
+| 改进项       | 当前状态             | 目标状态                                   |
+| ------------ | -------------------- | ------------------------------------------ |
 | 审批控制粒度 | 仅支持工具名称白名单 | 支持分类、风险级别、工作区边界等多维度控制 |
-| 命令执行安全 | 无安全检测 | 支持危险模式检测、最长前缀匹配 |
-| MCP 工具控制 | 无细粒度控制 | 支持服务器级、工具级配置 |
-| 追问自动响应 | 不支持 | 支持超时自动选择建议答案 |
-| 工具风险分类 | 无 | 双层分类体系（执行类型 + 风险级别） |
+| 命令执行安全 | 无安全检测           | 支持危险模式检测、最长前缀匹配             |
+| MCP 工具控制 | 无细粒度控制         | 支持服务器级、工具级配置                   |
+| 追问自动响应 | 不支持               | 支持超时自动选择建议答案                   |
+| 工具风险分类 | 无                   | 双层分类体系（执行类型 + 风险级别）        |
 
 ### 2.2 新增功能
 
@@ -43,16 +43,16 @@ packages/types/src/tool/
 
 ### 3.2 类型变更清单
 
-| 类型 | 变更类型 | 说明 |
-|------|----------|------|
-| `ToolRiskLevel` | 新增 | 工具操作风险级别 |
-| `AutoApprovalCategory` | 新增 | 自动审批类别 |
-| `ApprovalCondition` | 新增 | 审批条件 |
-| `ToolMetadata` | 修改 | 添加 `riskLevel`, `autoApprovable`, `approvalConditions` |
-| `ToolApprovalOptions` | 修改 | 添加分类控制、边界控制、命令/网络/MCP 设置 |
-| `McpApprovalSettings` | 新增 | MCP 审批设置 |
-| `McpServerConfig` | 新增 | MCP 服务器配置 |
-| `McpToolConfig` | 新增 | MCP 工具配置 |
+| 类型                   | 变更类型 | 说明                                                     |
+| ---------------------- | -------- | -------------------------------------------------------- |
+| `ToolRiskLevel`        | 新增     | 工具操作风险级别                                         |
+| `AutoApprovalCategory` | 新增     | 自动审批类别                                             |
+| `ApprovalCondition`    | 新增     | 审批条件                                                 |
+| `ToolMetadata`         | 修改     | 添加 `riskLevel`, `autoApprovable`, `approvalConditions` |
+| `ToolApprovalOptions`  | 修改     | 添加分类控制、边界控制、命令/网络/MCP 设置               |
+| `McpApprovalSettings`  | 新增     | MCP 审批设置                                             |
+| `McpServerConfig`      | 新增     | MCP 服务器配置                                           |
+| `McpToolConfig`        | 新增     | MCP 工具配置                                             |
 
 ## 4. 新增服务模块
 
@@ -80,36 +80,36 @@ sdk/resources/predefined/tools/
 
 ### 5.2 修改文件
 
-| 文件 | 修改内容 |
-|------|----------|
-| `types.ts` | 扩展 `PredefinedToolDefinition` 添加 `riskLevel` |
-| `registry.ts` | 在工具创建时注入 `riskLevel` |
+| 文件          | 修改内容                                         |
+| ------------- | ------------------------------------------------ |
+| `types.ts`    | 扩展 `PredefinedToolDefinition` 添加 `riskLevel` |
+| `registry.ts` | 在工具创建时注入 `riskLevel`                     |
 
 ### 5.3 工具风险分类表
 
-| 工具 ID | 执行类型 | 风险级别 | 自动审批策略 |
-|---------|----------|----------|--------------|
-| `read_file` | STATELESS | READ_ONLY | 默认可自动审批 |
-| `list_files` | STATELESS | READ_ONLY | 默认可自动审批 |
-| `search_files` | STATELESS | READ_ONLY | 默认可自动审批 |
-| `write_file` | STATELESS | WRITE | 需显式配置 |
-| `edit` | STATELESS | WRITE | 需显式配置 |
-| `apply_diff` | STATELESS | WRITE | 需显式配置 |
-| `apply_patch` | STATELESS | WRITE | 需显式配置 |
-| `run_shell` | STATELESS | EXECUTE | 需命令白名单 |
-| `run_slash_command` | STATELESS | EXECUTE | 需命令白名单 |
-| `backend_shell` | STATEFUL | EXECUTE | 需命令白名单 |
-| `shell_kill` | STATEFUL | EXECUTE | 需命令白名单 |
-| `record_note` | STATEFUL | WRITE | 需显式配置 |
-| `recall_notes` | STATEFUL | READ_ONLY | 默认可自动审批 |
-| `shell_output` | STATEFUL | READ_ONLY | 默认可自动审批 |
-| `ask_followup_question` | STATELESS | INTERACTION | 超时自动响应 |
-| `skill` | STATELESS | READ_ONLY | 默认可自动审批 |
-| `update_todo_list` | STATELESS | READ_ONLY | 默认可自动审批 |
-| `use_mcp` | STATELESS | NETWORK | 需 MCP 配置 |
-| `execute_workflow` | BUILTIN | SYSTEM | 永不自动审批 |
-| `cancel_workflow` | BUILTIN | SYSTEM | 永不自动审批 |
-| `query_workflow_status` | BUILTIN | READ_ONLY | 默认可自动审批 |
+| 工具 ID                 | 执行类型  | 风险级别    | 自动审批策略   |
+| ----------------------- | --------- | ----------- | -------------- |
+| `read_file`             | STATELESS | READ_ONLY   | 默认可自动审批 |
+| `list_files`            | STATELESS | READ_ONLY   | 默认可自动审批 |
+| `search_files`          | STATELESS | READ_ONLY   | 默认可自动审批 |
+| `write_file`            | STATELESS | WRITE       | 需显式配置     |
+| `edit`                  | STATELESS | WRITE       | 需显式配置     |
+| `apply_diff`            | STATELESS | WRITE       | 需显式配置     |
+| `apply_patch`           | STATELESS | WRITE       | 需显式配置     |
+| `run_shell`             | STATELESS | EXECUTE     | 需命令白名单   |
+| `run_slash_command`     | STATELESS | EXECUTE     | 需命令白名单   |
+| `backend_shell`         | STATEFUL  | EXECUTE     | 需命令白名单   |
+| `shell_kill`            | STATEFUL  | EXECUTE     | 需命令白名单   |
+| `record_note`           | STATEFUL  | WRITE       | 需显式配置     |
+| `recall_notes`          | STATEFUL  | READ_ONLY   | 默认可自动审批 |
+| `shell_output`          | STATEFUL  | READ_ONLY   | 默认可自动审批 |
+| `ask_followup_question` | STATELESS | INTERACTION | 超时自动响应   |
+| `skill`                 | STATELESS | READ_ONLY   | 默认可自动审批 |
+| `update_todo_list`      | STATELESS | READ_ONLY   | 默认可自动审批 |
+| `use_mcp`               | STATELESS | NETWORK     | 需 MCP 配置    |
+| `execute_workflow`      | BUILTIN   | SYSTEM      | 永不自动审批   |
+| `cancel_workflow`       | BUILTIN   | SYSTEM      | 永不自动审批   |
+| `query_workflow_status` | BUILTIN   | READ_ONLY   | 默认可自动审批 |
 
 ## 6. 协调器改造
 
@@ -128,7 +128,7 @@ async processToolApproval(params) {
 async processToolApproval(params) {
   // 1. 自动审批检查
   const decision = await checkAutoApproval({ options, tool, context });
-  
+
   if (decision.decision === "approve") {
     return { approved: true };
   }
@@ -138,7 +138,7 @@ async processToolApproval(params) {
   if (decision.decision === "timeout") {
     return { approved: true, autoResponse: decision.autoResponse };
   }
-  
+
   // 2. 用户审批
   return this.requestUserApproval(params);
 }
@@ -151,7 +151,7 @@ async processToolApproval(params) {
 ```typescript
 const approvalOptions: ToolApprovalOptions = {
   autoApprovalEnabled: true,
-  
+
   // 分类控制
   categories: {
     alwaysAllowReadOnly: true,
@@ -159,13 +159,13 @@ const approvalOptions: ToolApprovalOptions = {
     alwaysAllowExecute: false,
     alwaysAllowNetwork: false,
   },
-  
+
   // 工作区边界
   workspaceBoundary: {
     allowReadOnlyOutsideWorkspace: true,
     allowWriteOutsideWorkspace: false,
   },
-  
+
   // 受保护文件
   allowWriteProtected: false,
 };
@@ -213,7 +213,7 @@ const mcpOptions: ToolApprovalOptions = {
 const interactionOptions: ToolApprovalOptions = {
   autoApprovalEnabled: true,
   interaction: {
-    followupAutoApproveTimeoutMs: 5000,  // 5秒后自动选择第一个建议
+    followupAutoApproveTimeoutMs: 5000, // 5秒后自动选择第一个建议
   },
 };
 ```

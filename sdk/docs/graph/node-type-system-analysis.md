@@ -10,9 +10,9 @@
 // packages/types/src/node/base.ts
 export interface Node {
   id: ID;
-  type: NodeType;  // 'START' | 'END' | 'LLM' | 'CONTEXT_PROCESSOR' | ...
+  type: NodeType; // 'START' | 'END' | 'LLM' | 'CONTEXT_PROCESSOR' | ...
   name: string;
-  config: any;     // 问题：任何类型都可以，没有和type关联
+  config: any; // 问题：任何类型都可以，没有和type关联
   // ...
 }
 ```
@@ -42,25 +42,25 @@ export type NodeConfig =
 ```typescript
 // 以下代码不会报错，即使配置完全错误
 const llmNode: Node = {
-  id: '123',
-  type: 'LLM',
+  id: "123",
+  type: "LLM",
   config: {
     // 错误：应该使用 profileId，但写成了 profileID
-    profileID: 'default',  // 拼写错误不会报错
+    profileID: "default", // 拼写错误不会报错
     // 错误：prompt 应该是 string，但传了 number
-    prompt: 123,  // 类型错误不会报错
+    prompt: 123, // 类型错误不会报错
     // 错误：LLMNodeConfig 没有这个属性
-    unknownProperty: true  // 多余属性不会报错
-  }
+    unknownProperty: true, // 多余属性不会报错
+  },
 };
 
 // CONTEXT_PROCESSOR 节点同样需要 operationConfig，但写成了 operation
 const contextNode: Node = {
-  id: '456',
-  type: 'CONTEXT_PROCESSOR',
+  id: "456",
+  type: "CONTEXT_PROCESSOR",
   config: {
-    operation: 'REPLACE'  // 错误：应该是 operationConfig
-  }
+    operation: "REPLACE", // 错误：应该是 operationConfig
+  },
 };
 ```
 
@@ -143,20 +143,20 @@ export type Node =
 function processNode(node: Node) {
   // TypeScript 自动识别 node.type 并收窄 node.config 的类型
   switch (node.type) {
-    case 'LLM':
+    case "LLM":
       // node.config 自动推断为 LLMNodeConfig
-      console.log(node.config.profileId);  // ✅ 正确
-      console.log(node.config.prompt);      // ✅ 正确
-      console.log(node.config.unknown);     // ❌ 编译错误：属性不存在
+      console.log(node.config.profileId); // ✅ 正确
+      console.log(node.config.prompt); // ✅ 正确
+      console.log(node.config.unknown); // ❌ 编译错误：属性不存在
       break;
-      
-    case 'CONTEXT_PROCESSOR':
+
+    case "CONTEXT_PROCESSOR":
       // node.config 自动推断为 ContextProcessorNodeConfig
-      console.log(node.config.operationConfig);  // ✅ 正确
-      console.log(node.config.operation);         // ❌ 编译错误：应该是 operationConfig
+      console.log(node.config.operationConfig); // ✅ 正确
+      console.log(node.config.operation); // ❌ 编译错误：应该是 operationConfig
       break;
-      
-    case 'START_FROM_TRIGGER':
+
+    case "START_FROM_TRIGGER":
       // node.config 自动推断为 StartFromTriggerNodeConfig（可能是 {} 或特定配置）
       break;
   }
@@ -170,29 +170,29 @@ function processNode(node: Node) {
 ```typescript
 // ✅ 正确的 LLM 节点
 const llmNode: Node = {
-  id: '123',
-  type: 'LLM',  // 指定 type 后，config 必须是 LLMNodeConfig
-  name: 'Compress Context',
+  id: "123",
+  type: "LLM", // 指定 type 后，config 必须是 LLMNodeConfig
+  name: "Compress Context",
   config: {
-    profileId: 'default',  // ✅ 必需属性
-    prompt: '压缩上下文...', // ✅ 可选属性，但类型必须正确
-    parameters: {}         // ✅ 可选属性
+    profileId: "default", // ✅ 必需属性
+    prompt: "压缩上下文...", // ✅ 可选属性，但类型必须正确
+    parameters: {}, // ✅ 可选属性
   },
   outgoingEdgeIds: [],
-  incomingEdgeIds: []
+  incomingEdgeIds: [],
 };
 
 // ❌ 错误的 LLM 节点（会编译失败）
 const badLLMNode: Node = {
-  id: '123',
-  type: 'LLM',
-  name: 'Bad Node',
+  id: "123",
+  type: "LLM",
+  name: "Bad Node",
   config: {
     // ❌ 错误：缺少必需的 profileId
-    prompt: 'test'
+    prompt: "test",
   },
   outgoingEdgeIds: [],
-  incomingEdgeIds: []
+  incomingEdgeIds: [],
 };
 ```
 
@@ -222,15 +222,18 @@ const badLLMNode: Node = {
 ### 3.3 迁移策略
 
 方案一：完全重构（推荐用于新项目）
+
 - 一次性修改为可辨识联合
 - 修复所有类型错误
 
 方案二：渐进式迁移
+
 - 保留现有`Node`接口不变
 - 新增`TypedNode`联合类型
 - 逐步迁移代码使用`TypedNode`
 
 方案三：辅助类型（临时方案）
+
 - 提供类型映射工具：
 
 ```typescript
@@ -238,12 +241,12 @@ const badLLMNode: Node = {
  * 节点类型到配置类型的映射
  */
 export type NodeTypeToConfig = {
-  'START': StartNodeConfig;
-  'END': EndNodeConfig;
-  'LLM': LLMNodeConfig;
-  'CONTEXT_PROCESSOR': ContextProcessorNodeConfig;
-  'START_FROM_TRIGGER': StartFromTriggerNodeConfig;
-  'CONTINUE_FROM_TRIGGER': ContinueFromTriggerNodeConfig;
+  START: StartNodeConfig;
+  END: EndNodeConfig;
+  LLM: LLMNodeConfig;
+  CONTEXT_PROCESSOR: ContextProcessorNodeConfig;
+  START_FROM_TRIGGER: StartFromTriggerNodeConfig;
+  CONTINUE_FROM_TRIGGER: ContinueFromTriggerNodeConfig;
   // ...
 };
 
@@ -258,20 +261,24 @@ export type ConfigForNodeType<T extends NodeType> = NodeTypeToConfig[T];
 export function createNode<T extends NodeType>(
   type: T,
   config: ConfigForNodeType<T>,
-  baseInfo: Omit<BaseNode, 'type' | 'config'>
+  baseInfo: Omit<BaseNode, "type" | "config">,
 ): Node {
   return {
     ...baseInfo,
     type,
-    config
+    config,
   } as Node;
 }
 
 // 使用示例
-createNode('LLM', {
-  profileId: 'default',  // TypeScript 知道需要 LLMNodeConfig
-  prompt: 'test'
-}, { id: '123', name: 'Test' });
+createNode(
+  "LLM",
+  {
+    profileId: "default", // TypeScript 知道需要 LLMNodeConfig
+    prompt: "test",
+  },
+  { id: "123", name: "Test" },
+);
 ```
 
 ## 四、推荐实现方案
@@ -287,23 +294,23 @@ createNode('LLM', {
  * 节点类型到配置类型的映射
  */
 export interface NodeTypeConfigMap {
-  'START': StartNodeConfig;
-  'END': EndNodeConfig;
-  'VARIABLE': VariableNodeConfig;
-  'FORK': ForkNodeConfig;
-  'JOIN': JoinNodeConfig;
-  'SUBGRAPH': SubgraphNodeConfig;
-  'SCRIPT': ScriptNodeConfig;
-  'LLM': LLMNodeConfig;
-  'ADD_TOOL': AddToolNodeConfig;
-  'USER_INTERACTION': UserInteractionNodeConfig;
-  'ROUTE': RouteNodeConfig;
-  'CONTEXT_PROCESSOR': ContextProcessorNodeConfig;
-  'LOOP_START': LoopStartNodeConfig;
-  'LOOP_END': LoopEndNodeConfig;
-  'AGENT_LOOP': AgentLoopNodeConfig;
-  'START_FROM_TRIGGER': StartFromTriggerNodeConfig;
-  'CONTINUE_FROM_TRIGGER': ContinueFromTriggerNodeConfig;
+  START: StartNodeConfig;
+  END: EndNodeConfig;
+  VARIABLE: VariableNodeConfig;
+  FORK: ForkNodeConfig;
+  JOIN: JoinNodeConfig;
+  SUBGRAPH: SubgraphNodeConfig;
+  SCRIPT: ScriptNodeConfig;
+  LLM: LLMNodeConfig;
+  ADD_TOOL: AddToolNodeConfig;
+  USER_INTERACTION: UserInteractionNodeConfig;
+  ROUTE: RouteNodeConfig;
+  CONTEXT_PROCESSOR: ContextProcessorNodeConfig;
+  LOOP_START: LoopStartNodeConfig;
+  LOOP_END: LoopEndNodeConfig;
+  AGENT_LOOP: AgentLoopNodeConfig;
+  START_FROM_TRIGGER: StartFromTriggerNodeConfig;
+  CONTINUE_FROM_TRIGGER: ContinueFromTriggerNodeConfig;
 }
 
 /**
@@ -317,12 +324,12 @@ export type NodeConfigFor<T extends NodeType> = NodeTypeConfigMap[T];
 export function createTypedNode<T extends NodeType>(
   type: T,
   config: NodeConfigFor<T>,
-  baseInfo: { id: ID; name: string; description?: string; /* ... */ }
+  baseInfo: { id: ID; name: string; description?: string /* ... */ },
 ): Node {
   return {
     ...baseInfo,
     type,
-    config
+    config,
   } as Node;
 }
 ```
@@ -333,7 +340,7 @@ export function createTypedNode<T extends NodeType>(
 
 ```typescript
 // 1. 修改 base.ts，将 Node 改为联合类型
-export type Node = 
+export type Node =
   | { type: 'START'; config: StartNodeConfig; /* ... */ }
   | { type: 'END'; config: EndNodeConfig; /* ... */ }
   | { type: 'LLM'; config: LLMNodeConfig; /* ... */ }
@@ -372,17 +379,21 @@ export function isContextProcessorNode(node: Node): node is ContextProcessorNode
 
 ```typescript
 // 方案一：使用辅助函数
-createTypedNode('LLM', {
-  profileId: 'default',  // ✅ 必需属性检查
-  prompt: DEFAULT_COMPRESSION_PROMPT  // ✅ 类型检查
-}, baseInfo);
+createTypedNode(
+  "LLM",
+  {
+    profileId: "default", // ✅ 必需属性检查
+    prompt: DEFAULT_COMPRESSION_PROMPT, // ✅ 类型检查
+  },
+  baseInfo,
+);
 
 // 方案二：使用联合类型（长期方案）
 const llmNode: LLMNode = {
-  type: 'LLM',
+  type: "LLM",
   config: {
-    profileId: 'default',  // ✅ 类型检查
-    prompt: 'test'
+    profileId: "default", // ✅ 类型检查
+    prompt: "test",
   },
   // ...
 };

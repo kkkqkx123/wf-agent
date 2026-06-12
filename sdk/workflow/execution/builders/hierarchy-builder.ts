@@ -1,25 +1,25 @@
 /**
  * Execution Hierarchy Builder
- * 
+ *
  * Unified builder for establishing parent-child relationships between execution instances.
  * Encapsulates the common logic for:
  * - Setting parent context
  * - Registering with hierarchy registry
  * - Registering child references in parent
  * - Validating hierarchy integrity
- * 
+ *
  * This module ensures consistent hierarchy management across all execution types:
  * - SUBGRAPH (synchronous child workflows)
  * - FORK_JOIN (parallel fork branches)
  * - TRIGGERED_SUBWORKFLOW (asynchronously triggered subworkflows)
  */
 
-import type { ID, ParentExecutionContext, ChildExecutionReference } from '@wf-agent/types';
-import type { WorkflowExecutionEntity } from '../../entities/workflow-execution-entity.js';
-import type { ExecutionHierarchyRegistry } from '../../../core/registry/execution-hierarchy-registry.js';
-import { createContextualLogger } from '../../../utils/contextual-logger.js';
+import type { ID, ParentExecutionContext, ChildExecutionReference } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
+import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
-const logger = createContextualLogger({ operation: 'hierarchy-builder' });
+const logger = createContextualLogger({ operation: "hierarchy-builder" });
 
 /**
  * Options for establishing parent-child relationship
@@ -32,20 +32,20 @@ export interface HierarchySetupOptions {
   /** Node ID in parent workflow (optional, for SUBGRAPH nodes) */
   nodeId?: ID;
   /** Additional metadata for child reference */
-  childMetadata?: Partial<Omit<ChildExecutionReference, 'childType' | 'childId'>>;
+  childMetadata?: Partial<Omit<ChildExecutionReference, "childType" | "childId">>;
 }
 
 /**
  * Establish parent-child relationship between two workflow executions
- * 
+ *
  * This function performs all necessary steps to properly link parent and child executions:
  * 1. Sets parent context on child entity
  * 2. Registers child entity with hierarchy registry
  * 3. Registers child reference in parent entity
- * 
+ *
  * @param options Hierarchy setup options
  * @throws Error if registry is not available or validation fails
- * 
+ *
  * @example
  * ```typescript
  * // For SUBGRAPH execution
@@ -54,7 +54,7 @@ export interface HierarchySetupOptions {
  *   childEntity: subgraphWorkflow,
  *   nodeId: 'subgraph-node-123',
  * });
- * 
+ *
  * // For FORK execution
  * await setupHierarchy({
  *   parentEntity: parentWorkflow,
@@ -66,7 +66,7 @@ export interface HierarchySetupOptions {
 export async function setupHierarchy(options: HierarchySetupOptions): Promise<void> {
   const { parentEntity, childEntity, nodeId, childMetadata } = options;
 
-  logger.debug('Setting up execution hierarchy', {
+  logger.debug("Setting up execution hierarchy", {
     parentExecutionId: parentEntity.id,
     childExecutionId: childEntity.id,
     nodeId,
@@ -74,13 +74,13 @@ export async function setupHierarchy(options: HierarchySetupOptions): Promise<vo
 
   // Step 1: Set parent context on child entity
   const parentContext: ParentExecutionContext = {
-    parentType: 'WORKFLOW',
+    parentType: "WORKFLOW",
     parentId: parentEntity.id,
     ...(nodeId && { nodeId }),
   };
 
   childEntity.setParentContext(parentContext);
-  logger.debug('Parent context set on child entity', {
+  logger.debug("Parent context set on child entity", {
     childExecutionId: childEntity.id,
     parentExecutionId: parentEntity.id,
   });
@@ -88,27 +88,27 @@ export async function setupHierarchy(options: HierarchySetupOptions): Promise<vo
   // Step 2: Get hierarchy registry and register child entity
   const registry = getHierarchyRegistry(childEntity);
   if (!registry) {
-    logger.warn('Hierarchy registry not available, skipping registration', {
+    logger.warn("Hierarchy registry not available, skipping registration", {
       childExecutionId: childEntity.id,
     });
     return;
   }
 
   registry.register(childEntity);
-  logger.debug('Child entity registered with hierarchy registry', {
+  logger.debug("Child entity registered with hierarchy registry", {
     childExecutionId: childEntity.id,
   });
 
   // Step 3: Register child reference in parent entity
   const childRef: ChildExecutionReference = {
-    childType: 'WORKFLOW',
+    childType: "WORKFLOW",
     childId: childEntity.id,
     createdAt: Date.now(),
     ...childMetadata,
   };
 
   parentEntity.registerChild(childRef);
-  logger.debug('Child reference registered in parent entity', {
+  logger.debug("Child reference registered in parent entity", {
     parentExecutionId: parentEntity.id,
     childExecutionId: childEntity.id,
   });
@@ -116,15 +116,15 @@ export async function setupHierarchy(options: HierarchySetupOptions): Promise<vo
 
 /**
  * Remove parent-child relationship between two workflow executions
- * 
+ *
  * This function performs cleanup when a child execution is terminated or failed:
  * 1. Unregisters child reference from parent entity
  * 2. Optionally unregisters child entity from hierarchy registry
- * 
+ *
  * @param parentEntity Parent execution entity
  * @param childExecutionId Child execution ID to remove
  * @param unregisterFromRegistry Whether to also unregister from hierarchy registry (default: true)
- * 
+ *
  * @example
  * ```typescript
  * // Cleanup after failed subgraph execution
@@ -136,14 +136,14 @@ export async function teardownHierarchy(
   childExecutionId: ID,
   unregisterFromRegistry: boolean = true,
 ): Promise<void> {
-  logger.debug('Tearing down execution hierarchy', {
+  logger.debug("Tearing down execution hierarchy", {
     parentExecutionId: parentEntity.id,
     childExecutionId,
   });
 
   // Step 1: Unregister child reference from parent
-  parentEntity.unregisterChild(childExecutionId, 'WORKFLOW');
-  logger.debug('Child reference removed from parent entity', {
+  parentEntity.unregisterChild(childExecutionId, "WORKFLOW");
+  logger.debug("Child reference removed from parent entity", {
     parentExecutionId: parentEntity.id,
     childExecutionId,
   });
@@ -153,11 +153,11 @@ export async function teardownHierarchy(
     const registry = getHierarchyRegistryById(childExecutionId);
     if (registry) {
       registry.unregister(childExecutionId);
-      logger.debug('Child entity unregistered from hierarchy registry', {
+      logger.debug("Child entity unregistered from hierarchy registry", {
         childExecutionId,
       });
     } else {
-      logger.warn('Hierarchy registry not available for cleanup', {
+      logger.warn("Hierarchy registry not available for cleanup", {
         childExecutionId,
       });
     }
@@ -166,15 +166,15 @@ export async function teardownHierarchy(
 
 /**
  * Validate hierarchy integrity for an execution entity
- * 
+ *
  * Checks that:
  * - Parent entity exists in registry (if parent is set)
  * - All registered children exist in registry
  * - Depth calculations are consistent
- * 
+ *
  * @param entity Execution entity to validate
  * @returns Validation result with any issues found
- * 
+ *
  * @example
  * ```typescript
  * const validation = validateHierarchy(workflowEntity);
@@ -193,7 +193,7 @@ export function validateHierarchy(entity: WorkflowExecutionEntity): {
   if (!registry) {
     return {
       valid: false,
-      issues: ['Hierarchy registry not available'],
+      issues: ["Hierarchy registry not available"],
     };
   }
 
@@ -221,9 +221,9 @@ export function validateHierarchy(entity: WorkflowExecutionEntity): {
     if (metadata.depth < 0) {
       issues.push(`Invalid depth: ${metadata.depth}`);
     }
-    
+
     if (!metadata.rootExecutionId) {
-      issues.push('Root execution ID is missing');
+      issues.push("Root execution ID is missing");
     }
   }
 
@@ -236,16 +236,20 @@ export function validateHierarchy(entity: WorkflowExecutionEntity): {
 /**
  * Helper: Get hierarchy registry from entity's internal state
  */
-function getHierarchyRegistry(entity: WorkflowExecutionEntity): ExecutionHierarchyRegistry | undefined {
+function getHierarchyRegistry(
+  entity: WorkflowExecutionEntity,
+): ExecutionHierarchyRegistry | undefined {
   // Access the registry through the entity's hierarchy manager
   // This assumes the entity stores a reference to the registry
   // We need to expose this via a method or property
-  
+
   // For now, we'll try to get it from global context if available
   // TODO: Consider adding a getRegistry() method to WorkflowExecutionEntity
   try {
     // This is a workaround - ideally the entity should expose its registry
-    const anyEntity = entity as unknown as { hierarchyManager?: { registry?: ExecutionHierarchyRegistry } };
+    const anyEntity = entity as unknown as {
+      hierarchyManager?: { registry?: ExecutionHierarchyRegistry };
+    };
     return anyEntity.hierarchyManager?.registry;
   } catch {
     return undefined;

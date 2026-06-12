@@ -64,10 +64,10 @@ export async function forkHandler(
   const executor = context?.workflowExecutor;
 
   if (!builder) {
-    throw new Error('WorkflowExecutionBuilder required for FORK execution');
+    throw new Error("WorkflowExecutionBuilder required for FORK execution");
   }
   if (!executor) {
-    throw new Error('WorkflowExecutor required for FORK execution');
+    throw new Error("WorkflowExecutor required for FORK execution");
   }
 
   logger.info("Starting FORK node execution", {
@@ -77,7 +77,7 @@ export async function forkHandler(
   });
 
   const startTime = now();
-  
+
   // Track branch creations for cleanup in case of failure
   let branchCreations: Array<{ pathId: string; branchEntity: WorkflowExecutionEntity }> = [];
 
@@ -85,15 +85,17 @@ export async function forkHandler(
     // Step 0: Initialize SyncBarrier for parent execution (REQUIRED for FORK nodes)
     // This must be done BEFORE creating child executions so that path mappings can be registered
     if (!workflowExecutionEntity.hasSyncBarrier()) {
-      const eventRegistry = globalContext.container.get(Identifiers.EventRegistry) as EventRegistry | undefined;
-      
+      const eventRegistry = globalContext.container.get(Identifiers.EventRegistry) as
+        | EventRegistry
+        | undefined;
+
       if (!eventRegistry) {
         throw new Error(
-          'EventRegistry not available in global context. ' +
-          'FORK nodes require EventRegistry for SyncBarrier initialization.'
+          "EventRegistry not available in global context. " +
+            "FORK nodes require EventRegistry for SyncBarrier initialization.",
         );
       }
-      
+
       workflowExecutionEntity.initializeSyncBarrier(eventRegistry);
       logger.info("SyncBarrier initialized for FORK node", {
         nodeId: node.id,
@@ -103,14 +105,19 @@ export async function forkHandler(
     }
 
     // Emit FORK_STARTED event
-    const eventManager = globalContext.container.get(Identifiers.EventRegistry) as EventRegistry | undefined;
+    const eventManager = globalContext.container.get(Identifiers.EventRegistry) as
+      | EventRegistry
+      | undefined;
     if (eventManager) {
-      await emit(eventManager, buildForkStartedEvent({
-        executionId: workflowExecutionEntity.id,
-        workflowId: workflowExecutionEntity.getWorkflowId(),
-        nodeId: node.id,
-        branchCount: forkPaths.length,
-      }));
+      await emit(
+        eventManager,
+        buildForkStartedEvent({
+          executionId: workflowExecutionEntity.id,
+          workflowId: workflowExecutionEntity.getWorkflowId(),
+          nodeId: node.id,
+          branchCount: forkPaths.length,
+        }),
+      );
     }
 
     // Step 1: Create all branch execution entities in parallel
@@ -120,9 +127,9 @@ export async function forkHandler(
     });
 
     branchCreations = await Promise.all(
-      forkPaths.map(async (path) => {
+      forkPaths.map(async path => {
         const buildResult = await builder.createChildExecution(workflowExecutionEntity, {
-          type: 'FORK_BRANCH',
+          type: "FORK_BRANCH",
           config: {
             forkPathId: path.pathId,
             startNodeId: path.childNodeId,
@@ -149,19 +156,22 @@ export async function forkHandler(
           pathId: path.pathId,
           branchEntity: buildResult.workflowExecutionEntity,
         };
-      })
+      }),
     );
 
     // Emit FORK_BRANCH_STARTED events for each branch
     if (eventManager) {
       for (const branch of branchCreations) {
-        await emit(eventManager, buildForkBranchStartedEvent({
-          executionId: workflowExecutionEntity.id,
-          workflowId: workflowExecutionEntity.getWorkflowId(),
-          nodeId: node.id,
-          forkPathId: branch.pathId,
-          branchExecutionId: branch.branchEntity.id,
-        }));
+        await emit(
+          eventManager,
+          buildForkBranchStartedEvent({
+            executionId: workflowExecutionEntity.id,
+            workflowId: workflowExecutionEntity.getWorkflowId(),
+            nodeId: node.id,
+            forkPathId: branch.pathId,
+            branchExecutionId: branch.branchEntity.id,
+          }),
+        );
       }
     }
 
@@ -172,7 +182,7 @@ export async function forkHandler(
     });
 
     const executionResults = await Promise.all(
-      branchCreations.map(async (branch) => {
+      branchCreations.map(async branch => {
         const branchStartTime = now();
         const result = await executor.executeWorkflow(branch.branchEntity);
         const branchDuration = diffTimestamp(branchStartTime, now());
@@ -189,7 +199,7 @@ export async function forkHandler(
           ...result,
           executionTime: branchDuration,
         };
-      })
+      }),
     );
 
     // Step 3: Build ForkBranchResult array with cleanup
@@ -199,35 +209,38 @@ export async function forkHandler(
         if (!executionResult) {
           throw new Error(`Missing execution result for branch ${branch.pathId}`);
         }
-        
+
         // Cleanup branch execution entity after completion
         await cleanupChildExecution(
           branch.branchEntity,
           workflowExecutionEntity,
-          executionResult.metadata.status === 'COMPLETED' ? 'COMPLETED' : 'FAILED'
+          executionResult.metadata.status === "COMPLETED" ? "COMPLETED" : "FAILED",
         );
-        
+
         return createForkBranchResult(
           branch.pathId,
           branch.branchEntity,
           executionResult,
-          executionResult.executionTime
+          executionResult.executionTime,
         );
-      })
+      }),
     );
 
     // Emit FORK_BRANCH_COMPLETED events for each branch
     if (eventManager) {
       results.forEach(result => {
-        emit(eventManager, buildForkBranchCompletedEvent({
-          executionId: workflowExecutionEntity.id,
-          workflowId: workflowExecutionEntity.getWorkflowId(),
-          nodeId: node.id,
-          forkPathId: result.forkPathId,
-          branchExecutionId: result.branchEntity.id,
-          status: result.executionResult.metadata.status,
-          executionTime: result.executionTime,
-        }));
+        emit(
+          eventManager,
+          buildForkBranchCompletedEvent({
+            executionId: workflowExecutionEntity.id,
+            workflowId: workflowExecutionEntity.getWorkflowId(),
+            nodeId: node.id,
+            forkPathId: result.forkPathId,
+            branchExecutionId: result.branchEntity.id,
+            status: result.executionResult.metadata.status,
+            executionTime: result.executionTime,
+          }),
+        );
       });
     }
 
@@ -237,20 +250,21 @@ export async function forkHandler(
     try {
       const metricsRegistry = globalContext.container.get(Identifiers.MetricsRegistry);
       const nodeCollector = metricsRegistry?.getNodeCollector();
-      if (nodeCollector && typeof nodeCollector.recordForkExecution === 'function') {
+      if (nodeCollector && typeof nodeCollector.recordForkExecution === "function") {
         const branchDurations = results.map(r => r.executionTime);
         nodeCollector.recordForkExecution(node.id, workflowExecutionEntity.getWorkflowId(), {
           branchCount: forkPaths.length,
           totalDuration,
-          successCount: results.filter(r => r.executionResult.metadata.status === 'COMPLETED').length,
-          failureCount: results.filter(r => r.executionResult.metadata.status === 'FAILED').length,
+          successCount: results.filter(r => r.executionResult.metadata.status === "COMPLETED")
+            .length,
+          failureCount: results.filter(r => r.executionResult.metadata.status === "FAILED").length,
           maxBranchDuration: Math.max(...branchDurations),
           minBranchDuration: Math.min(...branchDurations),
         });
 
         // Record individual branch metrics
         results.forEach(result => {
-          if (typeof nodeCollector.recordForkBranchExecution === 'function') {
+          if (typeof nodeCollector.recordForkBranchExecution === "function") {
             nodeCollector.recordForkBranchExecution({
               nodeId: node.id,
               forkPathId: result.forkPathId,
@@ -266,23 +280,27 @@ export async function forkHandler(
 
     // Emit FORK_COMPLETED event
     if (eventManager) {
-      await emit(eventManager, buildForkCompletedEvent({
-        executionId: workflowExecutionEntity.id,
-        workflowId: workflowExecutionEntity.getWorkflowId(),
-        nodeId: node.id,
-        totalBranches: results.length,
-        successCount: results.filter(r => r.executionResult.metadata.status === 'COMPLETED').length,
-        failureCount: results.filter(r => r.executionResult.metadata.status === 'FAILED').length,
-        totalExecutionTime: totalDuration,
-      }));
+      await emit(
+        eventManager,
+        buildForkCompletedEvent({
+          executionId: workflowExecutionEntity.id,
+          workflowId: workflowExecutionEntity.getWorkflowId(),
+          nodeId: node.id,
+          totalBranches: results.length,
+          successCount: results.filter(r => r.executionResult.metadata.status === "COMPLETED")
+            .length,
+          failureCount: results.filter(r => r.executionResult.metadata.status === "FAILED").length,
+          totalExecutionTime: totalDuration,
+        }),
+      );
     }
 
     logger.info("FORK node execution completed", {
       nodeId: node.id,
       branchCount: results.length,
       totalDuration,
-      successCount: results.filter(r => r.executionResult.metadata.status === 'COMPLETED').length,
-      failureCount: results.filter(r => r.executionResult.metadata.status === 'FAILED').length,
+      successCount: results.filter(r => r.executionResult.metadata.status === "COMPLETED").length,
+      failureCount: results.filter(r => r.executionResult.metadata.status === "FAILED").length,
     });
 
     return { launchedBranches: results };
@@ -303,16 +321,12 @@ export async function forkHandler(
         nodeId: node.id,
         branchCount: branchCreations.length,
       });
-      
+
       // Clean up all successfully created branches
       await Promise.all(
-        branchCreations.map(async (branch) => {
+        branchCreations.map(async branch => {
           try {
-            await cleanupChildExecution(
-              branch.branchEntity,
-              workflowExecutionEntity,
-              'FAILED'
-            );
+            await cleanupChildExecution(branch.branchEntity, workflowExecutionEntity, "FAILED");
           } catch (cleanupError) {
             logger.warn("Failed to cleanup fork branch", {
               nodeId: node.id,
@@ -321,7 +335,7 @@ export async function forkHandler(
               cleanupError,
             });
           }
-        })
+        }),
       );
     }
 

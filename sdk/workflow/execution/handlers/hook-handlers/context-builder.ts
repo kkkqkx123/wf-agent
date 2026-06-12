@@ -46,16 +46,16 @@ export function buildHookEvaluationContext(context: HookExecutionContext): HookE
   return {
     // NEW: Expose workflow input
     workflowInput: workflowExecutionEntity.getInput(),
-    
+
     // NEW: Current node's output (from execution result)
     nodeOutput: result?.output,
-    
+
     // Existing: Final workflow output
     output: workflowExecution.output,
-    
+
     // Message history from ConversationSession (single data source)
     messages: conversationManager?.getMessages() || [],
-    
+
     status: result?.status || "PENDING",
     executionTime: result?.executionTime || 0,
     error: result?.error,
@@ -80,7 +80,7 @@ export function convertToEvaluationContext(hookContext: HookEvaluationContext): 
     },
     output: {
       result: hookContext.output,
-      nodeOutput: hookContext.nodeOutput,  // NEW: Node-specific output
+      nodeOutput: hookContext.nodeOutput, // NEW: Node-specific output
       status: hookContext.status,
       executionTime: hookContext.executionTime,
       error: hookContext.error,

@@ -25,8 +25,7 @@ export function createGlobDescription(config?: GlobConfig): ToolDescriptionData 
         name: "path",
         type: "string",
         required: true,
-        description:
-          "The directory to search in (relative to the current workspace directory)",
+        description: "The directory to search in (relative to the current workspace directory)",
       },
       {
         name: "pattern",

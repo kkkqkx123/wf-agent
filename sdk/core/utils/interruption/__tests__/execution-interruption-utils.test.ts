@@ -106,9 +106,7 @@ describe("getExecutionInterruptionType", () => {
 
 describe("getExecutionInterruptionDescription", () => {
   it("should describe continue state", () => {
-    expect(getExecutionInterruptionDescription({ type: "continue" })).toBe(
-      "Execution continuing",
-    );
+    expect(getExecutionInterruptionDescription({ type: "continue" })).toBe("Execution continuing");
   });
 
   it("should describe paused state with executionId", () => {

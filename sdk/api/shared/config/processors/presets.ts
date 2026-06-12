@@ -11,7 +11,11 @@
  */
 
 import type { PresetsConfig, PresetsConfigInput } from "@wf-agent/sdk/resources";
-import { transformReadFileConfig, exportReadFileConfig, type ReadFileConfigInput } from "./tools/read-file.js";
+import {
+  transformReadFileConfig,
+  exportReadFileConfig,
+  type ReadFileConfigInput,
+} from "./tools/read-file.js";
 
 /**
  * Default values for PresetsConfig
@@ -36,9 +40,10 @@ const DEFAULTS = {
  * @param input - Raw configuration input
  * @returns Validation result with errors if any
  */
-export function validatePresetsConfig(
-  input: PresetsConfigInput,
-): { valid: boolean; errors: string[] } {
+export function validatePresetsConfig(input: PresetsConfigInput): {
+  valid: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
   if (input.contextCompression) {
@@ -59,7 +64,11 @@ export function validatePresetsConfig(
     if (rs.maxTimeout !== undefined && rs.maxTimeout < 0) {
       errors.push("predefinedTools.config.runShell.maxTimeout must be a non-negative number");
     }
-    if (rs.defaultTimeout !== undefined && rs.maxTimeout !== undefined && rs.defaultTimeout > rs.maxTimeout) {
+    if (
+      rs.defaultTimeout !== undefined &&
+      rs.maxTimeout !== undefined &&
+      rs.defaultTimeout > rs.maxTimeout
+    ) {
       errors.push("predefinedTools.config.runShell.defaultTimeout must not exceed maxTimeout");
     }
   }
@@ -67,7 +76,9 @@ export function validatePresetsConfig(
   if (input.predefinedTools?.config?.backendShell) {
     const bs = input.predefinedTools.config.backendShell;
     if (bs.maxBackgroundTimeout !== undefined && bs.maxBackgroundTimeout < 0) {
-      errors.push("predefinedTools.config.backendShell.maxBackgroundTimeout must be a non-negative number");
+      errors.push(
+        "predefinedTools.config.backendShell.maxBackgroundTimeout must be a non-negative number",
+      );
     }
   }
 
@@ -80,9 +91,7 @@ export function validatePresetsConfig(
  * @param input - Raw configuration input
  * @returns Validated PresetsConfig
  */
-export function transformPresetsConfig(
-  input: PresetsConfigInput = {},
-): PresetsConfig {
+export function transformPresetsConfig(input: PresetsConfigInput = {}): PresetsConfig {
   const validation = validatePresetsConfig(input);
   if (!validation.valid) {
     throw new Error(`Invalid PresetsConfig: ${validation.errors.join("; ")}`);
@@ -94,7 +103,8 @@ export function transformPresetsConfig(
           enabled: input.contextCompression.enabled ?? DEFAULTS.contextCompression.enabled,
           prompt: input.contextCompression.prompt,
           timeout: input.contextCompression.timeout ?? DEFAULTS.contextCompression.timeout,
-          maxTriggers: input.contextCompression.maxTriggers ?? DEFAULTS.contextCompression.maxTriggers,
+          maxTriggers:
+            input.contextCompression.maxTriggers ?? DEFAULTS.contextCompression.maxTriggers,
         }
       : { ...DEFAULTS.contextCompression, prompt: undefined },
     predefinedTools: input.predefinedTools
@@ -105,7 +115,9 @@ export function transformPresetsConfig(
           config: input.predefinedTools.config
             ? {
                 readFile: input.predefinedTools.config.readFile
-                  ? transformReadFileConfig(input.predefinedTools.config.readFile as ReadFileConfigInput)
+                  ? transformReadFileConfig(
+                      input.predefinedTools.config.readFile as ReadFileConfigInput,
+                    )
                   : undefined,
                 writeFile: input.predefinedTools.config.writeFile,
                 editFile: input.predefinedTools.config.editFile,
@@ -115,7 +127,12 @@ export function transformPresetsConfig(
               }
             : undefined,
         }
-      : { ...DEFAULTS.predefinedTools, allowList: undefined, blockList: undefined, config: undefined },
+      : {
+          ...DEFAULTS.predefinedTools,
+          allowList: undefined,
+          blockList: undefined,
+          config: undefined,
+        },
     predefinedPrompts: input.predefinedPrompts
       ? {
           enabled: input.predefinedPrompts.enabled ?? DEFAULTS.predefinedPrompts.enabled,

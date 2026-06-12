@@ -40,9 +40,7 @@ export class RuntimeValidator {
         });
       }
 
-      const messages = issues.map(
-        issue => `${issue.path.join(".")}: ${issue.message}`,
-      );
+      const messages = issues.map(issue => `${issue.path.join(".")}: ${issue.message}`);
       const combinedMessage = messages.join("; ");
       const firstField = issues[0]!.path.join(".");
 

@@ -26,9 +26,7 @@ export {
 export { type AgentLoopStateSnapshot } from "@wf-agent/types";
 
 // State Manager Layer
-export {
-  AgentLoopState,
-} from "./state-managers/index.js";
+export { AgentLoopState } from "./state-managers/index.js";
 
 // Execution Layer (Factories and Lifecycle)
 export {
@@ -87,7 +85,4 @@ export {
 export { AgentExecutionInterruptedException } from "./execution/types/index.js";
 
 // Validation Layer
-export {
-  validateAgentLoopConfig,
-  getAgentLoopValidationWarnings,
-} from "./validation/index.js";
+export { validateAgentLoopConfig, getAgentLoopValidationWarnings } from "./validation/index.js";

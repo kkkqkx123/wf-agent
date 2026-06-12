@@ -129,7 +129,7 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
     if (this.stateManager) {
       const checkpointIds = await this.stateManager.list();
       const checkpoints: AgentLoopCheckpoint[] = [];
-      
+
       for (const id of checkpointIds) {
         const checkpoint = await this.stateManager.getCheckpoint(id);
         if (checkpoint) {
@@ -138,7 +138,7 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
       }
       return checkpoints;
     }
-    
+
     // Fallback to in-memory storage
     const checkpoints: AgentLoopCheckpoint[] = [];
     for (const checkpoint of this.checkpoints.values()) {
@@ -219,7 +219,9 @@ export class AgentLoopCheckpointResourceAPI extends CrudResourceAPI<
     // If state manager is available, we can't clear all at once without proper API
     // This is a limitation - in production, use cleanup policies instead
     if (this.stateManager) {
-      logger.warn("clearResources() called with state manager - not fully supported. Use cleanup policies instead.");
+      logger.warn(
+        "clearResources() called with state manager - not fully supported. Use cleanup policies instead.",
+      );
       // For now, just clear the in-memory cache
       this.checkpoints.clear();
       this.checkpointsByAgentLoop.clear();

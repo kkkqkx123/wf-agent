@@ -31,9 +31,17 @@ export function registerPredefinedTools(
       readFile?: { workspaceDir?: string; maxFileSize?: number };
       writeFile?: { workspaceDir?: string };
       editFile?: { workspaceDir?: string };
-      runShell?: { defaultTimeout?: number; maxTimeout?: number; shellPolicy?: import("@wf-agent/types").ShellPolicy };
+      runShell?: {
+        defaultTimeout?: number;
+        maxTimeout?: number;
+        shellPolicy?: import("@wf-agent/types").ShellPolicy;
+      };
       sessionNote?: { workspaceDir?: string; memoryFile?: string };
-      backendShell?: { workspaceDir?: string; maxBackgroundTimeout?: number; shellPolicy?: import("@wf-agent/types").ShellPolicy };
+      backendShell?: {
+        workspaceDir?: string;
+        maxBackgroundTimeout?: number;
+        shellPolicy?: import("@wf-agent/types").ShellPolicy;
+      };
     };
   },
   skipIfExists: boolean = true,

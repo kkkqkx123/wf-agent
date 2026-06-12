@@ -1,8 +1,8 @@
 /**
  * Interruption History Manager
- * 
+ *
  * Records interruption events for debugging, analysis, and auditing purposes.
- * 
+ *
  * Features:
  * - Records all interruption events (PAUSE/STOP/RESUME)
  * - Configurable history size limit
@@ -58,7 +58,7 @@ export interface HistoryFilter {
 
 /**
  * Interruption History Manager
- * 
+ *
  * Maintains a bounded history of interruption events for debugging and analysis.
  */
 export class InterruptionHistoryManager {
@@ -73,7 +73,7 @@ export class InterruptionHistoryManager {
 
   /**
    * Record an interruption event
-   * 
+   *
    * @param entry Event data (without id and timestamp)
    * @returns The complete entry with generated id and timestamp
    */
@@ -90,7 +90,7 @@ export class InterruptionHistoryManager {
     if (this.history.length > this.maxSize) {
       const removed = this.history.length - this.maxSize;
       this.history = this.history.slice(-this.maxSize);
-      
+
       logger.debug("History size limit reached, removed old entries", {
         removed,
         newSize: this.history.length,
@@ -108,7 +108,7 @@ export class InterruptionHistoryManager {
 
   /**
    * Get interruption history with optional filtering
-   * 
+   *
    * @param filter Filter options
    * @returns Filtered history entries (newest first)
    */
@@ -155,7 +155,7 @@ export class InterruptionHistoryManager {
 
   /**
    * Get the most recent interruption event for a context
-   * 
+   *
    * @param contextId Context ID
    * @returns Most recent entry or undefined
    */
@@ -196,7 +196,7 @@ export class InterruptionHistoryManager {
 
   /**
    * Get statistics about interruptions
-   * 
+   *
    * @param contextId Optional context ID to filter by
    * @returns Statistics object
    */
@@ -219,13 +219,13 @@ export class InterruptionHistoryManager {
     // Calculate average pause duration
     let avgPauseDuration: number | undefined;
     const pauseDurations: number[] = [];
-    
+
     for (const entry of entries) {
       if (entry.type === "RESUME" && entry.duration) {
         pauseDurations.push(entry.duration);
       }
     }
-    
+
     if (pauseDurations.length > 0) {
       avgPauseDuration = pauseDurations.reduce((sum, d) => sum + d, 0) / pauseDurations.length;
     }
@@ -244,7 +244,7 @@ export class InterruptionHistoryManager {
 
   /**
    * Export all history entries
-   * 
+   *
    * @returns Copy of all history entries
    */
   export(): InterruptionHistoryEntry[] {
@@ -269,12 +269,12 @@ export class InterruptionHistoryManager {
 
   /**
    * Update maximum history size
-   * 
+   *
    * @param newSize New maximum size
    */
   setMaxSize(newSize: number): void {
     this.maxSize = newSize;
-    
+
     // Trim if necessary
     if (this.history.length > newSize) {
       this.history = this.history.slice(-newSize);

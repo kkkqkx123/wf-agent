@@ -61,7 +61,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_PAUSED",
         "exec-1",
         5000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 
@@ -74,7 +74,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_PAUSED",
         "exec-1",
         10000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 
@@ -87,7 +87,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_PAUSED",
         "exec-1",
         undefined,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 
@@ -112,7 +112,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_CANCELLED",
         "exec-1",
         5000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -127,7 +127,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_COMPLETED",
         "exec-1",
         30000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 
@@ -140,7 +140,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_COMPLETED",
         "exec-1",
         60000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -155,7 +155,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_FAILED",
         "exec-1",
         30000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -170,7 +170,7 @@ describe("Event Waiter Functions", () => {
         "WORKFLOW_EXECUTION_RESUMED",
         "exec-1",
         5000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -206,7 +206,7 @@ describe("Event Waiter Functions", () => {
         mockEventManager,
         ["exec-1", "exec-2", "exec-3"],
         30000,
-        { timeoutMode: "individual" }
+        { timeoutMode: "individual" },
       );
 
       expect(mockEventManager.waitFor).toHaveBeenCalledTimes(3);
@@ -219,7 +219,7 @@ describe("Event Waiter Functions", () => {
         mockEventManager,
         ["exec-1", "exec-2"],
         30000,
-        { timeoutMode: "shared" }
+        { timeoutMode: "shared" },
       );
 
       // With shared timeout, should use executeWithSharedTimeout
@@ -229,10 +229,7 @@ describe("Event Waiter Functions", () => {
     it("should use default timeout mode when not specified", async () => {
       (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
-      await waitForMultipleWorkflowExecutionsCompleted(
-        mockEventManager,
-        ["exec-1", "exec-2"]
-      );
+      await waitForMultipleWorkflowExecutionsCompleted(mockEventManager, ["exec-1", "exec-2"]);
 
       expect(mockEventManager.waitFor).toHaveBeenCalled();
     });
@@ -242,10 +239,11 @@ describe("Event Waiter Functions", () => {
     it("should wait for any execution to complete", async () => {
       (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
-      const result = await waitForAnyWorkflowExecutionCompleted(
-        mockEventManager,
-        ["exec-1", "exec-2", "exec-3"]
-      );
+      const result = await waitForAnyWorkflowExecutionCompleted(mockEventManager, [
+        "exec-1",
+        "exec-2",
+        "exec-3",
+      ]);
 
       expect(result).toBe("exec-1"); // First one resolves
     });
@@ -257,10 +255,11 @@ describe("Event Waiter Functions", () => {
         .mockResolvedValueOnce(undefined)
         .mockImplementationOnce(() => new Promise(() => {}));
 
-      const result = await waitForAnyWorkflowExecutionCompleted(
-        mockEventManager,
-        ["exec-1", "exec-2", "exec-3"]
-      );
+      const result = await waitForAnyWorkflowExecutionCompleted(mockEventManager, [
+        "exec-1",
+        "exec-2",
+        "exec-3",
+      ]);
 
       expect(result).toBe("exec-2");
     });
@@ -270,10 +269,10 @@ describe("Event Waiter Functions", () => {
     it("should wait for any execution to complete or fail", async () => {
       (mockEventManager.waitFor as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
-      const result = await waitForAnyWorkflowExecutionCompletion(
-        mockEventManager,
-        ["exec-1", "exec-2"]
-      );
+      const result = await waitForAnyWorkflowExecutionCompletion(mockEventManager, [
+        "exec-1",
+        "exec-2",
+      ]);
 
       expect(result).toEqual({
         executionId: "exec-1",
@@ -289,10 +288,7 @@ describe("Event Waiter Functions", () => {
         .mockImplementationOnce(() => new Promise(() => {}))
         .mockImplementationOnce(() => new Promise(() => {}));
 
-      const result = await waitForAnyWorkflowExecutionCompletion(
-        mockEventManager,
-        ["exec-1"]
-      );
+      const result = await waitForAnyWorkflowExecutionCompletion(mockEventManager, ["exec-1"]);
 
       expect(result.status).toBe("FAILED");
     });
@@ -308,7 +304,7 @@ describe("Event Waiter Functions", () => {
         "NODE_COMPLETED",
         "exec-1",
         30000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 
@@ -332,7 +328,7 @@ describe("Event Waiter Functions", () => {
         "NODE_COMPLETED",
         "exec-1",
         60000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
   });
@@ -347,7 +343,7 @@ describe("Event Waiter Functions", () => {
         "NODE_FAILED",
         "exec-1",
         30000,
-        expect.any(Function)
+        expect.any(Function),
       );
     });
 

@@ -14,9 +14,7 @@ import type { WorkflowGraphData } from "../../entities/workflow-graph-data.js";
  * @param graph Graph data
  * @returns List of validation errors
  */
-export function validateIsolatedNodes(
-  graph: WorkflowGraphData,
-): ConfigurationValidationError[] {
+export function validateIsolatedNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
   for (const node of graph.nodes.values()) {

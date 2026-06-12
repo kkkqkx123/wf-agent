@@ -148,9 +148,9 @@ describe("SyncBarrier", () => {
     });
 
     it("should throw if fork path is not registered", async () => {
-      await expect(
-        barrier.waitForBranchCompletion("non-existent"),
-      ).rejects.toThrow("Fork path not registered: non-existent");
+      await expect(barrier.waitForBranchCompletion("non-existent")).rejects.toThrow(
+        "Fork path not registered: non-existent",
+      );
     });
 
     it("should resolve and return entity on successful completion", async () => {
@@ -193,9 +193,7 @@ describe("SyncBarrier", () => {
 
       mockWaitResolve();
 
-      await expect(
-        b.waitForBranchCompletion(branchPathId),
-      ).rejects.toThrow(
+      await expect(b.waitForBranchCompletion(branchPathId)).rejects.toThrow(
         `Failed to get execution entity for executionId: ${branchExecId}`,
       );
     });
@@ -204,27 +202,27 @@ describe("SyncBarrier", () => {
       mockWaitReject("Timed out: 5000ms exceeded");
       (isTimeoutError as any).mockReturnValue(true);
 
-      await expect(
-        barrier.waitForBranchCompletion(branchPathId, 5),
-      ).rejects.toThrow("Timed out: 5000ms exceeded");
+      await expect(barrier.waitForBranchCompletion(branchPathId, 5)).rejects.toThrow(
+        "Timed out: 5000ms exceeded",
+      );
     });
 
     it("should re-throw non-timeout error from waitForWorkflowExecutionCompleted", async () => {
       mockWaitReject("Event registry error");
       (isTimeoutError as any).mockReturnValue(false);
 
-      await expect(
-        barrier.waitForBranchCompletion(branchPathId),
-      ).rejects.toThrow("Event registry error");
+      await expect(barrier.waitForBranchCompletion(branchPathId)).rejects.toThrow(
+        "Event registry error",
+      );
     });
 
     it("should work when no executionRegistry is provided", async () => {
       // barrier was created without executionRegistry
       mockWaitResolve();
 
-      await expect(
-        barrier.waitForBranchCompletion(branchPathId),
-      ).rejects.toThrow(`Failed to get execution entity`);
+      await expect(barrier.waitForBranchCompletion(branchPathId)).rejects.toThrow(
+        `Failed to get execution entity`,
+      );
     });
   });
 

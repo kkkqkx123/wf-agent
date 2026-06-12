@@ -10,15 +10,15 @@
 
 roo-code 的 auto-approval 系统支持多种审批类别：
 
-| 类别 | 说明 |
-|------|------|
-| `alwaysAllowReadOnly` | 只读操作自动审批 |
-| `alwaysAllowWrite` | 写操作自动审批 |
-| `alwaysAllowExecute` | 命令执行自动审批 |
-| `alwaysAllowMcp` | MCP 工具自动审批 |
-| `alwaysAllowFollowupQuestions` | 追问自动审批 |
-| `alwaysAllowModeSwitch` | 模式切换自动审批 |
-| `alwaysAllowSubtasks` | 子任务自动审批 |
+| 类别                           | 说明             |
+| ------------------------------ | ---------------- |
+| `alwaysAllowReadOnly`          | 只读操作自动审批 |
+| `alwaysAllowWrite`             | 写操作自动审批   |
+| `alwaysAllowExecute`           | 命令执行自动审批 |
+| `alwaysAllowMcp`               | MCP 工具自动审批 |
+| `alwaysAllowFollowupQuestions` | 追问自动审批     |
+| `alwaysAllowModeSwitch`        | 模式切换自动审批 |
+| `alwaysAllowSubtasks`          | 子任务自动审批   |
 
 ### 2.2 工作区边界控制
 
@@ -29,6 +29,7 @@ roo-code 的 auto-approval 系统支持多种审批类别：
 ### 2.3 命令执行安全控制
 
 **危险模式检测**：
+
 - 参数扩展操作符 (`${var@P}`, `${var@Q}` 等)
 - 带转义序列的参数赋值
 - 间接变量引用 (`${!var}`)
@@ -47,19 +48,19 @@ roo-code 的 auto-approval 系统支持多种审批类别：
 
 当前项目支持四种工具类型：
 
-| 类型 | 说明 | 执行器 |
-|------|------|--------|
-| `STATELESS` | 无状态工具 | StatelessExecutor |
-| `STATEFUL` | 有状态工具 | StatefulExecutor |
-| `REST` | REST API 工具 | RestExecutor |
-| `BUILTIN` | 内置工具 | BuiltinExecutor |
+| 类型        | 说明          | 执行器            |
+| ----------- | ------------- | ----------------- |
+| `STATELESS` | 无状态工具    | StatelessExecutor |
+| `STATEFUL`  | 有状态工具    | StatefulExecutor  |
+| `REST`      | REST API 工具 | RestExecutor      |
+| `BUILTIN`   | 内置工具      | BuiltinExecutor   |
 
 ### 3.2 工具元数据
 
 ```typescript
 interface ToolMetadata {
-  category?: string;      // 工具分类
-  tags?: string[];        // 标签数组
+  category?: string; // 工具分类
+  tags?: string[]; // 标签数组
   documentationUrl?: string;
   customFields?: Metadata;
 }
@@ -68,10 +69,12 @@ interface ToolMetadata {
 ### 3.3 当前审批机制
 
 `ToolApprovalCoordinator` 仅支持：
+
 - 简单的工具名称白名单 (`autoApprovedTools`)
 - 审批超时设置
 
 **缺失功能**：
+
 - 无细粒度分类控制
 - 无工作区边界控制
 - 无命令安全检测
@@ -85,22 +88,22 @@ interface ToolMetadata {
 
 **第一层：执行类型**（已有）
 
-| 类型 | 安全特性 |
-|------|----------|
+| 类型        | 安全特性                         |
+| ----------- | -------------------------------- |
 | `STATELESS` | 纯函数，无副作用，可安全自动审批 |
-| `STATEFUL` | 有状态，需评估状态修改风险 |
-| `REST` | 外部 API 调用，需评估外部风险 |
-| `BUILTIN` | SDK 内部工具，需单独评估 |
+| `STATEFUL`  | 有状态，需评估状态修改风险       |
+| `REST`      | 外部 API 调用，需评估外部风险    |
+| `BUILTIN`   | SDK 内部工具，需单独评估         |
 
 **第二层：操作风险级别**（新增）
 
-| 风险级别 | 说明 | 自动审批策略 |
-|----------|------|--------------|
+| 风险级别    | 说明               | 自动审批策略   |
+| ----------- | ------------------ | -------------- |
 | `READ_ONLY` | 只读操作，无副作用 | 默认可自动审批 |
-| `WRITE` | 写入操作，有副作用 | 需显式配置 |
-| `EXECUTE` | 命令执行，高风险 | 需命令白名单 |
-| `NETWORK` | 网络请求 | 需域名白名单 |
-| `SYSTEM` | 系统级操作 | 永不自动审批 |
+| `WRITE`     | 写入操作，有副作用 | 需显式配置     |
+| `EXECUTE`   | 命令执行，高风险   | 需命令白名单   |
+| `NETWORK`   | 网络请求           | 需域名白名单   |
+| `SYSTEM`    | 系统级操作         | 永不自动审批   |
 
 ### 4.2 工具风险分类映射
 
@@ -108,42 +111,42 @@ interface ToolMetadata {
 // 建议的工具风险分类
 const TOOL_RISK_CLASSIFICATION = {
   // STATELESS 工具
-  "read_file": "READ_ONLY",
-  "list_files": "READ_ONLY",
-  "search_files": "READ_ONLY",
-  "glob": "READ_ONLY",
-  "grep": "READ_ONLY",
-  
-  "write_file": "WRITE",
-  "edit_file": "WRITE",
-  "delete_file": "WRITE",
-  
-  "run_shell": "EXECUTE",
-  "bash": "EXECUTE",
-  
+  read_file: "READ_ONLY",
+  list_files: "READ_ONLY",
+  search_files: "READ_ONLY",
+  glob: "READ_ONLY",
+  grep: "READ_ONLY",
+
+  write_file: "WRITE",
+  edit_file: "WRITE",
+  delete_file: "WRITE",
+
+  run_shell: "EXECUTE",
+  bash: "EXECUTE",
+
   // STATEFUL 工具
-  "session_note": "WRITE",  // 修改会话状态
-  
+  session_note: "WRITE", // 修改会话状态
+
   // REST 工具
-  "http_request": "NETWORK",
-  
+  http_request: "NETWORK",
+
   // BUILTIN 工具
-  "execute_workflow": "SYSTEM",
-  "create_subtask": "SYSTEM",
+  execute_workflow: "SYSTEM",
+  create_subtask: "SYSTEM",
 };
 ```
 
 ### 4.3 执行类型与风险级别组合
 
-| 执行类型 | 风险级别 | 自动审批建议 |
-|----------|----------|--------------|
-| STATELESS | READ_ONLY | ✅ 默认允许 |
-| STATELESS | WRITE | ⚠️ 需配置 |
-| STATELESS | EXECUTE | ⚠️ 需命令白名单 |
-| STATEFUL | READ_ONLY | ✅ 默认允许 |
-| STATEFUL | WRITE | ⚠️ 需配置 |
-| REST | NETWORK | ⚠️ 需域名白名单 |
-| BUILTIN | SYSTEM | ❌ 永不自动审批 |
+| 执行类型  | 风险级别  | 自动审批建议    |
+| --------- | --------- | --------------- |
+| STATELESS | READ_ONLY | ✅ 默认允许     |
+| STATELESS | WRITE     | ⚠️ 需配置       |
+| STATELESS | EXECUTE   | ⚠️ 需命令白名单 |
+| STATEFUL  | READ_ONLY | ✅ 默认允许     |
+| STATEFUL  | WRITE     | ⚠️ 需配置       |
+| REST      | NETWORK   | ⚠️ 需域名白名单 |
+| BUILTIN   | SYSTEM    | ❌ 永不自动审批 |
 
 ## 5. 类型定义改进
 
@@ -155,12 +158,12 @@ const TOOL_RISK_CLASSIFICATION = {
 /**
  * Tool operation risk level
  */
-export type ToolRiskLevel = 
-  | "READ_ONLY"    // Read operations, no side effects
-  | "WRITE"        // Write operations, has side effects
-  | "EXECUTE"      // Command execution, high risk
-  | "NETWORK"      // Network requests
-  | "SYSTEM";      // System-level operations
+export type ToolRiskLevel =
+  | "READ_ONLY" // Read operations, no side effects
+  | "WRITE" // Write operations, has side effects
+  | "EXECUTE" // Command execution, high risk
+  | "NETWORK" // Network requests
+  | "SYSTEM"; // System-level operations
 
 /**
  * Auto-approval category
@@ -187,7 +190,7 @@ export interface ToolMetadata {
   documentationUrl?: string;
   /** Custom fields */
   customFields?: Metadata;
-  
+
   // 新增字段
   /** Risk level for auto-approval */
   riskLevel?: ToolRiskLevel;
@@ -213,37 +216,37 @@ export interface ApprovalCondition {
 export interface ToolApprovalOptions {
   /** Enable auto-approval system */
   autoApprovalEnabled?: boolean;
-  
+
   /** Category-based auto-approval settings */
   categories?: Partial<Record<AutoApprovalCategory, boolean>>;
-  
+
   /** Workspace boundary controls */
   allowOutsideWorkspace?: {
     readOnly?: boolean;
     write?: boolean;
   };
-  
+
   /** Allow writing to protected files */
   allowWriteProtected?: boolean;
-  
+
   /** Command execution settings */
   commandSettings?: {
     allowedCommands?: string[];
     deniedCommands?: string[];
   };
-  
+
   /** Network request settings */
   networkSettings?: {
     allowedDomains?: string[];
     deniedDomains?: string[];
   };
-  
+
   /** Followup question timeout (ms) for auto-selecting suggestion */
   followupAutoApproveTimeoutMs?: number;
-  
+
   /** Legacy: List of auto-approved tool names */
   autoApprovedTools?: string[];
-  
+
   /** Approval timeout in milliseconds */
   approvalTimeout?: number;
 }
@@ -267,14 +270,14 @@ export interface CheckAutoApprovalParams {
   };
 }
 
-export type AutoApprovalDecision = 
+export type AutoApprovalDecision =
   | { decision: "approve" }
   | { decision: "deny"; reason?: string }
   | { decision: "ask" }
   | { decision: "timeout"; timeout: number; autoResponse: unknown };
 
 export async function checkAutoApproval(
-  params: CheckAutoApprovalParams
+  params: CheckAutoApprovalParams,
 ): Promise<AutoApprovalDecision>;
 ```
 
@@ -291,10 +294,7 @@ export function containsDangerousSubstitution(command: string): boolean;
 /**
  * Find longest matching prefix
  */
-export function findLongestPrefixMatch(
-  command: string, 
-  prefixes: string[]
-): string | null;
+export function findLongestPrefixMatch(command: string, prefixes: string[]): string | null;
 
 /**
  * Get command decision using longest prefix match rule
@@ -302,7 +302,7 @@ export function findLongestPrefixMatch(
 export function getCommandDecision(
   command: string,
   allowedCommands: string[],
-  deniedCommands?: string[]
+  deniedCommands?: string[],
 ): "auto_approve" | "auto_deny" | "ask_user";
 ```
 
@@ -320,11 +320,11 @@ export class ToolRiskClassifier {
     if (tool.metadata?.riskLevel) {
       return tool.metadata.riskLevel;
     }
-    
+
     // 2. 根据工具类型推断
     return this.inferFromToolType(tool);
   }
-  
+
   /**
    * Check if tool is safe to auto-approve
    */
@@ -334,14 +334,14 @@ export class ToolRiskClassifier {
 
 ## 7. 实现优先级
 
-| 优先级 | 改进项 | 复杂度 | 价值 |
-|--------|--------|--------|------|
-| P0 | 扩展类型定义 (ToolRiskLevel, ToolApprovalOptions) | 低 | 高 |
-| P0 | 创建 ToolRiskClassifier | 低 | 高 |
-| P1 | 创建 AutoApprovalChecker | 中 | 高 |
-| P1 | 创建 CommandSafetyChecker | 中 | 高 |
-| P2 | 增强 ToolApprovalCoordinator | 中 | 高 |
-| P2 | 追问超时自动响应 | 低 | 中 |
+| 优先级 | 改进项                                            | 复杂度 | 价值 |
+| ------ | ------------------------------------------------- | ------ | ---- |
+| P0     | 扩展类型定义 (ToolRiskLevel, ToolApprovalOptions) | 低     | 高   |
+| P0     | 创建 ToolRiskClassifier                           | 低     | 高   |
+| P1     | 创建 AutoApprovalChecker                          | 中     | 高   |
+| P1     | 创建 CommandSafetyChecker                         | 中     | 高   |
+| P2     | 增强 ToolApprovalCoordinator                      | 中     | 高   |
+| P2     | 追问超时自动响应                                  | 低     | 中   |
 
 ## 8. 向后兼容
 

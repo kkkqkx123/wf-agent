@@ -1,20 +1,20 @@
 /**
  * Timeout Utility Functions
- * 
+ *
  * Helper functions for working with timeouts, AbortSignals, and promises.
  */
 
 /**
  * Combine a timeout with an AbortSignal
- * 
+ *
  * Creates a new AbortSignal that will be aborted when either:
  * - The timeout expires
  * - The original signal is aborted
- * 
+ *
  * @param duration Timeout duration in milliseconds
  * @param signal Optional existing AbortSignal to combine with
  * @returns Object containing the combined signal and a cleanup function
- * 
+ *
  * @example
  * ```typescript
  * const { signal, clearTimeout } = combineTimeoutWithSignal(5000, existingSignal);
@@ -27,7 +27,7 @@
  */
 export function combineTimeoutWithSignal(
   duration: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
 ): { signal: AbortSignal; clearTimeout: () => void } {
   // If no signal provided, create a simple timeout controller
   if (!signal) {
@@ -71,12 +71,12 @@ export function combineTimeoutWithSignal(
 
 /**
  * Create a promise that rejects with a timeout error if it doesn't complete in time
- * 
+ *
  * @param promise The promise to wrap with timeout
  * @param duration Timeout duration in milliseconds
  * @param message Optional custom error message
  * @returns Promise that resolves with the original result or rejects on timeout
- * 
+ *
  * @example
  * ```typescript
  * const result = await createTimeoutPromise(
@@ -89,7 +89,7 @@ export function combineTimeoutWithSignal(
 export async function createTimeoutPromise<T>(
   promise: Promise<T>,
   duration: number,
-  message?: string
+  message?: string,
 ): Promise<T> {
   let timeoutHandle: NodeJS.Timeout;
 
@@ -108,14 +108,14 @@ export async function createTimeoutPromise<T>(
 
 /**
  * Calculate adaptive timeout based on retry count
- * 
+ *
  * Increases timeout exponentially with each retry to handle transient issues.
- * 
+ *
  * @param baseTimeout Base timeout in milliseconds
  * @param retryCount Current retry count (0-based)
  * @param maxTimeout Maximum allowed timeout in milliseconds
  * @returns Calculated timeout duration
- * 
+ *
  * @example
  * ```typescript
  * // First attempt: 5000ms
@@ -127,7 +127,7 @@ export async function createTimeoutPromise<T>(
 export function calculateAdaptiveTimeout(
   baseTimeout: number,
   retryCount: number,
-  maxTimeout: number
+  maxTimeout: number,
 ): number {
   // Exponential backoff: baseTimeout * 2^retryCount
   const calculatedTimeout = baseTimeout * Math.pow(2, retryCount);
@@ -138,11 +138,11 @@ export function calculateAdaptiveTimeout(
 
 /**
  * Create a delay promise
- * 
+ *
  * @param ms Delay in milliseconds
  * @param signal Optional AbortSignal to cancel the delay
  * @returns Promise that resolves after the delay
- * 
+ *
  * @example
  * ```typescript
  * await delay(1000); // Wait 1 second
@@ -164,7 +164,7 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
           clearTimeout(timerId);
           reject(signal.reason || new Error("Delay aborted"));
         },
-        { once: true }
+        { once: true },
       );
     }
   });
@@ -172,12 +172,12 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Execute a function with a timeout
- * 
+ *
  * @param fn Function to execute
  * @param duration Timeout duration in milliseconds
  * @param options Optional configuration
  * @returns Result of the function
- * 
+ *
  * @example
  * ```typescript
  * const result = await withTimeout(
@@ -193,7 +193,7 @@ export async function withTimeout<T>(
   options?: {
     onTimeout?: () => void | Promise<void>;
     message?: string;
-  }
+  },
 ): Promise<T> {
   let timerId: NodeJS.Timeout;
 
@@ -215,7 +215,7 @@ export async function withTimeout<T>(
 
 /**
  * Check if an error is a timeout error
- * 
+ *
  * @param error Error to check
  * @returns true if the error is timeout-related
  */
@@ -233,13 +233,13 @@ export function isTimeoutError(error: unknown): boolean {
 
 /**
  * Create a timeout error with standardized format
- * 
+ *
  * @param timeoutId Timeout identifier
  * @param duration Configured timeout duration in milliseconds
  * @param actualDuration Actual elapsed time in milliseconds
  * @param tag Optional tag for categorization
  * @returns Standardized TimeoutError
- * 
+ *
  * @example
  * ```typescript
  * const error = createTimeoutError('llm-call-001', 5000, 5023, 'llm-call');
@@ -250,26 +250,26 @@ export function createTimeoutError(
   timeoutId: string,
   duration: number,
   actualDuration: number,
-  tag?: string
+  tag?: string,
 ): Error {
-  const tagInfo = tag ? `, tag: ${tag}` : '';
+  const tagInfo = tag ? `, tag: ${tag}` : "";
   const message = `Timeout '${timeoutId}' expired after ${actualDuration}ms (configured: ${duration}ms${tagInfo})`;
   const error = new Error(message);
-  error.name = 'TimeoutError';
+  error.name = "TimeoutError";
   return error;
 }
 
 /**
  * Execute multiple operations with a shared timeout
- * 
+ *
  * All operations must complete within the timeout period.
  * If any operation fails or times out, all pending operations are cancelled.
- * 
+ *
  * @param operations Map of operation name to operation function
  * @param duration Shared timeout duration in milliseconds
  * @param options Optional configuration
  * @returns Map of operation results
- * 
+ *
  * @example
  * ```typescript
  * const results = await executeWithSharedTimeout(
@@ -287,7 +287,7 @@ export async function executeWithSharedTimeout<T>(
   options?: {
     onTimeout?: () => void | Promise<void>;
     message?: string;
-  }
+  },
 ): Promise<Map<string, T>> {
   const results = new Map<string, T>();
   let timerId: NodeJS.Timeout;

@@ -102,7 +102,7 @@ export async function fork(
     parentExecutionId: parentExecutionEntity.id,
     forkConfig: forkConfig as unknown as Record<string, unknown>,
   });
-  
+
   if (eventManager) {
     try {
       await emit(eventManager, forkStartedEvent);
@@ -112,13 +112,14 @@ export async function fork(
   }
 
   // Step 2: Create a child WorkflowExecution using unified API
-  const { workflowExecutionEntity: childExecutionEntity } = await executionBuilder.createChildExecution(parentExecutionEntity, {
-    type: 'FORK_BRANCH',
-    config: {
-      forkPathId: forkConfig.forkPathId,
-      startNodeId: forkConfig.startNodeId,
-    },
-  });
+  const { workflowExecutionEntity: childExecutionEntity } =
+    await executionBuilder.createChildExecution(parentExecutionEntity, {
+      type: "FORK_BRANCH",
+      config: {
+        forkPathId: forkConfig.forkPathId,
+        startNodeId: forkConfig.startNodeId,
+      },
+    });
 
   // Trigger the WORKFLOW_EXECUTION_FORK_COMPLETED event
   const forkCompletedEvent = buildWorkflowExecutionForkCompletedEvent({
@@ -127,7 +128,7 @@ export async function fork(
     parentExecutionId: parentExecutionEntity.id,
     childExecutionIds: [childExecutionEntity.id],
   });
-  
+
   if (eventManager) {
     try {
       await emit(eventManager, forkCompletedEvent);
@@ -198,7 +199,7 @@ export async function join(
         childExecutionIds: childExecutionIds,
         joinStrategy,
       });
-      
+
       if (eventManager) {
         try {
           await emit(eventManager, joinStartedEvent);
@@ -227,7 +228,9 @@ export async function join(
   const failedExecutions = result.failedExecutions;
 
   // Step 3: Determine whether to proceed based on the strategy.
-  if (!validateJoinStrategy(completedExecutions, failedExecutions, childExecutionIds, joinStrategy)) {
+  if (
+    !validateJoinStrategy(completedExecutions, failedExecutions, childExecutionIds, joinStrategy)
+  ) {
     throw new ExecutionError(
       `Join condition not met: ${joinStrategy}`,
       undefined,
@@ -274,35 +277,37 @@ export async function join(
             messageOutputCount: messageOutputs.length,
             parentExecutionId,
           });
-          
+
           for (const msgOutput of messageOutputs) {
             // Find the source execution by forkPathId
             const sourceExecution = completedExecutions.find(
-              exec => exec.forkJoinContext?.forkPathId === msgOutput.sourcePathId
+              exec => exec.forkJoinContext?.forkPathId === msgOutput.sourcePathId,
             );
-            
+
             if (!sourceExecution) {
               logger.warn(`Source execution not found for pathId: ${msgOutput.sourcePathId}`, {
                 availablePaths: completedExecutions.map(e => e.forkJoinContext?.forkPathId),
               });
               continue;
             }
-            
+
             const sourceEntity = workflowExecutionRegistry.get(sourceExecution.id);
             if (!sourceEntity) {
               logger.warn(`Source execution entity not found: ${sourceExecution.id}`);
               continue;
             }
-            
+
             // Get messages from the source branch's main context
             const sourceStateCoordinator = stateCoordinatorMap?.get(sourceExecution.id);
             if (!sourceStateCoordinator) {
-              logger.warn(`State coordinator not found for source execution: ${sourceExecution.id}`);
+              logger.warn(
+                `State coordinator not found for source execution: ${sourceExecution.id}`,
+              );
               continue;
             }
-            
+
             const sourceMessages = sourceStateCoordinator.exportMessagesForChild();
-            
+
             if (!sourceMessages || sourceMessages.length === 0) {
               logger.debug(`No messages found in source execution`, {
                 sourcePathId: msgOutput.sourcePathId,
@@ -310,19 +315,19 @@ export async function join(
               });
               continue;
             }
-            
+
             // Clone messages to avoid reference sharing
             const clonedMessages = MessageArrayUtils.cloneMessages(sourceMessages);
-            
+
             // Add messages to parent execution
             const parentStateCoordinator = stateCoordinatorMap?.get(parentExecutionId);
             if (!parentStateCoordinator) {
               logger.warn(`State coordinator not found for parent execution: ${parentExecutionId}`);
               continue;
             }
-            
+
             parentStateCoordinator.importMessagesFromChild(clonedMessages);
-            
+
             logger.debug("Message context exported from branch to parent", {
               sourcePathId: msgOutput.sourcePathId,
               internalName: msgOutput.internalName,
@@ -350,10 +355,12 @@ export async function join(
               // Add messages to parent
               const parentStateCoordinator = stateCoordinatorMap?.get(parentExecutionId);
               if (!parentStateCoordinator) {
-                logger.warn(`State coordinator not found for parent execution: ${parentExecutionId}`);
+                logger.warn(
+                  `State coordinator not found for parent execution: ${parentExecutionId}`,
+                );
               } else {
                 parentStateCoordinator.importMessagesFromChild(clonedMessages);
-                
+
                 logger.debug("Backward compatible message merge from main path", {
                   mainPathId,
                   messageCount: clonedMessages.length,
@@ -371,7 +378,7 @@ export async function join(
           getErrorOrUndefined(error),
         );
       }
-      
+
       // Export variables from branches to parent workflow if variableOutputs is configured
       if (variableOutputs && variableOutputs.length > 0) {
         try {
@@ -379,29 +386,31 @@ export async function join(
             variableOutputCount: variableOutputs.length,
             parentExecutionId,
           });
-          
+
           for (const varOutput of variableOutputs) {
             // Find the source execution by forkPathId
             const sourceExecution = completedExecutions.find(
-              exec => exec.forkJoinContext?.forkPathId === varOutput.sourcePathId
+              exec => exec.forkJoinContext?.forkPathId === varOutput.sourcePathId,
             );
-            
+
             if (!sourceExecution) {
               logger.warn(`Source execution not found for pathId: ${varOutput.sourcePathId}`, {
                 availablePaths: completedExecutions.map(e => e.forkJoinContext?.forkPathId),
               });
               continue;
             }
-            
+
             const sourceEntity = workflowExecutionRegistry.get(sourceExecution.id);
             if (!sourceEntity) {
               logger.warn(`Source execution entity not found: ${sourceExecution.id}`);
               continue;
             }
-            
+
             // Get the variable value from source
-            const variableValue = sourceEntity.variableStateManager.getVariable(varOutput.variableName);
-            
+            const variableValue = sourceEntity.variableStateManager.getVariable(
+              varOutput.variableName,
+            );
+
             if (variableValue === undefined) {
               logger.warn(`Variable not found in source execution`, {
                 variableName: varOutput.variableName,
@@ -410,11 +419,11 @@ export async function join(
               });
               continue;
             }
-            
+
             // Set the variable in parent execution (with optional renaming)
             const targetName = varOutput.targetName || varOutput.variableName;
             parentExecutionEntity.variableStateManager.setVariable(targetName, variableValue);
-            
+
             logger.debug("Variable exported from branch to parent", {
               sourcePathId: varOutput.sourcePathId,
               variableName: varOutput.variableName,
@@ -466,7 +475,7 @@ export async function copy(
     workflowId: sourceExecutionEntity.getWorkflowId(),
     sourceExecutionId: sourceExecutionEntity.id,
   });
-  
+
   if (eventManager) {
     try {
       await emit(eventManager, copyStartedEvent);
@@ -488,7 +497,7 @@ export async function copy(
     sourceExecutionId: sourceExecutionEntity.id,
     copiedExecutionId: copiedExecutionEntity.id,
   });
-  
+
   if (eventManager) {
     try {
       await emit(eventManager, copyCompletedEvent);
@@ -524,7 +533,7 @@ async function waitForCompletion(
     throw new ExecutionError(
       "EventManager is required for waiting on child executions. Polling fallback has been removed.",
       undefined,
-      "MISSING_EVENT_MANAGER"
+      "MISSING_EVENT_MANAGER",
     );
   }
 
@@ -650,7 +659,7 @@ async function waitForCompletion(
         childExecutionIds: childExecutionIds,
         condition: joinStrategy,
       });
-      
+
       if (eventManager) {
         try {
           await emit(eventManager, joinConditionMetEvent);
@@ -663,8 +672,6 @@ async function waitForCompletion(
 
   return { completedExecutions, failedExecutions };
 }
-
-
 
 /**
  * Verify whether the Join strategy is satisfied
@@ -697,14 +704,16 @@ function validateJoinStrategy(
   }
 }
 
-
 /**
  * Merge the results
  * @param completedExecutions: Array of completed executions
  * @param joinStrategy: Join strategy
  * @returns: Merged output
  */
-function mergeResults(completedExecutions: WorkflowExecution[], _joinStrategy: JoinStrategy): unknown {
+function mergeResults(
+  completedExecutions: WorkflowExecution[],
+  _joinStrategy: JoinStrategy,
+): unknown {
   if (completedExecutions.length === 0) {
     return {};
   }

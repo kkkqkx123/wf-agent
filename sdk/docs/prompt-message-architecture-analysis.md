@@ -9,8 +9,8 @@
 ```typescript
 // 基础消息接口
 export interface Message {
-  role: MessageRole;           // 'system' | 'user' | 'assistant' | 'tool'
-  content: MessageContent;     // string | 内容块数组
+  role: MessageRole; // 'system' | 'user' | 'assistant' | 'tool'
+  content: MessageContent; // string | 内容块数组
   id?: string;
   timestamp?: number;
   metadata?: Record<string, any>;
@@ -18,13 +18,14 @@ export interface Message {
 
 // LLM消息接口（扩展基础消息）
 export interface LLMMessage extends Message {
-  thinking?: string;           // 思考内容（Extended Thinking）
-  toolCalls?: LLMToolCall[];   // 工具调用
-  toolCallId?: string;         // 工具调用ID（tool角色）
+  thinking?: string; // 思考内容（Extended Thinking）
+  toolCalls?: LLMToolCall[]; // 工具调用
+  toolCallId?: string; // 工具调用ID（tool角色）
 }
 ```
 
 **关键观察**：
+
 - `system` 角色消息是标准消息数组的一部分
 - 系统提示词通过 `role: 'system'` 的消息表示
 - 消息数组中可以有多个 `system` 消息（用于分段注入）
@@ -45,13 +46,13 @@ ThreadEntity (有状态实体)
 
 #### 职责分离
 
-| 组件 | 职责 | 设计评价 |
-|------|------|----------|
-| **ThreadEntity** | 有状态实体，封装所有执行数据 | ✅ 正确，职责清晰 |
+| 组件                      | 职责                            | 设计评价            |
+| ------------------------- | ------------------------------- | ------------------- |
+| **ThreadEntity**          | 有状态实体，封装所有执行数据    | ✅ 正确，职责清晰   |
 | **MessageHistoryManager** | 管理消息历史，扩展Graph特有功能 | ✅ 正确，专门化扩展 |
-| **ConversationManager** | 对话管理，Token统计和事件触发 | ✅ 正确，通用功能 |
-| **MessageHistory** | 基础消息存储和批次可见性 | ✅ 正确，基础抽象 |
-| **LLM Node** | 执行节点，不维护消息历史 | ✅ 正确，单一职责 |
+| **ConversationManager**   | 对话管理，Token统计和事件触发   | ✅ 正确，通用功能   |
+| **MessageHistory**        | 基础消息存储和批次可见性        | ✅ 正确，基础抽象   |
+| **LLM Node**              | 执行节点，不维护消息历史        | ✅ 正确，单一职责   |
 
 #### 消息流
 
@@ -70,6 +71,7 @@ LLMExecutionCoordinator → 调用LLM
 ```
 
 **关键设计**：
+
 - ✅ **LLM Node只负责尾插新消息**：仅添加当前节点的 `user` 消息
 - ✅ **上下文由有状态组件维护**：`ThreadEntity` 维护完整消息历史
 - ✅ **消息数组传递**：通过 `conversationManager` 共享
@@ -90,13 +92,13 @@ export async function llmHandler(thread: Thread, node: Node, context: LLMHandler
 async executeLLM(request: LLMRequest, conversationState: ConversationManager) {
   // 添加用户消息
   conversationState.addMessage(userMessage);
-  
+
   // 调用LLM（传入完整消息数组）
   const result = await this.llmExecutor.executeLLMCall(
     conversationState.getMessages(),  // ← 获取当前可见消息
     ...
   );
-  
+
   // 添加助手消息
   conversationState.addMessage(assistantMessage);
 }
@@ -119,12 +121,12 @@ AgentLoopExecutor (执行协调)
 
 #### 职责分析
 
-| 组件 | 职责 | 设计评价 |
-|------|------|----------|
-| **AgentLoopEntity** | 有状态实体，维护消息历史 | ✅ 正确 |
-| **Agent MessageHistoryManager** | 简化版消息管理 | ⚠️ 与Graph不统一 |
-| **AgentLoopExecutor** | 执行协调，管理迭代 | ✅ 正确 |
-| **message-history-helper** | 初始化消息历史 | ⚠️ 功能单一 |
+| 组件                            | 职责                     | 设计评价         |
+| ------------------------------- | ------------------------ | ---------------- |
+| **AgentLoopEntity**             | 有状态实体，维护消息历史 | ✅ 正确          |
+| **Agent MessageHistoryManager** | 简化版消息管理           | ⚠️ 与Graph不统一 |
+| **AgentLoopExecutor**           | 执行协调，管理迭代       | ✅ 正确          |
+| **message-history-helper**      | 初始化消息历史           | ⚠️ 功能单一      |
 
 #### 消息流
 
@@ -172,12 +174,12 @@ const result = await llmCoordinator.executeLLM(
 
 ### 1.4 系统提示词处理对比
 
-| 方面 | Graph | Agent-Loop | 评价 |
-|------|-------|------------|------|
-| **注入时机** | 节点执行时 | 执行开始时 | 不同策略 |
-| **注入方式** | 节点配置 | config.systemPrompt | 不统一 |
-| **模板支持** | templateId | 字符串 | 不一致 |
-| **位置** | 消息数组首条 | 消息数组首条 | ✅ 一致 |
+| 方面         | Graph        | Agent-Loop          | 评价     |
+| ------------ | ------------ | ------------------- | -------- |
+| **注入时机** | 节点执行时   | 执行开始时          | 不同策略 |
+| **注入方式** | 节点配置     | config.systemPrompt | 不统一   |
+| **模板支持** | templateId   | 字符串              | 不一致   |
+| **位置**     | 消息数组首条 | 消息数组首条        | ✅ 一致  |
 
 **代码对比**：
 
@@ -221,6 +223,7 @@ Graph:                     Agent-Loop:
 ```
 
 **影响**：
+
 - 代码重复
 - 行为不一致
 - 难以维护
@@ -235,6 +238,7 @@ Graph:                          Agent-Loop:
 ```
 
 **影响**：
+
 - 用户体验不一致
 - 配置方式不同
 - 模板系统无法共享
@@ -242,10 +246,12 @@ Graph:                          Agent-Loop:
 ### 2.3 临时vs持久化消息历史
 
 **Agent-Loop的双层架构**：
+
 - ✅ 优点：支持checkpoint（临时历史可丢弃）
 - ❌ 缺点：需要同步，增加复杂度
 
 **Graph的单层架构**：
+
 - ✅ 优点：简单直接
 - ⚠️ 问题：批次管理实现复杂（markMap）
 
@@ -308,10 +314,10 @@ Graph:                          Agent-Loop:
 ```typescript
 // ✅ 正确：系统提示词是消息数组的第一个元素
 const messages: LLMMessage[] = [
-  { role: 'system', content: systemPrompt },    // ← 系统提示词
-  { role: 'user', content: userPrompt },        // ← 用户输入
-  { role: 'assistant', content: '...' },        // ← 历史响应
-  { role: 'tool', toolCallId: '...', content: '...' },  // ← 工具结果
+  { role: "system", content: systemPrompt }, // ← 系统提示词
+  { role: "user", content: userPrompt }, // ← 用户输入
+  { role: "assistant", content: "..." }, // ← 历史响应
+  { role: "tool", toolCallId: "...", content: "..." }, // ← 工具结果
   // ...
 ];
 ```
@@ -321,10 +327,10 @@ const messages: LLMMessage[] = [
 ```typescript
 // 如果需要在不同阶段注入系统提示词
 const messages: LLMMessage[] = [
-  { role: 'system', content: baseSystemPrompt },      // 基础系统提示词
-  { role: 'system', content: toolDescription },       // 工具描述（动态）
-  { role: 'system', content: contextRules },          // 上下文规则（动态）
-  { role: 'user', content: userPrompt },
+  { role: "system", content: baseSystemPrompt }, // 基础系统提示词
+  { role: "system", content: toolDescription }, // 工具描述（动态）
+  { role: "system", content: contextRules }, // 上下文规则（动态）
+  { role: "user", content: userPrompt },
   // ...
 ];
 ```
@@ -337,16 +343,13 @@ const messages: LLMMessage[] = [
 // 1. 创建有状态实体时，可选传入初始消息
 const entity = new ThreadEntity({
   initialMessages: [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: initialUserMessage }
-  ]
+    { role: "system", content: systemPrompt },
+    { role: "user", content: initialUserMessage },
+  ],
 });
 
 // 2. 或者通过方法设置
-entity.setMessages([
-  { role: 'system', content: systemPrompt },
-  ...historyMessages
-]);
+entity.setMessages([{ role: "system", content: systemPrompt }, ...historyMessages]);
 
 // 3. 执行时自动包含初始消息
 // Node执行时从entity获取消息历史，包含初始消息
@@ -358,14 +361,14 @@ entity.setMessages([
 // 统一的配置接口
 interface ExecutionConfig {
   // 系统提示词（可选，支持多种方式）
-  systemPrompt?: string;                    // 直接字符串
-  systemPromptTemplateId?: string;          // 模板ID
-  systemPromptTemplateVariables?: object;   // 模板变量
-  
+  systemPrompt?: string; // 直接字符串
+  systemPromptTemplateId?: string; // 模板ID
+  systemPromptTemplateVariables?: object; // 模板变量
+
   // 初始用户消息（可选）
   initialUserMessage?: string;
   initialUserMessageTemplateId?: string;
-  
+
   // 或完整初始消息数组
   initialMessages?: LLMMessage[];
 }
@@ -386,6 +389,7 @@ interface ExecutionConfig {
 ```
 
 **修改点**：
+
 1. Agent-Loop的 `MessageHistoryManager` 改为使用 `ConversationManager`
 2. 或让 `AgentLoopEntity` 直接持有 `ConversationManager` 实例
 
@@ -403,20 +407,21 @@ export function resolveSystemPrompt(config: SystemPromptConfig): string {
       return renderTemplate(template, config.systemPromptTemplateVariables);
     }
   }
-  
+
   // 2. 回退到直接字符串
   if (config.systemPrompt) {
     return config.systemPrompt;
   }
-  
+
   // 3. 使用默认模板
-  return getTemplate('system.assistant')?.content || '';
+  return getTemplate("system.assistant")?.content || "";
 }
 ```
 
 ### 4.3 分离执行实例和消息管理
 
 **当前问题**：
+
 - Agent-Loop的 `message-history-helper` 功能单一
 - Graph的 `MessageHistoryManager` 继承层次复杂
 
@@ -425,11 +430,11 @@ export function resolveSystemPrompt(config: SystemPromptConfig): string {
 ```typescript
 // 1. 有状态实体只负责持有消息管理器引用
 class AgentLoopEntity {
-  conversationManager: ConversationManager;  // 不自己实现
-  
+  conversationManager: ConversationManager; // 不自己实现
+
   constructor(config: AgentLoopConfig) {
     this.conversationManager = new ConversationManager({
-      initialMessages: buildInitialMessages(config)
+      initialMessages: buildInitialMessages(config),
     });
   }
 }
@@ -437,23 +442,23 @@ class AgentLoopEntity {
 // 2. 提取初始消息构建逻辑
 function buildInitialMessages(config: AgentLoopConfig): LLMMessage[] {
   const messages: LLMMessage[] = [];
-  
+
   // 添加系统提示词
   const systemPrompt = resolveSystemPrompt(config);
   if (systemPrompt) {
-    messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: "system", content: systemPrompt });
   }
-  
+
   // 添加初始用户消息
   if (config.initialUserMessage) {
-    messages.push({ role: 'user', content: config.initialUserMessage });
+    messages.push({ role: "user", content: config.initialUserMessage });
   }
-  
+
   // 或添加历史消息
   if (config.initialMessages) {
     messages.push(...config.initialMessages);
   }
-  
+
   return messages;
 }
 ```
@@ -461,12 +466,14 @@ function buildInitialMessages(config: AgentLoopConfig): LLMMessage[] {
 ### 4.4 LLM Node职责明确
 
 **LLM Node应该**：
+
 1. 从有状态实体获取当前消息历史
 2. 添加当前节点的用户提示词（尾插）
 3. 调用LLM执行
 4. 将响应添加回消息历史
 
 **LLM Node不应该**：
+
 1. ❌ 自己创建消息历史
 2. ❌ 维护完整上下文
 3. ❌ 处理系统提示词注入（由实体初始化时处理）
@@ -479,23 +486,23 @@ export async function llmHandler(
   context: LLMHandlerContext
 ) {
   const config = node.config as LLMNodeConfig;
-  
+
   // 1. 获取当前消息历史（从有状态实体）
   const conversationManager = context.conversationManager;
-  
+
   // 2. 添加当前节点的用户消息（尾插）
   const userPrompt = resolvePrompt(config);
   conversationManager.addUserMessage(userPrompt);
-  
+
   // 3. 调用LLM（传入完整消息数组）
   const result = await context.llmCoordinator.executeLLM({
     messages: conversationManager.getMessages(),
     ...
   });
-  
+
   // 4. 添加助手响应
   conversationManager.addAssistantMessage(result.content, result.toolCalls);
-  
+
   return result;
 }
 ```
@@ -518,12 +525,12 @@ export async function llmHandler(
 
 ### 5.3 推荐实施顺序
 
-| 优先级 | 任务 | 影响范围 |
-|--------|------|----------|
-| P0 | 统一系统提示词解析逻辑 | Agent + Graph |
-| P1 | Agent-Loop使用ConversationManager | Agent |
-| P2 | 提取初始消息构建工具函数 | Agent + Graph |
-| P3 | 统一提示词模板系统 | 全局 |
+| 优先级 | 任务                              | 影响范围      |
+| ------ | --------------------------------- | ------------- |
+| P0     | 统一系统提示词解析逻辑            | Agent + Graph |
+| P1     | Agent-Loop使用ConversationManager | Agent         |
+| P2     | 提取初始消息构建工具函数          | Agent + Graph |
+| P3     | 统一提示词模板系统                | 全局          |
 
 ### 5.4 架构验证标准
 

@@ -14,7 +14,7 @@ const logger = createContextualLogger({ component: "MCPStdioTransport" });
  */
 function getDefaultEnvironment(): Record<string, string> {
   const env: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
   };
   env["NODE_ENV"] = process.env["NODE_ENV"] || "production";
   return env;
@@ -72,7 +72,7 @@ export class StdioTransport implements IMcpTransport {
     });
 
     // Handle process errors
-    this.process.on("error", (error) => {
+    this.process.on("error", error => {
       this._isConnected = false;
       this.handlers.onError?.(error);
     });
@@ -81,9 +81,7 @@ export class StdioTransport implements IMcpTransport {
     this.process.on("exit", (code, signal) => {
       this._isConnected = false;
       if (code !== 0 && code !== null) {
-        this.handlers.onError?.(
-          new Error(`Process exited with code ${code}, signal ${signal}`)
-        );
+        this.handlers.onError?.(new Error(`Process exited with code ${code}, signal ${signal}`));
       }
       this.handlers.onClose?.();
     });
@@ -129,7 +127,7 @@ export class StdioTransport implements IMcpTransport {
 
     const isWindows = process.platform === "win32";
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       if (this.process) {
         const cleanup = () => {
           this.process = null;
@@ -202,7 +200,7 @@ export class StdioTransport implements IMcpTransport {
 
     const data = JSON.stringify(message) + "\n";
     return new Promise((resolve, reject) => {
-      this.process!.stdin!.write(data, (error) => {
+      this.process!.stdin!.write(data, error => {
         if (error) {
           reject(error);
         } else {

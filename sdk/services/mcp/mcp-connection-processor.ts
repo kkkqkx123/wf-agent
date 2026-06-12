@@ -10,7 +10,7 @@
  * processing functions — core/ is reserved for the execution engine.
  */
 
-import type { McpServerConfig, McpSettings } from "@wf-agent/types";
+import type { McpServerConfig, McpSettings, McpServerLifecycle } from "@wf-agent/types";
 import { validateServerConfig } from "../../core/validation/mcp-validator.js";
 
 // ---------------------------------------------------------------------------
@@ -22,9 +22,10 @@ import { validateServerConfig } from "../../core/validation/mcp-validator.js";
  * Returns both valid configs and any validation errors encountered.
  * Caller is responsible for handling errors (logging, fallback, etc.).
  */
-export function loadServerConfigs(
-  settings: McpSettings,
-): { configs: Map<string, McpServerConfig>; errors: Array<{ name: string; error: Error }> } {
+export function loadServerConfigs(settings: McpSettings): {
+  configs: Map<string, McpServerConfig>;
+  errors: Array<{ name: string; error: Error }>;
+} {
   const configs = new Map<string, McpServerConfig>();
   const errors: Array<{ name: string; error: Error }> = [];
 
@@ -60,4 +61,35 @@ export function mergeServerConfigs(
     merged.set(name, config);
   }
   return merged;
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved lifecycle configuration for a server.
+ */
+export interface ResolvedLifecycle {
+  lifecycle: McpServerLifecycle;
+  idleTimeout: number;
+  healthCheckInterval: number;
+}
+
+/**
+ * Resolve lifecycle configuration for a server, applying manager-level defaults.
+ */
+export function resolveServerLifecycle(
+  config: McpServerConfig,
+  defaults?: {
+    defaultLifecycle?: McpServerLifecycle;
+    defaultIdleTimeout?: number;
+    defaultHealthCheckInterval?: number;
+  },
+): ResolvedLifecycle {
+  return {
+    lifecycle: config.lifecycle ?? defaults?.defaultLifecycle ?? "lazy",
+    idleTimeout: config.idleTimeout ?? defaults?.defaultIdleTimeout ?? 0,
+    healthCheckInterval: config.healthCheckInterval ?? defaults?.defaultHealthCheckInterval ?? 30,
+  };
 }

@@ -9,12 +9,10 @@ import type { InterruptionState } from "../../../core/utils/interruption/interru
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
 import { conditionEvaluator } from "../../evaluation/index.js";
+import { executeWithInterruptionHandling } from "../../../core/utils/interruption/index.js";
 import {
-  executeWithInterruptionHandling,
-} from "../../../core/utils/interruption/index.js";
-import { 
   toWorkflowInterruptionResult,
-  type WorkflowInterruptionCheckResult 
+  type WorkflowInterruptionCheckResult,
 } from "../utils/workflow-interruption-utils.js";
 
 /**
@@ -47,69 +45,66 @@ export class WorkflowExecutionCoordinator {
     const abortSignal = this.interruptionManager.getAbortSignal();
 
     // Use unified interruption handling wrapper
-    const result = await executeWithInterruptionHandling(
-      async (signal) => {
-        // Execution process orchestration
-        while (true) {
-          // Get the current node
-          const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
-          if (!currentNodeId) {
-            break;
-          }
-
-          // Get the node object from the graph (already a RuntimeNode after preprocessing)
-          const currentNode = this.navigator.getGraph().getNode(currentNodeId);
-          if (!currentNode) {
-            break;
-          }
-
-          // Execute Node with signal (currentNode is already a RuntimeNode)
-          const nodeResult = await this.nodeExecutionCoordinator.executeNode(
-            this.workflowExecutionEntity,
-            currentNode,
-            { abortSignal: signal },
-          );
-
-          // Update the current node ID
-          if (nodeResult.status === "COMPLETED") {
-            const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
-            if (outgoingEdges.length <= 1) {
-              // Single outgoing edge: use simple navigation
-              const nextNode = this.navigator.getNextNode(currentNodeId);
-              if (nextNode && nextNode.nextNodeId) {
-                this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-              } else {
-                break;
-              }
-            } else {
-              // Multiple outgoing edges: use conditional routing
-              const evalContext = this.buildRoutingEvaluationContext();
-              const routingResult = this.navigator.routeNextNode(
-                currentNodeId,
-                (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
-              );
-              if (routingResult) {
-                this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
-              } else {
-                break;
-              }
-            }
-          } else {
-            break;
-          }
+    const result = await executeWithInterruptionHandling(async signal => {
+      // Execution process orchestration
+      while (true) {
+        // Get the current node
+        const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
+        if (!currentNodeId) {
+          break;
         }
 
-        // Build successful execution result
-        return this.buildSuccessResult();
-      },
-      abortSignal,
-    );
+        // Get the node object from the graph (already a RuntimeNode after preprocessing)
+        const currentNode = this.navigator.getGraph().getNode(currentNodeId);
+        if (!currentNode) {
+          break;
+        }
+
+        // Execute Node with signal (currentNode is already a RuntimeNode)
+        const nodeResult = await this.nodeExecutionCoordinator.executeNode(
+          this.workflowExecutionEntity,
+          currentNode,
+          { abortSignal: signal },
+        );
+
+        // Update the current node ID
+        if (nodeResult.status === "COMPLETED") {
+          const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
+          if (outgoingEdges.length <= 1) {
+            // Single outgoing edge: use simple navigation
+            const nextNode = this.navigator.getNextNode(currentNodeId);
+            if (nextNode && nextNode.nextNodeId) {
+              this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+            } else {
+              break;
+            }
+          } else {
+            // Multiple outgoing edges: use conditional routing
+            const evalContext = this.buildRoutingEvaluationContext();
+            const routingResult = this.navigator.routeNextNode(
+              currentNodeId,
+              (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+            );
+            if (routingResult) {
+              this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+            } else {
+              break;
+            }
+          }
+        } else {
+          break;
+        }
+      }
+
+      // Build successful execution result
+      return this.buildSuccessResult();
+    }, abortSignal);
 
     // Handle interruption gracefully if needed
     if (!result.success) {
       const workflowInterruption = toWorkflowInterruptionResult(
-        result.interruption, 
-        this.workflowExecutionEntity.getCurrentNodeId() || "unknown"
+        result.interruption,
+        this.workflowExecutionEntity.getCurrentNodeId() || "unknown",
       );
       return await this.handleInterruptionGracefully(workflowInterruption);
     }

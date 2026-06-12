@@ -6,7 +6,13 @@
  */
 
 import { BaseFormatter } from "./base.js";
-import type { LLMRequest, LLMResult, LLMMessage, LLMToolCall, ToolCallFormat } from "@wf-agent/types";
+import type {
+  LLMRequest,
+  LLMResult,
+  LLMMessage,
+  LLMToolCall,
+  ToolCallFormat,
+} from "@wf-agent/types";
 import type { ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToOpenAIFormat } from "./tool-converter.js";
@@ -162,10 +168,10 @@ export class OpenAIChatFormatter extends BaseFormatter {
   parseToolCalls(toolCalls: unknown): LLMToolCall[] {
     if (!Array.isArray(toolCalls)) return [];
     return toolCalls.map(call => ({
-      id: (call as { id?: string }).id ?? '',
+      id: (call as { id?: string }).id ?? "",
       type: ((call as { type?: string }).type || "function") as "function",
       function: {
-        name: (call as { function?: { name?: string } }).function?.name ?? '',
+        name: (call as { function?: { name?: string } }).function?.name ?? "",
         arguments:
           typeof (call as { function: { arguments: string | unknown } }).function.arguments ===
           "string"
@@ -190,7 +196,7 @@ export class OpenAIChatFormatter extends BaseFormatter {
     // Parse tool calls from content using ToolCallParser
     const toolCalls = ToolCallParser.parseFromText(
       content,
-      getToolCallParserOptions(format, config.toolCallFormat?.markers)
+      getToolCallParserOptions(format, config.toolCallFormat?.markers),
     );
 
     // Extract reasoning content (for DeepSeek R1, o1, etc.)
@@ -237,12 +243,12 @@ export class OpenAIChatFormatter extends BaseFormatter {
   private injectToolDeclarations(
     messages: LLMMessage[],
     toolDeclarations: string,
-    format: ToolCallFormat
+    format: ToolCallFormat,
   ): LLMMessage[] {
     const instructions = this.getToolUsageInstructions(format);
     const fullInjection = `${instructions}\n\n${toolDeclarations}`;
 
-    const systemMsgIndex = messages.findIndex(m => m.role === 'system');
+    const systemMsgIndex = messages.findIndex(m => m.role === "system");
 
     if (systemMsgIndex >= 0) {
       const updated = [...messages];
@@ -253,15 +259,16 @@ export class OpenAIChatFormatter extends BaseFormatter {
       const existingContent = msg.content;
       updated[systemMsgIndex] = {
         role: msg.role,
-        content: typeof existingContent === 'string' 
-          ? `${existingContent}\n\n${fullInjection}`
-          : fullInjection,
+        content:
+          typeof existingContent === "string"
+            ? `${existingContent}\n\n${fullInjection}`
+            : fullInjection,
       };
       return updated;
     } else {
       return [
         {
-          role: 'system',
+          role: "system",
           content: fullInjection,
         },
         ...messages,
@@ -273,7 +280,7 @@ export class OpenAIChatFormatter extends BaseFormatter {
    * Get tool usage instructions based on format
    */
   private getToolUsageInstructions(format: ToolCallFormat): string {
-    if (format === 'xml') {
+    if (format === "xml") {
       return `## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -287,7 +294,7 @@ When you need to use a tool, format your response as follows:
 </tool_use>
 
 You can use multiple tools in one response by including multiple <tool_use> blocks.`;
-    } else if (format === 'json_wrapped') {
+    } else if (format === "json_wrapped") {
       return `## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -305,7 +312,7 @@ When you need to use a tool, format your response as follows:
 You can use multiple tools in one response by including multiple blocks.`;
     }
 
-    return '';
+    return "";
   }
 
   /**
@@ -343,35 +350,31 @@ You can use multiple tools in one response by including multiple blocks.`;
   /**
    * Build request in text-based mode (XML/JSON)
    */
-  protected override buildTextModeRequest(request: LLMRequest, config: FormatterConfig): BuildRequestResult {
+  protected override buildTextModeRequest(
+    request: LLMRequest,
+    config: FormatterConfig,
+  ): BuildRequestResult {
     const format = this.getToolCallFormat(config);
 
     // 1. Generate tool declarations
-    const toolDeclarations = ToolDeclarationFormatter.formatTools(
-      request.tools || [],
-      {
-        format: format === 'json_wrapped' || format === 'json_raw' ? 'json' : 'xml',
-        xmlTags: config.toolCallFormat?.xmlTags,
-        markers: config.toolCallFormat?.markers,
-        includeDescription: config.toolCallFormat?.includeDescription,
-      }
-    );
+    const toolDeclarations = ToolDeclarationFormatter.formatTools(request.tools || [], {
+      format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
+      xmlTags: config.toolCallFormat?.xmlTags,
+      markers: config.toolCallFormat?.markers,
+      includeDescription: config.toolCallFormat?.includeDescription,
+    });
 
     // 2. Convert history to text mode (if needed)
-    const convertedMessages = HistoryConverter.convertToTextMode(
-      request.messages,
-      format,
-      {
-        xmlTags: config.toolCallFormat?.xmlTags,
-        markers: config.toolCallFormat?.markers,
-      }
-    );
+    const convertedMessages = HistoryConverter.convertToTextMode(request.messages, format, {
+      xmlTags: config.toolCallFormat?.xmlTags,
+      markers: config.toolCallFormat?.markers,
+    });
 
     // 3. Inject tool declarations into system message
     const messagesWithTools = this.injectToolDeclarations(
       convertedMessages,
       toolDeclarations,
-      format
+      format,
     );
 
     // 4. Build request WITHOUT tools field

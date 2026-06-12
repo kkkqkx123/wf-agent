@@ -5,13 +5,13 @@
  * for prompt injection and message history conversion.
  */
 
-import type { ToolSchema, LLMToolCall, LLMMessage } from '@wf-agent/types';
-import type { ToolCallFormatMarkers, ToolCallXmlTags } from '@wf-agent/types';
-import { DEFAULT_JSON_MARKERS, DEFAULT_XML_TAGS } from '@wf-agent/types';
+import type { ToolSchema, LLMToolCall, LLMMessage } from "@wf-agent/types";
+import type { ToolCallFormatMarkers, ToolCallXmlTags } from "@wf-agent/types";
+import { DEFAULT_JSON_MARKERS, DEFAULT_XML_TAGS } from "@wf-agent/types";
 
 export interface ToolDeclarationOptions {
   /** Output format */
-  format: 'xml' | 'json';
+  format: "xml" | "json";
   /** Include parameter details */
   includeParameters?: boolean;
   /** Include description */
@@ -29,10 +29,10 @@ export class ToolDeclarationFormatter {
    */
   static formatTools(tools: ToolSchema[], options: ToolDeclarationOptions): string {
     if (!tools || tools.length === 0) {
-      return '';
+      return "";
     }
 
-    if (options.format === 'xml') {
+    if (options.format === "xml") {
       return this.formatToolsXML(tools, options);
     } else {
       return this.formatToolsJSON(tools, options);
@@ -44,14 +44,14 @@ export class ToolDeclarationFormatter {
    */
   private static formatToolsXML(tools: ToolSchema[], options: ToolDeclarationOptions): string {
     const tags = options.xmlTags || DEFAULT_XML_TAGS;
-    const parts: string[] = [`<${tags.toolUse.replace('_use', 's')}>`];
+    const parts: string[] = [`<${tags.toolUse.replace("_use", "s")}>`];
 
     for (const tool of tools) {
       parts.push(this.formatToolXML(tool, tags, options));
     }
 
-    parts.push(`</${tags.toolUse.replace('_use', 's')}>`);
-    return parts.join('\n');
+    parts.push(`</${tags.toolUse.replace("_use", "s")}>`);
+    return parts.join("\n");
   }
 
   /**
@@ -60,7 +60,7 @@ export class ToolDeclarationFormatter {
   private static formatToolXML(
     tool: ToolSchema,
     tags: ToolCallXmlTags,
-    options: ToolDeclarationOptions
+    options: ToolDeclarationOptions,
   ): string {
     const lines: string[] = [`  <tool name="${tool.id}">`];
 
@@ -69,14 +69,14 @@ export class ToolDeclarationFormatter {
     }
 
     if (options.includeParameters !== false && tool.parameters?.properties) {
-      lines.push('    <parameters>');
+      lines.push("    <parameters>");
       const params = this.formatParametersXML(tool.parameters, tags);
       lines.push(params);
-      lines.push('    </parameters>');
+      lines.push("    </parameters>");
     }
 
-    lines.push('  </tool>');
-    return lines.join('\n');
+    lines.push("  </tool>");
+    return lines.join("\n");
   }
 
   /**
@@ -84,21 +84,21 @@ export class ToolDeclarationFormatter {
    */
   private static formatParametersXML(
     parameters: { properties: Record<string, unknown>; required?: string[] },
-    _tags: ToolCallXmlTags
+    _tags: ToolCallXmlTags,
   ): string {
     const lines: string[] = [];
     const required = parameters.required || [];
 
     for (const [name, schema] of Object.entries(parameters.properties)) {
       const isRequired = required.includes(name);
-      const reqStr = isRequired ? 'required' : 'optional';
-      const type = (schema as { type?: string }).type || 'string';
-      const desc = (schema as { description?: string }).description || '';
+      const reqStr = isRequired ? "required" : "optional";
+      const type = (schema as { type?: string }).type || "string";
+      const desc = (schema as { description?: string }).description || "";
 
       lines.push(`      - ${name} (${reqStr}) [${type}]: ${desc}`);
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
@@ -114,17 +114,17 @@ export class ToolDeclarationFormatter {
       };
 
       if (options.includeDescription !== false && tool.description) {
-        toolObj['description'] = tool.description;
+        toolObj["description"] = tool.description;
       }
 
       if (options.includeParameters !== false && tool.parameters?.properties) {
-        toolObj['parameters'] = this.formatParametersJSON(tool.parameters);
+        toolObj["parameters"] = this.formatParametersJSON(tool.parameters);
       }
 
       parts.push(`${markers.start}\n${JSON.stringify(toolObj, null, 2)}\n${markers.end}`);
     }
 
-    return parts.join('\n\n');
+    return parts.join("\n\n");
   }
 
   /**
@@ -139,9 +139,9 @@ export class ToolDeclarationFormatter {
 
     for (const [name, schema] of Object.entries(parameters.properties)) {
       result[name] = {
-        type: (schema as { type?: string }).type || 'string',
+        type: (schema as { type?: string }).type || "string",
         required: required.includes(name),
-        description: (schema as { description?: string }).description || '',
+        description: (schema as { description?: string }).description || "",
       };
     }
 
@@ -153,13 +153,13 @@ export class ToolDeclarationFormatter {
    */
   static formatToolCalls(toolCalls: LLMToolCall[], options: ToolDeclarationOptions): string {
     if (!toolCalls || toolCalls.length === 0) {
-      return '';
+      return "";
     }
 
-    if (options.format === 'xml') {
-      return toolCalls.map(tc => this.formatToolCallXML(tc, options)).join('\n\n');
+    if (options.format === "xml") {
+      return toolCalls.map(tc => this.formatToolCallXML(tc, options)).join("\n\n");
     } else {
-      return toolCalls.map(tc => this.formatToolCallJSON(tc, options)).join('\n\n');
+      return toolCalls.map(tc => this.formatToolCallJSON(tc, options)).join("\n\n");
     }
   }
 
@@ -168,7 +168,7 @@ export class ToolDeclarationFormatter {
    */
   private static formatToolCallXML(toolCall: LLMToolCall, options: ToolDeclarationOptions): string {
     const tags = options.xmlTags || DEFAULT_XML_TAGS;
-    const args = JSON.parse(toolCall.function.arguments || '{}');
+    const args = JSON.parse(toolCall.function.arguments || "{}");
 
     const lines: string[] = [
       `<${tags.toolUse}>`,
@@ -183,15 +183,18 @@ export class ToolDeclarationFormatter {
     lines.push(`  </${tags.parameters}>`);
     lines.push(`</${tags.toolUse}>`);
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   /**
    * Format single tool call as JSON
    */
-  private static formatToolCallJSON(toolCall: LLMToolCall, options: ToolDeclarationOptions): string {
+  private static formatToolCallJSON(
+    toolCall: LLMToolCall,
+    options: ToolDeclarationOptions,
+  ): string {
     const markers = options.markers || DEFAULT_JSON_MARKERS;
-    const args = JSON.parse(toolCall.function.arguments || '{}');
+    const args = JSON.parse(toolCall.function.arguments || "{}");
 
     const obj = {
       tool: toolCall.function.name,
@@ -205,7 +208,7 @@ export class ToolDeclarationFormatter {
    * Format tool result as text
    */
   static formatToolResult(message: LLMMessage, options: ToolDeclarationOptions): string {
-    if (options.format === 'xml') {
+    if (options.format === "xml") {
       return this.formatToolResultXML(message, options);
     } else {
       return this.formatToolResultJSON(message, options);
@@ -217,24 +220,25 @@ export class ToolDeclarationFormatter {
    */
   private static formatToolResultXML(message: LLMMessage, options: ToolDeclarationOptions): string {
     const tags = options.xmlTags || DEFAULT_XML_TAGS;
-    const content = typeof message.content === 'string'
-      ? message.content
-      : JSON.stringify(message.content);
+    const content =
+      typeof message.content === "string" ? message.content : JSON.stringify(message.content);
 
-    return `<${tags.toolUse}_result tool="${message.toolCallId || 'unknown'}">\n${content}\n</${tags.toolUse}_result>`;
+    return `<${tags.toolUse}_result tool="${message.toolCallId || "unknown"}">\n${content}\n</${tags.toolUse}_result>`;
   }
 
   /**
    * Format tool result as JSON
    */
-  private static formatToolResultJSON(message: LLMMessage, options: ToolDeclarationOptions): string {
+  private static formatToolResultJSON(
+    message: LLMMessage,
+    options: ToolDeclarationOptions,
+  ): string {
     const markers = options.markers || DEFAULT_JSON_MARKERS;
-    const content = typeof message.content === 'string'
-      ? message.content
-      : JSON.stringify(message.content);
+    const content =
+      typeof message.content === "string" ? message.content : JSON.stringify(message.content);
 
     const obj = {
-      tool_result: message.toolCallId || 'unknown',
+      tool_result: message.toolCallId || "unknown",
       content,
     };
 
@@ -246,10 +250,10 @@ export class ToolDeclarationFormatter {
    */
   private static escapeXml(str: string): string {
     return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&apos;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
   }
 }

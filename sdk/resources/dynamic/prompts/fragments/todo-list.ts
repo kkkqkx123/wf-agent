@@ -45,10 +45,7 @@ function isValidTodoItem(item: unknown): item is TodoItem {
 /**
  * Normalizing TODO Status
  */
-function normalizeTodoStatus(
-  value: unknown,
-  defaultValue: TodoStatus = "pending",
-): TodoStatus {
+function normalizeTodoStatus(value: unknown, defaultValue: TodoStatus = "pending"): TodoStatus {
   return isTodoStatus(value) ? value : defaultValue;
 }
 

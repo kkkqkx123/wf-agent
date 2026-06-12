@@ -88,11 +88,46 @@ describe("Task Storage E2E", () => {
 
     beforeEach(async () => {
       const tasks = [
-        { id: "task-1", executionId: "exec-1", workflowId: "wf-1", status: "QUEUED" as TaskStatus, submitTime: now + 100 },
-        { id: "task-2", executionId: "exec-1", workflowId: "wf-1", status: "RUNNING" as TaskStatus, submitTime: now + 200, startTime: now + 300 },
-        { id: "task-3", executionId: "exec-1", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now + 300, startTime: now + 400, completeTime: now + 500 },
-        { id: "task-4", executionId: "exec-2", workflowId: "wf-2", status: "FAILED" as TaskStatus, submitTime: now + 400, tags: ["critical"] },
-        { id: "task-5", executionId: "exec-2", workflowId: "wf-2", status: "CANCELLED" as TaskStatus, submitTime: now + 500, tags: ["test"] },
+        {
+          id: "task-1",
+          executionId: "exec-1",
+          workflowId: "wf-1",
+          status: "QUEUED" as TaskStatus,
+          submitTime: now + 100,
+        },
+        {
+          id: "task-2",
+          executionId: "exec-1",
+          workflowId: "wf-1",
+          status: "RUNNING" as TaskStatus,
+          submitTime: now + 200,
+          startTime: now + 300,
+        },
+        {
+          id: "task-3",
+          executionId: "exec-1",
+          workflowId: "wf-1",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now + 300,
+          startTime: now + 400,
+          completeTime: now + 500,
+        },
+        {
+          id: "task-4",
+          executionId: "exec-2",
+          workflowId: "wf-2",
+          status: "FAILED" as TaskStatus,
+          submitTime: now + 400,
+          tags: ["critical"],
+        },
+        {
+          id: "task-5",
+          executionId: "exec-2",
+          workflowId: "wf-2",
+          status: "CANCELLED" as TaskStatus,
+          submitTime: now + 500,
+          tags: ["test"],
+        },
       ];
 
       for (const task of tasks) {
@@ -157,9 +192,28 @@ describe("Task Storage E2E", () => {
 
     beforeEach(async () => {
       const tasks = [
-        { id: "task-1", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now + 100, startTime: now + 200, completeTime: now + 500 },
-        { id: "task-2", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now + 200, startTime: now + 300, completeTime: now + 400 },
-        { id: "task-3", workflowId: "wf-1", status: "RUNNING" as TaskStatus, submitTime: now + 300 },
+        {
+          id: "task-1",
+          workflowId: "wf-1",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now + 100,
+          startTime: now + 200,
+          completeTime: now + 500,
+        },
+        {
+          id: "task-2",
+          workflowId: "wf-1",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now + 200,
+          startTime: now + 300,
+          completeTime: now + 400,
+        },
+        {
+          id: "task-3",
+          workflowId: "wf-1",
+          status: "RUNNING" as TaskStatus,
+          submitTime: now + 300,
+        },
         { id: "task-4", workflowId: "wf-2", status: "FAILED" as TaskStatus, submitTime: now + 400 },
         { id: "task-5", workflowId: "wf-2", status: "QUEUED" as TaskStatus, submitTime: now + 500 },
       ];
@@ -195,8 +249,22 @@ describe("Task Storage E2E", () => {
     it("should filter statistics by time range", async () => {
       const now2 = Date.now();
       const tasks = [
-        { id: "ts-1", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now2 - 5000, startTime: now2 - 4000, completeTime: now2 - 3000 },
-        { id: "ts-2", workflowId: "wf-1", status: "COMPLETED" as TaskStatus, submitTime: now2 - 2000, startTime: now2 - 1500, completeTime: now2 - 1000 },
+        {
+          id: "ts-1",
+          workflowId: "wf-1",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now2 - 5000,
+          startTime: now2 - 4000,
+          completeTime: now2 - 3000,
+        },
+        {
+          id: "ts-2",
+          workflowId: "wf-1",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now2 - 2000,
+          startTime: now2 - 1500,
+          completeTime: now2 - 1000,
+        },
       ];
       for (const task of tasks) {
         const { id, ...metaFields } = task;
@@ -220,10 +288,31 @@ describe("Task Storage E2E", () => {
 
     beforeEach(async () => {
       const tasks = [
-        { id: "task-old-completed", status: "COMPLETED" as TaskStatus, submitTime: now - 200000, startTime: now - 190000, completeTime: now - 180000 },
-        { id: "task-old-failed", status: "FAILED" as TaskStatus, submitTime: now - 200000, completeTime: now - 180000 },
-        { id: "task-old-cancelled", status: "CANCELLED" as TaskStatus, submitTime: now - 200000, completeTime: now - 180000 },
-        { id: "task-recent-completed", status: "COMPLETED" as TaskStatus, submitTime: now - 50000, completeTime: now - 40000 },
+        {
+          id: "task-old-completed",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now - 200000,
+          startTime: now - 190000,
+          completeTime: now - 180000,
+        },
+        {
+          id: "task-old-failed",
+          status: "FAILED" as TaskStatus,
+          submitTime: now - 200000,
+          completeTime: now - 180000,
+        },
+        {
+          id: "task-old-cancelled",
+          status: "CANCELLED" as TaskStatus,
+          submitTime: now - 200000,
+          completeTime: now - 180000,
+        },
+        {
+          id: "task-recent-completed",
+          status: "COMPLETED" as TaskStatus,
+          submitTime: now - 50000,
+          completeTime: now - 40000,
+        },
         { id: "task-running", status: "RUNNING" as TaskStatus, submitTime: now - 10000 },
         { id: "task-queued", status: "QUEUED" as TaskStatus, submitTime: now },
       ];
@@ -359,7 +448,11 @@ describe("Task Storage E2E", () => {
     });
 
     it("should return empty list for non-matching filters", async () => {
-      await storage.save("task-1", new Uint8Array([1]), createMetadata({ taskId: "task-1", executionId: "exec-1" }));
+      await storage.save(
+        "task-1",
+        new Uint8Array([1]),
+        createMetadata({ taskId: "task-1", executionId: "exec-1" }),
+      );
       const ids = await storage.list({ executionId: "non-existent" });
       expect(ids).toEqual([]);
     });

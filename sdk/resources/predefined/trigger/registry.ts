@@ -34,9 +34,7 @@ function isDisabled(triggerName: string, options?: PredefinedTriggersOptions): b
 /**
  * Create a list of predefined trigger templates
  */
-export function createPredefinedTriggers(
-  options?: PredefinedTriggersOptions,
-): TriggerTemplate[] {
+export function createPredefinedTriggers(options?: PredefinedTriggersOptions): TriggerTemplate[] {
   const triggers: TriggerTemplate[] = [];
   const config = options?.config;
 

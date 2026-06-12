@@ -1,6 +1,6 @@
 /**
  * Resource Utilization Metrics Collector
- * 
+ *
  * Collects and aggregates metrics related to system resource utilization including:
  * - Memory usage
  * - Active execution count
@@ -29,9 +29,9 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
    */
   recordMemoryUsage(memoryUsageMB: number, component?: string): void {
     const labels: Record<string, string> = {};
-    
+
     if (component) {
-      labels['component'] = component;
+      labels["component"] = component;
     }
 
     this.setGauge(RESOURCE_METRICS.MEMORY_USAGE, memoryUsageMB, labels);
@@ -52,9 +52,9 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
    */
   recordQueuedTasks(count: number, queueType?: string): void {
     const labels: Record<string, string> = {};
-    
+
     if (queueType) {
-      labels['queue_type'] = queueType;
+      labels["queue_type"] = queueType;
     }
 
     this.setGauge(RESOURCE_METRICS.QUEUED_TASKS, count, labels);
@@ -96,7 +96,7 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
     eventQueueLength: number;
   } {
     const result = this.query({});
-    
+
     let memoryUsageMB = 0;
     let activeExecutions = 0;
     let queuedTasks = 0;
@@ -136,50 +136,50 @@ export class ResourceMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const summary = this.getResourceSummary();
     const metrics: PrometheusMetric[] = [];
-    
+
     // Memory usage gauge
     metrics.push({
-      name: 'resource_memory_usage_bytes',
-      type: 'gauge',
-      help: 'Memory usage in megabytes',
-      samples: [{ value: summary.memoryUsageMB }]
+      name: "resource_memory_usage_bytes",
+      type: "gauge",
+      help: "Memory usage in megabytes",
+      samples: [{ value: summary.memoryUsageMB }],
     });
-    
+
     // Active executions gauge
     metrics.push({
-      name: 'resource_active_executions',
-      type: 'gauge',
-      help: 'Number of active executions',
-      samples: [{ value: summary.activeExecutions }]
+      name: "resource_active_executions",
+      type: "gauge",
+      help: "Number of active executions",
+      samples: [{ value: summary.activeExecutions }],
     });
-    
+
     // Queued tasks gauge
     metrics.push({
-      name: 'resource_queued_tasks',
-      type: 'gauge',
-      help: 'Number of queued tasks',
-      samples: [{ value: summary.queuedTasks }]
+      name: "resource_queued_tasks",
+      type: "gauge",
+      help: "Number of queued tasks",
+      samples: [{ value: summary.queuedTasks }],
     });
-    
+
     // Event queue length gauge
     metrics.push({
-      name: 'resource_event_queue_length',
-      type: 'gauge',
-      help: 'Event queue length',
-      samples: [{ value: summary.eventQueueLength }]
+      name: "resource_event_queue_length",
+      type: "gauge",
+      help: "Event queue length",
+      samples: [{ value: summary.eventQueueLength }],
     });
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     return {
-      type: 'resource',
-      summary: this.getResourceSummary()
+      type: "resource",
+      summary: this.getResourceSummary(),
     };
   }
 }

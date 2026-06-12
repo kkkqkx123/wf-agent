@@ -79,5 +79,3 @@ export interface ExecutionPoolConfig {
   /** Default timeout period (in milliseconds) */
   defaultTimeout?: number;
 }
-
-

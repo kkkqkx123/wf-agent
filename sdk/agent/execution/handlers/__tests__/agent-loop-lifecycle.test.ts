@@ -8,50 +8,66 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentLoopEntity as AgentLoopEntityType } from "../../../entities/agent-loop-entity.js";
 
-const { mockConversationManagerRef, mockSetParentContextRef, mockGetParentContextRef, MockAgentLoopEntity, mockCreateCheckpoint } = vi.hoisted(
-  () => {
-    interface MockConversationManager {
-      createSnapshot: ReturnType<typeof vi.fn>;
-      restoreFromSnapshot: ReturnType<typeof vi.fn>;
-    }
+const {
+  mockConversationManagerRef,
+  mockSetParentContextRef,
+  mockGetParentContextRef,
+  MockAgentLoopEntity,
+  mockCreateCheckpoint,
+} = vi.hoisted(() => {
+  interface MockConversationManager {
+    createSnapshot: ReturnType<typeof vi.fn>;
+    restoreFromSnapshot: ReturnType<typeof vi.fn>;
+  }
 
-    const mockConversationManagerRef: MockConversationManager = { createSnapshot: vi.fn(), restoreFromSnapshot: vi.fn() };
-    const mockSetParentContextRef: (context: object) => void = vi.fn();
-    const mockGetParentContextRef: () => object | undefined = vi.fn(() => undefined);
+  const mockConversationManagerRef: MockConversationManager = {
+    createSnapshot: vi.fn(),
+    restoreFromSnapshot: vi.fn(),
+  };
+  const mockSetParentContextRef: (context: object) => void = vi.fn();
+  const mockGetParentContextRef: () => object | undefined = vi.fn(() => undefined);
 
-    interface MockEntityInstance {
-      id: string;
-      config: unknown;
-      state: unknown;
-      conversationManager: MockConversationManager;
-      getConversationManager: () => MockConversationManager;
-      setConversationManager: (cm: MockConversationManager) => void;
-      setParentContext: (context: object) => void;
-      getParentContext: () => object | undefined;
-      cleanup: () => void;
-      getStatus: () => string;
-    }
+  interface MockEntityInstance {
+    id: string;
+    config: unknown;
+    state: unknown;
+    conversationManager: MockConversationManager;
+    getConversationManager: () => MockConversationManager;
+    setConversationManager: (cm: MockConversationManager) => void;
+    setParentContext: (context: object) => void;
+    getParentContext: () => object | undefined;
+    cleanup: () => void;
+    getStatus: () => string;
+  }
 
-    const MockAgentLoopEntity = vi.fn().mockImplementation(
-      function (this: MockEntityInstance, id: string, config: unknown, state: unknown) {
-        this.id = id;
-        this.config = config;
-        this.state = state;
-        this.conversationManager = mockConversationManagerRef;
-        this.getConversationManager = vi.fn(() => mockConversationManagerRef);
-        this.setConversationManager = vi.fn();
-        this.setParentContext = mockSetParentContextRef;
-        this.getParentContext = mockGetParentContextRef;
-        this.cleanup = vi.fn();
-        this.getStatus = vi.fn(() => "RUNNING");
-      },
-    );
+  const MockAgentLoopEntity = vi.fn().mockImplementation(function (
+    this: MockEntityInstance,
+    id: string,
+    config: unknown,
+    state: unknown,
+  ) {
+    this.id = id;
+    this.config = config;
+    this.state = state;
+    this.conversationManager = mockConversationManagerRef;
+    this.getConversationManager = vi.fn(() => mockConversationManagerRef);
+    this.setConversationManager = vi.fn();
+    this.setParentContext = mockSetParentContextRef;
+    this.getParentContext = mockGetParentContextRef;
+    this.cleanup = vi.fn();
+    this.getStatus = vi.fn(() => "RUNNING");
+  });
 
-    const mockCreateCheckpoint = vi.fn().mockResolvedValue("checkpoint-1");
+  const mockCreateCheckpoint = vi.fn().mockResolvedValue("checkpoint-1");
 
-    return { mockConversationManagerRef, mockSetParentContextRef, mockGetParentContextRef, MockAgentLoopEntity, mockCreateCheckpoint };
-  },
-);
+  return {
+    mockConversationManagerRef,
+    mockSetParentContextRef,
+    mockGetParentContextRef,
+    MockAgentLoopEntity,
+    mockCreateCheckpoint,
+  };
+});
 
 // Mock external dependencies
 vi.mock("../../../../utils/contextual-logger.js", () => ({
@@ -64,11 +80,9 @@ vi.mock("../../../../utils/contextual-logger.js", () => ({
 }));
 
 vi.mock("../../../checkpoint/index.js", () => ({
-  AgentLoopCheckpointCoordinator: vi.fn().mockImplementation(
-    function () {
-      return { createCheckpoint: mockCreateCheckpoint };
-    },
-  ),
+  AgentLoopCheckpointCoordinator: vi.fn().mockImplementation(function () {
+    return { createCheckpoint: mockCreateCheckpoint };
+  }),
 }));
 
 vi.mock("../../../entities/agent-loop-entity.js", () => ({
@@ -196,7 +210,9 @@ describe("AgentLoopLifecycle", () => {
 
     it("should set parent context if entity has one", () => {
       const parentContext = { parentType: "WORKFLOW" as const, parentId: "wf-1", nodeId: "node-1" };
-      (mockGetParentContextRef as unknown as ReturnType<typeof vi.fn>).mockReturnValue(parentContext);
+      (mockGetParentContextRef as unknown as ReturnType<typeof vi.fn>).mockReturnValue(
+        parentContext,
+      );
 
       const cloned = cloneAgentLoop(mockEntity);
 

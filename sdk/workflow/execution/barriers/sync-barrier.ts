@@ -1,9 +1,9 @@
 /**
  * SyncBarrier - Synchronization Barrier for Fork/Join Execution
- * 
+ *
  * Manages cross-branch synchronization by tracking fork path to execution ID mappings
  * and providing event-driven waiting mechanisms.
- * 
+ *
  * Design:
  * - Each parent workflow execution has one SyncBarrier instance
  * - Fork handler registers path-to-execution mappings when creating branches
@@ -39,25 +39,25 @@ export class SyncBarrier {
 
   /** Execution ID to path ID reverse mapping (for quick lookup) */
   private executionToPathMap: Map<ID, ID> = new Map();
-  
+
   /** Parent execution ID (the execution that owns this barrier) */
   private readonly parentExecutionId: ID;
-  
+
   /** Event registry for cross-execution event listening */
   private readonly eventManager: EventRegistry;
-  
+
   /** Execution hierarchy registry to get execution entities */
   private readonly executionRegistry?: ExecutionHierarchyRegistry;
 
   constructor(
     parentExecutionId: ID,
     eventManager: EventRegistry,
-    executionRegistry?: ExecutionHierarchyRegistry
+    executionRegistry?: ExecutionHierarchyRegistry,
   ) {
     this.parentExecutionId = parentExecutionId;
     this.eventManager = eventManager;
     this.executionRegistry = executionRegistry;
-    
+
     logger.debug("SyncBarrier initialized", {
       parentExecutionId,
     });
@@ -66,7 +66,7 @@ export class SyncBarrier {
   /**
    * Register a fork path to execution ID mapping
    * Called by fork handler when creating child executions
-   * 
+   *
    * @param forkPathId The fork path ID
    * @param executionId The child execution ID
    */
@@ -96,7 +96,7 @@ export class SyncBarrier {
 
   /**
    * Get execution ID by fork path ID
-   * 
+   *
    * @param forkPathId The fork path ID
    * @returns Execution ID or undefined if not found
    */
@@ -106,7 +106,7 @@ export class SyncBarrier {
 
   /**
    * Get fork path ID by execution ID
-   * 
+   *
    * @param executionId The execution ID
    * @returns Fork path ID or undefined if not found
    */
@@ -116,7 +116,7 @@ export class SyncBarrier {
 
   /**
    * Get all registered fork path IDs
-   * 
+   *
    * @returns Array of fork path IDs
    */
   getAllPathIds(): ID[] {
@@ -125,7 +125,7 @@ export class SyncBarrier {
 
   /**
    * Get all registered execution IDs
-   * 
+   *
    * @returns Array of execution IDs
    */
   getAllExecutionIds(): ID[] {
@@ -134,7 +134,7 @@ export class SyncBarrier {
 
   /**
    * Check if a fork path is registered
-   * 
+   *
    * @param forkPathId The fork path ID
    * @returns True if registered
    */
@@ -145,7 +145,7 @@ export class SyncBarrier {
   /**
    * Wait for a specific fork branch to complete
    * Uses event-driven waiting with optional timeout
-   * 
+   *
    * @param forkPathId The fork path ID to wait for
    * @param timeout Timeout in seconds (0 = no timeout, wait indefinitely)
    * @returns The completed workflow execution entity
@@ -153,10 +153,10 @@ export class SyncBarrier {
    */
   async waitForBranchCompletion(
     forkPathId: ID,
-    timeout: number = 0
+    timeout: number = 0,
   ): Promise<WorkflowExecutionEntity> {
     const executionId = this.pathToExecutionMap.get(forkPathId);
-    
+
     if (!executionId) {
       throw new Error(`Fork path not registered: ${forkPathId}`);
     }
@@ -179,7 +179,7 @@ export class SyncBarrier {
       if (!entity) {
         throw new Error(`Failed to get execution entity for executionId: ${executionId}`);
       }
-      
+
       const result = entity as WorkflowExecutionEntity;
 
       logger.debug("Branch completed successfully", {
@@ -198,7 +198,7 @@ export class SyncBarrier {
         });
         throw error;
       }
-      
+
       logger.error("Error waiting for branch completion", {
         forkPathId,
         executionId,
@@ -218,7 +218,7 @@ export class SyncBarrier {
    */
   async waitForMultipleBranches(
     forkPathIds: ID[],
-    timeout: number = 0
+    timeout: number = 0,
   ): Promise<WaitForMultipleResult> {
     const successful = new Map<ID, WorkflowExecutionEntity>();
     const failed: Array<{ pathId: ID; error: unknown }> = [];
@@ -229,7 +229,7 @@ export class SyncBarrier {
     });
 
     // Wait for all branches concurrently
-    const promises = forkPathIds.map(async (pathId) => {
+    const promises = forkPathIds.map(async pathId => {
       try {
         const execution = await this.waitForBranchCompletion(pathId, timeout);
         return { pathId, execution, success: true };
@@ -244,7 +244,7 @@ export class SyncBarrier {
 
     const settled = await Promise.allSettled(promises);
 
-    settled.forEach((result) => {
+    settled.forEach(result => {
       if (result.status === "fulfilled" && result.value.success) {
         successful.set(result.value.pathId, result.value.execution!);
       } else if (result.status === "fulfilled" && !result.value.success) {
@@ -284,9 +284,9 @@ export class SyncBarrier {
     paths: Array<{ forkPathId: ID; executionId: ID }>;
   } {
     const paths = Array.from(this.pathToExecutionMap.entries()).map(
-      ([forkPathId, executionId]) => ({ forkPathId, executionId })
+      ([forkPathId, executionId]) => ({ forkPathId, executionId }),
     );
-    
+
     return {
       totalPaths: this.pathToExecutionMap.size,
       parentExecutionId: this.parentExecutionId,

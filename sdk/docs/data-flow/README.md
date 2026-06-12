@@ -9,6 +9,7 @@
 **定义**：静态的工作流定义，描述工作流的结构和配置。
 
 **职责**：
+
 - 定义工作流的节点（nodes）和边（edges）
 - 定义变量（variables）、触发器（triggers）
 - 定义配置选项（config）和元数据（metadata）
@@ -16,9 +17,11 @@
 **位置**：`packages/types/src/workflow/definition.ts`
 
 **生命周期**：
+
 - 创建 → 注册到 WorkflowRegistry → 预处理 → 转换为 PreprocessedGraph
 
 **关键特征**：
+
 - 纯静态数据，不包含运行时状态
 - 可序列化，可持久化
 - 可被多个 WorkflowExecution 实例共享
@@ -28,6 +31,7 @@
 **定义**：WorkflowDefinition 经过预处理后生成的可执行图结构。
 
 **职责**：
+
 - 存储图结构（nodes、edges、邻接表）
 - 存储 ID 映射（idMapping）
 - 存储图分析结果（graphAnalysis）
@@ -37,11 +41,13 @@
 **位置**：`sdk/graph/entities/preprocessed-graph-data.ts`
 
 **生命周期**：
+
 - 由 processWorkflow() 从 WorkflowDefinition 生成
 - 注册到 GraphRegistry
 - 被 WorkflowExecution 引用
 
 **关键特征**：
+
 - 不可变数据结构
 - 包含完整的图导航信息
 - 可被多个 WorkflowExecution 实例共享
@@ -51,6 +57,7 @@
 **定义**：Workflow 的一次执行实例，包含运行时数据。
 
 **职责**：
+
 - 存储当前执行位置（currentNodeId）
 - 存储输入输出数据（input、output）
 - 存储变量作用域（variableScopes）
@@ -60,11 +67,13 @@
 **位置**：`packages/types/src/workflow/definition.ts`
 
 **生命周期**：
+
 - 由 WorkflowExecutionBuilder 从 WorkflowGraph 创建
 - 注册到 WorkflowExecutionRegistry
 - 执行 → 完成/失败/取消
 
 **关键特征**：
+
 - 包含运行时状态
 - 每次执行创建新实例
 - 可序列化（用于检查点）
@@ -74,6 +83,7 @@
 **定义**：WorkflowExecution 的实体封装，提供数据访问接口和状态管理。
 
 **职责**：
+
 - 封装 WorkflowExecution 数据对象
 - 持有 WorkflowExecutionState（运行时状态）
 - 持有 ExecutionState（子图执行栈）
@@ -84,11 +94,13 @@
 **位置**：`sdk/workflow/entities/workflow-execution-entity.ts`
 
 **生命周期**：
+
 - 由 WorkflowExecutionBuilder 创建
 - 由 WorkflowLifecycleCoordinator 管理生命周期
 - 执行完成后可被清理
 
 **关键特征**：
+
 - 纯数据实体，不包含业务逻辑
 - 提供数据访问的 getter/setter
 - 持有多个状态管理器

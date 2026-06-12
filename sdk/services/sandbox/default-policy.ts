@@ -5,7 +5,17 @@
  * Architecture reference: docs/infra/sandbox/architecture.md
  */
 
-import type { SandboxPolicy, ShellPolicy, PythonPolicy, JavaScriptPolicy, LuaPolicy, FilesystemPolicy, ProcessPolicy, NetworkPolicy, ResourcePolicy } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  ShellPolicy,
+  PythonPolicy,
+  JavaScriptPolicy,
+  LuaPolicy,
+  FilesystemPolicy,
+  ProcessPolicy,
+  NetworkPolicy,
+  ResourcePolicy,
+} from "@wf-agent/types";
 
 export const DEFAULT_SHELL_POLICY: ShellPolicy = {
   allowedCommands: [],
@@ -89,16 +99,7 @@ export const DEFAULT_JS_POLICY: JavaScriptPolicy = {
 
 export const DEFAULT_LUA_POLICY: LuaPolicy = {
   allowedModules: [],
-  deniedModules: [
-    "os",
-    "io",
-    "package",
-    "debug",
-    "ffi",
-    "socket",
-    "lfs",
-    "luaposix",
-  ],
+  deniedModules: ["os", "io", "package", "debug", "ffi", "socket", "lfs", "luaposix"],
   allowOsExecute: false,
   restrictIoOpen: true,
   allowDynamicLoad: false,
@@ -151,7 +152,21 @@ export const DEFAULT_SANDBOX_POLICY: SandboxPolicy = {
  */
 export const SHELL_POLICY_PRESETS = {
   SAFE: {
-    allowedCommands: ["git", "npm", "pnpm", "node", "ls", "cat", "echo", "cd", "pwd", "mkdir", "cp", "mv", "rm"],
+    allowedCommands: [
+      "git",
+      "npm",
+      "pnpm",
+      "node",
+      "ls",
+      "cat",
+      "echo",
+      "cd",
+      "pwd",
+      "mkdir",
+      "cp",
+      "mv",
+      "rm",
+    ],
     deniedCommands: DEFAULT_SHELL_POLICY.deniedCommands,
     dangerousPatterns: DEFAULT_SHELL_POLICY.dangerousPatterns,
     allowPipe: false,

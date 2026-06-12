@@ -34,7 +34,10 @@ export async function setVariableHandler(
     const executionEntity = workflowExecutionRegistry.get(executionId);
 
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `WorkflowExecutionEntity not found: ${executionId}`,
+        executionId,
+      );
     }
 
     for (const [name, value] of Object.entries(variables)) {

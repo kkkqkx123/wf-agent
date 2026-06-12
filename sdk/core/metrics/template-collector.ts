@@ -1,6 +1,6 @@
 /**
  * Template Usage Metrics Collector
- * 
+ *
  * Collects and aggregates metrics for template rendering and usage including:
  * - Template invocation counts
  * - Render duration distributions
@@ -101,11 +101,7 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
    * @param errorType Error type/category
    * @param context Optional context
    */
-  recordError(
-    templateId: string,
-    errorType: string,
-    context?: Record<string, string>,
-  ): void {
+  recordError(templateId: string, errorType: string, context?: Record<string, string>): void {
     this.incrementCounter(TEMPLATE_METRICS.ERROR_COUNT, {
       template_id: templateId,
       error_type: errorType,
@@ -186,13 +182,13 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const result = this.query({});
     const metrics: PrometheusMetric[] = [];
-    
+
     // Extract totals
     let totalUsage = 0;
     let totalCacheHits = 0;
     let totalCacheMisses = 0;
     let totalErrors = 0;
-    
+
     for (const [metricName, aggregated] of result.metrics.entries()) {
       switch (metricName) {
         case TEMPLATE_METRICS.INSTANTIATION_COUNT:
@@ -209,41 +205,41 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
           break;
       }
     }
-    
+
     // Total usage counter
     metrics.push({
-      name: 'template_usage_total',
-      type: 'counter',
-      help: 'Total template usages',
-      samples: [{ value: totalUsage }]
+      name: "template_usage_total",
+      type: "counter",
+      help: "Total template usages",
+      samples: [{ value: totalUsage }],
     });
-    
+
     // Cache hits
     metrics.push({
-      name: 'template_cache_hit_total',
-      type: 'counter',
-      help: 'Total cache hits',
-      samples: [{ value: totalCacheHits }]
+      name: "template_cache_hit_total",
+      type: "counter",
+      help: "Total cache hits",
+      samples: [{ value: totalCacheHits }],
     });
-    
+
     // Cache misses
     metrics.push({
-      name: 'template_cache_miss_total',
-      type: 'counter',
-      help: 'Total cache misses',
-      samples: [{ value: totalCacheMisses }]
+      name: "template_cache_miss_total",
+      type: "counter",
+      help: "Total cache misses",
+      samples: [{ value: totalCacheMisses }],
     });
-    
+
     // Errors
     if (totalErrors > 0) {
       metrics.push({
-        name: 'template_error_total',
-        type: 'counter',
-        help: 'Total template errors',
-        samples: [{ value: totalErrors }]
+        name: "template_error_total",
+        type: "counter",
+        help: "Total template errors",
+        samples: [{ value: totalErrors }],
       });
     }
-    
+
     // By template breakdown
     for (const [metricName, aggregated] of result.metrics.entries()) {
       if (aggregated.byLabel && Object.keys(aggregated.byLabel).length > 0) {
@@ -252,12 +248,12 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
             const labels = JSON.parse(labelKey);
             const templateId = labels.template_id;
             if (!templateId) continue;
-            
+
             metrics.push({
               name: `${metricName}_by_template`,
-              type: 'counter',
+              type: "counter",
               help: `Template metric by template ID`,
-              samples: [{ labels: { template_id: templateId }, value: labelAgg.value }]
+              samples: [{ labels: { template_id: templateId }, value: labelAgg.value }],
             });
           } catch (error) {
             logger.warn("Failed to parse label key", { labelKey, error });
@@ -265,18 +261,18 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
         }
       }
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     const result = this.query({});
     const templatesData: Record<string, unknown> = {};
-    
+
     // Aggregate by template_id
     for (const [metricName, aggregated] of result.metrics.entries()) {
       if (aggregated.byLabel) {
@@ -285,11 +281,11 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
             const labels = JSON.parse(labelKey);
             const templateId = labels.template_id;
             if (!templateId) continue;
-            
+
             if (!templatesData[templateId]) {
               templatesData[templateId] = {};
             }
-            
+
             const templateData = templatesData[templateId] as Record<string, number>;
             templateData[metricName] = labelAgg.value;
           } catch (error) {
@@ -298,10 +294,10 @@ export class TemplateMetricsCollector extends BaseMetricCollector {
         }
       }
     }
-    
+
     return {
-      type: 'template',
-      templates: templatesData
+      type: "template",
+      templates: templatesData,
     };
   }
 }

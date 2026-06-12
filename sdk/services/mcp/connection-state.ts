@@ -3,12 +3,7 @@
  * Handles connection state tracking and transitions
  */
 
-import type {
-  McpServerState,
-  McpServerStatus,
-  McpServerSource,
-  McpErrorEntry,
-} from "./types.js";
+import type { McpServerState, McpServerStatus, McpServerSource, McpErrorEntry } from "./types.js";
 
 /**
  * Create initial server state
@@ -17,7 +12,7 @@ export function createInitialServerState(
   name: string,
   config: string,
   source: McpServerSource,
-  projectPath?: string
+  projectPath?: string,
 ): McpServerState {
   return {
     name,
@@ -27,16 +22,15 @@ export function createInitialServerState(
     source,
     projectPath,
     errorHistory: [],
+    lastActivity: undefined,
+    lastHealthCheck: undefined,
   };
 }
 
 /**
  * Update server status
  */
-export function updateServerStatus(
-  state: McpServerState,
-  status: McpServerStatus
-): McpServerState {
+export function updateServerStatus(state: McpServerState, status: McpServerStatus): McpServerState {
   return {
     ...state,
     status,
@@ -50,7 +44,7 @@ export function addErrorToHistory(
   state: McpServerState,
   message: string,
   level: "error" | "warn" | "info" = "error",
-  maxHistory = 100
+  maxHistory = 100,
 ): McpServerState {
   const errorEntry: McpErrorEntry = {
     message: truncateMessage(message, 1000),
@@ -114,4 +108,34 @@ export function isDisabled(state: McpServerState): boolean {
 export function getServerDisplayName(state: McpServerState): string {
   const sourceIndicator = state.source === "project" ? " (project)" : "";
   return `${state.name}${sourceIndicator}`;
+}
+
+/**
+ * Update last activity timestamp (used for idle timeout tracking)
+ */
+export function updateLastActivity(state: McpServerState): McpServerState {
+  return {
+    ...state,
+    lastActivity: Date.now(),
+  };
+}
+
+/**
+ * Update last health check timestamp
+ */
+export function updateLastHealthCheck(state: McpServerState): McpServerState {
+  return {
+    ...state,
+    lastHealthCheck: Date.now(),
+  };
+}
+
+/**
+ * Check if server has been idle beyond the specified timeout
+ */
+export function isIdleBeyond(state: McpServerState, idleTimeoutMs: number): boolean {
+  if (idleTimeoutMs <= 0 || state.lastActivity === undefined) {
+    return false;
+  }
+  return Date.now() - state.lastActivity > idleTimeoutMs;
 }

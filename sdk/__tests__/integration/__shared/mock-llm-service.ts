@@ -53,7 +53,8 @@ export class MockLLMService {
    */
   private getNextResponse(): string {
     if (this.config.responseSequence.length > 0) {
-      const response = this.config.responseSequence[this.callIndex % this.config.responseSequence.length]!;
+      const response =
+        this.config.responseSequence[this.callIndex % this.config.responseSequence.length]!;
       this.callIndex++;
       return response;
     }

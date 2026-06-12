@@ -35,30 +35,33 @@ export function validateInteractiveScript(
 
   if (interactiveConfig.interactionPoints) {
     if (!Array.isArray(interactiveConfig.interactionPoints)) {
-      errors.push(
-        new ValidationError("interactionPoints must be an array", "interactionPoints"),
-      );
+      errors.push(new ValidationError("interactionPoints must be an array", "interactionPoints"));
     } else {
       for (const point of interactiveConfig.interactionPoints) {
         if (!point.prompt) {
           errors.push(
-            new ValidationError("Each interaction point must have a prompt", "interactionPoints.prompt"),
+            new ValidationError(
+              "Each interaction point must have a prompt",
+              "interactionPoints.prompt",
+            ),
           );
         }
       }
     }
   }
 
-  if (interactiveConfig.maxRounds !== undefined && (typeof interactiveConfig.maxRounds !== "number" || interactiveConfig.maxRounds < 1)) {
-    errors.push(
-      new ValidationError("maxRounds must be a positive number", "maxRounds"),
-    );
+  if (
+    interactiveConfig.maxRounds !== undefined &&
+    (typeof interactiveConfig.maxRounds !== "number" || interactiveConfig.maxRounds < 1)
+  ) {
+    errors.push(new ValidationError("maxRounds must be a positive number", "maxRounds"));
   }
 
-  if (interactiveConfig.roundTimeout !== undefined && (typeof interactiveConfig.roundTimeout !== "number" || interactiveConfig.roundTimeout < 0)) {
-    errors.push(
-      new ValidationError("roundTimeout must be a non-negative number", "roundTimeout"),
-    );
+  if (
+    interactiveConfig.roundTimeout !== undefined &&
+    (typeof interactiveConfig.roundTimeout !== "number" || interactiveConfig.roundTimeout < 0)
+  ) {
+    errors.push(new ValidationError("roundTimeout must be a non-negative number", "roundTimeout"));
   }
 
   if (errors.length > 0) {

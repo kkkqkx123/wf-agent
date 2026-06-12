@@ -119,7 +119,9 @@ export async function initializeAgentProfilesFromStorage(
   profiles: Map<string, AgentProfileMeta>,
 ): Promise<void> {
   if (!adapter) {
-    logger.debug("No storage adapter configured, skipping agent profile initialization from storage");
+    logger.debug(
+      "No storage adapter configured, skipping agent profile initialization from storage",
+    );
     return;
   }
 

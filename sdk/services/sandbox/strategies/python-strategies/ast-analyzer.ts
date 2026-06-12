@@ -8,7 +8,12 @@
  * Architecture reference: docs/infra/sandbox/strategies/python-sandbox.md
  */
 
-import type { SandboxPolicy, PythonPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  PythonPolicy,
+  ScriptExecutionResult,
+  StrategyExecuteOptions,
+} from "@wf-agent/types";
 import type { StrategyImplementation } from "../../types.js";
 import { PythonBuiltinHookStrategy } from "./builtin-hook.js";
 import { checkPythonAvailable, DEFAULT_DENIED_MODULES } from "./base.js";
@@ -167,7 +172,10 @@ for node in ast.walk(tree):
 print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
 `;
 
-    const tmpFile = path.join(os.tmpdir(), `sandbox-ast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.py`);
+    const tmpFile = path.join(
+      os.tmpdir(),
+      `sandbox-ast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.py`,
+    );
 
     try {
       fs.writeFileSync(tmpFile, analyzerScript, "utf-8");
@@ -194,7 +202,9 @@ print(json.dumps({"safe": len(violations) == 0, "violations": violations}))
     } catch (error) {
       return {
         safe: false,
-        violations: [`AST analysis error: ${error instanceof Error ? error.message : String(error)}`],
+        violations: [
+          `AST analysis error: ${error instanceof Error ? error.message : String(error)}`,
+        ],
       };
     } finally {
       try {

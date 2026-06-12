@@ -313,7 +313,9 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     if (queueTask.resolve) {
       const execResult: ExecutionResult = {
         instance: queueTask.instance,
-        executionResult: isWorkflowExecutionInstance(queueTask.instance) ? (result as WorkflowExecutionResult) : undefined,
+        executionResult: isWorkflowExecutionInstance(queueTask.instance)
+          ? (result as WorkflowExecutionResult)
+          : undefined,
         agentResult: isAgentInstance(queueTask.instance) ? result : undefined,
         executionTime,
       };

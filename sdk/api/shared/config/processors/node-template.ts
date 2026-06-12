@@ -42,7 +42,10 @@ export function validateNodeTemplate(
   const result = validateNodeTemplateConfig(template);
 
   // Use `andThen` for type conversion
-  return result.andThen(() => ok(config)) as Result<ParsedConfig<"node_template">, ValidationError[]>;
+  return result.andThen(() => ok(config)) as Result<
+    ParsedConfig<"node_template">,
+    ValidationError[]
+  >;
 }
 
 /**

@@ -150,10 +150,7 @@ describe("CountBasedCleanupStrategy", () => {
       maxCount: 5,
     });
 
-    const checkpoints = [
-      createCheckpointInfo("cp-1", 1000),
-      createCheckpointInfo("cp-2", 2000),
-    ];
+    const checkpoints = [createCheckpointInfo("cp-1", 1000), createCheckpointInfo("cp-2", 2000)];
 
     expect(strategy.execute(checkpoints)).toEqual([]);
   });
@@ -196,9 +193,7 @@ describe("CountBasedCleanupStrategy", () => {
       minRetention: 0,
     });
 
-    const checkpoints = [
-      createCheckpointInfo("cp-1", 1000),
-    ];
+    const checkpoints = [createCheckpointInfo("cp-1", 1000)];
 
     const toDelete = strategy.execute(checkpoints);
     expect(toDelete).toHaveLength(1);
@@ -275,10 +270,7 @@ describe("SizeBasedCleanupStrategy", () => {
       sizes,
     );
 
-    const checkpoints = [
-      createCheckpointInfo("cp-1", 1000),
-      createCheckpointInfo("cp-2", 2000),
-    ];
+    const checkpoints = [createCheckpointInfo("cp-1", 1000), createCheckpointInfo("cp-2", 2000)];
 
     expect(strategy.execute(checkpoints)).toEqual([]);
   });
@@ -341,19 +333,13 @@ describe("SizeBasedCleanupStrategy", () => {
   });
 
   it("should handle empty checkpoint list", () => {
-    const strategy = new SizeBasedCleanupStrategy(
-      { type: "size", maxSizeBytes: 1000 },
-      new Map(),
-    );
+    const strategy = new SizeBasedCleanupStrategy({ type: "size", maxSizeBytes: 1000 }, new Map());
     expect(strategy.execute([])).toEqual([]);
   });
 
   it("should handle null entries in checkpoint list gracefully", () => {
     const sizes = new Map<string, number>([["cp-1", 100]]);
-    const strategy = new SizeBasedCleanupStrategy(
-      { type: "size", maxSizeBytes: 50 },
-      sizes,
-    );
+    const strategy = new SizeBasedCleanupStrategy({ type: "size", maxSizeBytes: 50 }, sizes);
 
     const now = Date.now();
     const checkpoints: CheckpointInfo[] = [
@@ -370,10 +356,7 @@ describe("SizeBasedCleanupStrategy", () => {
   it("should warn when checkpoints have no recorded size", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const sizes = new Map<string, number>([["cp-1", 100]]);
-    const strategy = new SizeBasedCleanupStrategy(
-      { type: "size", maxSizeBytes: 200 },
-      sizes,
-    );
+    const strategy = new SizeBasedCleanupStrategy({ type: "size", maxSizeBytes: 200 }, sizes);
 
     const now = Date.now();
     const checkpoints = [
@@ -406,22 +389,19 @@ describe("createCleanupStrategy", () => {
   });
 
   it("should create SizeBasedCleanupStrategy with sizes", () => {
-    const strategy = createCleanupStrategy(
-      { type: "size", maxSizeBytes: 1000 },
-      new Map(),
-    );
+    const strategy = createCleanupStrategy({ type: "size", maxSizeBytes: 1000 }, new Map());
     expect(strategy).toBeInstanceOf(SizeBasedCleanupStrategy);
   });
 
   it("should throw when SizeBasedCleanupStrategy is created without sizes", () => {
-    expect(() =>
-      createCleanupStrategy({ type: "size", maxSizeBytes: 1000 }),
-    ).toThrow("Size-based cleanup policy requires checkpointSizes parameter");
+    expect(() => createCleanupStrategy({ type: "size", maxSizeBytes: 1000 })).toThrow(
+      "Size-based cleanup policy requires checkpointSizes parameter",
+    );
   });
 
   it("should throw for unknown policy type", () => {
-    expect(() =>
-      createCleanupStrategy({ type: "unknown" } as any),
-    ).toThrow("Unknown cleanup policy type: unknown");
+    expect(() => createCleanupStrategy({ type: "unknown" } as any)).toThrow(
+      "Unknown cleanup policy type: unknown",
+    );
   });
 });

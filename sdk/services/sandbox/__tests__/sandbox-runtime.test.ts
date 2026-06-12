@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  SandboxRuntime,
-  resetSandboxRuntime,
-  getSandboxRuntime,
-} from "../sandbox-runtime.js";
+import { SandboxRuntime, resetSandboxRuntime, getSandboxRuntime } from "../sandbox-runtime.js";
 import type { SandboxConfig, StrategyExecuteOptions } from "@wf-agent/types";
 
 describe("SandboxRuntime", () => {

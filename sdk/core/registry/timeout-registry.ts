@@ -1,15 +1,12 @@
 /**
  * Timeout Registry
- * 
+ *
  * Global registry for managing TimeoutManager instances across executions.
  * Provides centralized timeout registration, batch operations, and metrics aggregation.
  */
 
 import { TimeoutManager } from "../state-managers/timeout-manager.js";
-import type {
-  TimeoutHandle,
-  TimeoutRegistration,
-} from "../types/timeout.js";
+import type { TimeoutHandle, TimeoutRegistration } from "../types/timeout.js";
 import type {
   TimeoutRegistryConfig,
   ResolvedTimeoutRegistryConfig,
@@ -24,10 +21,10 @@ const logger = createContextualLogger({ component: "TimeoutRegistry" });
 
 /**
  * Timeout Registry
- * 
+ *
  * Centralized registry for managing timeouts across all executions.
  * Maintains a TimeoutManager instance per execution ID.
- * 
+ *
  * Features:
  * - Per-execution TimeoutManager management
  * - Batch operations by tag or execution ID
@@ -73,7 +70,7 @@ export class TimeoutRegistry {
     options?: {
       metricsCollector?: TimeoutMetricsCollector;
       eventRegistry?: EventRegistry;
-    }
+    },
   ) {
     this.config = {
       ...DEFAULT_TIMEOUT_REGISTRY_CONFIG,
@@ -136,7 +133,7 @@ export class TimeoutRegistry {
     // Validate tag if provided
     if (options.tag && !isValidTimeoutTag(options.tag)) {
       logger.warn(
-        `Execution '${executionId}': Timeout '${options.id}' uses non-standard tag '${options.tag}'. Consider using standard tags from timeout-tags.ts`
+        `Execution '${executionId}': Timeout '${options.id}' uses non-standard tag '${options.tag}'. Consider using standard tags from timeout-tags.ts`,
       );
     }
 
@@ -192,7 +189,7 @@ export class TimeoutRegistry {
     let cancelledCount = 0;
 
     // Cancel timeouts in all executions that have this tag
-    executionIds.forEach((executionId) => {
+    executionIds.forEach(executionId => {
       const manager = this.managers.get(executionId);
       if (manager) {
         try {
@@ -200,9 +197,7 @@ export class TimeoutRegistry {
           manager.clear();
           cancelledCount += statsBefore.activeTimeouts;
         } catch (error) {
-          logger.error(
-            `Failed to cancel timeouts with tag '${tag}' for execution ${executionId}`,
-          );
+          logger.error(`Failed to cancel timeouts with tag '${tag}' for execution ${executionId}`);
         }
       }
     });
@@ -226,7 +221,7 @@ export class TimeoutRegistry {
 
     // Collect all unique execution IDs that have any of the specified tags
     const executionIdsToCancel = new Set<string>();
-    
+
     tags.forEach(tag => {
       const executionIds = this.tagIndex.get(tag);
       if (executionIds) {
@@ -244,9 +239,7 @@ export class TimeoutRegistry {
           manager.clear();
           totalCancelled += statsBefore.activeTimeouts;
         } catch (error) {
-          logger.error(
-            `Failed to cancel timeouts for execution ${executionId}`,
-          );
+          logger.error(`Failed to cancel timeouts for execution ${executionId}`);
         }
       }
     });
@@ -280,7 +273,7 @@ export class TimeoutRegistry {
     const byTag: Record<string, number> = {};
     const byCategory: Record<string, number> = {};
 
-    this.managers.forEach((manager) => {
+    this.managers.forEach(manager => {
       const stats = manager.getStats();
       totalTimeouts += stats.activeTimeouts;
       timedOutCount += stats.timedOutCount;
@@ -289,7 +282,7 @@ export class TimeoutRegistry {
       // Aggregate tag statistics
       Object.entries(stats.byTag).forEach(([tag, count]) => {
         byTag[tag] = (byTag[tag] || 0) + count;
-        
+
         // Also aggregate by category
         const category = getTagCategory(tag);
         if (category) {
@@ -320,10 +313,10 @@ export class TimeoutRegistry {
       try {
         // Get stats before clearing to capture current state
         const statsBefore = manager.getStats();
-        
+
         // Clear all timeouts (this will update manager's internal cancelledCount)
         manager.clear();
-        
+
         // Update global statistics
         // The active timeouts that were cleared should be counted as cancelled
         this.globalStats.cancelledCount += statsBefore.activeTimeouts;
@@ -432,11 +425,7 @@ export class TimeoutRegistry {
    * Get all active timeouts across all executions
    * Useful for debugging and monitoring
    */
-  getActiveTimeouts(filter?: {
-    executionId?: string;
-    tag?: string;
-    category?: string;
-  }): Array<{
+  getActiveTimeouts(filter?: { executionId?: string; tag?: string; category?: string }): Array<{
     executionId: string;
     timeoutId: string;
     tag?: string;
@@ -467,13 +456,13 @@ export class TimeoutRegistry {
 
       // Get snapshot to access timeout details
       const snapshot = manager.createSnapshot();
-      
-      snapshot.timeouts.forEach((timeout) => {
-        if (timeout.status !== 'active') {
+
+      snapshot.timeouts.forEach(timeout => {
+        if (timeout.status !== "active") {
           return;
         }
 
-        const timeoutTag = timeout.metadata?.['tag'] as string | undefined;
+        const timeoutTag = timeout.metadata?.["tag"] as string | undefined;
 
         // Filter by tag if specified
         if (filter?.tag && timeoutTag !== filter.tag) {
@@ -516,19 +505,19 @@ export class TimeoutRegistry {
     remainingTime: number;
   }> {
     const stuckTimeouts: Array<{
-    executionId: string;
-    timeoutId: string;
-    tag?: string;
-    duration: number;
-    startTime: number;
-    progressPercent: number;
-    remainingTime: number;
-  }> = [];
+      executionId: string;
+      timeoutId: string;
+      tag?: string;
+      duration: number;
+      startTime: number;
+      progressPercent: number;
+      remainingTime: number;
+    }> = [];
     const activeTimeouts = this.getActiveTimeouts();
 
-    activeTimeouts.forEach((timeout) => {
+    activeTimeouts.forEach(timeout => {
       const progressPercent = ((timeout.duration - timeout.remainingTime) / timeout.duration) * 100;
-      
+
       if (progressPercent >= thresholdPercent) {
         stuckTimeouts.push({
           executionId: timeout.executionId,
@@ -554,26 +543,26 @@ export class TimeoutRegistry {
     histograms: Array<{ name: string; buckets: Array<{ le: number; count: number }>; sum: number }>;
   } {
     const stats = this.getStats();
-    
+
     return {
       gauges: [
-        { name: 'timeout_active_total', value: stats.totalTimeouts, labels: {} },
-        { name: 'timeout_executions_active', value: stats.activeExecutions, labels: {} },
+        { name: "timeout_active_total", value: stats.totalTimeouts, labels: {} },
+        { name: "timeout_executions_active", value: stats.activeExecutions, labels: {} },
         ...Object.entries(stats.byTag).map(([tag, count]) => ({
-          name: 'timeout_active_by_tag',
+          name: "timeout_active_by_tag",
           value: count,
           labels: { tag },
         })),
         ...Object.entries(stats.byCategory).map(([category, count]) => ({
-          name: 'timeout_active_by_category',
+          name: "timeout_active_by_category",
           value: count,
           labels: { category },
         })),
       ],
       counters: [
-        { name: 'timeout_registered_total', value: stats.totalRegistered, labels: {} },
-        { name: 'timeout_expired_total', value: stats.timedOutCount, labels: {} },
-        { name: 'timeout_cancelled_total', value: stats.cancelledCount, labels: {} },
+        { name: "timeout_registered_total", value: stats.totalRegistered, labels: {} },
+        { name: "timeout_expired_total", value: stats.timedOutCount, labels: {} },
+        { name: "timeout_cancelled_total", value: stats.cancelledCount, labels: {} },
       ],
       histograms: [], // Would need histogram data from TimeoutManager
     };
@@ -601,7 +590,8 @@ export class TimeoutRegistry {
   /**
    * Start resource monitoring to detect and clean up stale managers
    */
-  private startResourceMonitoring(intervalMs: number = 5 * 60 * 1000): void { // 5 minutes
+  private startResourceMonitoring(intervalMs: number = 5 * 60 * 1000): void {
+    // 5 minutes
     if (this.resourceMonitoringInterval) {
       clearInterval(this.resourceMonitoringInterval);
     }
@@ -621,7 +611,7 @@ export class TimeoutRegistry {
     this.managers.forEach((manager, executionId) => {
       try {
         const stats = manager.getStats();
-        
+
         // If there are no active timeouts and the manager has been idle for too long
         if (stats.activeTimeouts === 0 && stats.totalRegistered > 0) {
           // Check if this manager should be cleaned up

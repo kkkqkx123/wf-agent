@@ -17,10 +17,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  createFullAgentLoopFixture,
-  createBasicAgentConfig,
-} from "./__shared/fixtures.js";
+import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
 
 describe("Agent Loop API Integration", () => {
@@ -60,7 +57,11 @@ describe("Agent Loop API Integration", () => {
         {
           content: "Using tool.",
           toolCalls: [
-            { id: "call_1", name: "mock_echo_tool", arguments: JSON.stringify({ message: "step1" }) },
+            {
+              id: "call_1",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "step1" }),
+            },
           ],
         },
         { content: "Final answer after two iterations." },
@@ -87,7 +88,11 @@ describe("Agent Loop API Integration", () => {
         {
           content: "Calling echo tool.",
           toolCalls: [
-            { id: "call_echo", name: "mock_echo_tool", arguments: JSON.stringify({ message: "hello" }) },
+            {
+              id: "call_echo",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "hello" }),
+            },
           ],
         },
         { content: "Tool returned successfully. Final answer." },

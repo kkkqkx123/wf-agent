@@ -16,7 +16,7 @@ export class NodeBuilder extends BaseBuilder<StaticNode> {
   private _id: string;
   private _type?: StaticNodeType;
   private _name?: string;
-  private _config: Partial<StaticNode['config']> = {};
+  private _config: Partial<StaticNode["config"]> = {};
   private globalContext: GlobalContext;
 
   private constructor(globalContext: GlobalContext, id?: string) {
@@ -62,7 +62,7 @@ export class NodeBuilder extends BaseBuilder<StaticNode> {
    * @param config node configuration
    * @returns this
    */
-  config(config: StaticNode['config']): this {
+  config(config: StaticNode["config"]): this {
     this._config = config;
     this.updateTimestamp();
     return this;
@@ -73,7 +73,7 @@ export class NodeBuilder extends BaseBuilder<StaticNode> {
    * @param partialConfig partialConfig object that merges shallow into existing configuration
    * @returns this
    */
-  mergeConfig(partialConfig: Partial<StaticNode['config']>): this {
+  mergeConfig(partialConfig: Partial<StaticNode["config"]>): this {
     this._config = { ...this._config, ...partialConfig };
     this.updateTimestamp();
     return this;
@@ -85,7 +85,7 @@ export class NodeBuilder extends BaseBuilder<StaticNode> {
    * @param configOverride Configuration override (optional)
    * @returns this
    */
-  fromTemplate(templateName: string, configOverride?: Partial<StaticNode['config']>): this {
+  fromTemplate(templateName: string, configOverride?: Partial<StaticNode["config"]>): this {
     const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
     const template = nodeTemplateRegistry.get(templateName);
     if (!template) {
@@ -125,7 +125,7 @@ export class NodeBuilder extends BaseBuilder<StaticNode> {
       id: this._id,
       type: this._type,
       name: this._name || this._id,
-      config: this._config as StaticNode['config'],
+      config: this._config as StaticNode["config"],
     } as StaticNode;
   }
 

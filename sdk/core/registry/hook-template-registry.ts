@@ -13,10 +13,7 @@ import {
 } from "@wf-agent/types";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import type { HookTemplateStorageAdapter } from "@wf-agent/storage";
-import {
-  persistHookTemplate,
-  removeHookTemplate,
-} from "./utils/hook-template-storage-utils.js";
+import { persistHookTemplate, removeHookTemplate } from "./utils/hook-template-storage-utils.js";
 
 /**
  * HookTemplate Registry Class
@@ -24,9 +21,7 @@ import {
 class HookTemplateRegistry {
   private templates: Map<string, HookTemplate> = new Map();
 
-  constructor(
-    private readonly storageAdapter: HookTemplateStorageAdapter | null = null,
-  ) {}
+  constructor(private readonly storageAdapter: HookTemplateStorageAdapter | null = null) {}
 
   /**
    * Register a hook template.

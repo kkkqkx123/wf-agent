@@ -1,6 +1,6 @@
 /**
  * Factory interface for services that need runtime parameters
- * 
+ *
  * This interface provides a type-safe way to create service instances
  * that require runtime arguments (like executionId, workflowId, etc.)
  */
@@ -80,7 +80,7 @@ export interface InterruptionStateFactory<T> {
  * @returns A properly typed factory
  */
 export function createFactory<T, Args extends unknown[]>(
-  factoryFn: (...args: Args) => T
+  factoryFn: (...args: Args) => T,
 ): ServiceFactory<T, Args> {
   return {
     create: factoryFn,
@@ -93,9 +93,7 @@ export function createFactory<T, Args extends unknown[]>(
  * @param factoryFn The factory creation function taking an ID
  * @returns A properly typed ID-based factory
  */
-export function createIdBasedFactory<T>(
-  factoryFn: (id: string) => T
-): IdBasedServiceFactory<T> {
+export function createIdBasedFactory<T>(factoryFn: (id: string) => T): IdBasedServiceFactory<T> {
   return {
     create: factoryFn,
   };

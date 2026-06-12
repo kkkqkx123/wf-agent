@@ -21,7 +21,8 @@ export const executeWorkflowSchema: ToolParameterSchema = {
     },
     messageContexts: {
       type: "object",
-      description: "Named message contexts to pass to the workflow. Keys are context IDs, values are message arrays.",
+      description:
+        "Named message contexts to pass to the workflow. Keys are context IDs, values are message arrays.",
       additionalProperties: {
         type: "array",
         items: {

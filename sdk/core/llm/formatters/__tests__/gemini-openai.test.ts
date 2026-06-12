@@ -8,7 +8,7 @@ import type { FormatterConfig } from "../types.js";
 
 vi.mock("../tool-converter.js", () => ({
   convertToolsToOpenAIFormat: vi.fn((tools: any[]) =>
-    tools.map((t: any) => ({ type: "function", function: { name: t.name } }))
+    tools.map((t: any) => ({ type: "function", function: { name: t.name } })),
   ),
 }));
 
@@ -90,9 +90,7 @@ describe("GeminiOpenAIFormatter", () => {
         candidates: [
           {
             content: {
-              parts: [
-                { functionCall: { name: "get_weather", args: { city: "Tokyo" } } },
-              ],
+              parts: [{ functionCall: { name: "get_weather", args: { city: "Tokyo" } } }],
             },
             finishReason: "STOP",
           },
@@ -171,7 +169,9 @@ describe("GeminiOpenAIFormatter", () => {
         {
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "call-1", type: "function", function: { name: "test", arguments: '{"x":1}' } }],
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "test", arguments: '{"x":1}' } },
+          ],
         },
       ];
       const result = formatter.convertMessages(messages) as any[];
@@ -182,18 +182,14 @@ describe("GeminiOpenAIFormatter", () => {
 
   describe("parseToolCalls", () => {
     it("should parse function-call-style tool calls", () => {
-      const toolCalls = [
-        { functionCall: { name: "search", args: { q: "hello" } } },
-      ];
+      const toolCalls = [{ functionCall: { name: "search", args: { q: "hello" } } }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);
       expect(result[0]!.function.name).toBe("search");
     });
 
     it("should parse flat-style tool calls", () => {
-      const toolCalls = [
-        { id: "call-1", name: "get_info", args: '{"id":42}' },
-      ];
+      const toolCalls = [{ id: "call-1", name: "get_info", args: '{"id":42}' }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result[0]!.function.name).toBe("get_info");
     });

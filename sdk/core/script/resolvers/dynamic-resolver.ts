@@ -23,7 +23,7 @@ export class DynamicResolver {
       return this.resolveString(value, context);
     }
     if (Array.isArray(value)) {
-      return value.map((item) => this.resolve(item, context));
+      return value.map(item => this.resolve(item, context));
     }
     if (value !== null && typeof value === "object") {
       const resolved: Record<string, unknown> = {};

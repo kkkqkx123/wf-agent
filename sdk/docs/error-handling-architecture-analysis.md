@@ -17,16 +17,17 @@ ErrorService.handleError(error, context)
 ```
 
 **核心发现**：ErrorService 本质上只是两个操作的简单封装：
+
 1. `logger.error/warn/info()` - 日志记录
 2. `safeEmit(eventManager, buildErrorEvent(...))` - 事件触发
 
 ### 1.2 当前使用情况
 
-| 模块 | 错误处理方式 | 问题 |
-|------|-------------|------|
-| **Agent 模块** | `agent-error-handler.ts` → ErrorService | 统一、规范 |
-| **Graph 模块** | 直接 `throw new XError()` + 注释 | 未调用 ErrorService |
-| **Core 模块** | 直接 `logger.error()` | 绕过 ErrorService |
+| 模块           | 错误处理方式                            | 问题                |
+| -------------- | --------------------------------------- | ------------------- |
+| **Agent 模块** | `agent-error-handler.ts` → ErrorService | 统一、规范          |
+| **Graph 模块** | 直接 `throw new XError()` + 注释        | 未调用 ErrorService |
+| **Core 模块**  | 直接 `logger.error()`                   | 绕过 ErrorService   |
 
 ### 1.3 存在的问题
 
@@ -49,10 +50,10 @@ ErrorService.handleError(error, context)
 
 ### 2.1 两者职责不同
 
-| 组件 | 职责 | 层级 |
-|------|------|------|
-| **ErrorService** | 基础服务：日志记录 + 事件触发 | 服务层（DI 管理） |
-| **agent-error-handler** | 业务处理：上下文构建 + 错误标准化 + 状态管理 | 业务层（函数式） |
+| 组件                    | 职责                                         | 层级              |
+| ----------------------- | -------------------------------------------- | ----------------- |
+| **ErrorService**        | 基础服务：日志记录 + 事件触发                | 服务层（DI 管理） |
+| **agent-error-handler** | 业务处理：上下文构建 + 错误标准化 + 状态管理 | 业务层（函数式）  |
 
 **调用链**：`handler` → `ErrorService.handleError()`
 
@@ -83,14 +84,14 @@ await safeEmit(eventManager, buildErrorEvent({ threadId, workflowId, nodeId, err
 
 ### 对比表
 
-| 维度 | 方案A: ErrorService 全局单例 | 方案B: 无状态函数 + 直接调用 |
-|------|------------------------------|------------------------------|
+| 维度         | 方案A: ErrorService 全局单例                | 方案B: 无状态函数 + 直接调用                          |
+| ------------ | ------------------------------------------- | ----------------------------------------------------- |
 | **调用方式** | `container.get(ErrorService).handleError()` | `logError(error); safeEmit(em, buildErrorEvent(...))` |
-| **依赖** | 需要 DI 容器获取 | 直接传入 eventManager |
-| **代码量** | 封装后调用简单 | 调用处代码稍多 |
-| **灵活性** | 固定行为，难以定制 | 可按需定制日志/事件 |
-| **一致性** | 强制统一 | 依赖开发者自觉 |
-| **测试性** | 需要 mock DI 容器 | 直接 mock 函数 |
+| **依赖**     | 需要 DI 容器获取                            | 直接传入 eventManager                                 |
+| **代码量**   | 封装后调用简单                              | 调用处代码稍多                                        |
+| **灵活性**   | 固定行为，难以定制                          | 可按需定制日志/事件                                   |
+| **一致性**   | 强制统一                                    | 依赖开发者自觉                                        |
+| **测试性**   | 需要 mock DI 容器                           | 直接 mock 函数                                        |
 
 ## 四、推荐方案
 
@@ -118,11 +119,11 @@ await safeEmit(eventManager, buildErrorEvent({ threadId, workflowId, nodeId, err
  * - 灵活性：调用处可按需定制
  */
 
-import type { EventManager } from '../../managers/event-manager.js';
-import type { SDKError } from '@modular-agent/types';
-import { buildErrorEvent } from '../event/builders/index.js';
-import { safeEmit } from '../event/event-emitter.js';
-import { logger } from '../../utils/logger.js';
+import type { EventManager } from "../../managers/event-manager.js";
+import type { SDKError } from "@modular-agent/types";
+import { buildErrorEvent } from "../event/builders/index.js";
+import { safeEmit } from "../event/event-emitter.js";
+import { logger } from "../../utils/logger.js";
 
 /**
  * 记录错误日志（根据 severity 选择级别）
@@ -130,25 +131,22 @@ import { logger } from '../../utils/logger.js';
  * @param error SDKError 对象
  * @param context 额外的上下文信息
  */
-export function logError(
-  error: SDKError,
-  context?: Record<string, any>
-): void {
+export function logError(error: SDKError, context?: Record<string, any>): void {
   const logData = {
     errorType: error.constructor.name,
     errorMessage: error.message,
     severity: error.severity,
-    ...context
+    ...context,
   };
 
   switch (error.severity) {
-    case 'error':
+    case "error":
       logger.error(error.message, logData);
       break;
-    case 'warning':
+    case "warning":
       logger.warn(error.message, logData);
       break;
-    case 'info':
+    case "info":
       logger.info(error.message, logData);
       break;
   }
@@ -167,7 +165,7 @@ export async function emitErrorEvent(
     workflowId: string;
     nodeId?: string;
     error: Error;
-  }
+  },
 ): Promise<void> {
   await safeEmit(eventManager, buildErrorEvent(params));
 }
@@ -187,7 +185,7 @@ export async function handleError(
     threadId: string;
     workflowId: string;
     nodeId?: string;
-  }
+  },
 ): Promise<void> {
   // 记录日志
   logError(error, params);
@@ -200,7 +198,7 @@ export async function handleError(
 ### 4.3 调用示例
 
 ```typescript
-import { handleError, logError, emitErrorEvent } from '@modular-agent/core/utils/error-utils';
+import { handleError, logError, emitErrorEvent } from "@modular-agent/core/utils/error-utils";
 
 // 方式1：使用便捷函数（日志 + 事件）
 await handleError(eventManager, error, { threadId, workflowId, nodeId });
@@ -245,12 +243,12 @@ await emitErrorEvent(eventManager, { threadId, workflowId, nodeId, error });
 
 ## 六、总结
 
-| 结论 | 说明 |
-|------|------|
-| **ErrorService 不必要** | 只是对 logger + safeEmit 的简单封装 |
-| **推荐无状态函数** | 符合 SDK 现有模式，减少抽象层 |
-| **保留 buildErrorEvent** | 已有的事件 builder 设计合理 |
-| **移除无效注释** | 当前大量 `// 由 ErrorService 统一处理` 注释是误导性的 |
+| 结论                     | 说明                                                  |
+| ------------------------ | ----------------------------------------------------- |
+| **ErrorService 不必要**  | 只是对 logger + safeEmit 的简单封装                   |
+| **推荐无状态函数**       | 符合 SDK 现有模式，减少抽象层                         |
+| **保留 buildErrorEvent** | 已有的事件 builder 设计合理                           |
+| **移除无效注释**         | 当前大量 `// 由 ErrorService 统一处理` 注释是误导性的 |
 
 ## 七、相关文件
 

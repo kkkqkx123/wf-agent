@@ -43,7 +43,7 @@ describe("executeOperation - APPEND", () => {
   it("should append messages to the end", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: AppendMessageOperation = {
       operation: "APPEND",
       messages: createMockMessages(2, "assistant"),
@@ -59,7 +59,7 @@ describe("executeOperation - APPEND", () => {
   it("should not affect visibility", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: AppendMessageOperation = {
       operation: "APPEND",
       messages: createMockMessages(2),
@@ -77,7 +77,7 @@ describe("executeOperation - TRUNCATE", () => {
   it("should truncate messages with keepLast strategy", async () => {
     const messages = createMockMessages(5);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2, 3, 4]);
-    
+
     const operation: TruncateMessageOperation = {
       operation: "TRUNCATE",
       strategy: { type: "KEEP_LAST", count: 3 },
@@ -92,7 +92,7 @@ describe("executeOperation - TRUNCATE", () => {
   it("should create new batch if specified", async () => {
     const messages = createMockMessages(5);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2, 3, 4]);
-    
+
     const operation: TruncateMessageOperation = {
       operation: "TRUNCATE",
       strategy: { type: "KEEP_FIRST", count: 2 },
@@ -106,8 +106,12 @@ describe("executeOperation - TRUNCATE", () => {
 
   it("should handle visibleOnly mode", async () => {
     const messages = createMockMessages(10);
-    const markMap = createMockMarkMap(0, [5], Array.from({ length: 10 }, (_, i) => i));
-    
+    const markMap = createMockMarkMap(
+      0,
+      [5],
+      Array.from({ length: 10 }, (_, i) => i),
+    );
+
     const operation: TruncateMessageOperation = {
       operation: "TRUNCATE",
       strategy: { type: "KEEP_LAST", count: 2 },
@@ -127,7 +131,7 @@ describe("executeOperation - INSERT", () => {
   it("should insert messages at specified position", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: InsertMessageOperation = {
       operation: "INSERT",
       position: 1,
@@ -143,7 +147,7 @@ describe("executeOperation - INSERT", () => {
   it("should append when position is -1", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: InsertMessageOperation = {
       operation: "INSERT",
       position: -1,
@@ -161,7 +165,7 @@ describe("executeOperation - REPLACE", () => {
   it("should replace message at specified index", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: ReplaceMessageOperation = {
       operation: "REPLACE",
       index: 1,
@@ -177,7 +181,7 @@ describe("executeOperation - REPLACE", () => {
   it("should throw error for out of bounds index", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: ReplaceMessageOperation = {
       operation: "REPLACE",
       index: 10,
@@ -192,7 +196,7 @@ describe("executeOperation - CLEAR", () => {
   it("should clear all messages", async () => {
     const messages = createMockMessages(5);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2, 3, 4]);
-    
+
     const operation: ClearMessageOperation = {
       operation: "CLEAR",
     };
@@ -204,8 +208,12 @@ describe("executeOperation - CLEAR", () => {
 
   it("should clear only visible messages in visibleOnly mode", async () => {
     const messages = createMockMessages(10);
-    const markMap = createMockMarkMap(0, [5], Array.from({ length: 10 }, (_, i) => i));
-    
+    const markMap = createMockMarkMap(
+      0,
+      [5],
+      Array.from({ length: 10 }, (_, i) => i),
+    );
+
     const operation: ClearMessageOperation = {
       operation: "CLEAR",
     };
@@ -229,7 +237,7 @@ describe("executeOperation - FILTER", () => {
       { role: "assistant", content: "Assistant 2" },
     ];
     const markMap = createMockMarkMap(0, [0], [0, 1, 2, 3]);
-    
+
     const operation: FilterMessageOperation = {
       operation: "FILTER",
       roles: ["user"],
@@ -248,7 +256,7 @@ describe("executeOperation - FILTER", () => {
       { role: "user", content: "Hello there" },
     ];
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: FilterMessageOperation = {
       operation: "FILTER",
       contentContains: ["Hello"],
@@ -268,7 +276,7 @@ describe("executeOperation - FILTER", () => {
       { role: "assistant", content: "Assistant 2" },
     ];
     const markMap = createMockMarkMap(0, [2], [0, 1, 2, 3, 4]);
-    
+
     const operation: FilterMessageOperation = {
       operation: "FILTER",
       roles: ["user"],
@@ -287,8 +295,12 @@ describe("executeOperation - FILTER", () => {
 describe("executeOperation - ROLLBACK", () => {
   it("should rollback to specified batch", async () => {
     const messages = createMockMessages(10);
-    const markMap = createMockMarkMap(2, [0, 5, 10], Array.from({ length: 10 }, (_, i) => i));
-    
+    const markMap = createMockMarkMap(
+      2,
+      [0, 5, 10],
+      Array.from({ length: 10 }, (_, i) => i),
+    );
+
     const operation: RollbackMessageOperation = {
       operation: "ROLLBACK",
       targetBatchIndex: 1,
@@ -306,7 +318,7 @@ describe("executeOperation - Callback", () => {
   it("should call callback after operation", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation: AppendMessageOperation = {
       operation: "APPEND",
       messages: createMockMessages(2),
@@ -327,7 +339,7 @@ describe("executeOperation - Error handling", () => {
   it("should throw error for unsupported operation type", async () => {
     const messages = createMockMessages(3);
     const markMap = createMockMarkMap(0, [0], [0, 1, 2]);
-    
+
     const operation = {
       operation: "INVALID_OPERATION",
     } as any;
@@ -339,8 +351,12 @@ describe("executeOperation - Error handling", () => {
 describe("executeOperation - Statistics", () => {
   it("should calculate correct statistics", async () => {
     const messages = createMockMessages(10);
-    const markMap = createMockMarkMap(0, [5], Array.from({ length: 10 }, (_, i) => i));
-    
+    const markMap = createMockMarkMap(
+      0,
+      [5],
+      Array.from({ length: 10 }, (_, i) => i),
+    );
+
     const operation: AppendMessageOperation = {
       operation: "APPEND",
       messages: createMockMessages(2),

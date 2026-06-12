@@ -28,11 +28,7 @@ import { RuntimeValidator } from "../validation/tool-runtime-validator.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { createBuiltinTools } from "../../resources/predefined/tools/builtin/index.js";
 import type { ToolStorageAdapter } from "@wf-agent/storage";
-import {
-  persistTool,
-  removeTool,
-  initializeToolsFromStorage,
-} from "./utils/tool-storage-utils.js";
+import { persistTool, removeTool, initializeToolsFromStorage } from "./utils/tool-storage-utils.js";
 
 const logger = createContextualLogger({ component: "ToolRegistry" });
 
@@ -181,8 +177,6 @@ class ToolRegistry {
     }
     return tool;
   }
-
-
 
   /**
    * Check if the tool exists
@@ -395,12 +389,12 @@ class ToolRegistry {
     const statefulExecutor = this.executors.get("STATEFUL");
     if (
       statefulExecutor &&
-      typeof (statefulExecutor as { cleanupWorkflowExecution?: (executionId: string) => void }).cleanupWorkflowExecution ===
-        "function"
+      typeof (statefulExecutor as { cleanupWorkflowExecution?: (executionId: string) => void })
+        .cleanupWorkflowExecution === "function"
     ) {
-      (statefulExecutor as unknown as { cleanupWorkflowExecution: (executionId: string) => void }).cleanupWorkflowExecution(
-        executionId,
-      );
+      (
+        statefulExecutor as unknown as { cleanupWorkflowExecution: (executionId: string) => void }
+      ).cleanupWorkflowExecution(executionId);
       logger.debug("Workflow execution stateful tools cleaned up", { executionId });
     }
   }

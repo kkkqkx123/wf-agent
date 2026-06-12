@@ -8,7 +8,11 @@
 export { createPredefinedWorkflows } from "./registry.js";
 
 // Export type definitions
-export type { PredefinedWorkflowsOptions, WorkflowCategory, PredefinedWorkflowMetadata } from "./types.js";
+export type {
+  PredefinedWorkflowsOptions,
+  WorkflowCategory,
+  PredefinedWorkflowMetadata,
+} from "./types.js";
 
 // Export registration-related functions
 export {

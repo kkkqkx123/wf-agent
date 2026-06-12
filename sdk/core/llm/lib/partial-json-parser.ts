@@ -1,9 +1,9 @@
 /**
  * Partial JSON Parser
- * 
+ *
  * Borrowed from the Anthropic SDK for parsing incomplete JSON strings.
  * Able to handle partial JSON data in streams, returning usable parsed results.
- * 
+ *
  * How it works:
  * 1. Tokenize: parses the input string into a stream of tokens.
  * 2. Strip: remove trailing tokens that may cause parsing failure

@@ -124,7 +124,7 @@ export type CommandDecision = "auto_approve" | "auto_deny" | "ask_user";
 export function getCommandDecision(
   command: string,
   allowedCommands: string[],
-  deniedCommands?: string[]
+  deniedCommands?: string[],
 ): CommandDecision {
   if (!command?.trim()) {
     return "auto_approve";
@@ -139,7 +139,7 @@ export function getCommandDecision(
   const subCommands = parseCommandChain(command);
 
   // Check each sub-command and collect decisions
-  const decisions: CommandDecision[] = subCommands.map((cmd) => {
+  const decisions: CommandDecision[] = subCommands.map(cmd => {
     // Remove simple PowerShell-like redirections (e.g. 2>&1) before checking
     const cmdWithoutRedirection = cmd.replace(/\d*>&\d*/, "").trim();
     return getSingleCommandDecision(cmdWithoutRedirection, allowedCommands, deniedCommands);
@@ -151,7 +151,7 @@ export function getCommandDecision(
   }
 
   // If all sub-commands are approved, approve the whole command
-  if (decisions.every((decision) => decision === "auto_approve")) {
+  if (decisions.every(decision => decision === "auto_approve")) {
     return "auto_approve";
   }
 
@@ -179,7 +179,7 @@ export function getCommandDecision(
 export function getSingleCommandDecision(
   command: string,
   allowedCommands: string[],
-  deniedCommands?: string[]
+  deniedCommands?: string[],
 ): CommandDecision {
   if (!command) return "auto_approve";
 
@@ -189,13 +189,13 @@ export function getSingleCommandDecision(
   }
 
   // Check if wildcard is present in allowlist
-  const hasWildcard = allowedCommands.some((cmd) => cmd.toLowerCase() === "*");
+  const hasWildcard = allowedCommands.some(cmd => cmd.toLowerCase() === "*");
 
   // If no denylist provided (undefined), use simple allowlist logic
   if (deniedCommands === undefined) {
     const trimmedCommand = command.trim().toLowerCase();
 
-    const hasMatch = allowedCommands.some((prefix) => {
+    const hasMatch = allowedCommands.some(prefix => {
       const lowerPrefix = prefix.toLowerCase();
       return lowerPrefix === "*" || trimmedCommand.startsWith(lowerPrefix);
     });

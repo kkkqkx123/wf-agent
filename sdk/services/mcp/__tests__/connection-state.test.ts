@@ -26,7 +26,12 @@ function makeState(overrides: Partial<McpServerState> = {}): McpServerState {
 describe("Connection State Management", () => {
   describe("createInitialServerState", () => {
     it("should create with disconnected status", () => {
-      const state = createInitialServerState("my-server", '{"type":"stdio","command":"test"}', "project", "/project/path");
+      const state = createInitialServerState(
+        "my-server",
+        '{"type":"stdio","command":"test"}',
+        "project",
+        "/project/path",
+      );
       expect(state.name).toBe("my-server");
       expect(state.status).toBe("disconnected");
       expect(state.disabled).toBe(false);
@@ -36,7 +41,7 @@ describe("Connection State Management", () => {
     });
 
     it("should create without projectPath", () => {
-      const state = createInitialServerState("s", '{}', "global");
+      const state = createInitialServerState("s", "{}", "global");
       expect(state.projectPath).toBeUndefined();
     });
   });

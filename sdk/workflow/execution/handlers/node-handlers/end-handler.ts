@@ -45,10 +45,14 @@ export async function endHandler(
   const output = workflowExecutionEntity.getOutput() || {};
 
   // Process dataOutputs from END node config: map internal variables to output keys
-  const endConfig = node.config as { dataOutputs?: Array<{ internalName: string; outputKey: string; description?: string }> } | undefined;
+  const endConfig = node.config as
+    | { dataOutputs?: Array<{ internalName: string; outputKey: string; description?: string }> }
+    | undefined;
   if (endConfig?.dataOutputs && endConfig.dataOutputs.length > 0) {
     for (const dataOutput of endConfig.dataOutputs) {
-      const value = workflowExecutionEntity.variableStateManager.getVariable(dataOutput.internalName);
+      const value = workflowExecutionEntity.variableStateManager.getVariable(
+        dataOutput.internalName,
+      );
       if (value !== undefined) {
         (output as Record<string, unknown>)[dataOutput.outputKey] = value;
       }

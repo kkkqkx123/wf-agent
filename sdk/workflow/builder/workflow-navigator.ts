@@ -46,16 +46,16 @@ export interface RoutingDecision {
 export interface PathEnumerationOptions {
   /** Maximum number of paths to return (default: 100) */
   maxPaths?: number;
-  
+
   /** Maximum depth per path (default: 50) */
   maxDepth?: number;
-  
+
   /** Stop after finding first path to END node (default: false) */
   stopAtFirstEnd?: boolean;
-  
+
   /** Timeout in milliseconds (default: 5000ms) */
   timeoutMs?: number;
-  
+
   /** Callback for progress reporting - return false to stop */
   onPathFound?: (path: ID[], totalCount: number) => boolean;
 }
@@ -66,15 +66,15 @@ export interface PathEnumerationOptions {
 export interface PathEnumerationResult {
   /** Paths found (up to maxPaths limit) */
   paths: ID[][];
-  
+
   /** Whether enumeration was truncated */
   truncated: boolean;
-  
+
   /** Total number of paths found (may exceed paths.length) */
   totalCount: number;
-  
+
   /** Reason for truncation, if any */
-  reason?: 'MAX_PATHS' | 'MAX_DEPTH' | 'TIMEOUT' | 'USER_CANCELLED' | 'COMPLETE';
+  reason?: "MAX_PATHS" | "MAX_DEPTH" | "TIMEOUT" | "USER_CANCELLED" | "COMPLETE";
 }
 
 /**
@@ -383,36 +383,36 @@ export class WorkflowNavigator {
    */
   getAllExecutionPaths(
     fromNodeId: ID,
-    options: PathEnumerationOptions = {}
+    options: PathEnumerationOptions = {},
   ): PathEnumerationResult {
     const {
       maxPaths = 100,
       maxDepth = 50,
       stopAtFirstEnd = false,
       timeoutMs = 5000,
-      onPathFound
+      onPathFound,
     } = options;
 
     const paths: ID[][] = [];
     const visited = new Set<ID>();
     let totalCount = 0;
     let truncated = false;
-    let reason: PathEnumerationResult['reason'] = 'COMPLETE';
-    
+    let reason: PathEnumerationResult["reason"] = "COMPLETE";
+
     const startTime = Date.now();
 
     const dfs = (nodeId: ID, path: ID[]): boolean => {
       // Check timeout
       if (Date.now() - startTime > timeoutMs) {
         truncated = true;
-        reason = 'TIMEOUT';
+        reason = "TIMEOUT";
         return false;
       }
 
       // Check depth limit
       if (path.length >= maxDepth) {
         truncated = true;
-        reason = 'MAX_DEPTH';
+        reason = "MAX_DEPTH";
         return false;
       }
 
@@ -421,19 +421,19 @@ export class WorkflowNavigator {
       // Check if END node
       if (this.graph.endNodeIds.has(nodeId)) {
         totalCount++;
-        
+
         // Add to results if under limit
         if (paths.length < maxPaths) {
           paths.push(newPath);
         } else {
           truncated = true;
-          reason = 'MAX_PATHS';
+          reason = "MAX_PATHS";
         }
 
         // Notify callback
         if (onPathFound && !onPathFound(newPath, totalCount)) {
           truncated = true;
-          reason = 'USER_CANCELLED';
+          reason = "USER_CANCELLED";
           return false;
         }
 
@@ -449,7 +449,7 @@ export class WorkflowNavigator {
       if (visited.has(nodeId)) {
         return true;
       }
-      
+
       visited.add(nodeId);
 
       // Explore neighbors
@@ -471,7 +471,7 @@ export class WorkflowNavigator {
       paths,
       truncated,
       totalCount,
-      reason: truncated ? reason : 'COMPLETE'
+      reason: truncated ? reason : "COMPLETE",
     };
   }
 

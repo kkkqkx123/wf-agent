@@ -150,7 +150,11 @@ export abstract class DeltaRestorer<
     }
 
     if (checkpoint.previousCheckpointId && checkpoint.previousCheckpointId !== baseId) {
-      const parentDeltas = await this.buildDeltaChain(baseId, checkpoint.previousCheckpointId, visited);
+      const parentDeltas = await this.buildDeltaChain(
+        baseId,
+        checkpoint.previousCheckpointId,
+        visited,
+      );
       deltas.push(...parentDeltas);
     }
 

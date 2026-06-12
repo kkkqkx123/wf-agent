@@ -10,7 +10,12 @@
  * - No file I/O operations
  */
 
-import type { StorageConfig, JsonStorageConfig, SqliteStorageConfig, PostgresStorageConfig } from "@wf-agent/types";
+import type {
+  StorageConfig,
+  JsonStorageConfig,
+  SqliteStorageConfig,
+  PostgresStorageConfig,
+} from "@wf-agent/types";
 
 /**
  * Default JSON storage configuration
@@ -73,7 +78,9 @@ export function mergeStorageWithDefaults(userConfig: Partial<StorageConfig>): St
 
   const merged: StorageConfig = {
     type,
-    json: userConfig.json ? deepMergeJsonStorage(DEFAULT_JSON_STORAGE, userConfig.json) : DEFAULT_JSON_STORAGE,
+    json: userConfig.json
+      ? deepMergeJsonStorage(DEFAULT_JSON_STORAGE, userConfig.json)
+      : DEFAULT_JSON_STORAGE,
   };
 
   if (type === "sqlite" || userConfig.sqlite) {

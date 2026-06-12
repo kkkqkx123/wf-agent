@@ -10,10 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  createAgentLoopFixture,
-  createBasicAgentConfig,
-} from "./__shared/fixtures.js";
+import { createAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { AgentLoopTestFixture } from "./__shared/fixtures.js";
 
 describe("Agent Loop Coordinator Integration", () => {

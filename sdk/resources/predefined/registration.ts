@@ -22,15 +22,9 @@ import type { PresetsConfig } from "@wf-agent/sdk/resources";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 
 // Import from submodules
-import {
-  registerPredefinedTriggers,
-  unregisterPredefinedTriggers,
-} from "./trigger/index.js";
+import { registerPredefinedTriggers, unregisterPredefinedTriggers } from "./trigger/index.js";
 
-import {
-  registerPredefinedWorkflows,
-  unregisterPredefinedWorkflows,
-} from "./workflow/index.js";
+import { registerPredefinedWorkflows, unregisterPredefinedWorkflows } from "./workflow/index.js";
 
 import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/registration.js";
 
@@ -57,9 +51,11 @@ export interface PredefinedRegistrationResult {
 /**
  * Map context compression preset config to internal llmSummary config.
  */
-function mapLlmSummaryConfig(
-  cc?: { prompt?: string; timeout?: number; maxTriggers?: number },
-): { compressionPrompt?: string; timeout?: number; maxTriggers?: number } | undefined {
+function mapLlmSummaryConfig(cc?: {
+  prompt?: string;
+  timeout?: number;
+  maxTriggers?: number;
+}): { compressionPrompt?: string; timeout?: number; maxTriggers?: number } | undefined {
   if (!cc) return undefined;
   return {
     compressionPrompt: cc.prompt,

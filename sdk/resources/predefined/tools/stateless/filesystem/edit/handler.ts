@@ -83,7 +83,7 @@ export function createEditHandler(config: EditFileConfig = {}) {
       // Step 1: If exact match fails and fuzzy matching is allowed, try Unicode normalization
       if (matchIndex === -1 && allowFuzzyMatch) {
         const normalizedOld = normalizeUnicode(old_string);
-        const normalizedContent = content.split('\n').map(normalizeUnicode).join('\n');
+        const normalizedContent = content.split("\n").map(normalizeUnicode).join("\n");
         const normalizedIndex = normalizedContent.indexOf(normalizedOld);
 
         if (normalizedIndex !== -1) {
@@ -128,7 +128,9 @@ export function createEditHandler(config: EditFileConfig = {}) {
       } else {
         // Safe mode: Replace only the matched occurrence (uses matchIndex which may be from fuzzy match)
         newContent =
-          content.substring(0, matchIndex) + new_string + content.substring(matchIndex + old_string.length);
+          content.substring(0, matchIndex) +
+          new_string +
+          content.substring(matchIndex + old_string.length);
         replacementCount = 1;
       }
 

@@ -168,12 +168,12 @@ export class ExecutionBuilder {
   /**
    * Execute workflows asynchronously (return Observable)
    * Provides responsive interface to support progress monitoring and cancelation
-   * 
+   *
    * This method integrates with EventRegistry to ensure events are:
    * 1. Persisted and queryable
    * 2. Available to all subscribers via EventRegistry.on()
    * 3. Forwarded to Observable subscribers for convenience
-   * 
+   *
    * @returns Observable<Event>
    */
   executeAsync(): Observable<Event> {
@@ -205,7 +205,7 @@ export class ExecutionBuilder {
 
       const unsubscribers: Array<() => void> = [];
 
-      const unsubscribeGlobal = eventManager.onGlobal((event) => {
+      const unsubscribeGlobal = eventManager.onGlobal(event => {
         if (eventTypes.includes(event.type as EventType) && event.workflowId === workflowId) {
           observer.next(event as Event);
         }
@@ -227,30 +227,32 @@ export class ExecutionBuilder {
       const executePromise = this.executeWithSignal(signal);
 
       // Listening to execution results
-      executePromise.then(result => {
-        if (result.isOk()) {
-          // Note: WORKFLOW_EXECUTION_COMPLETED event will be emitted by EventRegistry
-          // and forwarded via the global listener above
-          observer.complete();
-        } else {
-          if (signal.aborted) {
-            // Note: WORKFLOW_EXECUTION_CANCELLED event will be emitted by EventRegistry
+      executePromise
+        .then(result => {
+          if (result.isOk()) {
+            // Note: WORKFLOW_EXECUTION_COMPLETED event will be emitted by EventRegistry
+            // and forwarded via the global listener above
             observer.complete();
           } else {
-            // Note: WORKFLOW_EXECUTION_FAILED event will be emitted by EventRegistry
-            observer.error(result.error);
+            if (signal.aborted) {
+              // Note: WORKFLOW_EXECUTION_CANCELLED event will be emitted by EventRegistry
+              observer.complete();
+            } else {
+              // Note: WORKFLOW_EXECUTION_FAILED event will be emitted by EventRegistry
+              observer.error(result.error);
+            }
           }
-        }
-      }).catch(error => {
-        observer.error(error);
-      });
+        })
+        .catch(error => {
+          observer.error(error);
+        });
 
       // Returns the unsubscribe function
       return {
         unsubscribe: () => {
           // Unsubscribe from EventRegistry
           unsubscribers.forEach(unsub => unsub());
-          
+
           // Abort execution if still running
           if (this.abortController && !signal.aborted) {
             this.abortController.abort();
@@ -268,7 +270,9 @@ export class ExecutionBuilder {
    * @param signal AbortSignal
    * @returns Promise<Result<WorkflowExecutionResult, Error>>
    */
-  private async executeWithSignal(signal: AbortSignal): Promise<Result<WorkflowExecutionResult, Error>> {
+  private async executeWithSignal(
+    signal: AbortSignal,
+  ): Promise<Result<WorkflowExecutionResult, Error>> {
     // Wrapping execution logic with withAbortSignal
     const result = await withAbortSignal(async () => {
       // Workflow execution using Command mode

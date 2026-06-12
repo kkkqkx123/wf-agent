@@ -79,7 +79,10 @@ export interface AgentLoopHandlerContext {
   executionRegistry?: unknown;
   /** WorkflowExecutionEntity reference (for VariableManager access) */
   workflowExecutionEntity?: {
-    variableStateManager: { setVariable: (name: string, value: unknown) => void; getVariable: (name: string) => unknown };
+    variableStateManager: {
+      setVariable: (name: string, value: unknown) => void;
+      getVariable: (name: string) => unknown;
+    };
     getInput(): Record<string, unknown>;
   };
 }
@@ -346,7 +349,9 @@ export async function agentLoopHandler(
     // 2. Inject skill metadata into system prompt if skills are configured
     // Only inject if 'skill' tool is in availableTools (or auto-add if skills exist)
     try {
-      const skillRegistry = globalContext.container.get(Identifiers.SkillRegistry) as SkillRegistry | undefined;
+      const skillRegistry = globalContext.container.get(Identifiers.SkillRegistry) as
+        | SkillRegistry
+        | undefined;
       const skillResult = injectSkillMetadata(skillRegistry, {
         systemPrompt: resolvedConfig.systemPrompt || "",
         availableTools: resolvedConfig.availableTools,
@@ -355,7 +360,8 @@ export async function agentLoopHandler(
 
       resolvedConfig.systemPrompt = skillResult.systemPrompt;
       // Type assertion: injectSkillMetadata preserves AgentToolConfig type when input is AgentToolConfig
-      resolvedConfig.availableTools = skillResult.availableTools as typeof resolvedConfig.availableTools;
+      resolvedConfig.availableTools =
+        skillResult.availableTools as typeof resolvedConfig.availableTools;
 
       if (skillResult.injected) {
         logger.debug("Skill metadata injected", {

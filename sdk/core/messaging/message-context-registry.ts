@@ -1,6 +1,6 @@
 /**
  * Message Context Registry Implementation
- * 
+ *
  * In-memory implementation of the MessageContextRegistry interface.
  * Manages named message contexts within a workflow execution.
  */
@@ -13,7 +13,7 @@ const logger = createContextualLogger();
 
 /**
  * In-memory Message Context Registry
- * 
+ *
  * Provides CRUD operations for managing named message contexts.
  * Thread-safe for single-threaded execution environments.
  */
@@ -62,9 +62,11 @@ export class InMemoryMessageContextRegistry implements MessageContextRegistry {
    */
   update(id: string, messages: NamedMessageContext["messages"]): void {
     const context = this.contexts.get(id);
-    
+
     if (!context) {
-      throw new Error(`Context '${id}' not found. Available contexts: ${this.listIds().join(', ')}`);
+      throw new Error(
+        `Context '${id}' not found. Available contexts: ${this.listIds().join(", ")}`,
+      );
     }
 
     context.messages = messages;
@@ -83,7 +85,7 @@ export class InMemoryMessageContextRegistry implements MessageContextRegistry {
    */
   delete(id: string): boolean {
     const existed = this.contexts.delete(id);
-    
+
     if (existed) {
       logger.debug(`Deleted context '${id}'`, { contextId: id });
     } else {

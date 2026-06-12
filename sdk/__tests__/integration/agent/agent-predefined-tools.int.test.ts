@@ -15,7 +15,10 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createPredefinedToolsFixture, createAgentConfigWithTools } from "./__shared/predefined-tools-fixtures.js";
+import {
+  createPredefinedToolsFixture,
+  createAgentConfigWithTools,
+} from "./__shared/predefined-tools-fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
 import type { AgentLoopResult, ToolCallRecord } from "@wf-agent/types";
 
@@ -114,7 +117,12 @@ describe("Agent with Predefined Tools", () => {
     expect(result.content).toContain("successfully");
 
     const toolResult = getFirstToolResult(fixture) as
-      | { success: boolean; result: { result: { entries: Array<unknown>; display: string; total: number; truncated: boolean } } }
+      | {
+          success: boolean;
+          result: {
+            result: { entries: Array<unknown>; display: string; total: number; truncated: boolean };
+          };
+        }
       | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(true);
@@ -151,7 +159,17 @@ describe("Agent with Predefined Tools", () => {
     expect(result.iterations).toBe(2);
 
     const toolResult = getFirstToolResult(fixture) as
-      | { success: boolean; result: { result: { entries: Array<{ name: string; type: string; path: string }>; display: string; total: number; truncated: boolean } } }
+      | {
+          success: boolean;
+          result: {
+            result: {
+              entries: Array<{ name: string; type: string; path: string }>;
+              display: string;
+              total: number;
+              truncated: boolean;
+            };
+          };
+        }
       | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(true);
@@ -161,7 +179,9 @@ describe("Agent with Predefined Tools", () => {
     expect(toolResult!.result.result.display).toContain("agent-predefined-tools.int.test.ts");
     // Direct array access (no string parsing)
     const entryPaths = toolResult!.result.result.entries.map(e => e.path);
-    expect(entryPaths.some((p: string) => p.includes("agent-predefined-tools.int.test.ts"))).toBe(true);
+    expect(entryPaths.some((p: string) => p.includes("agent-predefined-tools.int.test.ts"))).toBe(
+      true,
+    );
   });
 
   it("should handle list_files on non-existent directory gracefully", async () => {
@@ -187,7 +207,9 @@ describe("Agent with Predefined Tools", () => {
     expect(result.success).toBe(true);
     expect(result.toolCallCount).toBe(1);
 
-    const toolResult = getFirstToolResult(fixture) as { success: boolean; error?: string } | undefined;
+    const toolResult = getFirstToolResult(fixture) as
+      | { success: boolean; error?: string }
+      | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(false);
     expect(toolResult!.error).toContain("not found");
@@ -266,14 +288,17 @@ describe("Agent with Predefined Tools", () => {
     expect(result.toolCallCount).toBe(1);
 
     const toolResult = getFirstToolResult(fixture) as
-      | { success: boolean; result: { result: { entries: Array<{ path: string }>; display: string } } }
+      | {
+          success: boolean;
+          result: { result: { entries: Array<{ path: string }>; display: string } };
+        }
       | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(true);
     // Should find fixture files like fixtures.ts, mock-llm-wrapper.ts, predefined-tools-fixtures.ts
     expect(toolResult!.result.result.display).toContain("fixtures.ts");
     // Structured array access
-    const entryPaths = toolResult!.result.result.entries.map((e) => e.path);
+    const entryPaths = toolResult!.result.result.entries.map(e => e.path);
     expect(entryPaths.some((p: string) => p.includes("predefined-tools-fixtures"))).toBe(true);
   });
 
@@ -307,7 +332,9 @@ describe("Agent with Predefined Tools", () => {
     expect(result.success).toBe(true);
     expect(result.toolCallCount).toBe(1);
 
-    const toolResult = getFirstToolResult(fixture) as { success: boolean; result: { result: string } } | undefined;
+    const toolResult = getFirstToolResult(fixture) as
+      | { success: boolean; result: { result: string } }
+      | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(true);
     // Should contain text from this test file
@@ -337,7 +364,9 @@ describe("Agent with Predefined Tools", () => {
     expect(result.success).toBe(true);
     expect(result.toolCallCount).toBe(1);
 
-    const toolResult = getFirstToolResult(fixture) as { success: boolean; error?: string } | undefined;
+    const toolResult = getFirstToolResult(fixture) as
+      | { success: boolean; error?: string }
+      | undefined;
     expect(toolResult).toBeDefined();
     expect(toolResult!.success).toBe(false);
     expect(toolResult!.error).toContain("not found");
@@ -373,11 +402,13 @@ describe("Agent with Predefined Tools", () => {
     expect(result.success).toBe(true);
     expect(result.toolCallCount).toBe(1);
 
-    const toolResult = getFirstToolResult(fixture) as {
-      success: boolean;
-      result?: { result?: string };
-      error?: string;
-    } | undefined;
+    const toolResult = getFirstToolResult(fixture) as
+      | {
+          success: boolean;
+          result?: { result?: string };
+          error?: string;
+        }
+      | undefined;
     expect(toolResult).toBeDefined();
 
     // The grep tool requires ripgrep installed on the host. If it's not
@@ -416,11 +447,13 @@ describe("Agent with Predefined Tools", () => {
     expect(result.success).toBe(true);
     expect(result.toolCallCount).toBe(1);
 
-    const toolResult = getFirstToolResult(fixture) as {
-      success: boolean;
-      result?: { result?: string };
-      error?: string;
-    } | undefined;
+    const toolResult = getFirstToolResult(fixture) as
+      | {
+          success: boolean;
+          result?: { result?: string };
+          error?: string;
+        }
+      | undefined;
     expect(toolResult).toBeDefined();
 
     if (toolResult!.success) {

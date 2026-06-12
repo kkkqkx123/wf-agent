@@ -186,7 +186,9 @@ export class HookTemplateBuilder extends TemplateBuilder<HookTemplate> {
       throw new Error("The template name cannot be empty.");
     }
     if (!this._hook) {
-      throw new Error("Hook configuration cannot be empty. Use .hook(), .hookType() or .eventName() to set it.");
+      throw new Error(
+        "Hook configuration cannot be empty. Use .hook(), .hookType() or .eventName() to set it.",
+      );
     }
     if (!this._hook.hookType) {
       throw new Error("Hook type cannot be empty. Use .hookType() to set it.");

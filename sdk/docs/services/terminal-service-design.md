@@ -9,6 +9,7 @@ This document analyzes the current shell execution implementations and proposes 
 ### 1. backend-shell (`sdk/resources/predefined/tools/stateful/shell/backend-shell`)
 
 **Current Implementation:**
+
 - Simple backend process management using Node.js `child_process.spawn`
 - Platform-based shell selection: Windows uses `cmd.exe`, others use `/bin/sh`
 - Basic session management via shell ID
@@ -26,11 +27,13 @@ This document analyzes the current shell execution implementations and proposes 
 ### 2. run-shell (`sdk/resources/predefined/tools/stateless/shell/run-shell`)
 
 **Current Implementation:**
+
 - Stateless, synchronous shell command execution
 - Platform-based shell selection: Windows uses `powershell.exe`, others use `/bin/bash`
 - Timeout control with `TimeoutController`
 
 **Limitations:**
+
 - No session management (stateless by design)
 - Fixed shell type per platform
 - No working directory or environment variable control
@@ -38,6 +41,7 @@ This document analyzes the current shell execution implementations and proposes 
 ### 3. Reference Implementation: roo-code (`ref/roo-code/src/integrations/terminal`)
 
 **Key Features:**
+
 - **Multi-shell support**: bash, zsh, fish, pwsh, cmd, powershell
 - **Terminal Registry**: Singleton pattern for terminal lifecycle management
 - **Session Reuse**: Intelligent terminal reuse based on working directory and task ID
@@ -46,6 +50,7 @@ This document analyzes the current shell execution implementations and proposes 
 - **Output Processing**: Stream-based, throttled output with compression
 
 **Architecture Highlights:**
+
 ```
 TerminalRegistry (Singleton)
 ├── terminals: RooTerminal[]
@@ -94,15 +99,15 @@ sdk/core/services/terminal/
  * Supported shell types
  */
 export type ShellType =
-  | 'bash'
-  | 'zsh'
-  | 'fish'
-  | 'sh'
-  | 'cmd'
-  | 'powershell'
-  | 'pwsh'
-  | 'git-bash'
-  | 'wsl';
+  | "bash"
+  | "zsh"
+  | "fish"
+  | "sh"
+  | "cmd"
+  | "powershell"
+  | "pwsh"
+  | "git-bash"
+  | "wsl";
 
 /**
  * Terminal session configuration
@@ -133,7 +138,7 @@ export interface TerminalSession {
   /** Environment variables */
   env: Record<string, string>;
   /** Session status */
-  status: 'idle' | 'busy' | 'terminated';
+  status: "idle" | "busy" | "terminated";
   /** Creation timestamp */
   createdAt: number;
   /** Last activity timestamp */
@@ -192,7 +197,7 @@ export interface OutputOptions {
 
 /**
  * Terminal Service
- * 
+ *
  * Provides unified terminal session management with:
  * - Multi-shell support (bash, zsh, fish, pwsh, cmd, powershell, git-bash, wsl)
  * - Working directory management
@@ -215,10 +220,7 @@ export class TerminalService {
    * Get or create a session for a specific working directory
    * Implements intelligent session reuse
    */
-  async getOrCreateSession(
-    cwd: string,
-    options?: TerminalSessionOptions
-  ): Promise<TerminalSession>;
+  async getOrCreateSession(cwd: string, options?: TerminalSessionOptions): Promise<TerminalSession>;
 
   /**
    * Execute a command in a session
@@ -226,7 +228,7 @@ export class TerminalService {
   async executeInSession(
     sessionId: string,
     command: string,
-    options?: ExecuteOptions
+    options?: ExecuteOptions,
   ): Promise<ExecuteResult>;
 
   /**
@@ -234,16 +236,13 @@ export class TerminalService {
    */
   async executeOneOff(
     command: string,
-    options?: TerminalSessionOptions & ExecuteOptions
+    options?: TerminalSessionOptions & ExecuteOptions,
   ): Promise<ExecuteResult>;
 
   /**
    * Get output from a session
    */
-  async getOutput(
-    sessionId: string,
-    options?: OutputOptions
-  ): Promise<string>;
+  async getOutput(sessionId: string, options?: OutputOptions): Promise<string>;
 
   /**
    * Terminate a session
@@ -305,7 +304,7 @@ export class ShellDetector {
 
 /**
  * Terminal Registry (Singleton)
- * 
+ *
  * Manages all terminal sessions with:
  * - Session lifecycle management
  * - Intelligent session reuse
@@ -402,7 +401,7 @@ async executeInSession(
 ```typescript
 // backend-shell/handler.ts (refactored)
 
-import { TerminalService } from '@wf-agent/core-services/terminal';
+import { TerminalService } from "@wf-agent/core-services/terminal";
 
 export function createBackendShellFactory() {
   const terminalService = TerminalService.getInstance();
@@ -448,7 +447,7 @@ export function createBackendShellFactory() {
 ```typescript
 // run-shell/handler.ts (refactored)
 
-import { TerminalService } from '@wf-agent/core-services/terminal';
+import { TerminalService } from "@wf-agent/core-services/terminal";
 
 export function createRunShellHandler(config?: RunShellConfig) {
   const terminalService = TerminalService.getInstance();
@@ -467,12 +466,12 @@ export function createRunShellHandler(config?: RunShellConfig) {
       shellType: shell_type,
       cwd: cwd,
       env: env,
-      timeout: timeout ? timeout * 1000 : config?.maxTimeout ?? 120000,
+      timeout: timeout ? timeout * 1000 : (config?.maxTimeout ?? 120000),
     });
 
     return {
       success: result.success,
-      content: result.stdout || result.stderr || '(no output)',
+      content: result.stdout || result.stderr || "(no output)",
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.exitCode,
@@ -539,17 +538,17 @@ export function createRunShellHandler(config?: RunShellConfig) {
 
 ## Comparison with roo-code
 
-| Feature | roo-code | Proposed Terminal Service |
-|---------|----------|---------------------------|
-| Multi-shell Support | ✅ bash/zsh/fish/pwsh/cmd/powershell | ✅ bash/zsh/fish/sh/cmd/powershell/pwsh/git-bash/wsl |
-| Session Management | ✅ TerminalRegistry | ✅ TerminalRegistry |
-| Session Reuse | ✅ cwd + taskId based | ✅ cwd + taskId based |
-| Working Directory | ✅ Shell integration | ✅ Explicit cwd parameter |
-| Environment Variables | ✅ Shell-specific config | ✅ Per-session config |
-| Output Processing | ✅ Stream + compression | ✅ Line-based (extensible) |
-| Auto-approval | ❌ Not integrated | ✅ Integrated |
-| VSCode Dependency | ✅ Required | ❌ Independent |
-| Persistence | ❌ In-memory | ⚠️ Optional |
+| Feature               | roo-code                             | Proposed Terminal Service                            |
+| --------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Multi-shell Support   | ✅ bash/zsh/fish/pwsh/cmd/powershell | ✅ bash/zsh/fish/sh/cmd/powershell/pwsh/git-bash/wsl |
+| Session Management    | ✅ TerminalRegistry                  | ✅ TerminalRegistry                                  |
+| Session Reuse         | ✅ cwd + taskId based                | ✅ cwd + taskId based                                |
+| Working Directory     | ✅ Shell integration                 | ✅ Explicit cwd parameter                            |
+| Environment Variables | ✅ Shell-specific config             | ✅ Per-session config                                |
+| Output Processing     | ✅ Stream + compression              | ✅ Line-based (extensible)                           |
+| Auto-approval         | ❌ Not integrated                    | ✅ Integrated                                        |
+| VSCode Dependency     | ✅ Required                          | ❌ Independent                                       |
+| Persistence           | ❌ In-memory                         | ⚠️ Optional                                          |
 
 ## Conclusion
 

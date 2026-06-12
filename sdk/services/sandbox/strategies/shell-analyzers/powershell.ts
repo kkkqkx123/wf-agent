@@ -93,37 +93,37 @@ export const DANGEROUS_PATTERNS: string[] = [
 
 /** Denied cmdlet alias resolution map */
 const CMDLET_ALIASES: Record<string, string> = {
-  "iex": "Invoke-Expression",
-  "iwr": "Invoke-WebRequest",
-  "irm": "Invoke-RestMethod",
-  "icm": "Invoke-Command",
-  "saps": "Start-Process",
-  "gcm": "Get-Command",
-  "gm": "Get-Member",
-  "gi": "Get-Item",
-  "gci": "Get-ChildItem",
-  "gl": "Get-Location",
-  "gp": "Get-ItemProperty",
-  "gsv": "Get-Service",
-  "gwm": "Get-WmiObject",
-  "ni": "New-Item",
-  "nv": "New-Variable",
-  "ogv": "Out-GridView",
-  "oh": "Out-Host",
-  "r": "Invoke-History",
-  "rc": "Set-PSReadLineOption",
-  "rm": "Remove-Item",
-  "rmdir": "Remove-Item",
-  "sasv": "Start-Service",
-  "shcm": "Show-Command",
-  "sls": "Select-String",
-  "sp": "Set-ItemProperty",
-  "spsv": "Stop-Service",
-  "sv": "Set-Variable",
-  "tee": "Tee-Object",
-  "type": "Get-Content",
-  "wi": "Write-Output",
-  "write": "Write-Output",
+  iex: "Invoke-Expression",
+  iwr: "Invoke-WebRequest",
+  irm: "Invoke-RestMethod",
+  icm: "Invoke-Command",
+  saps: "Start-Process",
+  gcm: "Get-Command",
+  gm: "Get-Member",
+  gi: "Get-Item",
+  gci: "Get-ChildItem",
+  gl: "Get-Location",
+  gp: "Get-ItemProperty",
+  gsv: "Get-Service",
+  gwm: "Get-WmiObject",
+  ni: "New-Item",
+  nv: "New-Variable",
+  ogv: "Out-GridView",
+  oh: "Out-Host",
+  r: "Invoke-History",
+  rc: "Set-PSReadLineOption",
+  rm: "Remove-Item",
+  rmdir: "Remove-Item",
+  sasv: "Start-Service",
+  shcm: "Show-Command",
+  sls: "Select-String",
+  sp: "Set-ItemProperty",
+  spsv: "Stop-Service",
+  sv: "Set-Variable",
+  tee: "Tee-Object",
+  type: "Get-Content",
+  wi: "Write-Output",
+  write: "Write-Output",
 };
 
 export class PowerShellAnalyzer implements ShellAnalyzer {
@@ -136,7 +136,12 @@ export class PowerShellAnalyzer implements ShellAnalyzer {
     // Layer 1: Extract primary cmdlet and check whitelist/blacklist
     const primaryCmdlet = this.extractPrimaryCmdlet(ctx.command);
     if (!primaryCmdlet) {
-      return { allowed: false, reason: "Empty command", command: ctx.command, shellType: SHELL_TYPE };
+      return {
+        allowed: false,
+        reason: "Empty command",
+        command: ctx.command,
+        shellType: SHELL_TYPE,
+      };
     }
 
     if (policy.allowedCommands.length > 0 && !policy.allowedCommands.includes(primaryCmdlet)) {

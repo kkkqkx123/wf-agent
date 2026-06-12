@@ -9,6 +9,7 @@ export type {
   McpServerStatus,
   McpTransportType,
   McpServerSource,
+  McpServerLifecycle,
   McpServerConfigBase,
   McpStdioConfig,
   McpSseConfig,

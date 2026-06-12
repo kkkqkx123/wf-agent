@@ -72,10 +72,10 @@ export class TokenUsageTracker {
 
   /**
    * Update Token usage statistics returned by the API
-   * 
+   *
    * Saves the usage of the current request, but does not immediately add it to the total.
    * You need to call finalizeCurrentRequest() to complete the accumulation.
-   * 
+   *
    * @param usage Token usage data
    */
   updateApiUsage(usage: LLMUsage): void {
@@ -90,16 +90,16 @@ export class TokenUsageTracker {
 
   /**
    * Token usage statistics for cumulative streaming responses
-   * 
+   *
    * See the #accumulateMessage() method of the Anthropic SDK:
    * - Continuously update token statistics during streaming
    * - The message_delta event provides incremental updates.
-   * 
+   *
    * Fix Description:
    * - No longer update cumulativeUsage during streaming.
    * - Only update currentRequestUsage to avoid stats errors
    * - Uniformly accumulate to cumulativeUsage in finalizeCurrentRequest()
-   * 
+   *
    * @param usage Token usage data (incremental)
    */
   accumulateStreamUsage(usage: LLMUsage): void {

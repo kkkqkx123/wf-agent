@@ -99,11 +99,9 @@ export function createBackendShellFactory(config?: BackendShellConfig) {
           });
 
           // Phase C: Start background command with timeout protection
-          const result = await terminalService.startBackgroundCommand(
-            session.sessionId,
-            command,
-            { timeout: maxBackgroundTimeout > 0 ? maxBackgroundTimeout : undefined }
-          );
+          const result = await terminalService.startBackgroundCommand(session.sessionId, command, {
+            timeout: maxBackgroundTimeout > 0 ? maxBackgroundTimeout : undefined,
+          });
 
           if (!result.success) {
             return {

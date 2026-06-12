@@ -8,7 +8,7 @@ import type { FormatterConfig } from "../types.js";
 
 vi.mock("../tool-converter.js", () => ({
   convertToolsToAnthropicFormat: vi.fn((tools: any[]) =>
-    tools.map((t: any) => ({ name: t.name, type: "custom" }))
+    tools.map((t: any) => ({ name: t.name, type: "custom" })),
   ),
 }));
 
@@ -82,7 +82,9 @@ describe("AnthropicFormatter", () => {
       const request: LLMRequest = { messages: [{ role: "user", content: "Hi" }] };
       const result = formatter.buildRequest(request, mockConfig);
       expect(result.httpRequest!.headers!["anthropic-version"]).toBeDefined();
-      expect(result.httpRequest!.headers!["anthropic-dangerous-direct-browser-access"]).toBe("false");
+      expect(result.httpRequest!.headers!["anthropic-dangerous-direct-browser-access"]).toBe(
+        "false",
+      );
     });
 
     it("should include x-api-key header when apiKey is set", () => {
@@ -106,9 +108,7 @@ describe("AnthropicFormatter", () => {
         model: "claude-3-opus-20240229",
         type: "message",
         role: "assistant",
-        content: [
-          { type: "text", text: "Hello from Claude!" },
-        ],
+        content: [{ type: "text", text: "Hello from Claude!" }],
         stop_reason: "end_turn",
         usage: { input_tokens: 10, output_tokens: 25 },
       };
@@ -214,9 +214,7 @@ describe("AnthropicFormatter", () => {
     });
 
     it("should convert content to Anthropic format", () => {
-      const messages: LLMMessage[] = [
-        { role: "user", content: "Hello" },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "Hello" }];
       const result = formatter.convertMessages(messages) as any[];
       expect(result[0].content[0].type).toBe("text");
       expect(result[0].content[0].text).toBe("Hello");
@@ -237,7 +235,13 @@ describe("AnthropicFormatter", () => {
         {
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "toolu-1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }],
+          toolCalls: [
+            {
+              id: "toolu-1",
+              type: "function",
+              function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+            },
+          ],
         },
       ];
       const result = formatter.convertMessages(messages) as any[];
@@ -248,9 +252,7 @@ describe("AnthropicFormatter", () => {
 
   describe("parseToolCalls", () => {
     it("should parse tool calls with input field", () => {
-      const toolCalls = [
-        { id: "toolu-1", name: "get_weather", input: { city: "Tokyo" } },
-      ];
+      const toolCalls = [{ id: "toolu-1", name: "get_weather", input: { city: "Tokyo" } }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);
       expect(result[0]!.function!.name).toBe("get_weather");
@@ -258,9 +260,7 @@ describe("AnthropicFormatter", () => {
     });
 
     it("should handle string input", () => {
-      const toolCalls = [
-        { id: "toolu-2", name: "search", input: '{"q":"test"}' },
-      ];
+      const toolCalls = [{ id: "toolu-2", name: "search", input: '{"q":"test"}' }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result[0]!.function!.arguments).toBe('{"q":"test"}');
     });

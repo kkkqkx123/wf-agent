@@ -1,6 +1,6 @@
 /**
  * Unified Error Handling Framework
- * 
+ *
  * Provides centralized error handling for all callback/event systems with configurable policies.
  * Supports retry, fallback, and fail-fast strategies across different error sources.
  */
@@ -83,7 +83,13 @@ export class DefaultErrorHandler implements ErrorHandler {
   }
 
   async handleError(context: ErrorHandlingContext): Promise<ErrorHandlingResult> {
-    const { error, source, severity, retryCount = 0, maxRetries = this.defaultMaxRetries } = context;
+    const {
+      error,
+      source,
+      severity,
+      retryCount = 0,
+      maxRetries = this.defaultMaxRetries,
+    } = context;
 
     // Log the error
     this.logError(error, source, severity, context.metadata);
@@ -128,7 +134,10 @@ export class DefaultErrorHandler implements ErrorHandler {
 
     // Storage operations may be retryable (e.g., connection timeouts)
     if (source === "storage-operation") {
-      return error.message.toLowerCase().includes("timeout") || error.message.toLowerCase().includes("network");
+      return (
+        error.message.toLowerCase().includes("timeout") ||
+        error.message.toLowerCase().includes("network")
+      );
     }
 
     // Serialization errors are usually not retryable
@@ -246,7 +255,10 @@ export class UnifiedErrorHandler {
   /**
    * Handle an error using the appropriate handler
    */
-  async handle(error: Error | SDKError, context: Omit<ErrorHandlingContext, "error">): Promise<ErrorHandlingResult> {
+  async handle(
+    error: Error | SDKError,
+    context: Omit<ErrorHandlingContext, "error">,
+  ): Promise<ErrorHandlingResult> {
     const fullContext: ErrorHandlingContext = {
       error,
       ...context,
@@ -267,7 +279,8 @@ export class UnifiedErrorHandler {
       // If error handling itself fails, log and fail-fast
       logger.error("Error handler failed", {
         originalError: error.message,
-        handlingError: handlingError instanceof Error ? handlingError.message : String(handlingError),
+        handlingError:
+          handlingError instanceof Error ? handlingError.message : String(handlingError),
       });
       return { action: "fail-fast" };
     }
@@ -322,7 +335,7 @@ export class UnifiedErrorHandler {
    * Sleep utility for retry delays
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -350,9 +363,6 @@ export function wrapWithErrorHandling<TArgs extends unknown[], TReturn>(
 ): (...args: TArgs) => Promise<TReturn> {
   return async (...args: TArgs): Promise<TReturn> => {
     const errorHandler = getErrorHandler();
-    return errorHandler.handleWithRetry(
-      () => Promise.resolve(fn(...args)),
-      context,
-    );
+    return errorHandler.handleWithRetry(() => Promise.resolve(fn(...args)), context);
   };
 }

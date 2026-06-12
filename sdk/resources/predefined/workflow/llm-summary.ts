@@ -174,8 +174,6 @@ export function createLlmSummaryWorkflow(
 /**
  * Create a custom LLM summary workflow with configuration overrides.
  */
-export function createCustomLlmSummaryWorkflow(
-  config: LlmSummaryConfig = {},
-): WorkflowTemplate {
+export function createCustomLlmSummaryWorkflow(config: LlmSummaryConfig = {}): WorkflowTemplate {
   return createLlmSummaryWorkflow(config.compressionPrompt, config);
 }

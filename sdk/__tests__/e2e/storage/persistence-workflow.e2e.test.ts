@@ -16,7 +16,9 @@ import type { WorkflowStorageMetadata } from "@wf-agent/types";
 let tempDir: string;
 let dbPath: string;
 
-const createMetadata = (overrides: Partial<WorkflowStorageMetadata> = {}): WorkflowStorageMetadata => ({
+const createMetadata = (
+  overrides: Partial<WorkflowStorageMetadata> = {},
+): WorkflowStorageMetadata => ({
   workflowId: "wf-test",
   name: "Test Workflow",
   version: "1.0.0",
@@ -64,12 +66,16 @@ describe("Workflow Storage Persistence (SQLite)", () => {
         enabled: true,
       });
       await storage.save("wf-1", data, metadata);
-      await storage.save("wf-2", new Uint8Array([10]), createMetadata({
-        workflowId: "wf-2",
-        name: "Report Gen",
-        author: "bob",
-        enabled: false,
-      }));
+      await storage.save(
+        "wf-2",
+        new Uint8Array([10]),
+        createMetadata({
+          workflowId: "wf-2",
+          name: "Report Gen",
+          author: "bob",
+          enabled: false,
+        }),
+      );
       await storage.close();
 
       // Phase 2: reopen and verify
@@ -113,8 +119,17 @@ describe("Workflow Storage Persistence (SQLite)", () => {
     it("should persist version management across close/reopen", async () => {
       let storage = await createStorage();
       const wfId = "wf-versions";
-      await storage.save(wfId, new Uint8Array([1]), createMetadata({ workflowId: wfId, name: "Versioned WF" }));
-      await storage.saveWorkflowVersion(wfId, "1.0.0", new Uint8Array([1, 2, 3]), "Initial version");
+      await storage.save(
+        wfId,
+        new Uint8Array([1]),
+        createMetadata({ workflowId: wfId, name: "Versioned WF" }),
+      );
+      await storage.saveWorkflowVersion(
+        wfId,
+        "1.0.0",
+        new Uint8Array([1, 2, 3]),
+        "Initial version",
+      );
       await storage.saveWorkflowVersion(wfId, "2.0.0", new Uint8Array([4, 5, 6]), "Major update");
       await storage.close();
 
@@ -136,7 +151,11 @@ describe("Workflow Storage Persistence (SQLite)", () => {
     it("should persist version deletion across close/reopen", async () => {
       let storage = await createStorage();
       const wfId = "wf-ver-del";
-      await storage.save(wfId, new Uint8Array([1]), createMetadata({ workflowId: wfId, name: "Del WF" }));
+      await storage.save(
+        wfId,
+        new Uint8Array([1]),
+        createMetadata({ workflowId: wfId, name: "Del WF" }),
+      );
       await storage.saveWorkflowVersion(wfId, "1.0.0", new Uint8Array([1]));
       await storage.saveWorkflowVersion(wfId, "2.0.0", new Uint8Array([2]));
       await storage.close();
@@ -159,9 +178,21 @@ describe("Workflow Storage Persistence (SQLite)", () => {
 
     it("should persist individual save operations across close/reopen", async () => {
       let storage = await createStorage();
-      await storage.save("wf-b1", new Uint8Array([1]), createMetadata({ workflowId: "wf-b1", name: "Batch 1" }));
-      await storage.save("wf-b2", new Uint8Array([2]), createMetadata({ workflowId: "wf-b2", name: "Batch 2" }));
-      await storage.save("wf-b3", new Uint8Array([3]), createMetadata({ workflowId: "wf-b3", name: "Batch 3" }));
+      await storage.save(
+        "wf-b1",
+        new Uint8Array([1]),
+        createMetadata({ workflowId: "wf-b1", name: "Batch 1" }),
+      );
+      await storage.save(
+        "wf-b2",
+        new Uint8Array([2]),
+        createMetadata({ workflowId: "wf-b2", name: "Batch 2" }),
+      );
+      await storage.save(
+        "wf-b3",
+        new Uint8Array([3]),
+        createMetadata({ workflowId: "wf-b3", name: "Batch 3" }),
+      );
       await storage.close();
 
       storage = await createStorage();
@@ -178,17 +209,27 @@ describe("Workflow Storage Persistence (SQLite)", () => {
     it("should preserve complex customFields through persistence", async () => {
       let storage = await createStorage();
       const complexFields: Record<string, unknown> = {
-        schema: { version: 2, fields: [{ name: "field1", type: "string" }, { name: "field2", type: "number" }] },
+        schema: {
+          version: 2,
+          fields: [
+            { name: "field1", type: "string" },
+            { name: "field2", type: "number" },
+          ],
+        },
         metadata: { source: "api", timestamp: 1712345678901 },
         flags: [true, false, true],
         deepNested: { level1: { level2: { level3: { value: "deep" } } } },
       };
-      await storage.save("wf-complex", new Uint8Array([1]), createMetadata({
-        workflowId: "wf-complex",
-        name: "Complex WF",
-        customFields: complexFields,
-        tags: ["complex", "nested"],
-      }));
+      await storage.save(
+        "wf-complex",
+        new Uint8Array([1]),
+        createMetadata({
+          workflowId: "wf-complex",
+          name: "Complex WF",
+          customFields: complexFields,
+          tags: ["complex", "nested"],
+        }),
+      );
       await storage.close();
 
       storage = await createStorage();
@@ -205,7 +246,11 @@ describe("Workflow Storage Persistence (SQLite)", () => {
       for (let i = 0; i < largeData.length; i++) {
         largeData[i] = (i * 13 + 7) % 256;
       }
-      await storage.save("wf-large", largeData, createMetadata({ workflowId: "wf-large", name: "Large WF" }));
+      await storage.save(
+        "wf-large",
+        largeData,
+        createMetadata({ workflowId: "wf-large", name: "Large WF" }),
+      );
       await storage.close();
 
       storage = await createStorage();
@@ -224,9 +269,36 @@ describe("Workflow Storage Persistence (SQLite)", () => {
       let storage = await createStorage();
       const now = Date.now();
       const workflows = [
-        { id: "wf-f1", name: "Alpha Pipeline", author: "alice", category: "etl", tags: ["prod"], enabled: true, createdAt: now - 10000, updatedAt: now - 5000 },
-        { id: "wf-f2", name: "Beta Report", author: "bob", category: "reporting", tags: ["prod", "test"], enabled: true, createdAt: now - 8000, updatedAt: now - 3000 },
-        { id: "wf-f3", name: "Gamma Test", author: "alice", category: "testing", tags: ["dev"], enabled: false, createdAt: now - 5000, updatedAt: now - 1000 },
+        {
+          id: "wf-f1",
+          name: "Alpha Pipeline",
+          author: "alice",
+          category: "etl",
+          tags: ["prod"],
+          enabled: true,
+          createdAt: now - 10000,
+          updatedAt: now - 5000,
+        },
+        {
+          id: "wf-f2",
+          name: "Beta Report",
+          author: "bob",
+          category: "reporting",
+          tags: ["prod", "test"],
+          enabled: true,
+          createdAt: now - 8000,
+          updatedAt: now - 3000,
+        },
+        {
+          id: "wf-f3",
+          name: "Gamma Test",
+          author: "alice",
+          category: "testing",
+          tags: ["dev"],
+          enabled: false,
+          createdAt: now - 5000,
+          updatedAt: now - 1000,
+        },
       ];
       for (const wf of workflows) {
         await storage.save(wf.id, new Uint8Array([1]), createMetadata(wf));

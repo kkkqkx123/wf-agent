@@ -36,8 +36,8 @@ vi.mock("../../../../checkpoint/checkpoint-coordinator.js", () => ({
   },
 }));
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
-  const actual = await importOriginal() as Record<string, unknown>;
+vi.mock("@wf-agent/common-utils", async importOriginal => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
     getErrorOrNew: vi.fn((e: unknown) => e),
@@ -144,9 +144,10 @@ describe("Graph Hook Processor - executeHook", () => {
     mockGetWorkflowInterruptionDescription.mockReturnValue(
       "Workflow execution paused at node: node-1",
     );
-    mockToWorkflowInterruptionResult.mockImplementation(
-      (result: unknown, nodeId: string) => ({ ...(result as object), nodeId }),
-    );
+    mockToWorkflowInterruptionResult.mockImplementation((result: unknown, nodeId: string) => ({
+      ...(result as object),
+      nodeId,
+    }));
   });
 
   // -----------------------------------------------------------------------
@@ -172,17 +173,12 @@ describe("Graph Hook Processor - executeHook", () => {
   });
 
   it("should return early when filtered hooks are empty", async () => {
-    mockNode.hooks = [
-      { hookType: "BEFORE_EXECUTE", eventName: "hook.before" } as NodeHook,
-    ];
+    mockNode.hooks = [{ hookType: "BEFORE_EXECUTE", eventName: "hook.before" } as NodeHook];
     mockFilterAndSortHooks.mockReturnValue([]);
 
     await executeHook(baseContext, "AFTER_EXECUTE" as any, mockEmitEvent);
 
-    expect(mockFilterAndSortHooks).toHaveBeenCalledWith(
-      mockNode.hooks,
-      "AFTER_EXECUTE",
-    );
+    expect(mockFilterAndSortHooks).toHaveBeenCalledWith(mockNode.hooks, "AFTER_EXECUTE");
     expect(mockExecuteWithInterruptionHandling).not.toHaveBeenCalled();
   });
 
@@ -251,14 +247,9 @@ describe("Graph Hook Processor - executeHook", () => {
 
     await expect(
       executeHook(baseContext, "AFTER_EXECUTE" as HookType, mockEmitEvent),
-    ).rejects.toThrow(
-      "Hook execution interrupted: Workflow execution paused at node: node-1",
-    );
+    ).rejects.toThrow("Hook execution interrupted: Workflow execution paused at node: node-1");
 
-    expect(mockToWorkflowInterruptionResult).toHaveBeenCalledWith(
-      { type: "paused" },
-      "node-1",
-    );
+    expect(mockToWorkflowInterruptionResult).toHaveBeenCalledWith({ type: "paused" }, "node-1");
     expect(mockGetWorkflowInterruptionDescription).toHaveBeenCalledWith(
       expect.objectContaining({ type: "paused", nodeId: "node-1" }),
     );

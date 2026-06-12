@@ -33,9 +33,7 @@ import {
 class TriggerTemplateRegistry {
   private templates: Map<string, TriggerTemplate> = new Map();
 
-  constructor(
-    private readonly storageAdapter: TriggerStorageAdapter | null = null,
-  ) {}
+  constructor(private readonly storageAdapter: TriggerStorageAdapter | null = null) {}
 
   /**
    * Register trigger template (only for new triggers)
@@ -129,7 +127,11 @@ class TriggerTemplateRegistry {
    * @throws NotFoundError If the trigger template does not exist
    * @throws ValidationError If the updated configuration is invalid
    */
-  async update(name: string, updates: Partial<TriggerTemplate>, options?: UpdateOptions): Promise<void> {
+  async update(
+    name: string,
+    updates: Partial<TriggerTemplate>,
+    options?: UpdateOptions,
+  ): Promise<void> {
     const template = this.templates.get(name);
     if (!template) {
       if (options?.createIfNotExists) {
@@ -208,12 +210,11 @@ class TriggerTemplateRegistry {
 
     // Check references if enabled (default: true)
     const shouldCheck = options?.checkReferences !== false;
-    
+
     if (shouldCheck) {
       // Note: Reference checking should be done at the API layer where workflow dependencies are accessible
       // This registry-level method accepts options for interface consistency
       // The actual reference validation happens in TriggerTemplateRegistryAPI.canSafelyDelete()
-      
       // If force is not set and there are references, the API layer will throw an error
       // This method proceeds with deletion assuming the API layer has validated safety
     }

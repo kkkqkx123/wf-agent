@@ -27,9 +27,7 @@ const DEFAULTS: GlobConfig = {
 /**
  * Validate GlobConfig input
  */
-export function validateGlobConfig(
-  input: GlobConfigInput
-): { valid: boolean; errors: string[] } {
+export function validateGlobConfig(input: GlobConfigInput): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   if (input.maxResults !== undefined && input.maxResults < 1) {
@@ -42,9 +40,7 @@ export function validateGlobConfig(
 /**
  * Transform raw input into a validated GlobConfig with defaults applied.
  */
-export function transformGlobConfig(
-  input: GlobConfigInput = {}
-): GlobConfig {
+export function transformGlobConfig(input: GlobConfigInput = {}): GlobConfig {
   const validation = validateGlobConfig(input);
   if (!validation.valid) {
     throw new Error(`Invalid GlobConfig: ${validation.errors.join("; ")}`);
@@ -60,9 +56,7 @@ export function transformGlobConfig(
 /**
  * Export GlobConfig for serialization (e.g., to config file).
  */
-export function exportGlobConfig(
-  config: GlobConfig
-): GlobConfigInput {
+export function exportGlobConfig(config: GlobConfig): GlobConfigInput {
   return {
     workspaceDir: config.workspaceDir,
     maxResults: config.maxResults,

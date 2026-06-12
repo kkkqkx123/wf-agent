@@ -6,7 +6,7 @@ import type { ToolParameterSchema } from "@wf-agent/types";
 
 /**
  * ask_followup_question tool parameter Schema
- * 
+ *
  * Supports multiple questions (max 3), each with its own preset options (1-4 items).
  * Includes an additional information field for free-form user input.
  */

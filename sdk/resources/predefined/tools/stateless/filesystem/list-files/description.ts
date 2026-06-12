@@ -25,8 +25,7 @@ export function createListFilesDescription(config?: ListFilesConfig): ToolDescri
         name: "path",
         type: "string",
         required: true,
-        description:
-          "The directory to list (relative to the current workspace directory)",
+        description: "The directory to list (relative to the current workspace directory)",
       },
       {
         name: "recursive",

@@ -3,9 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  InterruptionHistoryManager,
-} from "../interruption-history-manager.js";
+import { InterruptionHistoryManager } from "../interruption-history-manager.js";
 
 describe("InterruptionHistoryManager", () => {
   let manager: InterruptionHistoryManager;

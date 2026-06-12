@@ -78,9 +78,7 @@ describe("isTimeoutError", () => {
 describe("createTimeoutError", () => {
   it("should create an error with the correct message format", () => {
     const error = createTimeoutError("llm-call-001", 5000, 5023);
-    expect(error.message).toBe(
-      "Timeout 'llm-call-001' expired after 5023ms (configured: 5000ms)",
-    );
+    expect(error.message).toBe("Timeout 'llm-call-001' expired after 5023ms (configured: 5000ms)");
     expect(error.name).toBe("TimeoutError");
   });
 
@@ -186,7 +184,7 @@ describe("createTimeoutPromise", () => {
   });
 
   it("should reject with timeout error if promise takes too long", async () => {
-    const slowPromise = new Promise<string>((resolve) => {
+    const slowPromise = new Promise<string>(resolve => {
       setTimeout(() => resolve("too late"), 10000);
     });
 

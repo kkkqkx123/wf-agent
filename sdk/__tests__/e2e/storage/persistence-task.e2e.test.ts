@@ -63,7 +63,11 @@ describe("Task Storage Persistence (SQLite)", () => {
         completeTime: Date.now(),
       });
       await storage.save("task-1", data, metadata);
-      await storage.save("task-2", new Uint8Array([10]), createMetadata({ taskId: "task-2", status: "RUNNING" }));
+      await storage.save(
+        "task-2",
+        new Uint8Array([10]),
+        createMetadata({ taskId: "task-2", status: "RUNNING" }),
+      );
       await storage.close();
 
       // Phase 2: reopen and verify
@@ -87,16 +91,41 @@ describe("Task Storage Persistence (SQLite)", () => {
       let storage = await createStorage();
       const now = Date.now();
       const tasks = [
-        { id: "t-1", status: "COMPLETED" as TaskStatus, workflowId: "wf-1", startTime: now - 2000, completeTime: now - 1000 },
-        { id: "t-2", status: "COMPLETED" as TaskStatus, workflowId: "wf-1", startTime: now - 3000, completeTime: now - 1500 },
-        { id: "t-3", status: "FAILED" as TaskStatus, workflowId: "wf-1", startTime: now - 2500, completeTime: now - 2000 },
+        {
+          id: "t-1",
+          status: "COMPLETED" as TaskStatus,
+          workflowId: "wf-1",
+          startTime: now - 2000,
+          completeTime: now - 1000,
+        },
+        {
+          id: "t-2",
+          status: "COMPLETED" as TaskStatus,
+          workflowId: "wf-1",
+          startTime: now - 3000,
+          completeTime: now - 1500,
+        },
+        {
+          id: "t-3",
+          status: "FAILED" as TaskStatus,
+          workflowId: "wf-1",
+          startTime: now - 2500,
+          completeTime: now - 2000,
+        },
         { id: "t-4", status: "RUNNING" as TaskStatus, workflowId: "wf-2", startTime: now - 500 },
       ];
       for (const t of tasks) {
-        await storage.save(t.id, new Uint8Array([1]), createMetadata({
-          taskId: t.id, status: t.status, workflowId: t.workflowId,
-          startTime: t.startTime, completeTime: t.completeTime,
-        }));
+        await storage.save(
+          t.id,
+          new Uint8Array([1]),
+          createMetadata({
+            taskId: t.id,
+            status: t.status,
+            workflowId: t.workflowId,
+            startTime: t.startTime,
+            completeTime: t.completeTime,
+          }),
+        );
       }
       await storage.close();
 
@@ -138,7 +167,8 @@ describe("Task Storage Persistence (SQLite)", () => {
 
     it("should handle error stack serialization correctly", async () => {
       let storage = await createStorage();
-      const longErrorStack = "Error: something failed\n" +
+      const longErrorStack =
+        "Error: something failed\n" +
         "    at Object.<anonymous> (test.ts:10:10)\n" +
         "    at processTicksAndRejections (internal/process/task_queues.js:95:5)\n".repeat(20);
       const metadata = createMetadata({
@@ -208,32 +238,44 @@ describe("Task Storage Persistence (SQLite)", () => {
       const now = Date.now();
 
       // Save initial QUEUED task
-      await storage.save("task-lifecycle", new Uint8Array([1]), createMetadata({
-        taskId: "task-lifecycle",
-        status: "QUEUED",
-        submitTime: now - 5000,
-      }));
+      await storage.save(
+        "task-lifecycle",
+        new Uint8Array([1]),
+        createMetadata({
+          taskId: "task-lifecycle",
+          status: "QUEUED",
+          submitTime: now - 5000,
+        }),
+      );
       await storage.close();
 
       // Reopen and update to RUNNING
       storage = await createStorage();
-      await storage.save("task-lifecycle", new Uint8Array([2]), createMetadata({
-        taskId: "task-lifecycle",
-        status: "RUNNING",
-        submitTime: now - 5000,
-        startTime: now - 3000,
-      }));
+      await storage.save(
+        "task-lifecycle",
+        new Uint8Array([2]),
+        createMetadata({
+          taskId: "task-lifecycle",
+          status: "RUNNING",
+          submitTime: now - 5000,
+          startTime: now - 3000,
+        }),
+      );
       await storage.close();
 
       // Reopen and update to COMPLETED
       storage = await createStorage();
-      await storage.save("task-lifecycle", new Uint8Array([3]), createMetadata({
-        taskId: "task-lifecycle",
-        status: "COMPLETED",
-        submitTime: now - 5000,
-        startTime: now - 3000,
-        completeTime: now,
-      }));
+      await storage.save(
+        "task-lifecycle",
+        new Uint8Array([3]),
+        createMetadata({
+          taskId: "task-lifecycle",
+          status: "COMPLETED",
+          submitTime: now - 5000,
+          startTime: now - 3000,
+          completeTime: now,
+        }),
+      );
       await storage.close();
 
       // Final verification

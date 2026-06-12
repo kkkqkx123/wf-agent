@@ -34,8 +34,7 @@ export function mergeSandboxWithDefaults(
     mode: userConfig.mode ?? DEFAULT_SANDBOX_GLOBAL_CONFIG.mode,
     profiles: userConfig.profiles ?? DEFAULT_SANDBOX_GLOBAL_CONFIG.profiles,
     rules: userConfig.rules ?? DEFAULT_SANDBOX_GLOBAL_CONFIG.rules,
-    defaultProfile:
-      userConfig.defaultProfile ?? DEFAULT_SANDBOX_GLOBAL_CONFIG.defaultProfile,
+    defaultProfile: userConfig.defaultProfile ?? DEFAULT_SANDBOX_GLOBAL_CONFIG.defaultProfile,
   };
 }
 
@@ -48,31 +47,26 @@ export function mergeSandboxWithDefaults(
  * @param config - The sandbox config to validate
  * @returns Validation result with errors if any
  */
-export function validateSandboxConfig(
-  config: SandboxGlobalConfig,
-): { valid: boolean; errors: string[] } {
+export function validateSandboxConfig(config: SandboxGlobalConfig): {
+  valid: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
-  const profileNames = new Set(
-    (config.profiles ?? []).map((p: SandboxProfile) => p.name),
-  );
+  const profileNames = new Set((config.profiles ?? []).map((p: SandboxProfile) => p.name));
 
   // Validate rules reference existing profiles
   if (config.rules) {
     for (const rule of config.rules) {
       if (!profileNames.has(rule.profile)) {
-        errors.push(
-          `Sandbox rule references profile "${rule.profile}" which is not defined`,
-        );
+        errors.push(`Sandbox rule references profile "${rule.profile}" which is not defined`);
       }
     }
   }
 
   // Validate defaultProfile exists
   if (config.defaultProfile && !profileNames.has(config.defaultProfile)) {
-    errors.push(
-      `Sandbox defaultProfile "${config.defaultProfile}" is not defined in profiles`,
-    );
+    errors.push(`Sandbox defaultProfile "${config.defaultProfile}" is not defined in profiles`);
   }
 
   return { valid: errors.length === 0, errors };
@@ -86,9 +80,7 @@ export function validateSandboxConfig(
  * @param config - The validated sandbox config
  * @returns The transformed SandboxGlobalConfig
  */
-export function transformSandboxConfig(
-  config: SandboxGlobalConfig,
-): SandboxGlobalConfig {
+export function transformSandboxConfig(config: SandboxGlobalConfig): SandboxGlobalConfig {
   return { ...config };
 }
 
@@ -99,9 +91,7 @@ export function transformSandboxConfig(
  * @param config - Validated SandboxGlobalConfig
  * @returns Serializable configuration object
  */
-export function exportSandboxConfig(
-  config: SandboxGlobalConfig,
-): Partial<SandboxGlobalConfig> {
+export function exportSandboxConfig(config: SandboxGlobalConfig): Partial<SandboxGlobalConfig> {
   return {
     mode: config.mode !== DEFAULT_SANDBOX_GLOBAL_CONFIG.mode ? config.mode : undefined,
     profiles: config.profiles && config.profiles.length > 0 ? config.profiles : undefined,

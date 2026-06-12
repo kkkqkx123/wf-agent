@@ -8,6 +8,7 @@ export type {
   McpServerStatus,
   McpTransportType,
   McpServerSource,
+  McpServerLifecycle,
   McpServerConfigBase,
   McpStdioConfig,
   McpSseConfig,
@@ -32,7 +33,9 @@ export {
   loadServerConfigs,
   createDefaultMcpSettings,
   mergeServerConfigs,
+  resolveServerLifecycle,
 } from "./config/index.js";
+export type { ResolvedLifecycle } from "./config/index.js";
 
 // Transport
 export {
@@ -60,14 +63,13 @@ export {
   isConnected,
   isDisabled,
   getServerDisplayName,
+  updateLastActivity,
+  updateLastHealthCheck,
+  isIdleBeyond,
 } from "./connection-state.js";
 
 // Connection Manager
 export { McpConnectionManager } from "./connection-manager.js";
 
 // Server Registry
-export {
-  McpServerRegistry,
-  getMcpManager,
-  releaseMcpManager,
-} from "./server-registry.js";
+export { McpServerRegistry, getMcpManager, releaseMcpManager } from "./server-registry.js";

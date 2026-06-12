@@ -16,19 +16,19 @@ Current flow (lines 47-87 in `sdk-instance.ts`):
 constructor(options: SDKOptions) {
   // 1. Apply logging config
   this.applyLoggingConfig(options);
-  
+
   // 2. Validate config
   this.validateConfig(options);
-  
+
   // 3. Create container and configure ALL bindings
   const { container, containerId } = createIsolatedContainer({
     checkpoint: options?.checkpointStorageAdapter,
     // ... other adapters
   });
-  
+
   // 4. Create GlobalContext (tries to resolve services from container)
   this.globalContext = new GlobalContext(container);  // ← PROBLEM HERE
-  
+
   // 5. Bind GlobalContext to container (TOO LATE!)
   container.bind(ServiceIdentifiers.GlobalContext).toConstantValue(this.globalContext);
 }
@@ -48,7 +48,7 @@ this.nodeTemplateRegistry = container.get(Identifiers.NodeTemplateRegistry);
 this.triggerTemplateRegistry = container.get(Identifiers.TriggerTemplateRegistry);
 this.llmExecutor = container.get(Identifiers.LLMExecutor);
 this.toolCallExecutor = container.get(Identifiers.ToolCallExecutor);
-this.workflowExecutor = container.get(Identifiers.WorkflowExecutor);  // ← TRIGGERS CHAIN
+this.workflowExecutor = container.get(Identifiers.WorkflowExecutor); // ← TRIGGERS CHAIN
 ```
 
 When resolving `WorkflowExecutor`, the container resolves its dependencies:
@@ -62,11 +62,13 @@ WorkflowExecutor
 ```
 
 At line 586 in `container-config.ts`:
+
 ```typescript
 const workflowExecutionBuilder = c.get(Identifiers.WorkflowExecutionBuilder);
 ```
 
 And `WorkflowExecutionBuilder` binding (line 426):
+
 ```typescript
 .toDynamicValue(c => {
   const globalContext = c.get(Identifiers.GlobalContext);  // ← FAILS HERE
@@ -79,6 +81,7 @@ And `WorkflowExecutionBuilder` binding (line 426):
 ### 3. Why DynamicValue Doesn't Help
 
 The comment at line 76 says:
+
 > "The bindings use lazy dynamicValue resolution, so they won't fail."
 
 This is **incorrect**. While `toDynamicValue` is lazy, the issue is that `GlobalContext` constructor **eagerly resolves** services from the container, which triggers the resolution of services that depend on GlobalContext.
@@ -88,6 +91,7 @@ This is **incorrect**. While `toDynamicValue` is lazy, the issue is that `Global
 ### Solution 1: Two-Phase Container Initialization (Recommended) ✅
 
 **Approach**: Separate container creation into two phases:
+
 1. Create container and bind GlobalContext
 2. Configure remaining service bindings
 
@@ -98,16 +102,15 @@ This is **incorrect**. While `toDynamicValue` is lazy, the issue is that `Global
 export function createIsolatedContainerTwoPhase(adapters: ContainerStorageConfig) {
   const containerId = generateContainerId();
   const container = new Container();
-  
+
   // Phase 1: Bind storage adapters only
   if (adapters.checkpoint) {
-    container.bind(Identifiers.CheckpointStorageAdapter)
-      .toConstantValue(adapters.checkpoint);
+    container.bind(Identifiers.CheckpointStorageAdapter).toConstantValue(adapters.checkpoint);
   }
   // ... bind other adapters
-  
+
   containerManager.getInstance().containers.set(containerId, container);
-  
+
   return { container, containerId };
 }
 
@@ -124,25 +127,25 @@ constructor(options: SDKOptions) {
   this.config = options;
   this.applyLoggingConfig(options);
   this.validateConfig(options);
-  
+
   // Phase 1: Create container with adapters only
   const { container, containerId } = createIsolatedContainerTwoPhase({
     checkpoint: options?.checkpointStorageAdapter,
     // ... other adapters
   });
   this.containerId = containerId;
-  
+
   // Phase 2: Create and bind GlobalContext BEFORE other services
   this.globalContext = new GlobalContext(container);
   container.bind(ServiceIdentifiers.GlobalContext)
     .toConstantValue(this.globalContext);
-  
+
   // Phase 3: Configure remaining service bindings
   configureRemainingBindings(container);
-  
+
   // Now safe to create API factory
   this.apiFactory = new APIFactory(this.globalContext);
-  
+
   this.bootstrapPromise = this.bootstrap().catch(error => {
     logger.error(`Failed to bootstrap SDK instance: ${getErrorMessage(error)}`);
     options?.hooks?.onBootstrapError?.(error);
@@ -151,12 +154,14 @@ constructor(options: SDKOptions) {
 ```
 
 **Pros**:
+
 - ✅ Clean separation of concerns
 - ✅ No circular dependency
 - ✅ Clear initialization order
 - ✅ Easy to test
 
 **Cons**:
+
 - ⚠️ Requires refactoring `container-manager.ts`
 - ⚠️ Breaking change to container creation API
 
@@ -174,11 +179,11 @@ export class GlobalContext {
   private _workflowRegistry?: WorkflowRegistry;
   private _toolRegistry?: ToolRegistry;
   // ... other services
-  
+
   constructor(readonly container: Container) {
     // Don't resolve anything here!
   }
-  
+
   // Lazy getters
   get workflowRegistry(): WorkflowRegistry {
     if (!this._workflowRegistry) {
@@ -186,24 +191,26 @@ export class GlobalContext {
     }
     return this._workflowRegistry;
   }
-  
+
   get toolRegistry(): ToolRegistry {
     if (!this._toolRegistry) {
       this._toolRegistry = this.container.get(Identifiers.ToolRegistry);
     }
     return this._toolRegistry;
   }
-  
+
   // ... similar for all other services
 }
 ```
 
 **Pros**:
+
 - ✅ No changes to container initialization
 - ✅ Truly lazy loading
 - ✅ Better performance (only load what's needed)
 
 **Cons**:
+
 - ⚠️ Significant refactoring of GlobalContext
 - ⚠️ All code using GlobalContext must handle potential undefined values initially
 - ⚠️ Loses type safety (can't guarantee services are available)
@@ -222,13 +229,13 @@ constructor(options: SDKOptions) {
   this.config = options;
   this.applyLoggingConfig(options);
   this.validateConfig(options);
-  
+
   const { container, containerId } = createIsolatedContainer({
     checkpoint: options?.checkpointStorageAdapter,
     // ... other adapters
   });
   this.containerId = containerId;
-  
+
   // Pre-bind a placeholder that will be replaced
   let globalContextRef: GlobalContext | null = null;
   container.bind(ServiceIdentifiers.GlobalContext)
@@ -239,21 +246,23 @@ constructor(options: SDKOptions) {
       return globalContextRef;
     })
     .inSingletonScope();
-  
+
   // Now create GlobalContext (it can safely use the container)
   this.globalContext = new GlobalContext(container);
   globalContextRef = this.globalContext;  // Update the reference
-  
+
   this.apiFactory = new APIFactory(this.globalContext);
   this.bootstrapPromise = this.bootstrap().catch(/*...*/);
 }
 ```
 
 **Pros**:
+
 - ✅ Minimal changes to existing code
 - ✅ Maintains current architecture
 
 **Cons**:
+
 - ⚠️ Hacky solution with closure trick
 - ⚠️ Potential race conditions if services are resolved during GlobalContext construction
 - ⚠️ Not thread-safe (though TS is single-threaded)
@@ -292,18 +301,18 @@ constructor(options: SDKOptions) {
   this.config = options;
   this.applyLoggingConfig(options);
   this.validateConfig(options);
-  
+
   const { container, containerId } = createIsolatedContainer({
     checkpoint: options?.checkpointStorageAdapter,
     // ... other adapters
   });
   this.containerId = containerId;
-  
+
   // Manually resolve required services BEFORE creating GlobalContext
   const workflowRegistry = container.get(Identifiers.WorkflowRegistry);
   const toolRegistry = container.get(Identifiers.ToolRegistry);
   // ... resolve all other services
-  
+
   // Now create GlobalContext with pre-resolved services
   this.globalContext = new GlobalContext(
     container,
@@ -311,21 +320,23 @@ constructor(options: SDKOptions) {
     toolRegistry,
     // ... pass all services
   );
-  
+
   container.bind(ServiceIdentifiers.GlobalContext)
     .toConstantValue(this.globalContext);
-  
+
   this.apiFactory = new APIFactory(this.globalContext);
   this.bootstrapPromise = this.bootstrap().catch(/*...*/);
 }
 ```
 
 **Pros**:
+
 - ✅ Explicit dependencies
 - ✅ No circular dependency
 - ✅ Easy to test (can mock services)
 
 **Cons**:
+
 - ⚠️ Still has the same problem - resolving services triggers the chain
 - ⚠️ Verbose constructor
 - ⚠️ Tight coupling to specific services
@@ -379,6 +390,7 @@ configureRemainingBindings(container);
 ### Testing Strategy
 
 Once fixed, tests should verify:
+
 1. ✅ SDK can be created with minimal configuration
 2. ✅ Multiple SDK instances can coexist
 3. ✅ Services are properly isolated between instances
@@ -404,6 +416,7 @@ Since this is an internal SDK API and the project is in development stage (per A
 ## Conclusion
 
 **Solution 1 (Two-Phase Initialization)** is the recommended approach because it:
+
 - Fixes the root cause cleanly
 - Improves code clarity
 - Makes testing easier

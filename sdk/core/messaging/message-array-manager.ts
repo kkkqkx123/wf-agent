@@ -5,10 +5,10 @@
 
 import { now } from "@wf-agent/common-utils";
 import type {
- Message,
- MessageArrayState,
- MessageOperationResult,
- MessageArrayStats,
+  Message,
+  MessageArrayState,
+  MessageOperationResult,
+  MessageArrayStats,
   BatchSnapshot,
   AppendMessageOperation,
   InsertMessageOperation,

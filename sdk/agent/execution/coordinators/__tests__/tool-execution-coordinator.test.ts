@@ -101,10 +101,16 @@ describe("ToolExecutionCoordinator", () => {
       // Each tool call is executed individually via executeSingleApprovedTool
       expect(mockEntity.state.recordToolCallStart).toHaveBeenCalledTimes(2);
       expect(mockEntity.state.recordToolCallStart).toHaveBeenNthCalledWith(
-        1, "tool-1", "search", '{"query":"test"}',
+        1,
+        "tool-1",
+        "search",
+        '{"query":"test"}',
       );
       expect(mockEntity.state.recordToolCallStart).toHaveBeenNthCalledWith(
-        2, "tool-2", "calculator", '{"a":1,"b":2}',
+        2,
+        "tool-2",
+        "calculator",
+        '{"a":1,"b":2}',
       );
 
       // executeToolCalls is called once per tool call (each with a single-element array)
@@ -145,9 +151,7 @@ describe("ToolExecutionCoordinator", () => {
     });
 
     it("should process batch through approval coordinator", async () => {
-      const toolCalls = [
-        { id: "tool-1", name: "search", arguments: '{"query":"test"}' },
-      ];
+      const toolCalls = [{ id: "tool-1", name: "search", arguments: '{"query":"test"}' }];
 
       mockProcessToolBatch.mockResolvedValue({
         batchId: "batch-1",
@@ -175,9 +179,11 @@ describe("ToolExecutionCoordinator", () => {
         { id: "tool-2", name: "read", arguments: '{"file":"test.txt"}' },
       ];
 
-      mockToolCallExecutor.executeToolCalls = vi.fn().mockResolvedValue([
-        { toolCallId: "tool-1", success: true, result: { data: "ok" }, executionTime: 50 },
-      ]);
+      mockToolCallExecutor.executeToolCalls = vi
+        .fn()
+        .mockResolvedValue([
+          { toolCallId: "tool-1", success: true, result: { data: "ok" }, executionTime: 50 },
+        ]);
 
       mockProcessToolBatch.mockResolvedValue({
         batchId: "batch-1",
@@ -199,19 +205,27 @@ describe("ToolExecutionCoordinator", () => {
     });
 
     it("should handle confirmation-required tools", async () => {
-      const toolCalls = [
-        { id: "tool-1", name: "delete", arguments: '{"path":"/important"}' },
-      ];
+      const toolCalls = [{ id: "tool-1", name: "delete", arguments: '{"path":"/important"}' }];
 
-      mockToolCallExecutor.executeToolCalls = vi.fn().mockResolvedValue([
-        { toolCallId: "tool-1", success: true, result: { deleted: true }, executionTime: 100 },
-      ]);
+      mockToolCallExecutor.executeToolCalls = vi
+        .fn()
+        .mockResolvedValue([
+          { toolCallId: "tool-1", success: true, result: { deleted: true }, executionTime: 100 },
+        ]);
 
       mockProcessToolBatch.mockResolvedValue({
         batchId: "batch-1",
         autoExecuted: [],
-        confirmationRequired: { id: "tool-1", type: "function", function: { name: "delete", arguments: '{"path":"/important"}' } },
-        confirmationResult: { approved: true, toolCallId: "tool-1", editedParameters: { path: "/safe" } },
+        confirmationRequired: {
+          id: "tool-1",
+          type: "function",
+          function: { name: "delete", arguments: '{"path":"/important"}' },
+        },
+        confirmationResult: {
+          approved: true,
+          toolCallId: "tool-1",
+          editedParameters: { path: "/safe" },
+        },
         remainingQueue: [],
         allCompleted: false,
       } as ToolBatchResult);
@@ -223,15 +237,21 @@ describe("ToolExecutionCoordinator", () => {
     });
 
     it("should handle approval rejection", async () => {
-      const toolCalls = [
-        { id: "tool-1", name: "delete", arguments: '{"path":"/important"}' },
-      ];
+      const toolCalls = [{ id: "tool-1", name: "delete", arguments: '{"path":"/important"}' }];
 
       mockProcessToolBatch.mockResolvedValue({
         batchId: "batch-1",
         autoExecuted: [],
-        confirmationRequired: { id: "tool-1", type: "function", function: { name: "delete", arguments: '{"path":"/important"}' } },
-        confirmationResult: { approved: false, toolCallId: "tool-1", rejectionReason: "Not allowed" },
+        confirmationRequired: {
+          id: "tool-1",
+          type: "function",
+          function: { name: "delete", arguments: '{"path":"/important"}' },
+        },
+        confirmationResult: {
+          approved: false,
+          toolCallId: "tool-1",
+          rejectionReason: "Not allowed",
+        },
         remainingQueue: [],
         allCompleted: false,
       } as ToolBatchResult);
@@ -261,9 +281,7 @@ describe("ToolExecutionCoordinator", () => {
     });
 
     it("should yield start and end events for each tool call", async () => {
-      const toolCalls = [
-        { id: "tool-1", function: { name: "search", arguments: '{"q":"test"}' } },
-      ];
+      const toolCalls = [{ id: "tool-1", function: { name: "search", arguments: '{"q":"test"}' } }];
 
       const events: any[] = [];
       for await (const event of coordinator.executeToolCallsStream(
@@ -291,9 +309,7 @@ describe("ToolExecutionCoordinator", () => {
         },
       ]);
 
-      const toolCalls = [
-        { id: "tool-1", function: { name: "search", arguments: '{"q":"test"}' } },
-      ];
+      const toolCalls = [{ id: "tool-1", function: { name: "search", arguments: '{"q":"test"}' } }];
 
       const events: any[] = [];
       for await (const event of coordinator.executeToolCallsStream(

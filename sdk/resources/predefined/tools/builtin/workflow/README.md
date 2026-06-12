@@ -5,6 +5,7 @@ This directory contains built-in tools that enable agents to interact with workf
 ## Overview
 
 The workflow builtin tools allow LLM-powered agents to:
+
 - **Execute workflows** dynamically with custom inputs
 - **Monitor execution status** of asynchronous workflow tasks
 - **Cancel running workflows** when needed
@@ -18,12 +19,14 @@ These tools are automatically registered in the builtin tool registry and made a
 Executes a predefined workflow with the given input parameters.
 
 **Parameters:**
+
 - `workflowId` (string, required): The ID of the workflow to execute
 - `input` (object, optional): Input parameters to pass to the workflow
 - `waitForCompletion` (boolean, optional, default: `true`): Whether to wait for the workflow to complete
 - `timeout` (number, optional): Timeout in milliseconds
 
 **Return Value:**
+
 - When `waitForCompletion=true`:
   ```typescript
   {
@@ -44,24 +47,26 @@ Executes a predefined workflow with the given input parameters.
   ```
 
 **Usage Example:**
+
 ```typescript
 // Synchronous execution
 const result = await execute_workflow({
   workflowId: "data-processing-workflow",
   input: { dataset: "sales_2024", format: "csv" },
-  waitForCompletion: true
+  waitForCompletion: true,
 });
 
 // Asynchronous execution
 const submission = await execute_workflow({
   workflowId: "long-running-analysis",
   input: { model: "forecast-v2" },
-  waitForCompletion: false
+  waitForCompletion: false,
 });
 // Use submission.taskId to query status later
 ```
 
 **Best Practices:**
+
 - Use `waitForCompletion=false` for long-running workflows to avoid blocking the agent
 - Provide clear and structured input data matching the workflow's expected schema
 - Handle both success and error cases in your agent logic
@@ -73,9 +78,11 @@ const submission = await execute_workflow({
 Queries the status of an asynchronously submitted workflow task.
 
 **Parameters:**
+
 - `taskId` (string, required): The task ID returned from an async `execute_workflow` call
 
 **Return Value:**
+
 ```typescript
 {
   success: boolean,
@@ -89,9 +96,10 @@ Queries the status of an asynchronously submitted workflow task.
 ```
 
 **Usage Example:**
+
 ```typescript
 const status = await query_workflow_status({
-  taskId: "task-abc123"
+  taskId: "task-abc123",
 });
 
 if (status.status === "completed") {
@@ -102,6 +110,7 @@ if (status.status === "completed") {
 ```
 
 **Best Practices:**
+
 - Poll periodically for async workflows (e.g., every 5-10 seconds)
 - Implement exponential backoff to avoid excessive API calls
 - Check for terminal states (`completed`, `failed`, `cancelled`) before stopping polling
@@ -113,9 +122,11 @@ if (status.status === "completed") {
 Cancels a running workflow task.
 
 **Parameters:**
+
 - `taskId` (string, required): The task ID to cancel
 
 **Return Value:**
+
 ```typescript
 {
   success: boolean,
@@ -125,9 +136,10 @@ Cancels a running workflow task.
 ```
 
 **Usage Example:**
+
 ```typescript
 const result = await cancel_workflow({
-  taskId: "task-abc123"
+  taskId: "task-abc123",
 });
 
 if (result.success) {
@@ -136,6 +148,7 @@ if (result.success) {
 ```
 
 **Best Practices:**
+
 - Only async workflows (submitted with `waitForCompletion=false`) can be cancelled
 - Verify the task is in a cancellable state before attempting cancellation
 - Handle partial execution results gracefully after cancellation
@@ -158,6 +171,7 @@ Each builtin tool includes an optional `category` field for internal organizatio
 - **`integration`**: Third-party service integrations (MCP, external APIs)
 
 **Important:** The category field is used for:
+
 - Internal tool registry organization
 - UI grouping in settings panels
 - Programmatic filtering (`getByCategory()`)
@@ -179,6 +193,7 @@ Agent Loop / Parent Workflow
 ```
 
 **Key Features:**
+
 - **Parent Context Propagation:** Child workflows inherit the parent's execution context
 - **Lifecycle Linkage:** If the parent is cancelled, all child workflows receive an abort signal
 - **Traceability:** Each workflow execution includes a unique `triggerId` linking it back to the tool invocation
@@ -186,12 +201,14 @@ Agent Loop / Parent Workflow
 ### Dependency Injection
 
 The handlers retrieve services from the DI container:
+
 - `TriggeredSubworkflowHandler`: Manages workflow execution lifecycle
 - `EventRegistry`: (Future) For emitting observability events
 
 ### Error Handling
 
 All tools use `RuntimeValidationError` for parameter validation with detailed context:
+
 - Operation name
 - Field name
 - Current execution ID
@@ -207,7 +224,7 @@ All tools use `RuntimeValidationError` for parameter validation with detailed co
 // Submit workflow asynchronously
 const submission = await execute_workflow({
   workflowId: "background-task",
-  waitForCompletion: false
+  waitForCompletion: false,
 });
 
 // Poll for completion
@@ -229,7 +246,7 @@ if (status.status === "completed") {
 ```typescript
 const submission = await execute_workflow({
   workflowId: "risky-operation",
-  waitForCompletion: false
+  waitForCompletion: false,
 });
 
 // Monitor and cancel if needed
@@ -245,17 +262,17 @@ if (shouldCancel(status)) {
 // Agent can orchestrate multiple workflows
 await execute_workflow({
   workflowId: "data-extraction",
-  input: { source: "api" }
+  input: { source: "api" },
 });
 
 await execute_workflow({
   workflowId: "data-transformation",
-  input: { format: "json" }
+  input: { format: "json" },
 });
 
 await execute_workflow({
   workflowId: "data-loading",
-  input: { target: "database" }
+  input: { target: "database" },
 });
 ```
 
@@ -266,12 +283,14 @@ await execute_workflow({
 Tests are located in `__tests__/workflow-handlers.test.ts`.
 
 **Run Tests:**
+
 ```bash
 cd sdk
 pnpm test resources/predefined/tools/builtin/workflow/__tests__
 ```
 
 **Test Coverage:**
+
 - Parameter validation
 - Synchronous execution
 - Asynchronous submission

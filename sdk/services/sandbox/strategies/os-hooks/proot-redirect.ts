@@ -86,7 +86,9 @@ export class ProotLikeRedirectStrategy implements StrategyImplementation<ScriptE
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 1000,
-      }).trim().split("\n")[0];
+      })
+        .trim()
+        .split("\n")[0];
       if (which) return which;
     } catch {
       // Not found on PATH

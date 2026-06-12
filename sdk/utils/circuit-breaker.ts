@@ -1,7 +1,7 @@
 /**
  * Circuit Breaker Pattern Implementation
  * Prevents cascading failures by detecting repeated failures and temporarily blocking requests
- * 
+ *
  * This is a generic implementation suitable for:
  * - HTTP requests
  * - Database connections
@@ -50,19 +50,19 @@ export interface CircuitMetrics {
 
 /**
  * Circuit Breaker - prevents cascading failures
- * 
+ *
  * States:
  * - CLOSED: Normal operation, requests pass through
  * - OPEN: Circuit tripped, requests fail immediately
  * - HALF_OPEN: Testing if service recovered, limited requests allowed
- * 
+ *
  * @example
  * ```typescript
  * const breaker = new CircuitBreaker({
  *   failureThreshold: 5,
  *   resetTimeout: 30000,
  * });
- * 
+ *
  * try {
  *   const result = await breaker.execute(() => httpClient.get(url));
  *   console.log('Success:', result);
@@ -72,7 +72,7 @@ export interface CircuitMetrics {
  *   }
  * }
  * ```
- * 
+ *
  * @example
  * ```typescript
  * // Use with database operations
@@ -83,7 +83,7 @@ export interface CircuitMetrics {
  *     console.log(`Circuit state: ${state}`, metrics);
  *   }
  * });
- * 
+ *
  * const data = await dbBreaker.execute(() => storage.load(id));
  * ```
  */
@@ -265,12 +265,12 @@ export class CircuitBreaker {
 
 /**
  * Create a circuit breaker decorator for class methods
- * 
+ *
  * @example
  * ```typescript
  * class StorageService {
  *   private breaker = new CircuitBreaker();
- * 
+ *
  *   @circuitBreakerDecorator(breaker)
  *   async loadData(id: string): Promise<Data> {
  *     // ... implementation
@@ -282,7 +282,7 @@ export function circuitBreakerDecorator(breaker: CircuitBreaker) {
   return function <T extends (...args: unknown[]) => Promise<unknown>>(
     _target: object,
     _propertyKey: string,
-    descriptor: TypedPropertyDescriptor<T>
+    descriptor: TypedPropertyDescriptor<T>,
   ): TypedPropertyDescriptor<T> {
     const originalMethod = descriptor.value!;
 

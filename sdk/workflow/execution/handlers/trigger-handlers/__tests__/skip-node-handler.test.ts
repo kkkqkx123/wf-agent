@@ -6,7 +6,13 @@ import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-exec
 import type { EventRegistry } from "../../../../../core/registry/event-registry.js";
 
 const mockExecution = {
-  nodeResults: [] as Array<{ nodeId: string; nodeType: string; status: string; step: number; executionTime: number }>,
+  nodeResults: [] as Array<{
+    nodeId: string;
+    nodeType: string;
+    status: string;
+    step: number;
+    executionTime: number;
+  }>,
 };
 
 const mockEntity = {

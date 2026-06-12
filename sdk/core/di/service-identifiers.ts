@@ -80,13 +80,16 @@ import type { RejectionMessageBuilder as RejectionMessageBuilderType } from "../
  * WorkflowGraphRegistry - Graph Registry
  * Manages the storage and retrieval of preprocessed graphs.
  */
-export const WorkflowGraphRegistry: ServiceIdentifier<WorkflowGraphRegistryType> = Symbol("WorkflowGraphRegistry");
+export const WorkflowGraphRegistry: ServiceIdentifier<WorkflowGraphRegistryType> =
+  Symbol("WorkflowGraphRegistry");
 
 /**
  * WorkflowExecutionRegistry - Execution Registry
  * Manages the memory storage of WorkflowExecutionContext
  */
-export const WorkflowExecutionRegistry: ServiceIdentifier<WorkflowExecutionRegistryType> = Symbol("WorkflowExecutionRegistry");
+export const WorkflowExecutionRegistry: ServiceIdentifier<WorkflowExecutionRegistryType> = Symbol(
+  "WorkflowExecutionRegistry",
+);
 
 // ============================================================
 // Business Layer Services
@@ -120,13 +123,15 @@ export const WorkflowRegistry: ServiceIdentifier<WorkflowRegistryType> = Symbol(
  * WorkflowRelationshipRegistry - Workflow Relationship Registry
  * Manages hierarchical relationships and reference relationships between workflows.
  */
-export const WorkflowRelationshipRegistry: ServiceIdentifier<WorkflowRelationshipRegistryType> = Symbol("WorkflowRelationshipRegistry");
+export const WorkflowRelationshipRegistry: ServiceIdentifier<WorkflowRelationshipRegistryType> =
+  Symbol("WorkflowRelationshipRegistry");
 
 /**
  * NodeTemplateRegistry - Node Template Registry
  * Manages the registration and querying of node templates.
  */
-export const NodeTemplateRegistry: ServiceIdentifier<NodeTemplateRegistryType> = Symbol("NodeTemplateRegistry");
+export const NodeTemplateRegistry: ServiceIdentifier<NodeTemplateRegistryType> =
+  Symbol("NodeTemplateRegistry");
 
 /**
  * TriggerTemplateRegistry - Trigger Template Registry
@@ -162,7 +167,9 @@ export const GlobalContext: ServiceIdentifier<GlobalContextType> = Symbol("Globa
  * WorkflowExecutionBuilder - Workflow Execution Builder
  * Constructs WorkflowExecutionEntity instances from workflow definitions
  */
-export const WorkflowExecutionBuilder: ServiceIdentifier<WorkflowExecutionBuilderType> = Symbol("WorkflowExecutionBuilder");
+export const WorkflowExecutionBuilder: ServiceIdentifier<WorkflowExecutionBuilderType> = Symbol(
+  "WorkflowExecutionBuilder",
+);
 
 /**
  * WorkflowExecutor - Workflow Executor
@@ -174,15 +181,15 @@ export const WorkflowExecutor: ServiceIdentifier<WorkflowExecutorType> = Symbol(
  * WorkflowLifecycleCoordinator - Workflow Lifecycle Coordinator
  * Manages the entire lifecycle of workflow executions
  */
-export const WorkflowLifecycleCoordinator: ServiceIdentifier<WorkflowLifecycleCoordinatorType> = Symbol(
-  "WorkflowLifecycleCoordinator",
-);
+export const WorkflowLifecycleCoordinator: ServiceIdentifier<WorkflowLifecycleCoordinatorType> =
+  Symbol("WorkflowLifecycleCoordinator");
 
 /**
  * WorkflowStateTransitor - Workflow Execution State Transitor
  * Manages the transition of workflow execution lifecycle states
  */
-export const WorkflowStateTransitor: ServiceIdentifier<WorkflowStateTransitorType> = Symbol("WorkflowStateTransitor");
+export const WorkflowStateTransitor: ServiceIdentifier<WorkflowStateTransitorType> =
+  Symbol("WorkflowStateTransitor");
 
 /**
  * CheckpointState - Checkpoint State Manager
@@ -225,21 +232,22 @@ export const ToolApprovalCoordinator: ServiceIdentifier<ToolApprovalCoordinatorT
  * WorkflowExecutionCoordinator - Workflow Execution Coordinator
  * Coordinates the execution process of workflow executions, orchestrating the completion of tasks by various components.
  */
-export const WorkflowExecutionCoordinator: ServiceIdentifier<WorkflowExecutionCoordinatorType> = Symbol(
-  "WorkflowExecutionCoordinator",
-);
+export const WorkflowExecutionCoordinator: ServiceIdentifier<WorkflowExecutionCoordinatorType> =
+  Symbol("WorkflowExecutionCoordinator");
 
 /**
  * VariableCoordinator - Variable Coordinator
  * Responsible for the coordination logic of variables, including validation, initialization on demand, event triggering, and more.
  */
-export const VariableCoordinator: ServiceIdentifier<VariableCoordinatorType> = Symbol("VariableCoordinator");
+export const VariableCoordinator: ServiceIdentifier<VariableCoordinatorType> =
+  Symbol("VariableCoordinator");
 
 /**
  * TriggerCoordinator - Trigger Coordinator
  * Responsible for the registration, deregistration, and execution of trigger actions.
  */
-export const TriggerCoordinator: ServiceIdentifier<TriggerCoordinatorType> = Symbol("TriggerCoordinator");
+export const TriggerCoordinator: ServiceIdentifier<TriggerCoordinatorType> =
+  Symbol("TriggerCoordinator");
 
 /**
  * NodeExecutionCoordinator - Node Execution Coordinator
@@ -260,7 +268,8 @@ export const LLMExecutionCoordinator: ServiceIdentifier<LLMExecutionCoordinatorT
  * CheckpointCoordinator - The checkpoint coordinator
  * Coordinates the entire checkpoint process
  */
-export const CheckpointCoordinator: ServiceIdentifier<CheckpointCoordinatorType> = Symbol("CheckpointCoordinator");
+export const CheckpointCoordinator: ServiceIdentifier<CheckpointCoordinatorType> =
+  Symbol("CheckpointCoordinator");
 
 // ============================================================
 // Execution Layer - Managers
@@ -270,13 +279,16 @@ export const CheckpointCoordinator: ServiceIdentifier<CheckpointCoordinatorType>
  * ConversationSession - Conversation Manager
  * Manages the message history and message indexing.
  */
-export const ConversationSession: ServiceIdentifier<ConversationSessionType> = Symbol("ConversationSession");
+export const ConversationSession: ServiceIdentifier<ConversationSessionType> =
+  Symbol("ConversationSession");
 
 /**
  * VariableManager - Unified Variable State Manager
  * Manages variable definitions, values, and scope stacks in a single Map structure
  */
-export const VariableManager: ServiceIdentifier<import("../../workflow/state-managers/variable-manager.js").VariableManager> = Symbol("VariableManager");
+export const VariableManager: ServiceIdentifier<
+  import("../../workflow/state-managers/variable-manager.js").VariableManager
+> = Symbol("VariableManager");
 
 /**
  * TriggerState - Trigger State Manager
@@ -288,7 +300,8 @@ export const TriggerState: ServiceIdentifier<TriggerStateType> = Symbol("Trigger
  * InterruptionState - Interrupt Manager
  * Manages the workflow execution interruption status and operations in a unified manner
  */
-export const InterruptionState: ServiceIdentifier<InterruptionStateType> = Symbol("InterruptionState");
+export const InterruptionState: ServiceIdentifier<InterruptionStateType> =
+  Symbol("InterruptionState");
 
 // ============================================================
 // API Layer Service
@@ -304,21 +317,23 @@ export const SDK: ServiceIdentifier<SDKInstanceType> = Symbol("SDK");
  * SDKOptions - SDK Configuration Options
  * Stores the configuration options passed during SDK initialization
  */
-export const SDKOptions: ServiceIdentifier<import("../../api/shared/types/core-types.js").SDKOptions> = Symbol("SDKOptions");
+export const SDKOptions: ServiceIdentifier<
+  import("../../api/shared/types/core-types.js").SDKOptions
+> = Symbol("SDKOptions");
 
 /**
  * TriggeredSubworkflowHandler - Manages the execution of triggered sub-workflows
  *
  */
-export const TriggeredSubworkflowHandler: ServiceIdentifier<TriggeredSubworkflowHandlerType> = Symbol(
-  "TriggeredSubworkflowHandler",
-);
+export const TriggeredSubworkflowHandler: ServiceIdentifier<TriggeredSubworkflowHandlerType> =
+  Symbol("TriggeredSubworkflowHandler");
 
 /**
  * WorkflowExecutionPool - Workflow Execution Pool Service
  * Manages a pool of WorkflowExecutor instances, providing global management of workflow execution pool resources.
  */
-export const WorkflowExecutionPool: ServiceIdentifier<WorkflowExecutionPoolType> = Symbol("WorkflowExecutionPool");
+export const WorkflowExecutionPool: ServiceIdentifier<WorkflowExecutionPoolType> =
+  Symbol("WorkflowExecutionPool");
 
 // ============================================================
 // Core Layer Services
@@ -338,32 +353,38 @@ export const LLMWrapper: ServiceIdentifier<LLMWrapperType> = Symbol("LLMWrapper"
  * AgentLoopRegistry - Agent Loop Registry
  * Manages the memory storage of AgentLoopEntities
  */
-export const AgentLoopRegistry: ServiceIdentifier<AgentLoopRegistryType> = Symbol("AgentLoopRegistry");
+export const AgentLoopRegistry: ServiceIdentifier<AgentLoopRegistryType> =
+  Symbol("AgentLoopRegistry");
 
 /**
  * AgentExecutionRegistry - Agent Execution Registry Interface
  * Provides unified access to agent loop execution instances
  */
-export const AgentExecutionRegistry: ServiceIdentifier<AgentExecutionRegistryType> = Symbol("AgentExecutionRegistry");
+export const AgentExecutionRegistry: ServiceIdentifier<AgentExecutionRegistryType> =
+  Symbol("AgentExecutionRegistry");
 
 /**
  * ExecutionHierarchyRegistry - Unified Execution Hierarchy Registry
  * Manages parent-child relationships across all execution types (Workflow, Agent)
  * Provides unified cleanup and query operations for mixed hierarchies
  */
-export const ExecutionHierarchyRegistry: ServiceIdentifier<ExecutionHierarchyRegistryType> = Symbol("ExecutionHierarchyRegistry");
+export const ExecutionHierarchyRegistry: ServiceIdentifier<ExecutionHierarchyRegistryType> = Symbol(
+  "ExecutionHierarchyRegistry",
+);
 
 /**
  * AgentLoopExecutor - Agent Loop Executor
  * Responsible for executing the iterative loop of the Agent tool, creating an independent message history with each execution.
  */
-export const AgentLoopExecutor: ServiceIdentifier<AgentLoopExecutorType> = Symbol("AgentLoopExecutor");
+export const AgentLoopExecutor: ServiceIdentifier<AgentLoopExecutorType> =
+  Symbol("AgentLoopExecutor");
 
 /**
  * AgentLoopCoordinator - Agent Loop Lifecycle Coordinator
  * Coordinates the full lifecycle management of AgentLoopEntities
  */
-export const AgentLoopCoordinator: ServiceIdentifier<AgentLoopCoordinatorType> = Symbol("AgentLoopCoordinator");
+export const AgentLoopCoordinator: ServiceIdentifier<AgentLoopCoordinatorType> =
+  Symbol("AgentLoopCoordinator");
 
 // ============================================================
 // Skill Layer Service
@@ -380,7 +401,8 @@ export const SkillRegistry: ServiceIdentifier<SkillRegistryType> = Symbol("Skill
  * Manages the registration and discovery of agent profile metadata.
  * Provides a single source of truth for available agent profiles.
  */
-export const AgentProfileRegistry: ServiceIdentifier<AgentProfileRegistryType> = Symbol("AgentProfileRegistry");
+export const AgentProfileRegistry: ServiceIdentifier<AgentProfileRegistryType> =
+  Symbol("AgentProfileRegistry");
 
 /**
  * TimeoutRegistry - Timeout Registry
@@ -396,85 +418,104 @@ export const TimeoutRegistry: ServiceIdentifier<TimeoutRegistryType> = Symbol("T
  * CheckpointStorageAdapter - Checkpoint Storage Adapter
  * Provides checkpoint persistence operations
  */
-export const CheckpointStorageAdapter: ServiceIdentifier<CheckpointStorageAdapterType> = Symbol("CheckpointStorageAdapter");
+export const CheckpointStorageAdapter: ServiceIdentifier<CheckpointStorageAdapterType> = Symbol(
+  "CheckpointStorageAdapter",
+);
 
 /**
  * WorkflowStorageAdapter - Workflow Storage Adapter
  * Provides workflow definition persistence operations
  */
-export const WorkflowStorageAdapter: ServiceIdentifier<WorkflowStorageAdapterType> = Symbol("WorkflowStorageAdapter");
+export const WorkflowStorageAdapter: ServiceIdentifier<WorkflowStorageAdapterType> =
+  Symbol("WorkflowStorageAdapter");
 
 /**
  * TaskStorageAdapter - Task Storage Adapter
  * Provides task persistence operations
  */
-export const TaskStorageAdapter: ServiceIdentifier<TaskStorageAdapterType> = Symbol("TaskStorageAdapter");
+export const TaskStorageAdapter: ServiceIdentifier<TaskStorageAdapterType> =
+  Symbol("TaskStorageAdapter");
 
 /**
  * WorkflowExecutionStorageAdapter - Workflow Execution Storage Adapter
  * Provides workflow execution history persistence operations
  */
-export const WorkflowExecutionStorageAdapter: ServiceIdentifier<WorkflowExecutionStorageAdapterType> = Symbol("WorkflowExecutionStorageAdapter");
+export const WorkflowExecutionStorageAdapter: ServiceIdentifier<WorkflowExecutionStorageAdapterType> =
+  Symbol("WorkflowExecutionStorageAdapter");
 
 /**
  * AgentLoopStorageAdapter - Agent Loop Storage Adapter
  * Provides agent loop lifecycle persistence operations
  */
-export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterType> = Symbol("AgentLoopStorageAdapter");
+export const AgentLoopStorageAdapter: ServiceIdentifier<AgentLoopStorageAdapterType> =
+  Symbol("AgentLoopStorageAdapter");
 
 /**
  * MetricsStorageAdapter - Metrics Storage Adapter
  * Provides metrics persistence operations
  */
-export const MetricsStorageAdapter: ServiceIdentifier<import("@wf-agent/storage").MetricsStorageAdapter> = Symbol("MetricsStorageAdapter");
+export const MetricsStorageAdapter: ServiceIdentifier<
+  import("@wf-agent/storage").MetricsStorageAdapter
+> = Symbol("MetricsStorageAdapter");
 
 /**
  * FileCheckpointManager - File Checkpoint Manager
  * Manages workspace file state checkpoints independent of VFS
  */
-export const FileCheckpointManager: ServiceIdentifier<FileCheckpointManagerType> = Symbol("FileCheckpointManager");
+export const FileCheckpointManager: ServiceIdentifier<FileCheckpointManagerType> =
+  Symbol("FileCheckpointManager");
 
 /**
  * FileCheckpointStorageAdapter - File Checkpoint Storage Adapter
  * Storage adapter for file checkpoint persistence
  */
-export const FileCheckpointStorageAdapter: ServiceIdentifier<FileCheckpointStorageAdapterType> = Symbol("FileCheckpointStorageAdapter");
+export const FileCheckpointStorageAdapter: ServiceIdentifier<FileCheckpointStorageAdapterType> =
+  Symbol("FileCheckpointStorageAdapter");
 
 /**
  * TriggerStorageAdapter - Trigger Template Storage Adapter
  * Provides trigger template persistence operations
  */
-export const TriggerStorageAdapter: ServiceIdentifier<TriggerStorageAdapterType> = Symbol("TriggerStorageAdapter");
+export const TriggerStorageAdapter: ServiceIdentifier<TriggerStorageAdapterType> =
+  Symbol("TriggerStorageAdapter");
 
 /**
  * ToolStorageAdapter - Tool Storage Adapter
  * Provides tool persistence operations
  */
-export const ToolStorageAdapter: ServiceIdentifier<ToolStorageAdapterType> = Symbol("ToolStorageAdapter");
+export const ToolStorageAdapter: ServiceIdentifier<ToolStorageAdapterType> =
+  Symbol("ToolStorageAdapter");
 
 /**
  * ScriptStorageAdapter - Script Storage Adapter
  * Provides script persistence operations
  */
-export const ScriptStorageAdapter: ServiceIdentifier<ScriptStorageAdapterType> = Symbol("ScriptStorageAdapter");
+export const ScriptStorageAdapter: ServiceIdentifier<ScriptStorageAdapterType> =
+  Symbol("ScriptStorageAdapter");
 
 /**
  * NodeTemplateStorageAdapter - Node Template Storage Adapter
  * Provides node template persistence operations
  */
-export const NodeTemplateStorageAdapter: ServiceIdentifier<NodeTemplateStorageAdapterType> = Symbol("NodeTemplateStorageAdapter");
+export const NodeTemplateStorageAdapter: ServiceIdentifier<NodeTemplateStorageAdapterType> = Symbol(
+  "NodeTemplateStorageAdapter",
+);
 
 /**
  * HookTemplateStorageAdapter - Hook Template Storage Adapter
  * Provides hook template persistence operations
  */
-export const HookTemplateStorageAdapter: ServiceIdentifier<HookTemplateStorageAdapterType> = Symbol("HookTemplateStorageAdapter");
+export const HookTemplateStorageAdapter: ServiceIdentifier<HookTemplateStorageAdapterType> = Symbol(
+  "HookTemplateStorageAdapter",
+);
 
 /**
  * AgentProfileStorageAdapter - Agent Profile Storage Adapter
  * Provides agent profile persistence operations
  */
-export const AgentProfileStorageAdapter: ServiceIdentifier<AgentProfileStorageAdapterType> = Symbol("AgentProfileStorageAdapter");
+export const AgentProfileStorageAdapter: ServiceIdentifier<AgentProfileStorageAdapterType> = Symbol(
+  "AgentProfileStorageAdapter",
+);
 
 // ============================================================
 // Metrics Services
@@ -490,13 +531,15 @@ export const MetricsRegistry: ServiceIdentifier<MetricsRegistryType> = Symbol("M
  * MetricsConfig - Metrics Configuration
  * Provides configuration for the metrics system
  */
-export const MetricsConfig: ServiceIdentifier<import("@wf-agent/types").MetricsConfig> = Symbol("MetricsConfig");
+export const MetricsConfig: ServiceIdentifier<import("@wf-agent/types").MetricsConfig> =
+  Symbol("MetricsConfig");
 
 /**
  * TimeoutConfig - Timeout Configuration
  * Provides configuration for timeout values across SDK operations
  */
-export const TimeoutConfig: ServiceIdentifier<Required<import("@wf-agent/types").TimeoutConfig>> = Symbol("TimeoutConfig");
+export const TimeoutConfig: ServiceIdentifier<Required<import("@wf-agent/types").TimeoutConfig>> =
+  Symbol("TimeoutConfig");
 
 // ============================================================
 // Tool Permission Services (New Architecture)
@@ -506,10 +549,12 @@ export const TimeoutConfig: ServiceIdentifier<Required<import("@wf-agent/types")
  * ToolPermissionManager - Tool Permission Manager
  * Manages runtime tool permissions (enabled/disabled state)
  */
-export const ToolPermissionManager: ServiceIdentifier<ToolPermissionManagerType> = Symbol("ToolPermissionManager");
+export const ToolPermissionManager: ServiceIdentifier<ToolPermissionManagerType> =
+  Symbol("ToolPermissionManager");
 
 /**
  * RejectionMessageBuilder - Rejection Message Builder
  * Builds customized rejection messages for blocked tools
  */
-export const RejectionMessageBuilder: ServiceIdentifier<RejectionMessageBuilderType> = Symbol("RejectionMessageBuilder");
+export const RejectionMessageBuilder: ServiceIdentifier<RejectionMessageBuilderType> =
+  Symbol("RejectionMessageBuilder");

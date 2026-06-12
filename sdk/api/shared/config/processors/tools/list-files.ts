@@ -27,9 +27,10 @@ const DEFAULTS: ListFilesConfig = {
 /**
  * Validate ListFilesConfig input
  */
-export function validateListFilesConfig(
-  input: ListFilesConfigInput
-): { valid: boolean; errors: string[] } {
+export function validateListFilesConfig(input: ListFilesConfigInput): {
+  valid: boolean;
+  errors: string[];
+} {
   const errors: string[] = [];
 
   if (input.maxResults !== undefined && input.maxResults < 1) {
@@ -42,9 +43,7 @@ export function validateListFilesConfig(
 /**
  * Transform raw input into a validated ListFilesConfig with defaults applied.
  */
-export function transformListFilesConfig(
-  input: ListFilesConfigInput = {}
-): ListFilesConfig {
+export function transformListFilesConfig(input: ListFilesConfigInput = {}): ListFilesConfig {
   const validation = validateListFilesConfig(input);
   if (!validation.valid) {
     throw new Error(`Invalid ListFilesConfig: ${validation.errors.join("; ")}`);
@@ -60,9 +59,7 @@ export function transformListFilesConfig(
 /**
  * Export ListFilesConfig for serialization (e.g., to config file).
  */
-export function exportListFilesConfig(
-  config: ListFilesConfig
-): ListFilesConfigInput {
+export function exportListFilesConfig(config: ListFilesConfig): ListFilesConfigInput {
   return {
     workspaceDir: config.workspaceDir,
     maxResults: config.maxResults,

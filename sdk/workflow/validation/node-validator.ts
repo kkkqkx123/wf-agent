@@ -42,7 +42,9 @@ export class NodeValidator {
    * @param node Node
    * @returns Verification result
    */
-  private validateBusinessRules(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+  private validateBusinessRules(
+    node: StaticNode,
+  ): Result<StaticNode, ConfigurationValidationError[]> {
     // Call business rule validations for each node type.
     return validateNodeByType(node);
   }

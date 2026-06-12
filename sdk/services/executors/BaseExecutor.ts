@@ -7,12 +7,7 @@
 import * as childProcess from "child_process";
 import * as readline from "readline";
 import * as fs from "fs/promises";
-import type {
-  ExecutorConfig,
-  ExecutorInfo,
-  ExecutionOptions,
-  ExecutionResult,
-} from "./types.js";
+import type { ExecutorConfig, ExecutorInfo, ExecutionOptions, ExecutionResult } from "./types.js";
 
 /**
  * Platform detection
@@ -46,7 +41,7 @@ async function findInPath(binaryName: string): Promise<string | undefined> {
         }
       });
     });
-    if (result && await fileExists(result)) {
+    if (result && (await fileExists(result))) {
       return result;
     }
   } catch {
@@ -81,7 +76,7 @@ export abstract class BaseExecutor {
     }
 
     // Try custom path first
-    if (this.config.customPath && await fileExists(this.config.customPath)) {
+    if (this.config.customPath && (await fileExists(this.config.customPath))) {
       this.binaryPath = this.config.customPath;
       this.initialized = true;
       return;
@@ -117,7 +112,7 @@ export abstract class BaseExecutor {
     }
 
     throw new Error(
-      `Could not find ${this.config.name} binary. Please install it or provide a custom path.`
+      `Could not find ${this.config.name} binary. Please install it or provide a custom path.`,
     );
   }
 
@@ -162,7 +157,7 @@ export abstract class BaseExecutor {
   async execute(options: ExecutionOptions): Promise<ExecutionResult> {
     const bin = await this.ensureInitialized();
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const proc = childProcess.spawn(bin, options.args, {
         cwd: options.cwd,
         env: options.env ? { ...process.env, ...options.env } : process.env,
@@ -179,7 +174,7 @@ export abstract class BaseExecutor {
         crlfDelay: Infinity,
       });
 
-      rl.on("line", (line) => {
+      rl.on("line", line => {
         if (lineCount < maxLines) {
           stdout += line + "\n";
           lineCount++;
@@ -190,7 +185,7 @@ export abstract class BaseExecutor {
       });
 
       // Handle stderr
-      proc.stderr.on("data", (data) => {
+      proc.stderr.on("data", data => {
         stderr += data.toString();
       });
 
@@ -205,7 +200,7 @@ export abstract class BaseExecutor {
         });
       });
 
-      proc.on("error", (error) => {
+      proc.on("error", error => {
         resolve({
           stdout: "",
           stderr: error.message,

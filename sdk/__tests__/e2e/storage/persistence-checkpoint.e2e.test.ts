@@ -56,7 +56,11 @@ describe("Checkpoint Storage Persistence (SQLite)", () => {
       const data = new Uint8Array([1, 2, 3, 4, 5]);
       const metadata = createMetadata({ entityId: "wf-1", tags: ["prod"] });
       await storage.save("cp-1", data, metadata);
-      await storage.save("cp-2", new Uint8Array([10, 20]), createMetadata({ entityId: "wf-1", timestamp: metadata.timestamp + 100 }));
+      await storage.save(
+        "cp-2",
+        new Uint8Array([10, 20]),
+        createMetadata({ entityId: "wf-1", timestamp: metadata.timestamp + 100 }),
+      );
       await storage.close();
 
       // Phase 2: reopen and verify
@@ -227,10 +231,33 @@ describe("Checkpoint Storage Persistence (SQLite)", () => {
       let storage = await createStorage();
       const baseTime = Date.now();
       const entities = [
-        { id: "cp-e1", entityId: "wf-1", entityType: "workflow" as const, timestamp: baseTime, tags: ["prod"] },
-        { id: "cp-e2", entityId: "wf-1", entityType: "workflow" as const, timestamp: baseTime + 100, tags: ["prod", "backup"] },
-        { id: "cp-e3", entityId: "wf-2", entityType: "workflow" as const, timestamp: baseTime + 200, tags: ["dev"] },
-        { id: "cp-e4", entityId: "agent-1", entityType: "agent" as const, timestamp: baseTime + 300 },
+        {
+          id: "cp-e1",
+          entityId: "wf-1",
+          entityType: "workflow" as const,
+          timestamp: baseTime,
+          tags: ["prod"],
+        },
+        {
+          id: "cp-e2",
+          entityId: "wf-1",
+          entityType: "workflow" as const,
+          timestamp: baseTime + 100,
+          tags: ["prod", "backup"],
+        },
+        {
+          id: "cp-e3",
+          entityId: "wf-2",
+          entityType: "workflow" as const,
+          timestamp: baseTime + 200,
+          tags: ["dev"],
+        },
+        {
+          id: "cp-e4",
+          entityId: "agent-1",
+          entityType: "agent" as const,
+          timestamp: baseTime + 300,
+        },
       ];
       for (const e of entities) {
         await storage.save(e.id, new Uint8Array([1]), createMetadata(e));
@@ -240,7 +267,10 @@ describe("Checkpoint Storage Persistence (SQLite)", () => {
       storage = await createStorage();
 
       // Filter by entity
-      const wf1Checkpoints = await storage.listWithMetadata({ entityType: "workflow", entityId: "wf-1" });
+      const wf1Checkpoints = await storage.listWithMetadata({
+        entityType: "workflow",
+        entityId: "wf-1",
+      });
       expect(wf1Checkpoints.length).toBe(2);
       wf1Checkpoints.forEach(cp => {
         expect(cp.metadata.entityId).toBe("wf-1");
@@ -252,7 +282,11 @@ describe("Checkpoint Storage Persistence (SQLite)", () => {
       expect(prodBackup[0]!.id).toBe("cp-e2");
 
       // Sort by timestamp and pagination
-      const sorted = await storage.listWithMetadata({ entityType: "workflow", sortBy: "timestamp", sortOrder: "asc" });
+      const sorted = await storage.listWithMetadata({
+        entityType: "workflow",
+        sortBy: "timestamp",
+        sortOrder: "asc",
+      });
       expect(sorted[0]!.id).toBe("cp-e1");
       expect(sorted[sorted.length - 1]!.id).toBe("cp-e3");
 

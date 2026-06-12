@@ -1,12 +1,12 @@
 /**
  * LLM Flow Generation Dead Reckoning Detector
- * 
+ *
  * Implemented based on streaming-dead-loop-detector.md design specification
  */
 
 export interface DeadLoopDetectionResult {
   detected: boolean;
-  type?: 'short-sequence' | 'paragraph-repeat' | 'list-repeat';
+  type?: "short-sequence" | "paragraph-repeat" | "list-repeat";
   details?: string;
 }
 
@@ -66,10 +66,7 @@ export class DeadLoopDetector {
   /**
    * Perform testing at designated checkpoints
    */
-  private detectAtCheckpoint(
-    text: string,
-    checkpoint: number
-  ): DeadLoopDetectionResult {
+  private detectAtCheckpoint(text: string, checkpoint: number): DeadLoopDetectionResult {
     // Get the text snippet of the detection range
     const previousCheckpoint = this.getPreviousCheckpoint(checkpoint);
     const startIndex = previousCheckpoint || 0;
@@ -107,14 +104,14 @@ export class DeadLoopDetector {
     // Regular match: substring of at least 2 characters repeated at least 4 times in a row
     const pattern = new RegExp(
       `(.{${this.config.minRepeatUnitLength},})\\1{${this.config.minRepeatCount - 1},}`,
-      's'
+      "s",
     );
 
     const match = recentText.match(pattern);
     if (match) {
       return {
         detected: true,
-        type: 'short-sequence',
+        type: "short-sequence",
         details: `Detected short sequence loop: "${match[1]}" repeated`,
       };
     }
@@ -138,7 +135,7 @@ export class DeadLoopDetector {
     if (periodResult.detected) {
       return {
         detected: true,
-        type: 'paragraph-repeat',
+        type: "paragraph-repeat",
         details: `Detected paragraph repeat with period ${periodResult.period}`,
       };
     }
@@ -151,7 +148,7 @@ export class DeadLoopDetector {
    */
   private detectListRepeat(text: string): DeadLoopDetectionResult {
     // Step 1: Split by row
-    const lines = text.split('\n');
+    const lines = text.split("\n");
 
     if (lines.length < this.config.minPeriodElements) {
       return { detected: false };
@@ -165,7 +162,7 @@ export class DeadLoopDetector {
     if (periodResult.detected) {
       return {
         detected: true,
-        type: 'list-repeat',
+        type: "list-repeat",
         details: `Detected list repeat with period ${periodResult.period}`,
       };
     }
@@ -177,10 +174,7 @@ export class DeadLoopDetector {
    * Generic cycle detection logic (common to Type 1 and Type 2)
    */
   private detectPeriod(elements: string[]): { detected: boolean; period?: number } {
-    const maxPeriod = Math.min(
-      this.config.maxPeriodLength,
-      Math.floor(elements.length / 2)
-    );
+    const maxPeriod = Math.min(this.config.maxPeriodLength, Math.floor(elements.length / 2));
 
     for (let p = 1; p <= maxPeriod; p++) {
       let consecutiveCount = 0;
@@ -218,7 +212,7 @@ export class DeadLoopDetector {
   private normalizeListItem(line: string): string {
     // Match ordered list labeling patterns: 1. 2. 10. etc.
     const listPattern = /^\d+\.\s*/;
-    return line.replace(listPattern, '');
+    return line.replace(listPattern, "");
   }
 
   /**

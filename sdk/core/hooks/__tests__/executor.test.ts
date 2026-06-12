@@ -22,13 +22,21 @@ import {
 // ── Hoisted Mocks ─────────────────────────────────────────────────────────
 // vi.mock factories are hoisted, so we define mock functions via vi.hoisted.
 
-const { mockConditionEvaluatorEvaluate, mockExpressionEvaluatorEvaluate, mockNow, mockGetErrorMessage, mockBuildHookExecutedEvent, mockLoggerWarn, mockChildLogger, mockCheckExecutionInterruption, mockShouldContinueExecution } = vi.hoisted(() => {
+const {
+  mockConditionEvaluatorEvaluate,
+  mockExpressionEvaluatorEvaluate,
+  mockNow,
+  mockGetErrorMessage,
+  mockBuildHookExecutedEvent,
+  mockLoggerWarn,
+  mockChildLogger,
+  mockCheckExecutionInterruption,
+  mockShouldContinueExecution,
+} = vi.hoisted(() => {
   const condEval = vi.fn();
   const exprEval = vi.fn();
   const nowFn = vi.fn();
-  const getErrMsg = vi.fn((e: unknown) =>
-    e instanceof Error ? e.message : String(e),
-  );
+  const getErrMsg = vi.fn((e: unknown) => (e instanceof Error ? e.message : String(e)));
   const buildEvent = vi.fn((params: unknown) => ({
     type: "HOOK_EXECUTED",
     timestamp: Date.now(),
@@ -71,8 +79,7 @@ vi.mock("@wf-agent/common-utils", () => ({
 }));
 
 vi.mock("../../utils/event/builders/index.js", () => ({
-  buildHookExecutedEvent: (params: Record<string, unknown>) =>
-    mockBuildHookExecutedEvent(params),
+  buildHookExecutedEvent: (params: Record<string, unknown>) => mockBuildHookExecutedEvent(params),
 }));
 
 vi.mock("../../../utils/logger.js", () => ({
@@ -83,10 +90,8 @@ vi.mock("../../../utils/logger.js", () => ({
 }));
 
 vi.mock("../../utils/interruption/index.js", () => ({
-  checkExecutionInterruption: (...args: any[]) =>
-    mockCheckExecutionInterruption(...args),
-  shouldContinueExecution: (...args: any[]) =>
-    mockShouldContinueExecution(...args),
+  checkExecutionInterruption: (...args: any[]) => mockCheckExecutionInterruption(...args),
+  shouldContinueExecution: (...args: any[]) => mockShouldContinueExecution(...args),
 }));
 
 // ── Test Helpers ───────────────────────────────────────────────────────────
@@ -120,9 +125,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockNow.mockReturnValue(100);
   mockConditionEvaluatorEvaluate.mockReturnValue(true);
-  mockExpressionEvaluatorEvaluate.mockImplementation(
-    (path: string) => `resolved:${path}`,
-  );
+  mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `resolved:${path}`);
   mockCheckExecutionInterruption.mockReturnValue({ type: "continue" });
   mockShouldContinueExecution.mockReturnValue(true);
 });
@@ -150,7 +153,7 @@ describe("filterAndSortHooks", () => {
     ];
     const result = filterAndSortHooks(hooks, "before");
     expect(result).toHaveLength(2);
-    expect(result.map((h) => h.eventName)).toEqual(["a", "c"]);
+    expect(result.map(h => h.eventName)).toEqual(["a", "c"]);
   });
 
   it("should sort by weight descending", () => {
@@ -160,7 +163,7 @@ describe("filterAndSortHooks", () => {
       { hookType: "before", eventName: "mid", weight: 50 },
     ];
     const result = filterAndSortHooks(hooks, "before");
-    expect(result.map((h) => h.eventName)).toEqual(["high", "mid", "low"]);
+    expect(result.map(h => h.eventName)).toEqual(["high", "mid", "low"]);
   });
 
   it("should treat hooks without weight as 0", () => {
@@ -170,13 +173,11 @@ describe("filterAndSortHooks", () => {
       { hookType: "before", eventName: "c", weight: -1 },
     ];
     const result = filterAndSortHooks(hooks, "before");
-    expect(result.map((h) => h.eventName)).toEqual(["a", "b", "c"]);
+    expect(result.map(h => h.eventName)).toEqual(["a", "b", "c"]);
   });
 
   it("should return empty array when no hooks match", () => {
-    const hooks: BaseHookDefinition[] = [
-      { hookType: "after", eventName: "a" },
-    ];
+    const hooks: BaseHookDefinition[] = [{ hookType: "after", eventName: "a" }];
     const result = filterAndSortHooks(hooks, "before");
     expect(result).toEqual([]);
   });
@@ -280,13 +281,7 @@ describe("executeSingleHook", () => {
     const handler = createHandlerMock();
     const emitEvent = createEventEmitterMock();
 
-    const result = await executeSingleHook(
-      hook,
-      context,
-      buildEvalContext,
-      [handler],
-      emitEvent,
-    );
+    const result = await executeSingleHook(hook, context, buildEvalContext, [handler], emitEvent);
 
     expect(result.success).toBe(true);
     expect(result.eventName).toBe("e1");
@@ -304,14 +299,7 @@ describe("executeSingleHook", () => {
     const handler = vi.fn().mockResolvedValue(undefined);
     const emitEvent = createEventEmitterMock();
 
-    await executeSingleHook(
-      hook,
-      {},
-      buildEvalContext,
-      [handler],
-      emitEvent,
-      { abortSignal },
-    );
+    await executeSingleHook(hook, {}, buildEvalContext, [handler], emitEvent, { abortSignal });
 
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({ abortSignal }),
@@ -329,13 +317,7 @@ describe("executeSingleHook", () => {
     const handler = vi.fn().mockRejectedValue(new Error("handler failed"));
     const emitEvent = createEventEmitterMock();
 
-    const result = await executeSingleHook(
-      hook,
-      {},
-      buildEvalContext,
-      [handler],
-      emitEvent,
-    );
+    const result = await executeSingleHook(hook, {}, buildEvalContext, [handler], emitEvent);
 
     expect(result.success).toBe(false);
     expect(result.eventName).toBe("e1");
@@ -401,9 +383,7 @@ describe("executeHooks - parallel mode", () => {
     mockCheckExecutionInterruption.mockReturnValue({ type: "stopped" });
     mockShouldContinueExecution.mockReturnValue(false);
 
-    const hooks: BaseHookDefinition[] = [
-      { hookType: "test", eventName: "e1" },
-    ];
+    const hooks: BaseHookDefinition[] = [{ hookType: "test", eventName: "e1" }];
 
     await expect(
       executeHooks(hooks, {}, buildEvalContext, [], () => Promise.resolve(), {
@@ -417,9 +397,7 @@ describe("executeHooks - parallel mode", () => {
     const abortSignal = { aborted: true } as AbortSignal;
     mockCheckExecutionInterruption.mockReturnValue({ type: "stopped" });
     // First call (pre-check): allow through; second call (post-check): interrupt
-    mockShouldContinueExecution
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false);
+    mockShouldContinueExecution.mockReturnValueOnce(true).mockReturnValueOnce(false);
 
     const handler = vi.fn().mockResolvedValue(undefined);
 
@@ -478,11 +456,9 @@ describe("executeHooks - parallel mode", () => {
 describe("executeHooks - serial mode", () => {
   it("should execute hooks sequentially", async () => {
     const executionOrder: string[] = [];
-    const handler: HookHandler<TestHookContext> = vi
-      .fn()
-      .mockImplementation(async (_ctx, hook) => {
-        executionOrder.push(hook.eventName);
-      });
+    const handler: HookHandler<TestHookContext> = vi.fn().mockImplementation(async (_ctx, hook) => {
+      executionOrder.push(hook.eventName);
+    });
 
     const hooks: BaseHookDefinition[] = [
       { hookType: "test", eventName: "e1", weight: 100 },
@@ -564,9 +540,7 @@ describe("executeHooks - serial mode", () => {
     mockCheckExecutionInterruption.mockReturnValue({ type: "stopped" });
     mockShouldContinueExecution.mockReturnValue(false);
 
-    const hooks: BaseHookDefinition[] = [
-      { hookType: "test", eventName: "e1" },
-    ];
+    const hooks: BaseHookDefinition[] = [{ hookType: "test", eventName: "e1" }];
 
     await expect(
       executeHooks(hooks, {}, buildEvalContext, [], () => Promise.resolve(), {
@@ -588,9 +562,7 @@ describe("resolvePayloadTemplate", () => {
   });
 
   it("should resolve string templates via expressionEvaluator", () => {
-    mockExpressionEvaluatorEvaluate.mockImplementation(
-      (path: string) => `value:${path}`,
-    );
+    mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `value:${path}`);
     const payload = { msg: "{{output.result}}" };
     const result = resolvePayloadTemplate(payload, {
       output: { result: "hello" },
@@ -605,9 +577,7 @@ describe("resolvePayloadTemplate", () => {
   });
 
   it("should recursively resolve nested objects", () => {
-    mockExpressionEvaluatorEvaluate.mockImplementation(
-      (path: string) => `v:${path}`,
-    );
+    mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `v:${path}`);
     const payload = {
       nested: {
         deep: "{{variables.x}}",
@@ -637,9 +607,7 @@ describe("resolvePayloadTemplate", () => {
         value: "resolved",
       },
     });
-    expect(
-      (result["config"] as Record<string, unknown>),
-    ).not.toHaveProperty("handler");
+    expect(result["config"] as Record<string, unknown>).not.toHaveProperty("handler");
   });
 
   it("should return empty record for empty payload", () => {

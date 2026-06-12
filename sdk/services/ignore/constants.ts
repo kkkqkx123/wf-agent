@@ -62,7 +62,7 @@ export const BUILTIN_IGNORE_DIRS: readonly string[] = [
   // env
   ".env",
 
-  // 
+  //
 ] as const;
 
 /**

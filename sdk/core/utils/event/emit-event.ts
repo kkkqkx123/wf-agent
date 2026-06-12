@@ -6,7 +6,7 @@
  * - Pure functions: All methods are pure functions with no side effects.
  * - Error handling: Offers a safe mechanism for error handling.
  * - Simplified invocation: Simplifies the way to trigger events.
- * 
+ *
  * IMPORTANT: Events are for state changes and coordination, NOT for logging.
  * Use logger for informational output. If event emission is optional,
  * check eventManager availability before calling emit().

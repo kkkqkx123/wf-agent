@@ -6,7 +6,11 @@
  * Entity-based design for efficient checkpoint management.
  */
 
-import type { CleanupResult, CheckpointStorageMetadata, AgentCheckpointListOptions } from "@wf-agent/types";
+import type {
+  CleanupResult,
+  CheckpointStorageMetadata,
+  AgentCheckpointListOptions,
+} from "@wf-agent/types";
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
@@ -23,18 +27,16 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   private readonly agentLoopId: string;
 
   constructor(
-    agentLoopId: string,  // Required: entity ID for this manager
+    agentLoopId: string, // Required: entity ID for this manager
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
   ) {
     super(storageAdapter, eventManager);
     if (!agentLoopId) {
-      throw new Error('agentLoopId is required for AgentLoopCheckpointStateManager');
+      throw new Error("agentLoopId is required for AgentLoopCheckpointStateManager");
     }
     this.agentLoopId = agentLoopId;
   }
-
-
 
   /**
    * Save a checkpoint (alias for create)
@@ -44,12 +46,12 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    */
   async saveCheckpoint(checkpoint: AgentLoopCheckpoint): Promise<string> {
     const id = await super.create(checkpoint);
-    
+
     // Execute entity-specific cleanup after saving
     if (this.cleanupPolicy) {
-      await this.executeCleanupForEntity(this.agentLoopId, 'agent');
+      await this.executeCleanupForEntity(this.agentLoopId, "agent");
     }
-    
+
     return id;
   }
 
@@ -79,7 +81,10 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    * @param checkpointId The checkpoint ID to delete
    * @param reason Reason for deletion (manual, cleanup, or policy)
    */
-  async deleteCheckpoint(checkpointId: string, reason: "manual" | "cleanup" | "policy" = "manual"): Promise<void> {
+  async deleteCheckpoint(
+    checkpointId: string,
+    reason: "manual" | "cleanup" | "policy" = "manual",
+  ): Promise<void> {
     await super.delete(checkpointId, reason);
   }
 
@@ -90,7 +95,10 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    *
    * @returns Cleanup results
    */
-  override async executeCleanupForEntity(entityId: string, entityType: string): Promise<CleanupResult> {
+  override async executeCleanupForEntity(
+    entityId: string,
+    entityType: string,
+  ): Promise<CleanupResult> {
     return await super.executeCleanupForEntity(entityId, entityType);
   }
 
@@ -114,7 +122,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
 
   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
     return {
-      entityType: 'agent',
+      entityType: "agent",
       entityId: checkpoint.agentLoopId || this.agentLoopId,
       timestamp: checkpoint.timestamp,
       customFields: {
@@ -144,7 +152,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
 
   protected buildDeletedEvent(
     checkpointId: string,
-    reason?: "manual" | "cleanup" | "policy"
+    reason?: "manual" | "cleanup" | "policy",
   ): unknown {
     return {
       id: generateId(),
@@ -160,7 +168,7 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   protected buildFailedEvent(
     checkpointId: string,
     error: unknown,
-    operation: "create" | "restore" | "delete" = "create"
+    operation: "create" | "restore" | "delete" = "create",
   ): unknown {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;

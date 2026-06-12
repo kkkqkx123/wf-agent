@@ -31,7 +31,12 @@ describe("InterruptionState", () => {
     it("should initialize with provided context", () => {
       const ctxState = new InterruptionState({
         contextId: "exec-2",
-        context: { domain: "WORKFLOW_NODE", workflowId: "wf-1", nodeId: "n-1", nodeExecutionId: "ne-1" },
+        context: {
+          domain: "WORKFLOW_NODE",
+          workflowId: "wf-1",
+          nodeId: "n-1",
+          nodeExecutionId: "ne-1",
+        },
       });
       expect(ctxState.getContext().domain).toBe("WORKFLOW_NODE");
     });

@@ -1,11 +1,11 @@
 /**
  * SDK Instance - Per-Instance Configuration and Execution Contexts
- * 
+ *
  * Manages instance-specific configuration and execution contexts:
  * - Storage adapters (workflow, task, checkpoint, etc.)
  * - Configuration options (debug, logLevel, presets)
  * - API layer composition
- * 
+ *
  * Design Principles:
  * - Multiple instances can coexist
  * - Each has independent storage configuration
@@ -21,13 +21,20 @@ import { sdkLogger as logger, configureSDKLogger } from "../../../utils/logger.j
 import { getErrorMessage } from "@wf-agent/common-utils";
 import { createIsolatedContainer, ContainerManager } from "../../../core/di/container-manager.js";
 import type { FileCheckpointStorageAdapter } from "@wf-agent/common-utils";
-import { mergeFileCheckpointConfig, toFileCheckpointManagerConfig } from "../config/processors/file-checkpoint.js";
+import {
+  mergeFileCheckpointConfig,
+  toFileCheckpointManagerConfig,
+} from "../config/processors/file-checkpoint.js";
 import { SqliteFileCheckpointStore } from "@wf-agent/storage";
 import * as ServiceIdentifiers from "../../../core/di/service-identifiers.js";
 import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { initializeTomlParser } from "../config/parsers/toml-parser.js";
-import { createRotatingFileStream, createConsoleStream, createMultistream } from "@wf-agent/common-utils";
+import {
+  createRotatingFileStream,
+  createConsoleStream,
+  createMultistream,
+} from "@wf-agent/common-utils";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
 import type { LLMProfile } from "@wf-agent/types";
 import type { LogStream, LogLevel } from "@wf-agent/common-utils";
@@ -60,13 +67,13 @@ export class SDKInstance {
    */
   constructor(options: SDKOptions) {
     this.config = options;
-    
+
     // Apply logging configuration FIRST before any logger access
     this.applyLoggingConfig(options);
-    
+
     // Validate required configurations
     this.validateConfig(options);
-    
+
     // Process file checkpoint configuration
     const fileCheckpointConfig = options?.fileCheckpoint
       ? mergeFileCheckpointConfig(options.fileCheckpoint)
@@ -74,13 +81,12 @@ export class SDKInstance {
     const fcManagerConfig = fileCheckpointConfig
       ? toFileCheckpointManagerConfig(fileCheckpointConfig)
       : undefined;
-    const fcStorageAdapter: FileCheckpointStorageAdapter | undefined =
-      fileCheckpointConfig?.enabled
-        ? new SqliteFileCheckpointStore({
-            dbPath: fileCheckpointConfig.storage.dbPath || "file-checkpoints.db",
-          })
-        : undefined;
-    
+    const fcStorageAdapter: FileCheckpointStorageAdapter | undefined = fileCheckpointConfig?.enabled
+      ? new SqliteFileCheckpointStore({
+          dbPath: fileCheckpointConfig.storage.dbPath || "file-checkpoints.db",
+        })
+      : undefined;
+
     // Create isolated DI container with storage adapters
     const { container, containerId } = createIsolatedContainer({
       checkpoint: options?.checkpointStorageAdapter,
@@ -98,17 +104,17 @@ export class SDKInstance {
       fileCheckpointManagerConfig: fcManagerConfig,
     });
     this.containerId = containerId;
-    
+
     // Create GlobalContext - now safe because it uses lazy getters
     // Services will only be resolved when first accessed, not during construction
     this.globalContext = new GlobalContext(container);
-    
+
     // Bind GlobalContext to the container for services that depend on it
     container.bind(ServiceIdentifiers.GlobalContext).toConstantValue(this.globalContext);
-    
+
     // Bind SDKOptions to the container for configuration-dependent services
     container.bind(ServiceIdentifiers.SDKOptions).toConstantValue(options);
-    
+
     // Create API factory (it will use services from the container via GlobalContext)
     this.apiFactory = new APIFactory(this.globalContext);
 
@@ -126,64 +132,68 @@ export class SDKInstance {
    */
   private validateConfig(options: SDKOptions): void {
     const warnings: string[] = [];
-    
+
     // Warn if file output is configured but no filePath provided
     if (
-      (options?.logging?.output === 'file' || options?.logging?.output === 'both') &&
+      (options?.logging?.output === "file" || options?.logging?.output === "both") &&
       !options?.logging?.filePath
     ) {
       warnings.push(
-        `File output is enabled but no filePath specified. Using default: logs/sdk.log`
+        `File output is enabled but no filePath specified. Using default: logs/sdk.log`,
       );
     }
-    
+
     // Warn if no storage adapters are provided
     if (!options?.checkpointStorageAdapter) {
-      warnings.push('No checkpoint storage adapter provided. Checkpoints will be disabled.');
+      warnings.push("No checkpoint storage adapter provided. Checkpoints will be disabled.");
     }
-    
+
     if (!options?.workflowStorageAdapter) {
-      warnings.push('No workflow storage adapter provided. Workflows will not be persisted.');
+      warnings.push("No workflow storage adapter provided. Workflows will not be persisted.");
     }
-    
+
     if (!options?.taskStorageAdapter) {
-      warnings.push('No task storage adapter provided. Tasks will not be persisted.');
+      warnings.push("No task storage adapter provided. Tasks will not be persisted.");
     }
-    
+
     if (!options?.workflowExecutionStorageAdapter) {
-      warnings.push('No workflow execution storage adapter provided. Execution history will not be persisted.');
+      warnings.push(
+        "No workflow execution storage adapter provided. Execution history will not be persisted.",
+      );
     }
-    
+
     if (!options?.triggerStorageAdapter) {
-      warnings.push('No trigger storage adapter provided. Trigger templates will not be persisted.');
+      warnings.push(
+        "No trigger storage adapter provided. Trigger templates will not be persisted.",
+      );
     }
-    
+
     if (!options?.toolStorageAdapter) {
-      warnings.push('No tool storage adapter provided. Tools will not be persisted.');
+      warnings.push("No tool storage adapter provided. Tools will not be persisted.");
     }
-    
+
     if (!options?.scriptStorageAdapter) {
-      warnings.push('No script storage adapter provided. Scripts will not be persisted.');
+      warnings.push("No script storage adapter provided. Scripts will not be persisted.");
     }
-    
+
     // Log warnings
     if (warnings.length > 0) {
       warnings.forEach(warning => logger.warn(warning));
     }
-    
+
     // Validate skill paths if provided
     if (options?.skills?.paths && options.skills.paths.length > 0) {
       for (const path of options.skills.paths) {
-        if (!path || path.trim() === '') {
-          logger.warn('Empty skill path provided, it will be ignored.');
+        if (!path || path.trim() === "") {
+          logger.warn("Empty skill path provided, it will be ignored.");
         }
       }
     }
-    
+
     // Validate LLM profiles if provided
     if (options?.profiles?.profiles && options.profiles.profiles.length > 0) {
       const hasInvalidProfiles = options.profiles.profiles.some(
-        p => !p || typeof p !== 'object' || !('id' in p) || !p.id
+        p => !p || typeof p !== "object" || !("id" in p) || !p.id,
       );
       if (hasInvalidProfiles) {
         logger.warn('Some LLM profiles may be missing required "id" field.');
@@ -199,35 +209,35 @@ export class SDKInstance {
   private applyLoggingConfig(options: SDKOptions): void {
     // Determine log level from logging config or debug mode
     let effectiveLogLevel = options.logging?.level;
-    
+
     // If not specified, use default based on debug mode
     if (!effectiveLogLevel && options.debug) {
-      effectiveLogLevel = 'debug';
+      effectiveLogLevel = "debug";
     }
-    
+
     // Build stream configuration based on output setting
     const streams: Array<{ stream: LogStream; level?: string }> = [];
-    const output = options.logging?.output ?? 'console';
-    
+    const output = options.logging?.output ?? "console";
+
     // Add console stream if output includes 'console'
-    if (output === 'console' || output === 'both') {
+    if (output === "console" || output === "both") {
       streams.push({
         stream: createConsoleStream({
-          json: options.logging?.format === 'json',
+          json: options.logging?.format === "json",
           timestamp: true,
         }),
       });
     }
-    
+
     // Add file stream if output includes 'file'
-    if (output === 'file' || output === 'both') {
-      const filePath = options.logging?.filePath ?? 'logs/sdk.log';
+    if (output === "file" || output === "both") {
+      const filePath = options.logging?.filePath ?? "logs/sdk.log";
       try {
         const fileStream = createRotatingFileStream({
           filePath,
           maxSize: 100 * 1024 * 1024, // 100MB default
           maxFiles: 10,
-          json: options.logging?.format === 'json',
+          json: options.logging?.format === "json",
           timestamp: true,
         });
         streams.push({ stream: fileStream });
@@ -236,25 +246,27 @@ export class SDKInstance {
         logger.error(`Failed to create file stream at ${filePath}: ${getErrorMessage(error)}`);
       }
     }
-    
+
     // Create multistream if multiple outputs, otherwise use single stream
     let finalStream: LogStream | undefined;
     if (streams.length === 0) {
       // Default to console if no streams configured
       finalStream = createConsoleStream({
-        json: options.logging?.format === 'json',
+        json: options.logging?.format === "json",
         timestamp: true,
       });
     } else if (streams.length === 1) {
       finalStream = streams[0]!.stream;
     } else {
       // Multiple streams - use multistream with proper typing
-      finalStream = createMultistream(streams.map(s => ({
-        stream: s.stream,
-        level: s.level as LogLevel | undefined,
-      })));
+      finalStream = createMultistream(
+        streams.map(s => ({
+          stream: s.stream,
+          level: s.level as LogLevel | undefined,
+        })),
+      );
     }
-    
+
     // Configure SDK logger with the determined settings
     configureSDKLogger({
       level: effectiveLogLevel,
@@ -268,7 +280,7 @@ export class SDKInstance {
   private async bootstrap(): Promise<void> {
     // Call start hook if provided
     await this.config?.hooks?.onBootstrapStart?.();
-    
+
     logger.info("DI container initialized with storage adapters", {
       containerId: this.containerId,
       checkpoint: !!this.config?.checkpointStorageAdapter,
@@ -280,7 +292,7 @@ export class SDKInstance {
       tool: !!this.config?.toolStorageAdapter,
       script: !!this.config?.scriptStorageAdapter,
     });
-    
+
     // Preload lazy-loaded modules (TOML parser)
     try {
       await initializeTomlParser();
@@ -311,6 +323,9 @@ export class SDKInstance {
           maxErrorHistory: this.config.mcp.maxErrorHistory,
           connectionTimeout: this.config.mcp.connectionTimeout,
           configDebounceDelay: this.config.mcp.configDebounceDelay,
+          defaultLifecycle: this.config.mcp.defaultLifecycle,
+          defaultIdleTimeout: this.config.mcp.defaultIdleTimeout,
+          defaultHealthCheckInterval: this.config.mcp.defaultHealthCheckInterval,
         });
         logger.info("MCP configuration applied", {
           enabled: this.config.mcp.enabled ?? true,
@@ -337,11 +352,11 @@ export class SDKInstance {
     if (this.config?.skills?.paths && this.config.skills.paths.length > 0) {
       try {
         const skillRegistry = this.globalContext.container.get(ServiceIdentifiers.SkillRegistry);
-        
+
         for (const skillPath of this.config.skills.paths) {
           await skillRegistry.scanSkills(skillPath);
         }
-        
+
         logger.info("Skill directories scanned", {
           paths: this.config.skills.paths,
         });
@@ -354,17 +369,17 @@ export class SDKInstance {
     if (this.config?.profiles?.profiles && this.config.profiles.profiles.length > 0) {
       try {
         const profileAPI = this.apiFactory.createProfileAPI();
-        
+
         for (const profile of this.config.profiles.profiles) {
           // Type assertion is safe here because profiles are validated before being passed to SDK
           await profileAPI.create(profile as LLMProfile);
         }
-        
+
         // Set default profile if specified
         if (this.config.profiles.defaultProfileId) {
           await profileAPI.setDefaultProfile(this.config.profiles.defaultProfileId);
         }
-        
+
         logger.info("LLM profiles registered", {
           count: this.config.profiles.profiles.length,
           defaultProfileId: this.config.profiles.defaultProfileId,
@@ -379,14 +394,14 @@ export class SDKInstance {
       try {
         // Store validation config in workflow registry for use by validators
         const validationConfig = this.config.validation;
-        
+
         // Apply to workflow registry
         // Note: maxRecursionDepth is configured through validation settings in the registry
         // The registry will use this value during workflow validation
         logger.debug("Validation maxRecursionDepth configured", {
           maxRecursionDepth: validationConfig.maxRecursionDepth,
         });
-        
+
         logger.info("Validation configuration applied", {
           workflowValidation: validationConfig.enableWorkflowValidation,
           nodeValidation: validationConfig.enableNodeValidation,
@@ -448,7 +463,10 @@ export class SDKInstance {
 
     // Helper to initialize a storage adapter if it has the initialize() method
     const tryInitAdapter = async (adapter: unknown, name: string): Promise<void> => {
-      if (adapter && typeof (adapter as { initialize: () => Promise<void> }).initialize === 'function') {
+      if (
+        adapter &&
+        typeof (adapter as { initialize: () => Promise<void> }).initialize === "function"
+      ) {
         try {
           await (adapter as { initialize: () => Promise<void> }).initialize();
           logger.debug(`${name} storage adapter initialized`);
@@ -483,7 +501,9 @@ export class SDKInstance {
         await registry.initializeFromStorage();
         logger.info(`${name} registry initialized from storage`);
       } catch (error) {
-        logger.error(`Failed to initialize ${name} registry from storage: ${getErrorMessage(error)}`);
+        logger.error(
+          `Failed to initialize ${name} registry from storage: ${getErrorMessage(error)}`,
+        );
       }
     };
 
@@ -526,20 +546,20 @@ export class SDKInstance {
     // Initialize Graceful Shutdown Manager if enabled
     const gracefulShutdownConfig = this.config?.gracefulShutdown;
     const enableGracefulShutdown = gracefulShutdownConfig?.enabled ?? true;
-    
+
     if (enableGracefulShutdown) {
       try {
         const workflowExecutionRegistry = this.globalContext.container.get(
-          ServiceIdentifiers.WorkflowExecutionRegistry
+          ServiceIdentifiers.WorkflowExecutionRegistry,
         );
         const checkpointState = this.globalContext.container.get(
-          ServiceIdentifiers.CheckpointState
+          ServiceIdentifiers.CheckpointState,
         );
         const workflowRegistry = this.globalContext.workflowRegistry;
         const workflowGraphRegistry = this.globalContext.container.get(
-          ServiceIdentifiers.WorkflowGraphRegistry
+          ServiceIdentifiers.WorkflowGraphRegistry,
         );
-        
+
         const shutdownManager = new GracefulShutdownManager(
           workflowExecutionRegistry,
           {
@@ -553,12 +573,12 @@ export class SDKInstance {
           {
             timeoutMs: gracefulShutdownConfig?.timeoutMs ?? 15000,
             enabled: true,
-          }
+          },
         );
-        
+
         shutdownManager.registerSignalHandlers();
         this.shutdownManager = shutdownManager;
-        
+
         logger.info("Graceful shutdown manager initialized and signal handlers registered", {
           timeoutMs: gracefulShutdownConfig?.timeoutMs ?? 15000,
         });
@@ -598,7 +618,7 @@ export class SDKInstance {
   private ensureReady(): void {
     if (!this.isBootstrapped) {
       throw new Error(
-        'SDK instance is not ready yet. Call await sdk.waitForReady() before using APIs.'
+        "SDK instance is not ready yet. Call await sdk.waitForReady() before using APIs.",
       );
     }
   }
@@ -750,21 +770,21 @@ export class SDKInstance {
 
   /**
    * Get the GlobalContext for this SDK instance
-   * 
+   *
    * This provides access to the instance-specific DI container and all registered services.
    * Use this when you need direct access to services that are not exposed through the API layer.
-   * 
+   *
    * @returns The GlobalContext instance associated with this SDK instance
-   * 
+   *
    * @example
    * ```typescript
    * const sdk = createSDK(options);
    * await sdk.waitForReady();
-   * 
+   *
    * // Access the DI container
    * const context = sdk.getGlobalContext();
    * const container = context.getContainer();
-   * 
+   *
    * // Or access specific services
    * const eventRegistry = context.eventRegistry;
    * ```
@@ -784,22 +804,22 @@ export class SDKInstance {
 
   /**
    * Execute a command
-   * 
+   *
    * This method provides a unified interface for executing commands in the SDK.
    * Commands are validated before execution and errors are properly handled.
-   * 
+   *
    * @param command Command to execute (must extend BaseCommand)
    * @returns Execution result with proper error handling
-   * 
+   *
    * @example
    * ```typescript
    * const sdk = createSDK(options);
    * await sdk.waitForReady();
-   * 
+   *
    * // Execute a workflow
    * const cmd = new ExecuteWorkflowCommand('my-workflow', sdk.getFactory().getDependencies());
    * const result = await sdk.executeCommand(cmd);
-   * 
+   *
    * // Pause a workflow execution
    * const pauseCmd = new PauseWorkflowCommand('exec-id', sdk.getFactory().getDependencies());
    * await sdk.executeCommand(pauseCmd);
@@ -807,25 +827,22 @@ export class SDKInstance {
    */
   async executeCommand<T>(command: BaseCommand<T>): Promise<ExecutionResult<T>> {
     this.ensureReady();
-    
+
     // Validate command before execution
     const validation = command.validate();
     if (!validation.valid) {
-      logger.warn('Command validation failed', { errors: validation.errors });
+      logger.warn("Command validation failed", { errors: validation.errors });
       return failure(
-        new SDKErrorClass(
-          `Command validation failed: ${validation.errors.join(', ')}`,
-          "error"
-        ),
-        0
+        new SDKErrorClass(`Command validation failed: ${validation.errors.join(", ")}`, "error"),
+        0,
       );
     }
-    
+
     // Execute command with dependencies from API factory
     try {
       return await command.execute();
     } catch (error) {
-      logger.error('Command execution failed', { error });
+      logger.error("Command execution failed", { error });
       throw error;
     }
   }
@@ -868,40 +885,40 @@ export class SDKInstance {
     try {
       const coordinator = this.getFactory().getDependencies().getAgentLoopCoordinator();
       const registry = this.getFactory().getDependencies().getAgentLoopRegistry();
-      
+
       // Get all active agent loops
       const allLoops = registry.getAll();
-      
+
       if (allLoops.length === 0) {
         return;
       }
-      
-      logger.info('Cleaning up agent loops', { count: allLoops.length });
-      
+
+      logger.info("Cleaning up agent loops", { count: allLoops.length });
+
       // Stop all running/paused loops
       for (const loop of allLoops) {
         if (loop.isRunning() || loop.isPaused()) {
           try {
             await coordinator.stop(loop.id);
-            logger.debug('Stopped agent loop', { agentLoopId: loop.id });
+            logger.debug("Stopped agent loop", { agentLoopId: loop.id });
           } catch (error) {
-            logger.warn('Failed to stop agent loop during cleanup', {
+            logger.warn("Failed to stop agent loop during cleanup", {
               agentLoopId: loop.id,
               error: getErrorMessage(error),
             });
           }
         }
-        
+
         // Cleanup resources
         loop.cleanup();
       }
-      
+
       // Clear registry
       registry.clear();
-      
-      logger.info('Agent loops cleanup completed', { cleanedCount: allLoops.length });
+
+      logger.info("Agent loops cleanup completed", { cleanedCount: allLoops.length });
     } catch (error) {
-      logger.error('Failed to cleanup agent loops', { error: getErrorMessage(error) });
+      logger.error("Failed to cleanup agent loops", { error: getErrorMessage(error) });
     }
   }
 

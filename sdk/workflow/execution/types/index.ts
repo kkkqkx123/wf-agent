@@ -23,9 +23,6 @@ export {
   toSubWorkflowResult,
 } from "./subworkflow-result.types.js";
 
-export {
-  type ForkHandlerContext,
-  type ForkExecutionConfig,
-} from "./fork.types.js";
+export { type ForkHandlerContext, type ForkExecutionConfig } from "./fork.types.js";
 
 export { WorkflowExecutionInterruptedException } from "./workflow-interruption-types.js";

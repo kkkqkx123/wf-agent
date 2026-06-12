@@ -1,12 +1,12 @@
 /**
  * VariableManager - Simplified Variable State Manager
- * 
+ *
  * Design Philosophy:
  * - Flat variable storage: All variables in a single Map
  * - Explicit variable passing through importVariables/exportVariables
  * - No implicit scope inheritance - all cross-boundary transfers are explicit
  * - Deep clone on import/export to ensure complete isolation
- * 
+ *
  * Key Features:
  * - Simple structure: Single flat Map for all variables
  * - Explicit data flow: Variables must be explicitly mapped at boundaries
@@ -14,7 +14,11 @@
  * - Runtime validation: Checks variable access against declared inputs
  */
 
-import type { VariableDefinition, WorkflowVariableInput, WorkflowVariableOutput } from "@wf-agent/types";
+import type {
+  VariableDefinition,
+  WorkflowVariableInput,
+  WorkflowVariableOutput,
+} from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { StateManager } from "../../core/types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -49,13 +53,13 @@ export interface VariableManagerSnapshot {
 
 /**
  * VariableManager - Simplified Variable State Manager
- * 
+ *
  * Responsibilities:
  * - Manage runtime state of variables using a single Map
  * - Provide workflow-execution-isolated state management
  * - Support state snapshots and restoration
  * - Offer atomic state operations
- * 
+ *
  * ⚠️ IMPORTANT: Object Reference Sharing
  * Snapshots use shallow copy for variable values. Object values are shared by reference,
  * not deep copied. This means:
@@ -63,12 +67,12 @@ export interface VariableManagerSnapshot {
  * manager.setVariable("data", { count: 1 });
  * const snapshot = manager.createSnapshot();
  * manager.setVariable("data", { count: 2 }); // Creates new object, safe
- * 
+ *
  * // BUT if you modify the object directly:
  * const obj = manager.getVariable("config") as any;
  * obj.newProp = "value"; // This affects ALL references including snapshots!
  * ```
- * 
+ *
  * Best Practices:
  * 1. Use immutable data structures (Immer.js, Immutable.js)
  * 2. Always use setVariable() to update values, never modify objects directly
@@ -85,7 +89,11 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   private executionEntity?: {
     getCurrentNodeId?: () => string;
-    getNode?: (nodeId: string) => { type: string; config?: { variableInputs?: Array<{ internalName: string }> } } | undefined;
+    getNode?: (
+      nodeId: string,
+    ) =>
+      | { type: string; config?: { variableInputs?: Array<{ internalName: string }> } }
+      | undefined;
   };
 
   /**
@@ -110,19 +118,23 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   setExecutionEntity(entity: {
     getCurrentNodeId?: () => string;
-    getNode?: (nodeId: string) => { type: string; config?: { variableInputs?: Array<{ internalName: string }> } } | undefined;
+    getNode?: (
+      nodeId: string,
+    ) =>
+      | { type: string; config?: { variableInputs?: Array<{ internalName: string }> } }
+      | undefined;
   }): void {
     this.executionEntity = entity;
   }
-
-
 
   /**
    * Initialize from VariableDefinition array
    * @param variableDefinitions Array of variable definitions
    */
   initializeFromDefinitions(variableDefinitions: VariableDefinition[]): void {
-    logger.debug("Initializing from variable definitions", { count: variableDefinitions?.length || 0 });
+    logger.debug("Initializing from variable definitions", {
+      count: variableDefinitions?.length || 0,
+    });
 
     this.variables.clear();
 
@@ -140,15 +152,20 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * @param definition Variable definition
    */
   registerVariable(definition: VariableDefinition): void {
-    logger.debug("Registering variable", { 
+    logger.debug("Registering variable", {
       name: definition.name,
-      freeze: definition.freeze 
+      freeze: definition.freeze,
     });
 
     const value = definition.value;
-    
+
     // Auto-freeze if specified in definition
-    if (definition.freeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    if (
+      definition.freeze &&
+      typeof value === "object" &&
+      value !== null &&
+      !Object.isFrozen(value)
+    ) {
       Object.freeze(value);
       logger.debug("Auto-froze variable value during registration", { name: definition.name });
     }
@@ -164,11 +181,11 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Get variable value by name
-   * 
+   *
    * Runtime Validation (development mode only):
    * - Checks if the variable is declared in current node's variableInputs
    * - Warns if accessing undeclared variables in subgraph/loop contexts
-   * 
+   *
    * @param name Variable name
    * @returns Variable value or undefined if not found
    */
@@ -181,24 +198,24 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         return cached.value;
       }
     }
-    
+
     // Check variables Map
     if (this.variables.has(name)) {
       const value = this.variables.get(name)!.value;
-      
+
       // Update cache
       if (this.cacheEnabled && this.cache) {
         this.cache.set(name, { value, timestamp: Date.now() });
       }
-      
+
       return value;
     }
-    
+
     // Runtime validation: warn about undeclared variable access (development mode only)
     if (process.env["NODE_ENV"] === "development" && this.executionEntity) {
       this.validateVariableAccess(name);
     }
-    
+
     logger.debug("Variable not found", { name });
     return undefined;
   }
@@ -212,30 +229,28 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     try {
       const currentNodeId = this.executionEntity?.getCurrentNodeId?.();
       if (!currentNodeId) return;
-      
+
       const currentNode = this.executionEntity?.getNode?.(currentNodeId);
       if (!currentNode) return;
-      
+
       // Check if current node is a subgraph or loop that should have explicit inputs
       if (currentNode.type === "SUBGRAPH" || currentNode.type === "LOOP_START") {
         const declaredInputs = currentNode.config?.variableInputs || [];
-        
+
         // Check if this variable was declared in variableInputs
-        const isDeclared = declaredInputs.some(
-          (input) => input.internalName === name
-        );
-        
+        const isDeclared = declaredInputs.some(input => input.internalName === name);
+
         // Also check if it's a global variable (always accessible)
         // Note: In the new flat structure, all variables are in the same Map
         const isGlobal = this.variables.has(name);
-        
+
         if (!isDeclared && !isGlobal) {
           logger.warn(
             `⚠️  Accessing undeclared variable '${name}' in ${currentNode.type} node '${currentNodeId}'.\n` +
-            `This variable was not declared in variableInputs. It should have been caught by static validation.\n` +
-            `Available variables: ${declaredInputs.map(
-            (i) => i.internalName
-          ).join(", ") || "(none)"}`
+              `This variable was not declared in variableInputs. It should have been caught by static validation.\n` +
+              `Available variables: ${
+                declaredInputs.map(i => i.internalName).join(", ") || "(none)"
+              }`,
           );
         }
       }
@@ -247,7 +262,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Set variable value
-   * 
+   *
    * @param name Variable name
    * @param value New value
    * @param freeze If true, freezes the value (overrides definition.freeze if provided)
@@ -255,29 +270,26 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    */
   setVariable(name: string, value: unknown, freeze?: boolean): void {
     const entry = this.variables.get(name);
-    
+
     if (!entry) {
       const availableVars = Array.from(this.variables.keys());
       throw new RuntimeValidationError(
-        `Variable '${name}' is not defined. Available variables: ${availableVars.length > 0 ? availableVars.join(', ') : '(none)'}`,
+        `Variable '${name}' is not defined. Available variables: ${availableVars.length > 0 ? availableVars.join(", ") : "(none)"}`,
         {
           operation: "setVariable",
           field: "variableName",
           value: name,
           context: { availableVariables: availableVars },
-        }
+        },
       );
     }
 
     if (entry.definition.readonly) {
-      throw new RuntimeValidationError(
-        `Variable '${name}' is readonly and cannot be modified`,
-        {
-          operation: "setVariable",
-          field: "variableName",
-          value: name,
-        }
-      );
+      throw new RuntimeValidationError(`Variable '${name}' is readonly and cannot be modified`, {
+        operation: "setVariable",
+        field: "variableName",
+        value: name,
+      });
     }
 
     // Determine whether to freeze:
@@ -285,12 +297,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     // 2. Fall back to definition.freeze
     const shouldFreeze = freeze ?? entry.definition.freeze ?? false;
 
-    logger.debug("Setting variable", { 
+    logger.debug("Setting variable", {
       name,
-      freeze: shouldFreeze
+      freeze: shouldFreeze,
     });
 
-    if (shouldFreeze && typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    if (shouldFreeze && typeof value === "object" && value !== null && !Object.isFrozen(value)) {
       Object.freeze(value);
       logger.debug("Froze object value for variable", { name });
     }
@@ -351,7 +363,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     return result;
   }
 
-
   /**
    * Delete variable
    * @param name Variable name
@@ -396,8 +407,8 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   /**
    * Copy from another VariableManager (for fork scenarios)
    * @param source Source VariableManager
-   * 
-   * Note: 
+   *
+   * Note:
    * - All variables are DEEP CLONED to ensure complete isolation
    * - This eliminates implicit state sharing between fork branches
    * - For explicit variable passing with custom mapping, use importVariables() instead.
@@ -417,7 +428,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         // Fallback to shallow copy if structuredClone fails
         logger.warn("structuredClone failed in copyFrom, using shallow copy", {
           variableName: name,
-          error
+          error,
         });
         this.variables.set(name, {
           definition: { ...entry.definition },
@@ -430,7 +441,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     if (this.cacheEnabled && this.cache) {
       this.cache.clear();
     }
-    
+
     logger.debug("VariableManager copied from source with complete deep clone", {
       variableCount: this.variables.size,
     });
@@ -438,14 +449,14 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Import variables from parent workflow with explicit mapping and deep clone
-   * 
+   *
    * This is the ONLY way to receive variables from a parent workflow.
    * All imported variables are deep cloned to ensure complete isolation.
-   * 
+   *
    * @param source Source VariableManager (parent)
    * @param mappings Explicit variable input mappings
    * @throws RuntimeValidationError if required variable is not found in source
-   * 
+   *
    * Example:
    * ```typescript
    * childManager.importVariables(parentManager, [
@@ -454,15 +465,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * ]);
    * ```
    */
-  importVariables(
-    source: VariableManager,
-    mappings: WorkflowVariableInput[]
-  ): void {
+  importVariables(source: VariableManager, mappings: WorkflowVariableInput[]): void {
     logger.debug("Importing variables from parent", { count: mappings.length });
-    
+
     for (const mapping of mappings) {
       const value = source.getVariable(mapping.externalName);
-      
+
       if (value === undefined) {
         if (mapping.required) {
           throw new RuntimeValidationError(
@@ -473,9 +481,9 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
               context: {
                 externalName: mapping.externalName,
                 internalName: mapping.internalName,
-                required: mapping.required
-              }
-            }
+                required: mapping.required,
+              },
+            },
           );
         }
         // Use default value if provided
@@ -490,7 +498,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
             readonly: false,
           });
           logger.debug("Used default value for optional input", {
-            internalName: mapping.internalName
+            internalName: mapping.internalName,
           });
         }
       } else {
@@ -506,13 +514,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
           });
           logger.debug("Imported variable with deep clone", {
             externalName: mapping.externalName,
-            internalName: mapping.internalName
+            internalName: mapping.internalName,
           });
         } catch (error) {
           // Handle cases where structuredClone fails (e.g., functions, DOM nodes)
           logger.warn("structuredClone failed, using shallow copy", {
             externalName: mapping.externalName,
-            error
+            error,
           });
           // Auto-register variable during import
           this.registerVariable({
@@ -528,13 +536,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
 
   /**
    * Export variables to parent workflow with explicit mapping and deep clone
-   * 
+   *
    * This is the ONLY way to return variables to a parent workflow.
    * All exported variables are deep cloned before transfer.
-   * 
+   *
    * @param target Target VariableManager (parent)
    * @param mappings Explicit variable output mappings
-   * 
+   *
    * Example:
    * ```typescript
    * childManager.exportVariables(parentManager, [
@@ -543,15 +551,12 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * ]);
    * ```
    */
-  exportVariables(
-    target: VariableManager,
-    mappings: WorkflowVariableOutput[]
-  ): void {
+  exportVariables(target: VariableManager, mappings: WorkflowVariableOutput[]): void {
     logger.debug("Exporting variables to parent", { count: mappings.length });
-    
+
     for (const mapping of mappings) {
       const value = this.getVariable(mapping.internalName);
-      
+
       if (value !== undefined) {
         try {
           // Deep clone before exporting
@@ -569,13 +574,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
           }
           logger.debug("Exported variable with deep clone", {
             internalName: mapping.internalName,
-            externalName: mapping.externalName
+            externalName: mapping.externalName,
           });
         } catch (error) {
           // Handle cases where structuredClone fails
           logger.warn("structuredClone failed during export, using shallow copy", {
             internalName: mapping.internalName,
-            error
+            error,
           });
           // Auto-register variable in target if not exists
           if (!target.hasVariable(mapping.externalName)) {
@@ -593,7 +598,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
         // Variable doesn't exist - silently skip (optional outputs)
         logger.debug("Skipping undefined output variable", {
           internalName: mapping.internalName,
-          externalName: mapping.externalName
+          externalName: mapping.externalName,
         });
       }
     }

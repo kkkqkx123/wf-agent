@@ -60,18 +60,15 @@ export class WorkflowLifecycleCoordinator {
    * Initialize pause timeout manager (optional)
    * Call this to enable automatic timeout for paused workflows
    */
-  initializePauseTimeout(config?: {
-    maxPauseDuration?: number;
-    warningThreshold?: number;
-  }): void {
+  initializePauseTimeout(config?: { maxPauseDuration?: number; warningThreshold?: number }): void {
     const eventManager = this.globalContext.eventRegistry;
-    
+
     this.pauseTimeoutManager = new PauseTimeoutManager(
       this.workflowExecutionRegistry,
       eventManager,
       config,
     );
-    
+
     logger.info("Pause timeout manager initialized", {
       maxPauseDuration: config?.maxPauseDuration || 24 * 60 * 60 * 1000,
       warningThreshold: config?.warningThreshold || 60 * 60 * 1000,
@@ -85,31 +82,33 @@ export class WorkflowLifecycleCoordinator {
    * @param options: Execution options
    * @returns: Execution result
    */
-  async execute(workflowId: string, options: WorkflowExecutionOptions = {}): Promise<WorkflowExecutionResult> {
+  async execute(
+    workflowId: string,
+    options: WorkflowExecutionOptions = {},
+  ): Promise<WorkflowExecutionResult> {
     // Step 1: Construct the WorkflowExecutionEntity
-    const { workflowExecutionEntity, stateCoordinator } = await this.workflowExecutionBuilder.build(workflowId, options);
+    const { workflowExecutionEntity, stateCoordinator } = await this.workflowExecutionBuilder.build(
+      workflowId,
+      options,
+    );
     const executionId = workflowExecutionEntity.id;
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
 
     // Record workflow execution start in metrics
     const workflowCollector = this.metricsRegistry.getWorkflowCollector();
     if (workflowCollector) {
-      workflowCollector.recordExecutionStart(
-        workflowId,
-        executionId,
-        {
-          version: workflowVersion,
-          executionType: 'MAIN',
-        }
-      );
+      workflowCollector.recordExecutionStart(workflowId, executionId, {
+        version: workflowVersion,
+        executionType: "MAIN",
+      });
     }
 
     // Step 2: Register WorkflowExecutionEntity
     this.workflowExecutionRegistry.register(workflowExecutionEntity);
-    
+
     // Register state coordinator
     this.workflowExecutionRegistry.registerStateCoordinator(executionId, stateCoordinator);
-    
+
     // Step 2.5: Register with ExecutionHierarchyRegistry for unified hierarchy management
     const hierarchyRegistry = this.globalContext.container.get(
       Identifiers.ExecutionHierarchyRegistry,
@@ -128,7 +127,10 @@ export class WorkflowLifecycleCoordinator {
 
     try {
       if (isSuccess) {
-        await this.workflowStateTransitor.completeWorkflowExecution(workflowExecutionEntity, result);
+        await this.workflowStateTransitor.completeWorkflowExecution(
+          workflowExecutionEntity,
+          result,
+        );
       } else {
         // Get the first error from the errors array
         const errors = workflowExecutionEntity.getErrors();
@@ -138,11 +140,13 @@ export class WorkflowLifecycleCoordinator {
       }
     } finally {
       // Step 6: Cleanup execution-scoped event listeners (ensure cleanup in all cases)
-      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(workflowExecutionEntity.id);
-      logger.info('Cleaned up event listeners after execution', { 
-        executionId: workflowExecutionEntity.id, 
+      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(
+        workflowExecutionEntity.id,
+      );
+      logger.info("Cleaned up event listeners after execution", {
+        executionId: workflowExecutionEntity.id,
         cleanedCount,
-        status 
+        status,
       });
     }
 
@@ -227,10 +231,8 @@ export class WorkflowLifecycleCoordinator {
 
       // Use CheckpointCoordinator to restore from checkpoint
       // This will create a new WorkflowExecutionEntity and register it in the registry
-      const { workflowExecutionEntity: restoredEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
-        latestCheckpointId,
-        checkpointDeps,
-      );
+      const { workflowExecutionEntity: restoredEntity } =
+        await CheckpointCoordinator.restoreFromCheckpoint(latestCheckpointId, checkpointDeps);
 
       workflowExecutionEntity = restoredEntity;
 
@@ -257,15 +259,15 @@ export class WorkflowLifecycleCoordinator {
 
     // 4. Continue execution from restored position
     const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
-    
+
     // 5. Cleanup execution-scoped event listeners after resume completes
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(executionId);
-    logger.info('Cleaned up event listeners after resume', { 
-      executionId, 
+    logger.info("Cleaned up event listeners after resume", {
+      executionId,
       cleanedCount,
-      status: result.metadata?.status 
+      status: result.metadata?.status,
     });
-    
+
     return result;
   }
 
@@ -297,22 +299,25 @@ export class WorkflowLifecycleCoordinator {
     }
 
     // Fully delegate the state transitions and event triggering to the Manager.
-    await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, "user_requested");
+    await this.workflowStateTransitor.cancelWorkflowExecution(
+      workflowExecutionEntity,
+      "user_requested",
+    );
 
     // 3. Cascading cancellation of child workflow executions
     await this.workflowStateTransitor.cascadeCancel(executionId);
 
     // 4. Cleanup child AgentLoops
     await this.cleanupChildAgentLoops(executionId);
-    
+
     // 5. Cleanup the workflow execution entity itself
     workflowExecutionEntity.cleanup();
     logger.info("Workflow execution entity cleaned up", { executionId });
-    
+
     // 6. Cleanup execution-scoped event listeners
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(executionId);
-    logger.info('Cleaned up event listeners', { executionId, cleanedCount });
-    
+    logger.info("Cleaned up event listeners", { executionId, cleanedCount });
+
     // 7. Deregister from registry
     this.workflowExecutionRegistry.delete(executionId);
     logger.info("Workflow execution deregistered from registry", { executionId });
@@ -328,7 +333,7 @@ export class WorkflowLifecycleCoordinator {
       const hierarchyRegistry = this.globalContext.container.get(
         Identifiers.ExecutionHierarchyRegistry,
       ) as ExecutionHierarchyRegistry;
-      
+
       if (hierarchyRegistry) {
         // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)
         const cleanedCount = hierarchyRegistry.cleanupHierarchy(executionId);
@@ -357,7 +362,10 @@ export class WorkflowLifecycleCoordinator {
    * @param status: New status
    *
    */
-  async forceSetWorkflowExecutionStatus(executionId: string, status: WorkflowExecutionStatus): Promise<void> {
+  async forceSetWorkflowExecutionStatus(
+    executionId: string,
+    status: WorkflowExecutionStatus,
+  ): Promise<void> {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
     if (!workflowExecutionEntity) {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
@@ -371,14 +379,20 @@ export class WorkflowLifecycleCoordinator {
         await this.workflowStateTransitor.resumeWorkflowExecution(workflowExecutionEntity);
         break;
       case "CANCELLED":
-        await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, "forced");
+        await this.workflowStateTransitor.cancelWorkflowExecution(
+          workflowExecutionEntity,
+          "forced",
+        );
         break;
       default:
-        throw new RuntimeValidationError(`Unsupported status for forceSetWorkflowExecutionStatus: ${status}`, {
-          operation: "forceSetWorkflowExecutionStatus",
-          field: "status",
-          value: status,
-        });
+        throw new RuntimeValidationError(
+          `Unsupported status for forceSetWorkflowExecutionStatus: ${status}`,
+          {
+            operation: "forceSetWorkflowExecutionStatus",
+            field: "status",
+            value: status,
+          },
+        );
     }
   }
 
@@ -401,7 +415,10 @@ export class WorkflowLifecycleCoordinator {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
     }
 
-    await this.workflowStateTransitor.cancelWorkflowExecution(workflowExecutionEntity, reason || "forced_cancel");
+    await this.workflowStateTransitor.cancelWorkflowExecution(
+      workflowExecutionEntity,
+      reason || "forced_cancel",
+    );
   }
 
   /**

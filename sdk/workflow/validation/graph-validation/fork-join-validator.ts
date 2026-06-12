@@ -22,14 +22,15 @@ import { getReachableNodes } from "../../builder/utils/workflow-traversal.js";
  * @param graph Graph data
  * @returns List of validation errors
  */
-export function validateForkJoinPairs(
-  graph: WorkflowGraphData,
-): ConfigurationValidationError[] {
+export function validateForkJoinPairs(graph: WorkflowGraphData): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
-  
+
   // Use the first element of forkPathIds array as the pairing identifier
   const forkNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[]; hasConfigError: boolean }>(); // forkPathIds[0] -> {nodeId, forkPathIds, hasConfigError}
-  const joinNodes = new Map<ID, { nodeId: ID; forkPathIds: ID[]; mainPathId?: ID; hasConfigError: boolean }>(); // forkPathIds[0] -> {nodeId, forkPathIds, mainPathId, hasConfigError}
+  const joinNodes = new Map<
+    ID,
+    { nodeId: ID; forkPathIds: ID[]; mainPathId?: ID; hasConfigError: boolean }
+  >(); // forkPathIds[0] -> {nodeId, forkPathIds, mainPathId, hasConfigError}
   const pairs = new Map<ID, ID>();
   const allForkPathIds = new Set<ID>(); // Used to check global uniqueness of forkPathId
 
@@ -45,13 +46,16 @@ export function validateForkJoinPairs(
       let hasConfigError = false;
       if (!forkPaths || !Array.isArray(forkPaths) || forkPaths.length === 0) {
         errors.push(
-          new ConfigurationValidationError(`FORK node (${node.id}) forkPaths must be a non-empty array`, {
-            configType: "workflow",
-            context: {
-              code: "INVALID_FORK_PATHS",
-              nodeId: node.id,
+          new ConfigurationValidationError(
+            `FORK node (${node.id}) forkPaths must be a non-empty array`,
+            {
+              configType: "workflow",
+              context: {
+                code: "INVALID_FORK_PATHS",
+                nodeId: node.id,
+              },
             },
-          }),
+          ),
         );
         hasConfigError = true;
         // Don't continue - still try to collect information for pairing check
@@ -107,7 +111,11 @@ export function validateForkJoinPairs(
       if (forkPathIds.length === 0) {
         // No valid pathIds, skip pairing but node was already collected with hasConfigError
         if (hasConfigError) {
-          forkNodes.set(node.id + "_invalid", { nodeId: node.id, forkPathIds: [], hasConfigError: true });
+          forkNodes.set(node.id + "_invalid", {
+            nodeId: node.id,
+            forkPathIds: [],
+            hasConfigError: true,
+          });
         }
         continue;
       }
@@ -140,13 +148,16 @@ export function validateForkJoinPairs(
       let hasConfigError = false;
       if (!forkPathIds || !Array.isArray(forkPathIds) || forkPathIds.length === 0) {
         errors.push(
-          new ConfigurationValidationError(`forkPathIds of JOIN node (${node.id}) must be a non-empty array`, {
-            configType: "workflow",
-            context: {
-              code: "INVALID_FORK_PATH_IDS",
-              nodeId: node.id,
+          new ConfigurationValidationError(
+            `forkPathIds of JOIN node (${node.id}) must be a non-empty array`,
+            {
+              configType: "workflow",
+              context: {
+                code: "INVALID_FORK_PATH_IDS",
+                nodeId: node.id,
+              },
             },
-          }),
+          ),
         );
         hasConfigError = true;
         // Don't continue - still try to collect information for pairing check
@@ -188,10 +199,20 @@ export function validateForkJoinPairs(
           ),
         );
       } else if (pairId) {
-        joinNodes.set(pairId, { nodeId: node.id, forkPathIds: forkPathIds || [], mainPathId, hasConfigError });
+        joinNodes.set(pairId, {
+          nodeId: node.id,
+          forkPathIds: forkPathIds || [],
+          mainPathId,
+          hasConfigError,
+        });
       } else if (hasConfigError) {
         // No valid pairId but has config error, store with special key
-        joinNodes.set(node.id + "_invalid", { nodeId: node.id, forkPathIds: [], mainPathId, hasConfigError: true });
+        joinNodes.set(node.id + "_invalid", {
+          nodeId: node.id,
+          forkPathIds: [],
+          mainPathId,
+          hasConfigError: true,
+        });
       }
     }
   }
@@ -206,10 +227,10 @@ export function validateForkJoinPairs(
       unpairedForks.push(forkInfo.nodeId);
       continue;
     }
-    
+
     if (joinNodes.has(pairId)) {
       const joinInfo = joinNodes.get(pairId)!;
-      
+
       // If either node has config errors, still report them but skip detailed matching
       if (forkInfo.hasConfigError || joinInfo.hasConfigError) {
         // Still check if they can be paired (both have valid forkPathIds)
@@ -269,7 +290,7 @@ export function validateForkJoinPairs(
       }
       continue;
     }
-    
+
     if (!forkNodes.has(pairId)) {
       unpairedJoins.push(joinInfo.nodeId);
     }

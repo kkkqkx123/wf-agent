@@ -112,7 +112,7 @@ export class LLMWrapper {
       deadLoopConfig: deadLoopConfig?.enabled !== false ? deadLoopConfig : undefined,
     };
     const stream = new MessageStream(streamOptions);
-    
+
     // Reset dead loop detector for new request
     stream.resetDeadLoopDetector();
 
@@ -334,7 +334,8 @@ export class LLMWrapper {
 
     // Handle other errors - use a local variable to avoid TypeScript type narrowing issues
     const err = error as Error | string;
-    const errorMessage = typeof err === "string" ? err : (err.message ?? String(err ?? "Unknown error"));
+    const errorMessage =
+      typeof err === "string" ? err : (err.message ?? String(err ?? "Unknown error"));
 
     this.eventManager.emit(
       buildLLMStreamErrorEvent({

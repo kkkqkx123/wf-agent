@@ -23,7 +23,9 @@ const subgraphNodeConfigSchema = z.object({
  * @param node Node definition
  * @returns Verification result
  */
-export function validateSubgraphNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateSubgraphNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "SUBGRAPH");
   if (typeResult.isErr()) {
     return typeResult;

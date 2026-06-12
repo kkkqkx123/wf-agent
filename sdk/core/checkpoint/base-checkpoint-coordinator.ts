@@ -1,15 +1,11 @@
 /**
  * Base Checkpoint Coordinator
- * 
+ *
  * Coordinates the entire checkpoint lifecycle using template method pattern.
  * Subclasses implement entity-specific logic while reusing common flow.
  */
 
-import type {
-  BaseCheckpoint,
-  CheckpointMetadata,
-  DeltaStorageConfig,
-} from "@wf-agent/types";
+import type { BaseCheckpoint, CheckpointMetadata, DeltaStorageConfig } from "@wf-agent/types";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "./utils/constants.js";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import { BaseDeltaRestorer } from "./base-delta-restorer.js";
@@ -23,15 +19,15 @@ const logger = createContextualLogger({ component: "BaseCheckpointCoordinator" }
 
 /**
  * Base Checkpoint Coordinator
- * 
+ *
  * Coordinates the entire checkpoint lifecycle using template method pattern.
  * Subclasses implement entity-specific logic while reusing common flow.
- * 
+ *
  * Design Philosophy:
  * - TEntity only needs to have an 'id' property (CheckpointableEntity)
  * - State extraction and entity creation are delegated to subclasses
  * - All common checkpoint logic is centralized here
- * 
+ *
  * @template TCheckpoint - The specific checkpoint type (e.g., AgentLoopCheckpoint, Checkpoint)
  * @template TEntity - Any entity with an 'id' property
  * @template TState - The state snapshot type
@@ -39,7 +35,7 @@ const logger = createContextualLogger({ component: "BaseCheckpointCoordinator" }
 export abstract class BaseCheckpointCoordinator<
   TCheckpoint extends BaseCheckpoint<unknown, unknown>,
   TEntity extends CheckpointableEntity,
-  TState
+  TState,
 > {
   protected diffCalculator: BaseDiffCalculator;
 
@@ -49,14 +45,14 @@ export abstract class BaseCheckpointCoordinator<
 
   /**
    * Create a checkpoint
-   * 
+   *
    * Template method that defines the common checkpoint creation flow:
    * 1. Extract current state from entity
    * 2. Retrieve previous checkpoints
    * 3. Determine checkpoint type (FULL vs DELTA)
    * 4. Build checkpoint object
    * 5. Save checkpoint
-   * 
+   *
    * @param entity The entity to checkpoint
    * @param dependencies Checkpoint dependencies
    * @param metadata Optional checkpoint metadata
@@ -65,7 +61,7 @@ export abstract class BaseCheckpointCoordinator<
   async createCheckpoint(
     entity: TEntity,
     dependencies: CheckpointDependencies<TCheckpoint>,
-    metadata?: CheckpointMetadata
+    metadata?: CheckpointMetadata,
   ): Promise<string> {
     const { saveCheckpoint, listCheckpoints, deltaConfig } = dependencies;
     const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...deltaConfig };
@@ -103,7 +99,7 @@ export abstract class BaseCheckpointCoordinator<
       timestamp,
       previousCheckpointIds,
       dependencies,
-      metadata
+      metadata,
     );
 
     // Step 6: Save checkpoint
@@ -120,20 +116,20 @@ export abstract class BaseCheckpointCoordinator<
 
   /**
    * Restore entity from checkpoint
-   * 
+   *
    * Template method that defines the common restoration flow:
    * 1. Load checkpoint
    * 2. Validate checkpoint integrity
    * 3. Restore full state (handling delta chains)
    * 4. Create entity from restored state
-   * 
+   *
    * @param checkpointId The checkpoint ID to restore from
    * @param dependencies Checkpoint dependencies
    * @returns Restored entity
    */
   async restoreFromCheckpoint(
     checkpointId: string,
-    dependencies: CheckpointDependencies<TCheckpoint>
+    dependencies: CheckpointDependencies<TCheckpoint>,
   ): Promise<TEntity> {
     const { getCheckpoint } = dependencies;
 
@@ -152,9 +148,7 @@ export abstract class BaseCheckpointCoordinator<
     const parentId = this.extractParentId(checkpoint);
 
     // Step 4: Restore full state (handles delta chains automatically)
-    const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(
-      getCheckpoint
-    );
+    const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(getCheckpoint);
     const restoreResult = await restorer.restore(checkpointId, parentId);
     const { snapshot } = restoreResult;
 
@@ -189,7 +183,7 @@ export abstract class BaseCheckpointCoordinator<
    */
   protected determineCheckpointType(
     checkpointCount: number,
-    config: DeltaStorageConfig
+    config: DeltaStorageConfig,
   ): "FULL" | "DELTA" {
     // If incremental storage is disabled, always create full checkpoint
     if (!config.enabled) {
@@ -206,10 +200,7 @@ export abstract class BaseCheckpointCoordinator<
     // - maxDeltaChainLength is a hard limit on delta chain length
     // The effective interval is the smaller of the two, ensuring
     // the delta chain never exceeds maxDeltaChainLength.
-    const effectiveInterval = Math.min(
-      config.baselineInterval,
-      config.maxDeltaChainLength
-    );
+    const effectiveInterval = Math.min(config.baselineInterval, config.maxDeltaChainLength);
 
     // Create baseline at the effective interval
     if (checkpointCount % effectiveInterval === 0) {
@@ -278,7 +269,7 @@ export abstract class BaseCheckpointCoordinator<
     timestamp: number,
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies<TCheckpoint>,
-    metadata?: CheckpointMetadata
+    metadata?: CheckpointMetadata,
   ): Promise<TCheckpoint>;
 
   /**

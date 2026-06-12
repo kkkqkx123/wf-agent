@@ -1,6 +1,6 @@
 /**
  * Message Context Initialization Utilities
- * 
+ *
  * Helper functions for initializing named message contexts in workflow executions.
  */
 
@@ -15,20 +15,20 @@ const logger = createContextualLogger();
 
 /**
  * Initialize execution context with built-in contexts
- * 
+ *
  * Creates the 'current' context at the start of execution.
  * Pre-populates it with any initial messages defined in the workflow configuration.
  * Also registers any static contexts defined in the workflow configuration.
- * 
+ *
  * Note: 'system' context is no longer created separately.
  * Initial messages (including system-role messages) are placed directly into
  * the 'current' context.
- * 
+ *
  * initialMessages and systemPrompt fields are mutually exclusive:
  * - If initialMessages is set, use those directly.
  * - Else if systemPromptTemplateId is set, resolve and prepend as system message.
  * - Else if systemPrompt is set, use it as system message.
- * 
+ *
  * @param registry The message context registry
  * @param workflowConfig Optional workflow configuration containing initialMessages and staticContexts
  */
@@ -47,9 +47,7 @@ export function initializeExecutionContext(
       systemPromptTemplateVariables: workflowConfig.systemPromptTemplateVariables,
       systemPrompt: workflowConfig.systemPrompt,
     });
-    initialMessages = systemPrompt
-      ? [{ role: "system", content: systemPrompt }]
-      : [];
+    initialMessages = systemPrompt ? [{ role: "system", content: systemPrompt }] : [];
   } else {
     initialMessages = [];
   }
@@ -60,7 +58,7 @@ export function initializeExecutionContext(
     createdAt: now(),
     updatedAt: now(),
     metadata: {
-      description: 'Main conversation context',
+      description: "Main conversation context",
     } as Record<string, unknown>,
   });
 
@@ -79,7 +77,7 @@ export function initializeExecutionContext(
         createdAt: now(),
         updatedAt: now(),
         metadata: {
-          description: staticCtx.description ?? '',
+          description: staticCtx.description ?? "",
         },
       });
 
@@ -99,10 +97,10 @@ export function initializeExecutionContext(
 
 /**
  * Get or create a context by ID
- * 
+ *
  * If the context doesn't exist, creates it with empty messages.
  * Useful for lazy initialization of target contexts.
- * 
+ *
  * @param registry The message context registry
  * @param contextId The context ID
  * @returns The existing or newly created context
@@ -112,7 +110,7 @@ export function getOrCreateContext(
   contextId: string,
 ): NamedMessageContext {
   let context = registry.get(contextId);
-  
+
   if (!context) {
     context = {
       id: contextId,
@@ -120,13 +118,13 @@ export function getOrCreateContext(
       createdAt: now(),
       updatedAt: now(),
     };
-    
+
     registry.register(context);
-    
+
     logger.debug(`Auto-created context '${contextId}'`, {
       contextId,
     });
   }
-  
+
   return context;
 }

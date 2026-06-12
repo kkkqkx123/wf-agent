@@ -6,6 +6,7 @@
  */
 
 import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
+import type { AgentStateCoordinator } from "../../../state-managers/agent-state-coordinator.js";
 import type { EvaluationContext } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 
@@ -57,11 +58,13 @@ export interface AgentHookEvaluationContext {
  * Build Agent Hook evaluation context
  *
  * @param entity Agent Loop entity
+ * @param stateCoordinator Agent State Coordinator for message access
  * @param toolCallInfo Tool call information (optional)
  * @returns Evaluation context
  */
 export function buildAgentHookEvaluationContext(
   entity: AgentLoopEntity,
+  stateCoordinator: AgentStateCoordinator,
   toolCallInfo?: {
     id: string;
     name: string;
@@ -91,8 +94,8 @@ export function buildAgentHookEvaluationContext(
     },
     // Conversation manager reference for message access
     conversationManager: {
-      getAllMessages: () => entity.getConversationManager().getAllMessages(),
-      getMessages: () => entity.getConversationManager().getMessages(),
+      getAllMessages: () => stateCoordinator.getAllMessages(),
+      getMessages: () => stateCoordinator.getMessages(),
     },
   };
 }
@@ -115,10 +118,10 @@ export function convertToEvaluationContext(
       iteration: hookContext.iteration,
       maxIterations: hookContext.maxIterations,
       toolCallCount: hookContext.toolCallCount,
-      
+
       // NEW: Full message history for conditional logic
       messages: messages,
-      
+
       // NEW: Convenience accessor for last message
       lastMessage: lastMessage,
     },

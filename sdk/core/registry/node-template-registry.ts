@@ -16,10 +16,7 @@ import {
 import { validateNodeByType } from "../../workflow/validation/node-validation/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import type { NodeTemplateStorageAdapter } from "@wf-agent/storage";
-import {
-  persistNodeTemplate,
-  removeNodeTemplate,
-} from "./utils/node-template-storage-utils.js";
+import { persistNodeTemplate, removeNodeTemplate } from "./utils/node-template-storage-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "NodeTemplateRegistry" });
@@ -30,9 +27,7 @@ const logger = createContextualLogger({ component: "NodeTemplateRegistry" });
 class NodeTemplateRegistry {
   private templates: Map<string, NodeTemplate> = new Map();
 
-  constructor(
-    private readonly storageAdapter: NodeTemplateStorageAdapter | null = null,
-  ) {}
+  constructor(private readonly storageAdapter: NodeTemplateStorageAdapter | null = null) {}
 
   /**
    * Register Node Template

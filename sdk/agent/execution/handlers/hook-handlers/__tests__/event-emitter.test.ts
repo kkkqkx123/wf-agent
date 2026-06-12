@@ -11,7 +11,7 @@ import type { AgentHookTriggeredEvent } from "@wf-agent/types";
 
 // Mock external dependencies
 vi.mock("../../../../../core/utils/event/builders/index.js", () => ({
-  buildAgentHookTriggeredEvent: vi.fn((params) => ({
+  buildAgentHookTriggeredEvent: vi.fn(params => ({
     id: "mock-event-id",
     type: "AGENT_HOOK_TRIGGERED",
     timestamp: 1000000,
@@ -58,7 +58,10 @@ describe("emitAgentHookEvent", () => {
 
     expect(emitHookEventSafe).toHaveBeenCalledOnce();
 
-    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(callArg["type"]).toBe("AGENT_HOOK_TRIGGERED");
     expect(callArg["hookType"]).toBe("BEFORE_ITERATION");
     expect(callArg["eventName"]).toBe("iteration.start");
@@ -72,15 +75,12 @@ describe("emitAgentHookEvent", () => {
   });
 
   it("should default eventData to empty object when undefined", async () => {
-    await emitAgentHookEvent(
-      mockEntity,
-      "AFTER_TOOL_CALL",
-      "tool.after",
-      undefined,
-      mockEmitEvent,
-    );
+    await emitAgentHookEvent(mockEntity, "AFTER_TOOL_CALL", "tool.after", undefined, mockEmitEvent);
 
-    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(callArg["eventData"]).toEqual({});
   });
 
@@ -99,7 +99,10 @@ describe("emitAgentHookEvent", () => {
       mockEmitEvent,
     );
 
-    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(callArg["parentContext"]).toEqual({
       parentType: "WORKFLOW",
       parentId: "wf-1",
@@ -114,15 +117,12 @@ describe("emitAgentHookEvent", () => {
       delegationPurpose: "Code review task",
     }));
 
-    await emitAgentHookEvent(
-      mockEntity,
-      "AFTER_ITERATION",
-      "iteration.after",
-      {},
-      mockEmitEvent,
-    );
+    await emitAgentHookEvent(mockEntity, "AFTER_ITERATION", "iteration.after", {}, mockEmitEvent);
 
-    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArg = vi.mocked(emitHookEventSafe).mock.calls[0]![0] as unknown as Record<
+      string,
+      unknown
+    >;
     expect(callArg["parentContext"]).toEqual({
       parentType: "AGENT_LOOP",
       parentId: "parent-agent",
@@ -132,13 +132,7 @@ describe("emitAgentHookEvent", () => {
   });
 
   it("should pass the emitEvent function to emitHookEventSafe", async () => {
-    await emitAgentHookEvent(
-      mockEntity,
-      "BEFORE_ITERATION",
-      "iteration.start",
-      {},
-      mockEmitEvent,
-    );
+    await emitAgentHookEvent(mockEntity, "BEFORE_ITERATION", "iteration.start", {}, mockEmitEvent);
 
     const emitFnArg = vi.mocked(emitHookEventSafe).mock.calls[0]![1];
     expect(emitFnArg).toBe(mockEmitEvent);

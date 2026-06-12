@@ -1,9 +1,9 @@
 /**
  * Interruption Recovery Strategy Manager
- * 
+ *
  * Provides a framework for custom recovery logic when interruptions occur.
  * Supports before/after callbacks for PAUSE and RESUME operations.
- * 
+ *
  * Features:
  * - Registration of execution-type-specific strategies
  * - Before/after interruption callbacks
@@ -31,7 +31,7 @@ export interface RecoveryContext {
 
 /**
  * Recovery strategy interface
- * 
+ *
  * Strategies can implement callbacks for different phases of interruption/recovery.
  */
 export interface RecoveryStrategy {
@@ -40,13 +40,13 @@ export interface RecoveryStrategy {
    * Useful for saving state, cleanup, etc.
    */
   beforeInterrupt?(type: "PAUSE" | "STOP", context: RecoveryContext): Promise<void>;
-  
+
   /**
    * Called before resuming execution
    * Useful for loading state, validation, etc.
    */
   beforeResume?(context: RecoveryContext): Promise<void>;
-  
+
   /**
    * Called after successfully resuming execution
    * Useful for cleanup, notifications, etc.
@@ -56,7 +56,7 @@ export interface RecoveryStrategy {
 
 /**
  * Recovery Strategy Manager
- * 
+ *
  * Manages registration and execution of recovery strategies for different execution types.
  */
 export class RecoveryStrategyManager {
@@ -68,7 +68,7 @@ export class RecoveryStrategyManager {
 
   /**
    * Register a recovery strategy for a specific execution type
-   * 
+   *
    * @param executionType Type identifier (e.g., "workflow", "agent-loop", "subgraph")
    * @param strategy The recovery strategy to register
    */
@@ -79,7 +79,7 @@ export class RecoveryStrategyManager {
 
   /**
    * Unregister a recovery strategy
-   * 
+   *
    * @param executionType Type identifier
    */
   unregister(executionType: string): void {
@@ -89,7 +89,7 @@ export class RecoveryStrategyManager {
 
   /**
    * Execute beforeInterrupt callbacks for all registered strategies
-   * 
+   *
    * @param executionType Execution type
    * @param type Interruption type (PAUSE or STOP)
    * @param context Recovery context
@@ -97,7 +97,7 @@ export class RecoveryStrategyManager {
   async beforeInterrupt(
     executionType: string,
     type: "PAUSE" | "STOP",
-    context: RecoveryContext
+    context: RecoveryContext,
   ): Promise<void> {
     const strategy = this.strategies.get(executionType);
     if (strategy?.beforeInterrupt) {
@@ -120,14 +120,11 @@ export class RecoveryStrategyManager {
 
   /**
    * Execute beforeResume callbacks for all registered strategies
-   * 
+   *
    * @param executionType Execution type
    * @param context Recovery context
    */
-  async beforeResume(
-    executionType: string,
-    context: RecoveryContext
-  ): Promise<void> {
+  async beforeResume(executionType: string, context: RecoveryContext): Promise<void> {
     const strategy = this.strategies.get(executionType);
     if (strategy?.beforeResume) {
       try {
@@ -147,14 +144,11 @@ export class RecoveryStrategyManager {
 
   /**
    * Execute afterResume callbacks for all registered strategies
-   * 
+   *
    * @param executionType Execution type
    * @param context Recovery context
    */
-  async afterResume(
-    executionType: string,
-    context: RecoveryContext
-  ): Promise<void> {
+  async afterResume(executionType: string, context: RecoveryContext): Promise<void> {
     const strategy = this.strategies.get(executionType);
     if (strategy?.afterResume) {
       try {
@@ -174,7 +168,7 @@ export class RecoveryStrategyManager {
 
   /**
    * Check if a strategy is registered for an execution type
-   * 
+   *
    * @param executionType Execution type
    * @returns true if strategy exists
    */
@@ -184,7 +178,7 @@ export class RecoveryStrategyManager {
 
   /**
    * Get all registered execution types
-   * 
+   *
    * @returns Array of execution type identifiers
    */
   getRegisteredTypes(): string[] {
@@ -202,7 +196,7 @@ export class RecoveryStrategyManager {
 
 /**
  * Built-in auto-save recovery strategy
- * 
+ *
  * Automatically saves checkpoints on pause and restores them on resume.
  * This is a convenience implementation that can be used as a template.
  */
@@ -232,7 +226,7 @@ export function createAutoSaveStrategy(options: {
         const checkpoint = await options.loadCheckpoint(context.executionId);
         if (checkpoint) {
           // Merge checkpoint state into current state
-          Object.assign(context.state, checkpoint['state']);
+          Object.assign(context.state, checkpoint["state"]);
           logger.info("Restored from checkpoint", {
             executionId: context.executionId,
           });

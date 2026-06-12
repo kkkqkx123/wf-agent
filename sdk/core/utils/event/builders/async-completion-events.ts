@@ -17,20 +17,24 @@ import type { BuildParams } from "./common.js";
 // Internal builder instances
 // =============================================================================
 
-const _buildErrorTriggered = createBuilder<AsyncCompletionErrorTriggeredEvent>("ASYNC_COMPLETION_ERROR_TRIGGERED");
+const _buildErrorTriggered = createBuilder<AsyncCompletionErrorTriggeredEvent>(
+  "ASYNC_COMPLETION_ERROR_TRIGGERED",
+);
 const _buildFailed = createBuilder<AsyncCompletionFailedEvent>("ASYNC_COMPLETION_FAILED");
 
 /**
  * Build ASYNC_COMPLETION_REGISTERED event
  */
-export const buildAsyncCompletionRegisteredEvent =
-  createBuilder<AsyncCompletionRegisteredEvent>("ASYNC_COMPLETION_REGISTERED");
+export const buildAsyncCompletionRegisteredEvent = createBuilder<AsyncCompletionRegisteredEvent>(
+  "ASYNC_COMPLETION_REGISTERED",
+);
 
 /**
  * Build ASYNC_COMPLETION_TRIGGERED event
  */
-export const buildAsyncCompletionTriggeredEvent =
-  createBuilder<AsyncCompletionTriggeredEvent>("ASYNC_COMPLETION_TRIGGERED");
+export const buildAsyncCompletionTriggeredEvent = createBuilder<AsyncCompletionTriggeredEvent>(
+  "ASYNC_COMPLETION_TRIGGERED",
+);
 
 /**
  * Build ASYNC_COMPLETION_ERROR_TRIGGERED event with Error transformation to string
@@ -57,5 +61,6 @@ export const buildAsyncCompletionFailedEvent = (
 /**
  * Build ASYNC_COMPLETION_CLEANED_UP event
  */
-export const buildAsyncCompletionCleanedUpEvent =
-  createBuilder<AsyncCompletionCleanedUpEvent>("ASYNC_COMPLETION_CLEANED_UP");
+export const buildAsyncCompletionCleanedUpEvent = createBuilder<AsyncCompletionCleanedUpEvent>(
+  "ASYNC_COMPLETION_CLEANED_UP",
+);

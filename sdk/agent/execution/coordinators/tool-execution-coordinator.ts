@@ -97,12 +97,10 @@ export class ToolExecutionCoordinator {
     if (!this.toolApprovalHandler) {
       for (const toolCall of toolCalls) {
         entity.state.recordToolCallStart(toolCall.id, toolCall.name, toolCall.arguments);
-        await this.executeSingleApprovedTool(
-          entity,
-          conversationManager,
-          toolCall,
-          { success: true, result: {} },
-        );
+        await this.executeSingleApprovedTool(entity, conversationManager, toolCall, {
+          success: true,
+          result: {},
+        });
       }
       return;
     }
@@ -140,7 +138,11 @@ export class ToolExecutionCoordinator {
       // Auto-executed tools correspond to the first N tools in the batch
       if (i < toolCalls.length && autoResult) {
         const originalToolCall = toolCalls[i]!;
-        entity.state.recordToolCallStart(originalToolCall.id, originalToolCall.name, originalToolCall.arguments);
+        entity.state.recordToolCallStart(
+          originalToolCall.id,
+          originalToolCall.name,
+          originalToolCall.arguments,
+        );
         await this.executeSingleApprovedTool(
           entity,
           conversationManager,
@@ -179,7 +181,11 @@ export class ToolExecutionCoordinator {
           retryCount: 0,
         };
 
-        entity.state.recordToolCallStart(confirmedToolCall.id, confirmedToolCall.name, confirmedToolCall.arguments);
+        entity.state.recordToolCallStart(
+          confirmedToolCall.id,
+          confirmedToolCall.name,
+          confirmedToolCall.arguments,
+        );
         await this.executeSingleApprovedTool(
           entity,
           conversationManager,
@@ -256,7 +262,12 @@ export class ToolExecutionCoordinator {
         arguments: args,
       };
 
-      await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent.bind(this), toolCallInfo);
+      await executeAgentHook(
+        entity,
+        "BEFORE_TOOL_CALL",
+        this.emitAgentEvent.bind(this),
+        toolCallInfo,
+      );
 
       const startEvent: AgentStreamEvent = {
         type: "tool_execution_start",
@@ -339,7 +350,12 @@ export class ToolExecutionCoordinator {
       arguments: toolCall.arguments ? JSON.parse(toolCall.arguments) : {},
     };
 
-    await executeAgentHook(entity, "BEFORE_TOOL_CALL", this.emitAgentEvent.bind(this), toolCallInfo);
+    await executeAgentHook(
+      entity,
+      "BEFORE_TOOL_CALL",
+      this.emitAgentEvent.bind(this),
+      toolCallInfo,
+    );
 
     if (executionResult.success) {
       logger.debug("Tool call succeeded", {

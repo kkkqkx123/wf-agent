@@ -77,7 +77,10 @@ describe("JavaScriptVmContextStrategy", () => {
     });
 
     it("should return error for undefined code", async () => {
-      const result = await strategy.execute({ command: undefined } as unknown as StrategyExecuteOptions, defaultPolicy);
+      const result = await strategy.execute(
+        { command: undefined } as unknown as StrategyExecuteOptions,
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Empty JavaScript code");
@@ -91,99 +94,132 @@ describe("JavaScriptVmContextStrategy", () => {
     });
 
     it("should capture console.error output", async () => {
-      const result = await strategy.execute({
-        command: 'console.error("error message")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'console.error("error message")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("error message");
     });
 
     it("should capture console.warn output", async () => {
-      const result = await strategy.execute({
-        command: 'console.warn("warning message")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'console.warn("warning message")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("warning message");
     });
 
     it("should execute arithmetic operations", async () => {
-      const result = await strategy.execute({
-        command: 'const x = 1 + 2; console.log(x)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "const x = 1 + 2; console.log(x)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("3");
     });
 
     it("should execute object operations", async () => {
-      const result = await strategy.execute({
-        command: 'const obj = { a: 1, b: 2 }; console.log(obj.a + obj.b)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "const obj = { a: 1, b: 2 }; console.log(obj.a + obj.b)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("3");
     });
 
     it("should execute array operations", async () => {
-      const result = await strategy.execute({
-        command: 'const arr = [1, 2, 3]; console.log(arr.reduce((a, b) => a + b, 0))',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "const arr = [1, 2, 3]; console.log(arr.reduce((a, b) => a + b, 0))",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("6");
     });
 
     it("should have access to Buffer", async () => {
-      const result = await strategy.execute({
-        command: 'const buf = Buffer.from("hello"); console.log(buf.toString())',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const buf = Buffer.from("hello"); console.log(buf.toString())',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("hello");
     });
 
     it("should have access to restricted process object", async () => {
-      const result = await strategy.execute({
-        command: 'console.log(process.platform)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "console.log(process.platform)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain(process.platform);
     });
 
     it("should have process.env.NODE_ENV as sandbox", async () => {
-      const result = await strategy.execute({
-        command: 'console.log(process.env.NODE_ENV)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "console.log(process.env.NODE_ENV)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("sandbox");
     });
 
     it("should have process.cwd returning /workspace", async () => {
-      const result = await strategy.execute({
-        command: 'console.log(process.cwd())',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "console.log(process.cwd())",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("/workspace");
     });
 
     it("should deny child_process module by default", async () => {
-      const result = await strategy.execute({
-        command: 'const cp = require("child_process"); console.log("ok")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const cp = require("child_process"); console.log("ok")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("child_process");
     });
 
     it("should deny cluster module by default", async () => {
-      const result = await strategy.execute({
-        command: 'const cluster = require("cluster"); console.log("ok")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const cluster = require("cluster"); console.log("ok")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("cluster");
@@ -201,26 +237,35 @@ describe("JavaScriptVmContextStrategy", () => {
           allowDynamicEval: false,
         },
       };
-      const result = await strategy.execute({
-        command: 'const vm = require("vm"); console.log("ok")',
-      }, policy);
+      const result = await strategy.execute(
+        {
+          command: 'const vm = require("vm"); console.log("ok")',
+        },
+        policy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("vm");
     });
 
     it("should allow path module", async () => {
-      const result = await strategy.execute({
-        command: 'const path = require("path"); console.log(path.join("a", "b"))',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const path = require("path"); console.log(path.join("a", "b"))',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
     });
 
     it("should allow util module", async () => {
-      const result = await strategy.execute({
-        command: 'const util = require("util"); console.log(typeof util.inspect)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const util = require("util"); console.log(typeof util.inspect)',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
     });
@@ -242,69 +287,94 @@ describe("JavaScriptVmContextStrategy", () => {
     });
 
     it("should handle syntax errors", async () => {
-      const result = await strategy.execute({
-        command: 'const x = {',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "const x = {",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
 
     it("should handle runtime errors", async () => {
-      const result = await strategy.execute({
-        command: 'throw new Error("test error")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'throw new Error("test error")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("test error");
     });
 
     it("should handle undefined variable access", async () => {
-      const result = await strategy.execute({
-        command: 'console.log(nonExistentVariable)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: "console.log(nonExistentVariable)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
     });
 
     it("should have eval disabled", async () => {
-      const result = await strategy.execute({
-        command: 'eval("console.log(1)")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'eval("console.log(1)")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
     });
 
     it("should have Function disabled", async () => {
-      const result = await strategy.execute({
-        command: 'new Function("return 1")()',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'new Function("return 1")()',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
     });
 
     it("should support setTimeout", async () => {
-      const result = await strategy.execute({
-        command: 'setTimeout(() => console.log("timer"), 10); console.log("immediate")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'setTimeout(() => console.log("timer"), 10); console.log("immediate")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       expect(result.stdout).toContain("immediate");
     });
 
     it("should support setInterval and clearInterval", async () => {
-      const result = await strategy.execute({
-        command: 'let count = 0; const id = setInterval(() => { count++; if (count >= 2) clearInterval(id); }, 10); console.log(count)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command:
+            "let count = 0; const id = setInterval(() => { count++; if (count >= 2) clearInterval(id); }, 10); console.log(count)",
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
     });
 
     it("should respect timeout from options", async () => {
-      const result = await strategy.execute({
-        command: 'console.log("hello")',
-        timeout: 5000,
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'console.log("hello")',
+          timeout: 5000,
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
     });
@@ -323,17 +393,23 @@ describe("JavaScriptVmContextStrategy", () => {
 
   describe("fs module restrictions", () => {
     it("should allow fs.readFile by default (read-only)", async () => {
-      const result = await strategy.execute({
-        command: 'const fs = require("fs"); console.log(typeof fs.readFile)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const fs = require("fs"); console.log(typeof fs.readFile)',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
     });
 
     it("should deny fs.writeFileSync by default (read-only)", async () => {
-      const result = await strategy.execute({
-        command: 'const fs = require("fs"); fs.writeFileSync("/tmp/test.txt", "data")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const fs = require("fs"); fs.writeFileSync("/tmp/test.txt", "data")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Read-only filesystem");
@@ -341,27 +417,36 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should deny fs.writeFile by default (read-only)", async () => {
       // Note: async writeFile would need to be awaited, but the proxy blocks it synchronously
-      const result = await strategy.execute({
-        command: 'const fs = require("fs"); console.log(typeof fs.writeFile)',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const fs = require("fs"); console.log(typeof fs.writeFile)',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(true);
       // The function exists but will throw when called
     });
 
     it("should deny fs.mkdir by default (read-only)", async () => {
-      const result = await strategy.execute({
-        command: 'const fs = require("fs"); fs.mkdirSync("/tmp/test")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const fs = require("fs"); fs.mkdirSync("/tmp/test")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Read-only filesystem");
     });
 
     it("should deny fs.unlink by default (read-only)", async () => {
-      const result = await strategy.execute({
-        command: 'const fs = require("fs"); fs.unlinkSync("/tmp/test.txt")',
-      }, defaultPolicy);
+      const result = await strategy.execute(
+        {
+          command: 'const fs = require("fs"); fs.unlinkSync("/tmp/test.txt")',
+        },
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Read-only filesystem");
@@ -381,9 +466,12 @@ describe("JavaScriptVmContextStrategy", () => {
         },
       };
 
-      const result = await strategy.execute({
-        command: 'const util = require("util"); console.log("ok")',
-      }, policy);
+      const result = await strategy.execute(
+        {
+          command: 'const util = require("util"); console.log("ok")',
+        },
+        policy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Module not allowed");
@@ -401,9 +489,12 @@ describe("JavaScriptVmContextStrategy", () => {
         },
       };
 
-      const result = await strategy.execute({
-        command: 'const path = require("path"); const util = require("util"); console.log("ok")',
-      }, policy);
+      const result = await strategy.execute(
+        {
+          command: 'const path = require("path"); const util = require("util"); console.log("ok")',
+        },
+        policy,
+      );
 
       expect(result.success).toBe(true);
     });

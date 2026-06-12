@@ -3,10 +3,7 @@
  * A stateful service that maintains the internal status of checkpoints
  */
 
-import type {
-  Checkpoint,
-  CheckpointStorageMetadata,
-} from "@wf-agent/types";
+import type { Checkpoint, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import type { CheckpointStorageAdapter } from "../../core/checkpoint/types.js";
@@ -31,10 +28,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    * @param storageAdapter Storage adapter interface (implemented by the application layer)
    * @param eventManager Event manager (optional)
    */
-  constructor(
-    storageAdapter: StorageAdapter,
-    eventManager?: EventRegistry
-  ) {
+  constructor(storageAdapter: StorageAdapter, eventManager?: EventRegistry) {
     // Adapt storage adapter to the expected interface
     const adaptedAdapter = {
       save: async (id: string, data: Uint8Array, metadata: unknown) => {
@@ -52,15 +46,39 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       listWithMetadata: async (options?: Record<string, unknown>) => {
         return await storageAdapter.listWithMetadata(options);
       },
-      listByEntityWithMetadata: async (entityId: string, entityType: string, options?: Record<string, unknown>) => {
+      listByEntityWithMetadata: async (
+        entityId: string,
+        entityType: string,
+        options?: Record<string, unknown>,
+      ) => {
         // Type assertion needed until @wf-agent/storage types are updated
-        return await (storageAdapter as unknown as CheckpointStorageAdapter).listByEntityWithMetadata(entityId, entityType, options);
+        return await (
+          storageAdapter as unknown as CheckpointStorageAdapter
+        ).listByEntityWithMetadata(entityId, entityType, options);
       },
-      getLatestByEntity: async (entityId: string, entityType: string, count?: number, includeData?: boolean) => {
-        return await (storageAdapter as unknown as CheckpointStorageAdapter).getLatestByEntity(entityId, entityType, count, includeData);
+      getLatestByEntity: async (
+        entityId: string,
+        entityType: string,
+        count?: number,
+        includeData?: boolean,
+      ) => {
+        return await (storageAdapter as unknown as CheckpointStorageAdapter).getLatestByEntity(
+          entityId,
+          entityType,
+          count,
+          includeData,
+        );
       },
-      deleteByEntity: async (entityId: string, entityType: string, options?: Record<string, unknown>) => {
-        return await (storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(entityId, entityType, options);
+      deleteByEntity: async (
+        entityId: string,
+        entityType: string,
+        options?: Record<string, unknown>,
+      ) => {
+        return await (storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(
+          entityId,
+          entityType,
+          options,
+        );
       },
       initialize: storageAdapter.initialize?.bind(storageAdapter),
       close: storageAdapter.close?.bind(storageAdapter),
@@ -68,8 +86,6 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
 
     super(adaptedAdapter, eventManager);
   }
-
-
 
   /**
    * Clean up all checkpoints for the specified workflow execution
@@ -80,20 +96,19 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    */
   async cleanupWorkflowExecutionCheckpoints(workflowExecutionId: string): Promise<number> {
     if (!workflowExecutionId) {
-      throw new Error('workflowExecutionId is required for cleanupWorkflowExecutionCheckpoints');
+      throw new Error("workflowExecutionId is required for cleanupWorkflowExecutionCheckpoints");
     }
-    
+
     logger.info("Cleaning up workflow execution checkpoints", { workflowExecutionId });
 
     // Use optimized entity-level batch deletion
-    const deletedCount = await (this.storageAdapter as unknown as CheckpointStorageAdapter).deleteByEntity(
-      workflowExecutionId,
-      'workflow'
-    );
+    const deletedCount = await (
+      this.storageAdapter as unknown as CheckpointStorageAdapter
+    ).deleteByEntity(workflowExecutionId, "workflow");
 
-    logger.info("Workflow execution checkpoints cleaned up", { 
-      workflowExecutionId, 
-      deletedCount 
+    logger.info("Workflow execution checkpoints cleaned up", {
+      workflowExecutionId,
+      deletedCount,
     });
 
     return deletedCount;
@@ -106,12 +121,12 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    */
   override async create(checkpointData: Checkpoint): Promise<string> {
     const id = await super.create(checkpointData);
-    
+
     // Execute entity-specific cleanup after saving
     if (this.cleanupPolicy && checkpointData.executionId) {
-      await this.executeCleanupForEntity(checkpointData.executionId, 'workflow');
+      await this.executeCleanupForEntity(checkpointData.executionId, "workflow");
     }
-    
+
     return id;
   }
 
@@ -129,7 +144,9 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    * @param options Query options
    * @returns Array of checkpoint IDs
    */
-  override async list(options?: import("@wf-agent/types").CheckpointListOptions): Promise<string[]> {
+  override async list(
+    options?: import("@wf-agent/types").CheckpointListOptions,
+  ): Promise<string[]> {
     // Convert CheckpointListOptions to base list options
     const baseOptions = options
       ? {
@@ -147,7 +164,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
    */
   override async delete(
     checkpointId: string,
-    reason: "manual" | "cleanup" | "policy" = "manual"
+    reason: "manual" | "cleanup" | "policy" = "manual",
   ): Promise<void> {
     // Call parent implementation which handles deletion and events
     await super.delete(checkpointId, reason);
@@ -159,11 +176,11 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
 
   protected extractStorageMetadata(checkpoint: Checkpoint): CheckpointStorageMetadata {
     if (!checkpoint.executionId) {
-      throw new Error('checkpoint.executionId is required for storage metadata');
+      throw new Error("checkpoint.executionId is required for storage metadata");
     }
-    
+
     return {
-      entityType: 'workflow',
+      entityType: "workflow",
       entityId: checkpoint.executionId,
       timestamp: checkpoint.timestamp,
       tags: checkpoint.metadata?.tags,
@@ -182,7 +199,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
 
   protected async buildDeletedEvent(
     checkpointId: string,
-    reason?: "manual" | "cleanup" | "policy"
+    reason?: "manual" | "cleanup" | "policy",
   ): Promise<unknown> {
     // Try to get executionId from the checkpoint before deletion
     let executionId = "";
@@ -208,7 +225,7 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   protected buildFailedEvent(
     checkpointId: string,
     error: unknown,
-    operation: "create" | "restore" | "delete" = "create"
+    operation: "create" | "restore" | "delete" = "create",
   ): unknown {
     const errorMessage = error instanceof Error ? error : new Error(String(error));
     return buildCheckpointFailedEvent({

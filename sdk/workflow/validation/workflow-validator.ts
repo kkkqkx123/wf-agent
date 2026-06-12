@@ -37,7 +37,12 @@ import { validateNodeByType } from "./node-validation/index.js";
 import { validateHooks } from "../../core/validation/hook-validator.js";
 import { validateTriggers } from "../../core/validation/trigger-validator.js";
 import { validateConfig } from "../../core/validation/utils.js";
-import { WorkflowConfigSchema, WorkflowTemplateBasicSchema, SubgraphNodeConfigSchema, isSubgraphNode } from "@wf-agent/types";
+import {
+  WorkflowConfigSchema,
+  WorkflowTemplateBasicSchema,
+  SubgraphNodeConfigSchema,
+  isSubgraphNode,
+} from "@wf-agent/types";
 
 /**
  * Workflow Validator Class
@@ -48,9 +53,7 @@ export class WorkflowValidator {
    * @param workflow: The workflow definition
    * @returns: The verification result
    */
-  validate(
-    workflow: WorkflowTemplate,
-  ): Result<WorkflowTemplate, ConfigurationValidationError[]> {
+  validate(workflow: WorkflowTemplate): Result<WorkflowTemplate, ConfigurationValidationError[]> {
     const errors: ConfigurationValidationError[] = [];
 
     // Verify basic information
@@ -588,7 +591,11 @@ export class WorkflowValidator {
               configType: "node",
               configPath: `workflow.nodes[].config.subgraphId`,
               value: parsed.data.subgraphId,
-              context: { code: "SELF_REFERENCE", nodeId: node.id, subgraphId: parsed.data.subgraphId },
+              context: {
+                code: "SELF_REFERENCE",
+                nodeId: node.id,
+                subgraphId: parsed.data.subgraphId,
+              },
             },
           ),
         );

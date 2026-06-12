@@ -8,10 +8,7 @@
 import { describe, it, expect } from "vitest";
 import type { NodeHook } from "@wf-agent/types";
 import type { HookEvaluationContext } from "../context-builder.js";
-import {
-  generateHookEventData,
-  resolvePayloadTemplate,
-} from "../payload-generator.js";
+import { generateHookEventData, resolvePayloadTemplate } from "../payload-generator.js";
 
 /**
  * Build a realistic HookEvaluationContext for testing.

@@ -251,7 +251,10 @@ describe("AgentLoopExecutor", () => {
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         mockEntity,
         mockConversationManager,
-        [{ id: "tool1", description: "Tool 1" }, { id: "tool2", description: "Tool 2" }],
+        [
+          { id: "tool1", description: "Tool 1" },
+          { id: "tool2", description: "Tool 2" },
+        ],
         "profile-1",
         10,
       );

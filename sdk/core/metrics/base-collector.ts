@@ -1,6 +1,6 @@
 /**
  * Base Metric Collector Implementation
- * 
+ *
  * Provides common functionality for all metric collectors including:
  * - Buffering and batching
  * - Periodic flushing
@@ -59,29 +59,29 @@ interface CollectorInternalMetrics {
   // Buffer state
   bufferSize: number;
   bufferUtilization: number;
-  
+
   // Operation counts
   recordCount: number;
   flushCount: number;
   queryCount: number;
-  
+
   // Performance metrics
   avgFlushDuration: number;
   avgQueryDuration: number;
   lastFlushDuration: number;
-  
+
   // Cleanup statistics
   cleanupCount: number;
   expiredMetricsRemoved: number;
   lastCleanupTime: number;
-  
+
   // Error counts
   flushErrorCount: number;
   reportErrorCount: number;
-  
+
   // Subscription stats
   activeSubscriptions: number;
-  
+
   // Memory estimate (bytes)
   estimatedMemoryUsage: number;
 }
@@ -104,13 +104,13 @@ export abstract class BaseMetricCollector implements MetricCollector {
   private isFlushing: boolean = false;
   private nextSubscriptionId: number = 0;
   protected storageAdapter?: MetricsStorageAdapter;
-  
+
   // Histogram state management for cumulative bucket counts
   private histogramStates: Map<string, HistogramState> = new Map();
-  
+
   // Summary state management for sliding window percentiles
   private summaryStates: Map<string, SummaryState> = new Map();
-  
+
   // Internal self-monitoring metrics
   private internalMetrics: CollectorInternalMetrics = {
     bufferSize: 0,
@@ -129,12 +129,23 @@ export abstract class BaseMetricCollector implements MetricCollector {
     activeSubscriptions: 0,
     estimatedMemoryUsage: 0,
   };
-  
+
   // Standard histogram buckets (Prometheus default)
   private static readonly DEFAULT_HISTOGRAM_BUCKETS = [
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, Infinity
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+    10.0,
+    Infinity,
   ];
-  
+
   // Default summary window size
   private static readonly DEFAULT_SUMMARY_WINDOW_SIZE = 1000;
 
@@ -175,17 +186,16 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
     // Add to buffer
     this.metricsBuffer.push(metric);
-    
+
     // Update internal metrics
     this.internalMetrics.recordCount += 1;
     this.internalMetrics.bufferSize = this.metricsBuffer.length;
-    this.internalMetrics.bufferUtilization = 
-      this.metricsBuffer.length / this.config.bufferSize;
+    this.internalMetrics.bufferUtilization = this.metricsBuffer.length / this.config.bufferSize;
     this.updateMemoryEstimate();
 
     // Check if buffer needs flushing
     if (this.metricsBuffer.length >= this.config.bufferSize) {
-      this.flush().catch((error) => {
+      this.flush().catch(error => {
         logger.error("Failed to flush metrics buffer", { error });
       });
     }
@@ -226,33 +236,29 @@ export abstract class BaseMetricCollector implements MetricCollector {
   /**
    * Record a histogram observation with cumulative bucket counts
    */
-  observeHistogram(
-    metricName: string,
-    value: number,
-    labels?: Record<string, string>,
-  ): void {
+  observeHistogram(metricName: string, value: number, labels?: Record<string, string>): void {
     const key = this.getHistogramKey(metricName, labels);
     let state = this.histogramStates.get(key);
-    
+
     if (!state) {
       state = this.initializeHistogramState();
       this.histogramStates.set(key, state);
     }
-    
+
     // Update cumulative buckets
     for (const bound of state.buckets.keys()) {
       if (value <= bound) {
         state.buckets.set(bound, state.buckets.get(bound)! + 1);
       }
     }
-    
+
     state.sum += value;
     state.count += 1;
     state.lastUpdate = now();
-    
+
     // Serialize buckets for the metric record
     const buckets = this.serializeBuckets(state.buckets);
-    
+
     const metric = {
       metricName,
       metricType: "histogram" as const,
@@ -269,31 +275,27 @@ export abstract class BaseMetricCollector implements MetricCollector {
   /**
    * Record a summary observation with sliding window percentiles
    */
-  observeSummary(
-    metricName: string,
-    value: number,
-    labels?: Record<string, string>,
-  ): void {
+  observeSummary(metricName: string, value: number, labels?: Record<string, string>): void {
     const key = this.getSummaryKey(metricName, labels);
     let state = this.summaryStates.get(key);
-    
+
     if (!state) {
       state = this.initializeSummaryState();
       this.summaryStates.set(key, state);
     }
-    
+
     // Write to ring buffer (circular)
     state.ringBuffer[state.writeIndex] = value;
     state.writeIndex = (state.writeIndex + 1) % state.bufferSize;
     state.filledCount = Math.min(state.filledCount + 1, state.bufferSize);
-    
+
     state.sum += value;
     state.count += 1;
     state.lastUpdate = now();
-    
+
     // Calculate percentiles from current window
     const percentiles = this.calculatePercentiles(state);
-    
+
     const metric = {
       metricName,
       metricType: "summary" as const,
@@ -318,36 +320,36 @@ export abstract class BaseMetricCollector implements MetricCollector {
     }
 
     const startTime = now();
-    
+
     try {
       // Persist to storage if adapter is available
       if (this.storageAdapter) {
         const dataPoints: MetricDataPoint[] = this.metricsBuffer
-          .filter(metric => metric.metricType !== 'summary') // Summary metrics are not persisted
+          .filter(metric => metric.metricType !== "summary") // Summary metrics are not persisted
           .map(metric => ({
             metricName: metric.metricName,
-            metricType: metric.metricType as 'counter' | 'gauge' | 'histogram',
+            metricType: metric.metricType as "counter" | "gauge" | "histogram",
             value: metric.value ?? 1,
             timestamp: metric.timestamp || now(),
             labels: metric.labels,
             collectorName: this.constructor.name,
           }));
-        
+
         if (dataPoints.length > 0) {
           await this.storageAdapter.saveBatch(dataPoints);
           logger.debug("Flushed metrics to storage", { count: dataPoints.length });
         }
       }
-      
+
       // Clear buffer regardless of persistence success
       this.metricsBuffer = [];
-      
+
       // Update internal metrics
       const duration = now() - startTime;
       this.internalMetrics.flushCount += 1;
       this.internalMetrics.lastFlushDuration = duration;
-      this.internalMetrics.avgFlushDuration = 
-        (this.internalMetrics.avgFlushDuration * (this.internalMetrics.flushCount - 1) + duration) / 
+      this.internalMetrics.avgFlushDuration =
+        (this.internalMetrics.avgFlushDuration * (this.internalMetrics.flushCount - 1) + duration) /
         this.internalMetrics.flushCount;
     } catch (error) {
       logger.error("Failed to flush metrics", { error });
@@ -368,26 +370,22 @@ export abstract class BaseMetricCollector implements MetricCollector {
     let filtered = this.metricsBuffer;
 
     if (filter.metricName) {
-      filtered = filtered.filter((m) => m.metricName === filter.metricName);
+      filtered = filtered.filter(m => m.metricName === filter.metricName);
     }
 
     if (filter.metricType) {
-      filtered = filtered.filter((m) => m.metricType === filter.metricType);
+      filtered = filtered.filter(m => m.metricType === filter.metricType);
     }
 
     if (filter.labels) {
-      filtered = filtered.filter((m) => {
-        return Object.entries(filter.labels!).every(
-          ([key, val]) => m.labels[key] === val,
-        );
+      filtered = filtered.filter(m => {
+        return Object.entries(filter.labels!).every(([key, val]) => m.labels[key] === val);
       });
     }
 
     if (filter.timeRange) {
       filtered = filtered.filter(
-        (m) =>
-          m.timestamp >= filter.timeRange!.from &&
-          m.timestamp <= filter.timeRange!.to,
+        m => m.timestamp >= filter.timeRange!.from && m.timestamp <= filter.timeRange!.to,
       );
     }
 
@@ -400,10 +398,10 @@ export abstract class BaseMetricCollector implements MetricCollector {
     const aggregated = this.aggregateMetrics(filtered);
 
     const queryTime = now() - startTime;
-    
+
     // Update internal metrics
     this.internalMetrics.queryCount += 1;
-    this.updateInternalAverage('avgQueryDuration', queryTime);
+    this.updateInternalAverage("avgQueryDuration", queryTime);
 
     return {
       totalCount: filtered.length,
@@ -415,10 +413,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   /**
    * Subscribe to periodic reports
    */
-  onReport(
-    callback: MetricReportCallback,
-    options?: { interval?: number },
-  ): () => void {
+  onReport(callback: MetricReportCallback, options?: { interval?: number }): () => void {
     const interval = options?.interval ?? this.config.reportingInterval;
     const subscriptionId = `sub_${++this.nextSubscriptionId}`;
 
@@ -438,9 +433,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
     // Return unsubscribe function
     return () => {
-      const index = this.reportCallbacks.findIndex(
-        (sub) => sub.id === subscriptionId,
-      );
+      const index = this.reportCallbacks.findIndex(sub => sub.id === subscriptionId);
       if (index !== -1) {
         const sub = this.reportCallbacks[index];
         if (sub?.timer) {
@@ -448,7 +441,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
         }
         this.reportCallbacks.splice(index, 1);
         this.internalMetrics.activeSubscriptions = this.reportCallbacks.length;
-        
+
         // Stop periodic reporting if no more subscriptions
         if (this.reportCallbacks.length === 0) {
           this.stopPeriodicReporting();
@@ -467,12 +460,12 @@ export abstract class BaseMetricCollector implements MetricCollector {
     this.stopPeriodicFlush();
     this.stopPeriodicCleanup();
     this.stopPeriodicReporting();
-    
+
     // Reset internal metrics (keep counts, reset current state)
     this.internalMetrics.bufferSize = 0;
     this.internalMetrics.bufferUtilization = 0;
     this.internalMetrics.estimatedMemoryUsage = 0;
-    
+
     logger.info("Metrics cleared");
   }
 
@@ -481,10 +474,10 @@ export abstract class BaseMetricCollector implements MetricCollector {
    */
   dispose(): void {
     // Flush remaining metrics before disposal
-    this.flush().catch((error) => {
+    this.flush().catch(error => {
       logger.error("Failed to flush metrics during disposal", { error });
     });
-    
+
     this.stopPeriodicFlush();
     this.stopPeriodicCleanup();
     this.stopPeriodicReporting();
@@ -511,7 +504,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   getInternalMetrics(): CollectorInternalMetrics {
     return { ...this.internalMetrics };
   }
-  
+
   /**
    * Export internal metrics in Prometheus format
    * @returns Array of formatted metric lines
@@ -520,63 +513,75 @@ export abstract class BaseMetricCollector implements MetricCollector {
     const metrics: string[] = [];
     const m = this.internalMetrics;
     const collectorName = this.constructor.name;
-    
+
     // Buffer size
     metrics.push(`# HELP metrics_buffer_size Current buffer size`);
     metrics.push(`# TYPE metrics_buffer_size gauge`);
     metrics.push(`metrics_buffer_size{collector="${collectorName}"} ${m.bufferSize}`);
-    
+
     // Buffer utilization
     metrics.push(`# HELP metrics_buffer_utilization Buffer utilization ratio (0-1)`);
     metrics.push(`# TYPE metrics_buffer_utilization gauge`);
-    metrics.push(`metrics_buffer_utilization{collector="${collectorName}"} ${m.bufferUtilization.toFixed(3)}`);
-    
+    metrics.push(
+      `metrics_buffer_utilization{collector="${collectorName}"} ${m.bufferUtilization.toFixed(3)}`,
+    );
+
     // Record count
     metrics.push(`# HELP metrics_record_total Total records`);
     metrics.push(`# TYPE metrics_record_total counter`);
     metrics.push(`metrics_record_total{collector="${collectorName}"} ${m.recordCount}`);
-    
+
     // Flush statistics
     metrics.push(`# HELP metrics_flush_total Total flush operations`);
     metrics.push(`# TYPE metrics_flush_total counter`);
     metrics.push(`metrics_flush_total{collector="${collectorName}"} ${m.flushCount}`);
-    
+
     metrics.push(`# HELP metrics_flush_error_total Total flush errors`);
     metrics.push(`# TYPE metrics_flush_error_total counter`);
     metrics.push(`metrics_flush_error_total{collector="${collectorName}"} ${m.flushErrorCount}`);
-    
+
     metrics.push(`# HELP metrics_flush_duration_seconds Average flush duration`);
     metrics.push(`# TYPE metrics_flush_duration_seconds gauge`);
-    metrics.push(`metrics_flush_duration_seconds{collector="${collectorName}"} ${(m.avgFlushDuration / 1000).toFixed(3)}`);
-    
+    metrics.push(
+      `metrics_flush_duration_seconds{collector="${collectorName}"} ${(m.avgFlushDuration / 1000).toFixed(3)}`,
+    );
+
     // Query statistics
     metrics.push(`# HELP metrics_query_total Total query operations`);
     metrics.push(`# TYPE metrics_query_total counter`);
     metrics.push(`metrics_query_total{collector="${collectorName}"} ${m.queryCount}`);
-    
+
     metrics.push(`# HELP metrics_query_duration_seconds Average query duration`);
     metrics.push(`# TYPE metrics_query_duration_seconds gauge`);
-    metrics.push(`metrics_query_duration_seconds{collector="${collectorName}"} ${(m.avgQueryDuration / 1000).toFixed(3)}`);
-    
+    metrics.push(
+      `metrics_query_duration_seconds{collector="${collectorName}"} ${(m.avgQueryDuration / 1000).toFixed(3)}`,
+    );
+
     // Cleanup statistics
     metrics.push(`# HELP metrics_cleanup_total Total cleanup operations`);
     metrics.push(`# TYPE metrics_cleanup_total counter`);
     metrics.push(`metrics_cleanup_total{collector="${collectorName}"} ${m.cleanupCount}`);
-    
+
     metrics.push(`# HELP metrics_cleanup_removed_total Total expired metrics removed`);
     metrics.push(`# TYPE metrics_cleanup_removed_total counter`);
-    metrics.push(`metrics_cleanup_removed_total{collector="${collectorName}"} ${m.expiredMetricsRemoved}`);
-    
+    metrics.push(
+      `metrics_cleanup_removed_total{collector="${collectorName}"} ${m.expiredMetricsRemoved}`,
+    );
+
     // Subscriptions
     metrics.push(`# HELP metrics_active_subscriptions Active report subscriptions`);
     metrics.push(`# TYPE metrics_active_subscriptions gauge`);
-    metrics.push(`metrics_active_subscriptions{collector="${collectorName}"} ${m.activeSubscriptions}`);
-    
+    metrics.push(
+      `metrics_active_subscriptions{collector="${collectorName}"} ${m.activeSubscriptions}`,
+    );
+
     // Memory estimate
     metrics.push(`# HELP metrics_memory_estimate_bytes Estimated memory usage`);
     metrics.push(`# TYPE metrics_memory_estimate_bytes gauge`);
-    metrics.push(`metrics_memory_estimate_bytes{collector="${collectorName}"} ${m.estimatedMemoryUsage}`);
-    
+    metrics.push(
+      `metrics_memory_estimate_bytes{collector="${collectorName}"} ${m.estimatedMemoryUsage}`,
+    );
+
     return metrics;
   }
 
@@ -590,7 +595,7 @@ export abstract class BaseMetricCollector implements MetricCollector {
   protected getHistogramKey(metricName: string, labels?: Record<string, string>): string {
     return `${metricName}:${JSON.stringify(labels || {})}`;
   }
-  
+
   /**
    * Initialize histogram state with default buckets
    */
@@ -601,23 +606,25 @@ export abstract class BaseMetricCollector implements MetricCollector {
     }
     return { buckets, sum: 0, count: 0, lastUpdate: 0 };
   }
-  
+
   /**
    * Serialize histogram buckets to array
    */
-  protected serializeBuckets(buckets: Map<number, number>): Array<{ upperBound: number; count: number }> {
+  protected serializeBuckets(
+    buckets: Map<number, number>,
+  ): Array<{ upperBound: number; count: number }> {
     return Array.from(buckets.entries())
       .map(([upperBound, count]) => ({ upperBound, count }))
       .sort((a, b) => a.upperBound - b.upperBound);
   }
-  
+
   /**
    * Get summary state key
    */
   protected getSummaryKey(metricName: string, labels?: Record<string, string>): string {
     return `${metricName}:${JSON.stringify(labels || {})}`;
   }
-  
+
   /**
    * Initialize summary state with sliding window
    */
@@ -633,18 +640,18 @@ export abstract class BaseMetricCollector implements MetricCollector {
       lastUpdate: 0,
     };
   }
-  
+
   /**
    * Calculate percentiles from summary state
    */
   protected calculatePercentiles(
     state: SummaryState,
-    targets: number[] = [0.5, 0.9, 0.95, 0.99]
+    targets: number[] = [0.5, 0.9, 0.95, 0.99],
   ): Array<{ percentile: number; value: number }> {
     if (state.filledCount === 0) {
       return targets.map(p => ({ percentile: p, value: 0 }));
     }
-    
+
     // Extract valid data from ring buffer
     const values = new Float64Array(state.filledCount);
     for (let i = 0; i < state.filledCount; i++) {
@@ -654,52 +661,53 @@ export abstract class BaseMetricCollector implements MetricCollector {
         values[i] = val;
       }
     }
-    
+
     // Sort for percentile calculation
     values.sort();
-    
+
     // Calculate percentiles
     return targets.map(p => ({
       percentile: p,
       value: this.getPercentileValue(values, p),
     }));
   }
-  
+
   /**
    * Get value at specific percentile from sorted array
    */
   protected getPercentileValue(sortedValues: Float64Array, percentile: number): number {
     if (sortedValues.length === 0) return 0;
-    
+
     const index = percentile * (sortedValues.length - 1);
     const lower = Math.floor(index);
     const upper = Math.ceil(index);
-    
+
     if (lower === upper || upper >= sortedValues.length) {
       return sortedValues[lower] ?? 0;
     }
-    
+
     // Linear interpolation
     const weight = index - lower;
     const lowerVal = sortedValues[lower] ?? 0;
     const upperVal = sortedValues[upper] ?? 0;
     return lowerVal * (1 - weight) + upperVal * weight;
   }
-  
+
   /**
    * Update internal metrics averages
    */
   protected updateInternalAverage(field: keyof CollectorInternalMetrics, value: number): void {
     const currentAvg = this.internalMetrics[field] as number;
-    const count = field === 'avgFlushDuration' 
-      ? this.internalMetrics.flushCount 
-      : this.internalMetrics.queryCount;
-    
+    const count =
+      field === "avgFlushDuration"
+        ? this.internalMetrics.flushCount
+        : this.internalMetrics.queryCount;
+
     if (count > 0) {
       this.internalMetrics[field] = currentAvg + (value - currentAvg) / count;
     }
   }
-  
+
   /**
    * Update memory usage estimate
    */
@@ -835,10 +843,10 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
     // Get top metrics by value
     const sortedMetrics = [...this.metricsBuffer]
-      .filter((m) => typeof m.value === "number")
+      .filter(m => typeof m.value === "number")
       .sort((a, b) => (b.value as number) - (a.value as number))
       .slice(0, 10)
-      .map((m) => ({
+      .map(m => ({
         metricName: m.metricName,
         value: m.value as number,
         labels: m.labels,
@@ -873,9 +881,9 @@ export abstract class BaseMetricCollector implements MetricCollector {
             const duration = now() - startTime;
             this.internalMetrics.flushCount += 1;
             this.internalMetrics.lastFlushDuration = duration;
-            this.updateInternalAverage('avgFlushDuration', duration);
+            this.updateInternalAverage("avgFlushDuration", duration);
           })
-          .catch((error) => {
+          .catch(error => {
             logger.error("Periodic flush failed", { error });
             this.internalMetrics.flushErrorCount += 1;
           })
@@ -909,14 +917,14 @@ export abstract class BaseMetricCollector implements MetricCollector {
 
     // Run cleanup every minute or maxAge/10, whichever is smaller
     const cleanupInterval = Math.min(60000, this.config.maxAge / 10);
-    
+
     this.cleanupTimer = setInterval(() => {
       this.cleanupExpiredMetrics();
     }, cleanupInterval);
 
-    logger.debug("Periodic cleanup started", { 
+    logger.debug("Periodic cleanup started", {
       interval: cleanupInterval,
-      maxAge: this.config.maxAge 
+      maxAge: this.config.maxAge,
     });
   }
 
@@ -937,20 +945,18 @@ export abstract class BaseMetricCollector implements MetricCollector {
   private cleanupExpiredMetrics(): void {
     const cutoffTime = now() - this.config.maxAge;
     const originalCount = this.metricsBuffer.length;
-    
-    this.metricsBuffer = this.metricsBuffer.filter(
-      (metric) => metric.timestamp >= cutoffTime
-    );
-    
+
+    this.metricsBuffer = this.metricsBuffer.filter(metric => metric.timestamp >= cutoffTime);
+
     const removedCount = originalCount - this.metricsBuffer.length;
     if (removedCount > 0) {
       this.internalMetrics.cleanupCount += 1;
       this.internalMetrics.expiredMetricsRemoved += removedCount;
       this.internalMetrics.lastCleanupTime = now();
-      
-      logger.debug("Cleaned up expired metrics", { 
-        removedCount, 
-        remainingCount: this.metricsBuffer.length 
+
+      logger.debug("Cleaned up expired metrics", {
+        removedCount,
+        remainingCount: this.metricsBuffer.length,
       });
     }
   }
@@ -964,15 +970,15 @@ export abstract class BaseMetricCollector implements MetricCollector {
         // Already started
         continue;
       }
-      
+
       subscription.timer = setInterval(async () => {
         try {
           const report = this.generateReport();
           await subscription.callback(report);
         } catch (error) {
-          logger.error("Error in report callback", { 
+          logger.error("Error in report callback", {
             error,
-            subscriptionId: subscription.id 
+            subscriptionId: subscription.id,
           });
         }
       }, subscription.interval);

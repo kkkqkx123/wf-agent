@@ -15,10 +15,7 @@
  * - AFTER_LLM_CALL: After LLM call ends
  */
 
-export {
-  executeAgentHook,
-  type AgentHookExecutionContext,
-} from "./hook-handler.js";
+export { executeAgentHook, type AgentHookExecutionContext } from "./hook-handler.js";
 
 export type { AgentHook } from "@wf-agent/types";
 

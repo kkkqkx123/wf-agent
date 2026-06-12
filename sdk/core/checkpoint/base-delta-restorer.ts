@@ -1,6 +1,6 @@
 /**
  * Base Delta Restorer
- * 
+ *
  * Handles restoration of full state from delta checkpoint chains.
  * Traverses the delta chain backward to find the base checkpoint,
  * then applies deltas forward to reconstruct the complete state.
@@ -15,24 +15,19 @@ const logger = createContextualLogger({ component: "BaseDeltaRestorer" });
 
 /**
  * Base Delta Restorer
- * 
+ *
  * Handles restoration of full state from delta checkpoint chains.
  * Traverses the delta chain backward to find the base checkpoint,
  * then applies deltas forward to reconstruct the complete state.
- * 
+ *
  * @template TCheckpoint - The checkpoint type
  * @template TState - The state snapshot type
  */
-export class BaseDeltaRestorer<
-  TCheckpoint extends BaseCheckpoint<unknown, unknown>,
-  TState
-> {
+export class BaseDeltaRestorer<TCheckpoint extends BaseCheckpoint<unknown, unknown>, TState> {
   private diffCalculator: BaseDiffCalculator;
   private loadCheckpoint: (id: string) => Promise<TCheckpoint | null>;
 
-  constructor(
-    loadCheckpoint: (id: string) => Promise<TCheckpoint | null>
-  ) {
+  constructor(loadCheckpoint: (id: string) => Promise<TCheckpoint | null>) {
     this.diffCalculator = new BaseDiffCalculator();
     this.loadCheckpoint = loadCheckpoint;
   }
@@ -43,10 +38,7 @@ export class BaseDeltaRestorer<
    * @param entityId Optional entity ID for the checkpoint (used for batch loading optimization)
    * @returns Restoration result with full snapshot
    */
-  async restore(
-    checkpointId: string,
-    entityId?: string
-  ): Promise<DeltaRestoreResult<TState>> {
+  async restore(checkpointId: string, entityId?: string): Promise<DeltaRestoreResult<TState>> {
     logger.debug("Starting checkpoint restoration", { checkpointId, entityId });
 
     // Load the target checkpoint
@@ -95,7 +87,7 @@ export class BaseDeltaRestorer<
     for (let i = 1; i < chain.length; i++) {
       const deltaCheckpointId = chain[i];
       if (!deltaCheckpointId) continue;
-      
+
       const deltaCheckpoint = await this.loadCheckpoint(deltaCheckpointId);
 
       if (!deltaCheckpoint || deltaCheckpoint.type !== "DELTA") {
@@ -105,7 +97,7 @@ export class BaseDeltaRestorer<
       // Apply delta to current snapshot
       currentSnapshot = this.diffCalculator.applyDelta(
         currentSnapshot as Record<string, unknown>,
-        deltaCheckpoint.delta as Record<string, { from: unknown; to: unknown }>
+        deltaCheckpoint.delta as Record<string, { from: unknown; to: unknown }>,
       ) as TState;
 
       logger.debug("Applied delta", {
@@ -131,19 +123,16 @@ export class BaseDeltaRestorer<
 
   /**
    * Build checkpoint chain from target to base via sequential backward traversal
-   * 
+   *
    * Traces the `previousCheckpointId` links from target checkpoint backward
    * until a FULL checkpoint is found. Only loads checkpoints that are
    * actually in the chain — no over-fetching of unrelated checkpoints.
-   * 
+   *
    * @param checkpointId Starting checkpoint ID (must be a DELTA checkpoint)
    * @param entityId Optional entity ID (used for logging diagnostics)
    * @returns Array of checkpoint IDs from base to target
    */
-  private async buildCheckpointChain(
-    checkpointId: string,
-    entityId?: string
-  ): Promise<string[]> {
+  private async buildCheckpointChain(checkpointId: string, entityId?: string): Promise<string[]> {
     const chain: string[] = [];
     let currentId: string | undefined = checkpointId;
     const visited = new Set<string>();

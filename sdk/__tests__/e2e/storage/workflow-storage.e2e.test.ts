@@ -3,7 +3,9 @@ import { MemoryWorkflowStorage } from "@wf-agent/storage";
 import type { WorkflowStorageAdapter } from "@wf-agent/storage";
 import type { WorkflowStorageMetadata } from "@wf-agent/types";
 
-const createMetadata = (overrides: Partial<WorkflowStorageMetadata> = {}): WorkflowStorageMetadata => ({
+const createMetadata = (
+  overrides: Partial<WorkflowStorageMetadata> = {},
+): WorkflowStorageMetadata => ({
   workflowId: "wf-test",
   name: "Test Workflow",
   version: "1.0.0",
@@ -53,9 +55,21 @@ describe("Workflow Storage E2E", () => {
     });
 
     it("should list all workflow IDs", async () => {
-      await storage.save("wf-1", new Uint8Array([1]), createMetadata({ workflowId: "wf-1", name: "W1" }));
-      await storage.save("wf-2", new Uint8Array([2]), createMetadata({ workflowId: "wf-2", name: "W2" }));
-      await storage.save("wf-3", new Uint8Array([3]), createMetadata({ workflowId: "wf-3", name: "W3" }));
+      await storage.save(
+        "wf-1",
+        new Uint8Array([1]),
+        createMetadata({ workflowId: "wf-1", name: "W1" }),
+      );
+      await storage.save(
+        "wf-2",
+        new Uint8Array([2]),
+        createMetadata({ workflowId: "wf-2", name: "W2" }),
+      );
+      await storage.save(
+        "wf-3",
+        new Uint8Array([3]),
+        createMetadata({ workflowId: "wf-3", name: "W3" }),
+      );
 
       const ids = await storage.list();
       expect(ids.sort()).toEqual(["wf-1", "wf-2", "wf-3"]);
@@ -91,11 +105,15 @@ describe("Workflow Storage E2E", () => {
     });
 
     it("should update workflow metadata partially", async () => {
-      await storage.save("wf-1", new Uint8Array([1]), createMetadata({
-        workflowId: "wf-1",
-        name: "Original",
-        enabled: false,
-      }));
+      await storage.save(
+        "wf-1",
+        new Uint8Array([1]),
+        createMetadata({
+          workflowId: "wf-1",
+          name: "Original",
+          enabled: false,
+        }),
+      );
 
       await storage.updateWorkflowMetadata("wf-1", { name: "Updated", enabled: true });
       const retrieved = await storage.getMetadata("wf-1");
@@ -172,10 +190,38 @@ describe("Workflow Storage E2E", () => {
   describe("Filtered Listing", () => {
     beforeEach(async () => {
       const workflows = [
-        { id: "wf-1", name: "Data Pipeline", author: "alice", category: "etl", tags: ["prod"], enabled: true },
-        { id: "wf-2", name: "Report Gen", author: "bob", category: "reporting", tags: ["prod"], enabled: true },
-        { id: "wf-3", name: "Test Flow", author: "alice", category: "testing", tags: ["dev"], enabled: true },
-        { id: "wf-4", name: "Archive", author: "charlie", category: "archive", tags: ["archive"], enabled: false },
+        {
+          id: "wf-1",
+          name: "Data Pipeline",
+          author: "alice",
+          category: "etl",
+          tags: ["prod"],
+          enabled: true,
+        },
+        {
+          id: "wf-2",
+          name: "Report Gen",
+          author: "bob",
+          category: "reporting",
+          tags: ["prod"],
+          enabled: true,
+        },
+        {
+          id: "wf-3",
+          name: "Test Flow",
+          author: "alice",
+          category: "testing",
+          tags: ["dev"],
+          enabled: true,
+        },
+        {
+          id: "wf-4",
+          name: "Archive",
+          author: "charlie",
+          category: "archive",
+          tags: ["archive"],
+          enabled: false,
+        },
       ];
 
       for (const wf of workflows) {
@@ -247,7 +293,10 @@ describe("Workflow Storage E2E", () => {
         await storage.save(wf.id, new Uint8Array([1]), createMetadata(wf));
       }
 
-      const createdAtFilter = await storage.list({ createdAtFrom: farFuture - 15000, createdAtTo: farFuture - 5000 });
+      const createdAtFilter = await storage.list({
+        createdAtFrom: farFuture - 15000,
+        createdAtTo: farFuture - 5000,
+      });
       expect(createdAtFilter.sort()).toEqual(["wf-t2"]);
 
       const updatedAtFilter = await storage.list({ updatedAtFrom: farFuture - 8000 });
@@ -258,8 +307,16 @@ describe("Workflow Storage E2E", () => {
   describe("Batch Operations", () => {
     it("should save multiple workflows in batch", async () => {
       const items = [
-        { id: "wf-1", data: new Uint8Array([1]), metadata: createMetadata({ workflowId: "wf-1", name: "W1" }) },
-        { id: "wf-2", data: new Uint8Array([2]), metadata: createMetadata({ workflowId: "wf-2", name: "W2" }) },
+        {
+          id: "wf-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ workflowId: "wf-1", name: "W1" }),
+        },
+        {
+          id: "wf-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ workflowId: "wf-2", name: "W2" }),
+        },
       ];
 
       await storage.saveBatch(items);
@@ -267,8 +324,16 @@ describe("Workflow Storage E2E", () => {
     });
 
     it("should load multiple workflows in batch", async () => {
-      await storage.save("wf-1", new Uint8Array([10]), createMetadata({ workflowId: "wf-1", name: "W1" }));
-      await storage.save("wf-2", new Uint8Array([20]), createMetadata({ workflowId: "wf-2", name: "W2" }));
+      await storage.save(
+        "wf-1",
+        new Uint8Array([10]),
+        createMetadata({ workflowId: "wf-1", name: "W1" }),
+      );
+      await storage.save(
+        "wf-2",
+        new Uint8Array([20]),
+        createMetadata({ workflowId: "wf-2", name: "W2" }),
+      );
 
       const results = await storage.loadBatch(["wf-1", "wf-2", "non-existent"]);
       expect(results).toHaveLength(3);
@@ -279,9 +344,21 @@ describe("Workflow Storage E2E", () => {
 
     it("should delete multiple workflows in batch", async () => {
       await storage.saveBatch([
-        { id: "wf-1", data: new Uint8Array([1]), metadata: createMetadata({ workflowId: "wf-1", name: "W1" }) },
-        { id: "wf-2", data: new Uint8Array([2]), metadata: createMetadata({ workflowId: "wf-2", name: "W2" }) },
-        { id: "wf-3", data: new Uint8Array([3]), metadata: createMetadata({ workflowId: "wf-3", name: "W3" }) },
+        {
+          id: "wf-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ workflowId: "wf-1", name: "W1" }),
+        },
+        {
+          id: "wf-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ workflowId: "wf-2", name: "W2" }),
+        },
+        {
+          id: "wf-3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ workflowId: "wf-3", name: "W3" }),
+        },
       ]);
 
       await storage.deleteBatch(["wf-1", "wf-3"]);
@@ -291,8 +368,16 @@ describe("Workflow Storage E2E", () => {
 
   describe("Metrics", () => {
     it("should track storage metrics", async () => {
-      await storage.save("wf-1", new Uint8Array([1]), createMetadata({ workflowId: "wf-1", name: "W1" }));
-      await storage.save("wf-2", new Uint8Array([2]), createMetadata({ workflowId: "wf-2", name: "W2" }));
+      await storage.save(
+        "wf-1",
+        new Uint8Array([1]),
+        createMetadata({ workflowId: "wf-1", name: "W1" }),
+      );
+      await storage.save(
+        "wf-2",
+        new Uint8Array([2]),
+        createMetadata({ workflowId: "wf-2", name: "W2" }),
+      );
       await storage.load("wf-1");
 
       const metrics = await storage.getMetrics();
@@ -323,7 +408,9 @@ describe("Workflow Storage E2E", () => {
       await storage.save("wf-complex", new Uint8Array([1, 2, 3]), metadata);
       const retrieved = await storage.getMetadata("wf-complex");
 
-      expect(retrieved!.description).toBe("A workflow with extensive metadata for E2E testing purposes");
+      expect(retrieved!.description).toBe(
+        "A workflow with extensive metadata for E2E testing purposes",
+      );
       expect(retrieved!.tags).toHaveLength(5);
       expect(retrieved!.customFields).toEqual({
         department: "engineering",

@@ -8,10 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  createFullAgentLoopFixture,
-  createBasicAgentConfig,
-} from "./__shared/fixtures.js";
+import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
 
 describe("Agent Loop Lifecycle", () => {
@@ -45,9 +42,7 @@ describe("Agent Loop Lifecycle", () => {
 
       const entities = fixture.registry.getAll();
       if (entities.length > 0) {
-        await expect(fixture.coordinator.pause(entities[0]!.id)).rejects.toThrow(
-          "not running",
-        );
+        await expect(fixture.coordinator.pause(entities[0]!.id)).rejects.toThrow("not running");
       }
     });
   });
@@ -66,9 +61,7 @@ describe("Agent Loop Lifecycle", () => {
 
       const entities = fixture.registry.getAll();
       if (entities.length > 0) {
-        await expect(fixture.coordinator.resume(entities[0]!.id)).rejects.toThrow(
-          "not paused",
-        );
+        await expect(fixture.coordinator.resume(entities[0]!.id)).rejects.toThrow("not paused");
       }
     });
   });

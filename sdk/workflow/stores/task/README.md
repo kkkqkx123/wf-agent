@@ -6,8 +6,10 @@ managing triggered sub-workflow execution queues.
 ## Components
 
 ### `TaskRegistry` (`task-registry.ts`)
+
 Global task registry managed by the DI container (singleton per SDK instance).
 **Responsibilities:**
+
 - Stores and manages task status throughout the lifecycle (QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT)
 - Tracks submit/start/complete timestamps, execution results, and error details
 - Supports optional persistence via `TaskStorageAdapter` (in-memory by default)
@@ -15,8 +17,10 @@ Global task registry managed by the DI container (singleton per SDK instance).
 - Provides cleanup of expired completed/failed tasks
 
 ### `TaskQueue` (`task-queue.ts`)
+
 Stateful queue manager held by `TriggeredSubworkflowHandler`, one instance per handler.
 **Responsibilities:**
+
 - Manages the queue of `WorkflowExecutionContext`s waiting to execute as triggered sub-workflows
 - Coordinates task assignment to `WorkflowExecutionPool`
 - Supports both synchronous (`submitSync`) and asynchronous (`submitAsync`) task submission

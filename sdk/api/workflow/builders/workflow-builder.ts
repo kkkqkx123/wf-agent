@@ -122,7 +122,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    * @param name Node name (optional, defaults to ID)
    * @returns this
    */
-  addNode(id: string, type: StaticNodeType, config: StaticNode['config'], name?: string): this {
+  addNode(id: string, type: StaticNodeType, config: StaticNode["config"], name?: string): this {
     if (this.nodes.has(id)) {
       throw new Error(`Node ID must be unique: '${id}' already exists in workflow '${this._id}'`);
     }
@@ -144,7 +144,9 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   addNodeWithBuilder(nodeBuilder: NodeBuilder): this {
     const node = nodeBuilder.build();
     if (this.nodes.has(node.id)) {
-      throw new Error(`Node ID must be unique: '${node.id}' already exists in workflow '${this._id}'`);
+      throw new Error(
+        `Node ID must be unique: '${node.id}' already exists in workflow '${this._id}'`,
+      );
     }
     this.nodes.set(node.id, node);
     this.updateTimestamp();
@@ -162,7 +164,7 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
   addNodeFromTemplate(
     nodeId: string,
     templateName: string,
-    configOverride?: Partial<StaticNode['config']>,
+    configOverride?: Partial<StaticNode["config"]>,
     nodeName?: string,
   ): this {
     const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
@@ -179,7 +181,12 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
       ? { ...template.config, ...configOverride }
       : template.config;
 
-    return this.addNode(nodeId, template.type, mergedConfig as StaticNode['config'], nodeName || template.name);
+    return this.addNode(
+      nodeId,
+      template.type,
+      mergedConfig as StaticNode["config"],
+      nodeName || template.name,
+    );
   }
 
   /**
@@ -410,7 +417,6 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     return workflow;
   }
 
-
   /**
    * Validating workflows
    */
@@ -470,44 +476,44 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     for (const node of Array.from(this.nodes.values())) {
       if (node.type === "SUBGRAPH") {
         const config = node.config as SubgraphNodeConfig;
-        
+
         // Check that variableInputs reference valid parent variables
         if (config.variableInputs && config.variableInputs.length > 0) {
           for (const input of config.variableInputs) {
             const parentVar = this.variables.find(v => v.name === input.externalName);
             if (!parentVar && input.required && input.defaultValue === undefined) {
               errors.push(
-                `Subgraph '${node.id}' requires variable '${input.externalName}' which is not defined in parent workflow`
+                `Subgraph '${node.id}' requires variable '${input.externalName}' which is not defined in parent workflow`,
               );
             }
           }
         }
       }
-      
+
       if (node.type === "START") {
         const config = node.config as WorkflowStartConfig;
-        
+
         // Validate START node variable declarations
         if (config.variableInputs) {
           // Ensure no duplicate internal names
-          const internalNames = config.variableInputs.map((i) => i.internalName);
+          const internalNames = config.variableInputs.map(i => i.internalName);
           const uniqueNames = new Set(internalNames);
           if (uniqueNames.size !== internalNames.length) {
             errors.push(`START node has duplicate internal variable names`);
           }
         }
       }
-      
+
       if (node.type === "LOOP_START") {
         const config = node.config as LoopStartNodeConfig;
-        
+
         // Validate LOOP_START variable inputs
         if (config.variableInputs && config.variableInputs.length > 0) {
           for (const input of config.variableInputs) {
             const parentVar = this.variables.find(v => v.name === input.externalName);
             if (!parentVar && input.required && input.defaultValue === undefined) {
               errors.push(
-                `Loop '${config.loopId}' requires variable '${input.externalName}' which is not defined in parent workflow`
+                `Loop '${config.loopId}' requires variable '${input.externalName}' which is not defined in parent workflow`,
               );
             }
           }

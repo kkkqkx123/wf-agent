@@ -13,9 +13,7 @@ import type {
   EdgeType,
   StaticNode,
 } from "@wf-agent/types";
-import type {
-  WorkflowGraph as WorkflowGraphType,
-} from "../types/graph/preprocessed-graph.js";
+import type { WorkflowGraph as WorkflowGraphType } from "../types/graph/preprocessed-graph.js";
 import type {
   IdMapping,
   SubgraphRelationship,
@@ -34,13 +32,13 @@ export class WorkflowGraphEntity extends WorkflowGraphData implements WorkflowGr
   /** ID Mapping Table (Temporary Data during the Construction Phase) */
   public idMapping: IdMapping;
 
-  /** 
+  /**
    * Preprocessed node configurations (ID references have been updated)
    * Maps node ID to its static node configuration with resolved references
    */
   public nodeConfigs: Map<ID, StaticNode>;
 
-  /** 
+  /**
    * Processed trigger configurations (ID references have been updated)
    * Maps trigger ID to its workflow trigger configuration
    */

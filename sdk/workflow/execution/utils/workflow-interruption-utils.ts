@@ -47,7 +47,9 @@ export function checkWorkflowInterruption(signal?: AbortSignal): WorkflowInterru
 /**
  * Get the workflow interrupt type
  */
-export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckResult): InterruptionType | null {
+export function getWorkflowInterruptionType(
+  result: WorkflowInterruptionCheckResult,
+): InterruptionType | null {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {
@@ -62,7 +64,9 @@ export function getWorkflowInterruptionType(result: WorkflowInterruptionCheckRes
  * Delegates to Core's unified getExecutionInterruptionDescription
  * which handles nodeId context automatically.
  */
-export function getWorkflowInterruptionDescription(result: WorkflowInterruptionCheckResult): string {
+export function getWorkflowInterruptionDescription(
+  result: WorkflowInterruptionCheckResult,
+): string {
   return baseGetDescription(result);
 }
 

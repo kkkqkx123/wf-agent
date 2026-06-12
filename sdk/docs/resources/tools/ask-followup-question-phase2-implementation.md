@@ -11,11 +11,13 @@ Phase 2 implementation completed successfully. This phase focuses on ToolCallExe
 **File**: `packages/tool-executors/src/core/base/BaseExecutor.ts`
 
 **Changes**:
+
 - Added `context` parameter to `execute()` method signature (line 45)
 - Added `context` parameter to abstract `doExecute()` method signature (line 133)
 - Updated method to pass context to doExecute implementation (line 69)
 
 **Key Code**:
+
 ```typescript
 async execute(
   tool: Tool,
@@ -24,7 +26,7 @@ async execute(
   executionId?: string,
   context?: Record<string, unknown>, // NEW
 ): Promise<ToolExecutionResult> {
-  // ... 
+  // ...
   const result = await this.timeoutController.executeWithTimeout(
     () => this.doExecute(tool, parameters, executionId, context), // Pass context
     timeout,
@@ -38,11 +40,13 @@ async execute(
 **File**: `packages/tool-executors/src/builtin/BuiltinExecutor.ts`
 
 **Changes**:
+
 - Added `context` parameter to `doExecute()` method (line 33)
 - Implemented context merging logic to combine default context with passed context (lines 53-58)
 - Ensures interactive tools receive full execution context
 
 **Key Code**:
+
 ```typescript
 protected async doExecute(
   tool: Tool,
@@ -68,7 +72,7 @@ protected async doExecute(
 Updated all executor implementations to accept the new `context` parameter (even if not used):
 
 - **StatelessExecutor**: Added `_context` parameter (unused)
-- **StatefulExecutor**: Added `_context` parameter (unused)  
+- **StatefulExecutor**: Added `_context` parameter (unused)
 - **RestExecutor**: Added `_context` parameter (unused)
 
 This ensures interface consistency across all executor types.
@@ -78,11 +82,13 @@ This ensures interface consistency across all executor types.
 **File**: `sdk/core/executors/tool-call-executor.ts`
 
 **Changes**:
+
 - Added interactive tool detection logic (line 473)
 - Builds context object for interactive tools with event manager and execution info (lines 476-483)
 - Passes context to ToolRegistry.execute() for interactive tools (line 490)
 
 **Key Code**:
+
 ```typescript
 // Check if this is an interactive tool
 const isInteractiveTool = toolConfig?.metadata?.requiresUserInteraction === true;
@@ -167,6 +173,7 @@ try {
 ### 1. Optional Context Parameter
 
 The `context` parameter is optional throughout the call chain:
+
 - Allows non-interactive tools to ignore it
 - Enables gradual adoption
 - Maintains backward compatibility
@@ -174,6 +181,7 @@ The `context` parameter is optional throughout the call chain:
 ### 2. Context Merging in BuiltinExecutor
 
 BuiltinExecutor merges three context sources:
+
 1. `executionId` from parameter
 2. `defaultContext` from executor configuration
 3. `context` from ToolCallExecutor
@@ -183,11 +191,13 @@ This provides flexibility for different deployment scenarios.
 ### 3. Metadata-Based Detection
 
 ToolCallExecutor detects interactive tools using metadata:
+
 ```typescript
-toolConfig?.metadata?.requiresUserInteraction === true
+toolConfig?.metadata?.requiresUserInteraction === true;
 ```
 
 This approach:
+
 - Keeps detection logic simple
 - Leverages existing metadata system
 - Doesn't require tool type changes
@@ -195,6 +205,7 @@ This approach:
 ### 4. Context Structure
 
 The context passed to interactive tools includes:
+
 - `eventManager`: For emitting/listening to events
 - `executionId`: For tracking execution
 - `nodeId`: For node identification
@@ -207,6 +218,7 @@ This provides all necessary information for interactive operations.
 ### Compilation Verification
 
 All changes compile successfully:
+
 ```bash
 pnpm build --filter=@wf-agent/tool-executors  # ✅ Success
 pnpm build --filter=@wf-agent/sdk             # ✅ Success
@@ -230,6 +242,7 @@ The implementation supports these scenarios:
 ## Files Modified
 
 ### Core Executor Changes
+
 1. `packages/tool-executors/src/core/base/BaseExecutor.ts`
 2. `packages/tool-executors/src/builtin/BuiltinExecutor.ts`
 3. `packages/tool-executors/src/stateless/StatelessExecutor.ts`
@@ -237,6 +250,7 @@ The implementation supports these scenarios:
 5. `packages/tool-executors/src/rest/RestExecutor.ts`
 
 ### SDK Integration
+
 6. `sdk/core/executors/tool-call-executor.ts`
 
 ## Next Steps (Phase 3)

@@ -122,7 +122,11 @@ export class TaskQueue {
    * @param timeout Timeout period (in milliseconds)
    * @returns Task submission result
    */
-  submitAsync(taskId: string, executionEntity: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult {
+  submitAsync(
+    taskId: string,
+    executionEntity: WorkflowExecutionEntity,
+    timeout?: number,
+  ): TaskSubmissionResult {
     const queueTask: TriggeredSubworkflowQueueTask = {
       taskId,
       workflowExecutionEntity: executionEntity,
@@ -198,7 +202,10 @@ export class TaskQueue {
    * @param executor: The executor
    * @param queueTask: The queue task
    */
-  private async executeTask(executor: WorkflowExecutor, queueTask: TriggeredSubworkflowQueueTask): Promise<void> {
+  private async executeTask(
+    executor: WorkflowExecutor,
+    queueTask: TriggeredSubworkflowQueueTask,
+  ): Promise<void> {
     const startTime = now();
 
     try {

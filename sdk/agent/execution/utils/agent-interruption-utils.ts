@@ -39,7 +39,11 @@ export function checkAgentInterruption(
   const result = baseCheckInterruption(signal);
 
   // If Core extracted iteration from abort reason, prefer that
-  if ((result.type === "paused" || result.type === "stopped") && currentIteration !== undefined && result.iteration === undefined) {
+  if (
+    (result.type === "paused" || result.type === "stopped") &&
+    currentIteration !== undefined &&
+    result.iteration === undefined
+  ) {
     return { ...result, iteration: currentIteration };
   }
 
@@ -49,7 +53,9 @@ export function checkAgentInterruption(
 /**
  * Get the agent interrupt type
  */
-export function getAgentInterruptionType(result: AgentInterruptionCheckResult): InterruptionType | null {
+export function getAgentInterruptionType(
+  result: AgentInterruptionCheckResult,
+): InterruptionType | null {
   if (result.type === "paused") {
     return "PAUSE";
   } else if (result.type === "stopped") {

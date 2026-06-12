@@ -19,7 +19,7 @@ export function validateServerConfig(
 
   if (!result.success) {
     const errorMessages = result.error.issues
-      .map((err) => `${err.path.join(".")}: ${err.message}`)
+      .map(err => `${err.path.join(".")}: ${err.message}`)
       .join("; ");
     throw new Error(
       serverName
@@ -41,7 +41,7 @@ export function validateMcpSettings(settings: unknown): z.infer<typeof McpSettin
 
   if (!result.success) {
     const errorMessages = result.error.issues
-      .map((err) => `${err.path.join(".")}: ${err.message}`)
+      .map(err => `${err.path.join(".")}: ${err.message}`)
       .join("\n");
     throw new Error(`Invalid MCP settings: ${errorMessages}`);
   }

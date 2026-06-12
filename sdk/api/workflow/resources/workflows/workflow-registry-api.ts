@@ -71,11 +71,7 @@ export interface WorkflowSummary {
 /**
  * WorkflowRegistryAPI - Workflow Registry API
  */
-export class WorkflowRegistryAPI extends CrudResourceAPI<
-  WorkflowTemplate,
-  string,
-  WorkflowFilter
-> {
+export class WorkflowRegistryAPI extends CrudResourceAPI<WorkflowTemplate, string, WorkflowFilter> {
   private dependencies: APIDependencyManager;
 
   constructor(dependencies: APIDependencyManager) {

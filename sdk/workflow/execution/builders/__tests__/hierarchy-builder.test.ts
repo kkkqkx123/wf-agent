@@ -4,17 +4,19 @@
  * Tests the setupHierarchy, teardownHierarchy, and validateHierarchy functions.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { setupHierarchy, teardownHierarchy, validateHierarchy } from '../hierarchy-builder.js';
-import type { WorkflowExecutionEntity } from '../../../entities/workflow-execution-entity.js';
-import type { ExecutionHierarchyRegistry } from '../../../../core/registry/execution-hierarchy-registry.js';
-import type { ID, ParentExecutionContext, ExecutionHierarchyMetadata } from '@wf-agent/types';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { setupHierarchy, teardownHierarchy, validateHierarchy } from "../hierarchy-builder.js";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import type { ExecutionHierarchyRegistry } from "../../../../core/registry/execution-hierarchy-registry.js";
+import type { ID, ParentExecutionContext, ExecutionHierarchyMetadata } from "@wf-agent/types";
 
 // ============================================================================
 // Mock Factory Helpers
 // ============================================================================
 
-function createMockRegistry(methods?: Partial<ExecutionHierarchyRegistry>): ExecutionHierarchyRegistry {
+function createMockRegistry(
+  methods?: Partial<ExecutionHierarchyRegistry>,
+): ExecutionHierarchyRegistry {
   return {
     register: vi.fn(),
     unregister: vi.fn(),
@@ -44,7 +46,7 @@ interface MockEntityOptions {
 
 function createMockEntity(options: MockEntityOptions = {}): WorkflowExecutionEntity {
   const {
-    id = 'test-entity-id',
+    id = "test-entity-id",
     parentContext = undefined,
     childExecutionIds = [],
     hierarchyMetadata = undefined,
@@ -70,7 +72,9 @@ function createMockEntity(options: MockEntityOptions = {}): WorkflowExecutionEnt
 
   // If registry is provided, attach it to mimic the private hierarchyManager
   if (registry) {
-    (entity as unknown as { hierarchyManager?: { registry?: ExecutionHierarchyRegistry } }).hierarchyManager = {
+    (
+      entity as unknown as { hierarchyManager?: { registry?: ExecutionHierarchyRegistry } }
+    ).hierarchyManager = {
       registry,
     };
   }
@@ -82,26 +86,27 @@ function createMockEntity(options: MockEntityOptions = {}): WorkflowExecutionEnt
 // Tests
 // ============================================================================
 
-describe('setupHierarchy', () => {
+describe("setupHierarchy", () => {
   let parentEntity: WorkflowExecutionEntity;
   let childEntity: WorkflowExecutionEntity;
   let registry: ExecutionHierarchyRegistry;
 
   beforeEach(() => {
     registry = createMockRegistry();
-    parentEntity = createMockEntity({ id: 'parent-1', registry });
-    childEntity = createMockEntity({ id: 'child-1', registry });
+    parentEntity = createMockEntity({ id: "parent-1", registry });
+    childEntity = createMockEntity({ id: "child-1", registry });
   });
 
-  it('should set parent context, register child, and add child reference', async () => {
+  it("should set parent context, register child, and add child reference", async () => {
     await setupHierarchy({ parentEntity, childEntity });
 
     // Verify parent context is set on child
     expect(childEntity.setParentContext).toHaveBeenCalledTimes(1);
-    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
     expect(parentContextArg).toMatchObject({
-      parentType: 'WORKFLOW',
-      parentId: 'parent-1',
+      parentType: "WORKFLOW",
+      parentId: "parent-1",
     });
 
     // Verify child is registered in hierarchy registry
@@ -112,40 +117,41 @@ describe('setupHierarchy', () => {
     expect(parentEntity.registerChild).toHaveBeenCalledTimes(1);
     const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(childRefArg).toMatchObject({
-      childType: 'WORKFLOW',
-      childId: 'child-1',
+      childType: "WORKFLOW",
+      childId: "child-1",
     });
-    expect(typeof childRefArg.createdAt).toBe('number');
+    expect(typeof childRefArg.createdAt).toBe("number");
   });
 
-  it('should include nodeId when provided', async () => {
-    const nodeId = 'subgraph-node-123';
+  it("should include nodeId when provided", async () => {
+    const nodeId = "subgraph-node-123";
     await setupHierarchy({ parentEntity, childEntity, nodeId });
 
-    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    const parentContextArg = (childEntity.setParentContext as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
     expect(parentContextArg).toMatchObject({
-      parentType: 'WORKFLOW',
-      parentId: 'parent-1',
+      parentType: "WORKFLOW",
+      parentId: "parent-1",
       nodeId,
     });
   });
 
-  it('should include custom childMetadata when provided', async () => {
-    const childMetadata = { forkPathId: 'path-1', createdAt: Date.now() };
+  it("should include custom childMetadata when provided", async () => {
+    const childMetadata = { forkPathId: "path-1", createdAt: Date.now() };
     await setupHierarchy({ parentEntity, childEntity, childMetadata });
 
     const childRefArg = (parentEntity.registerChild as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(childRefArg).toMatchObject({
-      childType: 'WORKFLOW',
-      childId: 'child-1',
-      forkPathId: 'path-1',
+      childType: "WORKFLOW",
+      childId: "child-1",
+      forkPathId: "path-1",
     });
   });
 
-  it('should handle missing hierarchy registry gracefully', async () => {
+  it("should handle missing hierarchy registry gracefully", async () => {
     // Create child entity without registry reference
-    const childWithoutRegistry = createMockEntity({ id: 'child-no-reg' });
-    const registryRegisterSpy = vi.spyOn(registry, 'register');
+    const childWithoutRegistry = createMockEntity({ id: "child-no-reg" });
+    const registryRegisterSpy = vi.spyOn(registry, "register");
 
     await setupHierarchy({ parentEntity, childEntity: childWithoutRegistry });
 
@@ -160,32 +166,32 @@ describe('setupHierarchy', () => {
   });
 });
 
-describe('teardownHierarchy', () => {
+describe("teardownHierarchy", () => {
   let parentEntity: WorkflowExecutionEntity;
   let registry: ExecutionHierarchyRegistry;
 
   beforeEach(() => {
     registry = createMockRegistry();
-    parentEntity = createMockEntity({ id: 'parent-1' });
+    parentEntity = createMockEntity({ id: "parent-1" });
   });
 
-  it('should unregister child from parent (registry unregister is a placeholder)', async () => {
+  it("should unregister child from parent (registry unregister is a placeholder)", async () => {
     // Note: getHierarchyRegistryById is currently a placeholder that always returns undefined,
     // so registry.unregister is not expected to be called in the current implementation.
-    const childEntity = createMockEntity({ id: 'child-1', registry });
+    const childEntity = createMockEntity({ id: "child-1", registry });
 
     await teardownHierarchy(parentEntity, childEntity.id);
 
     // Verify child reference is removed from parent
     expect(parentEntity.unregisterChild).toHaveBeenCalledTimes(1);
-    expect(parentEntity.unregisterChild).toHaveBeenCalledWith('child-1', 'WORKFLOW');
+    expect(parentEntity.unregisterChild).toHaveBeenCalledWith("child-1", "WORKFLOW");
 
     // Registry unregister is not called because getHierarchyRegistryById is a placeholder
     expect(registry.unregister).not.toHaveBeenCalled();
   });
 
-  it('should skip registry unregister when unregisterFromRegistry is false', async () => {
-    const childEntity = createMockEntity({ id: 'child-1', registry });
+  it("should skip registry unregister when unregisterFromRegistry is false", async () => {
+    const childEntity = createMockEntity({ id: "child-1", registry });
 
     await teardownHierarchy(parentEntity, childEntity.id, false);
 
@@ -196,34 +202,34 @@ describe('teardownHierarchy', () => {
     expect(registry.unregister).not.toHaveBeenCalled();
   });
 
-  it('should handle missing registry gracefully', async () => {
+  it("should handle missing registry gracefully", async () => {
     // child entity without registry reference
-    await teardownHierarchy(parentEntity, 'child-no-reg');
+    await teardownHierarchy(parentEntity, "child-no-reg");
 
     // Parent should still unregister child reference
     expect(parentEntity.unregisterChild).toHaveBeenCalledTimes(1);
-    expect(parentEntity.unregisterChild).toHaveBeenCalledWith('child-no-reg', 'WORKFLOW');
+    expect(parentEntity.unregisterChild).toHaveBeenCalledWith("child-no-reg", "WORKFLOW");
   });
 });
 
-describe('validateHierarchy', () => {
+describe("validateHierarchy", () => {
   let registry: ExecutionHierarchyRegistry;
 
   beforeEach(() => {
     registry = createMockRegistry();
   });
 
-  it('should return valid for a root entity with no issues', () => {
+  it("should return valid for a root entity with no issues", () => {
     const entity = createMockEntity({
-      id: 'root-entity',
+      id: "root-entity",
       parentContext: undefined,
       childExecutionIds: [],
       hierarchyMetadata: {
         parent: undefined,
         children: [],
         depth: 0,
-        rootExecutionId: 'root-entity',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "root-entity",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -234,9 +240,9 @@ describe('validateHierarchy', () => {
     expect(result.issues).toHaveLength(0);
   });
 
-  it('should return valid for an entity with existing parent and children in registry', () => {
-    const parentId = 'parent-1';
-    const childId = 'child-1';
+  it("should return valid for an entity with existing parent and children in registry", () => {
+    const parentId = "parent-1";
+    const childId = "child-1";
 
     // Mock registry.get to return entities for both parent and child
     const parentMock = createMockEntity({ id: parentId });
@@ -248,15 +254,15 @@ describe('validateHierarchy', () => {
     });
 
     const entity = createMockEntity({
-      id: 'entity-1',
-      parentContext: { parentType: 'WORKFLOW', parentId },
+      id: "entity-1",
+      parentContext: { parentType: "WORKFLOW", parentId },
       childExecutionIds: [childId],
       hierarchyMetadata: {
-        parent: { parentType: 'WORKFLOW', parentId },
+        parent: { parentType: "WORKFLOW", parentId },
         children: [],
         depth: 1,
         rootExecutionId: parentId,
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -267,20 +273,20 @@ describe('validateHierarchy', () => {
     expect(result.issues).toHaveLength(0);
   });
 
-  it('should detect missing parent in registry', () => {
+  it("should detect missing parent in registry", () => {
     // Mock registry.get to return undefined for parent
     vi.mocked(registry.get).mockReturnValue(undefined);
 
     const entity = createMockEntity({
-      id: 'entity-1',
-      parentContext: { parentType: 'WORKFLOW', parentId: 'missing-parent' },
+      id: "entity-1",
+      parentContext: { parentType: "WORKFLOW", parentId: "missing-parent" },
       childExecutionIds: [],
       hierarchyMetadata: {
-        parent: { parentType: 'WORKFLOW', parentId: 'missing-parent' },
+        parent: { parentType: "WORKFLOW", parentId: "missing-parent" },
         children: [],
         depth: 1,
-        rootExecutionId: 'missing-parent',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "missing-parent",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -288,27 +294,27 @@ describe('validateHierarchy', () => {
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Parent execution missing-parent not found in registry');
+    expect(result.issues).toContain("Parent execution missing-parent not found in registry");
   });
 
-  it('should detect missing children in registry', () => {
+  it("should detect missing children in registry", () => {
     // Mock registry.get to return entity for parent but undefined for child
-    const parentMock = createMockEntity({ id: 'parent-1' });
+    const parentMock = createMockEntity({ id: "parent-1" });
     vi.mocked(registry.get).mockImplementation((id: ID) => {
-      if (id === 'parent-1') return parentMock;
+      if (id === "parent-1") return parentMock;
       return undefined;
     });
 
     const entity = createMockEntity({
-      id: 'entity-1',
-      parentContext: { parentType: 'WORKFLOW', parentId: 'parent-1' },
-      childExecutionIds: ['missing-child'],
+      id: "entity-1",
+      parentContext: { parentType: "WORKFLOW", parentId: "parent-1" },
+      childExecutionIds: ["missing-child"],
       hierarchyMetadata: {
-        parent: { parentType: 'WORKFLOW', parentId: 'parent-1' },
+        parent: { parentType: "WORKFLOW", parentId: "parent-1" },
         children: [],
         depth: 1,
-        rootExecutionId: 'parent-1',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "parent-1",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -316,20 +322,20 @@ describe('validateHierarchy', () => {
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Child execution missing-child not found in registry');
+    expect(result.issues).toContain("Child execution missing-child not found in registry");
   });
 
-  it('should detect invalid depth', () => {
+  it("should detect invalid depth", () => {
     const entity = createMockEntity({
-      id: 'entity-1',
+      id: "entity-1",
       parentContext: undefined,
       childExecutionIds: [],
       hierarchyMetadata: {
         parent: undefined,
         children: [],
         depth: -1,
-        rootExecutionId: 'entity-1',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "entity-1",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -337,20 +343,20 @@ describe('validateHierarchy', () => {
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Invalid depth: -1');
+    expect(result.issues).toContain("Invalid depth: -1");
   });
 
-  it('should detect missing root execution ID', () => {
+  it("should detect missing root execution ID", () => {
     const entity = createMockEntity({
-      id: 'entity-1',
+      id: "entity-1",
       parentContext: undefined,
       childExecutionIds: [],
       hierarchyMetadata: {
         parent: undefined,
         children: [],
         depth: 0,
-        rootExecutionId: '',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -358,12 +364,12 @@ describe('validateHierarchy', () => {
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Root execution ID is missing');
+    expect(result.issues).toContain("Root execution ID is missing");
   });
 
-  it('should handle missing hierarchy metadata gracefully', () => {
+  it("should handle missing hierarchy metadata gracefully", () => {
     const entity = createMockEntity({
-      id: 'entity-1',
+      id: "entity-1",
       parentContext: undefined,
       childExecutionIds: [],
       hierarchyMetadata: undefined,
@@ -377,32 +383,32 @@ describe('validateHierarchy', () => {
     expect(result.issues).toHaveLength(0);
   });
 
-  it('should handle missing hierarchy registry gracefully', () => {
+  it("should handle missing hierarchy registry gracefully", () => {
     // Entity without registry reference
     const entity = createMockEntity({
-      id: 'entity-1',
+      id: "entity-1",
     });
 
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Hierarchy registry not available');
+    expect(result.issues).toContain("Hierarchy registry not available");
   });
 
-  it('should report multiple issues at once', () => {
+  it("should report multiple issues at once", () => {
     // Mock registry.get to return undefined for everything
     vi.mocked(registry.get).mockReturnValue(undefined);
 
     const entity = createMockEntity({
-      id: 'entity-1',
-      parentContext: { parentType: 'WORKFLOW', parentId: 'missing-parent' },
-      childExecutionIds: ['missing-child-1', 'missing-child-2'],
+      id: "entity-1",
+      parentContext: { parentType: "WORKFLOW", parentId: "missing-parent" },
+      childExecutionIds: ["missing-child-1", "missing-child-2"],
       hierarchyMetadata: {
-        parent: { parentType: 'WORKFLOW', parentId: 'missing-parent' },
+        parent: { parentType: "WORKFLOW", parentId: "missing-parent" },
         children: [],
         depth: -1,
-        rootExecutionId: '',
-        rootExecutionType: 'WORKFLOW',
+        rootExecutionId: "",
+        rootExecutionType: "WORKFLOW",
       },
       registry,
     });
@@ -410,10 +416,10 @@ describe('validateHierarchy', () => {
     const result = validateHierarchy(entity);
 
     expect(result.valid).toBe(false);
-    expect(result.issues).toContain('Parent execution missing-parent not found in registry');
-    expect(result.issues).toContain('Child execution missing-child-1 not found in registry');
-    expect(result.issues).toContain('Child execution missing-child-2 not found in registry');
-    expect(result.issues).toContain('Invalid depth: -1');
-    expect(result.issues).toContain('Root execution ID is missing');
+    expect(result.issues).toContain("Parent execution missing-parent not found in registry");
+    expect(result.issues).toContain("Child execution missing-child-1 not found in registry");
+    expect(result.issues).toContain("Child execution missing-child-2 not found in registry");
+    expect(result.issues).toContain("Invalid depth: -1");
+    expect(result.issues).toContain("Root execution ID is missing");
   });
 });

@@ -20,9 +20,7 @@ import type { WorkflowGraphData } from "../../entities/workflow-graph-data.js";
  * @param graph Graph data
  * @returns List of validation errors
  */
-export function validateLoopPairs(
-  graph: WorkflowGraphData,
-): ConfigurationValidationError[] {
+export function validateLoopPairs(graph: WorkflowGraphData): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
   // Collect LOOP_START nodes: nodeId -> { loopId }
@@ -51,9 +49,7 @@ export function validateLoopPairs(
       }
       loopStarts.set(node.id, { loopId });
     } else if (node.type === ("LOOP_END" as StaticNodeType)) {
-      const config = node.originalNode?.config as
-        | { loopId?: ID; loopStartNodeId?: ID }
-        | undefined;
+      const config = node.originalNode?.config as { loopId?: ID; loopStartNodeId?: ID } | undefined;
       const loopId = config?.loopId;
       const loopStartNodeId = config?.loopStartNodeId;
 

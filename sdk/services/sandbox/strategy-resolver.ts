@@ -18,9 +18,15 @@ import type {
 } from "@wf-agent/types";
 
 import { ShellStaticAnalyzerStrategy } from "./strategies/shell-static-analyzer.js";
-import { PythonBuiltinHookStrategy, PythonASTAnalyzerStrategy } from "./strategies/python-strategies/index.js";
+import {
+  PythonBuiltinHookStrategy,
+  PythonASTAnalyzerStrategy,
+} from "./strategies/python-strategies/index.js";
 import { JavaScriptVmContextStrategy } from "./strategies/js-vm-context.js";
-import { LuaBuiltinHookStrategy, LuaStaticAnalyzerStrategy } from "./strategies/lua-strategies/index.js";
+import {
+  LuaBuiltinHookStrategy,
+  LuaStaticAnalyzerStrategy,
+} from "./strategies/lua-strategies/index.js";
 import {
   LinuxSeccompStrategy,
   WindowsJobObjectStrategy,
@@ -89,7 +95,9 @@ export class DefaultStrategyResolver implements StrategyResolver {
     return this.pythonStrategies.get(id) ?? new PassthroughStrategy();
   }
 
-  resolveJavaScriptStrategy(id: JavaScriptSandboxStrategy | string): StrategyImplementation<unknown> {
+  resolveJavaScriptStrategy(
+    id: JavaScriptSandboxStrategy | string,
+  ): StrategyImplementation<unknown> {
     return this.javascriptStrategies.get(id) ?? new PassthroughStrategy();
   }
 
@@ -97,10 +105,7 @@ export class DefaultStrategyResolver implements StrategyResolver {
     return this.luaStrategies.get(id) ?? new PassthroughStrategy();
   }
 
-  registerStrategy(
-    language: Language,
-    impl: StrategyImplementation<unknown>,
-  ): void {
+  registerStrategy(language: Language, impl: StrategyImplementation<unknown>): void {
     const registry = this.getRegistry(language);
     registry.set(impl.id, impl);
   }
@@ -116,7 +121,7 @@ export class DefaultStrategyResolver implements StrategyResolver {
     }
 
     const sorted = Array.from(registry.values())
-      .filter((s) => s.isAvailable())
+      .filter(s => s.isAvailable())
       .sort((a, b) => b.priority - a.priority);
 
     return sorted[0] ?? new PassthroughStrategy();

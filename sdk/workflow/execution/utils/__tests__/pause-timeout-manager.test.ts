@@ -187,11 +187,10 @@ describe("PauseTimeoutManager", () => {
 
   describe("custom configuration", () => {
     it("should use custom maxPauseDuration", () => {
-      const customManager = new PauseTimeoutManager(
-        mockRegistry,
-        mockEventManager,
-        { maxPauseDuration: 60000, warningThreshold: 30000 }
-      );
+      const customManager = new PauseTimeoutManager(mockRegistry, mockEventManager, {
+        maxPauseDuration: 60000,
+        warningThreshold: 30000,
+      });
 
       customManager.startMonitoring("exec-1");
 

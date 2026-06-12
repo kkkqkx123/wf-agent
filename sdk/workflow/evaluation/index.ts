@@ -26,10 +26,7 @@ export {
 export { resolvePath, pathExists, setPath, setArrayItemByKey } from "./path-resolver.js";
 
 // Dependency tracking
-export {
-  DependencyManager,
-  createDependencyManager,
-} from "./dependency-tracker.js";
+export { DependencyManager, createDependencyManager } from "./dependency-tracker.js";
 export type { TrackedExpression } from "./dependency-tracker.js";
 
 // DSL high-level API

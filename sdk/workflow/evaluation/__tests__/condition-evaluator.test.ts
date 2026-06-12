@@ -91,17 +91,23 @@ describe("ConditionEvaluator", () => {
 
   it("should throw when condition has no expression", () => {
     const invalidCondition = {} as Condition;
-    expect(() => evaluator.evaluate(invalidCondition, makeContext())).toThrow(ExpressionSecurityError);
+    expect(() => evaluator.evaluate(invalidCondition, makeContext())).toThrow(
+      ExpressionSecurityError,
+    );
   });
 
   it("should rethrow ExpressionSecurityError", () => {
     // Expression containing forbidden property __proto__ triggers ExpressionSecurityError
     const ctx = makeContext({ obj: {} });
-    expect(() => evaluator.evaluate(makeCondition("obj.__proto__"), ctx)).toThrow(ExpressionSecurityError);
+    expect(() => evaluator.evaluate(makeCondition("obj.__proto__"), ctx)).toThrow(
+      ExpressionSecurityError,
+    );
   });
 
   it("should rethrow ExpressionSecurityError for empty expression", () => {
-    expect(() => evaluator.evaluate(makeCondition(""), makeContext())).toThrow(ExpressionSecurityError);
+    expect(() => evaluator.evaluate(makeCondition(""), makeContext())).toThrow(
+      ExpressionSecurityError,
+    );
   });
 
   it("should handle runtime errors gracefully and return false", () => {

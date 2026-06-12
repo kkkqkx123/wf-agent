@@ -1,6 +1,6 @@
 /**
  * Metrics System - Predefined Metric Names
- * 
+ *
  * Standard metric name constants organized by category.
  * Provides type-safe metric names to prevent typos and ensure consistency.
  */
@@ -115,21 +115,21 @@ export const AGENT_LOOP_METRICS = {
   EXECUTION_DURATION: "agent_loop.execution.duration",
   EXECUTION_COUNT: "agent_loop.execution.count",
   ACTIVE_COUNT: "agent_loop.active.count",
-  
+
   // Iteration statistics
   ITERATION_COUNT: "agent_loop.iteration.count",
   ITERATION_DURATION: "agent_loop.iteration.duration",
   MAX_ITERATIONS_REACHED: "agent_loop.iteration.limit_reached",
-  
+
   // Tool calls
   TOOL_CALLS_TOTAL: "agent_loop.tool_calls.total",
   TOOL_CALLS_PER_ITERATION: "agent_loop.tool_calls.per_iteration",
-  
+
   // State transitions
   PAUSE_COUNT: "agent_loop.pause.count",
   RESUME_COUNT: "agent_loop.resume.count",
   PAUSE_DURATION: "agent_loop.pause.duration",
-  
+
   // Success rate
   SUCCESS_RATE: "agent_loop.success.rate",
   ERROR_COUNT: "agent_loop.error.count",

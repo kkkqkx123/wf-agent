@@ -1,9 +1,9 @@
 /**
  * Timeout Controller
- * 
+ *
  * Lightweight wrapper for tool execution timeout control.
  * Internally reuses core timeout utility functions to avoid code duplication.
- * 
+ *
  * Note: This is a specialized controller for services layer that doesn't need
  * full state management. For complex timeout scenarios, use TimeoutManager instead.
  */
@@ -38,10 +38,7 @@ export class TimeoutController {
     }
 
     // Combine timeout with abort signal if provided
-    const { clearTimeout } = combineTimeoutWithSignal(
-      actualTimeout,
-      signal,
-    );
+    const { clearTimeout } = combineTimeoutWithSignal(actualTimeout, signal);
 
     try {
       // Execute function and race against timeout
@@ -49,7 +46,9 @@ export class TimeoutController {
         fn(),
         new Promise<never>((_, reject) => {
           setTimeout(() => {
-            reject(new TimeoutError(`Tool execution timeout after ${actualTimeout}ms`, actualTimeout));
+            reject(
+              new TimeoutError(`Tool execution timeout after ${actualTimeout}ms`, actualTimeout),
+            );
           }, actualTimeout);
         }),
       ]);

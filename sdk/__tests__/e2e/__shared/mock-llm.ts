@@ -70,7 +70,9 @@ export interface MockResponseEntry {
  *   const result = await mock.generate({ messages: [...], profileId: "mock-profile" });
  */
 export class MockLLMClient implements LLMClient {
-  private config: Required<Omit<MockLLMConfig, 'responseSequence' | 'throwOnRequest' | 'throwErrorMessage'>> & {
+  private config: Required<
+    Omit<MockLLMConfig, "responseSequence" | "throwOnRequest" | "throwErrorMessage">
+  > & {
     responseSequence: MockResponseEntry[];
     throwOnRequest: number;
     throwErrorMessage: string;
@@ -107,9 +109,10 @@ export class MockLLMClient implements LLMClient {
     }
 
     // Determine which response to use from the sequence
-    const idx = this.config.responseSequence.length > 0
-      ? Math.min(this.callCount - 1, this.config.responseSequence.length - 1)
-      : -1;
+    const idx =
+      this.config.responseSequence.length > 0
+        ? Math.min(this.callCount - 1, this.config.responseSequence.length - 1)
+        : -1;
 
     let content: string;
     let toolCalls: LLMToolCall[] | undefined;

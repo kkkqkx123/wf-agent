@@ -60,7 +60,9 @@ describe("DependencyManager", () => {
 
   it("should throw for unregistered expression on hasDependenciesChanged", () => {
     const ctx = makeContext({});
-    expect(() => dm.hasDependenciesChanged("unknown", ctx)).toThrow("Expression not found: unknown");
+    expect(() => dm.hasDependenciesChanged("unknown", ctx)).toThrow(
+      "Expression not found: unknown",
+    );
   });
 
   it("should unregister expressions", () => {

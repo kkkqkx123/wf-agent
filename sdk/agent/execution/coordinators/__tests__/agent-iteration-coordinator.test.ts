@@ -13,7 +13,10 @@ import type { LLMResult, AgentHookTriggeredEvent } from "@wf-agent/types";
 import type { EventRegistry } from "../../../../core/registry/event-registry.js";
 import type { MessageStream } from "../../../../core/llm/message-stream.js";
 import type { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../../core/coordinators/llm-execution-coordinator.js";
-import { AgentIterationCoordinator, type AgentLoopStreamEvent } from "../agent-iteration-coordinator.js";
+import {
+  AgentIterationCoordinator,
+  type AgentLoopStreamEvent,
+} from "../agent-iteration-coordinator.js";
 import type { ToolExecutionCoordinator } from "../tool-execution-coordinator.js";
 
 // Mock hook module
@@ -134,9 +137,7 @@ describe("AgentIterationCoordinator", () => {
 
       mockCoreCoordinator.executeLLMCallWithMessages = vi.fn().mockResolvedValue({
         content: "Let me search",
-        toolCalls: [
-          { id: "tc-1", name: "search", arguments: '{"q":"test"}' },
-        ],
+        toolCalls: [{ id: "tc-1", name: "search", arguments: '{"q":"test"}' }],
       } as unknown as LLMResult);
 
       mockToolExecutionCoordinator.executeToolCalls = vi.fn().mockResolvedValue(undefined);
@@ -208,7 +209,12 @@ describe("AgentIterationCoordinator", () => {
         toolCalls: [],
       } as unknown as LLMResult);
 
-      await coordinator.executeIteration(mockEntity, mockConversationManager, undefined, "profile-1");
+      await coordinator.executeIteration(
+        mockEntity,
+        mockConversationManager,
+        undefined,
+        "profile-1",
+      );
 
       expect(mockCoreCoordinator.executeLLMCallWithMessages).toHaveBeenCalledWith(
         [],
@@ -287,7 +293,11 @@ describe("AgentIterationCoordinator", () => {
         getFinalResult: vi.fn().mockResolvedValue({
           content: "Using tools",
           toolCalls: [
-            { id: "tc-1", type: "function", function: { name: "search", arguments: '{"q":"test"}' } },
+            {
+              id: "tc-1",
+              type: "function",
+              function: { name: "search", arguments: '{"q":"test"}' },
+            },
           ],
         } as unknown as LLMResult),
         cleanup: vi.fn(),
@@ -295,12 +305,12 @@ describe("AgentIterationCoordinator", () => {
 
       mockCoreCoordinator.executeLLMStream = vi.fn().mockResolvedValue(mockMessageStream);
 
-      mockToolExecutionCoordinator.executeToolCallsStream = vi.fn().mockImplementation(
-        async function* () {
+      mockToolExecutionCoordinator.executeToolCallsStream = vi
+        .fn()
+        .mockImplementation(async function* () {
           yield { type: "tool_execution_start", toolCallId: "tc-1" };
           yield { type: "tool_execution_end", toolCallId: "tc-1" };
-        },
-      );
+        });
 
       const gen = coordinator.executeIterationStream(
         mockEntity,
@@ -323,7 +333,13 @@ describe("AgentIterationCoordinator", () => {
       const { checkAgentInterruption } = await import("../../utils/agent-interruption-utils.js");
       (checkAgentInterruption as ReturnType<typeof vi.fn>).mockReturnValue({ type: "continue" });
 
-      const event = { type: "iteration_complete" as const, timestamp: Date.now(), agentLoopId: "agent-loop-1", iteration: 1, shouldContinue: true };
+      const event = {
+        type: "iteration_complete" as const,
+        timestamp: Date.now(),
+        agentLoopId: "agent-loop-1",
+        iteration: 1,
+        shouldContinue: true,
+      };
 
       await coordinator.emitToRegistry(event, mockEntity);
 
@@ -337,7 +353,13 @@ describe("AgentIterationCoordinator", () => {
         emitAgentEvent: mockEmitAgentEvent,
       });
 
-      const event = { type: "iteration_complete" as const, timestamp: Date.now(), agentLoopId: "agent-loop-1", iteration: 1, shouldContinue: true };
+      const event = {
+        type: "iteration_complete" as const,
+        timestamp: Date.now(),
+        agentLoopId: "agent-loop-1",
+        iteration: 1,
+        shouldContinue: true,
+      };
 
       await coordinatorWithoutEventManager.emitToRegistry(event, mockEntity);
 
@@ -347,7 +369,13 @@ describe("AgentIterationCoordinator", () => {
     it("should handle emission errors gracefully", async () => {
       mockEventManager.emit = vi.fn().mockRejectedValue(new Error("Registry error"));
 
-      const event = { type: "iteration_complete" as const, timestamp: Date.now(), agentLoopId: "agent-loop-1", iteration: 1, shouldContinue: true };
+      const event = {
+        type: "iteration_complete" as const,
+        timestamp: Date.now(),
+        agentLoopId: "agent-loop-1",
+        iteration: 1,
+        shouldContinue: true,
+      };
 
       await expect(coordinator.emitToRegistry(event, mockEntity)).resolves.not.toThrow();
     });

@@ -3,9 +3,7 @@
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
-import type {
-  ExecuteWorkflowResult,
-} from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import type { ExecuteWorkflowResult } from "@sdk/workflow/execution/types/workflow-tool.types.js";
 import type {
   TriggeredSubworkflowTask,
   ExecutedSubworkflowResult,
@@ -23,7 +21,7 @@ import { formatAvailableWorkflows } from "../types.js";
 
 /**
  * Execute Workflow Tool Handler
- * 
+ *
  * @param config - Optional WorkflowHandlerConfig for workflow visibility control.
  *                 When provided, validates workflowId against available workflows.
  *                 When not provided, allows any workflowId (backward compatible).
@@ -60,7 +58,7 @@ export function createExecuteWorkflowHandler(config?: WorkflowHandlerConfig) {
       const available = config.loader.getAvailableWorkflows();
       throw new RuntimeValidationError(
         `Workflow '${workflowId}' not found.\n\nAvailable workflows:\n${formatAvailableWorkflows(available)}\n\n` +
-        `Use the 'execute_workflow' tool with one of the available workflow IDs listed above.`,
+          `Use the 'execute_workflow' tool with one of the available workflow IDs listed above.`,
         {
           operation: "execute_workflow",
           field: "workflowId",
@@ -91,18 +89,15 @@ export function createExecuteWorkflowHandler(config?: WorkflowHandlerConfig) {
     // Get TriggeredSubworkflowHandler from DI container
     const globalContext = workflowContext.globalContext;
     if (!globalContext) {
-      throw new RuntimeValidationError(
-        "GlobalContext not available in execution context",
-        {
-          operation: "execute_workflow",
-          context: {
-            workflowId,
-            executionId: context.executionId,
-          },
+      throw new RuntimeValidationError("GlobalContext not available in execution context", {
+        operation: "execute_workflow",
+        context: {
+          workflowId,
+          executionId: context.executionId,
         },
-      );
+      });
     }
-    
+
     const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;
@@ -127,7 +122,7 @@ export function createExecuteWorkflowHandler(config?: WorkflowHandlerConfig) {
       input,
       mainWorkflowExecutionEntity: workflowContext.parentExecutionEntity,
       triggerId: `builtin-${context.executionId}-${Date.now()}`,
-      sourceType: 'workflow',
+      sourceType: "workflow",
       config: {
         triggeredWorkflowId: workflowId,
         waitForCompletion,

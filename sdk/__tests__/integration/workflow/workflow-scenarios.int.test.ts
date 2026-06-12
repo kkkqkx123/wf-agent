@@ -112,9 +112,7 @@ describe("Workflow Advanced Scenarios Integration", () => {
         .addStartNode("start")
         .addRouteNode(
           "router",
-          [
-            { condition: { expression: "true" }, targetNodeId: "path-a", priority: 1 },
-          ],
+          [{ condition: { expression: "true" }, targetNodeId: "path-a", priority: 1 }],
           "path-b",
         )
         .addNode("path-a", "SCRIPT", { scriptName: "route-a", risk: "none" }, "Route A")
@@ -239,8 +237,18 @@ describe("Workflow Advanced Scenarios Integration", () => {
         type: "END",
         config: {},
       } as StaticNode);
-      workflow.edges.unshift({ id: "edge-start-dup", type: "DEFAULT", sourceNodeId: "start", targetNodeId: "dup" });
-      workflow.edges.push({ id: "edge-dup-end", type: "DEFAULT", sourceNodeId: "dup", targetNodeId: "end" });
+      workflow.edges.unshift({
+        id: "edge-start-dup",
+        type: "DEFAULT",
+        sourceNodeId: "start",
+        targetNodeId: "dup",
+      });
+      workflow.edges.push({
+        id: "edge-dup-end",
+        type: "DEFAULT",
+        sourceNodeId: "dup",
+        targetNodeId: "end",
+      });
 
       const validator = new WorkflowValidatorAPI();
       const result = validator.validate(workflow);
@@ -248,8 +256,9 @@ describe("Workflow Advanced Scenarios Integration", () => {
 
       if (result.isErr()) {
         const errors = result.error;
-        const dupErrors = errors.filter((e: any) =>
-          e.message?.includes("Node ID must be unique") || e.message?.includes("duplicate"),
+        const dupErrors = errors.filter(
+          (e: any) =>
+            e.message?.includes("Node ID must be unique") || e.message?.includes("duplicate"),
         );
         expect(dupErrors.length).toBeGreaterThan(0);
       }
@@ -299,10 +308,7 @@ describe("Workflow Advanced Scenarios Integration", () => {
     it("should handle empty workflow gracefully", async () => {
       const wfId = "wf-empty";
       const builder = sdk.createWorkflowBuilder(wfId);
-      builder
-        .addStartNode("start")
-        .addEndNode("end")
-        .addEdge("start", "end");
+      builder.addStartNode("start").addEndNode("end").addEdge("start", "end");
 
       const regResult = await sdk.workflows.create(builder.build());
       expect(regResult.result.isOk()).toBe(true);

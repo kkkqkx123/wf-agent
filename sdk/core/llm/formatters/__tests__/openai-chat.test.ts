@@ -8,7 +8,7 @@ import type { FormatterConfig } from "../types.js";
 
 vi.mock("../tool-converter.js", () => ({
   convertToolsToOpenAIFormat: vi.fn((tools: any[]) =>
-    tools.map((t: any) => ({ type: "function", function: { name: t.name } }))
+    tools.map((t: any) => ({ type: "function", function: { name: t.name } })),
   ),
 }));
 
@@ -90,7 +90,13 @@ describe("OpenAIChatFormatter", () => {
     it("should include tools in body when provided", () => {
       const request: LLMRequest = {
         messages: [{ role: "user", content: "Use a tool" }],
-        tools: [{ id: "tool-1", description: "A test tool", parameters: { type: "object", properties: {}, required: [] } }],
+        tools: [
+          {
+            id: "tool-1",
+            description: "A test tool",
+            parameters: { type: "object", properties: {}, required: [] },
+          },
+        ],
       };
       const result = formatter.buildRequest(request, mockConfig);
       const body = result.httpRequest.body as Record<string, unknown>;
@@ -130,7 +136,11 @@ describe("OpenAIChatFormatter", () => {
             message: {
               content: "",
               tool_calls: [
-                { id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city":"London"}' } },
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: { name: "get_weather", arguments: '{"city":"London"}' },
+                },
               ],
             },
             finish_reason: "tool_calls",
@@ -227,7 +237,9 @@ describe("OpenAIChatFormatter", () => {
         {
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "call-1", type: "function", function: { name: "test", arguments: "{}" } }],
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "test", arguments: "{}" } },
+          ],
         },
       ];
       const result = formatter.convertMessages(messages) as any[];
@@ -246,7 +258,11 @@ describe("OpenAIChatFormatter", () => {
   describe("parseToolCalls", () => {
     it("should parse tool calls correctly", () => {
       const toolCalls = [
-        { id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } },
+        {
+          id: "call-1",
+          type: "function",
+          function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+        },
       ];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);

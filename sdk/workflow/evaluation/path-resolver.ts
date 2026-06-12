@@ -1,12 +1,12 @@
 /**
  * PathResolver - Path Resolver
  * Provides simple object path resolving functionality
- * 
+ *
  * Supported path formats:
  * - Nested object access: e.g. "user.name", "output.data.items"
  * - Array index access: "items[0]", "items[0].name".
  * - Combined access: e.g. "output.data.items[0].name"
- * 
+ *
  * Usage example:
  * - resolvePath("user.name", obj) - get nested attribute values
  * - resolvePath("items[0].name", obj) - get the array element property
@@ -184,7 +184,7 @@ export function setArrayItemByKey(
     return false;
   }
 
-  const item = array.find((item) => item[keyField] === keyValue);
+  const item = array.find(item => item[keyField] === keyValue);
   if (!item) {
     return false;
   }

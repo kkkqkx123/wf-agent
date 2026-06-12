@@ -5,21 +5,21 @@
 ### 1. 基本用法
 
 ```typescript
-import { InterruptionState } from '@wf-agent/sdk/core/utils/interruption';
+import { InterruptionState } from "@wf-agent/sdk/core/utils/interruption";
 
 // 创建父实例
-const parent = new InterruptionState({ contextId: 'parent-workflow' });
+const parent = new InterruptionState({ contextId: "parent-workflow" });
 
 // 创建子实例
-const child = new InterruptionState({ contextId: 'child-subgraph' });
+const child = new InterruptionState({ contextId: "child-subgraph" });
 
 // 注册子实例(自动建立级联传播)
 parent.registerChild(child);
 
 // 现在,父实例的中断会自动传播到子实例!
-parent.requestPause();  // child 也会自动暂停
-parent.requestStop();   // child 也会自动停止
-parent.resume();        // child 也会自动恢复
+parent.requestPause(); // child 也会自动暂停
+parent.requestStop(); // child 也会自动停止
+parent.resume(); // child 也会自动恢复
 ```
 
 ### 2. Workflow 集成
@@ -29,10 +29,10 @@ parent.resume();        // child 也会自动恢复
 ```typescript
 // 在 WorkflowExecutionBuilder 中
 const result = await builder.createChildExecution(parentWorkflow, {
-  type: 'SUBGRAPH',
+  type: "SUBGRAPH",
   config: {
-    subworkflowId: 'sub-graph-1',
-    nodeId: 'agent-node-1',
+    subworkflowId: "sub-graph-1",
+    nodeId: "agent-node-1",
   },
 });
 
@@ -41,12 +41,12 @@ const result = await builder.createChildExecution(parentWorkflow, {
 
 ### 3. 继承规则
 
-| 子执行类型 | 是否继承中断 | 说明 |
-|-----------|------------|------|
-| SUBGRAPH | ✅ 是 | 同步执行,始终继承 |
-| FORK_BRANCH | ✅ 是 | 同步执行,始终继承 |
-| TRIGGERED (async=false) | ✅ 是 | 同步触发,继承 |
-| TRIGGERED (async=true) | ❌ 否 | 异步触发,独立 |
+| 子执行类型              | 是否继承中断 | 说明              |
+| ----------------------- | ------------ | ----------------- |
+| SUBGRAPH                | ✅ 是        | 同步执行,始终继承 |
+| FORK_BRANCH             | ✅ 是        | 同步执行,始终继承 |
+| TRIGGERED (async=false) | ✅ 是        | 同步触发,继承     |
+| TRIGGERED (async=true)  | ❌ 否        | 异步触发,独立     |
 
 ---
 
@@ -60,22 +60,22 @@ const result = await builder.createChildExecution(parentWorkflow, {
 class InterruptionState {
   // 请求暂停
   requestPause(): void;
-  
+
   // 请求停止
   requestStop(): void;
-  
+
   // 恢复执行(自动传播到子实例)
   resume(): void;
-  
+
   // 注册子实例(建立级联传播)
   registerChild(childState: InterruptionState): void;
-  
+
   // 注销子实例(清理)
   unregisterChild(childState: InterruptionState): void;
-  
+
   // 订阅中断事件
   onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void;
-  
+
   // 清理资源
   dispose(): void;
 }
@@ -106,13 +106,13 @@ getAbortSignal(): AbortSignal;
 class InterruptionPropagationProxy {
   // 附加到父实例
   attachToParent(parentState: InterruptionState): void;
-  
+
   // 注册子实例
   registerChild(childState: InterruptionState): void;
-  
+
   // 注销子实例
   unregisterChild(childState: InterruptionState): void;
-  
+
   // 清理资源
   dispose(): void;
 }
@@ -126,8 +126,8 @@ class InterruptionPropagationProxy {
 
 ```typescript
 const state = new InterruptionState({
-  contextId: 'my-execution',
-  createInterruptionError: (info) => {
+  contextId: "my-execution",
+  createInterruptionError: info => {
     return new MyCustomInterruptedException(info.message, info.type);
   },
 });
@@ -136,16 +136,16 @@ const state = new InterruptionState({
 ### 2. 监听中断事件
 
 ```typescript
-const state = new InterruptionState({ contextId: 'test' });
+const state = new InterruptionState({ contextId: "test" });
 
 // 订阅中断事件
-const unsubscribe = state.onInterrupted((type) => {
+const unsubscribe = state.onInterrupted(type => {
   console.log(`Received ${type} event`);
-  
-  if (type === 'PAUSE') {
+
+  if (type === "PAUSE") {
     // 保存状态
     saveCheckpoint();
-  } else if (type === 'RESUME') {
+  } else if (type === "RESUME") {
     // 刷新信号引用
     refreshSignal(state.getAbortSignal());
   }
@@ -176,6 +176,7 @@ unsubscribe();
 ### 1. 内存管理
 
 **必须清理**:
+
 ```typescript
 // ✅ 正确做法
 childEntity.cleanup(); // 调用 unregisterChild
@@ -203,8 +204,8 @@ parent.resume(); // ✅ 自动传播,无需额外调用
 中断只能从父→子传播,**不能**从子→父传播:
 
 ```typescript
-const parent = new InterruptionState({ contextId: 'parent' });
-const child = new InterruptionState({ contextId: 'child' });
+const parent = new InterruptionState({ contextId: "parent" });
+const child = new InterruptionState({ contextId: "child" });
 
 parent.registerChild(child);
 
@@ -230,10 +231,12 @@ parent.requestPause(); // 不会重复传播
 ### 问题1: 子实例没有收到中断
 
 **可能原因**:
+
 1. 忘记调用 `registerChild()`
 2. 子实例的 `inheritsInterruption` 设置为 `false`
 
 **解决方法**:
+
 ```typescript
 // 确保调用了 registerChild
 parentInterruptionState.registerChild(childInterruptionState);
@@ -247,6 +250,7 @@ console.log(childRef.inheritsInterruption); // 应该是 true
 **症状**: 长时间运行后内存持续增长
 
 **解决方法**:
+
 ```typescript
 // 确保在子实例完成时清理
 childEntity.cleanup();
@@ -260,6 +264,7 @@ parentInterruptionState.dispose();
 **症状**: 日志中出现 "Deep interruption propagation detected"
 
 **解决方法**:
+
 1. 检查工作流结构,减少嵌套深度
 2. 考虑将部分 SUBGRAPH 改为 TRIGGERED (异步)
 3. 优化节点执行逻辑
@@ -321,14 +326,12 @@ class MyExecutionEntity {
     const parentContext = this.getParentContext();
     if (parentContext) {
       const parentEntity = getParentEntity(parentContext.parentId);
-      parentEntity?.getInterruptionState()?.unregisterChild(
-        this.getInterruptionState()
-      );
+      parentEntity?.getInterruptionState()?.unregisterChild(this.getInterruptionState());
     }
-    
+
     // 2. 清理自身资源
     this.interruptionState?.dispose();
-    
+
     // 3. 其他清理...
   }
 }
@@ -348,12 +351,12 @@ logger.info("Interruption cascade established", {
 ### 3. 测试边界情况
 
 ```typescript
-it('should handle deep nesting correctly', () => {
+it("should handle deep nesting correctly", () => {
   // 测试3层、5层、10层嵌套
   // 验证所有层级都正确传播
 });
 
-it('should clean up resources on dispose', () => {
+it("should clean up resources on dispose", () => {
   // 测试内存泄漏防护
 });
 ```
@@ -377,7 +380,7 @@ A: 在创建子执行时设置 `inheritsInterruption: false`:
 
 ```typescript
 parent.registerChild({
-  childType: 'WORKFLOW',
+  childType: "WORKFLOW",
   childId: child.id,
   createdAt: Date.now(),
   inheritsInterruption: false, // 不继承中断

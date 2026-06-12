@@ -1,6 +1,6 @@
 /**
  * Node Template Configuration Validation Functions
- * 
+ *
  * Provides convenient functions for validating node template configurations.
  * These functions wrap the NodeValidator class to provide a simple functional interface.
  */
@@ -17,7 +17,7 @@ import { ok, err } from "@wf-agent/common-utils";
  * Two-phase validation:
  * 1. Schema validation (fast, catches format errors)
  * 2. Deep business logic validation (NodeValidator)
- * 
+ *
  * @param config The node template configuration object
  * @returns The validation result
  */
@@ -29,18 +29,19 @@ export function validateNodeTemplateConfig(
   // Phase 1: Schema validation
   const schemaResult = NodeTemplateSchema.safeParse(config);
   if (!schemaResult.success) {
-    const schemaErrors = schemaResult.error.issues.map((e: ZodIssue) => 
-      new ConfigurationValidationError(e.message, {
-        configType: "schema",
-        field: e.path.join("."),
-      })
+    const schemaErrors = schemaResult.error.issues.map(
+      (e: ZodIssue) =>
+        new ConfigurationValidationError(e.message, {
+          configType: "schema",
+          field: e.path.join("."),
+        }),
     );
     return err(schemaErrors) as Result<NodeTemplate, ValidationError[]>;
   }
 
   // Phase 2: Deep business logic validation - Entrusted to NodeValidator
   const nodeValidator = new NodeValidator();
-  
+
   // Create a temporary node object to verify configuration
   const tempNode = {
     id: "temp-node-id",
@@ -74,7 +75,7 @@ export function getNodeTemplateValidationWarnings(config: NodeTemplate): string[
   const warnings: string[] = [];
 
   // Add node template-specific warnings here
-  if (config.config && typeof config.config === 'object' && 'timeout' in config.config) {
+  if (config.config && typeof config.config === "object" && "timeout" in config.config) {
     const timeout = (config.config as { timeout?: number }).timeout;
     if (timeout && timeout > 60000) {
       warnings.push(`Node has a long timeout (${timeout}ms). Consider if this is intentional.`);

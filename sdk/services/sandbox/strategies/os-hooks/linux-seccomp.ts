@@ -16,49 +16,128 @@ import { executePassthrough, recordAudit } from "./base.js";
 // Extended syscall categories for richer policy mapping
 const SYSCALL_CATEGORIES = {
   fileIO: [
-    "read", "write", "open", "openat", "close", "lseek",
-    "pread64", "pwrite64", "readv", "writev", "sendfile",
-    "truncate", "ftruncate", "fallocate",
+    "read",
+    "write",
+    "open",
+    "openat",
+    "close",
+    "lseek",
+    "pread64",
+    "pwrite64",
+    "readv",
+    "writev",
+    "sendfile",
+    "truncate",
+    "ftruncate",
+    "fallocate",
   ],
   fsMeta: [
-    "stat", "lstat", "fstat", "newfstatat", "statx",
-    "access", "faccessat", "getdents", "getdents64",
-    "readlink", "readlinkat", "name_to_handle_at",
+    "stat",
+    "lstat",
+    "fstat",
+    "newfstatat",
+    "statx",
+    "access",
+    "faccessat",
+    "getdents",
+    "getdents64",
+    "readlink",
+    "readlinkat",
+    "name_to_handle_at",
   ],
   fsMod: [
-    "mkdir", "mkdirat", "rmdir", "unlink", "unlinkat",
-    "rename", "renameat", "renameat2", "symlink", "symlinkat",
-    "link", "linkat", "mknod", "mknodat",
-    "chmod", "fchmod", "chmodat", "chown", "fchown", "chownat",
-    "utimensat", "futimesat",
+    "mkdir",
+    "mkdirat",
+    "rmdir",
+    "unlink",
+    "unlinkat",
+    "rename",
+    "renameat",
+    "renameat2",
+    "symlink",
+    "symlinkat",
+    "link",
+    "linkat",
+    "mknod",
+    "mknodat",
+    "chmod",
+    "fchmod",
+    "chmodat",
+    "chown",
+    "fchown",
+    "chownat",
+    "utimensat",
+    "futimesat",
   ],
   process: [
-    "fork", "vfork", "clone", "clone3", "execve", "execveat",
-    "exit", "exit_group", "wait4", "waitid",
-    "getpid", "getppid", "gettid",
+    "fork",
+    "vfork",
+    "clone",
+    "clone3",
+    "execve",
+    "execveat",
+    "exit",
+    "exit_group",
+    "wait4",
+    "waitid",
+    "getpid",
+    "getppid",
+    "gettid",
   ],
   memory: [
-    "mmap", "munmap", "mprotect", "brk", "sbrk",
-    "mlock", "munlock", "mlockall", "munlockall",
+    "mmap",
+    "munmap",
+    "mprotect",
+    "brk",
+    "sbrk",
+    "mlock",
+    "munlock",
+    "mlockall",
+    "munlockall",
   ],
   network: [
-    "socket", "connect", "bind", "listen", "accept", "accept4",
-    "sendto", "recvfrom", "sendmsg", "recvmsg", "sendmmsg", "recvmmsg",
-    "shutdown", "getsockopt", "setsockopt", "getsockname", "getpeername",
-    "epoll_create", "epoll_ctl", "epoll_wait", "select", "poll", "ppoll",
+    "socket",
+    "connect",
+    "bind",
+    "listen",
+    "accept",
+    "accept4",
+    "sendto",
+    "recvfrom",
+    "sendmsg",
+    "recvmsg",
+    "sendmmsg",
+    "recvmmsg",
+    "shutdown",
+    "getsockopt",
+    "setsockopt",
+    "getsockname",
+    "getpeername",
+    "epoll_create",
+    "epoll_ctl",
+    "epoll_wait",
+    "select",
+    "poll",
+    "ppoll",
   ],
-  time: [
-    "nanosleep", "clock_gettime", "gettimeofday",
-    "time", "clock_nanosleep", "timer_create",
-  ],
-  sync: [
-    "futex", "futex_time64", "sync", "fsync", "fdatasync",
-    "msync", "sync_file_range",
-  ],
+  time: ["nanosleep", "clock_gettime", "gettimeofday", "time", "clock_nanosleep", "timer_create"],
+  sync: ["futex", "futex_time64", "sync", "fsync", "fdatasync", "msync", "sync_file_range"],
   misc: [
-    "ioctl", "fcntl", "flock", "dup", "dup2", "dup3",
-    "pipe", "pipe2", "eventfd", "eventfd2", "signalfd",
-    "userfaultfd", "memfd_create", "inotify_init", "inotify_add_watch",
+    "ioctl",
+    "fcntl",
+    "flock",
+    "dup",
+    "dup2",
+    "dup3",
+    "pipe",
+    "pipe2",
+    "eventfd",
+    "eventfd2",
+    "signalfd",
+    "userfaultfd",
+    "memfd_create",
+    "inotify_init",
+    "inotify_add_watch",
   ],
 } as const;
 
@@ -120,20 +199,12 @@ export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecut
     });
 
     // Construct the full command: seccomp-loader --allow ... --deny ... -- <user-command>
-    const allowList = policyArgs.allow.length > 0
-      ? `--allow ${policyArgs.allow.join(",")}`
-      : "";
-    const denyList = policyArgs.deny.length > 0
-      ? `--deny ${policyArgs.deny.join(",")}`
-      : "";
+    const allowList = policyArgs.allow.length > 0 ? `--allow ${policyArgs.allow.join(",")}` : "";
+    const denyList = policyArgs.deny.length > 0 ? `--deny ${policyArgs.deny.join(",")}` : "";
 
-    const seccompCommand = [
-      loaderPath,
-      allowList,
-      denyList,
-      "--",
-      options.command,
-    ].filter(Boolean).join(" ");
+    const seccompCommand = [loaderPath, allowList, denyList, "--", options.command]
+      .filter(Boolean)
+      .join(" ");
 
     try {
       const result = await this.terminalService.executeOneOff(seccompCommand, {
@@ -217,8 +288,13 @@ export class LinuxSeccompStrategy implements StrategyImplementation<ScriptExecut
       ...SYSCALL_CATEGORIES.misc,
 
       // Process basics (exit, getpid, wait)
-      "exit", "exit_group", "getpid", "getppid", "gettid",
-      "wait4", "waitid",
+      "exit",
+      "exit_group",
+      "getpid",
+      "getppid",
+      "gettid",
+      "wait4",
+      "waitid",
     ]);
 
     const deny = new Set<string>();

@@ -290,11 +290,7 @@ describe("toWorkflowInterruptionResult", () => {
 
 describe("createWorkflowInterruptionAbortReason", () => {
   it("should create PAUSE abort reason", () => {
-    const reason = createWorkflowInterruptionAbortReason(
-      "PAUSE",
-      "exec-1",
-      "node-1"
-    );
+    const reason = createWorkflowInterruptionAbortReason("PAUSE", "exec-1", "node-1");
 
     expect(reason).toBeInstanceOf(WorkflowExecutionInterruptedException);
     expect(reason.interruptionType).toBe("PAUSE");
@@ -304,11 +300,7 @@ describe("createWorkflowInterruptionAbortReason", () => {
   });
 
   it("should create STOP abort reason", () => {
-    const reason = createWorkflowInterruptionAbortReason(
-      "STOP",
-      "exec-2",
-      "node-2"
-    );
+    const reason = createWorkflowInterruptionAbortReason("STOP", "exec-2", "node-2");
 
     expect(reason).toBeInstanceOf(WorkflowExecutionInterruptedException);
     expect(reason.interruptionType).toBe("STOP");
@@ -318,11 +310,7 @@ describe("createWorkflowInterruptionAbortReason", () => {
   });
 
   it("should include context in abort reason", () => {
-    const reason = createWorkflowInterruptionAbortReason(
-      "PAUSE",
-      "exec-3",
-      "node-3"
-    );
+    const reason = createWorkflowInterruptionAbortReason("PAUSE", "exec-3", "node-3");
 
     expect(reason.context).toBeDefined();
     expect(reason.context?.["executionId"]).toBe("exec-3");

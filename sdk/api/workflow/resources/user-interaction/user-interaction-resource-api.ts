@@ -23,12 +23,13 @@ import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { CrudResourceAPI } from "../../../shared/resources/generic-resource-api.js";
 import type { ExecutionResult } from "../../../shared/types/execution-result.js";
 import { success, failure } from "../../../shared/types/execution-result.js";
-import type { UserInteractionHandler, UserInteractionRequest, UserInteractionContext } from "@wf-agent/types";
-import { ConfigurationError } from "@wf-agent/types";
 import type {
-  ToolApprovalRequestedEvent,
-  FollowupQuestionRequestedEvent,
+  UserInteractionHandler,
+  UserInteractionRequest,
+  UserInteractionContext,
 } from "@wf-agent/types";
+import { ConfigurationError } from "@wf-agent/types";
+import type { ToolApprovalRequestedEvent, FollowupQuestionRequestedEvent } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -195,9 +196,7 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
    * @param request User interaction request
    * @returns Interaction context
    */
-  private createInteractionContext(
-    request: UserInteractionRequest,
-  ): UserInteractionContext {
+  private createInteractionContext(request: UserInteractionRequest): UserInteractionContext {
     const cancelToken: { cancelled: boolean; cancel: () => void } = {
       cancelled: false,
       cancel: () => {
@@ -237,7 +236,7 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
    */
   onToolApprovalRequested(
     executionId: string,
-    listener: (event: ToolApprovalRequestedEvent) => void
+    listener: (event: ToolApprovalRequestedEvent) => void,
   ): () => void {
     const emitter = this.dependencies.getEventManager().getEmitter(executionId);
     return emitter.on("TOOL_APPROVAL_REQUESTED", listener);
@@ -251,7 +250,7 @@ export class UserInteractionResourceAPI extends CrudResourceAPI<
    */
   onFollowupQuestionRequested(
     executionId: string,
-    listener: (event: FollowupQuestionRequestedEvent) => void
+    listener: (event: FollowupQuestionRequestedEvent) => void,
   ): () => void {
     const emitter = this.dependencies.getEventManager().getEmitter(executionId);
     return emitter.on("FOLLOWUP_QUESTION_REQUESTED", listener);

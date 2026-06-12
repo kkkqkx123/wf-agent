@@ -626,10 +626,10 @@ export class ToolApprovalCoordinator {
     let firstConfirmIndex = -1;
 
     for (let i = 0; i < toolCalls.length; i++) {
-    const call = toolCalls[i]!;
-    const tool = undefined;
+      const call = toolCalls[i]!;
+      const tool = undefined;
 
-    if (this.requiresConfirmation(tool, options, contextId)) {
+      if (this.requiresConfirmation(tool, options, contextId)) {
         if (!firstConfirmTool) {
           firstConfirmTool = call;
           firstConfirmIndex = i;
@@ -801,7 +801,6 @@ export class ToolApprovalCoordinator {
   /**
    * Get tool description
    */
-
 
   /**
    * Safe event emission with error handling

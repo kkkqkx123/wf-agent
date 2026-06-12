@@ -47,7 +47,7 @@ export class WorkflowGraphBuilder {
         hooks: node.hooks,
         checkpointBeforeExecute: node.checkpointBeforeExecute,
         checkpointAfterExecute: node.checkpointAfterExecute,
-        
+
         // Runtime context (initialized, will be populated during preprocessing)
         internalMetadata: {},
         originalNode: node,
@@ -55,7 +55,7 @@ export class WorkflowGraphBuilder {
         parentWorkflowId: undefined,
         outgoingEdgeIds: [],
         incomingEdgeIds: [],
-        
+
         // Copy name for logging/debugging convenience (optional)
         name: node.name,
       } as WorkflowNode;
@@ -90,9 +90,7 @@ export class WorkflowGraphBuilder {
   /**
    * The complete build and verification process
    */
-  static buildAndValidate(
-    workflow: WorkflowTemplate,
-  ): {
+  static buildAndValidate(workflow: WorkflowTemplate): {
     graph: WorkflowGraph;
     isValid: boolean;
     errors: string[];
@@ -178,7 +176,7 @@ export class WorkflowGraphBuilder {
 
   /**
    * Process sub-workflow nodes - Handles both SUBGRAPH and EMBED_GRAPH
-   * 
+   *
    * @param graph: The main graph
    * @param relationshipRegistry: The workflow relationship registry (for registering parent-child relationships)
    * @param workflowGraphRegistry: The workflow graph registry (for retrieving preprocessed subworkflow graphs)
@@ -188,13 +186,15 @@ export class WorkflowGraphBuilder {
    */
   static async processSubgraphs(
     graph: WorkflowGraph,
-    relationshipRegistry: WorkflowRelationshipRegistry | {
-      registerSubgraphRelationship?: (
-        parentWorkflowId: ID,
-        subgraphNodeId: ID,
-        subworkflowId: ID,
-      ) => void;
-    },
+    relationshipRegistry:
+      | WorkflowRelationshipRegistry
+      | {
+          registerSubgraphRelationship?: (
+            parentWorkflowId: ID,
+            subgraphNodeId: ID,
+            subworkflowId: ID,
+          ) => void;
+        },
     workflowGraphRegistry: {
       get: (id: ID) => WorkflowGraph | undefined;
     },
@@ -225,22 +225,26 @@ export class WorkflowGraphBuilder {
     const allSubworkflowIds: ID[] = [];
 
     // Collect all SUBGRAPH and EMBED_GRAPH nodes (check originalNode type)
-    const subgraphNodes: Array<{ node: WorkflowNode; type: 'SUBGRAPH' | 'EMBED_GRAPH' }> = [];
+    const subgraphNodes: Array<{ node: WorkflowNode; type: "SUBGRAPH" | "EMBED_GRAPH" }> = [];
     for (const node of graph.nodes.values()) {
       const originalType = node.originalNode?.type;
       if (originalType === "SUBGRAPH" || originalType === "EMBED_GRAPH") {
-        subgraphNodes.push({ node, type: originalType as 'SUBGRAPH' | 'EMBED_GRAPH' });
+        subgraphNodes.push({ node, type: originalType as "SUBGRAPH" | "EMBED_GRAPH" });
       }
     }
 
     // Process each subgraph/embed_graph node
     for (const { node, type } of subgraphNodes) {
       try {
-        const config = node.originalNode?.config as { subgraphId?: string; embedId?: string } | undefined;
-        const subworkflowId = type === 'SUBGRAPH' ? config?.subgraphId : config?.embedId;
-        
+        const config = node.originalNode?.config as
+          | { subgraphId?: string; embedId?: string }
+          | undefined;
+        const subworkflowId = type === "SUBGRAPH" ? config?.subgraphId : config?.embedId;
+
         if (!subworkflowId) {
-          allErrors.push(`Node ${node.id} is missing ${type === 'SUBGRAPH' ? 'subgraphId' : 'embedId'} configuration`);
+          allErrors.push(
+            `Node ${node.id} is missing ${type === "SUBGRAPH" ? "subgraphId" : "embedId"} configuration`,
+          );
           continue;
         }
 
@@ -255,11 +259,11 @@ export class WorkflowGraphBuilder {
 
         // For SUBGRAPH, do NOT expand (Phase 1: Scheme C)
         // SUBGRAPH nodes remain in the graph and are executed as independent entities at runtime
-        if (type === 'SUBGRAPH') {
+        if (type === "SUBGRAPH") {
           logger.debug(
             "SUBGRAPH node will not be expanded (Phase 1: Scheme C). " +
-            "It will be executed as an independent child workflow at runtime.",
-            { subgraphNodeId: node.id, subworkflowId }
+              "It will be executed as an independent child workflow at runtime.",
+            { subgraphNodeId: node.id, subworkflowId },
           );
           allSubworkflowIds.push(subworkflowId);
           continue;
@@ -270,7 +274,7 @@ export class WorkflowGraphBuilder {
         if (!subgraphGraph) {
           allErrors.push(
             `EMBED_GRAPH '${node.id}' references workflow '${subworkflowId}' ` +
-            `which has not been preprocessed. Ensure dependent workflows are registered first.`
+              `which has not been preprocessed. Ensure dependent workflows are registered first.`,
           );
           continue;
         }
@@ -285,19 +289,14 @@ export class WorkflowGraphBuilder {
         }
 
         // Perform graph expansion
-        const mergeResult = this.mergeGraph(
-          graph as WorkflowGraphEntity,
-          subgraphGraph,
-          node.id,
-          {
-            nodeIdPrefix: `${node.id}_`,
-            edgeIdPrefix: `${node.id}_`,
-            subworkflowId,
-            parentWorkflowId: graph.workflowId,
-            depth: currentDepth + 1,
-            workflowRegistry: relationshipRegistry,
-          },
-        );
+        const mergeResult = this.mergeGraph(graph as WorkflowGraphEntity, subgraphGraph, node.id, {
+          nodeIdPrefix: `${node.id}_`,
+          edgeIdPrefix: `${node.id}_`,
+          subworkflowId,
+          parentWorkflowId: graph.workflowId,
+          depth: currentDepth + 1,
+          workflowRegistry: relationshipRegistry,
+        });
 
         // Collect results
         if (mergeResult.success) {
@@ -342,36 +341,33 @@ export class WorkflowGraphBuilder {
    * - No VARIABLE nodes
    * - No nested SUBGRAPH/EMBED_GRAPH with variables
    */
-  private static validateEmbedGraphConstraints(
-    subgraph: WorkflowGraph,
-    embedNodeId: ID,
-  ): string[] {
+  private static validateEmbedGraphConstraints(subgraph: WorkflowGraph, embedNodeId: ID): string[] {
     const errors: string[] = [];
 
     // Rule 1: Embedded workflow cannot define variables
     if (subgraph.variables && subgraph.variables.length > 0) {
       errors.push(
-        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
-        `which defines ${subgraph.variables.length} variables. ` +
-        `EmbedGraph workflows must be variable-free.`
+        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || "unknown"}' ` +
+          `which defines ${subgraph.variables.length} variables. ` +
+          `EmbedGraph workflows must be variable-free.`,
       );
     }
 
     // Rule 2: Embedded workflow cannot have triggers
     if (subgraph.triggers && subgraph.triggers.length > 0) {
       errors.push(
-        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
-        `which defines ${subgraph.triggers.length} triggers. ` +
-        `EmbedGraph workflows cannot have triggers.`
+        `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || "unknown"}' ` +
+          `which defines ${subgraph.triggers.length} triggers. ` +
+          `EmbedGraph workflows cannot have triggers.`,
       );
     }
 
     // Rule 3: Embedded workflow cannot contain VARIABLE nodes
     for (const node of subgraph.nodes.values()) {
-      if (node.type === 'VARIABLE') {
+      if (node.type === "VARIABLE") {
         errors.push(
-          `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || 'unknown'}' ` +
-          `which contains VARIABLE nodes. EmbedGraph workflows cannot modify variables.`
+          `EMBED_GRAPH '${embedNodeId}' references workflow '${subgraph.workflowId || "unknown"}' ` +
+            `which contains VARIABLE nodes. EmbedGraph workflows cannot modify variables.`,
         );
         break;
       }
@@ -382,17 +378,17 @@ export class WorkflowGraphBuilder {
 
   /**
    * Merge sub-workflow diagrams into the main diagram
-   * 
+   *
    * Used for EMBED_GRAPH expansion (Phase 3).
    * EMBED_GRAPH nodes perform lightweight graph expansion for pure control flow reuse.
-   * 
+   *
    * NOTE: This method is NOT used for SUBGRAPH (Phase 1: Scheme C).
    * SUBGRAPH nodes are executed as independent child workflows at runtime.
-   * 
+   *
    * For new code:
    * - Use SUBGRAPH when you need variable isolation and explicit mapping
    * - Use EMBED_GRAPH for performance-critical scenarios with simple control flow (no variables)
-   * 
+   *
    * @param mainGraph: The main diagram
    * @param subgraph: The sub-workflow diagram (WorkflowGraph extends WorkflowGraphStructure)
    * @param subgraphNodeId: The ID of the EMBED_GRAPH node
@@ -419,10 +415,10 @@ export class WorkflowGraphBuilder {
     // NOTE: mergeGraph is used for EMBED_GRAPH expansion (Phase 3).
     // SUBGRAPH nodes are executed as independent child workflows at runtime,
     // while EMBED_GRAPH nodes are expanded during preprocessing.
-    logger.debug(
-      "Expanding EMBED_GRAPH node via mergeGraph",
-      { subgraphNodeId, subworkflowId: options.subworkflowId }
-    );
+    logger.debug("Expanding EMBED_GRAPH node via mergeGraph", {
+      subgraphNodeId,
+      subworkflowId: options.subworkflowId,
+    });
     const nodeIdMapping = new Map<ID, ID>();
     const edgeIdMapping = new Map<ID, ID>();
     const addedNodeIds: ID[] = [];
@@ -440,32 +436,33 @@ export class WorkflowGraphBuilder {
       const newId = generateNamespacedNodeId(options.nodeIdPrefix || "", node.id);
 
       let newNode: WorkflowNode;
-      
+
       // Transform START -> EMBED_START and END -> EMBED_END (for EMBED_GRAPH expansion only)
       if (node.type === "START") {
         const startConfig = node.config as Record<string, unknown>;
         const embedStartConfig: Record<string, unknown> = {
-          variableInputs: startConfig['variableInputs'],
-          messageInputs: startConfig['messageInputs'],
+          variableInputs: startConfig["variableInputs"],
+          messageInputs: startConfig["messageInputs"],
           originalSubgraphNodeId: subgraphNodeId,
           namespace: options.nodeIdPrefix,
           depth: options.depth,
         };
-        
+
         // Transfer variableInputs from EMBED_GRAPH node config to START node config
         const embedGraphNode = mainGraph.getNode(subgraphNodeId);
         if (embedGraphNode) {
           const embedGraphConfig = embedGraphNode.originalNode?.config as Record<string, unknown>;
-          if (embedGraphConfig && embedGraphConfig['variableInputs']) {
-            embedStartConfig['variableInputs'] = embedGraphConfig['variableInputs'];
+          if (embedGraphConfig && embedGraphConfig["variableInputs"]) {
+            embedStartConfig["variableInputs"] = embedGraphConfig["variableInputs"];
             logger.debug("Transferred variableInputs from EMBED_GRAPH node to EMBED_START node", {
               embedGraphNodeId: subgraphNodeId,
               startNodeId: newId,
-              inputCount: (embedGraphConfig['variableInputs'] as Array<Record<string, unknown>>).length,
+              inputCount: (embedGraphConfig["variableInputs"] as Array<Record<string, unknown>>)
+                .length,
             });
           }
         }
-        
+
         newNode = {
           ...node,
           id: newId,
@@ -475,17 +472,16 @@ export class WorkflowGraphBuilder {
           workflowId: options.subworkflowId,
           parentWorkflowId: options.parentWorkflowId,
         };
-        
       } else if (node.type === "END") {
         const endConfig = node.config as Record<string, unknown>;
         const embedEndConfig: Record<string, unknown> = {
-          variableOutputs: endConfig['variableOutputs'],
-          messageOutputs: endConfig['messageOutputs'],
+          variableOutputs: endConfig["variableOutputs"],
+          messageOutputs: endConfig["messageOutputs"],
           originalSubgraphNodeId: subgraphNodeId,
           namespace: options.nodeIdPrefix,
           depth: options.depth,
         };
-        
+
         newNode = {
           ...node,
           id: newId,
@@ -495,7 +491,6 @@ export class WorkflowGraphBuilder {
           workflowId: options.subworkflowId,
           parentWorkflowId: options.parentWorkflowId,
         };
-        
       } else {
         // Other nodes remain unchanged
         newNode = {

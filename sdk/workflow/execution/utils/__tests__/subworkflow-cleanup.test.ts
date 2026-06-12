@@ -56,10 +56,7 @@ describe("cleanupFailedSubworkflow", () => {
     it("should remove child from parent's children list", async () => {
       await cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry);
 
-      expect(mockParentEntity.unregisterChild).toHaveBeenCalledWith(
-        "child-exec-1",
-        "WORKFLOW"
-      );
+      expect(mockParentEntity.unregisterChild).toHaveBeenCalledWith("child-exec-1", "WORKFLOW");
     });
   });
 
@@ -68,7 +65,7 @@ describe("cleanupFailedSubworkflow", () => {
       await cleanupFailedSubworkflow(
         mockChildEntity,
         mockParentEntity,
-        null as unknown as ExecutionHierarchyRegistry
+        null as unknown as ExecutionHierarchyRegistry,
       );
 
       expect(mockChildEntity.stop).toHaveBeenCalled();
@@ -79,7 +76,7 @@ describe("cleanupFailedSubworkflow", () => {
       await cleanupFailedSubworkflow(
         mockChildEntity,
         mockParentEntity,
-        undefined as unknown as ExecutionHierarchyRegistry
+        undefined as unknown as ExecutionHierarchyRegistry,
       );
 
       expect(mockChildEntity.stop).toHaveBeenCalled();
@@ -89,11 +86,7 @@ describe("cleanupFailedSubworkflow", () => {
     it("should handle registry without unregister method", async () => {
       const registryWithoutUnregister = {} as ExecutionHierarchyRegistry;
 
-      await cleanupFailedSubworkflow(
-        mockChildEntity,
-        mockParentEntity,
-        registryWithoutUnregister
-      );
+      await cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, registryWithoutUnregister);
 
       expect(mockChildEntity.stop).toHaveBeenCalled();
       expect(mockParentEntity.unregisterChild).toHaveBeenCalled();
@@ -107,7 +100,7 @@ describe("cleanupFailedSubworkflow", () => {
       });
 
       await expect(
-        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry)
+        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry),
       ).resolves.not.toThrow();
     });
 
@@ -117,7 +110,7 @@ describe("cleanupFailedSubworkflow", () => {
       });
 
       await expect(
-        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry)
+        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry),
       ).resolves.not.toThrow();
     });
 
@@ -127,7 +120,7 @@ describe("cleanupFailedSubworkflow", () => {
       });
 
       await expect(
-        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry)
+        cleanupFailedSubworkflow(mockChildEntity, mockParentEntity, mockRegistry),
       ).resolves.not.toThrow();
     });
 
@@ -158,7 +151,7 @@ describe("cleanupFailedSubworkflow", () => {
   describe("cleanup order", () => {
     it("should perform cleanup in correct order", async () => {
       const order: string[] = [];
-      
+
       (mockChildEntity.stop as ReturnType<typeof vi.fn>).mockImplementation(() => {
         order.push("stop");
       });

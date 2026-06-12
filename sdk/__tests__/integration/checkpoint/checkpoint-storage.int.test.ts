@@ -56,10 +56,16 @@ describe("Checkpoint Storage Integration", () => {
       const data2 = encoder.encode(JSON.stringify({ iteration: 2 }));
 
       await fixture.storage.save("cp-1", data1, {
-        entityId, entityType: "agent", timestamp: Date.now(), tags: [],
+        entityId,
+        entityType: "agent",
+        timestamp: Date.now(),
+        tags: [],
       });
       await fixture.storage.save("cp-2", data2, {
-        entityId, entityType: "agent", timestamp: Date.now() + 100, tags: [],
+        entityId,
+        entityType: "agent",
+        timestamp: Date.now() + 100,
+        tags: [],
       });
 
       // Use listByEntityWithMetadata for entity-based filtering
@@ -101,7 +107,10 @@ describe("Checkpoint Storage Integration", () => {
     it("should clear all data", async () => {
       const data = new TextEncoder().encode(JSON.stringify({}));
       await fixture.storage.save("cp-1", data, {
-        entityId: "e1", entityType: "agent", timestamp: Date.now(), tags: [],
+        entityId: "e1",
+        entityType: "agent",
+        timestamp: Date.now(),
+        tags: [],
       });
 
       await fixture.storage.clear();

@@ -18,7 +18,7 @@ import type { WorkflowExecutionResult } from "@wf-agent/types";
  * - 'workflow': Data comes from WorkflowExecutionEntity (default)
  * - 'agent': Data comes from AgentLoopEntity (agent hook triggered)
  */
-export type DataSourceType = 'workflow' | 'agent';
+export type DataSourceType = "workflow" | "agent";
 
 /**
  * Resolved data source - unified view of source execution data
@@ -49,7 +49,7 @@ export interface ResolvedDataSource {
 
 /**
  * Trigger Sub-workflow Task Interface
- * 
+ *
  * Represents a task to execute a triggered subworkflow.
  * All configuration including input/output mapping should be passed via the `config` field.
  */
@@ -80,19 +80,19 @@ export interface TriggeredSubworkflowTask {
 
 /**
  * Execute the return result of a single trigger subworkflow (synchronous execution)
- * 
+ *
  * This interface provides comprehensive access to the subworkflow execution results.
  * Use `executionResult.output` for the final output data, or access `subworkflowEntity`
  * for internal state inspection and debugging purposes.
  */
 export interface ExecutedSubworkflowResult {
-  /** 
+  /**
    * Subworkflow execution entity - provides access to internal state, variables, and metadata.
    * Use this for debugging or when you need to inspect the execution context.
    * For normal usage, prefer `executionResult.output` to get the final output.
    */
   subworkflowEntity: WorkflowExecutionEntity;
-  /** 
+  /**
    * Execution result containing output data, status, and other metadata.
    * This is the primary source for retrieving the subworkflow's output.
    */
@@ -117,7 +117,7 @@ export interface TaskSubmissionResult {
 
 /**
  * Queue Task Interface for Triggered Subworkflow (for internal use)
- * 
+ *
  * Note: This is specific to triggered subworkflow execution.
  * For generic execution queue tasks, see sdk/core/execution/execution-queue.ts
  */

@@ -23,7 +23,10 @@ export async function resumeExecutionHandler(
 
     const executionEntity = workflowExecutionRegistry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
     executionEntity.resume();

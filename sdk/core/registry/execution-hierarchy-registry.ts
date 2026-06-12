@@ -1,9 +1,9 @@
 /**
  * Execution Hierarchy Registry
- * 
+ *
  * Global registry for managing all execution instances and their hierarchical relationships.
  * Provides cross-type query and cleanup capabilities for the entire execution hierarchy tree.
- * 
+ *
  * This registry works in conjunction with ExecutionHierarchyManager to provide:
  * - Centralized management of all execution instances (Workflow and Agent)
  * - Recursive traversal of hierarchy trees
@@ -11,15 +11,19 @@
  * - Support for mixed hierarchy scenarios (Workflow → Agent → Agent, etc.)
  */
 
-import type { ID, ExecutionType } from '@wf-agent/types';
-import type { WorkflowExecutionEntity } from '../../workflow/entities/workflow-execution-entity.js';
-import type { AgentLoopEntity } from '../../agent/entities/agent-loop-entity.js';
-import type { ChildExecutionReference, ExecutionHierarchyMetadata } from '@wf-agent/types';
-import { HierarchyIntegrityService, type HierarchyValidationResult, type IHierarchyRegistry } from '../execution/hierarchy-integrity-service.js';
-import { createContextualLogger } from '../../utils/contextual-logger.js';
-import { getErrorOrNew } from '@wf-agent/common-utils';
+import type { ID, ExecutionType } from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
+import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
+import type { ChildExecutionReference, ExecutionHierarchyMetadata } from "@wf-agent/types";
+import {
+  HierarchyIntegrityService,
+  type HierarchyValidationResult,
+  type IHierarchyRegistry,
+} from "../execution/hierarchy-integrity-service.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
 
-const logger = createContextualLogger({ component: 'ExecutionHierarchyRegistry' });
+const logger = createContextualLogger({ component: "ExecutionHierarchyRegistry" });
 
 /**
  * Union type for any execution entity
@@ -36,24 +40,24 @@ export interface ExecutionsByRoot {
 
 /**
  * Execution Hierarchy Registry
- * 
+ *
  * Manages all execution instances globally and provides hierarchy-aware operations.
- * 
+ *
  * Key Features:
  * - Register/unregister execution instances
  * - Query descendants recursively
  * - Clean up entire hierarchy trees
  * - Group executions by root
- * 
+ *
  * Usage:
  * ```typescript
  * const registry = new ExecutionHierarchyRegistry();
  * registry.register(workflow);
  * registry.register(agent);
- * 
+ *
  * // Get all descendants
  * const descendants = registry.getAllDescendants(workflow.id);
- * 
+ *
  * // Cleanup entire hierarchy
  * registry.cleanupHierarchy(workflow.id);
  * ```
@@ -63,7 +67,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Registers an execution instance
-   * 
+   *
    * @param execution - The execution entity to register (Workflow or Agent)
    */
   register(execution: AnyExecutionEntity): void {
@@ -72,7 +76,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Unregisters an execution instance
-   * 
+   *
    * @param executionId - The ID of the execution to unregister
    * @returns true if the execution was found and removed, false otherwise
    */
@@ -82,7 +86,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets an execution instance by ID
-   * 
+   *
    * @param executionId - The ID of the execution to retrieve
    * @returns The execution entity, or undefined if not found
    */
@@ -92,7 +96,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Checks if an execution instance exists
-   * 
+   *
    * @param executionId - The ID to check
    * @returns true if the execution exists, false otherwise
    */
@@ -102,7 +106,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all registered execution instances
-   * 
+   *
    * @returns Array of all execution entities
    */
   getAll(): AnyExecutionEntity[] {
@@ -111,7 +115,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all registered execution IDs
-   * 
+   *
    * @returns Array of all execution IDs
    */
   getAllIds(): ID[] {
@@ -120,7 +124,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets the number of registered executions
-   * 
+   *
    * @returns The count of registered executions
    */
   size(): number {
@@ -136,18 +140,18 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all descendant executions of a given execution (recursive)
-   * 
+   *
    * Traverses the entire hierarchy tree starting from the given execution.
-   * 
+   *
    * @param executionId - The ID of the parent execution
    * @param includeSelf - Whether to include the parent execution itself in the result
    * @returns Array of all descendant execution entities
-   * 
+   *
    * @example
    * ```typescript
    * // Get all descendants including the root
    * const allExecutions = registry.getAllDescendants('workflow-1', true);
-   * 
+   *
    * // Get only children and deeper descendants
    * const descendants = registry.getAllDescendants('workflow-1', false);
    * ```
@@ -181,9 +185,9 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets direct children of a given execution
-   * 
+   *
    * Only returns immediate children, not deeper descendants.
-   * 
+   *
    * @param executionId - The ID of the parent execution
    * @returns Array of direct child execution entities
    */
@@ -196,9 +200,9 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
     const children: AnyExecutionEntity[] = [];
 
     // Get child references from the parent's hierarchy manager
-    if ('getChildren' in parent && typeof parent.getChildren === 'function') {
+    if ("getChildren" in parent && typeof parent.getChildren === "function") {
       const childRefs: ChildExecutionReference[] = parent.getChildren();
-      
+
       for (const ref of childRefs) {
         const child = this.get(ref.childId);
         if (child) {
@@ -212,15 +216,15 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Cleans up an execution and all its descendants
-   * 
+   *
    * Performs the following for each execution in the hierarchy:
    * 1. Stops the execution if it's running
    * 2. Calls cleanup() method if available
    * 3. Removes from registry
-   * 
+   *
    * @param executionId - The ID of the root execution to clean up
    * @returns The number of executions cleaned up
-   * 
+   *
    * @example
    * ```typescript
    * // Clean up workflow and all its children (agents, sub-workflows, etc.)
@@ -234,7 +238,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
     for (const descendant of descendants) {
       // Stop execution if running
-      if ('stop' in descendant && typeof descendant.stop === 'function') {
+      if ("stop" in descendant && typeof descendant.stop === "function") {
         try {
           descendant.stop();
         } catch (error) {
@@ -244,12 +248,14 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
       }
 
       // Cleanup resources
-      if ('cleanup' in descendant && typeof descendant.cleanup === 'function') {
+      if ("cleanup" in descendant && typeof descendant.cleanup === "function") {
         try {
           descendant.cleanup();
         } catch (error) {
           // Log error but continue cleanup
-          logger.warn(`Failed to cleanup execution ${descendant.id}`, { error: getErrorOrNew(error) });
+          logger.warn(`Failed to cleanup execution ${descendant.id}`, {
+            error: getErrorOrNew(error),
+          });
         }
       }
 
@@ -263,10 +269,10 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all executions under a given root execution, grouped by type
-   * 
+   *
    * @param rootExecutionId - The ID of the root execution
    * @returns Object containing arrays of workflows and agents
-   * 
+   *
    * @example
    * ```typescript
    * const { workflows, agents } = registry.getExecutionsByRoot('root-workflow');
@@ -278,22 +284,24 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
     return {
       workflows: allDescendants.filter(
-        (e): e is WorkflowExecutionEntity => 'getWorkflowId' in e && typeof e.getWorkflowId === 'function' && !!e.getWorkflowId()
+        (e): e is WorkflowExecutionEntity =>
+          "getWorkflowId" in e && typeof e.getWorkflowId === "function" && !!e.getWorkflowId(),
       ),
       agents: allDescendants.filter(
-        (e): e is AgentLoopEntity => 'getConversationManager' in e && typeof e.getConversationManager === 'function'
+        (e): e is AgentLoopEntity =>
+          "getConversationManager" in e && typeof e.getConversationManager === "function",
       ),
     };
   }
 
   /**
    * Gets all root executions (executions without parents)
-   * 
+   *
    * @returns Array of root execution entities
    */
   getRootExecutions(): AnyExecutionEntity[] {
     return this.getAll().filter(entity => {
-      if ('getParentContext' in entity && typeof entity.getParentContext === 'function') {
+      if ("getParentContext" in entity && typeof entity.getParentContext === "function") {
         const parent = entity.getParentContext();
         return !parent;
       }
@@ -303,13 +311,13 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all executions that have a specific parent
-   * 
+   *
    * @param parentId - The ID of the parent execution
    * @returns Array of child execution entities
    */
   getChildrenOf(parentId: ID): AnyExecutionEntity[] {
     return this.getAll().filter(entity => {
-      if ('getParentContext' in entity && typeof entity.getParentContext === 'function') {
+      if ("getParentContext" in entity && typeof entity.getParentContext === "function") {
         const parent = entity.getParentContext();
         return parent?.parentId === parentId;
       }
@@ -319,30 +327,36 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Gets all executions of a specific type
-   * 
+   *
    * @param type - The execution type to filter by
    * @returns Array of execution entities of the specified type
    */
   getByType(type: ExecutionType): AnyExecutionEntity[] {
     return this.getAll().filter(entity => {
-      if (type === 'WORKFLOW') {
+      if (type === "WORKFLOW") {
         // Check if getWorkflowId returns a truthy value (not undefined)
-        return 'getWorkflowId' in entity && typeof entity.getWorkflowId === 'function' && !!entity.getWorkflowId();
+        return (
+          "getWorkflowId" in entity &&
+          typeof entity.getWorkflowId === "function" &&
+          !!entity.getWorkflowId()
+        );
       } else {
         // Check if getConversationManager method exists
-        return 'getConversationManager' in entity && typeof entity.getConversationManager === 'function';
+        return (
+          "getConversationManager" in entity && typeof entity.getConversationManager === "function"
+        );
       }
     });
   }
 
   /**
    * Validates hierarchy integrity against the registry
-   * 
+   *
    * Checks:
    * 1. Parent reference exists in registry (if present)
    * 2. All child references exist in registry
    * 3. No orphaned references
-   * 
+   *
    * @param hierarchy - The hierarchy metadata to validate
    * @returns Validation result with any issues found
    */
@@ -352,10 +366,10 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Cleans up orphaned references in hierarchy metadata
-   * 
+   *
    * Removes references to entities that no longer exist in the registry.
    * This should be called after validation detects issues.
-   * 
+   *
    * @param hierarchy - The hierarchy metadata to clean up
    * @returns Cleaned hierarchy metadata
    */
@@ -365,10 +379,10 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Repairs hierarchy by recalculating root information
-   * 
+   *
    * If parent reference is valid but root info is incorrect,
    * this function recalculates the correct root execution info.
-   * 
+   *
    * @param hierarchy - The hierarchy metadata to repair
    * @returns Repaired hierarchy metadata
    */
@@ -378,7 +392,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
 
   /**
    * Checks if an execution is part of a hierarchy tree rooted at the given ID
-   * 
+   *
    * @param executionId - The ID of the execution to check
    * @param rootExecutionId - The ID of the potential root
    * @returns true if the execution is in the hierarchy tree
@@ -396,7 +410,7 @@ export class ExecutionHierarchyRegistry implements IHierarchyRegistry {
     // Traverse up the parent chain
     let current: AnyExecutionEntity | undefined = entity;
     while (current) {
-      if ('getParentContext' in current && typeof current.getParentContext === 'function') {
+      if ("getParentContext" in current && typeof current.getParentContext === "function") {
         const parent = current.getParentContext();
         if (!parent) {
           // Reached root without finding target

@@ -545,7 +545,9 @@ describe("AgentLoopCoordinator", () => {
 
     it("should throw if last message is assistant", async () => {
       mockEntity.isRunning.mockReturnValue(false);
-      mockEntity.getMessages.mockReturnValue([{ role: "assistant", content: "Here is the answer" }]);
+      mockEntity.getMessages.mockReturnValue([
+        { role: "assistant", content: "Here is the answer" },
+      ]);
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,

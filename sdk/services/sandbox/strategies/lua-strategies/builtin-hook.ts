@@ -7,7 +7,12 @@
  * Architecture reference: docs/infra/sandbox/strategies/lua-sandbox.md
  */
 
-import type { SandboxPolicy, LuaPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  LuaPolicy,
+  ScriptExecutionResult,
+  StrategyExecuteOptions,
+} from "@wf-agent/types";
 import type { StrategyImplementation } from "../../types.js";
 import { getTerminalService, type TerminalService } from "../../../terminal/index.js";
 import * as fs from "node:fs";
@@ -66,22 +71,22 @@ export class LuaBuiltinHookStrategy implements StrategyImplementation<ScriptExec
     const vfsEnabled = !!options.vfs;
     const writableDirs = vfsEnabled && options.cwd ? [options.cwd] : [];
     const wrappedCode = this.wrapWithSandbox(code, luaPolicy, vfsEnabled, writableDirs);
-    const tmpFile = path.join(os.tmpdir(), `sandbox-lua-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.lua`);
+    const tmpFile = path.join(
+      os.tmpdir(),
+      `sandbox-lua-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.lua`,
+    );
 
     try {
       fs.writeFileSync(tmpFile, wrappedCode, "utf-8");
-      const result = await this.terminalService.executeOneOff(
-        `lua "${tmpFile}"`,
-        {
-          cwd: options.cwd,
-          env: {
-            ...options.env,
-            LUA_PATH: "",
-            LUA_CPATH: "",
-          },
-          timeout: options.timeout ?? policy.resource?.timeoutLimit,
+      const result = await this.terminalService.executeOneOff(`lua "${tmpFile}"`, {
+        cwd: options.cwd,
+        env: {
+          ...options.env,
+          LUA_PATH: "",
+          LUA_CPATH: "",
         },
-      );
+        timeout: options.timeout ?? policy.resource?.timeoutLimit,
+      });
 
       return {
         success: result.success,
@@ -113,7 +118,12 @@ export class LuaBuiltinHookStrategy implements StrategyImplementation<ScriptExec
    * When VFS is enabled, write operations are allowed within the workspace
    * directory (the VFS delta layer on the Node.js side handles CoW).
    */
-  wrapWithSandbox(code: string, policy: LuaPolicy, vfsEnabled: boolean = false, writableDirs: string[] = []): string {
+  wrapWithSandbox(
+    code: string,
+    policy: LuaPolicy,
+    vfsEnabled: boolean = false,
+    writableDirs: string[] = [],
+  ): string {
     const restrictOpen = policy.restrictIoOpen;
     const allowOsExecute = policy.allowOsExecute;
     const allowDynamicLoad = policy.allowDynamicLoad;
@@ -128,12 +138,18 @@ export class LuaBuiltinHookStrategy implements StrategyImplementation<ScriptExec
     wrapper.push(``);
     wrapper.push(`local _original_require = require`);
     wrapper.push(`local _original_open = io.open`);
-    wrapper.push(`local _DENIED_MODULES = { ${policy.deniedModules.map((m) => `["${m}"] = true`).join(", ")} }`);
-    wrapper.push(`local _ALLOWED_MODULES = { ${policy.allowedModules.map((m) => `["${m}"] = true`).join(", ")} }`);
+    wrapper.push(
+      `local _DENIED_MODULES = { ${policy.deniedModules.map(m => `["${m}"] = true`).join(", ")} }`,
+    );
+    wrapper.push(
+      `local _ALLOWED_MODULES = { ${policy.allowedModules.map(m => `["${m}"] = true`).join(", ")} }`,
+    );
     wrapper.push(`local _ALLOW_DYNAMIC_LOAD = ${allowDynamicLoad}`);
     wrapper.push(`local _ALLOW_OS_EXECUTE = ${allowOsExecute}`);
     wrapper.push(`local _VFS_ENABLED = ${vfsEnabled}`);
-    wrapper.push(`local _WRITABLE_DIRS = { ${writableDirs.map((d) => `"${d.replace(/\\/g, "\\\\")}"`).join(", ")} }`);
+    wrapper.push(
+      `local _WRITABLE_DIRS = { ${writableDirs.map(d => `"${d.replace(/\\/g, "\\\\")}"`).join(", ")} }`,
+    );
     wrapper.push(``);
 
     // Safe require function

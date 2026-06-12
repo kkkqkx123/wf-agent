@@ -94,7 +94,10 @@ describe("LuaBuiltinHookStrategy", () => {
     });
 
     it("should return error for undefined code", async () => {
-      const result = await strategy.execute({ command: undefined } as unknown as StrategyExecuteOptions, defaultPolicy);
+      const result = await strategy.execute(
+        { command: undefined } as unknown as StrategyExecuteOptions,
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Empty Lua code");

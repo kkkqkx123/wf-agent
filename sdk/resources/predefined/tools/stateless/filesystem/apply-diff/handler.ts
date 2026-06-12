@@ -5,10 +5,7 @@
 
 import type { ToolOutput } from "@wf-agent/types";
 import { ProtectController, SHIELD_SYMBOL } from "@wf-agent/sdk/services";
-import {
-  parseSearchReplaceBlocks,
-  validateMarkerSequencing,
-} from "./utils/parser.js";
+import { parseSearchReplaceBlocks, validateMarkerSequencing } from "./utils/parser.js";
 import { applyBlock } from "./utils/apply.js";
 import type { ApplyDiffConfig } from "./utils/types.js";
 import { resolveFilePath } from "@wf-agent/sdk/utils";
@@ -101,15 +98,13 @@ export function createApplyDiffHandler(config: ApplyDiffConfig = {}) {
       const failedBlocks: string[] = [];
 
       // Sort blocks by startLine (if provided)
-      const sortedBlocks = [...blocks].sort(
-        (a, b) => (a.startLine || 0) - (b.startLine || 0),
-      );
+      const sortedBlocks = [...blocks].sort((a, b) => (a.startLine || 0) - (b.startLine || 0));
 
       // Apply each block
       for (const block of sortedBlocks) {
         const result = applyBlock(resultLines, block, delta);
 
-        if (result.success && 'lines' in result) {
+        if (result.success && "lines" in result) {
           resultLines = result.lines;
           delta = result.delta;
           appliedCount++;

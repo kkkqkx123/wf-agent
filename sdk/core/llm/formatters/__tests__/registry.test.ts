@@ -179,7 +179,9 @@ describe("FormatterRegistry", () => {
     });
 
     it("should throw for unknown provider", () => {
-      expect(() => getFormatter("UNKNOWN")).toThrow("No formatter registered for provider: UNKNOWN");
+      expect(() => getFormatter("UNKNOWN")).toThrow(
+        "No formatter registered for provider: UNKNOWN",
+      );
     });
   });
 

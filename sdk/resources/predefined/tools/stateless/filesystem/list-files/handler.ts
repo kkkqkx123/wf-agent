@@ -80,7 +80,12 @@ async function listFilesRecursive(
         resultCount.count++;
 
         const subEntries = await listFilesRecursive(
-          itemPath, relativePath, vfs, maxResults, ignoreController, resultCount,
+          itemPath,
+          relativePath,
+          vfs,
+          maxResults,
+          ignoreController,
+          resultCount,
         );
         entries.push(...subEntries);
       }
@@ -163,7 +168,11 @@ export function createListFilesHandler(config: ListFilesConfig = {}) {
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
-      const { path: targetPath, recursive, includeIgnored } = params as {
+      const {
+        path: targetPath,
+        recursive,
+        includeIgnored,
+      } = params as {
         path: string;
         recursive?: boolean;
         includeIgnored?: boolean;
@@ -206,7 +215,14 @@ export function createListFilesHandler(config: ListFilesConfig = {}) {
 
       const resultCount = { count: 0 };
       const entries = recursive
-        ? await listFilesRecursive(dirPath, targetPath, vfs, maxResults, ignoreController, resultCount)
+        ? await listFilesRecursive(
+            dirPath,
+            targetPath,
+            vfs,
+            maxResults,
+            ignoreController,
+            resultCount,
+          )
         : await listFilesFlat(dirPath, targetPath, vfs, maxResults, ignoreController, resultCount);
 
       entries.sort((a, b) => {

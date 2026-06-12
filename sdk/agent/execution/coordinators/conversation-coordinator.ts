@@ -34,7 +34,8 @@ export class ConversationCoordinator {
       return undefined;
     }
 
-    return loop.getConversationManager();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    return stateCoordinator?.getConversationManager();
   }
 
   /**

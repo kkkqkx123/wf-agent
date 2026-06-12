@@ -1,6 +1,6 @@
 /**
  * Node Metrics Collector
- * 
+ *
  * Tracks node template and execution metrics including:
  * - Template instantiation count
  * - Node execution frequency by type
@@ -24,10 +24,14 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   /**
    * Record node template instantiation
    */
-  recordTemplateInstantiation(templateName: string, nodeType: string, metadata?: {
-    category?: string;
-    tags?: string[];
-  }): void {
+  recordTemplateInstantiation(
+    templateName: string,
+    nodeType: string,
+    metadata?: {
+      category?: string;
+      tags?: string[];
+    },
+  ): void {
     if (!templateName || !nodeType) {
       logger.warn("recordTemplateInstantiation called with missing parameters");
       return;
@@ -36,7 +40,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     this.incrementCounter(TEMPLATE_METRICS.INSTANTIATION_COUNT, {
       template_name: templateName,
       node_type: nodeType,
-      category: metadata?.category || 'uncategorized',
+      category: metadata?.category || "uncategorized",
     });
 
     logger.debug("Recorded node template instantiation", { templateName, nodeType });
@@ -61,12 +65,17 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   /**
    * Record node execution completion
    */
-  recordNodeExecution(nodeId: string, nodeType: string, workflowId: string, result: {
-    success: boolean;
-    duration: number;
-    tokenUsage?: number;
-    errorType?: string;
-  }): void {
+  recordNodeExecution(
+    nodeId: string,
+    nodeType: string,
+    workflowId: string,
+    result: {
+      success: boolean;
+      duration: number;
+      tokenUsage?: number;
+      errorType?: string;
+    },
+  ): void {
     if (!nodeId || !nodeType || !workflowId) {
       logger.warn("recordNodeExecution called with missing parameters");
       return;
@@ -93,23 +102,23 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     } else {
       this.incrementCounter(NODE_METRICS.FAILURE_COUNT, {
         node_type: nodeType,
-        error_type: result.errorType || 'unknown',
+        error_type: result.errorType || "unknown",
       });
     }
 
     // For LLM nodes, track token usage
-    if (result.tokenUsage !== undefined && nodeType === 'LLM') {
+    if (result.tokenUsage !== undefined && nodeType === "LLM") {
       this.observeHistogram(NODE_METRICS.TOKEN_USAGE, result.tokenUsage, {
         node_type: nodeType,
       });
     }
 
-    logger.debug("Recorded node execution", { 
-      nodeId, 
-      nodeType, 
+    logger.debug("Recorded node execution", {
+      nodeId,
+      nodeType,
       workflowId,
       success: result.success,
-      duration: result.duration 
+      duration: result.duration,
     });
   }
 
@@ -128,7 +137,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
       variableInputCount: number;
       variableOutputCount: number;
       errorType?: string;
-    }
+    },
   ): void {
     if (!nodeId || !workflowId) {
       logger.warn("recordSubgraphExecution called with missing parameters");
@@ -136,7 +145,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     }
 
     // Record as regular node execution first
-    this.recordNodeExecution(nodeId, 'SUBGRAPH', workflowId, {
+    this.recordNodeExecution(nodeId, "SUBGRAPH", workflowId, {
       success: result.success,
       duration: result.duration,
       errorType: result.errorType,
@@ -155,15 +164,23 @@ export class NodeMetricsCollector extends BaseMetricCollector {
 
     // Record variable counts
     if (result.variableInputCount > 0) {
-      this.incrementCounter(SUBGRAPH_METRICS.VARIABLE_IMPORT_COUNT, {
-        subworkflow_id: result.subworkflowId,
-      }, result.variableInputCount);
+      this.incrementCounter(
+        SUBGRAPH_METRICS.VARIABLE_IMPORT_COUNT,
+        {
+          subworkflow_id: result.subworkflowId,
+        },
+        result.variableInputCount,
+      );
     }
 
     if (result.variableOutputCount > 0) {
-      this.incrementCounter(SUBGRAPH_METRICS.VARIABLE_EXPORT_COUNT, {
-        subworkflow_id: result.subworkflowId,
-      }, result.variableOutputCount);
+      this.incrementCounter(
+        SUBGRAPH_METRICS.VARIABLE_EXPORT_COUNT,
+        {
+          subworkflow_id: result.subworkflowId,
+        },
+        result.variableOutputCount,
+      );
     }
 
     logger.debug("Recorded subgraph execution", {
@@ -190,7 +207,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
       failureCount: number;
       maxBranchDuration: number;
       minBranchDuration: number;
-    }
+    },
   ): void {
     if (!nodeId || !workflowId) {
       logger.warn("recordForkExecution called with missing parameters");
@@ -198,39 +215,47 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     }
 
     // Record as regular node execution first
-    this.recordNodeExecution(nodeId, 'FORK', workflowId, {
+    this.recordNodeExecution(nodeId, "FORK", workflowId, {
       success: result.failureCount === 0,
       duration: result.totalDuration,
     });
 
     // Record FORK-specific metrics
-    this.incrementCounter('fork.execution.count', {
+    this.incrementCounter("fork.execution.count", {
       node_id: nodeId,
       branch_count: result.branchCount.toString(),
     });
 
     // Record branch statistics
-    this.observeHistogram('fork.branch.duration', result.maxBranchDuration, {
+    this.observeHistogram("fork.branch.duration", result.maxBranchDuration, {
       node_id: nodeId,
-      stat: 'max',
+      stat: "max",
     });
 
-    this.observeHistogram('fork.branch.duration', result.minBranchDuration, {
+    this.observeHistogram("fork.branch.duration", result.minBranchDuration, {
       node_id: nodeId,
-      stat: 'min',
+      stat: "min",
     });
 
     // Record success/failure counts
     if (result.successCount > 0) {
-      this.incrementCounter('fork.branch.success.count', {
-        node_id: nodeId,
-      }, result.successCount);
+      this.incrementCounter(
+        "fork.branch.success.count",
+        {
+          node_id: nodeId,
+        },
+        result.successCount,
+      );
     }
 
     if (result.failureCount > 0) {
-      this.incrementCounter('fork.branch.failure.count', {
-        node_id: nodeId,
-      }, result.failureCount);
+      this.incrementCounter(
+        "fork.branch.failure.count",
+        {
+          node_id: nodeId,
+        },
+        result.failureCount,
+      );
     }
 
     logger.debug("Recorded fork execution", {
@@ -257,13 +282,13 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     }
 
     // Record branch duration
-    this.observeHistogram('fork.branch.execution.duration', branchResult.duration, {
+    this.observeHistogram("fork.branch.execution.duration", branchResult.duration, {
       node_id: branchResult.nodeId,
       fork_path_id: branchResult.forkPathId,
     });
 
     // Record branch status
-    this.incrementCounter('fork.branch.status.count', {
+    this.incrementCounter("fork.branch.status.count", {
       node_id: branchResult.nodeId,
       fork_path_id: branchResult.forkPathId,
       status: branchResult.status,
@@ -280,25 +305,31 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   /**
    * Get SUBGRAPH execution statistics
    */
-  getSubgraphExecutionStats(): Record<string, {
-    totalCount: number;
-    successRate: number;
-    avgDepth: number;
-    totalVariableImports: number;
-    totalVariableExports: number;
-  }> {
-    const result: Record<string, {
+  getSubgraphExecutionStats(): Record<
+    string,
+    {
       totalCount: number;
-      successCount: number;
-      totalDepth: number;
-      variableImports: number;
-      variableExports: number;
-    }> = {};
+      successRate: number;
+      avgDepth: number;
+      totalVariableImports: number;
+      totalVariableExports: number;
+    }
+  > {
+    const result: Record<
+      string,
+      {
+        totalCount: number;
+        successCount: number;
+        totalDepth: number;
+        variableImports: number;
+        variableExports: number;
+      }
+    > = {};
 
     // Get execution counts by subworkflow
     const countResult = this.query({
       metricName: SUBGRAPH_METRICS.EXECUTION_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const countMetric = countResult.metrics.get(SUBGRAPH_METRICS.EXECUTION_COUNT);
@@ -309,9 +340,9 @@ export class NodeMetricsCollector extends BaseMetricCollector {
           if (labels.subworkflow_id) {
             const subworkflowId = labels.subworkflow_id;
             if (!result[subworkflowId]) {
-              result[subworkflowId] = { 
-                totalCount: 0, 
-                successCount: 0, 
+              result[subworkflowId] = {
+                totalCount: 0,
+                successCount: 0,
                 totalDepth: 0,
                 variableImports: 0,
                 variableExports: 0,
@@ -320,7 +351,10 @@ export class NodeMetricsCollector extends BaseMetricCollector {
             result[subworkflowId].totalCount += labelAgg.value;
           }
         } catch (error) {
-          logger.warn("Failed to parse label key in subgraph execution count metric", { labelKey, error });
+          logger.warn("Failed to parse label key in subgraph execution count metric", {
+            labelKey,
+            error,
+          });
         }
       }
     }
@@ -328,7 +362,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     // Get success counts
     const successResult = this.query({
       metricName: NODE_METRICS.SUCCESS_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const successMetric = successResult.metrics.get(NODE_METRICS.SUCCESS_COUNT);
@@ -336,7 +370,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
       for (const [labelKey] of successMetric.byLabel.entries()) {
         try {
           const labels = JSON.parse(labelKey);
-          if (labels.node_type === 'SUBGRAPH') {
+          if (labels.node_type === "SUBGRAPH") {
             // We can't easily map this back to subworkflow_id, so we'll skip for now
             // In a real implementation, you'd want to include subworkflow_id in the success metric labels
           }
@@ -349,7 +383,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     // Get variable import counts
     const importResult = this.query({
       metricName: SUBGRAPH_METRICS.VARIABLE_IMPORT_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const importMetric = importResult.metrics.get(SUBGRAPH_METRICS.VARIABLE_IMPORT_COUNT);
@@ -372,7 +406,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     // Get variable export counts
     const exportResult = this.query({
       metricName: SUBGRAPH_METRICS.VARIABLE_EXPORT_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const exportMetric = exportResult.metrics.get(SUBGRAPH_METRICS.VARIABLE_EXPORT_COUNT);
@@ -393,13 +427,16 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     }
 
     // Calculate final stats
-    const stats: Record<string, {
-      totalCount: number;
-      successRate: number;
-      avgDepth: number;
-      totalVariableImports: number;
-      totalVariableExports: number;
-    }> = {};
+    const stats: Record<
+      string,
+      {
+        totalCount: number;
+        successRate: number;
+        avgDepth: number;
+        totalVariableImports: number;
+        totalVariableExports: number;
+      }
+    > = {};
 
     for (const [subworkflowId, data] of Object.entries(result)) {
       stats[subworkflowId] = {
@@ -424,7 +461,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   }> {
     const result = this.query({
       metricName: TEMPLATE_METRICS.INSTANTIATION_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const templates: Map<string, { name: string; type: string; count: number }> = new Map();
@@ -461,17 +498,23 @@ export class NodeMetricsCollector extends BaseMetricCollector {
   /**
    * Get node execution statistics by type
    */
-  getNodeExecutionStatsByType(): Record<string, {
-    totalCount: number;
-    successRate: number;
-    avgDuration: number;
-  }> {
-    const result: Record<string, { totalCount: number; successCount: number; totalDuration: number }> = {};
+  getNodeExecutionStatsByType(): Record<
+    string,
+    {
+      totalCount: number;
+      successRate: number;
+      avgDuration: number;
+    }
+  > {
+    const result: Record<
+      string,
+      { totalCount: number; successCount: number; totalDuration: number }
+    > = {};
 
     // Get counts by type
     const countResult = this.query({
       metricName: NODE_METRICS.EXECUTION_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const countMetric = countResult.metrics.get(NODE_METRICS.EXECUTION_COUNT);
@@ -495,7 +538,7 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     // Get success counts
     const successResult = this.query({
       metricName: NODE_METRICS.SUCCESS_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const successMetric = successResult.metrics.get(NODE_METRICS.SUCCESS_COUNT);
@@ -516,7 +559,8 @@ export class NodeMetricsCollector extends BaseMetricCollector {
     }
 
     // Calculate final stats
-    const stats: Record<string, { totalCount: number; successRate: number; avgDuration: number }> = {};
+    const stats: Record<string, { totalCount: number; successRate: number; avgDuration: number }> =
+      {};
     for (const [nodeType, data] of Object.entries(result)) {
       stats[nodeType] = {
         totalCount: data.totalCount,
@@ -533,53 +577,55 @@ export class NodeMetricsCollector extends BaseMetricCollector {
    */
   toPrometheus(): string[] {
     const metrics: PrometheusMetric[] = [];
-    
+
     // Node execution stats by type
     const nodeStats = this.getNodeExecutionStatsByType();
     for (const [nodeType, stats] of Object.entries(nodeStats)) {
       metrics.push({
-        name: 'node_execution_total',
-        type: 'counter',
-        help: 'Total node executions by type',
-        samples: [{ labels: { node_type: nodeType }, value: stats.totalCount }]
+        name: "node_execution_total",
+        type: "counter",
+        help: "Total node executions by type",
+        samples: [{ labels: { node_type: nodeType }, value: stats.totalCount }],
       });
-      
+
       metrics.push({
-        name: 'node_execution_success_rate',
-        type: 'gauge',
-        help: 'Node execution success rate by type',
-        samples: [{ labels: { node_type: nodeType }, value: stats.successRate }]
+        name: "node_execution_success_rate",
+        type: "gauge",
+        help: "Node execution success rate by type",
+        samples: [{ labels: { node_type: nodeType }, value: stats.successRate }],
       });
     }
-    
+
     // Top templates
     const topTemplates = this.getTopNodeTemplates(10);
     for (const template of topTemplates) {
       metrics.push({
-        name: 'node_template_instantiation_total',
-        type: 'counter',
-        help: 'Node template instantiation count',
-        samples: [{
-          labels: {
-            template_name: template.templateName,
-            node_type: template.nodeType
+        name: "node_template_instantiation_total",
+        type: "counter",
+        help: "Node template instantiation count",
+        samples: [
+          {
+            labels: {
+              template_name: template.templateName,
+              node_type: template.nodeType,
+            },
+            value: template.instantiationCount,
           },
-          value: template.instantiationCount
-        }]
+        ],
       });
     }
-    
+
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     return {
-      type: 'node',
+      type: "node",
       statsByType: this.getNodeExecutionStatsByType(),
-      topTemplates: this.getTopNodeTemplates(10)
+      topTemplates: this.getTopNodeTemplates(10),
     };
   }
 }

@@ -3,8 +3,22 @@
  * Extending the Graph interface to add preprocessing-related metadata
  */
 
-import type { WorkflowGraphStructure, ID, Timestamp, Version, WorkflowTrigger, VariableDefinition, AvailableTools, StaticNode } from "@wf-agent/types";
-import type { IdMapping, SubgraphRelationship, PreprocessValidationResult, SubgraphMergeLog } from "../preprocess.js";
+import type {
+  WorkflowGraphStructure,
+  ID,
+  Timestamp,
+  Version,
+  WorkflowTrigger,
+  VariableDefinition,
+  AvailableTools,
+  StaticNode,
+} from "@wf-agent/types";
+import type {
+  IdMapping,
+  SubgraphRelationship,
+  PreprocessValidationResult,
+  SubgraphMergeLog,
+} from "../preprocess.js";
 import type { WorkflowGraphAnalysis } from "./analysis.js";
 
 /**
@@ -16,13 +30,13 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
   /** ID mapping table (temporary data for build phase) */
   idMapping: IdMapping;
 
-  /** 
+  /**
    * Pre-processed node configuration (with updated ID references)
    * Maps node ID to its static node configuration with resolved references
    */
   nodeConfigs: Map<ID, StaticNode>;
 
-  /** 
+  /**
    * Preprocessed Trigger Configuration (with updated ID references)
    * Maps trigger ID to its workflow trigger configuration
    */
@@ -68,7 +82,7 @@ export interface WorkflowGraph extends WorkflowGraphStructure {
 
   /**
    * Available tool configurations
-   * 
+   *
    * Unified interface for specifying which tools are available during workflow execution.
    */
   availableTools?: AvailableTools;

@@ -1,6 +1,6 @@
 /**
  * Configuration Access Metrics Collector
- * 
+ *
  * Collects and aggregates metrics for configuration loading and access including:
  * - Configuration access counts
  * - Load duration distributions
@@ -28,11 +28,7 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
    * @param configType Configuration type (e.g., 'workflow', 'agent', 'tool')
    * @param context Optional context
    */
-  recordAccess(
-    configPath: string,
-    configType?: string,
-    context?: Record<string, string>,
-  ): void {
+  recordAccess(configPath: string, configType?: string, context?: Record<string, string>): void {
     const labels: Record<string, string> = {
       config_path: configPath,
       ...(configType && { config_type: configType }),
@@ -84,11 +80,7 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
    * @param configType Configuration type
    * @param context Optional context
    */
-  recordCacheHit(
-    configPath: string,
-    configType?: string,
-    context?: Record<string, string>,
-  ): void {
+  recordCacheHit(configPath: string, configType?: string, context?: Record<string, string>): void {
     const labels: Record<string, string> = {
       config_path: configPath,
       ...(configType && { config_type: configType }),
@@ -104,11 +96,7 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
    * @param configType Configuration type
    * @param context Optional context
    */
-  recordCacheMiss(
-    configPath: string,
-    configType?: string,
-    context?: Record<string, string>,
-  ): void {
+  recordCacheMiss(configPath: string, configType?: string, context?: Record<string, string>): void {
     const labels: Record<string, string> = {
       config_path: configPath,
       ...(configType && { config_type: configType }),
@@ -148,10 +136,10 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
   getConfigStats(configPath?: string, configType?: string): MetricQueryResult {
     const labels: Record<string, string> = {};
     if (configPath) {
-      labels['config_path'] = configPath;
+      labels["config_path"] = configPath;
     }
     if (configType) {
-      labels['config_type'] = configType;
+      labels["config_type"] = configType;
     }
 
     const filter: MetricFilter = Object.keys(labels).length > 0 ? { labels } : {};
@@ -168,7 +156,7 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
   getCacheHitRate(configPath: string, configType?: string): number | undefined {
     const labels: Record<string, string> = { config_path: configPath };
     if (configType) {
-      labels['config_type'] = configType;
+      labels["config_type"] = configType;
     }
 
     const hits = this.query({
@@ -204,7 +192,7 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
   getAverageLoadDuration(configPath: string, configType?: string): number {
     const labels: Record<string, string> = { config_path: configPath };
     if (configType) {
-      labels['config_type'] = configType;
+      labels["config_type"] = configType;
     }
 
     const result = this.query({
@@ -226,13 +214,13 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const result = this.query({});
     const metrics: PrometheusMetric[] = [];
-    
+
     // Extract totals
     let totalAccess = 0;
     let totalCacheHits = 0;
     let totalCacheMisses = 0;
     let totalValidationErrors = 0;
-    
+
     for (const [metricName, aggregated] of result.metrics.entries()) {
       switch (metricName) {
         case CONFIG_METRICS.ACCESS_COUNT:
@@ -249,45 +237,45 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
           break;
       }
     }
-    
+
     // Total access counter
     metrics.push({
-      name: 'config_access_total',
-      type: 'counter',
-      help: 'Total configuration accesses',
-      samples: [{ value: totalAccess }]
+      name: "config_access_total",
+      type: "counter",
+      help: "Total configuration accesses",
+      samples: [{ value: totalAccess }],
     });
-    
+
     // Cache hits
     metrics.push({
-      name: 'config_cache_hit_total',
-      type: 'counter',
-      help: 'Total cache hits',
-      samples: [{ value: totalCacheHits }]
+      name: "config_cache_hit_total",
+      type: "counter",
+      help: "Total cache hits",
+      samples: [{ value: totalCacheHits }],
     });
-    
+
     // Cache misses
     metrics.push({
-      name: 'config_cache_miss_total',
-      type: 'counter',
-      help: 'Total cache misses',
-      samples: [{ value: totalCacheMisses }]
+      name: "config_cache_miss_total",
+      type: "counter",
+      help: "Total cache misses",
+      samples: [{ value: totalCacheMisses }],
     });
-    
+
     // Validation errors
     if (totalValidationErrors > 0) {
       metrics.push({
-        name: 'config_validation_error_total',
-        type: 'counter',
-        help: 'Total validation errors',
-        samples: [{ value: totalValidationErrors }]
+        name: "config_validation_error_total",
+        type: "counter",
+        help: "Total validation errors",
+        samples: [{ value: totalValidationErrors }],
       });
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
@@ -296,9 +284,9 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
       totalAccess: 0,
       totalCacheHits: 0,
       totalCacheMisses: 0,
-      totalValidationErrors: 0
+      totalValidationErrors: 0,
     };
-    
+
     const result = this.query({});
     for (const [metricName, aggregated] of result.metrics.entries()) {
       switch (metricName) {
@@ -316,10 +304,10 @@ export class ConfigMetricsCollector extends BaseMetricCollector {
           break;
       }
     }
-    
+
     return {
-      type: 'config',
-      summary
+      type: "config",
+      summary,
     };
   }
 }

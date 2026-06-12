@@ -12,9 +12,9 @@ import type {
   ScriptExecutionResult,
   ScriptFlow,
 } from "@wf-agent/types";
-import { ScriptExecutor } from '../executors/script-executor.js';
-import { ScriptEngine } from '../script/engine/script-engine.js';
-import { ScriptFlowEngine } from '../script/engine/script-flow-engine.js';
+import { ScriptExecutor } from "../executors/script-executor.js";
+import { ScriptEngine } from "../script/engine/script-engine.js";
+import { ScriptFlowEngine } from "../script/engine/script-flow-engine.js";
 import {
   ScriptExecutionError,
   ScriptNotFoundError,
@@ -309,10 +309,13 @@ class ScriptRegistry {
 
     // Verify that the script content or file path or template contains at least one of the following:
     if (!script.content && !script.filePath && !script.template) {
-      throw new ConfigurationValidationError("Script must have either content, filePath, or template", {
-        configType: "script",
-        field: "content",
-      });
+      throw new ConfigurationValidationError(
+        "Script must have either content, filePath, or template",
+        {
+          configType: "script",
+          field: "content",
+        },
+      );
     }
 
     // Verify execution options
@@ -378,11 +381,9 @@ class ScriptRegistry {
 
     if (!result.success) {
       return err(
-        new ScriptExecutionError(
-          result.error || 'Script execution failed',
-          scriptName,
-          { options },
-        ),
+        new ScriptExecutionError(result.error || "Script execution failed", scriptName, {
+          options,
+        }),
       );
     }
 
@@ -412,11 +413,10 @@ class ScriptRegistry {
 
     if (!result.success) {
       return err(
-        new ScriptExecutionError(
-          result.error || 'Script execution failed',
-          scriptName,
-          { options, args },
-        ),
+        new ScriptExecutionError(result.error || "Script execution failed", scriptName, {
+          options,
+          args,
+        }),
       );
     }
 
@@ -465,7 +465,9 @@ class ScriptRegistry {
    * @param flowName Flow name
    * @returns Flow execution result
    */
-  async executeFlow(flowName: string): Promise<import('../script/engine/script-flow-engine.js').FlowExecutionResult> {
+  async executeFlow(
+    flowName: string,
+  ): Promise<import("../script/engine/script-flow-engine.js").FlowExecutionResult> {
     const flow = this.getFlow(flowName);
 
     if (!this.scriptEngine) {

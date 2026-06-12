@@ -89,9 +89,13 @@ export class SseTransport {
             if (controller.signal.aborted) {
               reject(new DOMException("The operation was aborted", "AbortError"));
             } else {
-              controller.signal.addEventListener("abort", () => {
-                reject(new DOMException("The operation was aborted", "AbortError"));
-              }, { once: true });
+              controller.signal.addEventListener(
+                "abort",
+                () => {
+                  reject(new DOMException("The operation was aborted", "AbortError"));
+                },
+                { once: true },
+              );
             }
           });
 

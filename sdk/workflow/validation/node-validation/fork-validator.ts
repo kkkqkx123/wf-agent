@@ -14,7 +14,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateForkNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateForkNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "FORK");
   if (typeResult.isErr()) {
     return typeResult;

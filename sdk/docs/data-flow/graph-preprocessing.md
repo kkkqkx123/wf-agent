@@ -15,33 +15,33 @@
 ```typescript
 class WorkflowGraphEntity extends WorkflowGraphData implements WorkflowGraph {
   // 继承自 GraphData 的图结构
-  nodes: Map<ID, GraphNode>;                    // 节点映射
-  edges: Map<ID, GraphEdge>;                    // 边映射
-  adjacencyList: AdjacencyList;                 // 前向邻接表
-  reverseAdjacencyList: ReverseAdjacencyList;   // 反向邻接表
-  startNodeId?: ID;                             // 起始节点 ID
-  endNodeIds: Set<ID>;                          // 终止节点 ID 集合
-  
+  nodes: Map<ID, GraphNode>; // 节点映射
+  edges: Map<ID, GraphEdge>; // 边映射
+  adjacencyList: AdjacencyList; // 前向邻接表
+  reverseAdjacencyList: ReverseAdjacencyList; // 反向邻接表
+  startNodeId?: ID; // 起始节点 ID
+  endNodeIds: Set<ID>; // 终止节点 ID 集合
+
   // ID 映射相关
-  idMapping: IdMapping;                         // ID 映射表
-  nodeConfigs: Map<ID, unknown>;                // 预处理后的节点配置
-  triggerConfigs: Map<ID, unknown>;             // 预处理后的触发器配置
+  idMapping: IdMapping; // ID 映射表
+  nodeConfigs: Map<ID, unknown>; // 预处理后的节点配置
+  triggerConfigs: Map<ID, unknown>; // 预处理后的触发器配置
   subgraphRelationships: SubgraphRelationship[]; // 子图关系
-  
+
   // 图分析结果
-  graphAnalysis: GraphAnalysisResult;           // 图分析结果
+  graphAnalysis: GraphAnalysisResult; // 图分析结果
   validationResult: PreprocessValidationResult; // 验证结果
-  topologicalOrder: ID[];                       // 拓扑排序结果
-  subgraphMergeLogs: SubgraphMergeLog[];        // 子图合并日志
-  processedAt: Timestamp;                       // 预处理时间戳
-  
+  topologicalOrder: ID[]; // 拓扑排序结果
+  subgraphMergeLogs: SubgraphMergeLog[]; // 子图合并日志
+  processedAt: Timestamp; // 预处理时间戳
+
   // Workflow 元数据
-  workflowId: ID;                               // Workflow ID
-  workflowVersion: Version;                     // Workflow 版本
-  triggers?: WorkflowTrigger[];                 // 触发器（已展开）
-  variables?: WorkflowVariable[];               // 变量定义
-  hasSubgraphs: boolean;                        // 是否包含子图
-  subworkflowIds: Set<ID>;                      // 子 Workflow ID 集合
+  workflowId: ID; // Workflow ID
+  workflowVersion: Version; // Workflow 版本
+  triggers?: WorkflowTrigger[]; // 触发器（已展开）
+  variables?: WorkflowVariable[]; // 变量定义
+  hasSubgraphs: boolean; // 是否包含子图
+  subworkflowIds: Set<ID>; // 子 Workflow ID 集合
 }
 ```
 
@@ -51,12 +51,12 @@ class WorkflowGraphEntity extends WorkflowGraphData implements WorkflowGraph {
 
 ```typescript
 class GraphData implements Graph {
-  nodes: NodeMap;                               // 节点集合
-  edges: EdgeMap;                               // 边集合
-  adjacencyList: AdjacencyList;                 // 前向邻接表
-  reverseAdjacencyList: ReverseAdjacencyList;   // 反向邻接表
-  startNodeId?: ID;                             // 起始节点
-  endNodeIds: Set<ID>;                          // 终止节点集合
+  nodes: NodeMap; // 节点集合
+  edges: EdgeMap; // 边集合
+  adjacencyList: AdjacencyList; // 前向邻接表
+  reverseAdjacencyList: ReverseAdjacencyList; // 反向邻接表
+  startNodeId?: ID; // 起始节点
+  endNodeIds: Set<ID>; // 终止节点集合
 }
 ```
 
@@ -64,11 +64,11 @@ class GraphData implements Graph {
 
 ```typescript
 interface IdMapping {
-  nodeIds: Map<string, string>;                 // 原始节点 ID → 预处理后节点 ID
-  edgeIds: Map<string, string>;                 // 原始边 ID → 预处理后边 ID
-  reverseNodeIds: Map<string, string>;          // 反向映射
-  reverseEdgeIds: Map<string, string>;          // 反向映射
-  subgraphNamespaces: Map<string, string>;      // 子图命名空间
+  nodeIds: Map<string, string>; // 原始节点 ID → 预处理后节点 ID
+  edgeIds: Map<string, string>; // 原始边 ID → 预处理后边 ID
+  reverseNodeIds: Map<string, string>; // 反向映射
+  reverseEdgeIds: Map<string, string>; // 反向映射
+  subgraphNamespaces: Map<string, string>; // 子图命名空间
 }
 ```
 
@@ -76,33 +76,39 @@ interface IdMapping {
 
 ```typescript
 interface GraphAnalysisResult {
-  cycleDetection: {                             // 环检测
+  cycleDetection: {
+    // 环检测
     hasCycle: boolean;
     cycleNodes: ID[];
     cycleEdges: ID[];
   };
-  reachability: {                               // 可达性分析
+  reachability: {
+    // 可达性分析
     reachableFromStart: Set<ID>;
     reachableToEnd: Set<ID>;
     unreachableNodes: Set<ID>;
     deadEndNodes: Set<ID>;
   };
-  topologicalSort: {                            // 拓扑排序
+  topologicalSort: {
+    // 拓扑排序
     success: boolean;
     sortedNodes: ID[];
     cycleNodes: ID[];
   };
-  forkJoinValidation: {                         // Fork/Join 验证
+  forkJoinValidation: {
+    // Fork/Join 验证
     isValid: boolean;
     unpairedForks: ID[];
     unpairedJoins: ID[];
     pairs: Map<ID, ID>;
   };
-  nodeStats: {                                  // 节点统计
+  nodeStats: {
+    // 节点统计
     total: number;
     byType: Map<NodeType, number>;
   };
-  edgeStats: {                                  // 边统计
+  edgeStats: {
+    // 边统计
     total: number;
     byType: Map<EdgeType, number>;
   };
@@ -166,6 +172,7 @@ if (validationResult.isErr()) {
 ```
 
 验证内容：
+
 - 基本字段完整性
 - 节点类型有效性
 - 边连接有效性
@@ -178,15 +185,15 @@ if (validationResult.isErr()) {
 ```typescript
 function expandNodeReferences(nodes: Node[]): Node[] {
   const expandedNodes: Node[] = [];
-  
+
   for (const node of nodes) {
     if (isNodeReference(node)) {
       // 获取节点模板
       const template = nodeTemplateRegistry.get(templateName);
-      
+
       // 合并配置覆盖
       const mergedConfig = { ...template.config, ...configOverride };
-      
+
       // 创建展开后的节点
       const expandedNode = {
         id: nodeId,
@@ -195,13 +202,13 @@ function expandNodeReferences(nodes: Node[]): Node[] {
         config: mergedConfig,
         ...
       };
-      
+
       expandedNodes.push(expandedNode);
     } else {
       expandedNodes.push(node);
     }
   }
-  
+
   return expandedNodes;
 }
 ```
@@ -210,10 +217,10 @@ function expandNodeReferences(nodes: Node[]): Node[] {
 
 ```typescript
 function expandTriggerReferences(
-  triggers: (WorkflowTrigger | TriggerReference)[]
+  triggers: (WorkflowTrigger | TriggerReference)[],
 ): WorkflowTrigger[] {
   const expandedTriggers: WorkflowTrigger[] = [];
-  
+
   for (const trigger of triggers) {
     if (isTriggerReference(trigger)) {
       // 使用 TriggerTemplateRegistry 转换
@@ -221,14 +228,14 @@ function expandTriggerReferences(
         reference.templateName,
         reference.triggerId,
         reference.triggerName,
-        reference.configOverride
+        reference.configOverride,
       );
       expandedTriggers.push(workflowTrigger);
     } else {
       expandedTriggers.push(trigger);
     }
   }
-  
+
   return expandedTriggers;
 }
 ```
@@ -245,6 +252,7 @@ if (!buildResult.isValid) {
 ```
 
 构建内容：
+
 - 创建 GraphData 实例
 - 添加所有节点
 - 添加所有边
@@ -266,6 +274,7 @@ if (!subgraphResult.success) {
 ```
 
 处理内容：
+
 - 识别 SUBGRAPH 类型节点
 - 递归预处理子 Workflow
 - 合并子图到主图
@@ -283,6 +292,7 @@ if (graphValidationResult.isErr()) {
 ```
 
 验证内容：
+
 - 节点连接完整性
 - 起始节点唯一性
 - 终止节点存在性
@@ -295,6 +305,7 @@ const graphAnalysis = GraphValidator.analyze(buildResult.graph);
 ```
 
 分析内容：
+
 - 环检测
 - 可达性分析
 - 拓扑排序
@@ -310,6 +321,7 @@ const idMappingResult = await idMappingBuilder.build(buildResult.graph, expanded
 ```
 
 生成内容：
+
 - 原始 ID 到预处理后 ID 的映射
 - 反向映射
 - 子图命名空间
@@ -365,27 +377,27 @@ WorkflowGraphRegistry 负责 WorkflowGraph 的存储和查询。
 ```typescript
 class WorkflowGraphRegistry {
   private graphs: Map<string, WorkflowGraph> = new Map();
-  
+
   // 注册预处理图
   register(graph: WorkflowGraph): void {
     this.graphs.set(graph.workflowId, graph);
   }
-  
+
   // 获取预处理图
   get(workflowId: string): WorkflowGraph | undefined {
     return this.graphs.get(workflowId);
   }
-  
+
   // 检查是否存在
   has(workflowId: string): boolean {
     return this.graphs.has(workflowId);
   }
-  
+
   // 删除预处理图
   delete(workflowId: string): void {
     this.graphs.delete(workflowId);
   }
-  
+
   // 清空所有
   clear(): void {
     this.graphs.clear();
@@ -406,14 +418,14 @@ class WorkflowGraphRegistry {
 ```typescript
 class WorkflowNavigator {
   private graph: WorkflowGraph;
-  
+
   // 获取下一个节点
   getNextNode(currentNodeId: string): { nextNodeId: string; edge: WorkflowEdge } | null {
     const outgoingEdges = this.graph.getOutgoingEdges(currentNodeId);
     // 根据边条件选择下一个节点
     // 返回下一个节点 ID 和边信息
   }
-  
+
   // 获取图
   getGraph(): WorkflowGraph {
     return this.graph;
@@ -443,10 +455,10 @@ topologicalSort: {
 
 ```typescript
 reachability: {
-  reachableFromStart: Set<ID>;    // 从起始节点可达的节点
-  reachableToEnd: Set<ID>;        // 可达终止节点的节点
-  unreachableNodes: Set<ID>;      // 不可达节点
-  deadEndNodes: Set<ID>;          // 死端节点
+  reachableFromStart: Set<ID>; // 从起始节点可达的节点
+  reachableToEnd: Set<ID>; // 可达终止节点的节点
+  unreachableNodes: Set<ID>; // 不可达节点
+  deadEndNodes: Set<ID>; // 死端节点
 }
 ```
 

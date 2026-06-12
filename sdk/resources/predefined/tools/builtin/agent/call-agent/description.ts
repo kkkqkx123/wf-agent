@@ -63,9 +63,7 @@ export function generateCallAgentDescription(agents: AgentInfo[]): ToolDescripti
     return CALL_AGENT_TOOL_DESCRIPTION;
   }
 
-  const agentListLines = agents.map(
-    a => `  - ${a.id}: ${a.description || a.name}`,
-  );
+  const agentListLines = agents.map(a => `  - ${a.id}: ${a.description || a.name}`);
 
   const tip = `Available agent profiles:\n${agentListLines.join("\n")}`;
 

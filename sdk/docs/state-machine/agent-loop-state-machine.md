@@ -6,14 +6,14 @@ The Agent Loop state machine manages the execution lifecycle of agent loop insta
 
 ### AgentLoopStatus Enum
 
-| Status | Description | Type |
-|--------|-------------|------|
-| `CREATED` | Agent loop created, not started | Initial |
-| `RUNNING` | Agent loop is executing (iterating) | Active |
-| `PAUSED` | Agent loop is paused (can be resumed) | Active |
-| `COMPLETED` | Agent loop completed successfully | Terminal (Success) |
-| `FAILED` | Agent loop execution failed | Terminal (Error) |
-| `CANCELLED` | Agent loop was cancelled | Terminal (Error) |
+| Status      | Description                           | Type               |
+| ----------- | ------------------------------------- | ------------------ |
+| `CREATED`   | Agent loop created, not started       | Initial            |
+| `RUNNING`   | Agent loop is executing (iterating)   | Active             |
+| `PAUSED`    | Agent loop is paused (can be resumed) | Active             |
+| `COMPLETED` | Agent loop completed successfully     | Terminal (Success) |
+| `FAILED`    | Agent loop execution failed           | Terminal (Error)   |
+| `CANCELLED` | Agent loop was cancelled              | Terminal (Error)   |
 
 **Source**: `packages/types/src/agent/status.ts`
 
@@ -29,23 +29,23 @@ COMPLETED/FAILED/CANCELLED → (final states, no further transitions)
 ### Transition Table
 
 | From \ To | CREATED | RUNNING | PAUSED | COMPLETED | FAILED | CANCELLED |
-|-----------|---------|---------|-------|----------|--------|----------|
-| CREATED   | -       | ✓      | -     | -         | -      | -         |
-| RUNNING  | -       | -      | ✓     | ✓        | ✓      | ✓         |
-| PAUSED   | -       | ✓      | -     | -         | -      | ✓         |
-| COMPLETED| -       | -      | -     | -         | -      | -         |
-| FAILED   | -       | -      | -     | -         | -      | -         |
-| CANCELLED| -       | -      | -     | -         | -      | -         |
+| --------- | ------- | ------- | ------ | --------- | ------ | --------- |
+| CREATED   | -       | ✓       | -      | -         | -      | -         |
+| RUNNING   | -       | -       | ✓      | ✓         | ✓      | ✓         |
+| PAUSED    | -       | ✓       | -      | -         | -      | ✓         |
+| COMPLETED | -       | -       | -      | -         | -      | -         |
+| FAILED    | -       | -       | -      | -         | -      | -         |
+| CANCELLED | -       | -       | -      | -         | -      | -         |
 
 ## Differences from Thread State Machine
 
-| Aspect | Thread | Agent Loop |
-|--------|--------|------------|
-| TIMEOUT status | Yes | No |
-| Iteration tracking | No | Yes (iteration count, history) |
-| Tool call tracking | No | Yes (pending, completed) |
-| Stream state | No | Yes (partial messages) |
-| Iteration model | Single execution | Multi-iteration loop |
+| Aspect             | Thread           | Agent Loop                     |
+| ------------------ | ---------------- | ------------------------------ |
+| TIMEOUT status     | Yes              | No                             |
+| Iteration tracking | No               | Yes (iteration count, history) |
+| Tool call tracking | No               | Yes (pending, completed)       |
+| Stream state       | No               | Yes (partial messages)         |
+| Iteration model    | Single execution | Multi-iteration loop           |
 
 ## Implementation Components
 
@@ -212,11 +212,11 @@ class AgentLoopEntity {
 
 **Location**: `sdk/agent/execution/handlers/agent-loop-lifecycle.ts`
 
-| Operation | Description |
-|-----------|-------------|
-| `createAgentLoopCheckpoint()` | Create checkpoint |
-| `cleanupAgentLoop()` | Clean up resources |
-| `cloneAgentLoop()` | Clone entity for resumption |
+| Operation                     | Description                 |
+| ----------------------------- | --------------------------- |
+| `createAgentLoopCheckpoint()` | Create checkpoint           |
+| `cleanupAgentLoop()`          | Clean up resources          |
+| `cloneAgentLoop()`            | Clone entity for resumption |
 
 ## Usage in Execution Flow
 
@@ -233,6 +233,7 @@ class AgentLoopEntity {
 ## Event Integration
 
 State transitions in AgentLoopCoordinator emit events:
+
 - Iteration started/completed
 - Tool call started/completed
 - State changed

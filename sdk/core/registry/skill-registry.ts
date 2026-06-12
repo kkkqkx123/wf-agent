@@ -649,7 +649,9 @@ export class SkillRegistry {
       }
 
       // Check the cache for base content (without variable substitution)
-      const cachedEntry = SkillRegistry.CACHE_ENABLED ? this.contentCache.get(skillName) : undefined;
+      const cachedEntry = SkillRegistry.CACHE_ENABLED
+        ? this.contentCache.get(skillName)
+        : undefined;
       let baseContent: string | null = cachedEntry?.content ?? null;
 
       if (baseContent === null) {

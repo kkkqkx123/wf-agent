@@ -49,7 +49,9 @@ describe("PythonASTAnalyzerStrategy", () => {
 
   beforeEach(() => {
     mockTerminalService = createMockTerminalService();
-    const builtinHook = new PythonBuiltinHookStrategy(mockTerminalService as unknown as TerminalService);
+    const builtinHook = new PythonBuiltinHookStrategy(
+      mockTerminalService as unknown as TerminalService,
+    );
     strategy = new PythonASTAnalyzerStrategy(builtinHook);
     vi.useFakeTimers();
   });
@@ -96,7 +98,10 @@ describe("PythonASTAnalyzerStrategy", () => {
     });
 
     it("should return error for undefined code", async () => {
-      const result = await strategy.execute({ command: undefined } as unknown as StrategyExecuteOptions, defaultPolicy);
+      const result = await strategy.execute(
+        { command: undefined } as unknown as StrategyExecuteOptions,
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Empty Python code");
@@ -113,7 +118,7 @@ describe("PythonASTAnalyzerStrategy", () => {
     });
 
     it("should handle syntax errors in code", async () => {
-      const invalidCode = "def foo(\n";  // Invalid Python syntax
+      const invalidCode = "def foo(\n"; // Invalid Python syntax
       const result = await strategy.execute({ command: invalidCode }, defaultPolicy);
 
       // AST analyzer should detect syntax error

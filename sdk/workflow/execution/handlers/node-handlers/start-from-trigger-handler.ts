@@ -3,7 +3,13 @@
  * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
  */
 
-import type { RuntimeNode, LLMMessage, WorkflowStartConfig, MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  LLMMessage,
+  WorkflowStartConfig,
+  MessageContextRegistry,
+  WorkflowExecution,
+} from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { now } from "@wf-agent/common-utils";
 import type { ConversationSession } from "../../../../core/messaging/conversation-session.js";
@@ -93,24 +99,26 @@ export async function startFromTriggerHandler(
   // Validate and map inputs based on messageInputs configuration
   if (config?.messageInputs && config.messageInputs.length > 0) {
     const validatedInput: Record<string, unknown> = {};
-    
+
     for (const inputDef of config.messageInputs) {
       const { externalName, internalName, required } = inputDef;
-      
+
       // Look for the value in triggerInput using externalName
       const value = triggerInput[externalName];
-      
+
       if (value === undefined) {
         if (required) {
-          throw new Error(`Required input '${externalName}' (mapped to '${internalName}') is missing`);
+          throw new Error(
+            `Required input '${externalName}' (mapped to '${internalName}') is missing`,
+          );
         }
         continue;
       }
-      
+
       // Map to internal name
       validatedInput[internalName] = value;
     }
-    
+
     // Set validated input to workflowExecution.input
     updatedInput = {
       ...workflowExecutionEntity.getInput(),
@@ -123,30 +131,34 @@ export async function startFromTriggerHandler(
       ...triggerInput,
     };
   }
-  
+
   workflowExecution.input = updatedInput;
 
   // Handle message contexts if configured
   if (config?.messageInputs && config.messageInputs.length > 0) {
     // Access the message context registry from workflowExecution
     const workflowExecution = workflowExecutionEntity.getExecution();
-    const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-    
+    const registry = (
+      workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+    ).messageContextRegistry;
+
     if (registry) {
       for (const inputDef of config.messageInputs) {
         const { externalName, internalName, required, defaultMessages } = inputDef;
-        
+
         // Try to get messages from triggerInput.messageContexts first
         let messages = triggerInput.messageContexts?.[externalName];
-        
+
         // Fallback to triggerInput[externalName] if it's an array (backward compatibility)
         if (!messages && Array.isArray(triggerInput[externalName])) {
           messages = triggerInput[externalName] as LLMMessage[];
         }
-        
+
         if (!messages) {
           if (required) {
-            throw new Error(`Required message context '${externalName}' (mapped to '${internalName}') is missing`);
+            throw new Error(
+              `Required message context '${externalName}' (mapped to '${internalName}') is missing`,
+            );
           }
           // Use default messages if provided
           if (defaultMessages && defaultMessages.length > 0) {
@@ -159,11 +171,11 @@ export async function startFromTriggerHandler(
           }
           continue;
         }
-        
+
         // Register the message context with internal name
         registry.register({
           id: internalName,
-          messages: [...messages],  // Shallow copy
+          messages: [...messages], // Shallow copy
           createdAt: Date.now(),
           updatedAt: Date.now(),
           metadata: { sourceContext: externalName } as Record<string, unknown>,
@@ -178,15 +190,17 @@ export async function startFromTriggerHandler(
     for (const inputDef of config.dataInputs) {
       const { parentField, internalName, required, defaultValue } = inputDef;
       let value = executionInput[parentField];
-      
+
       if (value === undefined) {
         if (defaultValue !== undefined) {
           value = defaultValue;
         } else if (required) {
-          throw new Error(`Required data input '${parentField}' (mapped to variable '${internalName}') is missing`);
+          throw new Error(
+            `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
+          );
         }
       }
-      
+
       if (value !== undefined) {
         workflowExecutionEntity.variableStateManager.setVariable(internalName, value);
       }

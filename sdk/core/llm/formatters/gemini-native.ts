@@ -236,10 +236,7 @@ export class GeminiNativeFormatter extends BaseFormatter {
               functionResponse: {
                 name: msg.toolCallId,
                 response: {
-                  result:
-                    typeof msg.content === "string"
-                      ? msg.content
-                      : msg.content,
+                  result: typeof msg.content === "string" ? msg.content : msg.content,
                 },
               },
             },

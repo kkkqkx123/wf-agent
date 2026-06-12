@@ -1,9 +1,9 @@
 /**
  * Internal Interruption Types for SDK
- * 
+ *
  * These types are internal implementation details of the SDK's interruption handling mechanism.
  * They should NOT be exported from the public types package.
- * 
+ *
  * Design Principles:
  * - Interrupt handling is an internal control flow mechanism
  * - External applications use ExecutionInterruptionCheckResult for interruption information
@@ -20,13 +20,13 @@ export type InterruptionType = "PAUSE" | "STOP" | null;
 
 /**
  * Interrupt Exception Base Class
- * 
+ *
  * @description
  * 1. Generic execution interrupt exception base class
  * 2. This is a control flow exception, not a real error
  * 3. Interrupt type: PAUSE (pause, resume) or STOP (stop, not resume)
  * 4. Subclasses can add module-specific context information
- * 
+ *
  * @internal SDK internal use only
  */
 export class InterruptedException extends SDKError {
@@ -45,12 +45,12 @@ export class InterruptedException extends SDKError {
 
 /**
  * AbortError - Operation Abort Error
- * 
+ *
  * @description
  * 1. Thrown when AbortSignal is triggered
  * 2. This is a control flow exception, not a real error
  * 3. Contains the original cause of the interruption (InterruptedException or its subclasses)
- * 
+ *
  * @internal SDK internal use only
  */
 export class AbortError extends Error {

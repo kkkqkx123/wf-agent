@@ -24,10 +24,13 @@ export async function applyMessageOperationHandler(
     };
 
     if (!executionId) {
-      throw new RuntimeValidationError("executionId is required for APPLY_MESSAGE_OPERATION action", {
-        operation: "handle",
-        field: "parameters.executionId",
-      });
+      throw new RuntimeValidationError(
+        "executionId is required for APPLY_MESSAGE_OPERATION action",
+        {
+          operation: "handle",
+          field: "parameters.executionId",
+        },
+      );
     }
 
     if (!operationConfig) {

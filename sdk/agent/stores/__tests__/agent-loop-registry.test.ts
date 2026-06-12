@@ -18,19 +18,21 @@ vi.mock("../../utils/contextual-logger.js", () => ({
   }),
 }));
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
+vi.mock("@wf-agent/common-utils", async importOriginal => {
   const actual = await importOriginal();
   return {
     ...(actual as Record<string, unknown>),
-    getErrorMessage: (error: unknown) =>
-      error instanceof Error ? error.message : String(error),
+    getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   };
 });
 
 /**
  * Create a mock AgentLoopEntity for testing
  */
-function createMockEntity(id: string, status: AgentLoopStatus = AgentLoopStatus.CREATED): AgentLoopEntity {
+function createMockEntity(
+  id: string,
+  status: AgentLoopStatus = AgentLoopStatus.CREATED,
+): AgentLoopEntity {
   return {
     id,
     getStatus: vi.fn(() => status),

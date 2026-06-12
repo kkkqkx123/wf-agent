@@ -7,9 +7,7 @@ import type { LLMRequest, LLMMessage } from "@wf-agent/types";
 import type { FormatterConfig } from "../types.js";
 
 vi.mock("../tool-converter.js", () => ({
-  convertToolsToGeminiFormat: vi.fn((tools: any[]) =>
-    tools.map((t: any) => ({ name: t.name }))
-  ),
+  convertToolsToGeminiFormat: vi.fn((tools: any[]) => tools.map((t: any) => ({ name: t.name }))),
 }));
 
 vi.mock("../../../utils/index.js", () => ({
@@ -106,9 +104,7 @@ describe("GeminiNativeFormatter", () => {
         candidates: [
           {
             content: {
-              parts: [
-                { functionCall: { name: "get_weather", args: { city: "Paris" } } },
-              ],
+              parts: [{ functionCall: { name: "get_weather", args: { city: "Paris" } } }],
             },
             finishReason: "STOP",
           },
@@ -125,10 +121,7 @@ describe("GeminiNativeFormatter", () => {
         candidates: [
           {
             content: {
-              parts: [
-                { text: "answer", thought: true },
-                { text: "Final answer" },
-              ],
+              parts: [{ text: "answer", thought: true }, { text: "Final answer" }],
             },
             finishReason: "STOP",
           },
@@ -193,9 +186,7 @@ describe("GeminiNativeFormatter", () => {
     });
 
     it("should convert tool results", () => {
-      const messages: LLMMessage[] = [
-        { role: "tool", content: "result", toolCallId: "func-1" },
-      ];
+      const messages: LLMMessage[] = [{ role: "tool", content: "result", toolCallId: "func-1" }];
       const result = formatter.convertMessages(messages) as any[];
       expect(result[0].role).toBe("user");
       expect(result[0].parts[0].functionResponse.name).toBe("func-1");
@@ -206,7 +197,9 @@ describe("GeminiNativeFormatter", () => {
         {
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "call-1", type: "function", function: { name: "test", arguments: '{"x":1}' } }],
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "test", arguments: '{"x":1}' } },
+          ],
         },
       ];
       const result = formatter.convertMessages(messages) as any[];
@@ -217,9 +210,7 @@ describe("GeminiNativeFormatter", () => {
 
   describe("parseToolCalls", () => {
     it("should parse function-call-style tool calls", () => {
-      const toolCalls = [
-        { functionCall: { name: "search", args: { q: "test" } } },
-      ];
+      const toolCalls = [{ functionCall: { name: "search", args: { q: "test" } } }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result[0]!.function.name).toBe("search");
     });

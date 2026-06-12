@@ -93,7 +93,7 @@ export function validatePromptTemplate(
 
   if (!result.success) {
     const errors = result.error.issues.map(
-      (e) =>
+      e =>
         new ConfigurationValidationError(e.message, {
           configType: "schema",
           field: e.path.join("."),

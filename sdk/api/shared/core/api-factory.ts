@@ -315,12 +315,10 @@ export class APIFactory {
   /**
    * Get the dependency manager for command execution
    * This method provides access to dependencies needed by commands
-   * 
+   *
    * @returns APIDependencyManager instance
    */
   getDependencies(): APIDependencyManager {
     return this.dependencies;
   }
 }
-
-

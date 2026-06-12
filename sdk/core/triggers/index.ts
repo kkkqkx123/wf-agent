@@ -18,11 +18,7 @@ export type {
 } from "./types.js";
 
 // Matcher
-export {
-  defaultTriggerMatcher,
-  matchTriggers,
-  createTriggerMatcher,
-} from "./matcher.js";
+export { defaultTriggerMatcher, matchTriggers, createTriggerMatcher } from "./matcher.js";
 
 // limiter
 export {

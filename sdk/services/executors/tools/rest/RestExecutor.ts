@@ -111,8 +111,12 @@ export class RestExecutor extends BaseExecutor {
       // Execute the request.
       let response;
       // Build full URL with query params from tool config
-      const fullUrl = this.buildFullUrl(toolConfig?.baseUrl || "", url, queryParams as Record<string, unknown> | undefined);
-      
+      const fullUrl = this.buildFullUrl(
+        toolConfig?.baseUrl || "",
+        url,
+        queryParams as Record<string, unknown> | undefined,
+      );
+
       switch (method) {
         case "GET":
           response = await this.httpClient.get(fullUrl, processedConfig);
@@ -268,9 +272,7 @@ export class RestExecutor extends BaseExecutor {
   addRequestInterceptor(interceptor: {
     intercept: (config: unknown) => unknown | Promise<unknown>;
   }): void {
-    this.interceptorManager.addRequestInterceptor(
-      interceptor as RequestInterceptor,
-    );
+    this.interceptorManager.addRequestInterceptor(interceptor as RequestInterceptor);
   }
 
   /**
@@ -279,9 +281,7 @@ export class RestExecutor extends BaseExecutor {
   addResponseInterceptor(interceptor: {
     intercept: (response: unknown) => unknown | Promise<unknown>;
   }): void {
-    this.interceptorManager.addResponseInterceptor(
-      interceptor as ResponseInterceptor,
-    );
+    this.interceptorManager.addResponseInterceptor(interceptor as ResponseInterceptor);
   }
 
   /**

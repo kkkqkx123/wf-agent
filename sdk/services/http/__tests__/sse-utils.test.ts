@@ -41,13 +41,7 @@ describe("SSE Utilities", () => {
 
   describe("parseSSELines", () => {
     it("should parse multiple lines and filter nulls", () => {
-      const lines = [
-        'data: {"a": 1}',
-        "event: ping",
-        'data: {"b": 2}',
-        "",
-        "data: [DONE]",
-      ];
+      const lines = ['data: {"a": 1}', "event: ping", 'data: {"b": 2}', "", "data: [DONE]"];
       const result = parseSSELines(lines);
       expect(result).toEqual([{ a: 1 }, { b: 2 }]);
     });
@@ -162,7 +156,7 @@ describe("SSE Utilities", () => {
       });
 
       const received: unknown[] = [];
-      await readSSEStream(stream, (data) => received.push(data));
+      await readSSEStream(stream, data => received.push(data));
       expect(received).toEqual([{ a: 1 }, { b: 2 }]);
     });
   });

@@ -331,7 +331,11 @@ export class NodeExecutionCoordinator {
     if (this.permissionManager) {
       try {
         // Access llmCoordinator from handlerContextFactory's config
-        const llmCoordinator = (this.handlerContextFactory as unknown as { config?: { llmCoordinator?: { setPermissionManager: (pm: unknown) => void } } }).config?.llmCoordinator;
+        const llmCoordinator = (
+          this.handlerContextFactory as unknown as {
+            config?: { llmCoordinator?: { setPermissionManager: (pm: unknown) => void } };
+          }
+        ).config?.llmCoordinator;
         if (llmCoordinator && typeof llmCoordinator.setPermissionManager === "function") {
           llmCoordinator.setPermissionManager(this.permissionManager);
         }

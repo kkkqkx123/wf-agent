@@ -4,10 +4,10 @@
 
 实现一个 **Workflow/Agent 通用**的中断级联传播机制,满足以下需求:
 
-| 操作 | 父 → 子传播 | 子 → 父传播 | 说明 |
-|------|------------|------------|------|
-| **PAUSE** | ✅ 必须传播 | ❌ 不应传播 | 父暂停时,所有子执行实例应立即暂停 |
-| **STOP** | ✅ 必须传播 | ❌ 不应传播 | 父停止时,所有子执行实例应立即停止 |
+| 操作       | 父 → 子传播 | 子 → 父传播 | 说明                              |
+| ---------- | ----------- | ----------- | --------------------------------- |
+| **PAUSE**  | ✅ 必须传播 | ❌ 不应传播 | 父暂停时,所有子执行实例应立即暂停 |
+| **STOP**   | ✅ 必须传播 | ❌ 不应传播 | 父停止时,所有子执行实例应立即停止 |
 | **RESUME** | ✅ 必须传播 | ❌ 不应传播 | 父恢复时,所有子执行实例应同步恢复 |
 
 ### 核心要求
@@ -39,12 +39,14 @@ Root Workflow (depth=0)
 ```
 
 **关键规则**:
+
 - **同步子执行** (SUBGRAPH, FORK_BRANCH): 继承父的中断状态
 - **异步子执行** (TRIGGERED_SUBWORKFLOW): 独立中断状态,不继承
 
 #### 1.2 中断传播代理 (InterruptionPropagationProxy)
 
 每个执行实例的 `InterruptionState` 内部维护一个**传播代理**,负责:
+
 - 监听父实例的中断事件
 - 向子实例广播中断事件
 - 管理订阅关系(防止内存泄漏)
@@ -61,25 +63,25 @@ Root Workflow (depth=0)
 export interface InterruptionStateConfig {
   /** Context ID (execution ID) */
   contextId: string;
-  
+
   /** Node ID (optional, for workflow nodes) */
   nodeId?: string;
-  
+
   /** Custom interrupt exception creator */
   createInterruptionError?: (info: InterruptionInfo) => InterruptedException;
-  
+
   // ===== 新增字段 =====
-  
-  /** 
+
+  /**
    * Parent interruption state reference (for cascade propagation)
    * If provided, this instance will automatically propagate parent's interruptions
    */
   parentInterruptionState?: InterruptionState;
-  
+
   /**
    * Execution type (for logging and debugging)
    */
-  executionType?: 'WORKFLOW' | 'AGENT_LOOP';
+  executionType?: "WORKFLOW" | "AGENT_LOOP";
 }
 ```
 
@@ -90,13 +92,13 @@ export interface InterruptionStateConfig {
 ```typescript
 export type ChildExecutionReference =
   | {
-      childType: 'WORKFLOW';
+      childType: "WORKFLOW";
       childId: ID;
       createdAt: Timestamp;
       forkPathId?: ID;
-      
+
       // ===== 新增字段 =====
-      /** 
+      /**
        * Whether this child inherits parent's interruption state
        * - true: SUBGRAPH, FORK_BRANCH (synchronous, inherits)
        * - false: TRIGGERED_SUBWORKFLOW (asynchronous, independent)
@@ -104,10 +106,10 @@ export type ChildExecutionReference =
       inheritsInterruption?: boolean;
     }
   | {
-      childType: 'AGENT_LOOP';
+      childType: "AGENT_LOOP";
       childId: ID;
       createdAt: Timestamp;
-      
+
       // ===== 新增字段 =====
       inheritsInterruption?: boolean;
     };
@@ -124,7 +126,7 @@ export type ChildExecutionReference =
 
 /**
  * Interruption Propagation Proxy
- * 
+ *
  * Manages parent-child interruption state synchronization using event-driven mechanism.
  * Ensures immediate propagation without polling.
  */
@@ -132,19 +134,19 @@ export class InterruptionPropagationProxy {
   private parentState?: InterruptionState;
   private childStates: Set<InterruptionState> = new Set();
   private unsubscribeFromParent?: () => void;
-  
+
   /**
    * Attach to parent interruption state
    * Listens for pause/stop/resume events and propagates to children
    */
   attachToParent(parentState: InterruptionState): void {
     this.parentState = parentState;
-    
+
     // Subscribe to parent's interruption events
-    this.unsubscribeFromParent = parentState.onInterrupted((type) => {
+    this.unsubscribeFromParent = parentState.onInterrupted(type => {
       this.propagateToInterruption(type);
     });
-    
+
     // Immediately sync with parent's current state
     if (parentState.isAborted()) {
       const reason = parentState.getAbortReason();
@@ -153,14 +155,14 @@ export class InterruptionPropagationProxy {
       }
     }
   }
-  
+
   /**
    * Register a child interruption state
    * The child will receive all future interruption events from this proxy
    */
   registerChild(childState: InterruptionState): void {
     this.childStates.add(childState);
-    
+
     // Immediately sync with current interruption state
     if (this.parentState?.isAborted()) {
       const reason = this.parentState.getAbortReason();
@@ -170,14 +172,14 @@ export class InterruptionPropagationProxy {
       }
     }
   }
-  
+
   /**
    * Unregister a child interruption state (cleanup)
    */
   unregisterChild(childState: InterruptionState): void {
     this.childStates.delete(childState);
   }
-  
+
   /**
    * Propagate interruption to all registered children
    */
@@ -186,12 +188,12 @@ export class InterruptionPropagationProxy {
       type,
       childCount: this.childStates.size,
     });
-    
+
     for (const childState of this.childStates) {
       this.syncChildState(childState, type);
     }
   }
-  
+
   /**
    * Sync a single child's interruption state
    */
@@ -211,7 +213,7 @@ export class InterruptionPropagationProxy {
       });
     }
   }
-  
+
   /**
    * Cleanup all subscriptions (prevent memory leaks)
    */
@@ -228,36 +230,36 @@ export class InterruptionPropagationProxy {
 
 #### 3.2 扩展 `InterruptionState`
 
-```typescript
+````typescript
 // sdk/core/types/interruption-state.ts
 
 export class InterruptionState {
   // ... existing fields ...
-  
+
   /** Interruption propagation proxy (manages parent-child sync) */
   private propagationProxy?: InterruptionPropagationProxy;
-  
+
   /** Event listeners for interruption notifications (new) */
   private interruptionListeners: Array<(type: "PAUSE" | "STOP" | "RESUME") => void> = [];
-  
+
   constructor(config: InterruptionStateConfig) {
     // ... existing initialization ...
-    
+
     // Initialize propagation proxy if parent is provided
     if (config.parentInterruptionState) {
       this.propagationProxy = new InterruptionPropagationProxy();
       this.propagationProxy.attachToParent(config.parentInterruptionState);
-      
+
       logger.debug("InterruptionState attached to parent", {
         contextId: this.contextId,
         parentContextId: config.parentInterruptionState.getContextId(),
       });
     }
   }
-  
+
   /**
    * Register a child interruption state for cascade propagation
-   * 
+   *
    * @param childState Child's interruption state
    * @example
    * ```typescript
@@ -269,23 +271,23 @@ export class InterruptionState {
       this.propagationProxy = new InterruptionPropagationProxy();
     }
     this.propagationProxy.registerChild(childState);
-    
+
     logger.debug("Child interruption state registered", {
       parentContextId: this.contextId,
       childContextId: childState.getContextId(),
     });
   }
-  
+
   /**
    * Unregister a child interruption state (cleanup)
    */
   unregisterChild(childState: InterruptionState): void {
     this.propagationProxy?.unregisterChild(childState);
   }
-  
+
   /**
    * Subscribe to interruption events
-   * 
+   *
    * @param callback Called when pause/stop is requested
    * @returns Unsubscribe function
    * @example
@@ -297,7 +299,7 @@ export class InterruptionState {
    */
   onInterrupted(callback: (type: "PAUSE" | "STOP" | "RESUME") => void): () => void {
     this.interruptionListeners.push(callback);
-    
+
     return () => {
       const index = this.interruptionListeners.indexOf(callback);
       if (index !== -1) {
@@ -305,7 +307,7 @@ export class InterruptionState {
       }
     };
   }
-  
+
   /**
    * Request to pause (enhanced with event notification)
    */
@@ -314,19 +316,19 @@ export class InterruptionState {
       return;
     }
 
-    logger.info("Execution pause requested", { 
-      contextId: this.contextId, 
-      nodeId: this.nodeId 
+    logger.info("Execution pause requested", {
+      contextId: this.contextId,
+      nodeId: this.nodeId,
     });
-    
+
     this.interruptionType = "PAUSE";
     const error = this.createError("Execution paused", "PAUSE");
     this.abortController.abort(error);
-    
+
     // Notify all listeners (including propagation proxy)
     this.notifyInterruptionListeners("PAUSE");
   }
-  
+
   /**
    * Request to stop (enhanced with event notification)
    */
@@ -335,35 +337,35 @@ export class InterruptionState {
       return;
     }
 
-    logger.info("Execution stop requested", { 
-      contextId: this.contextId, 
-      nodeId: this.nodeId 
+    logger.info("Execution stop requested", {
+      contextId: this.contextId,
+      nodeId: this.nodeId,
     });
-    
+
     this.interruptionType = "STOP";
     const error = this.createError("Execution stopped", "STOP");
     this.abortController.abort(error);
-    
+
     // Notify all listeners (including propagation proxy)
     this.notifyInterruptionListeners("STOP");
   }
-  
+
   /**
    * Resume execution (enhanced with automatic cascade propagation)
-   * 
+   *
    * IMPORTANT: Resume now automatically propagates to all children,
    * consistent with PAUSE/STOP behavior. This ensures state consistency
    * across the entire execution hierarchy.
    */
   resume(): void {
-    logger.info("Execution resumed", { 
-      contextId: this.contextId, 
-      nodeId: this.nodeId 
+    logger.info("Execution resumed", {
+      contextId: this.contextId,
+      nodeId: this.nodeId,
     });
-    
+
     this.interruptionType = null;
     this.abortController = new AbortController();
-    
+
     // Notify resume listeners (existing)
     const resumeListeners = [...this.resumeListeners];
     this.resumeListeners = [];
@@ -374,11 +376,11 @@ export class InterruptionState {
         logger.warn("Error in resume listener", { error });
       }
     });
-    
+
     // Auto-propagate resume to children (consistent with pause/stop)
     this.notifyInterruptionListeners("RESUME");
   }
-  
+
   /**
    * Notify all interruption listeners
    */
@@ -392,7 +394,7 @@ export class InterruptionState {
       }
     });
   }
-  
+
   /**
    * Cleanup resources (prevent memory leaks)
    */
@@ -402,7 +404,7 @@ export class InterruptionState {
     this.resumeListeners = [];
   }
 }
-```
+````
 
 ---
 
@@ -418,16 +420,16 @@ async createChildExecution(
   options: ChildExecutionOptions
 ): Promise<WorkflowExecutionBuildResult> {
   const { type, config } = options;
-  
+
   // Step 1-4: Existing logic (validation, graph retrieval, entity creation, variable init)
   // ...
-  
+
   // Step 5: Establish hierarchy relationship (ENHANCED)
   this.establishHierarchyWithInterruption(parent, childEntity, type, config);
-  
+
   // Step 6-7: Existing logic (conversation session, state coordinator)
   // ...
-  
+
   return { /* ... */ };
 }
 
@@ -442,18 +444,18 @@ private establishHierarchyWithInterruption(
 ): void {
   // Step 1: Update hierarchy metadata (existing logic)
   this.establishHierarchy(parent, child, type, config);
-  
+
   // Step 2: Setup interruption cascade propagation (NEW)
   const shouldInheritInterruption = this.shouldInheritInterruption(type, config);
-  
+
   if (shouldInheritInterruption) {
     const parentInterruptionState = parent.getInterruptionState();
     const childInterruptionState = child.getInterruptionState();
-    
+
     if (parentInterruptionState && childInterruptionState) {
       // Register child with parent's interruption state
       parentInterruptionState.registerChild(childInterruptionState);
-      
+
       logger.info("Interruption cascade established", {
         parentExecutionId: parent.id,
         childExecutionId: child.id,
@@ -473,14 +475,14 @@ private shouldInheritInterruption(
   switch (type) {
     case 'SUBGRAPH':
       return true; // Synchronous, inherits
-      
+
     case 'FORK_BRANCH':
       return true; // Synchronous, inherits
-      
+
     case 'TRIGGERED':
       // Explicitly check execution mode for clarity
       return config.executionMode === 'SYNCHRONOUS';
-      
+
     default:
       return false;
   }
@@ -494,40 +496,40 @@ private shouldInheritInterruption(
 
 /**
  * Spawn a sub-agent (delegation)
- * 
+ *
  * The sub-agent will inherit the parent's interruption state.
  */
 spawnSubAgent(options: SubAgentSpawnOptions): AgentLoopEntity {
   // Step 1: Create sub-agent entity
   const subAgent = new AgentLoopEntity(/* ... */);
-  
+
   // Step 2: Set parent context (existing)
   subAgent.setParentContext({
     parentType: 'AGENT_LOOP',
     parentId: this.id,
     delegationPurpose: options.purpose,
   });
-  
+
   // Step 3: Register as child (existing)
   this.registerChild({
     childType: 'AGENT_LOOP',
     childId: subAgent.id,
     createdAt: Date.now(),
   });
-  
+
   // Step 4: Setup interruption cascade (NEW)
   const parentInterruptionState = this.getInterruptionState();
   const childInterruptionState = subAgent.getInterruptionState();
-  
+
   if (parentInterruptionState && childInterruptionState) {
     parentInterruptionState.registerChild(childInterruptionState);
-    
+
     logger.info("Agent interruption cascade established", {
       parentAgentId: this.id,
       childAgentId: subAgent.id,
     });
   }
-  
+
   return subAgent;
 }
 ```
@@ -548,10 +550,10 @@ cleanup(): void {
     if (parentEntity) {
       const parentInterruptionState = parentEntity.getInterruptionState();
       const childInterruptionState = this.getInterruptionState();
-      
+
       if (parentInterruptionState && childInterruptionState) {
         parentInterruptionState.unregisterChild(childInterruptionState);
-        
+
         logger.debug("Unregistered from parent interruption cascade", {
           parentExecutionId: parentEntity.id,
           childExecutionId: this.id,
@@ -559,10 +561,10 @@ cleanup(): void {
       }
     }
   }
-  
+
   // Step 2: Dispose interruption state (cleanup all listeners)
   this.interruptionState?.dispose();
-  
+
   // Step 3: Other cleanup logic...
 }
 ```
@@ -579,15 +581,15 @@ cleanup(): void {
 async resume(executionId: string): Promise<WorkflowExecutionResult> {
   // Step 1: Restore from checkpoint (existing)
   const workflowExecutionEntity = await this.restoreFromCheckpoint(executionId);
-  
+
   // Step 2: Resume parent interruption state (existing)
   // NOTE: Resume now automatically cascades to children via event propagation
   workflowExecutionEntity.resetInterrupt();
-  
+
   // Step 3: Execute workflow (existing)
   // Children are already resumed via automatic propagation in resetInterrupt()
   const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
-  
+
   return result;
 }
 ```
@@ -619,6 +621,7 @@ User                    Parent Workflow          Subgraph Workflow        Agent 
 ```
 
 **关键点**:
+
 - 传播是**同步的**,在 `requestPause()` 调用期间完成
 - 所有子实例在**同一调用栈**内被中止
 - 无延迟,无轮询
@@ -644,6 +647,7 @@ User                    Parent Workflow          Subgraph Workflow        Agent 
 ```
 
 **关键点**:
+
 - Resume **自动传播**,与 PAUSE/STOP 保持一致
 - 通过事件驱动机制实现,无需协调器显式调用
 - 确保整个执行树的状态一致性
@@ -663,6 +667,7 @@ Workflow (depth=0)
 ```
 
 **处理方式**:
+
 - 传播是**递归的**,通过 `InterruptionPropagationProxy` 自动处理
 - 每层只关心自己的直接子节点
 - 无深度限制,但建议监控性能
@@ -677,12 +682,12 @@ registerChild(childState: InterruptionState): void {
   if (this === childState) {
     throw new Error("Cannot register self as child");
   }
-  
+
   // Optional: Check if child is already an ancestor
   if (this.isAncestorOf(childState)) {
     throw new Error("Circular interruption dependency detected");
   }
-  
+
   // ... normal registration logic
 }
 ```
@@ -692,6 +697,7 @@ registerChild(childState: InterruptionState): void {
 场景: 父和子同时收到 PAUSE 请求
 
 **处理方式**:
+
 - `InterruptionState` 已有防护: `if (this.interruptionType === "PAUSE") return;`
 - 多次调用是**安全的**,只会触发一次实际的中断
 - 传播代理会检查子实例的当前状态,避免重复传播
@@ -701,6 +707,7 @@ registerChild(childState: InterruptionState): void {
 场景: 父收到 PAUSE 时,子实例已经完成执行
 
 **处理方式**:
+
 - 子实例的 `InterruptionState` 仍然有效,可以接收中断信号
 - 但子实例的执行协调器应该检查状态,忽略已完成实例的中断
 - 传播代理捕获异常并记录日志,不阻断其他子实例的传播
@@ -742,19 +749,19 @@ private childStates: WeakSet<InterruptionState> = new WeakSet();
 class InterruptionPropagationProxy {
   private static MAX_RECOMMENDED_DEPTH = 10;
   private currentDepth: number = 0;
-  
+
   private propagateToInterruption(type: "PAUSE" | "STOP" | "RESUME"): void {
     this.currentDepth++;
-    
+
     if (this.currentDepth > InterruptionPropagationProxy.MAX_RECOMMENDED_DEPTH) {
       logger.warn("Deep interruption propagation detected", {
         depth: this.currentDepth,
         type,
       });
     }
-    
+
     // ... propagation logic ...
-    
+
     this.currentDepth--;
   }
 }
@@ -767,45 +774,45 @@ class InterruptionPropagationProxy {
 #### 9.1 单元测试
 
 ```typescript
-describe('InterruptionPropagationProxy', () => {
-  it('should propagate PAUSE from parent to child immediately', () => {
-    const parent = new InterruptionState({ contextId: 'parent' });
-    const child = new InterruptionState({ 
-      contextId: 'child',
+describe("InterruptionPropagationProxy", () => {
+  it("should propagate PAUSE from parent to child immediately", () => {
+    const parent = new InterruptionState({ contextId: "parent" });
+    const child = new InterruptionState({
+      contextId: "child",
       parentInterruptionState: parent,
     });
-    
+
     parent.requestPause();
-    
+
     expect(child.isAborted()).toBe(true);
     expect(child.shouldPause()).toBe(true);
   });
-  
-  it('should NOT propagate interruption from child to parent', () => {
-    const parent = new InterruptionState({ contextId: 'parent' });
-    const child = new InterruptionState({ 
-      contextId: 'child',
+
+  it("should NOT propagate interruption from child to parent", () => {
+    const parent = new InterruptionState({ contextId: "parent" });
+    const child = new InterruptionState({
+      contextId: "child",
       parentInterruptionState: parent,
     });
-    
+
     child.requestPause();
-    
+
     expect(parent.isAborted()).toBe(false);
   });
-  
-  it('should handle deep nesting correctly', () => {
-    const grandparent = new InterruptionState({ contextId: 'grandparent' });
-    const parent = new InterruptionState({ 
-      contextId: 'parent',
+
+  it("should handle deep nesting correctly", () => {
+    const grandparent = new InterruptionState({ contextId: "grandparent" });
+    const parent = new InterruptionState({
+      contextId: "parent",
       parentInterruptionState: grandparent,
     });
-    const child = new InterruptionState({ 
-      contextId: 'child',
+    const child = new InterruptionState({
+      contextId: "child",
       parentInterruptionState: parent,
     });
-    
+
     grandparent.requestStop();
-    
+
     expect(parent.isAborted()).toBe(true);
     expect(child.isAborted()).toBe(true);
   });
@@ -815,24 +822,24 @@ describe('InterruptionPropagationProxy', () => {
 #### 9.2 集成测试
 
 ```typescript
-describe('Workflow Interruption Cascade', () => {
-  it('should pause subgraph when parent workflow is paused', async () => {
-    const parentWorkflow = await createWorkflow('parent');
+describe("Workflow Interruption Cascade", () => {
+  it("should pause subgraph when parent workflow is paused", async () => {
+    const parentWorkflow = await createWorkflow("parent");
     const subgraphWorkflow = await createSubgraph(parentWorkflow);
-    
+
     parentWorkflow.pause();
-    
-    expect(subgraphWorkflow.getStatus()).toBe('PAUSED');
+
+    expect(subgraphWorkflow.getStatus()).toBe("PAUSED");
   });
-  
-  it('should resume subgraph when parent workflow is resumed', async () => {
-    const parentWorkflow = await createWorkflow('parent');
+
+  it("should resume subgraph when parent workflow is resumed", async () => {
+    const parentWorkflow = await createWorkflow("parent");
     const subgraphWorkflow = await createSubgraph(parentWorkflow);
-    
+
     parentWorkflow.pause();
     parentWorkflow.resume();
-    
-    expect(subgraphWorkflow.getStatus()).toBe('RUNNING');
+
+    expect(subgraphWorkflow.getStatus()).toBe("RUNNING");
   });
 });
 ```

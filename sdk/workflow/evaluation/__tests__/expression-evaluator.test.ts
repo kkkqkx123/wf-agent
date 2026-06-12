@@ -227,7 +227,10 @@ describe("ExpressionEvaluator", () => {
 
     it("should evaluate someContains", () => {
       const ctx2 = makeContext({
-        items: [{ id: 1, tag: "hello" }, { id: 2, tag: "world" }],
+        items: [
+          { id: 1, tag: "hello" },
+          { id: 2, tag: "world" },
+        ],
       });
       expect(evaluator.evaluate("items.someContains('tag', 'ello')", ctx2)).toBe(true);
       expect(evaluator.evaluate("items.someContains('tag', 'xyz')", ctx2)).toBe(false);
@@ -267,8 +270,14 @@ describe("ExpressionEvaluator", () => {
 
   describe("custom functions", () => {
     it("should register and call custom functions", () => {
-      evaluator.registerFunction("add", (...args: unknown[]) => (args[0] as number) + (args[1] as number));
-      evaluator.registerFunction("multiply", (...args: unknown[]) => (args[0] as number) * (args[1] as number));
+      evaluator.registerFunction(
+        "add",
+        (...args: unknown[]) => (args[0] as number) + (args[1] as number),
+      );
+      evaluator.registerFunction(
+        "multiply",
+        (...args: unknown[]) => (args[0] as number) * (args[1] as number),
+      );
 
       const ctx = makeContext({});
       expect(evaluator.evaluate("add(1, 2)", ctx)).toBe(3);

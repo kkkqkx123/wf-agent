@@ -37,20 +37,14 @@ describe("CheckpointConfigResolver", () => {
     });
 
     it("should return the first layer with enabled defined (highest priority)", () => {
-      const layers: ConfigLayer[] = [
-        { name: "runtime", enabled: true },
-        { name: "workflow" },
-      ];
+      const layers: ConfigLayer[] = [{ name: "runtime", enabled: true }, { name: "workflow" }];
       const result = resolver.resolve(layers);
       expect(result.shouldCreate).toBe(true);
       expect(result.effectiveSource).toBe("runtime");
     });
 
     it("should fall through to next layer when enabled is undefined", () => {
-      const layers: ConfigLayer[] = [
-        { name: "runtime" },
-        { name: "workflow", enabled: false },
-      ];
+      const layers: ConfigLayer[] = [{ name: "runtime" }, { name: "workflow", enabled: false }];
       const result = resolver.resolve(layers);
       expect(result.shouldCreate).toBe(false);
       expect(result.effectiveSource).toBe("workflow");
@@ -72,11 +66,7 @@ describe("CheckpointConfigResolver", () => {
     });
 
     it("should fall through all layers and use default when none have enabled defined", () => {
-      const layers: ConfigLayer[] = [
-        { name: "runtime" },
-        { name: "workflow" },
-        { name: "node" },
-      ];
+      const layers: ConfigLayer[] = [{ name: "runtime" }, { name: "workflow" }, { name: "node" }];
       const result = resolver.resolve(layers);
       expect(result.shouldCreate).toBe(false);
       expect(result.effectiveSource).toBe("default");
@@ -137,9 +127,7 @@ describe("shouldCreateCheckpoint", () => {
 describe("getCheckpointDescription", () => {
   it("should return description from matched layer", () => {
     const resolver = new TestConfigResolver();
-    const layers: ConfigLayer[] = [
-      { name: "workflow", enabled: true, description: "Workflow cp" },
-    ];
+    const layers: ConfigLayer[] = [{ name: "workflow", enabled: true, description: "Workflow cp" }];
     expect(getCheckpointDescription(resolver, layers)).toBe("Workflow cp");
   });
 

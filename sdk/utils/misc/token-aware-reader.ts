@@ -1,6 +1,6 @@
 /**
  * Token-aware file reading utilities with budget management.
- * 
+ *
  * Provides functionality for:
  * - Counting lines and estimating tokens incrementally
  * - Reading files with token budget limits (single-pass operation)
@@ -37,14 +37,14 @@ export interface LineAndTokenCountOptions {
 /**
  * Efficiently counts lines and estimates tokens in a file using streams with incremental token estimation.
  * Processes file in chunks to avoid memory issues and can early-exit when budget is exceeded.
- * 
+ *
  * @param filePath - Path to the file to analyze
  * @param options - Configuration options for counting
  * @returns A promise that resolves to line count, token estimate, and completion status
  */
 export async function countFileLinesAndTokens(
   filePath: string,
-  options: LineAndTokenCountOptions = {}
+  options: LineAndTokenCountOptions = {},
 ): Promise<LineAndTokenCountResult> {
   const { budgetTokens, chunkLines = 256 } = options;
 
@@ -92,7 +92,7 @@ export async function countFileLinesAndTokens(
       }
     };
 
-    rl.on("line", (line) => {
+    rl.on("line", line => {
       lineCount++;
       lineBuffer.push(line);
 
@@ -107,7 +107,7 @@ export async function countFileLinesAndTokens(
               rl.resume();
             }
           })
-          .catch((err) => {
+          .catch(err => {
             isProcessing = false;
             reject(err);
           });
@@ -117,7 +117,7 @@ export async function countFileLinesAndTokens(
     rl.on("close", async () => {
       // Wait for any ongoing processing to complete
       while (isProcessing) {
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, 10));
       }
 
       // Process any remaining lines in buffer
@@ -129,11 +129,11 @@ export async function countFileLinesAndTokens(
       }
     });
 
-    rl.on("error", (err) => {
+    rl.on("error", err => {
       reject(err);
     });
 
-    readStream.on("error", (err) => {
+    readStream.on("error", err => {
       reject(err);
     });
   });
@@ -165,17 +165,17 @@ export interface ReadWithBudgetOptions {
 
 /**
  * Reads a file while incrementally counting tokens, stopping when budget is reached.
- * 
+ *
  * Unlike validateFileTokenBudget + extractTextFromFile, this is a single-pass
  * operation that returns the actual content up to the token limit.
- * 
+ *
  * @param filePath - Path to the file to read
  * @param options - Budget and chunking options
  * @returns Content read, token count, and completion status
  */
 export async function readFileWithTokenBudget(
   filePath: string,
-  options: ReadWithBudgetOptions
+  options: ReadWithBudgetOptions,
 ): Promise<ReadWithBudgetResult> {
   const { budgetTokens, chunkLines = 256 } = options;
 
@@ -262,7 +262,7 @@ export async function readFileWithTokenBudget(
       return true;
     };
 
-    rl.on("line", (line) => {
+    rl.on("line", line => {
       lineBuffer.push(line);
 
       if (lineBuffer.length >= chunkLines && !isProcessing) {
@@ -270,7 +270,7 @@ export async function readFileWithTokenBudget(
         rl.pause();
 
         processBuffer()
-          .then((continueReading) => {
+          .then(continueReading => {
             isProcessing = false;
             if (!continueReading) {
               shouldClose = true;
@@ -280,7 +280,7 @@ export async function readFileWithTokenBudget(
               rl.resume();
             }
           })
-          .catch((err) => {
+          .catch(err => {
             isProcessing = false;
             shouldClose = true;
             rl.close();
@@ -299,7 +299,7 @@ export async function readFileWithTokenBudget(
           reject(new Error("Timeout waiting for buffer processing to complete"));
           return;
         }
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, 10));
       }
 
       // Process remaining buffer

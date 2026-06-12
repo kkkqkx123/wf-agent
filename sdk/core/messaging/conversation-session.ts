@@ -332,10 +332,10 @@ export class ConversationSession extends MessageHistory implements StateManager<
    */
   override addMessage(message: LLMMessage): number {
     const newIndex = super.addMessage(message);
-    
+
     // Clear state from this point forward
     this.clearStateFromIndex(newIndex - 1);
-    
+
     return newIndex;
   }
 
@@ -485,7 +485,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
     }
     const turnState = this.turnStates.get(turnStartIndex)!;
     turnState[key] = value;
-    
+
     logger.debug("Turn state updated", {
       turnStartIndex,
       key,
@@ -535,7 +535,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
    * @returns Context text or undefined if not found
    */
   getTurnDynamicContext(turnStartIndex: number): string | undefined {
-    return this.getTurnState<string>(turnStartIndex, 'dynamicContext');
+    return this.getTurnState<string>(turnStartIndex, "dynamicContext");
   }
 
   /**
@@ -544,7 +544,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
    * @param context Generated dynamic context text
    */
   setTurnDynamicContext(turnStartIndex: number, context: string): void {
-    this.setTurnState(turnStartIndex, 'dynamicContext', context);
+    this.setTurnState(turnStartIndex, "dynamicContext", context);
   }
 
   /**
@@ -570,7 +570,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
    */
   getState(): ConversationState {
     const baseState = this.createSnapshot();
-    
+
     // Convert Map to plain object for serialization
     const serializedTurnStates: Record<number, Record<string, unknown>> = {};
     this.turnStates.forEach((value, key) => {
@@ -591,7 +591,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
    */
   restoreState(state: ConversationState): void {
     this.restoreFromSnapshot(state);
-    
+
     if (state.tokenUsage) {
       this.tokenUsageTracker.setState(state.tokenUsage, state.currentRequestUsage);
     }

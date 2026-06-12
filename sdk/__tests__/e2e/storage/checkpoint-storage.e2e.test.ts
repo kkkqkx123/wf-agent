@@ -3,7 +3,9 @@ import { MemoryCheckpointStorage } from "@wf-agent/storage";
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { CheckpointStorageMetadata } from "@wf-agent/types";
 
-const createMetadata = (overrides: Partial<CheckpointStorageMetadata> = {}): CheckpointStorageMetadata => ({
+const createMetadata = (
+  overrides: Partial<CheckpointStorageMetadata> = {},
+): CheckpointStorageMetadata => ({
   entityType: "workflow",
   entityId: "wf-test",
   timestamp: Date.now(),
@@ -139,10 +141,26 @@ describe("Checkpoint Storage E2E", () => {
   describe("Entity-Aware Operations (CheckpointSpecific)", () => {
     it("should list checkpoints with metadata by entity", async () => {
       await storage.saveBatch([
-        { id: "cp-1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }) },
-        { id: "cp-2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }) },
-        { id: "cp-3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", entityType: "workflow" }) },
-        { id: "cp-4", data: new Uint8Array([4]), metadata: createMetadata({ entityId: "agent-1", entityType: "agent" }) },
+        {
+          id: "cp-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }),
+        },
+        {
+          id: "cp-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }),
+        },
+        {
+          id: "cp-3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ entityId: "wf-2", entityType: "workflow" }),
+        },
+        {
+          id: "cp-4",
+          data: new Uint8Array([4]),
+          metadata: createMetadata({ entityId: "agent-1", entityType: "agent" }),
+        },
       ]);
 
       const wf1Checkpoints = await storage.listByEntityWithMetadata("wf-1", "workflow");
@@ -154,8 +172,16 @@ describe("Checkpoint Storage E2E", () => {
 
     it("should list all checkpoints with metadata", async () => {
       await storage.saveBatch([
-        { id: "cp-1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }) },
-        { id: "cp-2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-2", tags: ["dev"] }) },
+        {
+          id: "cp-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }),
+        },
+        {
+          id: "cp-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-2", tags: ["dev"] }),
+        },
       ]);
 
       const all = await storage.listWithMetadata();
@@ -164,11 +190,26 @@ describe("Checkpoint Storage E2E", () => {
     });
 
     it("should listWithMetadata with entity filter", async () => {
-      await storage.save("cp-1", new Uint8Array([1]), createMetadata({ entityId: "wf-1", entityType: "workflow" }));
-      await storage.save("cp-2", new Uint8Array([2]), createMetadata({ entityId: "wf-1", entityType: "workflow", tags: ["backup"] }));
-      await storage.save("cp-3", new Uint8Array([3]), createMetadata({ entityId: "wf-2", entityType: "workflow" }));
+      await storage.save(
+        "cp-1",
+        new Uint8Array([1]),
+        createMetadata({ entityId: "wf-1", entityType: "workflow" }),
+      );
+      await storage.save(
+        "cp-2",
+        new Uint8Array([2]),
+        createMetadata({ entityId: "wf-1", entityType: "workflow", tags: ["backup"] }),
+      );
+      await storage.save(
+        "cp-3",
+        new Uint8Array([3]),
+        createMetadata({ entityId: "wf-2", entityType: "workflow" }),
+      );
 
-      const wf1Checkpoints = await storage.listWithMetadata({ entityType: "workflow", entityId: "wf-1" });
+      const wf1Checkpoints = await storage.listWithMetadata({
+        entityType: "workflow",
+        entityId: "wf-1",
+      });
       expect(wf1Checkpoints).toHaveLength(2);
       wf1Checkpoints.forEach(cp => {
         expect(cp.metadata.entityId).toBe("wf-1");
@@ -178,9 +219,33 @@ describe("Checkpoint Storage E2E", () => {
     it("should get latest checkpoints by entity", async () => {
       const baseTime = Date.now();
       await storage.saveBatch([
-        { id: "cp-1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 100 }) },
-        { id: "cp-2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 200 }) },
-        { id: "cp-3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 300 }) },
+        {
+          id: "cp-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 100,
+          }),
+        },
+        {
+          id: "cp-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 200,
+          }),
+        },
+        {
+          id: "cp-3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 300,
+          }),
+        },
       ]);
 
       const latest = await storage.getLatestByEntity("wf-1", "workflow", 2, true);
@@ -190,9 +255,21 @@ describe("Checkpoint Storage E2E", () => {
 
     it("should delete checkpoints by entity", async () => {
       await storage.saveBatch([
-        { id: "cp-1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }) },
-        { id: "cp-2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }) },
-        { id: "cp-3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", entityType: "workflow" }) },
+        {
+          id: "cp-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }),
+        },
+        {
+          id: "cp-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-1", entityType: "workflow" }),
+        },
+        {
+          id: "cp-3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ entityId: "wf-2", entityType: "workflow" }),
+        },
       ]);
 
       const deleted = await storage.deleteByEntity("wf-1", "workflow");
@@ -205,9 +282,33 @@ describe("Checkpoint Storage E2E", () => {
     it("should keep latest N checkpoints when deleting by entity", async () => {
       const baseTime = Date.now();
       await storage.saveBatch([
-        { id: "cp-1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 100 }) },
-        { id: "cp-2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 200 }) },
-        { id: "cp-3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-1", entityType: "workflow", timestamp: baseTime + 300 }) },
+        {
+          id: "cp-1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 100,
+          }),
+        },
+        {
+          id: "cp-2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 200,
+          }),
+        },
+        {
+          id: "cp-3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({
+            entityId: "wf-1",
+            entityType: "workflow",
+            timestamp: baseTime + 300,
+          }),
+        },
       ]);
 
       const deleted = await storage.deleteByEntity("wf-1", "workflow", { keepLatest: 1 });
@@ -219,9 +320,21 @@ describe("Checkpoint Storage E2E", () => {
   describe("Multi-Tag Filtering", () => {
     it("should filter with single tag", async () => {
       await storage.saveBatch([
-        { id: "cp-t1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }) },
-        { id: "cp-t2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }) },
-        { id: "cp-t3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", tags: ["dev"] }) },
+        {
+          id: "cp-t1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }),
+        },
+        {
+          id: "cp-t2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }),
+        },
+        {
+          id: "cp-t3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ entityId: "wf-2", tags: ["dev"] }),
+        },
       ]);
 
       const prodOnly = await storage.listWithMetadata({ tags: ["prod"] });
@@ -230,9 +343,21 @@ describe("Checkpoint Storage E2E", () => {
 
     it("should filter with multiple tags (AND logic)", async () => {
       await storage.saveBatch([
-        { id: "cp-t1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }) },
-        { id: "cp-t2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }) },
-        { id: "cp-t3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-2", tags: ["backup"] }) },
+        {
+          id: "cp-t1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", tags: ["prod", "backup"] }),
+        },
+        {
+          id: "cp-t2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-1", tags: ["prod"] }),
+        },
+        {
+          id: "cp-t3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ entityId: "wf-2", tags: ["backup"] }),
+        },
       ]);
 
       const prodAndBackup = await storage.listWithMetadata({ tags: ["prod", "backup"] });
@@ -241,7 +366,11 @@ describe("Checkpoint Storage E2E", () => {
     });
 
     it("should return empty when no checkpoint matches tags", async () => {
-      await storage.save("cp-nt", new Uint8Array([1]), createMetadata({ entityId: "wf-1", tags: ["prod"] }));
+      await storage.save(
+        "cp-nt",
+        new Uint8Array([1]),
+        createMetadata({ entityId: "wf-1", tags: ["prod"] }),
+      );
 
       const result = await storage.listWithMetadata({ tags: ["nonexistent"] });
       expect(result).toEqual([]);
@@ -252,9 +381,21 @@ describe("Checkpoint Storage E2E", () => {
     it("should listWithMetadata sorted by timestamp descending by default", async () => {
       const baseTime = Date.now();
       await storage.saveBatch([
-        { id: "cp-s1", data: new Uint8Array([1]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 100 }) },
-        { id: "cp-s2", data: new Uint8Array([2]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 300 }) },
-        { id: "cp-s3", data: new Uint8Array([3]), metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 200 }) },
+        {
+          id: "cp-s1",
+          data: new Uint8Array([1]),
+          metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 100 }),
+        },
+        {
+          id: "cp-s2",
+          data: new Uint8Array([2]),
+          metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 300 }),
+        },
+        {
+          id: "cp-s3",
+          data: new Uint8Array([3]),
+          metadata: createMetadata({ entityId: "wf-1", timestamp: baseTime + 200 }),
+        },
       ]);
 
       const result = await storage.listWithMetadata({ entityType: "workflow", entityId: "wf-1" });
@@ -328,18 +469,30 @@ describe("Checkpoint Storage E2E", () => {
     });
 
     it("should handle save with tags filter", async () => {
-      await storage.save("cp-1", new Uint8Array([1]), createMetadata({
-        entityId: "wf-1",
-        tags: ["alpha", "beta"],
-      }));
-      await storage.save("cp-2", new Uint8Array([2]), createMetadata({
-        entityId: "wf-1",
-        tags: ["beta", "gamma"],
-      }));
-      await storage.save("cp-3", new Uint8Array([3]), createMetadata({
-        entityId: "wf-2",
-        tags: ["gamma"],
-      }));
+      await storage.save(
+        "cp-1",
+        new Uint8Array([1]),
+        createMetadata({
+          entityId: "wf-1",
+          tags: ["alpha", "beta"],
+        }),
+      );
+      await storage.save(
+        "cp-2",
+        new Uint8Array([2]),
+        createMetadata({
+          entityId: "wf-1",
+          tags: ["beta", "gamma"],
+        }),
+      );
+      await storage.save(
+        "cp-3",
+        new Uint8Array([3]),
+        createMetadata({
+          entityId: "wf-2",
+          tags: ["gamma"],
+        }),
+      );
 
       const results = await storage.listWithMetadata({ tags: ["alpha"] });
       expect(results).toHaveLength(1);

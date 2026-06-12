@@ -37,20 +37,21 @@ export function validateLLMProfile(
   config: ParsedConfig<"llm_profile">,
 ): Result<ParsedConfig<"llm_profile">, ValidationError[]> {
   const profile = config.config as LLMProfile;
-  
+
   // Use Zod schema for validation
   const result = LLMProfileSchema.safeParse(profile);
-  
+
   if (!result.success) {
-    const errors = result.error.issues.map((e) => 
-      new ConfigurationValidationError(e.message, {
-        configType: "schema",
-        field: e.path.join("."),
-      })
+    const errors = result.error.issues.map(
+      e =>
+        new ConfigurationValidationError(e.message, {
+          configType: "schema",
+          field: e.path.join("."),
+        }),
     );
     return err(errors);
   }
-  
+
   return ok(config);
 }
 

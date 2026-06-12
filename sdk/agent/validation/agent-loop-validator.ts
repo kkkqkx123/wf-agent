@@ -1,13 +1,17 @@
 /**
  * Agent Loop Configuration Validator
- * 
+ *
  * Provides validation logic for AgentLoopConfigFile using Zod schema from @wf-agent/types.
  * This validator is part of the agent module's validation layer.
  */
 
 import type { AgentLoopConfigFile } from "../../api/shared/config/types.js";
 import type { Result } from "@wf-agent/types";
-import { ValidationError, ConfigurationValidationError, AgentLoopDefinitionSchema } from "@wf-agent/types";
+import {
+  ValidationError,
+  ConfigurationValidationError,
+  AgentLoopDefinitionSchema,
+} from "@wf-agent/types";
 import type { ZodIssue } from "zod";
 import { ok, err } from "@wf-agent/common-utils";
 
@@ -29,7 +33,7 @@ export function validateAgentLoopConfig(
         {
           configType: "schema",
           field: fieldPath || undefined,
-        }
+        },
       );
     });
     return err(errors);
@@ -48,7 +52,9 @@ export function getAgentLoopValidationWarnings(config: AgentLoopConfigFile): str
 
   // Add agent loop-specific warnings here
   if (config.maxIterations && config.maxIterations > 100) {
-    warnings.push(`High maxIterations (${config.maxIterations}). Consider if this is intentional to avoid infinite loops.`);
+    warnings.push(
+      `High maxIterations (${config.maxIterations}). Consider if this is intentional to avoid infinite loops.`,
+    );
   }
 
   if (config.hooks && config.hooks.length > 10) {

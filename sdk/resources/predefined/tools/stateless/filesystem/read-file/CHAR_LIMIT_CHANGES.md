@@ -7,6 +7,7 @@ Replaced unused `MAX_LINE_LENGTH` (per-line character limit) with `max_chars` (t
 ## Problem
 
 The original `MAX_LINE_LENGTH = 2000` constant in the read_file schema was **completely unused** and would have caused issues:
+
 - Would truncate valid long lines in JSON/minified files
 - Line-by-line truncation breaks structured data
 - Doesn't align with token/character-based context window management
@@ -14,6 +15,7 @@ The original `MAX_LINE_LENGTH = 2000` constant in the read_file schema was **com
 ## Solution
 
 Implemented **total character limit** that:
+
 1. Protects against excessive output from any source
 2. Preserves complete lines (truncates at line boundaries when possible)
 3. Works naturally with token estimation
@@ -24,11 +26,13 @@ Implemented **total character limit** that:
 ### 1. Schema Update (`sdk/resources/predefined/tools/stateless filesystem/read-file/schema.ts`)
 
 **Removed:**
+
 ```typescript
 const MAX_LINE_LENGTH = 2000; // Unused per-line limit
 ```
 
 **Added:**
+
 ```typescript
 const DEFAULT_CHAR_LIMIT = 50000; // Total character limit
 
@@ -43,12 +47,14 @@ max_chars: {
 ### 2. Handler Update (`sdk/resources/predefined/tools/stateless/filesystem/read-file/handler.ts`)
 
 **Key Changes:**
+
 - Accept `max_chars` parameter from tool invocation
 - Apply character limit after formatting with line numbers
 - Truncate at line boundaries when possible (preserves readability)
 - Enhanced truncation messages distinguish between line limit vs character limit
 
 **Logic Flow:**
+
 ```typescript
 1. Read file → split into lines
 2. Apply offset/limit → select line range
@@ -64,21 +70,24 @@ max_chars: {
 ### 3. Utility Functions Update (`sdk/utils/misc/file-reader.ts`)
 
 **Enhanced `readWithSlice()`:**
+
 - Added `SliceReadOptions` interface with `maxChars` support
 - Maintains backward compatibility (accepts old `offset, limit` signature)
 - Returns `wasCharTruncated` flag in result
 
 **Enhanced `readWithIndentation()`:**
+
 - Added `maxChars` to `IndentationOptions`
 - Applies character limit after semantic block extraction
 - Returns `wasCharTruncated` flag
 
 **New Interface:**
+
 ```typescript
 export interface SliceReadOptions {
-  offset?: number;        // Starting line (0-based)
-  limit?: number;         // Maximum lines to read
-  maxChars?: number;      // Maximum total characters to return
+  offset?: number; // Starting line (0-based)
+  limit?: number; // Maximum lines to read
+  maxChars?: number; // Maximum total characters to return
 }
 ```
 
@@ -89,39 +98,43 @@ Added export for new `SliceReadOptions` type.
 ## Usage Examples
 
 ### Basic File Reading (uses default 50KB char limit)
+
 ```typescript
 // Reads up to 2000 lines OR 50000 chars, whichever comes first
 await readFile({ path: "large.json" });
 ```
 
 ### Custom Character Limit
+
 ```typescript
 // Limit to 10000 characters total
-await readFile({ 
+await readFile({
   path: "minified.json",
-  max_chars: 10000 
+  max_chars: 10000,
 });
 ```
 
 ### Combined Line + Character Limits
+
 ```typescript
 // Limit to 100 lines AND 5000 chars
-await readFile({ 
+await readFile({
   path: "file.txt",
   limit: 100,
-  max_chars: 5000 
+  max_chars: 5000,
 });
 ```
 
 ### Using Utility Functions
+
 ```typescript
-import { readWithSlice } from '@wf-agent/sdk/utils/misc';
+import { readWithSlice } from "@wf-agent/sdk/utils/misc";
 
 // New API with options object
 const result = readWithSlice(content, {
   offset: 0,
   limit: 100,
-  maxChars: 5000
+  maxChars: 5000,
 });
 
 if (result.wasCharTruncated) {
@@ -147,6 +160,7 @@ const result2 = readWithSlice(content, 0, 100);
 - **Character Limit**: 50,000 characters (~12,500 tokens estimated)
 
 These defaults balance:
+
 - Enough content for meaningful analysis
 - Protection against context window overflow
 - Reasonable memory usage
@@ -154,6 +168,7 @@ These defaults balance:
 ## Testing Recommendations
 
 Test with these scenarios:
+
 1. ✅ Normal text files (< 50KB)
 2. ✅ Files with very long lines (> 2000 chars per line)
 3. ✅ Minified JSON/JavaScript

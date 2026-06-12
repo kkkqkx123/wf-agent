@@ -37,6 +37,7 @@ This guide explains why and how to handle different file formats appropriately.
 ### 1. Plain Text Files ✅ Use `read_file`
 
 **Supported formats:**
+
 - Code files: `.js`, `.ts`, `.py`, `.java`, `.cpp`, `.go`, `.rs`, etc.
 - Config files: `.json`, `.yaml`, `.toml`, `.xml`, `.ini`, `.env`
 - Documentation: `.md`, `.txt`, `.rst`
@@ -45,12 +46,14 @@ This guide explains why and how to handle different file formats appropriately.
 - Data files: `.csv`, `.sql`, `.log`
 
 **Features:**
+
 - Line numbers for reference
 - Slice mode (offset/limit) for large files
 - Indentation mode for semantic code blocks
 - Character limits to prevent token overflow
 
 **Example:**
+
 ```typescript
 // Read a TypeScript file
 { path: "src/app.ts" }
@@ -59,10 +62,10 @@ This guide explains why and how to handle different file formats appropriately.
 { path: "src/app.ts", offset: 50, limit: 100 }
 
 // Extract function containing line 42
-{ 
-  path: "src/app.ts", 
-  mode: "indentation", 
-  indentation: { anchor_line: 42 } 
+{
+  path: "src/app.ts",
+  mode: "indentation",
+  indentation: { anchor_line: 42 }
 }
 ```
 
@@ -71,12 +74,14 @@ This guide explains why and how to handle different file formats appropriately.
 ### 2. PDF Files 📄 Use Dedicated Script
 
 **Why not `read_file`:**
+
 - Binary format with complex structure
 - Pages, fonts, images, annotations
 - Character/line limits are meaningless
 - Need page-level control
 
 **Recommended approach:**
+
 ```python
 # extract_pdf.py
 import pdfplumber
@@ -85,12 +90,12 @@ import json
 def extract_pdf(path: str, pages: str = None, extract_text: bool = True):
     """
     Extract text from PDF with page-level control.
-    
+
     Args:
         path: Path to PDF file
         pages: Page range (e.g., "1-5", "1,3,5", or None for all)
         extract_text: Whether to extract text content
-    
+
     Returns:
         JSON with structured content by page
     """
@@ -103,24 +108,25 @@ def extract_pdf(path: str, pages: str = None, extract_text: bool = True):
             },
             "pages": []
         }
-        
+
         # Process specified pages
         page_nums = parse_page_range(pages, len(pdf.pages)) if pages else range(len(pdf.pages))
-        
+
         for page_num in page_nums:
             page = pdf.pages[page_num]
             text = page.extract_text()
-            
+
             result["pages"].append({
                 "page_number": page_num + 1,
                 "text": text,
                 "word_count": len(text.split()) if text else 0
             })
-        
+
         return json.dumps(result, ensure_ascii=False)
 ```
 
 **Tool configuration:**
+
 ```toml
 # extract-pdf/schema.toml
 [id]
@@ -152,6 +158,7 @@ description = "Page range to extract (e.g., '1-5', '1,3,5', or omit for all)"
 ```
 
 **LLM usage:**
+
 ```
 User: "Read the introduction from report.pdf"
 
@@ -165,11 +172,13 @@ Tool call: extract_pdf(path="report.pdf", pages="1-5")
 ### 3. Word Documents (.docx) 📝 Use Dedicated Script
 
 **Why not `read_file`:**
+
 - ZIP-based format with XML internals
 - Contains formatting, styles, images, tables
 - Need paragraph/table-level access
 
 **Recommended approach:**
+
 ```python
 # extract_docx.py
 from docx import Document
@@ -178,16 +187,16 @@ import json
 def extract_docx(path: str, include_tables: bool = True):
     """
     Extract content from Word document.
-    
+
     Args:
         path: Path to .docx file
         include_tables: Whether to extract tables
-    
+
     Returns:
         JSON with paragraphs, headings, and optional tables
     """
     doc = Document(path)
-    
+
     result = {
         "metadata": {
             "paragraph_count": len(doc.paragraphs),
@@ -195,7 +204,7 @@ def extract_docx(path: str, include_tables: bool = True):
         },
         "content": []
     }
-    
+
     # Extract paragraphs
     for para in doc.paragraphs:
         if para.text.strip():  # Skip empty paragraphs
@@ -204,7 +213,7 @@ def extract_docx(path: str, include_tables: bool = True):
                 "text": para.text,
                 "style": para.style.name if para.style else "Normal"
             })
-    
+
     # Extract tables if requested
     if include_tables:
         for i, table in enumerate(doc.tables):
@@ -212,13 +221,13 @@ def extract_docx(path: str, include_tables: bool = True):
             for row in table.rows:
                 row_data = [cell.text.strip() for cell in row.cells]
                 table_data.append(row_data)
-            
+
             result["content"].append({
                 "type": "table",
                 "table_index": i,
                 "data": table_data
             })
-    
+
     return json.dumps(result, ensure_ascii=False)
 ```
 
@@ -227,11 +236,13 @@ def extract_docx(path: str, include_tables: bool = True):
 ### 4. Excel Files (.xlsx) 📊 Use Dedicated Script
 
 **Why not `read_file`:**
+
 - Spreadsheet with multiple sheets
 - Formulas, formatting, charts
 - Need sheet/cell-level access
 
 **Recommended approach:**
+
 ```python
 # extract_xlsx.py
 import openpyxl
@@ -240,17 +251,17 @@ import json
 def extract_xlsx(path: str, sheets: list = None, max_rows: int = 1000):
     """
     Extract data from Excel workbook.
-    
+
     Args:
         path: Path to .xlsx file
         sheets: List of sheet names to extract (None for all)
         max_rows: Maximum rows per sheet to prevent huge output
-    
+
     Returns:
         JSON with sheet data as arrays
     """
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    
+
     result = {
         "metadata": {
             "sheet_names": wb.sheetnames,
@@ -258,32 +269,32 @@ def extract_xlsx(path: str, sheets: list = None, max_rows: int = 1000):
         },
         "sheets": {}
     }
-    
+
     sheet_names = sheets if sheets else wb.sheetnames
-    
+
     for sheet_name in sheet_names:
         if sheet_name not in wb.sheetnames:
             continue
-        
+
         ws = wb[sheet_name]
         data = []
-        
+
         for i, row in enumerate(ws.iter_rows(values_only=True)):
             if i >= max_rows:
                 break
-            
+
             # Convert None to empty string for consistency
             clean_row = [str(cell) if cell is not None else "" for cell in row]
-            
+
             # Skip completely empty rows
             if any(cell.strip() for cell in clean_row):
                 data.append(clean_row)
-        
+
         result["sheets"][sheet_name] = {
             "row_count": len(data),
             "data": data
         }
-    
+
     wb.close()
     return json.dumps(result, ensure_ascii=False)
 ```
@@ -293,11 +304,13 @@ def extract_xlsx(path: str, sheets: list = None, max_rows: int = 1000):
 ### 5. Images 🖼️ Use Analysis Script
 
 **Why not `read_file`:**
+
 - Binary pixel data
 - Cannot be represented as text
 - Need computer vision processing
 
 **Recommended approach:**
+
 ```python
 # analyze_image.py
 from PIL import Image
@@ -307,16 +320,16 @@ import json
 def analyze_image(path: str, extract_text: bool = False):
     """
     Analyze image file and extract metadata.
-    
+
     Args:
         path: Path to image file
         extract_text: Whether to perform OCR (requires pytesseract)
-    
+
     Returns:
         JSON with image metadata and optional OCR text
     """
     img = Image.open(path)
-    
+
     result = {
         "metadata": {
             "format": img.format,
@@ -325,7 +338,7 @@ def analyze_image(path: str, extract_text: bool = False):
             "file_size_bytes": os.path.getsize(path)
         }
     }
-    
+
     # Optional OCR
     if extract_text:
         try:
@@ -334,7 +347,7 @@ def analyze_image(path: str, extract_text: bool = False):
             result["ocr_text"] = text
         except ImportError:
             result["error"] = "OCR requires pytesseract installation"
-    
+
     return json.dumps(result, ensure_ascii=False)
 ```
 
@@ -343,11 +356,13 @@ def analyze_image(path: str, extract_text: bool = False):
 ### 6. Archives (.zip, .tar, etc.) 📦 Use Archive Tools
 
 **Why not `read_file`:**
+
 - Compressed binary format
 - Contains multiple files
 - Need listing/extraction capabilities
 
 **Recommended approach:**
+
 ```python
 # extract_archive.py
 import zipfile
@@ -358,17 +373,17 @@ import os
 def extract_archive(path: str, list_only: bool = True, extract_path: str = None):
     """
     List or extract archive contents.
-    
+
     Args:
         path: Path to archive file
         list_only: If True, only list contents; if False, extract
         extract_path: Where to extract (if list_only=False)
-    
+
     Returns:
         JSON with file listing or extraction status
     """
     result = {"archive_type": None, "files": []}
-    
+
     # Try ZIP
     if zipfile.is_zipfile(path):
         result["archive_type"] = "zip"
@@ -379,7 +394,7 @@ def extract_archive(path: str, list_only: bool = True, extract_path: str = None)
                     "size": info.file_size,
                     "is_dir": info.filename.endswith('/')
                 })
-    
+
     # Try TAR
     elif tarfile.is_tarfile(path):
         result["archive_type"] = "tar"
@@ -390,10 +405,10 @@ def extract_archive(path: str, list_only: bool = True, extract_path: str = None)
                     "size": member.size,
                     "is_dir": member.isdir()
                 })
-    
+
     else:
         return json.dumps({"error": "Unsupported archive format"})
-    
+
     return json.dumps(result, ensure_ascii=False)
 ```
 
@@ -443,6 +458,7 @@ Need to read a file?
 For adding support for a new file format:
 
 1. **Create script directory**
+
    ```
    resources/scripts/extract-{format}/
    ├── handler.py          # Python script
@@ -479,6 +495,7 @@ For adding support for a new file format:
 ### For LLM Prompts
 
 ✅ **Do:**
+
 ```
 "If you encounter a PDF file, use extract_pdf instead of read_file."
 "For Excel files, use extract_xlsx to get structured sheet data."
@@ -486,6 +503,7 @@ For adding support for a new file format:
 ```
 
 ❌ **Don't:**
+
 ```
 "Try to read all files with read_file."
 "Binary files will be automatically handled."
@@ -494,12 +512,14 @@ For adding support for a new file format:
 ### For Tool Design
 
 ✅ **Do:**
+
 - Keep tools focused on one format
 - Provide format-specific parameters
 - Return structured, parseable output
 - Include helpful error messages
 
 ❌ **Don't:**
+
 - Mix multiple formats in one tool
 - Return unstructured text blobs
 - Hide format-specific details
@@ -522,11 +542,13 @@ If your system previously used `read_file` for all formats:
 ### Backward Compatibility
 
 The simplified `read_file` maintains compatibility for:
+
 - All plain text files ✅
 - Code files with line numbers ✅
 - Slice and indentation modes ✅
 
 It now **rejects** (with helpful guidance):
+
 - PDF files ❌ → Use extract_pdf
 - Word documents ❌ → Use extract_docx
 - Excel files ❌ → Use extract_xlsx
@@ -537,13 +559,13 @@ It now **rejects** (with helpful guidance):
 
 ## Summary
 
-| Format | Tool | Reason |
-|--------|------|--------|
-| Text/Code | `read_file` | Simple, fast, line-based |
-| PDF | `extract_pdf` | Page-level control, structured output |
-| DOCX | `extract_docx` | Paragraph/table access |
-| XLSX | `extract_xlsx` | Sheet/cell-level access |
-| Images | `analyze_image` | Computer vision processing |
-| Archives | `extract_archive` | Listing/extraction capabilities |
+| Format    | Tool              | Reason                                |
+| --------- | ----------------- | ------------------------------------- |
+| Text/Code | `read_file`       | Simple, fast, line-based              |
+| PDF       | `extract_pdf`     | Page-level control, structured output |
+| DOCX      | `extract_docx`    | Paragraph/table access                |
+| XLSX      | `extract_xlsx`    | Sheet/cell-level access               |
+| Images    | `analyze_image`   | Computer vision processing            |
+| Archives  | `extract_archive` | Listing/extraction capabilities       |
 
 **Key principle:** Right tool for the right job. Don't force text-based reading on non-text formats.

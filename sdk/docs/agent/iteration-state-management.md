@@ -13,19 +13,19 @@ The Agent Loop in this project is designed as a **pure, message-driven execution
 
 ## Why No `state` Field?
 
--   **Avoid Logic Splitting**: If an Agent reads from both `messages` and `state`, it creates ambiguity about which source is authoritative.
--   **Workflow vs. Agent**: Complex control flow and persistent state belong in a Workflow. The Agent is a "tool-using loop" that reacts to its environment via prompts.
--   **Human Interaction**: Handled via `steer()`/`followUp()` methods which inject new messages, keeping the interaction model consistent.
+- **Avoid Logic Splitting**: If an Agent reads from both `messages` and `state`, it creates ambiguity about which source is authoritative.
+- **Workflow vs. Agent**: Complex control flow and persistent state belong in a Workflow. The Agent is a "tool-using loop" that reacts to its environment via prompts.
+- **Human Interaction**: Handled via `steer()`/`followUp()` methods which inject new messages, keeping the interaction model consistent.
 
 ## Migration Guide
 
 If you were previously using `variables` or `state` in your Agent implementation:
 
-| Old Approach | New Recommended Approach |
-|---|---|
-| `entity.setVariable('key', value)` | Include the information in the next `LLMMessage` (User or Tool Result). |
-| `const val = entity.getVariable('key')` | Extract from `entity.getMessages()` history. |
-| Storing task progress in `state` | Use a dedicated Workflow node to track progress, or include it in the System Prompt. |
+| Old Approach                            | New Recommended Approach                                                             |
+| --------------------------------------- | ------------------------------------------------------------------------------------ |
+| `entity.setVariable('key', value)`      | Include the information in the next `LLMMessage` (User or Tool Result).              |
+| `const val = entity.getVariable('key')` | Extract from `entity.getMessages()` history.                                         |
+| Storing task progress in `state`        | Use a dedicated Workflow node to track progress, or include it in the System Prompt. |
 
 ## Documentation Status
 

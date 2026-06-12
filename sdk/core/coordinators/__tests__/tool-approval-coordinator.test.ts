@@ -3,48 +3,43 @@
  * Tests for usage limits, state management, audit logging, and error handling
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ToolApprovalCoordinator } from '../tool-approval-coordinator.js';
-import type { 
-  ToolApprovalOptions, 
-  LLMToolCall,
-  Tool,
-  ToolApprovalHandler,
-} from '@wf-agent/types';
-import { EventRegistry } from '../../registry/event-registry.js';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { ToolApprovalCoordinator } from "../tool-approval-coordinator.js";
+import type { ToolApprovalOptions, LLMToolCall, Tool, ToolApprovalHandler } from "@wf-agent/types";
+import { EventRegistry } from "../../registry/event-registry.js";
 
-describe('ToolApprovalCoordinator', () => {
+describe("ToolApprovalCoordinator", () => {
   let coordinator: ToolApprovalCoordinator;
-  
+
   const mockToolCall: LLMToolCall = {
-    id: 'call_123',
-    type: 'function',
+    id: "call_123",
+    type: "function",
     function: {
-      name: 'read_file',
+      name: "read_file",
       arguments: '{"path": "test.txt"}',
     },
   };
 
   const mockTool: Tool = {
-    id: 'read_file',
-    type: 'STATELESS',
-    description: 'Read a file',
+    id: "read_file",
+    type: "STATELESS",
+    description: "Read a file",
     parameters: {
-      type: 'object',
+      type: "object",
       properties: {
-        path: { type: 'string' },
+        path: { type: "string" },
       },
-      required: ['path'],
+      required: ["path"],
     },
     metadata: {
-      riskLevel: 'READ_ONLY',
+      riskLevel: "READ_ONLY",
     },
   };
 
   const mockApprovalHandler = {
     requestApproval: vi.fn().mockResolvedValue({
       approved: true,
-      toolCallId: 'call_123',
+      toolCallId: "call_123",
     }),
   };
 
@@ -53,8 +48,8 @@ describe('ToolApprovalCoordinator', () => {
     vi.clearAllMocks();
   });
 
-  describe('Usage Limits - P0 Implementation', () => {
-    it('should track consecutive auto-approved requests', async () => {
+  describe("Usage Limits - P0 Implementation", () => {
+    it("should track consecutive auto-approved requests", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -69,7 +64,7 @@ describe('ToolApprovalCoordinator', () => {
           toolCall: mockToolCall,
           tool: mockTool,
           options,
-          contextId: 'test-context',
+          contextId: "test-context",
           approvalHandler: mockApprovalHandler,
         });
 
@@ -81,7 +76,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -89,7 +84,7 @@ describe('ToolApprovalCoordinator', () => {
       expect(mockApprovalHandler.requestApproval).toHaveBeenCalled();
     });
 
-    it('should reset counter after manual approval', async () => {
+    it("should reset counter after manual approval", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -103,7 +98,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -111,21 +106,21 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       // Manual approval resets counter
       mockApprovalHandler.requestApproval.mockResolvedValueOnce({
         approved: true,
-        toolCallId: 'call_123',
+        toolCallId: "call_123",
       });
 
       await coordinator.processToolApproval({
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -134,14 +129,14 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       expect(result.approved).toBe(true);
     });
 
-    it('should maintain separate state per context', async () => {
+    it("should maintain separate state per context", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -155,7 +150,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'context-1',
+        contextId: "context-1",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -164,7 +159,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'context-2',
+        contextId: "context-2",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -172,13 +167,13 @@ describe('ToolApprovalCoordinator', () => {
     });
   });
 
-  describe('State Management - P0 Implementation', () => {
-    it('should expose state for monitoring', () => {
-      const state = coordinator.getApprovalState('non-existent');
+  describe("State Management - P0 Implementation", () => {
+    it("should expose state for monitoring", () => {
+      const state = coordinator.getApprovalState("non-existent");
       expect(state).toBeUndefined();
     });
 
-    it('should allow manual state reset', async () => {
+    it("should allow manual state reset", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -192,19 +187,19 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       // Manually reset
-      coordinator.resetApprovalState('test-context');
+      coordinator.resetApprovalState("test-context");
 
       // Should be able to auto-approve again
       const result = await coordinator.processToolApproval({
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -212,8 +207,8 @@ describe('ToolApprovalCoordinator', () => {
     });
   });
 
-  describe('Risk Level Decoupling - P1 Implementation', () => {
-    it('should accept riskLevel without full tool definition', async () => {
+  describe("Risk Level Decoupling - P1 Implementation", () => {
+    it("should accept riskLevel without full tool definition", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -224,28 +219,28 @@ describe('ToolApprovalCoordinator', () => {
       // Provide only riskLevel, no tool
       const result = await coordinator.processToolApproval({
         toolCall: mockToolCall,
-        riskLevel: 'READ_ONLY',
+        riskLevel: "READ_ONLY",
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       expect(result.approved).toBe(true);
     });
 
-    it('should reject when neither tool nor riskLevel is provided', async () => {
+    it("should reject when neither tool nor riskLevel is provided", async () => {
       const result = await coordinator.processToolApproval({
         toolCall: mockToolCall,
         options: {},
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       expect(result.approved).toBe(false);
-      expect(result.rejectionReason).toContain('riskLevel');
+      expect(result.rejectionReason).toContain("riskLevel");
     });
 
-    it('should use provided riskLevel over tool metadata', async () => {
+    it("should use provided riskLevel over tool metadata", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -256,19 +251,19 @@ describe('ToolApprovalCoordinator', () => {
       // Tool says WRITE but we override with READ_ONLY
       const writeTool: Tool = {
         ...mockTool,
-        id: 'write_file',
-        metadata: { riskLevel: 'WRITE' },
+        id: "write_file",
+        metadata: { riskLevel: "WRITE" },
       };
 
       const result = await coordinator.processToolApproval({
         toolCall: {
           ...mockToolCall,
-          function: { name: 'write_file', arguments: '{}' },
+          function: { name: "write_file", arguments: "{}" },
         },
         tool: writeTool,
-        riskLevel: 'READ_ONLY', // Override
+        riskLevel: "READ_ONLY", // Override
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -277,14 +272,14 @@ describe('ToolApprovalCoordinator', () => {
     });
   });
 
-  describe('Error Handling - P1 Enhancement', () => {
-    it('should provide actionable error messages on parse failure', async () => {
+  describe("Error Handling - P1 Enhancement", () => {
+    it("should provide actionable error messages on parse failure", async () => {
       const invalidToolCall: LLMToolCall = {
-        id: 'call_123',
-        type: 'function',
+        id: "call_123",
+        type: "function",
         function: {
-          name: 'read_file',
-          arguments: 'INVALID JSON{{{',
+          name: "read_file",
+          arguments: "INVALID JSON{{{",
         },
       };
 
@@ -292,7 +287,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: invalidToolCall,
         tool: mockTool,
         options: {},
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -300,29 +295,29 @@ describe('ToolApprovalCoordinator', () => {
       expect(mockApprovalHandler.requestApproval).toHaveBeenCalled();
     });
 
-    it('should handle missing required parameters gracefully', async () => {
+    it("should handle missing required parameters gracefully", async () => {
       const shellToolCall: LLMToolCall = {
-        id: 'call_123',
-        type: 'function',
+        id: "call_123",
+        type: "function",
         function: {
-          name: 'run_shell',
-          arguments: '{}', // Missing 'command' parameter
+          name: "run_shell",
+          arguments: "{}", // Missing 'command' parameter
         },
       };
 
       const shellTool: Tool = {
-        id: 'run_shell',
-        type: 'STATELESS',
-        description: 'Run shell command',
-        parameters: { type: 'object', properties: {}, required: [] },
-        metadata: { riskLevel: 'EXECUTE' },
+        id: "run_shell",
+        type: "STATELESS",
+        description: "Run shell command",
+        parameters: { type: "object", properties: {}, required: [] },
+        metadata: { riskLevel: "EXECUTE" },
       };
 
       await coordinator.processToolApproval({
         toolCall: shellToolCall,
         tool: shellTool,
         options: {},
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -331,9 +326,9 @@ describe('ToolApprovalCoordinator', () => {
     });
   });
 
-  describe('Audit Logging - P1 Implementation', () => {
-    it('should log all approval decisions', async () => {
-      const loggerSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  describe("Audit Logging - P1 Implementation", () => {
+    it("should log all approval decisions", async () => {
+      const loggerSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
@@ -346,7 +341,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -356,7 +351,7 @@ describe('ToolApprovalCoordinator', () => {
       loggerSpy.mockRestore();
     });
 
-    it('should include timestamp in audit logs', async () => {
+    it("should include timestamp in audit logs", async () => {
       // Verify state tracking includes timestamps
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
@@ -369,20 +364,20 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'test-context',
+        contextId: "test-context",
         approvalHandler: mockApprovalHandler,
       });
 
       // Get state and verify it has activity timestamp
-      const state = coordinator.getApprovalState('test-context');
+      const state = coordinator.getApprovalState("test-context");
       expect(state).toBeDefined();
       expect(state?.lastActivityAt).toBeDefined();
-      expect(typeof state?.lastActivityAt).toBe('number');
+      expect(typeof state?.lastActivityAt).toBe("number");
     });
   });
 
-  describe('Integration Scenarios', () => {
-    it('should handle complete approval workflow', async () => {
+  describe("Integration Scenarios", () => {
+    it("should handle complete approval workflow", async () => {
       const options: ToolApprovalOptions = {
         autoApprovalEnabled: true,
         categories: {
@@ -396,7 +391,7 @@ describe('ToolApprovalCoordinator', () => {
         toolCall: mockToolCall,
         tool: mockTool,
         options,
-        contextId: 'workflow-test',
+        contextId: "workflow-test",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -404,32 +399,32 @@ describe('ToolApprovalCoordinator', () => {
 
       // Write tool should require approval
       const writeToolCall: LLMToolCall = {
-        id: 'call_456',
-        type: 'function',
+        id: "call_456",
+        type: "function",
         function: {
-          name: 'write_file',
+          name: "write_file",
           arguments: '{"path": "output.txt", "content": "test"}',
         },
       };
 
       const writeTool: Tool = {
-        id: 'write_file',
-        type: 'STATELESS',
-        description: 'Write a file',
-        parameters: { type: 'object', properties: {}, required: [] },
-        metadata: { riskLevel: 'WRITE' },
+        id: "write_file",
+        type: "STATELESS",
+        description: "Write a file",
+        parameters: { type: "object", properties: {}, required: [] },
+        metadata: { riskLevel: "WRITE" },
       };
 
       mockApprovalHandler.requestApproval.mockResolvedValueOnce({
         approved: true,
-        toolCallId: 'call_456',
+        toolCallId: "call_456",
       });
 
       const writeResult = await coordinator.processToolApproval({
         toolCall: writeToolCall,
         tool: writeTool,
         options,
-        contextId: 'workflow-test',
+        contextId: "workflow-test",
         approvalHandler: mockApprovalHandler,
       });
 
@@ -438,7 +433,7 @@ describe('ToolApprovalCoordinator', () => {
     });
   });
 
-  describe('Batch Processing - processToolBatch', () => {
+  describe("Batch Processing - processToolBatch", () => {
     let eventManager: EventRegistry;
     let mockBatchHandler: ToolApprovalHandler;
 
@@ -447,7 +442,7 @@ describe('ToolApprovalCoordinator', () => {
       mockBatchHandler = {
         requestApproval: vi.fn().mockResolvedValue({
           approved: true,
-          toolCallId: 'call_2',
+          toolCallId: "call_2",
           continueBatch: true,
         }),
       };
@@ -455,19 +450,19 @@ describe('ToolApprovalCoordinator', () => {
 
     const createToolCall = (name: string, id?: string): LLMToolCall => ({
       id: id || `call_${name}`,
-      type: 'function',
+      type: "function",
       function: {
         name,
-        arguments: '{}',
+        arguments: "{}",
       },
     });
 
-    it('should handle empty tool list', async () => {
+    it("should handle empty tool list", async () => {
       const result = await coordinator.processToolBatch(
         [],
         {},
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );
@@ -477,14 +472,14 @@ describe('ToolApprovalCoordinator', () => {
       expect(result.confirmationRequired).toBeNull();
     });
 
-    it('should generate unique batchId for each call', async () => {
-      const toolCalls = [createToolCall('tool_1')];
+    it("should generate unique batchId for each call", async () => {
+      const toolCalls = [createToolCall("tool_1")];
 
       const result1 = await coordinator.processToolBatch(
         toolCalls,
         {},
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );
@@ -492,8 +487,8 @@ describe('ToolApprovalCoordinator', () => {
       const result2 = await coordinator.processToolBatch(
         toolCalls,
         {},
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );
@@ -501,38 +496,32 @@ describe('ToolApprovalCoordinator', () => {
       expect(result1.batchId).not.toBe(result2.batchId);
     });
 
-    it('should require approval when no auto-approval enabled', async () => {
-      const toolCalls = [
-        createToolCall('tool_1'),
-        createToolCall('tool_2'),
-      ];
+    it("should require approval when no auto-approval enabled", async () => {
+      const toolCalls = [createToolCall("tool_1"), createToolCall("tool_2")];
 
       const result = await coordinator.processToolBatch(
         toolCalls,
         { autoApprovalEnabled: false },
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );
 
       expect(result.allCompleted).toBe(false);
       expect(result.confirmationRequired).toBeDefined();
-      expect(result.confirmationRequired?.function?.name).toBe('tool_1');
+      expect(result.confirmationRequired?.function?.name).toBe("tool_1");
       expect(result.autoExecuted.length).toBe(0);
     });
 
-    it('should include batch context in approval request', async () => {
-      const toolCalls = [
-        createToolCall('tool_1'),
-        createToolCall('tool_2'),
-      ];
+    it("should include batch context in approval request", async () => {
+      const toolCalls = [createToolCall("tool_1"), createToolCall("tool_2")];
 
       await coordinator.processToolBatch(
         toolCalls,
         { autoApprovalEnabled: false },
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );
@@ -547,23 +536,20 @@ describe('ToolApprovalCoordinator', () => {
       );
     });
 
-    it('should respect continueBatch flag', async () => {
-      const toolCalls = [
-        createToolCall('tool_1'),
-        createToolCall('tool_2'),
-      ];
+    it("should respect continueBatch flag", async () => {
+      const toolCalls = [createToolCall("tool_1"), createToolCall("tool_2")];
 
       mockBatchHandler.requestApproval = vi.fn().mockResolvedValue({
         approved: true,
-        toolCallId: 'tool_1',
+        toolCallId: "tool_1",
         continueBatch: false,
       });
 
       const result = await coordinator.processToolBatch(
         toolCalls,
         {},
-        'test-context',
-        'test-node',
+        "test-context",
+        "test-node",
         mockBatchHandler,
         eventManager,
       );

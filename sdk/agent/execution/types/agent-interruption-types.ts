@@ -1,6 +1,6 @@
 /**
  * Agent Interruption Types
- * 
+ *
  * Agent-specific interruption exception types.
  * These extend the core interruption types with agent-specific context (iteration).
  */
@@ -10,7 +10,7 @@ import type { InterruptionType } from "../../../core/types/interruption-types.js
 
 /**
  * Agent Execution Interrupt Exception
- * 
+ *
  * Extends InterruptedException with agent-specific context (iteration, agentLoopId).
  */
 export class AgentExecutionInterruptedException extends InterruptedException {

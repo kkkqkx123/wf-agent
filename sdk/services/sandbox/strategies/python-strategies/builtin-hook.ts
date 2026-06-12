@@ -7,7 +7,12 @@
  * Architecture reference: docs/infra/sandbox/strategies/python-sandbox.md
  */
 
-import type { SandboxPolicy, PythonPolicy, ScriptExecutionResult, StrategyExecuteOptions } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  PythonPolicy,
+  ScriptExecutionResult,
+  StrategyExecuteOptions,
+} from "@wf-agent/types";
 import type { StrategyImplementation } from "../../types.js";
 import { getTerminalService, type TerminalService } from "../../../terminal/index.js";
 import * as fs from "node:fs";
@@ -66,24 +71,24 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
     const vfsEnabled = !!options.vfs;
     const writableDirs = vfsEnabled && options.cwd ? [options.cwd] : [];
     const wrappedCode = this.wrapWithSandbox(code, pyPolicy, vfsEnabled, writableDirs);
-    const tmpFile = path.join(os.tmpdir(), `sandbox-py-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.py`);
+    const tmpFile = path.join(
+      os.tmpdir(),
+      `sandbox-py-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.py`,
+    );
 
     try {
       fs.writeFileSync(tmpFile, wrappedCode, "utf-8");
-      const result = await this.terminalService.executeOneOff(
-        `python "${tmpFile}"`,
-        {
-          cwd: options.cwd,
-          env: {
-            ...options.env,
-            PYTHONPATH: "",
-            PYTHONDONTWRITEBYTECODE: "1",
-            PYTHONSTARTUP: "",
-            PYTHONHOME: "",
-          },
-          timeout: options.timeout ?? policy.resource?.timeoutLimit,
+      const result = await this.terminalService.executeOneOff(`python "${tmpFile}"`, {
+        cwd: options.cwd,
+        env: {
+          ...options.env,
+          PYTHONPATH: "",
+          PYTHONDONTWRITEBYTECODE: "1",
+          PYTHONSTARTUP: "",
+          PYTHONHOME: "",
         },
-      );
+        timeout: options.timeout ?? policy.resource?.timeoutLimit,
+      });
 
       return {
         success: result.success,
@@ -115,7 +120,12 @@ export class PythonBuiltinHookStrategy implements StrategyImplementation<ScriptE
    * When VFS is enabled, write operations are allowed within the workspace
    * directory (the VFS delta layer on the Node.js side handles CoW).
    */
-  wrapWithSandbox(code: string, policy: PythonPolicy, vfsEnabled: boolean = false, writableDirs: string[] = []): string {
+  wrapWithSandbox(
+    code: string,
+    policy: PythonPolicy,
+    vfsEnabled: boolean = false,
+    writableDirs: string[] = [],
+  ): string {
     const deniedModulesJson = JSON.stringify(policy.deniedModules);
     const allowedModulesJson = JSON.stringify(policy.allowedModules);
     const restrictOpen = policy.restrictBuiltinOpen ? "True" : "False";

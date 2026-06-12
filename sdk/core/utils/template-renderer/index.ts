@@ -1,1 +1,7 @@
-export { renderTemplate, renderTemplates, validateTemplateVariables, getVariableValue, TemplateRenderError } from "./template-renderer.js";
+export {
+  renderTemplate,
+  renderTemplates,
+  validateTemplateVariables,
+  getVariableValue,
+  TemplateRenderError,
+} from "./template-renderer.js";

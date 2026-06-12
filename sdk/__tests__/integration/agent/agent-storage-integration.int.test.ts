@@ -13,10 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  createFullAgentLoopFixture,
-  createBasicAgentConfig,
-} from "./__shared/fixtures.js";
+import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
 import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
 
 describe("Agent Loop Storage Integration", () => {
@@ -62,7 +59,16 @@ describe("Agent Loop Storage Integration", () => {
 
     it("should persist agent loop entity to storage after multiple iterations", async () => {
       fixture.mockLLMWrapper.setResponseSequence([
-        { content: "Tool result.", toolCalls: [{ id: "call_1", name: "mock_echo_tool", arguments: JSON.stringify({ message: "echo" }) }] },
+        {
+          content: "Tool result.",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "mock_echo_tool",
+              arguments: JSON.stringify({ message: "echo" }),
+            },
+          ],
+        },
         { content: "Final answer after tools." },
       ]);
 

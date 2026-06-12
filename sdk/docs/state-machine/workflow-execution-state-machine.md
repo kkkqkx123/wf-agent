@@ -6,15 +6,15 @@ The Workflow Execution state machine manages the execution lifecycle of workflow
 
 ### WorkflowExecutionStatus Enum
 
-| Status | Description | Type |
-|--------|-------------|------|
-| `CREATED` | Execution created, not started | Initial |
-| `RUNNING` | Execution is running | Active |
-| `PAUSED` | Execution is paused (can be resumed) | Active |
-| `COMPLETED` | Execution completed successfully | Terminal (Success) |
-| `FAILED` | Execution failed | Terminal (Error) |
-| `CANCELLED` | Execution was cancelled | Terminal (Error) |
-| `TIMEOUT` | Execution timed out | Terminal (Error) |
+| Status      | Description                          | Type               |
+| ----------- | ------------------------------------ | ------------------ |
+| `CREATED`   | Execution created, not started       | Initial            |
+| `RUNNING`   | Execution is running                 | Active             |
+| `PAUSED`    | Execution is paused (can be resumed) | Active             |
+| `COMPLETED` | Execution completed successfully     | Terminal (Success) |
+| `FAILED`    | Execution failed                     | Terminal (Error)   |
+| `CANCELLED` | Execution was cancelled              | Terminal (Error)   |
+| `TIMEOUT`   | Execution timed out                  | Terminal (Error)   |
 
 **Source**: `packages/types/src/workflow/status.ts`
 
@@ -30,24 +30,26 @@ COMPLETED/FAILED/CANCELLED/TIMEOUT → (final states, no further transitions)
 ### Transition Table
 
 | From \ To | CREATED | RUNNING | PAUSED | COMPLETED | FAILED | CANCELLED | TIMEOUT |
-|-----------|--------|---------|-------|----------|--------|----------|---------|
-| CREATED   | -      | ✓       | -     | -        | -      | -         | -       |
-| RUNNING   | -      | -       | ✓     | ✓       | ✓      | ✓        | ✓       |
-| PAUSED    | -      | ✓       | -     | -        | -      | ✓        | ✓       |
-| COMPLETED | -      | -       | -     | -        | -      | -         | -       |
-| FAILED    | -      | -       | -     | -        | -      | -         | -       |
-| CANCELLED | -      | -       | -     | -        | -      | -         | -       |
-| TIMEOUT   | -      | -       | -     | -        | -      | -         | -       |
+| --------- | ------- | ------- | ------ | --------- | ------ | --------- | ------- |
+| CREATED   | -       | ✓       | -      | -         | -      | -         | -       |
+| RUNNING   | -       | -       | ✓      | ✓         | ✓      | ✓         | ✓       |
+| PAUSED    | -       | ✓       | -      | -         | -      | ✓         | ✓       |
+| COMPLETED | -       | -       | -      | -         | -      | -         | -       |
+| FAILED    | -       | -       | -      | -         | -      | -         | -       |
+| CANCELLED | -       | -       | -      | -         | -      | -         | -       |
+| TIMEOUT   | -       | -       | -      | -         | -      | -         | -       |
 
 ## State Classification
 
 ### Terminal States
+
 - `COMPLETED`
 - `FAILED`
 - `CANCELLED`
 - `TIMEOUT`
 
 ### Active States
+
 - `RUNNING`
 - `PAUSED`
 
@@ -58,6 +60,7 @@ COMPLETED/FAILED/CANCELLED/TIMEOUT → (final states, no further transitions)
 **Location**: `sdk/workflow/state-managers/workflow-execution-state.ts`
 
 Manages runtime state during execution:
+
 - `_status`: Current status
 - `_shouldPause`: Pause interrupt flag
 - `_shouldStop`: Stop interrupt flag
@@ -86,16 +89,17 @@ Manages runtime state during execution:
 
 Provides atomic state transition operations:
 
-| Method | Valid From | Operation |
-|--------|------------|-----------|
-| `startWorkflowExecution()` | CREATED | Start execution |
-| `pauseWorkflowExecution()` | RUNNING | Pause execution |
-| `resumeWorkflowExecution()` | PAUSED | Resume execution |
-| `completeWorkflowExecution()` | RUNNING | Complete with result |
-| `failWorkflowExecution()` | RUNNING | Mark as failed |
-| `cancelWorkflowExecution()` | RUNNING/PAUSED | Cancel execution |
+| Method                        | Valid From     | Operation            |
+| ----------------------------- | -------------- | -------------------- |
+| `startWorkflowExecution()`    | CREATED        | Start execution      |
+| `pauseWorkflowExecution()`    | RUNNING        | Pause execution      |
+| `resumeWorkflowExecution()`   | PAUSED         | Resume execution     |
+| `completeWorkflowExecution()` | RUNNING        | Complete with result |
+| `failWorkflowExecution()`     | RUNNING        | Mark as failed       |
+| `cancelWorkflowExecution()`   | RUNNING/PAUSED | Cancel execution     |
 
 The transitor also:
+
 - Validates state transitions
 - Emits lifecycle events
 - Manages child execution cascade operations
@@ -105,13 +109,13 @@ The transitor also:
 
 Pure functions for state validation:
 
-| Function | Description |
-|----------|-------------|
-| `isValidTransition(from, to)` | Check if transition is valid |
-| `validateTransition(id, from, to)` | Validate or throw error |
-| `getAllowedTransitions(from)` | Get allowed target states |
-| `isTerminalStatus(status)` | Check if terminal state |
-| `isActiveStatus(status)` | Check if active state |
+| Function                           | Description                  |
+| ---------------------------------- | ---------------------------- |
+| `isValidTransition(from, to)`      | Check if transition is valid |
+| `validateTransition(id, from, to)` | Validate or throw error      |
+| `getAllowedTransitions(from)`      | Get allowed target states    |
+| `isTerminalStatus(status)`         | Check if terminal state      |
+| `isActiveStatus(status)`           | Check if active state        |
 
 ## Workflow Execution Entity Integration
 
@@ -133,15 +137,15 @@ class WorkflowExecutionEntity {
 
 State transitions emit lifecycle events:
 
-| Event | Triggered By |
-|-------|------------|
-| `WorkflowExecutionStarted` | `startWorkflowExecution()` |
-| `WorkflowExecutionPaused` | `pauseWorkflowExecution()` |
-| `WorkflowExecutionResumed` | `resumeWorkflowExecution()` |
-| `WorkflowExecutionCompleted` | `completeWorkflowExecution()` |
-| `WorkflowExecutionFailed` | `failWorkflowExecution()` |
-| `WorkflowExecutionCancelled` | `cancelWorkflowExecution()` |
-| `WorkflowExecutionStateChanged` | Any state transition |
+| Event                           | Triggered By                  |
+| ------------------------------- | ----------------------------- |
+| `WorkflowExecutionStarted`      | `startWorkflowExecution()`    |
+| `WorkflowExecutionPaused`       | `pauseWorkflowExecution()`    |
+| `WorkflowExecutionResumed`      | `resumeWorkflowExecution()`   |
+| `WorkflowExecutionCompleted`    | `completeWorkflowExecution()` |
+| `WorkflowExecutionFailed`       | `failWorkflowExecution()`     |
+| `WorkflowExecutionCancelled`    | `cancelWorkflowExecution()`   |
+| `WorkflowExecutionStateChanged` | Any state transition          |
 
 **Source**: `sdk/core/utils/event/builders/workflow-execution-events.ts`
 

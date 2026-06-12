@@ -8,29 +8,29 @@
 
 ### 2.1 现有工具分类
 
-| 工具 ID | 执行类型 | 功能分类 | 当前风险判断 |
-|---------|----------|----------|--------------|
-| `read_file` | STATELESS | filesystem | 只读，低风险 |
-| `write_file` | STATELESS | filesystem | 写入，中风险 |
-| `edit` | STATELESS | filesystem | 写入，中风险 |
-| `apply_diff` | STATELESS | filesystem | 写入，中风险 |
-| `apply_patch` | STATELESS | filesystem | 写入，中风险 |
-| `list_files` | STATELESS | filesystem | 只读，低风险 |
-| `search_files` | STATELESS | filesystem | 只读，低风险 |
-| `run_shell` | STATELESS | shell | 命令执行，高风险 |
-| `record_note` | STATEFUL | memory | 状态写入，中风险 |
-| `recall_notes` | STATEFUL | memory | 状态读取，低风险 |
-| `backend_shell` | STATEFUL | shell | 命令执行，高风险 |
-| `shell_output` | STATEFUL | shell | 状态读取，低风险 |
-| `shell_kill` | STATEFUL | shell | 进程控制，高风险 |
-| `ask_followup_question` | STATELESS | interaction | 用户交互，特殊 |
-| `run_slash_command` | STATELESS | interaction | 命令执行，高风险 |
-| `skill` | STATELESS | interaction | 指令加载，低风险 |
-| `update_todo_list` | STATELESS | interaction | 状态更新，低风险 |
-| `use_mcp` | STATELESS | mcp | MCP 调用，独立分类 |
-| `execute_workflow` | BUILTIN | workflow | 系统操作，高风险 |
-| `cancel_workflow` | BUILTIN | workflow | 系统操作，高风险 |
-| `query_workflow_status` | BUILTIN | workflow | 状态查询，低风险 |
+| 工具 ID                 | 执行类型  | 功能分类    | 当前风险判断       |
+| ----------------------- | --------- | ----------- | ------------------ |
+| `read_file`             | STATELESS | filesystem  | 只读，低风险       |
+| `write_file`            | STATELESS | filesystem  | 写入，中风险       |
+| `edit`                  | STATELESS | filesystem  | 写入，中风险       |
+| `apply_diff`            | STATELESS | filesystem  | 写入，中风险       |
+| `apply_patch`           | STATELESS | filesystem  | 写入，中风险       |
+| `list_files`            | STATELESS | filesystem  | 只读，低风险       |
+| `search_files`          | STATELESS | filesystem  | 只读，低风险       |
+| `run_shell`             | STATELESS | shell       | 命令执行，高风险   |
+| `record_note`           | STATEFUL  | memory      | 状态写入，中风险   |
+| `recall_notes`          | STATEFUL  | memory      | 状态读取，低风险   |
+| `backend_shell`         | STATEFUL  | shell       | 命令执行，高风险   |
+| `shell_output`          | STATEFUL  | shell       | 状态读取，低风险   |
+| `shell_kill`            | STATEFUL  | shell       | 进程控制，高风险   |
+| `ask_followup_question` | STATELESS | interaction | 用户交互，特殊     |
+| `run_slash_command`     | STATELESS | interaction | 命令执行，高风险   |
+| `skill`                 | STATELESS | interaction | 指令加载，低风险   |
+| `update_todo_list`      | STATELESS | interaction | 状态更新，低风险   |
+| `use_mcp`               | STATELESS | mcp         | MCP 调用，独立分类 |
+| `execute_workflow`      | BUILTIN   | workflow    | 系统操作，高风险   |
+| `cancel_workflow`       | BUILTIN   | workflow    | 系统操作，高风险   |
+| `query_workflow_status` | BUILTIN   | workflow    | 状态查询，低风险   |
 
 ### 2.2 风险级别定义
 
@@ -58,15 +58,15 @@ export type ToolRiskLevel =
 
 **风险级别说明**：
 
-| 级别 | 说明 | 自动审批策略 |
-|------|------|--------------|
-| `READ_ONLY` | 只读操作，无副作用 | 默认可自动审批 |
-| `WRITE` | 写入操作，有副作用 | 需显式配置 |
-| `EXECUTE` | 命令执行，高风险 | 需命令白名单 |
-| `MCP` | MCP 协议调用，独立分类 | 需 MCP 配置（支持 stdio） |
-| `NETWORK` | HTTP 网络请求 | 需域名白名单 |
-| `SYSTEM` | 系统级操作 | 永不自动审批 |
-| `INTERACTION` | 用户交互 | 超时自动响应 |
+| 级别          | 说明                   | 自动审批策略              |
+| ------------- | ---------------------- | ------------------------- |
+| `READ_ONLY`   | 只读操作，无副作用     | 默认可自动审批            |
+| `WRITE`       | 写入操作，有副作用     | 需显式配置                |
+| `EXECUTE`     | 命令执行，高风险       | 需命令白名单              |
+| `MCP`         | MCP 协议调用，独立分类 | 需 MCP 配置（支持 stdio） |
+| `NETWORK`     | HTTP 网络请求          | 需域名白名单              |
+| `SYSTEM`      | 系统级操作             | 永不自动审批              |
+| `INTERACTION` | 用户交互               | 超时自动响应              |
 
 ### 2.3 工具风险分类映射
 
@@ -81,41 +81,41 @@ import type { ToolRiskLevel } from "@wf-agent/types";
  */
 export const TOOL_RISK_CLASSIFICATION: Record<string, ToolRiskLevel> = {
   // === STATELESS - Filesystem (Read) ===
-  "read_file": "READ_ONLY",
-  "list_files": "READ_ONLY",
-  "search_files": "READ_ONLY",
+  read_file: "READ_ONLY",
+  list_files: "READ_ONLY",
+  search_files: "READ_ONLY",
 
   // === STATELESS - Filesystem (Write) ===
-  "write_file": "WRITE",
-  "edit": "WRITE",
-  "apply_diff": "WRITE",
-  "apply_patch": "WRITE",
+  write_file: "WRITE",
+  edit: "WRITE",
+  apply_diff: "WRITE",
+  apply_patch: "WRITE",
 
   // === STATELESS - Shell ===
-  "run_shell": "EXECUTE",
+  run_shell: "EXECUTE",
 
   // === STATELESS - Interaction ===
-  "ask_followup_question": "INTERACTION",
-  "run_slash_command": "EXECUTE",
-  "skill": "READ_ONLY",        // Loading instructions is safe
-  "update_todo_list": "READ_ONLY",  // Todo update is safe
+  ask_followup_question: "INTERACTION",
+  run_slash_command: "EXECUTE",
+  skill: "READ_ONLY", // Loading instructions is safe
+  update_todo_list: "READ_ONLY", // Todo update is safe
 
   // === STATELESS - MCP (Independent Category) ===
-  "use_mcp": "MCP",            // MCP protocol calls (stdio, etc.)
+  use_mcp: "MCP", // MCP protocol calls (stdio, etc.)
 
   // === STATEFUL - Memory ===
-  "record_note": "WRITE",
-  "recall_notes": "READ_ONLY",
+  record_note: "WRITE",
+  recall_notes: "READ_ONLY",
 
   // === STATEFUL - Shell ===
-  "backend_shell": "EXECUTE",
-  "shell_output": "READ_ONLY",
-  "shell_kill": "EXECUTE",
+  backend_shell: "EXECUTE",
+  shell_output: "READ_ONLY",
+  shell_kill: "EXECUTE",
 
   // === BUILTIN - Workflow ===
-  "execute_workflow": "SYSTEM",
-  "cancel_workflow": "SYSTEM",
-  "query_workflow_status": "READ_ONLY",
+  execute_workflow: "SYSTEM",
+  cancel_workflow: "SYSTEM",
+  query_workflow_status: "READ_ONLY",
 };
 
 /**
@@ -193,7 +193,7 @@ import minimatch from "minimatch";
 export function checkFilePermission(
   filePath: string,
   operation: "read" | "write" | "delete",
-  settings: FilePermissionSettings
+  settings: FilePermissionSettings,
 ): { allowed: boolean; reason?: string } {
   // 1. Find matching rule
   const rule = findMatchingRule(filePath, settings.rules);
@@ -223,7 +223,7 @@ export function checkFilePermission(
  */
 function findMatchingRule(
   filePath: string,
-  rules: FilePermissionRule[]
+  rules: FilePermissionRule[],
 ): FilePermissionRule | undefined {
   for (const rule of rules) {
     if (minimatch(filePath, rule.pattern)) {
@@ -257,7 +257,7 @@ const filePermissionSettings: FilePermissionSettings = {
     // Write access for docs
     { pattern: "**/*.md", permission: "write", description: "Markdown files" },
   ],
-  defaultPermission: "write",  // Default allow read and write
+  defaultPermission: "write", // Default allow read and write
 };
 ```
 
@@ -295,13 +295,13 @@ export type AutoApprovalCategory =
  * Risk level to approval category mapping
  */
 export const RISK_TO_CATEGORY: Record<ToolRiskLevel, AutoApprovalCategory | null> = {
-  "READ_ONLY": "alwaysAllowReadOnly",
-  "WRITE": "alwaysAllowWrite",
-  "EXECUTE": "alwaysAllowExecute",
-  "MCP": "alwaysAllowMcp",
-  "NETWORK": "alwaysAllowNetwork",
-  "INTERACTION": "alwaysAllowInteraction",
-  "SYSTEM": null,  // SYSTEM level never auto-approves
+  READ_ONLY: "alwaysAllowReadOnly",
+  WRITE: "alwaysAllowWrite",
+  EXECUTE: "alwaysAllowExecute",
+  MCP: "alwaysAllowMcp",
+  NETWORK: "alwaysAllowNetwork",
+  INTERACTION: "alwaysAllowInteraction",
+  SYSTEM: null, // SYSTEM level never auto-approves
 };
 ```
 
@@ -313,12 +313,7 @@ export const RISK_TO_CATEGORY: Record<ToolRiskLevel, AutoApprovalCategory | null
 /**
  * File permission level
  */
-export type FilePermissionLevel =
-  | "none"
-  | "read"
-  | "write"
-  | "full"
-  | "denied";
+export type FilePermissionLevel = "none" | "read" | "write" | "full" | "denied";
 
 /**
  * File permission rule
@@ -375,10 +370,10 @@ export interface ToolMetadata {
 export interface ApprovalCondition {
   /** Condition type */
   type:
-    | "workspace_boundary"    // Check if operation is within workspace
-    | "protected_file"        // Check if file is protected
-    | "command_whitelist"     // Check command against whitelist
-    | "domain_whitelist"      // Check domain against whitelist
+    | "workspace_boundary" // Check if operation is within workspace
+    | "protected_file" // Check if file is protected
+    | "command_whitelist" // Check command against whitelist
+    | "domain_whitelist" // Check domain against whitelist
     | "mcp_server_whitelist"; // Check MCP server against whitelist
   /** Condition configuration */
   config: Record<string, unknown>;
@@ -493,7 +488,7 @@ export interface ToolApprovalOptions {
 // sdk/core/services/auto-approval/auto-approval-checker.ts
 
 export async function checkAutoApproval(
-  params: CheckAutoApprovalParams
+  params: CheckAutoApprovalParams,
 ): Promise<AutoApprovalDecision> {
   const { options, tool, context } = params;
 
@@ -507,7 +502,7 @@ export async function checkAutoApproval(
     const fileDecision = checkFilePermission(
       context.filePath,
       context.fileOperation ?? "read",
-      options.filePermissions
+      options.filePermissions,
     );
     if (!fileDecision.allowed) {
       return { decision: "deny", reason: fileDecision.reason };
@@ -562,7 +557,7 @@ export async function checkAutoApproval(
  */
 function handleMcpApproval(
   options: ToolApprovalOptions,
-  context: CheckAutoApprovalParams["context"]
+  context: CheckAutoApprovalParams["context"],
 ): AutoApprovalDecision {
   // MCP requires explicit configuration
   const category = options.categories?.alwaysAllowMcp;

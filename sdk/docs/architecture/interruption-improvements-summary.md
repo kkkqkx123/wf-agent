@@ -9,6 +9,7 @@
 ## 📋 执行摘要
 
 本次改进全面优化了 SDK 的中断处理系统，包括：
+
 1. **删除向后兼容代码** - 简化 API，移除冗余方法
 2. **修复类型安全问题** - 完善错误类型定义
 3. **增强内存管理** - 防止资源泄漏
@@ -25,29 +26,29 @@
 
 #### P1 - 高风险问题
 
-| # | 改进项 | 文件 | 状态 |
-|---|--------|------|------|
-| 1 | PropagationError 类型安全 - 添加 name 字段 | `interruption-propagation-proxy.ts` | ✅ |
-| 2 | 循环引用检测 - DFS 图遍历算法 | `interruption-propagation-proxy.ts` | ✅ |
-| 3 | AbortError 原因保留 - error.cause 链 | `abort-signal-utils.ts` | ✅ |
+| #   | 改进项                                     | 文件                                | 状态 |
+| --- | ------------------------------------------ | ----------------------------------- | ---- |
+| 1   | PropagationError 类型安全 - 添加 name 字段 | `interruption-propagation-proxy.ts` | ✅   |
+| 2   | 循环引用检测 - DFS 图遍历算法              | `interruption-propagation-proxy.ts` | ✅   |
+| 3   | AbortError 原因保留 - error.cause 链       | `abort-signal-utils.ts`             | ✅   |
 
 #### P2 - 中风险问题
 
-| # | 改进项 | 文件 | 状态 |
-|---|--------|------|------|
-| 4 | 重试延迟优化 - 第一次不延迟 | `interruption-propagation-proxy.ts` | ✅ |
-| 5 | dispose 完善 - 主动 abort + GC 帮助 | `interruption-state.ts` | ✅ |
-| 6 | 全局深度追踪 - 参数传递代替实例变量 | `interruption-propagation-proxy.ts` | ✅ |
-| 7 | 监听器数量限制 - MAX_EVENT_LISTENERS=100 | `interruption-state.ts` | ✅ |
+| #   | 改进项                                   | 文件                                | 状态 |
+| --- | ---------------------------------------- | ----------------------------------- | ---- |
+| 4   | 重试延迟优化 - 第一次不延迟              | `interruption-propagation-proxy.ts` | ✅   |
+| 5   | dispose 完善 - 主动 abort + GC 帮助      | `interruption-state.ts`             | ✅   |
+| 6   | 全局深度追踪 - 参数传递代替实例变量      | `interruption-propagation-proxy.ts` | ✅   |
+| 7   | 监听器数量限制 - MAX_EVENT_LISTENERS=100 | `interruption-state.ts`             | ✅   |
 
 #### P3 - 低风险/优化
 
-| # | 改进项 | 文件 | 状态 |
-|---|--------|------|------|
-| 8 | Resume 监听器文档改进 | `interruption-state.ts` | ✅ |
-| 9 | getFreshAbortSignal 标记废弃 | `interruption-state.ts` | ✅ |
-| 10 | shouldContinue 标记废弃 | `abort-signal-utils.ts` | ✅ |
-| 11 | 统一 InterruptionInfo 使用 | `interruption-state.ts` | ✅ |
+| #   | 改进项                       | 文件                    | 状态 |
+| --- | ---------------------------- | ----------------------- | ---- |
+| 8   | Resume 监听器文档改进        | `interruption-state.ts` | ✅   |
+| 9   | getFreshAbortSignal 标记废弃 | `interruption-state.ts` | ✅   |
+| 10  | shouldContinue 标记废弃      | `abort-signal-utils.ts` | ✅   |
+| 11  | 统一 InterruptionInfo 使用   | `interruption-state.ts` | ✅   |
 
 ---
 
@@ -55,19 +56,19 @@
 
 #### 删除向后兼容代码
 
-| # | 改进项 | 文件 | 说明 |
-|---|--------|------|------|
-| 12 | 删除旧构造函数重载 | `interruption-state.ts` | 只保留配置对象模式 |
-| 13 | 删除 getFreshAbortSignal() | `interruption-state.ts` | 统一使用 getAbortSignal() |
-| 14 | 删除 shouldContinue() | `abort-signal-utils.ts` + `index.ts` | 统一使用 shouldContinueExecution() |
-| 15 | 更新文档引用 | `interruption-integration-analysis.md` | 替换为新的 API 名称 |
+| #   | 改进项                     | 文件                                   | 说明                               |
+| --- | -------------------------- | -------------------------------------- | ---------------------------------- |
+| 12  | 删除旧构造函数重载         | `interruption-state.ts`                | 只保留配置对象模式                 |
+| 13  | 删除 getFreshAbortSignal() | `interruption-state.ts`                | 统一使用 getAbortSignal()          |
+| 14  | 删除 shouldContinue()      | `abort-signal-utils.ts` + `index.ts`   | 统一使用 shouldContinueExecution() |
+| 15  | 更新文档引用               | `interruption-integration-analysis.md` | 替换为新的 API 名称                |
 
 #### 修复编译错误
 
-| # | 改进项 | 文件 | 说明 |
-|---|--------|------|------|
-| 16 | 添加 AgentLoopEntity.getAbortSignal() | `agent-loop-entity.ts` | 暴露中断信号访问 |
-| 17 | 修复可选链访问 | `agent-error-handler.ts` | 处理 undefined 情况 |
+| #   | 改进项                                | 文件                     | 说明                |
+| --- | ------------------------------------- | ------------------------ | ------------------- |
+| 16  | 添加 AgentLoopEntity.getAbortSignal() | `agent-loop-entity.ts`   | 暴露中断信号访问    |
+| 17  | 修复可选链访问                        | `agent-error-handler.ts` | 处理 undefined 情况 |
 
 ---
 
@@ -78,18 +79,20 @@
 **问题**: Agent 单次迭代中缺少显式中断检查，导致响应延迟
 
 **改进**:
+
 - **文件**: `agent-execution-coordinator.ts:474-520`
 - **位置**: `executeIteration()` 方法
 - **内容**:
+
   ```typescript
   // ✅ Pre-LLM call interruption check
   const preCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
   if (preCheck.type === "paused" || preCheck.type === "stopped") {
     return { success: false, shouldContinue: false, interruption: ... };
   }
-  
+
   // LLM call...
-  
+
   // ✅ Post-LLM call interruption check
   const postCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
   if (postCheck.type === "paused" || postCheck.type === "stopped") {
@@ -97,7 +100,8 @@
   }
   ```
 
-**效果**: 
+**效果**:
+
 - 减少资源浪费（避免在中断后继续执行工具调用）
 - 提高中断响应速度（从下一个迭代提前到当前迭代内）
 - 与 Workflow 的检查模式保持一致
@@ -109,12 +113,14 @@
 **问题**: 并行模式下 Hook 执行期间中断响应不及时
 
 **改进**:
+
 - **文件**: `core/hooks/executor.ts:184-235`
 - **策略**:
   1. **并行模式**: 开始前检查 + 结束后检查（不再在每个 Hook 前检查，因为 Promise.allSettled 已启动）
   2. **串行模式**: 保持每个 Hook 执行前检查
-  
+
 **关键改进**:
+
 ```typescript
 // 并行模式优化
 if (resolvedConfig.parallel) {
@@ -122,14 +128,14 @@ if (resolvedConfig.parallel) {
   if (resolvedConfig.abortSignal?.aborted) {
     throw new Error(`Hook execution interrupted before start: ${interruption.type}`);
   }
-  
+
   // Execute all hooks in parallel
   const promises = hooks.map(async (hook) => {
     return executeSingleHook(...);
   });
-  
+
   const results = await Promise.allSettled(promises);
-  
+
   // Check for interruption after all hooks complete
   if (resolvedConfig.abortSignal?.aborted) {
     // Mark all successful results as interrupted
@@ -138,7 +144,8 @@ if (resolvedConfig.parallel) {
 }
 ```
 
-**效果**: 
+**效果**:
+
 - 并行模式：避免在已开始执行的 Hook 中重复检查
 - 串行模式：保持细粒度检查
 - 统一的错误处理逻辑
@@ -150,20 +157,23 @@ if (resolvedConfig.parallel) {
 **问题**: AgentLoop 创建时未设置与父级 Workflow 的中断传播关系
 
 **改进**:
+
 - **文件**: `agent/execution/coordinators/agent-loop-coordinator.ts:99-127`
 - **位置**: `buildEntity()` 方法
 - **内容**:
   ```typescript
   // Setup interruption cascade propagation from parent workflow (if exists)
   if (options.parentExecutionId) {
-    const executionRegistry = this.globalContext.container.get(Identifiers.WorkflowExecutionRegistry);
+    const executionRegistry = this.globalContext.container.get(
+      Identifiers.WorkflowExecutionRegistry,
+    );
     const parentEntity = executionRegistry.get(options.parentExecutionId);
     if (parentEntity) {
       const parentInterruptionState = parentEntity.getInterruptionState();
       if (parentInterruptionState && interruptionManager) {
         // Register child with parent's interruption state
         parentInterruptionState.registerChild(interruptionManager);
-        
+
         logger.info("Interruption cascade established for AgentLoop", {
           parentExecutionId: options.parentExecutionId,
           agentLoopId: entity.id,
@@ -173,7 +183,8 @@ if (resolvedConfig.parallel) {
   }
   ```
 
-**效果**: 
+**效果**:
+
 - 确保 AgentLoop 能接收父级 Workflow 的中断信号
 - 实现完整的中断级联传播机制
 - 支持 Workflow → Agent 的中断继承
@@ -185,13 +196,14 @@ if (resolvedConfig.parallel) {
 **问题**: 流式模式下 AbortError 可能被当作普通错误处理
 
 **改进**:
+
 - **文件**: `agent-execution-coordinator.ts:608-622`
 - **位置**: `executeIterationStream()` 方法
 - **内容**:
   ```typescript
   if (llmWrapperResult.isErr()) {
     const error = llmWrapperResult.error;
-    
+
     // ✅ Prioritize checking for interruption errors
     if (error.name === "AbortError" && entity.getAbortSignal()?.aborted) {
       logger.debug("LLM stream call aborted, letting outer handler process", {
@@ -200,13 +212,14 @@ if (resolvedConfig.parallel) {
       });
       throw error; // Let iterateWithInterruptionHandling catch this
     }
-    
+
     // Process actual errors (non-abort errors)
-    return yield* this.handleStreamLLMError(entity, agentLoopId, error);
+    return yield * this.handleStreamLLMError(entity, agentLoopId, error);
   }
   ```
 
-**效果**: 
+**效果**:
+
 - 明确区分中断错误和普通错误
 - 让外层 `iterateWithInterruptionHandling` 统一处理中断
 - 提高代码可读性和维护性
@@ -217,29 +230,29 @@ if (resolvedConfig.parallel) {
 
 ### 修改文件清单
 
-| 文件路径 | 修改类型 | 行数变化 |
-|---------|---------|---------|
-| `sdk/core/utils/interruption/interruption-state.ts` | 删除兼容代码 + 优化 | -30 / +4 |
-| `sdk/core/utils/interruption/abort-signal-utils.ts` | 删除废弃函数 | -11 |
-| `sdk/core/utils/interruption/index.ts` | 删除导出 | -1 |
-| `sdk/core/utils/interruption/interruption-propagation-proxy.ts` | 类型修复 + 优化 | +25 |
-| `sdk/agent/entities/agent-loop-entity.ts` | 新增方法 | +8 |
-| `sdk/agent/execution/handlers/agent-error-handler.ts` | 修复类型 | +1 / -1 |
-| `sdk/agent/execution/coordinators/agent-execution-coordinator.ts` | 添加检查 + 优化 | +43 |
-| `sdk/agent/execution/coordinators/agent-loop-coordinator.ts` | 添加传播设置 | +30 |
-| `sdk/core/hooks/executor.ts` | 优化并行检查 | +35 / -9 |
-| `sdk/docs/architecture/interruption-integration-analysis.md` | 更新文档 | +4 / -9 |
+| 文件路径                                                          | 修改类型            | 行数变化 |
+| ----------------------------------------------------------------- | ------------------- | -------- |
+| `sdk/core/utils/interruption/interruption-state.ts`               | 删除兼容代码 + 优化 | -30 / +4 |
+| `sdk/core/utils/interruption/abort-signal-utils.ts`               | 删除废弃函数        | -11      |
+| `sdk/core/utils/interruption/index.ts`                            | 删除导出            | -1       |
+| `sdk/core/utils/interruption/interruption-propagation-proxy.ts`   | 类型修复 + 优化     | +25      |
+| `sdk/agent/entities/agent-loop-entity.ts`                         | 新增方法            | +8       |
+| `sdk/agent/execution/handlers/agent-error-handler.ts`             | 修复类型            | +1 / -1  |
+| `sdk/agent/execution/coordinators/agent-execution-coordinator.ts` | 添加检查 + 优化     | +43      |
+| `sdk/agent/execution/coordinators/agent-loop-coordinator.ts`      | 添加传播设置        | +30      |
+| `sdk/core/hooks/executor.ts`                                      | 优化并行检查        | +35 / -9 |
+| `sdk/docs/architecture/interruption-integration-analysis.md`      | 更新文档            | +4 / -9  |
 
 **总计**: 10 个文件，约 +146 / -61 行代码
 
 ### 任务完成情况
 
-| 优先级 | 任务数 | 已完成 | 完成率 |
-|--------|--------|--------|--------|
-| P1 - 高风险 | 4 | 4 | 100% |
-| P2 - 中风险 | 5 | 5 | 100% |
-| P3 - 低风险 | 4 | 4 | 100% |
-| **总计** | **13** | **13** | **100%** |
+| 优先级      | 任务数 | 已完成 | 完成率   |
+| ----------- | ------ | ------ | -------- |
+| P1 - 高风险 | 4      | 4      | 100%     |
+| P2 - 中风险 | 5      | 5      | 100%     |
+| P3 - 低风险 | 4      | 4      | 100%     |
+| **总计**    | **13** | **13** | **100%** |
 
 ---
 
@@ -248,16 +261,19 @@ if (resolvedConfig.parallel) {
 ### 架构层面
 
 ✅ **API 简化**
+
 - 移除了 3 个冗余/废弃的 API
 - 统一了中断检查函数的命名
 - 强制使用配置对象模式，提高可维护性
 
 ✅ **类型安全**
+
 - PropagationError 接口完整定义
 - 所有错误对象符合类型约束
 - 消除了类型不一致问题
 
 ✅ **内存管理**
+
 - dispose() 主动释放资源
 - 监听器数量限制防止泄漏
 - 帮助 GC 回收旧控制器
@@ -265,16 +281,19 @@ if (resolvedConfig.parallel) {
 ### 功能层面
 
 ✅ **中断传播**
+
 - 实现了完整的父子级联机制
 - 支持 Workflow → Agent 的中断继承
 - 循环引用检测防止无限递归
 
 ✅ **响应速度**
+
 - Agent 迭代内添加显式检查
 - 减少不必要的资源消耗
 - 提高中断响应及时性
 
 ✅ **错误处理**
+
 - 保留原始错误信息（error.cause）
 - 明确区分中断错误和普通错误
 - 统一的错误处理流程
@@ -282,11 +301,13 @@ if (resolvedConfig.parallel) {
 ### 代码质量
 
 ✅ **一致性**
+
 - Workflow 和 Agent 使用相同的中断处理模式
 - 统一的检查点和错误处理逻辑
 - 一致的命名和文档风格
 
 ✅ **可维护性**
+
 - 清晰的职责分离
 - 完善的文档注释
 - 易于理解的代码结构
@@ -351,13 +372,10 @@ if (resolvedConfig.parallel) {
 
 ```typescript
 // ✅ 推荐：使用统一处理器
-const result = await executeWithInterruptionHandling(
-  async (signal) => {
-    // 传递 signal 给子操作
-    await someOperation({ signal });
-  },
-  workflowEntity.getAbortSignal()
-);
+const result = await executeWithInterruptionHandling(async signal => {
+  // 传递 signal 给子操作
+  await someOperation({ signal });
+}, workflowEntity.getAbortSignal());
 
 if (!result.success) {
   // 处理中断
@@ -369,15 +387,12 @@ if (!result.success) {
 
 ```typescript
 // ✅ 同步模式
-const result = await executeWithInterruptionHandling(
-  async (signal) => {
-    while (iteration < maxIterations) {
-      // 传递 signal
-      await executeIteration(signal);
-    }
-  },
-  entity.getAbortSignal()
-);
+const result = await executeWithInterruptionHandling(async signal => {
+  while (iteration < maxIterations) {
+    // 传递 signal
+    await executeIteration(signal);
+  }
+}, entity.getAbortSignal());
 
 // ✅ 流式模式
 for await (const item of iterateWithInterruptionHandling(stream, entity.getAbortSignal())) {

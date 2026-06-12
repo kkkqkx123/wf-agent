@@ -69,7 +69,9 @@ export function createCustomContextCompressionTrigger(
   const template = createContextCompressionTriggerTemplate(config.triggeredWorkflowId);
 
   if (config.timeout !== undefined) {
-    (template.action as Extract<TriggerAction, { type: "execute_triggered_subworkflow" }>).parameters.timeout = config.timeout;
+    (
+      template.action as Extract<TriggerAction, { type: "execute_triggered_subworkflow" }>
+    ).parameters.timeout = config.timeout;
   }
 
   if (config.maxTriggers !== undefined) {
@@ -79,5 +81,3 @@ export function createCustomContextCompressionTrigger(
   template.updatedAt = now();
   return template;
 }
-
-

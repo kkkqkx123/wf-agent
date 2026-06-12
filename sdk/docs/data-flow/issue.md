@@ -11,16 +11,15 @@
 ⚠️ 问题 2：状态管理的复杂性
 发现：WorkflowExecutionEntity 持有多个状态管理器，增加了理解成本
 
-
 typescript
- 
+
 class WorkflowExecutionEntity {
-  readonly state: WorkflowExecutionState;                    // 运行时状态
-  private readonly executionState: ExecutionState; // 子图执行栈
-  readonly messageHistoryManager: MessageHistory;  // 消息历史
-  readonly variableStateManager: VariableState;    // 变量状态
-  conversationManager?: ConversationSession;       // 对话会话
-  // ...
+readonly state: WorkflowExecutionState; // 运行时状态
+private readonly executionState: ExecutionState; // 子图执行栈
+readonly messageHistoryManager: MessageHistory; // 消息历史
+readonly variableStateManager: VariableState; // 变量状态
+conversationManager?: ConversationSession; // 对话会话
+// ...
 }
 分析：
 
@@ -33,10 +32,9 @@ class WorkflowExecutionEntity {
 ⚠️ 问题 3：预处理流程的复杂度
 发现：预处理流程包含 9 个步骤，复杂度较高
 
-
 code
- 
-验证 → 展开节点引用 → 展开触发器引用 → 构建图 → 处理子图 
+
+验证 → 展开节点引用 → 展开触发器引用 → 构建图 → 处理子图
 → 验证图 → 分析图 → 生成ID映射 → 组装结果
 分析：
 

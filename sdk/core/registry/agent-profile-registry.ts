@@ -15,10 +15,7 @@
  */
 
 import type { AgentProfileStorageAdapter } from "@wf-agent/storage";
-import {
-  persistAgentProfile,
-  removeAgentProfile,
-} from "./utils/agent-profile-storage-utils.js";
+import { persistAgentProfile, removeAgentProfile } from "./utils/agent-profile-storage-utils.js";
 
 /**
  * Agent profile metadata stored in the registry
@@ -38,9 +35,7 @@ export interface AgentProfileMeta {
 export class AgentProfileRegistry {
   private profiles: Map<string, AgentProfileMeta> = new Map();
 
-  constructor(
-    private readonly storageAdapter: AgentProfileStorageAdapter | null = null,
-  ) {}
+  constructor(private readonly storageAdapter: AgentProfileStorageAdapter | null = null) {}
 
   /**
    * Register an agent profile (memory-only, no persistence).

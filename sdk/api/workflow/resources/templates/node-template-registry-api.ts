@@ -174,9 +174,7 @@ export class NodeRegistryAPI extends CrudResourceAPI<NodeTemplate, string, NodeT
    * @returns Array of node templates
    */
   async getTemplatesByType(type: string): Promise<NodeTemplate[]> {
-    return this.dependencies
-      .getNodeTemplateRegistry()
-      .listByType(type as StaticNodeType);
+    return this.dependencies.getNodeTemplateRegistry().listByType(type as StaticNodeType);
   }
 
   /**

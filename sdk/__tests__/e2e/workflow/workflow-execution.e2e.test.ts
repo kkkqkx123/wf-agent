@@ -105,7 +105,11 @@ describe("Workflow Execution E2E", () => {
     it("should execute a workflow with multiple SCRIPT nodes in sequence", async () => {
       // Register scripts with unique names (test file has unique workflow IDs)
       const scriptRegistry = sdk.getGlobalContext().scriptRegistry;
-      for (const [name, cmd] of [["multi-step-a", "echo step-a"], ["multi-step-b", "echo step-b"], ["multi-step-c", "echo step-c"]] as const) {
+      for (const [name, cmd] of [
+        ["multi-step-a", "echo step-a"],
+        ["multi-step-b", "echo step-b"],
+        ["multi-step-c", "echo step-c"],
+      ] as const) {
         scriptRegistry.registerScript({
           id: name,
           name,
@@ -124,13 +128,17 @@ describe("Workflow Execution E2E", () => {
         .addNode("s2", "SCRIPT", { scriptName: "multi-step-b", risk: "none" })
         .addNode("s3", "SCRIPT", { scriptName: "multi-step-c", risk: "none" })
         .addEndNode("end")
-        .addEdge("start", "s1").addEdge("s1", "s2")
-        .addEdge("s2", "s3").addEdge("s3", "end");
+        .addEdge("start", "s1")
+        .addEdge("s1", "s2")
+        .addEdge("s2", "s3")
+        .addEdge("s3", "end");
 
       const template = builder.build();
       const regResult = await sdk.workflows.create(template);
       if (regResult.result.isErr()) {
-        process.stderr.write(`Multi-step register error: ${(regResult.result.error as any)?.message}\n`);
+        process.stderr.write(
+          `Multi-step register error: ${(regResult.result.error as any)?.message}\n`,
+        );
       }
       expect(regResult.result.isOk()).toBe(true);
 
@@ -152,7 +160,8 @@ describe("Workflow Execution E2E", () => {
         .addStartNode("start")
         .addNode("s", "SCRIPT", { scriptName: "step-1", risk: "none" })
         .addEndNode("end")
-        .addEdge("start", "s").addEdge("s", "end");
+        .addEdge("start", "s")
+        .addEdge("s", "end");
 
       await sdk.workflows.create(builder.build());
 
@@ -195,7 +204,8 @@ describe("Workflow Execution E2E", () => {
         .addVariableNode("var-node", "testVar", "string", "'hello-world'")
         .addNode("s", "SCRIPT", { scriptName: "var-script", risk: "none" })
         .addEndNode("end")
-        .addEdge("start", "var-node").addEdge("var-node", "s")
+        .addEdge("start", "var-node")
+        .addEdge("var-node", "s")
         .addEdge("s", "end");
 
       const regResult = await sdk.workflows.create(builder.build());

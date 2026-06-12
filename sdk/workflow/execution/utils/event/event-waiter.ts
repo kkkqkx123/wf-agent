@@ -52,7 +52,12 @@ export async function waitForWorkflowExecutionPaused(
   timeout: number = DEFAULT_TIMEOUT_CONFIG.workflowExecutionPause,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_PAUSED", executionId, actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor(
+    "WORKFLOW_EXECUTION_PAUSED",
+    executionId,
+    actualTimeout,
+    event => event.executionId === executionId,
+  );
 }
 
 /**
@@ -113,7 +118,12 @@ export async function waitForWorkflowExecutionFailed(
   timeout: number = DEFAULT_TIMEOUT_CONFIG.workflowExecutionCompletion,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_FAILED", executionId, actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor(
+    "WORKFLOW_EXECUTION_FAILED",
+    executionId,
+    actualTimeout,
+    event => event.executionId === executionId,
+  );
 }
 
 /**
@@ -130,7 +140,12 @@ export async function waitForWorkflowExecutionResumed(
   timeout: number = DEFAULT_TIMEOUT_CONFIG.workflowExecutionResume,
 ): Promise<void> {
   const actualTimeout = timeout === WAIT_FOREVER ? undefined : timeout;
-  await eventManager.waitFor("WORKFLOW_EXECUTION_RESUMED", executionId, actualTimeout, event => event.executionId === executionId);
+  await eventManager.waitFor(
+    "WORKFLOW_EXECUTION_RESUMED",
+    executionId,
+    actualTimeout,
+    event => event.executionId === executionId,
+  );
 }
 
 /**
@@ -159,7 +174,12 @@ export async function waitForAnyLifecycleEvent(
 
   // Create multiple waiting Promises, each using the executionId filter.
   const promises = events.map(eventType =>
-    eventManager.waitFor(eventType, executionId, actualTimeout, event => event.executionId === executionId),
+    eventManager.waitFor(
+      eventType,
+      executionId,
+      actualTimeout,
+      event => event.executionId === executionId,
+    ),
   );
 
   // Wait for either of the events to trigger.
@@ -185,23 +205,24 @@ export async function waitForMultipleWorkflowExecutionsCompleted(
      * - 'individual': Each execution has its own timeout (legacy behavior, default)
      * - 'shared': All executions share a single timeout (recommended)
      */
-    timeoutMode?: 'individual' | 'shared';
-  }
+    timeoutMode?: "individual" | "shared";
+  },
 ): Promise<void> {
-  const timeoutMode = options?.timeoutMode ?? 'individual';
+  const timeoutMode = options?.timeoutMode ?? "individual";
 
-  if (timeoutMode === 'shared') {
+  if (timeoutMode === "shared") {
     // New behavior: shared timeout for all executions
     await executeWithSharedTimeout(
       {
-        wait: () => Promise.all(
-          executionIds.map(id =>
-            waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER)
-          )
-        )
+        wait: () =>
+          Promise.all(
+            executionIds.map(id =>
+              waitForWorkflowExecutionCompleted(eventManager, id, WAIT_FOREVER),
+            ),
+          ),
       },
       timeout,
-      { message: `Timeout waiting for multiple executions: ${executionIds.join(', ')}` }
+      { message: `Timeout waiting for multiple executions: ${executionIds.join(", ")}` },
     );
   } else {
     // Legacy behavior: each execution has independent timeout

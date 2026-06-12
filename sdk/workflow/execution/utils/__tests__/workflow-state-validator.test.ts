@@ -257,7 +257,12 @@ describe("State transition rule integrity", () => {
   });
 
   it("The termination state does not allow any transitions", () => {
-    const terminalStatuses: WorkflowExecutionStatus[] = ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"];
+    const terminalStatuses: WorkflowExecutionStatus[] = [
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED",
+      "TIMEOUT",
+    ];
     for (const status of terminalStatuses) {
       const transitions = getAllowedTransitions(status);
       expect(transitions).toHaveLength(0);

@@ -43,9 +43,7 @@ function createTestWorkflow(id: string, name?: string): WorkflowTemplate {
       { id: "start", type: "START", config: {}, name: "Start" },
       { id: "end", type: "END", config: {}, name: "End" },
     ],
-    edges: [
-      { id: "e1", sourceNodeId: "start", targetNodeId: "end", type: "DEFAULT" },
-    ],
+    edges: [{ id: "e1", sourceNodeId: "start", targetNodeId: "end", type: "DEFAULT" }],
     metadata: {
       tags: ["integration-test"],
     },

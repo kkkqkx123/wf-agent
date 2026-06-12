@@ -1,6 +1,6 @@
 /**
  * Agent Types Index
- * 
+ *
  * Re-exports all agent-specific types.
  */
 

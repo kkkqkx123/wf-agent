@@ -4,56 +4,51 @@
  * Verifies that simplified logging parameters work correctly
  */
 
-import { describe, it, expect } from 'vitest';
-import { configureSDKLogger } from '../utils/logger.js';
-import { createConsoleStream } from '@wf-agent/common-utils';
+import { describe, it, expect } from "vitest";
+import { configureSDKLogger } from "../utils/logger.js";
+import { createConsoleStream } from "@wf-agent/common-utils";
 
-describe('SDK Logger Configuration Integration', () => {
-  describe('Simplified API', () => {
-    it('should accept minimal configuration (no parameters)', () => {
+describe("SDK Logger Configuration Integration", () => {
+  describe("Simplified API", () => {
+    it("should accept minimal configuration (no parameters)", () => {
       expect(() => {
         configureSDKLogger({});
       }).not.toThrow();
     });
 
-    it('should accept level-only configuration', () => {
+    it("should accept level-only configuration", () => {
       expect(() => {
-        configureSDKLogger({ level: 'debug' });
+        configureSDKLogger({ level: "debug" });
       }).not.toThrow();
-      
+
       expect(() => {
-        configureSDKLogger({ level: 'info' });
+        configureSDKLogger({ level: "info" });
       }).not.toThrow();
-      
+
       expect(() => {
-        configureSDKLogger({ level: 'warn' });
+        configureSDKLogger({ level: "warn" });
       }).not.toThrow();
-      
+
       expect(() => {
-        configureSDKLogger({ level: 'error' });
+        configureSDKLogger({ level: "error" });
       }).not.toThrow();
     });
 
-    it('should accept level and stream configuration', () => {
+    it("should accept level and stream configuration", () => {
       const stream = createConsoleStream({ json: false, timestamp: true });
-      
+
       expect(() => {
-        configureSDKLogger({ 
-          level: 'info',
+        configureSDKLogger({
+          level: "info",
           stream,
         });
       }).not.toThrow();
     });
 
-    it('should support all standard log levels', () => {
-      const levels: Array<'debug' | 'info' | 'warn' | 'error'> = [
-        'debug',
-        'info',
-        'warn',
-        'error',
-      ];
+    it("should support all standard log levels", () => {
+      const levels: Array<"debug" | "info" | "warn" | "error"> = ["debug", "info", "warn", "error"];
 
-      levels.forEach((level) => {
+      levels.forEach(level => {
         expect(() => {
           configureSDKLogger({ level });
         }).not.toThrow();
@@ -61,96 +56,96 @@ describe('SDK Logger Configuration Integration', () => {
     });
   });
 
-  describe('Configuration Simplification Verification', () => {
-    it('should NOT accept removed parameters (graphLogLevel)', () => {
+  describe("Configuration Simplification Verification", () => {
+    it("should NOT accept removed parameters (graphLogLevel)", () => {
       // This test verifies that the old complex API has been removed
       // TypeScript should prevent this at compile time
       // At runtime, extra properties are simply ignored
-      
+
       const config: any = {
-        level: 'info',
-        graphLogLevel: 'debug', // This should be ignored/removed
+        level: "info",
+        graphLogLevel: "debug", // This should be ignored/removed
       };
-      
+
       // The function should still work, just ignoring the extra property
       expect(() => {
         configureSDKLogger(config);
       }).not.toThrow();
     });
 
-    it('should NOT accept removed parameters (agentLogLevel)', () => {
+    it("should NOT accept removed parameters (agentLogLevel)", () => {
       const config: any = {
-        level: 'info',
-        agentLogLevel: 'debug', // This should be ignored/removed
+        level: "info",
+        agentLogLevel: "debug", // This should be ignored/removed
       };
-      
+
       expect(() => {
         configureSDKLogger(config);
       }).not.toThrow();
     });
 
-    it('should NOT accept removed parameters (sdkLevel)', () => {
+    it("should NOT accept removed parameters (sdkLevel)", () => {
       const config: any = {
-        level: 'info',
-        sdkLevel: 'debug', // This should be ignored/removed
+        level: "info",
+        sdkLevel: "debug", // This should be ignored/removed
       };
-      
+
       expect(() => {
         configureSDKLogger(config);
       }).not.toThrow();
     });
   });
 
-  describe('Stream Configuration', () => {
-    it('should work with console stream', () => {
-      const stream = createConsoleStream({ 
-        json: false, 
+  describe("Stream Configuration", () => {
+    it("should work with console stream", () => {
+      const stream = createConsoleStream({
+        json: false,
         timestamp: true,
       });
-      
+
       expect(() => {
-        configureSDKLogger({ 
-          level: 'debug',
+        configureSDKLogger({
+          level: "debug",
           stream,
         });
       }).not.toThrow();
     });
 
-    it('should work with JSON console stream', () => {
-      const stream = createConsoleStream({ 
-        json: true, 
+    it("should work with JSON console stream", () => {
+      const stream = createConsoleStream({
+        json: true,
         timestamp: true,
       });
-      
+
       expect(() => {
-        configureSDKLogger({ 
-          level: 'info',
+        configureSDKLogger({
+          level: "info",
           stream,
         });
       }).not.toThrow();
     });
   });
 
-  describe('Multiple Configuration Calls', () => {
-    it('should allow reconfiguration', () => {
+  describe("Multiple Configuration Calls", () => {
+    it("should allow reconfiguration", () => {
       // First configuration
-      configureSDKLogger({ level: 'debug' });
-      
+      configureSDKLogger({ level: "debug" });
+
       // Second configuration should override the first
       expect(() => {
-        configureSDKLogger({ level: 'warn' });
+        configureSDKLogger({ level: "warn" });
       }).not.toThrow();
     });
 
-    it('should handle rapid reconfiguration', () => {
+    it("should handle rapid reconfiguration", () => {
       const configs = [
-        { level: 'debug' as const },
-        { level: 'info' as const },
-        { level: 'warn' as const },
-        { level: 'error' as const },
+        { level: "debug" as const },
+        { level: "info" as const },
+        { level: "warn" as const },
+        { level: "error" as const },
       ];
-      
-      configs.forEach((config) => {
+
+      configs.forEach(config => {
         expect(() => {
           configureSDKLogger(config);
         }).not.toThrow();

@@ -1,9 +1,9 @@
 /**
  * Metrics Configuration Processor
- * 
+ *
  * Provides functions for processing and merging metrics configuration.
  * This module handles the business logic for metrics config without file I/O.
- * 
+ *
  * Following the project architecture pattern:
  * - All configuration processing happens in api/shared/config layer
  * - Pure functions, no side effects
@@ -36,14 +36,14 @@ const DEFAULT_METRICS_CONFIG: MetricsConfig = {
 /**
  * Merge user config with defaults
  * Performs deep merge preserving the integrity of metrics configuration as a whole
- * 
+ *
  * @param userConfig - User-provided partial configuration
  * @returns Merged configuration with defaults applied
  */
 export function mergeMetricsWithDefaults(userConfig: Partial<MetricsConfig>): MetricsConfig {
   // Start with defaults
   const merged: MetricsConfig = { ...DEFAULT_METRICS_CONFIG };
-  
+
   // Merge global settings if provided
   if (userConfig.enabled !== undefined) merged.enabled = userConfig.enabled;
   if (userConfig.enablePeriodicReporting !== undefined) {
@@ -52,15 +52,23 @@ export function mergeMetricsWithDefaults(userConfig: Partial<MetricsConfig>): Me
   if (userConfig.reportingInterval !== undefined) {
     merged.reportingInterval = userConfig.reportingInterval;
   }
-  
+
   // Merge collector configs as complete objects (maintains module cohesion)
   // This approach treats each collector config as an atomic unit
   const collectorConfigs = [
-    'workflowMetrics', 'nodeMetrics', 'agentMetrics', 'eventMetrics',
-    'toolMetrics', 'tokenMetrics', 'templateMetrics', 'configMetrics',
-    'errorMetrics', 'resourceMetrics', 'agentLoopMetrics'
+    "workflowMetrics",
+    "nodeMetrics",
+    "agentMetrics",
+    "eventMetrics",
+    "toolMetrics",
+    "tokenMetrics",
+    "templateMetrics",
+    "configMetrics",
+    "errorMetrics",
+    "resourceMetrics",
+    "agentLoopMetrics",
   ] as const;
-  
+
   for (const key of collectorConfigs) {
     if (userConfig[key]) {
       // Merge at collector level: user config overrides defaults for that collector
@@ -71,14 +79,14 @@ export function mergeMetricsWithDefaults(userConfig: Partial<MetricsConfig>): Me
       };
     }
   }
-  
+
   return merged;
 }
 
 /**
  * Get default config for specific environment
  * Provides environment-optimized defaults
- * 
+ *
  * @param env - Environment name ("development" or "production")
  * @returns Environment-specific default configuration
  */
@@ -86,23 +94,23 @@ export function getMetricsEnvironmentDefaults(env: "development" | "production")
   if (env === "development") {
     return {
       ...DEFAULT_METRICS_CONFIG,
-      enablePeriodicReporting: true,  // Enable for debugging
-      reportingInterval: 30000,       // More frequent in dev
+      enablePeriodicReporting: true, // Enable for debugging
+      reportingInterval: 30000, // More frequent in dev
       errorMetrics: {
         bufferSize: 10,
-        flushInterval: 1000,          // Faster error reporting in dev
+        flushInterval: 1000, // Faster error reporting in dev
         enablePeriodicReporting: false,
       },
     };
   }
-  
+
   // Production defaults - more conservative
   return {
     ...DEFAULT_METRICS_CONFIG,
     enablePeriodicReporting: false,
     reportingInterval: 60000,
     eventMetrics: {
-      bufferSize: 500,                // Larger buffer for high-volume events
+      bufferSize: 500, // Larger buffer for high-volume events
       flushInterval: 5000,
       enablePeriodicReporting: false,
     },

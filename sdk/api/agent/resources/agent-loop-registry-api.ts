@@ -369,9 +369,8 @@ export class AgentLoopRegistryAPI extends CrudResourceAPI<AgentLoopEntity, ID, A
       totalIterations: history.length,
       totalToolCalls,
       totalDuration,
-      averageDuration: completedIterations.length > 0
-        ? Math.round(totalDuration / completedIterations.length)
-        : 0,
+      averageDuration:
+        completedIterations.length > 0 ? Math.round(totalDuration / completedIterations.length) : 0,
       status: entity.getStatus(),
     };
   }

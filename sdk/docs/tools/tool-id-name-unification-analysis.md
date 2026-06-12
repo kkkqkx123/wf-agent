@@ -3,6 +3,7 @@
 ## Executive Summary
 
 Based on the current implementation and industry best practices, **we recommend unifying `id` and `name`** by:
+
 1. Using `name` as the primary identifier for LLM communication (industry standard)
 2. Keeping `id` as an internal storage key (for backward compatibility)
 3. Enforcing that `id === name` in all new tool registrations
@@ -17,10 +18,11 @@ This approach aligns with industry standards while maintaining backward compatib
 ### 1. Implementation Status
 
 **Current Tool Interface:**
+
 ```typescript
 interface Tool {
-  id: ID;           // Internal identifier (used as Map key)
-  name: string;     // Human-readable name
+  id: ID; // Internal identifier (used as Map key)
+  name: string; // Human-readable name
   type: ToolType;
   description: string;
   parameters: ToolParameterSchema;
@@ -29,6 +31,7 @@ interface Tool {
 ```
 
 **Current Usage Pattern:**
+
 - All predefined tools use identical values: `id: "read_file", name: "read_file"`
 - Registry stores tools by `id`: `this.tools.set(tool.id, tool)`
 - LLM converters send `tool.id` to providers (OpenAI, Anthropic, Gemini)
@@ -38,21 +41,22 @@ interface Tool {
 
 All major LLM providers expect **human-readable names**:
 
-| Provider | Field Name | Best Practice |
-|----------|-----------|---------------|
-| OpenAI | `function.name` | "Use descriptive function names" |
-| Anthropic | `name` | "Name should be clear and descriptive" |
-| Gemini | `functionDeclarations[].name` | "Function name should be meaningful" |
+| Provider  | Field Name                    | Best Practice                          |
+| --------- | ----------------------------- | -------------------------------------- |
+| OpenAI    | `function.name`               | "Use descriptive function names"       |
+| Anthropic | `name`                        | "Name should be clear and descriptive" |
+| Gemini    | `functionDeclarations[].name` | "Function name should be meaningful"   |
 
 **Key Insight**: LLM providers only have ONE field for tool identification - they don't distinguish between "internal ID" and "display name".
 
 ### 3. Current Code Evidence
 
 **Tool Registration Example** ([registry.ts](file:///d:/项目/agent/wf-agent/sdk/resources/predefined/tools/registry.ts)):
+
 ```typescript
 tools.push({
-  id: "read_file",      // ← Always human-readable
-  name: "read_file",    // ← Identical to id
+  id: "read_file", // ← Always human-readable
+  name: "read_file", // ← Identical to id
   type: "STATELESS",
   description: "...",
   parameters: readFileSchema,
@@ -60,22 +64,24 @@ tools.push({
 ```
 
 **LLM Converter** ([converter.ts](file:///d:/项目/agent/wf-agent/sdk/core/llm/utils/converter.ts)):
+
 ```typescript
 // Line 52, 69, 87 - All use tool.id
 name: tool.id, // Keep using id for now to maintain backward compatibility
 ```
 
 **Registry Lookup** ([tool-registry.ts](file:///d:/项目/agent/wf-agent/sdk/core/registry/tool-registry.ts)):
+
 ```typescript
 getTool(toolId: string): Tool {
   // First try direct ID lookup (fastest)
   const tool = this.tools.get(toolId);
   if (tool) return tool;
-  
+
   // Fallback: search by name (for LLM compatibility)
   const toolByName = Array.from(this.tools.values()).find(t => t.name === toolId);
   if (toolByName) return toolByName;
-  
+
   throw new ToolNotFoundError(...);
 }
 ```
@@ -87,12 +93,14 @@ getTool(toolId: string): Tool {
 ### Issue 1: Redundant Fields
 
 **Current Reality:**
+
 - `id` and `name` are ALWAYS identical in practice
 - No tool in the codebase uses different values
 - The dual-lookup mechanism exists to handle a theoretical case that doesn't occur
 
 **Problem:**
 Having two fields that must always match creates:
+
 - Cognitive overhead for developers ("which one should I use?")
 - Potential for inconsistency bugs
 - Confusion about the purpose of each field
@@ -101,7 +109,8 @@ Having two fields that must always match creates:
 
 **Question**: What is the difference between `id` and `name`?
 
-**Current Answer**: 
+**Current Answer**:
+
 - `id`: Internal identifier, used as Map key
 - `name`: Human-readable name for display
 
@@ -110,10 +119,12 @@ Having two fields that must always match creates:
 ### Issue 3: Storage vs Communication Confusion
 
 The current design suggests:
+
 - `id` = storage layer concern
 - `name` = communication layer concern
 
 But in reality:
+
 - Both are sent to LLMs (via `tool.id`)
 - Both must be human-readable
 - The registry uses `id` as the key, but could just as easily use `name`
@@ -132,7 +143,7 @@ Add validation to ensure `id` is always human-readable:
 // In StaticValidator.validateTool()
 private validateToolNaming(tool: Tool): ValidationResult {
   const errors: ValidationError[] = [];
-  
+
   // Ensure id follows naming conventions
   if (!/^[a-z][a-z0-9_]*$/.test(tool.id)) {
     errors.push(new ConfigurationValidationError(
@@ -140,7 +151,7 @@ private validateToolNaming(tool: Tool): ValidationResult {
       { configType: "tool", field: "id", value: tool.id }
     ));
   }
-  
+
   // Recommend id === name for consistency
   if (tool.id !== tool.name) {
     logger.warn(
@@ -148,7 +159,7 @@ private validateToolNaming(tool: Tool): ValidationResult {
       { toolId: tool.id, toolName: tool.name }
     );
   }
-  
+
   return errors.length > 0 ? err(errors) : ok(undefined);
 }
 ```
@@ -159,7 +170,7 @@ Clarify the intended usage:
 
 ```typescript
 export interface Tool {
-  /** 
+  /**
    * Tool Unique Identifier
    * Must be human-readable and follow naming conventions (lowercase_with_underscores)
    * Used for:
@@ -168,15 +179,15 @@ export interface Tool {
    * - Tool lookup (supports both id and name for backward compatibility)
    */
   id: ID;
-  
-  /** 
+
+  /**
    * Tool Display Name
    * Should be identical to or very similar to id
    * Currently used for filtering and display purposes
    * @deprecated Consider making this identical to id
    */
   name: string;
-  
+
   // ... rest of interface
 }
 ```
@@ -197,8 +208,8 @@ export interface ToolSchema {
 
 // Proposed - Add name for clarity
 export interface ToolSchema {
-  id: string;        // Primary identifier
-  name?: string;     // Optional, defaults to id if not provided
+  id: string; // Primary identifier
+  name?: string; // Optional, defaults to id if not provided
   description: string;
   parameters: ToolParameterSchema;
 }
@@ -239,24 +250,24 @@ Eventually simplify to a single identifier:
 ```typescript
 // Future simplified interface
 export interface Tool {
-  /** 
+  /**
    * Tool Identifier
    * Human-readable, used for both storage and LLM communication
    * Format: lowercase_with_underscores (e.g., "read_file")
    */
   id: string;
-  
+
   /** Tool type */
   type: ToolType;
-  
+
   /** Tool Description */
   description: string;
-  
+
   /** Parameter schema */
   parameters: ToolParameterSchema;
-  
+
   // ... other fields
-  
+
   // Note: 'name' field removed - use 'id' everywhere
 }
 ```
@@ -273,7 +284,7 @@ function migrateTool(tool: LegacyTool): Tool {
     ...tool,
     name: tool.id, // Sync name to id
   };
-  
+
   // Option 2: Use name as primary (if name is more readable)
   // return {
   //   ...tool,
@@ -291,10 +302,12 @@ function migrateTool(tool: LegacyTool): Tool {
 **Proposal**: Use `name` as the primary identifier, make `id` optional/internal.
 
 **Pros**:
+
 - Aligns with LLM provider terminology
 - More intuitive for developers
 
 **Cons**:
+
 - Breaking change: Registry currently uses `id` as Map key
 - Would require updating all tool lookups
 - `name` might contain spaces/special chars (not ideal for identifiers)
@@ -306,10 +319,12 @@ function migrateTool(tool: LegacyTool): Tool {
 **Proposal**: Maintain current design, allow `id !== name`.
 
 **Pros**:
+
 - Maximum flexibility
 - No migration needed
 
 **Cons**:
+
 - Continues confusion about when to use which
 - Violates principle of least surprise
 - Doesn't align with industry practice
@@ -321,10 +336,12 @@ function migrateTool(tool: LegacyTool): Tool {
 **Proposal**: Add `llmBindingField: 'id' | 'name'` to Tool interface.
 
 **Pros**:
+
 - Explicit control over LLM communication
 - Flexible for edge cases
 
 **Cons**:
+
 - Over-engineering for a problem that doesn't exist
 - Adds complexity without clear benefit
 - All current tools would use the same value
@@ -338,15 +355,18 @@ function migrateTool(tool: LegacyTool): Tool {
 ### Breaking Changes
 
 **Phase 1 (Immediate)**: ✅ None
+
 - Only adds validation warnings
 - Existing tools continue to work
 - No API changes
 
 **Phase 2 (Medium-term)**: ⚠️ Minimal
+
 - `ToolSchema` adds optional `name` field (backward compatible)
 - New helper method (additive only)
 
 **Phase 3 (Long-term)**: ⚠️ Moderate
+
 - Removing `name` field is breaking
 - Requires migration guide
 - Should be in major version bump
@@ -354,6 +374,7 @@ function migrateTool(tool: LegacyTool): Tool {
 ### Performance Impact
 
 **Negligible**:
+
 - Current dual-lookup already has O(n) fallback
 - Validation adds minimal overhead (one regex check)
 - No runtime performance changes
@@ -361,6 +382,7 @@ function migrateTool(tool: LegacyTool): Tool {
 ### Developer Experience
 
 **Significant Improvement**:
+
 - Clearer guidance on tool creation
 - Reduced cognitive load
 - Better alignment with industry standards
@@ -378,7 +400,7 @@ function migrateTool(tool: LegacyTool): Tool {
 // Simple and clear
 const myTool: Tool = {
   id: "my_tool",
-  name: "my_tool",  // Same as id
+  name: "my_tool", // Same as id
   type: "STATELESS",
   description: "Does something useful",
   parameters: mySchema,
@@ -403,7 +425,7 @@ const myTool = createTool({
 ```typescript
 // Don't do this
 const badTool: Tool = {
-  id: "tool_abc123",      // Not human-readable
+  id: "tool_abc123", // Not human-readable
   name: "My Awesome Tool", // Different from id
   // ...
 };
@@ -429,24 +451,28 @@ tools = ["tool_001", "Read File", "execute-shell"]
 ## Implementation Roadmap
 
 ### Week 1: Foundation
+
 - [ ] Add validation for tool naming conventions
 - [ ] Add warning when `id !== name`
 - [ ] Update documentation
 - [ ] Add comments to Tool interface
 
 ### Week 2-3: Enhancement
+
 - [ ] Add `createTool()` helper function
 - [ ] Update `ToolSchema` to include optional `name`
 - [ ] Add migration utilities
 - [ ] Update all existing tools to follow convention
 
 ### Month 2-3: Preparation for v2.0
+
 - [ ] Deprecate `name` field in TypeScript types
 - [ ] Add deprecation warnings
 - [ ] Create migration guide
 - [ ] Test with real-world scenarios
 
 ### v2.0 Release
+
 - [ ] Remove `name` field from Tool interface
 - [ ] Update all internal references to use `id`
 - [ ] Publish migration guide
@@ -472,6 +498,7 @@ tools = ["tool_001", "Read File", "execute-shell"]
 3. **Long-term**: Deprecate and remove the separate `name` field
 
 This approach:
+
 - ✅ Maintains backward compatibility
 - ✅ Aligns with industry standards
 - ✅ Reduces developer confusion

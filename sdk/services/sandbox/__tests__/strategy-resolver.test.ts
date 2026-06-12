@@ -45,10 +45,7 @@ describe("DefaultStrategyResolver", () => {
     });
 
     it("should return best available strategy based on priority", () => {
-      const shellStrategies = resolver.resolveBest("shell", [
-        "non-existent",
-        "static-analyzer",
-      ]);
+      const shellStrategies = resolver.resolveBest("shell", ["non-existent", "static-analyzer"]);
       expect(shellStrategies).toBeDefined();
       expect(shellStrategies.id).toBe("static-analyzer");
     });

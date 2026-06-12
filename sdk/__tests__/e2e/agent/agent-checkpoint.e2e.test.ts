@@ -42,10 +42,13 @@ interface AgentLoopTestContext {
 }
 
 async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
-  const mockClient = new MockLLMClient({
-    defaultResponse: "Mock checkpoint E2E response.",
-    simulateDelay: 5,
-  }, MOCK_PROFILE_ID);
+  const mockClient = new MockLLMClient(
+    {
+      defaultResponse: "Mock checkpoint E2E response.",
+      simulateDelay: 5,
+    },
+    MOCK_PROFILE_ID,
+  );
 
   const agentLoopStorage = new MemoryAgentLoopStorage();
   await agentLoopStorage.initialize();
@@ -78,7 +81,9 @@ async function destroyAgentLoopTestContext(ctx: AgentLoopTestContext): Promise<v
   await ctx.sdk.destroy();
 }
 
-function createBasicAgentConfig(overrides?: Partial<AgentLoopRuntimeConfig>): AgentLoopRuntimeConfig {
+function createBasicAgentConfig(
+  overrides?: Partial<AgentLoopRuntimeConfig>,
+): AgentLoopRuntimeConfig {
   return {
     profileId: MOCK_PROFILE_ID,
     maxIterations: 1,

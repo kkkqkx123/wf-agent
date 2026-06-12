@@ -71,8 +71,4 @@ export * from "./tool-utils.js";
 export * from "./misc/index.js";
 
 // File Utilities (path resolution, file size formatting, text file detection)
-export {
-  resolveFilePath,
-  formatFileSize,
-  isLikelyTextFile,
-} from "./file-utils.js";
+export { resolveFilePath, formatFileSize, isLikelyTextFile } from "./file-utils.js";

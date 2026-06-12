@@ -3,7 +3,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { checkAutoApproval, extractContextFromParameters, type AutoApprovalContext } from "../auto-approval-checker.js";
+import {
+  checkAutoApproval,
+  extractContextFromParameters,
+  type AutoApprovalContext,
+} from "../auto-approval-checker.js";
 import type {
   Tool,
   ToolApprovalOptions,
@@ -626,9 +630,9 @@ describe("extractContextFromParameters", () => {
     });
 
     it("should throw error when server_name is missing", () => {
-      expect(() =>
-        extractContextFromParameters("use_mcp", { tool_name: "my-tool" }),
-      ).toThrow("Invalid parameters for MCP tool");
+      expect(() => extractContextFromParameters("use_mcp", { tool_name: "my-tool" })).toThrow(
+        "Invalid parameters for MCP tool",
+      );
     });
 
     it("should throw error when tool_name is not a string", () => {

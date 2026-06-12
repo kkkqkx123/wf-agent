@@ -407,9 +407,7 @@ describe("TokenUsageTracker", () => {
       tracker.updateApiUsage({ promptTokens: 10, completionTokens: 20, totalTokens: 30 });
       tracker.finalizeCurrentRequest();
 
-      tracker.setState(
-        { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-      );
+      tracker.setState({ promptTokens: 0, completionTokens: 0, totalTokens: 0 });
 
       expect(tracker.getTotalLifetimeUsage()?.totalTokens).toBe(30);
     });
@@ -527,14 +525,18 @@ describe("TokenUsageTracker", () => {
 
     it("should calculate totalCost correctly", () => {
       const usage1: LLMUsage = {
-        promptTokens: 10, completionTokens: 20, totalTokens: 30,
+        promptTokens: 10,
+        completionTokens: 20,
+        totalTokens: 30,
         totalCost: 0.01,
       };
       tracker.updateApiUsage(usage1);
       tracker.finalizeCurrentRequest();
 
       const usage2: LLMUsage = {
-        promptTokens: 20, completionTokens: 30, totalTokens: 50,
+        promptTokens: 20,
+        completionTokens: 30,
+        totalTokens: 50,
         totalCost: 0.02,
       };
       tracker.updateApiUsage(usage2);

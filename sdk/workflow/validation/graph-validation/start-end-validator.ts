@@ -19,9 +19,7 @@ import type { WorkflowGraphData } from "../../entities/workflow-graph-data.js";
  * @param graph Graph data
  * @returns List of validation errors
  */
-export function validateStartEndNodes(
-  graph: WorkflowGraphData,
-): ConfigurationValidationError[] {
+export function validateStartEndNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
   // Check START node

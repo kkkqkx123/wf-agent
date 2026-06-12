@@ -80,13 +80,8 @@ export class InterruptionDetectorImpl implements InterruptionDetector {
       return executionContext.interruptionManager.getAbortSignal();
     }
 
-    logger.error(
-      "InterruptionManager is missing or invalid in execution context",
-      { executionId },
-    );
-    throw new Error(
-      `InterruptionManager not properly initialized for execution ${executionId}`,
-    );
+    logger.error("InterruptionManager is missing or invalid in execution context", { executionId });
+    throw new Error(`InterruptionManager not properly initialized for execution ${executionId}`);
   }
 
   /**

@@ -1,6 +1,6 @@
 /**
  * Timeout Manager Tests
- * 
+ *
  * Basic tests to verify TimeoutManager functionality.
  */
 
@@ -145,7 +145,7 @@ describe("TimeoutManager", () => {
       });
 
       // Wait for timeout
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       expect(timeoutCalled).toBe(true);
       expect(handle.isActive()).toBe(false);
@@ -167,7 +167,7 @@ describe("TimeoutManager", () => {
       });
 
       // Wait for warning (should trigger at 300ms)
-      await new Promise((resolve) => setTimeout(resolve, 350));
+      await new Promise(resolve => setTimeout(resolve, 350));
 
       expect(warningCalled).toBe(true);
       expect(handle.isActive()).toBe(true); // Still active until full timeout

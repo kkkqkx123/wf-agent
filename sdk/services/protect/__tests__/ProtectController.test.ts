@@ -278,9 +278,7 @@ describe("ProtectController", () => {
   describe("getProtectionMessage", () => {
     it("should return the protection message string", () => {
       const message = controller.getProtectionMessage();
-      expect(message).toBe(
-        "This file is write-protected and requires approval for modifications",
-      );
+      expect(message).toBe("This file is write-protected and requires approval for modifications");
     });
   });
 

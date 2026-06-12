@@ -32,14 +32,8 @@ import {
   isStoredTaskInfo,
 } from "../../../core/types/index.js";
 import type { TaskStorageAdapter } from "@wf-agent/storage";
-import {
-  ErrorCodec,
-  StateCodec,
-} from "@wf-agent/common-utils";
-import {
-  type TaskSnapshot,
-  TaskSerializationUtils,
-} from "../../../core/types/index.js";
+import { ErrorCodec, StateCodec } from "@wf-agent/common-utils";
+import { type TaskSnapshot, TaskSerializationUtils } from "../../../core/types/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TaskRegistry" });
@@ -80,14 +74,13 @@ export interface TaskRegistryConfig {
  * Supports both in-memory and persistent storage modes:
  * - Without storageAdapter: Pure in-memory mode (default)
  * - With storageAdapter: Persistent mode with automatic sync
- * 
+ *
  * Lifecycle:
  * - Created and initialized by DI container during SDK initialization
  * - One instance per SDK instance (container-scoped singleton)
  * - Automatically initializes storage if configured
  */
 export class TaskRegistry {
-
   /**
    * Task Mapping
    * Stores both active (with loaded instance) and stored (with reference) tasks
@@ -127,7 +120,7 @@ export class TaskRegistry {
   /**
    * Constructor - creates and initializes TaskRegistry
    * @param config Configuration options
-   * 
+   *
    * Note: This constructor performs synchronous setup only.
    * Async initialization (loading from storage) should be done
    * by calling initialize() after construction, typically handled
@@ -355,7 +348,11 @@ export class TaskRegistry {
    * @param timeout Timeout period (in milliseconds)
    * @returns Task ID
    */
-  registerWorkflowExecution(executionEntity: WorkflowExecutionEntity, manager: TaskManager, timeout?: number): string {
+  registerWorkflowExecution(
+    executionEntity: WorkflowExecutionEntity,
+    manager: TaskManager,
+    timeout?: number,
+  ): string {
     return this.register(executionEntity, "workflowExecution", manager, timeout);
   }
 
@@ -591,7 +588,10 @@ export class TaskRegistry {
   getByExecutionId(executionId: string): TaskInfo | null {
     return (
       this.getAll().find(task => {
-        if (task.instanceType === "workflowExecution" && isWorkflowExecutionInstance(task.instance)) {
+        if (
+          task.instanceType === "workflowExecution" &&
+          isWorkflowExecutionInstance(task.instance)
+        ) {
           return task.instance.id === executionId;
         }
         return false;

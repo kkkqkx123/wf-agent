@@ -82,13 +82,21 @@ describe("checkFilePermission", () => {
   it("should allow all operations on full-level files", () => {
     expect(checkFilePermission("/workspace/config/app.json", "read", settings).allowed).toBe(true);
     expect(checkFilePermission("/workspace/config/app.json", "write", settings).allowed).toBe(true);
-    expect(checkFilePermission("/workspace/config/app.json", "delete", settings).allowed).toBe(true);
+    expect(checkFilePermission("/workspace/config/app.json", "delete", settings).allowed).toBe(
+      true,
+    );
   });
 
   it("should allow all operations on none-level files", () => {
-    expect(checkFilePermission("/workspace/public/index.html", "read", settings).allowed).toBe(true);
-    expect(checkFilePermission("/workspace/public/index.html", "write", settings).allowed).toBe(true);
-    expect(checkFilePermission("/workspace/public/index.html", "delete", settings).allowed).toBe(true);
+    expect(checkFilePermission("/workspace/public/index.html", "read", settings).allowed).toBe(
+      true,
+    );
+    expect(checkFilePermission("/workspace/public/index.html", "write", settings).allowed).toBe(
+      true,
+    );
+    expect(checkFilePermission("/workspace/public/index.html", "delete", settings).allowed).toBe(
+      true,
+    );
   });
 
   it("should use default permission when no rule matches", () => {
@@ -197,8 +205,8 @@ describe("batchCheckFilePermissions", () => {
 describe("createDefaultFilePermissionSettings", () => {
   it("should include sensitive file patterns as denied", () => {
     const settings = createDefaultFilePermissionSettings();
-    const deniedPatterns = settings.rules.filter((r) => r.permission === "denied");
-    const deniedPatternStrings = deniedPatterns.map((r) => r.pattern);
+    const deniedPatterns = settings.rules.filter(r => r.permission === "denied");
+    const deniedPatternStrings = deniedPatterns.map(r => r.pattern);
     expect(deniedPatternStrings).toContain("**/.env");
     expect(deniedPatternStrings).toContain("**/.env.*");
     expect(deniedPatternStrings).toContain("**/credentials.json");
@@ -208,8 +216,8 @@ describe("createDefaultFilePermissionSettings", () => {
 
   it("should include read-only config patterns", () => {
     const settings = createDefaultFilePermissionSettings();
-    const readPatterns = settings.rules.filter((r) => r.permission === "read");
-    const readPatternStrings = readPatterns.map((r) => r.pattern);
+    const readPatterns = settings.rules.filter(r => r.permission === "read");
+    const readPatternStrings = readPatterns.map(r => r.pattern);
     expect(readPatternStrings).toContain("**/package.json");
     expect(readPatternStrings).toContain("**/tsconfig.json");
     expect(readPatternStrings).toContain("**/.git/**");
@@ -222,8 +230,8 @@ describe("createDefaultFilePermissionSettings", () => {
 
   it("should add workspace-specific rules when workspaceDir is provided", () => {
     const settings = createDefaultFilePermissionSettings("/workspace/my-project");
-    const fullPatterns = settings.rules.filter((r) => r.permission === "full");
-    const fullPatternStrings = fullPatterns.map((r) => r.pattern);
+    const fullPatterns = settings.rules.filter(r => r.permission === "full");
+    const fullPatternStrings = fullPatterns.map(r => r.pattern);
     expect(fullPatternStrings).toContain("/workspace/my-project/src/**");
     expect(fullPatternStrings).toContain("/workspace/my-project/lib/**");
   });

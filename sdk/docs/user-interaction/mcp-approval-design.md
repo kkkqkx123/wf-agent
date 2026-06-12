@@ -23,12 +23,12 @@
 
 MCP 协议支持多种操作类型：
 
-| 操作类型 | 说明 | 风险级别 |
-|----------|------|----------|
+| 操作类型              | 说明                      | 风险级别       |
+| --------------------- | ------------------------- | -------------- |
 | `use_mcp` (tool call) | 调用 MCP 服务器提供的工具 | 需评估具体工具 |
-| `read_resource` | 读取 MCP 服务器提供的资源 | READ_ONLY |
-| `list_tools` | 列出 MCP 服务器的工具 | READ_ONLY |
-| `list_resources` | 列出 MCP 服务器的资源 | READ_ONLY |
+| `read_resource`       | 读取 MCP 服务器提供的资源 | READ_ONLY      |
+| `list_tools`          | 列出 MCP 服务器的工具     | READ_ONLY      |
+| `list_resources`      | 列出 MCP 服务器的资源     | READ_ONLY      |
 
 ## 3. MCP 自动审批类型设计
 
@@ -129,10 +129,7 @@ export interface McpListRequest {
 /**
  * Unified MCP Request
  */
-export type McpRequest =
-  | McpToolCallRequest
-  | McpResourceReadRequest
-  | McpListRequest;
+export type McpRequest = McpToolCallRequest | McpResourceReadRequest | McpListRequest;
 ```
 
 ## 4. MCP 自动审批检查器
@@ -200,7 +197,7 @@ export function checkMcpApproval(params: CheckMcpApprovalParams): McpApprovalDec
  */
 function checkMcpToolApproval(
   serverConfig: McpServerConfig,
-  request: McpToolCallRequest
+  request: McpToolCallRequest,
 ): McpApprovalDecision {
   // 1. Find tool configuration
   const toolConfig = serverConfig.tools?.find(t => t.name === request.toolName);
@@ -235,11 +232,11 @@ function checkMcpToolApproval(
  */
 function checkMcpResourceApproval(
   serverConfig: McpServerConfig,
-  request: McpResourceReadRequest
+  request: McpResourceReadRequest,
 ): McpApprovalDecision {
   // 1. Find matching resource configuration
   const resourceConfig = serverConfig.resources?.find(r =>
-    matchUriPattern(request.uri, r.uriPattern)
+    matchUriPattern(request.uri, r.uriPattern),
   );
 
   if (resourceConfig) {
@@ -263,9 +260,7 @@ function checkMcpResourceApproval(
  * Supports simple wildcard patterns like "file:///*"
  */
 function matchUriPattern(uri: string, pattern: string): boolean {
-  const regex = new RegExp(
-    "^" + pattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$"
-  );
+  const regex = new RegExp("^" + pattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
   return regex.test(uri);
 }
 ```
@@ -282,19 +277,19 @@ const databaseMcpConfig: McpServerConfig = {
     {
       name: "query",
       description: "Execute SQL query",
-      alwaysAllow: false,  // Always require approval for queries
-      riskLevel: "READ_ONLY",  // But mark as read-only for logging
+      alwaysAllow: false, // Always require approval for queries
+      riskLevel: "READ_ONLY", // But mark as read-only for logging
     },
     {
       name: "execute",
       description: "Execute SQL statement",
       alwaysAllow: false,
-      riskLevel: "WRITE",  // Write operations
+      riskLevel: "WRITE", // Write operations
     },
     {
       name: "list_tables",
       description: "List database tables",
-      alwaysAllow: true,  // Safe to auto-approve
+      alwaysAllow: true, // Safe to auto-approve
       riskLevel: "READ_ONLY",
     },
     {
@@ -307,11 +302,11 @@ const databaseMcpConfig: McpServerConfig = {
   resources: [
     {
       uriPattern: "db://tables/*",
-      alwaysAllow: true,  // Allow reading table schemas
+      alwaysAllow: true, // Allow reading table schemas
     },
     {
       uriPattern: "db://data/*",
-      alwaysAllow: false,  // Require approval for data access
+      alwaysAllow: false, // Require approval for data access
     },
   ],
   defaultToolBehavior: "always_ask",
@@ -345,7 +340,7 @@ const filesystemMcpConfig: McpServerConfig = {
   resources: [
     {
       uriPattern: "file:///*",
-      alwaysAllow: true,  // Allow reading any file via resource API
+      alwaysAllow: true, // Allow reading any file via resource API
     },
   ],
   defaultToolBehavior: "always_ask",
@@ -356,11 +351,8 @@ const filesystemMcpConfig: McpServerConfig = {
 
 ```typescript
 const mcpApprovalSettings: McpApprovalSettings = {
-  servers: [
-    databaseMcpConfig,
-    filesystemMcpConfig,
-  ],
-  defaultServerBehavior: "always_ask",  // Unknown servers require approval
+  servers: [databaseMcpConfig, filesystemMcpConfig],
+  defaultServerBehavior: "always_ask", // Unknown servers require approval
 };
 ```
 
@@ -388,9 +380,7 @@ export interface ToolApprovalOptions {
 
 import { checkMcpApproval } from "./mcp-approval-checker.js";
 
-async function checkAutoApproval(
-  params: CheckAutoApprovalParams
-): Promise<AutoApprovalDecision> {
+async function checkAutoApproval(params: CheckAutoApprovalParams): Promise<AutoApprovalDecision> {
   // ... existing logic ...
 
   // Handle MCP tools
@@ -442,14 +432,14 @@ function parseMcpRequest(toolCall: LLMToolCall): McpRequest {
  */
 export async function discoverMcpTools(
   serverName: string,
-  client: McpClient
+  client: McpClient,
 ): Promise<McpToolConfig[]> {
   const tools = await client.listTools(serverName);
 
   return tools.map(tool => ({
     name: tool.name,
     description: tool.description,
-    alwaysAllow: false,  // Default to requiring approval
+    alwaysAllow: false, // Default to requiring approval
     riskLevel: inferRiskLevel(tool),
   }));
 }
@@ -502,9 +492,7 @@ export async function loadMcpApprovalConfig(): Promise<McpApprovalSettings> {
 /**
  * Save MCP approval configuration
  */
-export async function saveMcpApprovalConfig(
-  settings: McpApprovalSettings
-): Promise<void> {
+export async function saveMcpApprovalConfig(settings: McpApprovalSettings): Promise<void> {
   const configPath = path.join(process.cwd(), ".mcp-approval.json");
   await fs.writeFile(configPath, JSON.stringify(settings, null, 2));
 }

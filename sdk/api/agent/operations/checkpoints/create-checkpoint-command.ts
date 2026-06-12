@@ -63,10 +63,7 @@ export class CreateCheckpointCommand extends BaseCommand<string> {
     }
 
     // Creating Checkpoints
-    const checkpointId = await this.checkpointAPI.createCheckpoint(
-      entity,
-      this.params.metadata,
-    );
+    const checkpointId = await this.checkpointAPI.createCheckpoint(entity, this.params.metadata);
 
     return checkpointId;
   }

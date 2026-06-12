@@ -59,7 +59,7 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
    */
   protected async getResource(id: string): Promise<LLMMessage | null> {
     // Parse ID format: executionId-index
-    const lastDashIndex = id.lastIndexOf('-');
+    const lastDashIndex = id.lastIndexOf("-");
     if (lastDashIndex === -1) {
       return null;
     }
@@ -152,12 +152,18 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   ): Promise<LLMMessage[]> {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `State coordinator not found for execution: ${executionId}`,
+        executionId,
+      );
     }
 
     let messages = stateCoordinator.getMessages() || [];
@@ -186,12 +192,18 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async getRecentMessages(executionId: string, count: number): Promise<LLMMessage[]> {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `State coordinator not found for execution: ${executionId}`,
+        executionId,
+      );
     }
 
     const messages = stateCoordinator.getMessages() || [];
@@ -207,12 +219,18 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async searchMessages(executionId: string, query: string): Promise<LLMMessage[]> {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `State coordinator not found for execution: ${executionId}`,
+        executionId,
+      );
     }
 
     const messages = stateCoordinator.getMessages() || [];
@@ -231,12 +249,18 @@ export class MessageResourceAPI extends ReadonlyResourceAPI<LLMMessage, string, 
   async getMessageStats(executionId: string): Promise<MessageStats> {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(`State coordinator not found for execution: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `State coordinator not found for execution: ${executionId}`,
+        executionId,
+      );
     }
 
     const messages = stateCoordinator.getMessages() || [];

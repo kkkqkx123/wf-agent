@@ -14,11 +14,7 @@
  *   - types:      Core interfaces (VFSOperations, VFSEntry)
  */
 
-export type {
-  VFSEntry,
-  VFSOperations,
-  VFSConfig,
-} from "./types.js";
+export type { VFSEntry, VFSOperations, VFSConfig } from "./types.js";
 
 export type { VFSProvider } from "@wf-agent/types";
 

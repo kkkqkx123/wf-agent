@@ -49,7 +49,9 @@ describe("LuaStaticAnalyzerStrategy", () => {
 
   beforeEach(() => {
     mockTerminalService = createMockTerminalService();
-    const builtinHook = new LuaBuiltinHookStrategy(mockTerminalService as unknown as TerminalService);
+    const builtinHook = new LuaBuiltinHookStrategy(
+      mockTerminalService as unknown as TerminalService,
+    );
     strategy = new LuaStaticAnalyzerStrategy(builtinHook);
     vi.useFakeTimers();
   });
@@ -96,7 +98,10 @@ describe("LuaStaticAnalyzerStrategy", () => {
     });
 
     it("should return error for undefined code", async () => {
-      const result = await strategy.execute({ command: undefined } as unknown as StrategyExecuteOptions, defaultPolicy);
+      const result = await strategy.execute(
+        { command: undefined } as unknown as StrategyExecuteOptions,
+        defaultPolicy,
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Empty Lua code");
@@ -269,7 +274,7 @@ describe("LuaStaticAnalyzerStrategy", () => {
     });
 
     it("should detect setfenv call", async () => {
-      const dangerousCode = 'setfenv(1, {})';
+      const dangerousCode = "setfenv(1, {})";
       const result = await strategy.execute({ command: dangerousCode }, defaultPolicy);
 
       expect(result.success).toBe(false);
@@ -277,7 +282,7 @@ describe("LuaStaticAnalyzerStrategy", () => {
     });
 
     it("should detect getfenv call", async () => {
-      const dangerousCode = 'getfenv(1)';
+      const dangerousCode = "getfenv(1)";
       const result = await strategy.execute({ command: dangerousCode }, defaultPolicy);
 
       expect(result.success).toBe(false);

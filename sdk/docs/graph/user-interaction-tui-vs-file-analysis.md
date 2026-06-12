@@ -15,15 +15,18 @@
 ```typescript
 // apps/cli-app/src/handlers/cli-human-relay-handler.ts
 export class CLIHumanRelayHandler implements HumanRelayHandler {
-  async handle(request: HumanRelayRequest, context: HumanRelayContext): Promise<HumanRelayResponse> {
+  async handle(
+    request: HumanRelayRequest,
+    context: HumanRelayContext,
+  ): Promise<HumanRelayResponse> {
     output.infoLog(request.prompt);
-    
+
     // 直接使用 readline 读取用户输入
     const content = await this.promptUser();
-    
+
     return { requestId: request.requestId, content, timestamp: Date.now() };
   }
-  
+
   private promptUser(): Promise<string> {
     return new Promise((resolve, reject) => {
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -118,6 +121,7 @@ interface UserInteractionHandler {
 ```
 
 **设计要点**：
+
 - 纯文本格式，无格式化
 - 支持 XML/JSON 工具调用格式
 - 直接作为 LLM 响应使用
@@ -131,6 +135,7 @@ interface UserInteractionHandler {
 ```
 
 **设计要点**：
+
 - Markdown 格式，便于阅读
 - 显示操作指南和文件路径
 - 替代 TUI 完整输出
@@ -145,6 +150,7 @@ interface FileWatcher {
 ```
 
 **监控流程**：
+
 1. 创建输入文件（空文件）
 2. 启动 fs.watch 监控
 3. 等待文件变化或超时
@@ -157,6 +163,7 @@ interface FileWatcher {
 ### 5.1 推荐方案：基于文件操作
 
 **理由**：
+
 1. **与现有设计一致**：file-io-prd.md 已定义了完整的文件 IO 方案
 2. **支持复杂场景**：工具调用、代码块、多行输入
 3. **便于调试**：用户可直接查看/修改输入文件
@@ -204,10 +211,10 @@ interface FileWatcher {
 async writePromptFile(sessionId: string, prompt: string): Promise<string> {
   const dir = path.join('.wf-agent', 'function', sessionId);
   const file = path.join(dir, 'human-relay-output.txt');
-  
+
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(file, prompt, 'utf-8');
-  
+
   return file;
 }
 ```
@@ -217,18 +224,18 @@ async writePromptFile(sessionId: string, prompt: string): Promise<string> {
 ```typescript
 async watchInputFile(sessionId: string, timeout: number): Promise<string> {
   const file = path.join('.wf-agent', 'function', sessionId, 'human-relay-input.txt');
-  
+
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       watcher.close();
       reject(new Error('Timeout waiting for user input'));
     }, timeout);
-    
+
     const watcher = fs.watch(file, (eventType) => {
       if (eventType === 'change') {
         clearTimeout(timer);
         watcher.close();
-        
+
         // 读取内容（带重试确保写入完成）
         setTimeout(async () => {
           const content = await fs.readFile(file, 'utf-8');
@@ -246,7 +253,7 @@ async watchInputFile(sessionId: string, timeout: number): Promise<string> {
 async updateOutputDisplay(sessionId: string, state: DisplayState): Promise<void> {
   const dir = path.join('.wf-agent', 'display', sessionId);
   const file = path.join(dir, 'output.md');
-  
+
   const content = renderMarkdown({
     sessionId,
     state,
@@ -256,7 +263,7 @@ async updateOutputDisplay(sessionId: string, state: DisplayState): Promise<void>
       '保存文件后系统自动继续',
     ],
   });
-  
+
   await fs.writeFile(file, content, 'utf-8');
 }
 ```
@@ -269,11 +276,11 @@ async updateOutputDisplay(sessionId: string, state: DisplayState): Promise<void>
 
 针对不同场景提供不同的交互方式：
 
-| 场景 | 交互方式 | 说明 |
-|------|----------|------|
-| Graph 工作流 | 文件操作 | 复杂场景，需要历史记录 |
-| 快速调试 | TUI 直接输入 | 简单场景，快速响应 |
-| Agent Loop | 可配置 | 默认文件，可切换 |
+| 场景         | 交互方式     | 说明                   |
+| ------------ | ------------ | ---------------------- |
+| Graph 工作流 | 文件操作     | 复杂场景，需要历史记录 |
+| 快速调试     | TUI 直接输入 | 简单场景，快速响应     |
+| Agent Loop   | 可配置       | 默认文件，可切换       |
 
 ### 6.2 配置选项
 
@@ -298,17 +305,20 @@ autoCleanup = true
 
 ```typescript
 class HybridHumanRelayHandler implements HumanRelayHandler {
-  async handle(request: HumanRelayRequest, context: HumanRelayContext): Promise<HumanRelayResponse> {
+  async handle(
+    request: HumanRelayRequest,
+    context: HumanRelayContext,
+  ): Promise<HumanRelayResponse> {
     const mode = config.humanRelay.mode;
-    
+
     switch (mode) {
-      case 'file':
+      case "file":
         return this.handleFileMode(request, context);
-      case 'tui':
+      case "tui":
         return this.handleTUIMode(request, context);
-      case 'auto':
+      case "auto":
         // 简单提示用 TUI，复杂提示用文件
-        return request.prompt.length < 200 
+        return request.prompt.length < 200
           ? this.handleTUIMode(request, context)
           : this.handleFileMode(request, context);
     }

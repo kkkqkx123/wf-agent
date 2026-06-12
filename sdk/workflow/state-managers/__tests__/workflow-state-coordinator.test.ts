@@ -7,10 +7,10 @@
  * - Parent-child message passing: Use export/import methods
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { WorkflowStateCoordinator } from '../workflow-state-coordinator.js';
-import { RuntimeValidationError } from '@wf-agent/types';
-import type { LLMMessage, TokenUsageStats, MessageMarkMap } from '@wf-agent/types';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { WorkflowStateCoordinator } from "../workflow-state-coordinator.js";
+import { RuntimeValidationError } from "@wf-agent/types";
+import type { LLMMessage, TokenUsageStats, MessageMarkMap } from "@wf-agent/types";
 
 // Mock ConversationSession (primary data source)
 const createMockConversationSession = () => ({
@@ -22,7 +22,9 @@ const createMockConversationSession = () => ({
   getMessageCount: vi.fn().mockReturnValue(0),
   clear: vi.fn(),
   getTokenUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
-  getCurrentRequestUsage: vi.fn().mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
+  getCurrentRequestUsage: vi
+    .fn()
+    .mockReturnValue({ totalTokens: 0, promptTokens: 0, completionTokens: 0 }),
   setTokenUsageState: vi.fn(),
   checkTokenUsage: vi.fn().mockResolvedValue(undefined),
   getMarkMap: vi.fn().mockReturnValue({
@@ -37,21 +39,21 @@ const createMockConversationSession = () => ({
   cleanup: vi.fn(),
 });
 
-describe('WorkflowStateCoordinator', () => {
+describe("WorkflowStateCoordinator", () => {
   let coordinator: WorkflowStateCoordinator;
   let mockConversationSession: ReturnType<typeof createMockConversationSession>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockConversationSession = createMockConversationSession();
-    
+
     coordinator = new WorkflowStateCoordinator({
       conversationManager: mockConversationSession as any,
     });
   });
 
-  describe('constructor', () => {
-    it('should initialize with conversation session', () => {
+  describe("constructor", () => {
+    it("should initialize with conversation session", () => {
       expect(coordinator.getConversationManager()).toBe(mockConversationSession);
     });
   });
@@ -60,12 +62,12 @@ describe('WorkflowStateCoordinator', () => {
   // Message Management (Single Data Source: ConversationSession)
   // ============================================================
 
-  describe('addMessage', () => {
-    it('should add message to ConversationSession (single data source)', () => {
+  describe("addMessage", () => {
+    it("should add message to ConversationSession (single data source)", () => {
       // Arrange
       const message: LLMMessage = {
-        role: 'user',
-        content: 'test message',
+        role: "user",
+        content: "test message",
       };
 
       // Act
@@ -75,43 +77,43 @@ describe('WorkflowStateCoordinator', () => {
       expect(mockConversationSession.addMessage).toHaveBeenCalledWith(message);
     });
 
-    it('should throw error when message is null', () => {
+    it("should throw error when message is null", () => {
       // Act & Assert
       expect(() => coordinator.addMessage(null as any)).toThrow(RuntimeValidationError);
-      expect(() => coordinator.addMessage(null as any)).toThrow('Message cannot be null');
+      expect(() => coordinator.addMessage(null as any)).toThrow("Message cannot be null");
     });
 
-    it('should throw error when message has no role', () => {
+    it("should throw error when message has no role", () => {
       // Arrange
       const message: LLMMessage = {
-        role: '' as any,
-        content: 'test',
+        role: "" as any,
+        content: "test",
       };
 
       // Act & Assert
       expect(() => coordinator.addMessage(message)).toThrow(RuntimeValidationError);
-      expect(() => coordinator.addMessage(message)).toThrow('Message must have role and content');
+      expect(() => coordinator.addMessage(message)).toThrow("Message must have role and content");
     });
 
-    it('should throw error when message has no content', () => {
+    it("should throw error when message has no content", () => {
       // Arrange
       const message: LLMMessage = {
-        role: 'user',
-        content: '' as any,
+        role: "user",
+        content: "" as any,
       };
 
       // Act & Assert
       expect(() => coordinator.addMessage(message)).toThrow(RuntimeValidationError);
-      expect(() => coordinator.addMessage(message)).toThrow('Message must have role and content');
+      expect(() => coordinator.addMessage(message)).toThrow("Message must have role and content");
     });
   });
 
-  describe('addMessages', () => {
-    it('should add multiple messages to ConversationSession', () => {
+  describe("addMessages", () => {
+    it("should add multiple messages to ConversationSession", () => {
       // Arrange
       const messages: LLMMessage[] = [
-        { role: 'user', content: 'message 1' },
-        { role: 'assistant', content: 'message 2' },
+        { role: "user", content: "message 1" },
+        { role: "assistant", content: "message 2" },
       ];
 
       // Act
@@ -122,12 +124,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('getMessages', () => {
-    it('should get visible messages from ConversationSession (single data source)', () => {
+  describe("getMessages", () => {
+    it("should get visible messages from ConversationSession (single data source)", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       mockConversationSession.getMessages.mockReturnValue(messages);
 
       // Act
@@ -139,12 +139,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('getAllMessages', () => {
-    it('should get all messages from ConversationSession', () => {
+  describe("getAllMessages", () => {
+    it("should get all messages from ConversationSession", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       mockConversationSession.getAllMessages.mockReturnValue(messages);
 
       // Act
@@ -155,12 +153,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('getRecentMessages', () => {
-    it('should get recent messages from ConversationSession (single data source)', () => {
+  describe("getRecentMessages", () => {
+    it("should get recent messages from ConversationSession (single data source)", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       mockConversationSession.getRecentMessages.mockReturnValue(messages);
 
       // Act
@@ -172,8 +168,8 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('getMessageCount', () => {
-    it('should get message count from ConversationSession', () => {
+  describe("getMessageCount", () => {
+    it("should get message count from ConversationSession", () => {
       // Arrange
       mockConversationSession.getMessageCount.mockReturnValue(5);
 
@@ -186,12 +182,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('setMessages', () => {
-    it('should set messages to ConversationSession (single data source)', () => {
+  describe("setMessages", () => {
+    it("should set messages to ConversationSession (single data source)", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
 
       // Act
       coordinator.setMessages(messages);
@@ -202,8 +196,8 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('clearMessages', () => {
-    it('should clear messages from ConversationSession (single data source)', () => {
+  describe("clearMessages", () => {
+    it("should clear messages from ConversationSession (single data source)", () => {
       // Act
       coordinator.clearMessages();
 
@@ -212,8 +206,8 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('normalizeHistory', () => {
-    it('should not call any method (empty implementation)', () => {
+  describe("normalizeHistory", () => {
+    it("should not call any method (empty implementation)", () => {
       // Act
       coordinator.normalizeHistory();
 
@@ -227,12 +221,10 @@ describe('WorkflowStateCoordinator', () => {
   // Parent-Child Execution Message Passing
   // ============================================================
 
-  describe('exportMessagesForChild', () => {
-    it('should export messages from ConversationSession for child execution', () => {
+  describe("exportMessagesForChild", () => {
+    it("should export messages from ConversationSession for child execution", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       mockConversationSession.getMessages.mockReturnValue(messages);
 
       // Act
@@ -244,12 +236,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('importMessagesFromChild', () => {
-    it('should import messages from child execution to ConversationSession', () => {
+  describe("importMessagesFromChild", () => {
+    it("should import messages from child execution to ConversationSession", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
 
       // Act
       coordinator.importMessagesFromChild(messages);
@@ -259,12 +249,10 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('exportAllMessagesForCheckpoint', () => {
-    it('should export all messages for checkpoint', () => {
+  describe("exportAllMessagesForCheckpoint", () => {
+    it("should export all messages for checkpoint", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       mockConversationSession.getAllMessages.mockReturnValue(messages);
 
       // Act
@@ -280,9 +268,9 @@ describe('WorkflowStateCoordinator', () => {
   // Token Management
   // ============================================================
 
-  describe('token management', () => {
-    describe('getTokenUsage', () => {
-      it('should get token usage from conversation session', () => {
+  describe("token management", () => {
+    describe("getTokenUsage", () => {
+      it("should get token usage from conversation session", () => {
         // Arrange
         const usage: TokenUsageStats = { totalTokens: 100, promptTokens: 50, completionTokens: 50 };
         mockConversationSession.getTokenUsage.mockReturnValue(usage);
@@ -295,8 +283,8 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
 
-    describe('getCurrentRequestUsage', () => {
-      it('should get current request usage from conversation session', () => {
+    describe("getCurrentRequestUsage", () => {
+      it("should get current request usage from conversation session", () => {
         // Arrange
         const usage: TokenUsageStats = { totalTokens: 10, promptTokens: 5, completionTokens: 5 };
         mockConversationSession.getCurrentRequestUsage.mockReturnValue(usage);
@@ -309,22 +297,33 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
 
-    describe('setTokenUsageState', () => {
-      it('should set token usage state', () => {
+    describe("setTokenUsageState", () => {
+      it("should set token usage state", () => {
         // Arrange
-        const cumulativeUsage: TokenUsageStats = { totalTokens: 100, promptTokens: 50, completionTokens: 50 };
-        const currentRequestUsage: TokenUsageStats = { totalTokens: 10, promptTokens: 5, completionTokens: 5 };
+        const cumulativeUsage: TokenUsageStats = {
+          totalTokens: 100,
+          promptTokens: 50,
+          completionTokens: 50,
+        };
+        const currentRequestUsage: TokenUsageStats = {
+          totalTokens: 10,
+          promptTokens: 5,
+          completionTokens: 5,
+        };
 
         // Act
         coordinator.setTokenUsageState(cumulativeUsage, currentRequestUsage);
 
         // Assert
-        expect(mockConversationSession.setTokenUsageState).toHaveBeenCalledWith(cumulativeUsage, currentRequestUsage);
+        expect(mockConversationSession.setTokenUsageState).toHaveBeenCalledWith(
+          cumulativeUsage,
+          currentRequestUsage,
+        );
       });
     });
 
-    describe('checkTokenUsage', () => {
-      it('should check token usage', async () => {
+    describe("checkTokenUsage", () => {
+      it("should check token usage", async () => {
         // Act
         await coordinator.checkTokenUsage();
 
@@ -338,9 +337,9 @@ describe('WorkflowStateCoordinator', () => {
   // Batch Management
   // ============================================================
 
-  describe('batch management', () => {
-    describe('getMarkMap', () => {
-      it('should get mark map from conversation session', () => {
+  describe("batch management", () => {
+    describe("getMarkMap", () => {
+      it("should get mark map from conversation session", () => {
         // Arrange
         const markMap: MessageMarkMap = {
           originalIndices: [0, 1],
@@ -358,8 +357,8 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
 
-    describe('setMarkMap', () => {
-      it('should set mark map', () => {
+    describe("setMarkMap", () => {
+      it("should set mark map", () => {
         // Arrange
         const markMap: MessageMarkMap = {
           originalIndices: [0, 1],
@@ -376,8 +375,8 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
 
-    describe('startNewBatch', () => {
-      it('should start new batch', () => {
+    describe("startNewBatch", () => {
+      it("should start new batch", () => {
         // Arrange
         mockConversationSession.startNewBatch.mockReturnValue(1);
 
@@ -390,8 +389,8 @@ describe('WorkflowStateCoordinator', () => {
       });
     });
 
-    describe('startNewBatchWithAutoCheckpoint', () => {
-      it('should start new batch with auto checkpoint', async () => {
+    describe("startNewBatchWithAutoCheckpoint", () => {
+      it("should start new batch with auto checkpoint", async () => {
         // Arrange
         mockConversationSession.startNewBatchWithAutoCheckpoint.mockResolvedValue(1);
 
@@ -409,20 +408,22 @@ describe('WorkflowStateCoordinator', () => {
   // State Snapshot & Recovery
   // ============================================================
 
-  describe('createSnapshot', () => {
-    it('should create snapshot from ConversationSession', () => {
+  describe("createSnapshot", () => {
+    it("should create snapshot from ConversationSession", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       const markMap: MessageMarkMap = {
         originalIndices: [0],
         batchBoundaries: [0],
         boundaryToBatch: [0],
         currentBatch: 0,
       };
-      const tokenUsage: TokenUsageStats = { totalTokens: 100, promptTokens: 50, completionTokens: 50 };
-      
+      const tokenUsage: TokenUsageStats = {
+        totalTokens: 100,
+        promptTokens: 50,
+        completionTokens: 50,
+      };
+
       mockConversationSession.getAllMessages.mockReturnValue(messages);
       mockConversationSession.getMarkMap.mockReturnValue(markMap);
       mockConversationSession.getTokenUsage.mockReturnValue(tokenUsage);
@@ -439,20 +440,22 @@ describe('WorkflowStateCoordinator', () => {
     });
   });
 
-  describe('restoreFromSnapshot', () => {
-    it('should restore from snapshot to ConversationSession', () => {
+  describe("restoreFromSnapshot", () => {
+    it("should restore from snapshot to ConversationSession", () => {
       // Arrange
-      const messages: LLMMessage[] = [
-        { role: 'user', content: 'test' },
-      ];
+      const messages: LLMMessage[] = [{ role: "user", content: "test" }];
       const markMap: MessageMarkMap = {
         originalIndices: [0],
         batchBoundaries: [0],
         boundaryToBatch: [0],
         currentBatch: 0,
       };
-      const tokenUsage: TokenUsageStats = { totalTokens: 100, promptTokens: 50, completionTokens: 50 };
-      
+      const tokenUsage: TokenUsageStats = {
+        totalTokens: 100,
+        promptTokens: 50,
+        completionTokens: 50,
+      };
+
       const snapshot = {
         messages,
         markMap,
@@ -467,10 +470,13 @@ describe('WorkflowStateCoordinator', () => {
       expect(mockConversationSession.clear).toHaveBeenCalled();
       expect(mockConversationSession.addMessages).toHaveBeenCalledWith(...messages);
       expect(mockConversationSession.setMarkMap).toHaveBeenCalledWith(markMap);
-      expect(mockConversationSession.setTokenUsageState).toHaveBeenCalledWith(tokenUsage, tokenUsage);
+      expect(mockConversationSession.setTokenUsageState).toHaveBeenCalledWith(
+        tokenUsage,
+        tokenUsage,
+      );
     });
 
-    it('should handle empty snapshot', () => {
+    it("should handle empty snapshot", () => {
       // Arrange
       const snapshot = {
         messages: [],
@@ -495,8 +501,8 @@ describe('WorkflowStateCoordinator', () => {
   // Resource Management
   // ============================================================
 
-  describe('cleanup', () => {
-    it('should cleanup ConversationSession', () => {
+  describe("cleanup", () => {
+    it("should cleanup ConversationSession", () => {
       // Act
       coordinator.cleanup();
 

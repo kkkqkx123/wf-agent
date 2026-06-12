@@ -1,13 +1,13 @@
 /**
  * Execution Hierarchy Manager
- * 
+ *
  * Unified management of parent-child relationships for all execution instances.
  * Encapsulates all operations related to hierarchy management including:
  * - Setting parent context
  * - Registering/unregistering children
  * - Calculating depth and root execution
  * - Cycle detection
- * 
+ *
  * This manager is used by both WorkflowExecutionEntity and AgentLoopEntity
  * to provide a consistent API for hierarchy management.
  */
@@ -18,15 +18,15 @@ import type {
   ChildExecutionReference,
   ExecutionHierarchyMetadata,
   ID,
-} from '@wf-agent/types';
-import { sdkLogger as logger } from '../../utils/logger.js';
-import type { ExecutionHierarchyRegistry } from '../registry/execution-hierarchy-registry.js';
+} from "@wf-agent/types";
+import { sdkLogger as logger } from "../../utils/logger.js";
+import type { ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
 
 /**
  * Maximum allowed hierarchy depth to prevent infinite nesting
  * Can be configured via environment variable or configuration file
  */
-const MAX_DEPTH = parseInt(process.env['MAX_EXECUTION_DEPTH'] || '10', 10);
+const MAX_DEPTH = parseInt(process.env["MAX_EXECUTION_DEPTH"] || "10", 10);
 
 /**
  * Maximum number of ancestors to traverse during cycle detection
@@ -37,7 +37,7 @@ const MAX_CYCLE_CHECK_DEPTH = MAX_DEPTH + 5;
 
 /**
  * Execution Hierarchy Manager
- * 
+ *
  * Manages the hierarchical relationship of a single execution instance.
  * Each entity (Workflow or Agent) has its own HierarchyManager instance.
  */
@@ -53,7 +53,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Creates a new ExecutionHierarchyManager
-   * 
+   *
    * @param executionId - The ID of this execution instance
    * @param executionType - The type of this execution (WORKFLOW or AGENT_LOOP)
    * @param existingHierarchy - Optional existing hierarchy metadata to restore from
@@ -63,7 +63,7 @@ export class ExecutionHierarchyManager {
     executionId: ID,
     executionType: ExecutionType,
     existingHierarchy?: ExecutionHierarchyMetadata,
-    registry?: ExecutionHierarchyRegistry
+    registry?: ExecutionHierarchyRegistry,
   ) {
     this.executionId = executionId;
     this.executionType = executionType;
@@ -90,11 +90,11 @@ export class ExecutionHierarchyManager {
 
   /**
    * Sets the parent execution context
-   * 
+   *
    * Performs validation including:
    * - Cycle detection
    * - Depth limit enforcement
-   * 
+   *
    * @param parentContext - The parent execution context
    * @throws Error if cycle detected or depth limit exceeded
    */
@@ -110,7 +110,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets the current parent execution context
-   * 
+   *
    * @returns The parent context, or undefined if this is a root execution
    */
   getParent(): ParentExecutionContext | undefined {
@@ -119,7 +119,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Adds a child execution reference
-   * 
+   *
    * @param childRef - The child execution reference to add
    */
   addChild(childRef: ChildExecutionReference): void {
@@ -129,7 +129,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Removes a child execution reference
-   * 
+   *
    * @param childId - The ID of the child to remove
    * @param childType - The type of the child to remove
    * @returns true if the child was found and removed, false otherwise
@@ -141,7 +141,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets all child execution references
-   * 
+   *
    * @returns Array of all child references
    */
   getChildren(): ChildExecutionReference[] {
@@ -150,10 +150,10 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets the current hierarchy depth
-   * 
+   *
    * Returns cached value (O(1) operation).
    * Cache is automatically invalidated and recalculated when parent changes.
-   * 
+   *
    * @returns The depth (0 for root nodes)
    */
   getDepth(): number {
@@ -162,10 +162,10 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets the root execution ID
-   * 
+   *
    * Returns cached value (O(1) operation).
    * Cache is automatically invalidated and recalculated when parent changes.
-   * 
+   *
    * @returns The ID of the root execution in this hierarchy tree
    */
   getRootExecutionId(): ID {
@@ -174,10 +174,10 @@ export class ExecutionHierarchyManager {
 
   /**
    * Gets the root execution type
-   * 
+   *
    * Returns cached value (O(1) operation).
    * Cache is automatically invalidated and recalculated when parent changes.
-   * 
+   *
    * @returns The type of the root execution
    */
   getRootExecutionType(): ExecutionType {
@@ -186,7 +186,7 @@ export class ExecutionHierarchyManager {
 
   /**
    * Converts the current state to serializable metadata
-   * 
+   *
    * @returns ExecutionHierarchyMetadata suitable for serialization
    */
   toMetadata(): ExecutionHierarchyMetadata {
@@ -201,11 +201,11 @@ export class ExecutionHierarchyManager {
 
   /**
    * Validates a parent context change
-   * 
+   *
    * Checks for:
    * - Circular references
    * - Depth limit violations
-   * 
+   *
    * @param parentContext - The proposed parent context
    * @throws Error if validation fails
    */
@@ -213,7 +213,7 @@ export class ExecutionHierarchyManager {
     // Check for circular reference
     if (this.wouldCreateCycle(parentContext.parentId)) {
       throw new Error(
-        `Circular reference detected: cannot set ${parentContext.parentId} as parent of ${this.executionId}`
+        `Circular reference detected: cannot set ${parentContext.parentId} as parent of ${this.executionId}`,
       );
     }
 
@@ -224,18 +224,18 @@ export class ExecutionHierarchyManager {
     if (newDepth > MAX_DEPTH) {
       throw new Error(
         `Maximum hierarchy depth exceeded: ${newDepth} > ${MAX_DEPTH}. ` +
-          `Consider restructuring your execution hierarchy.`
+          `Consider restructuring your execution hierarchy.`,
       );
     }
   }
 
   /**
    * Checks if setting the given parent would create a circular reference
-   * 
+   *
    * Traverses up the parent chain to see if we encounter our own ID.
    * Uses the registry to access parent entities and traverse the full ancestor chain.
    * Optimized with early termination and depth limits to prevent excessive traversal.
-   * 
+   *
    * @param targetParentId - The ID of the proposed parent
    * @returns true if a cycle would be created
    */
@@ -247,7 +247,7 @@ export class ExecutionHierarchyManager {
 
     // If registry is not available, we can only check direct self-reference
     if (!this.registry) {
-      logger.warn('Registry not available, skipping full cycle detection');
+      logger.warn("Registry not available, skipping full cycle detection");
       return false;
     }
 
@@ -255,11 +255,11 @@ export class ExecutionHierarchyManager {
     let currentId: ID | undefined = targetParentId;
     const visited = new Set<ID>();
     let traversalDepth = 0;
-    
+
     while (currentId) {
       // Safety check: prevent excessive traversal
       if (traversalDepth > MAX_CYCLE_CHECK_DEPTH) {
-        logger.warn('Cycle detection exceeded maximum traversal depth', {
+        logger.warn("Cycle detection exceeded maximum traversal depth", {
           targetParentId,
           maxDepth: MAX_CYCLE_CHECK_DEPTH,
         });
@@ -267,63 +267,63 @@ export class ExecutionHierarchyManager {
         // The depth limit validation will catch excessively deep trees
         return false;
       }
-      
+
       // Check if we've reached ourselves (cycle detected)
       if (currentId === this.executionId) {
         return true;
       }
-      
+
       // Check if we've already visited this node (cycle in parent chain)
       if (visited.has(currentId)) {
-        logger.warn('Cycle detected in parent chain during traversal', { currentId });
+        logger.warn("Cycle detected in parent chain during traversal", { currentId });
         return true;
       }
-      
+
       visited.add(currentId);
       traversalDepth++;
-      
+
       // Get the parent entity from registry
       const parentEntity = this.registry.get(currentId);
-      if (!parentEntity || !('getParentContext' in parentEntity)) {
+      if (!parentEntity || !("getParentContext" in parentEntity)) {
         // Reached root node or entity not found
         break;
       }
-      
+
       // Move up to the next parent
       const parentContext = parentEntity.getParentContext();
       currentId = parentContext?.parentId;
     }
-    
+
     return false;
   }
 
   /**
    * Gets the depth of a parent execution
-   * 
+   *
    * Queries the registry to get the actual parent's depth.
    * Falls back to 0 if registry is not available or parent is not found.
-   * 
+   *
    * @param parentContext - The parent context
    * @returns The depth of the parent execution
    */
   private getParentDepth(parentContext: ParentExecutionContext): number {
     if (!this.registry) {
-      logger.warn('Registry not available, assuming parent is root (depth=0)');
+      logger.warn("Registry not available, assuming parent is root (depth=0)");
       return 0;
     }
 
     const parentEntity = this.registry.get(parentContext.parentId);
-    if (!parentEntity || !('getHierarchyDepth' in parentEntity)) {
+    if (!parentEntity || !("getHierarchyDepth" in parentEntity)) {
       // Parent not found or doesn't have hierarchy methods, assume it's root
       return 0;
     }
-    
+
     return parentEntity.getHierarchyDepth();
   }
 
   /**
    * Recalculates hierarchy information after parent change
-   * 
+   *
    * Updates:
    * - depth: parent's depth + 1
    * - rootExecutionId: inherited from parent's root
@@ -339,7 +339,7 @@ export class ExecutionHierarchyManager {
       // Has parent: calculate based on parent's hierarchy
       const parentDepth = this.getParentDepth(this.parent);
       this.depth = parentDepth + 1;
-      
+
       // Inherit root information from parent
       this.inheritRootInfoFromParent();
     }
@@ -347,14 +347,14 @@ export class ExecutionHierarchyManager {
 
   /**
    * Inherits root execution information from parent
-   * 
+   *
    * Queries the registry to get the parent's root execution info.
    * Falls back to parent's own ID if registry is not available.
    */
   private inheritRootInfoFromParent(): void {
     if (!this.registry || !this.parent) {
       // Fallback: assume parent is root
-      logger.warn('Registry not available or parent is undefined, assuming parent is root');
+      logger.warn("Registry not available or parent is undefined, assuming parent is root");
       if (this.parent) {
         this.rootExecutionId = this.parent.parentId;
         this.rootExecutionType = this.parent.parentType;
@@ -363,13 +363,17 @@ export class ExecutionHierarchyManager {
     }
 
     const parentEntity = this.registry.get(this.parent.parentId);
-    if (parentEntity && 'getRootExecutionId' in parentEntity && 'getRootExecutionType' in parentEntity) {
+    if (
+      parentEntity &&
+      "getRootExecutionId" in parentEntity &&
+      "getRootExecutionType" in parentEntity
+    ) {
       // Inherit from parent's root
       this.rootExecutionId = parentEntity.getRootExecutionId();
       this.rootExecutionType = parentEntity.getRootExecutionType();
     } else {
       // Fallback: assume parent is root
-      logger.warn('Parent entity not found or missing hierarchy methods, assuming parent is root', {
+      logger.warn("Parent entity not found or missing hierarchy methods, assuming parent is root", {
         parentId: this.parent.parentId,
       });
       this.rootExecutionId = this.parent.parentId;

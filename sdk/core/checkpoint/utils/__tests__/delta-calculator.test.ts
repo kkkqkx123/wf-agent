@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  DeltaCalculator,
-  type DeltaCalculatorContext,
-} from "../delta-calculator.js";
+import { DeltaCalculator, type DeltaCalculatorContext } from "../delta-calculator.js";
 
 interface TestSnapshot {
   name?: string;
@@ -196,15 +193,12 @@ describe("DeltaCalculator", () => {
         { id: "1", name: "a" },
         { id: "3", name: "c" },
       ];
-      const result = calculator["calculateAppendedDelta"](items, newItems, (item) => item.id);
+      const result = calculator["calculateAppendedDelta"](items, newItems, item => item.id);
       expect(result).toEqual([{ id: "3", name: "c" }]);
     });
 
     it("should handle null/undefined previous", () => {
-      const result = calculator["calculateAppendedDelta"](
-        null as unknown as string[],
-        ["a", "b"],
-      );
+      const result = calculator["calculateAppendedDelta"](null as unknown as string[], ["a", "b"]);
       expect(result).toEqual(["a", "b"]);
     });
   });

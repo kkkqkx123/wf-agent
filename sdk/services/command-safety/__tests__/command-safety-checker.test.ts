@@ -245,15 +245,15 @@ describe("getSingleCommandDecision", () => {
     });
 
     it("should auto_approve when allowlist is more specific than denylist", () => {
-      expect(
-        getSingleCommandDecision("git commit -m 'msg'", ["git commit", "git"], ["git"]),
-      ).toBe("auto_approve");
+      expect(getSingleCommandDecision("git commit -m 'msg'", ["git commit", "git"], ["git"])).toBe(
+        "auto_approve",
+      );
     });
 
     it("should auto_deny when denylist is more specific than allowlist", () => {
-      expect(
-        getSingleCommandDecision("git push origin main", ["git"], ["git push"]),
-      ).toBe("auto_deny");
+      expect(getSingleCommandDecision("git push origin main", ["git"], ["git push"])).toBe(
+        "auto_deny",
+      );
     });
 
     it("should auto_deny when deny list matches and allowlist does not", () => {
@@ -299,39 +299,31 @@ describe("getCommandDecision", () => {
 
   describe("command chain handling", () => {
     it("should auto_approve when all sub-commands are approved (&&)", () => {
-      expect(
-        getCommandDecision("git add . && git commit -m 'msg'", ["git"], ["rm"]),
-      ).toBe("auto_approve");
+      expect(getCommandDecision("git add . && git commit -m 'msg'", ["git"], ["rm"])).toBe(
+        "auto_approve",
+      );
     });
 
     it("should auto_deny when any sub-command is denied (&&)", () => {
-      expect(
-        getCommandDecision("git add . && rm -rf /", ["git"], ["rm"]),
-      ).toBe("auto_deny");
+      expect(getCommandDecision("git add . && rm -rf /", ["git"], ["rm"])).toBe("auto_deny");
     });
 
     it("should auto_approve when all sub-commands are approved (; separator)", () => {
-      expect(
-        getCommandDecision("git add .; git commit -m 'msg'", ["git"], ["rm"]),
-      ).toBe("auto_approve");
+      expect(getCommandDecision("git add .; git commit -m 'msg'", ["git"], ["rm"])).toBe(
+        "auto_approve",
+      );
     });
 
     it("should auto_deny when any sub-command is denied (||)", () => {
-      expect(
-        getCommandDecision("git add . || rm -rf /", ["git"], ["rm"]),
-      ).toBe("auto_deny");
+      expect(getCommandDecision("git add . || rm -rf /", ["git"], ["rm"])).toBe("auto_deny");
     });
 
     it("should auto_deny when any sub-command is denied (pipe)", () => {
-      expect(
-        getCommandDecision("echo hello | rm -rf /", ["echo", "rm"], ["rm"]),
-      ).toBe("auto_deny");
+      expect(getCommandDecision("echo hello | rm -rf /", ["echo", "rm"], ["rm"])).toBe("auto_deny");
     });
 
     it("should ask_user when mixed approval/ask results", () => {
-      expect(
-        getCommandDecision("git add . && some_unknown_cmd", ["git"]),
-      ).toBe("ask_user");
+      expect(getCommandDecision("git add . && some_unknown_cmd", ["git"])).toBe("ask_user");
     });
   });
 

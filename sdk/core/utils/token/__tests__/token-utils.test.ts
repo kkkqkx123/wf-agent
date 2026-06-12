@@ -4,11 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { LLMMessage, LLMUsage } from "@wf-agent/types";
-import {
-  estimateTokens,
-  getTokenUsage,
-  isTokenLimitExceeded,
-} from "../token-utils.js";
+import { estimateTokens, getTokenUsage, isTokenLimitExceeded } from "../token-utils.js";
 
 describe("estimateTokens", () => {
   it("should return 0 for empty messages array", () => {
@@ -16,9 +12,7 @@ describe("estimateTokens", () => {
   });
 
   it("should count tokens for string content", () => {
-    const messages: LLMMessage[] = [
-      { role: "user", content: "Hello" },
-    ];
+    const messages: LLMMessage[] = [{ role: "user", content: "Hello" }];
     const tokens = estimateTokens(messages);
     // "Hello" + 4 overhead per message
     expect(tokens).toBeGreaterThan(0);
@@ -43,9 +37,7 @@ describe("estimateTokens", () => {
         thinking: "Let me think about this carefully and provide a thorough response",
       },
     ];
-    const withoutThinking = estimateTokens([
-      { role: "assistant", content: "Short answer" },
-    ]);
+    const withoutThinking = estimateTokens([{ role: "assistant", content: "Short answer" }]);
     const withThinking = estimateTokens(messages);
     expect(withThinking).toBeGreaterThan(withoutThinking);
   });
@@ -110,18 +102,14 @@ describe("getTokenUsage", () => {
   });
 
   it("should fall back to local estimation when usage is null", () => {
-    const messages: LLMMessage[] = [
-      { role: "user", content: "Hello world" },
-    ];
+    const messages: LLMMessage[] = [{ role: "user", content: "Hello world" }];
     const result = getTokenUsage(null, messages);
     // Should use estimateTokens which counts content + overhead
     expect(result).toBeGreaterThan(0);
   });
 
   it("should work with undefined usage", () => {
-    const messages: LLMMessage[] = [
-      { role: "user", content: "test" },
-    ];
+    const messages: LLMMessage[] = [{ role: "user", content: "test" }];
     const result = getTokenUsage(undefined as unknown as null, messages);
     expect(result).toBeGreaterThan(0);
   });

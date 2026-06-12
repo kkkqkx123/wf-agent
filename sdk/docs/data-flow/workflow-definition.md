@@ -15,32 +15,32 @@ WorkflowDefinition 是工作流的静态定义，描述了工作流的结构、�
 ```typescript
 interface WorkflowDefinition {
   // 基本标识
-  id: ID;                                    // 唯一标识符
-  name: string;                              // 名称
-  type: WorkflowType;                        // 类型（AGENT_LOOP, GRAPH）
-  description?: string;                      // 描述
-  version: Version;                          // 版本号
-  
+  id: ID; // 唯一标识符
+  name: string; // 名称
+  type: WorkflowType; // 类型（AGENT_LOOP, GRAPH）
+  description?: string; // 描述
+  version: Version; // 版本号
+
   // 结构定义
-  nodes: Node[];                             // 节点数组
-  edges: Edge[];                             // 边数组
-  
+  nodes: Node[]; // 节点数组
+  edges: Edge[]; // 边数组
+
   // 变量和触发器
-  variables?: WorkflowVariable[];            // 变量定义
-  triggers?: (WorkflowTrigger | TriggerReference)[];  // 触发器
-  
+  variables?: WorkflowVariable[]; // 变量定义
+  triggers?: (WorkflowTrigger | TriggerReference)[]; // 触发器
+
   // 配置
   triggeredSubworkflowConfig?: TriggeredSubworkflowConfig;
-  config?: WorkflowConfig;                   // 执行配置
-  metadata?: WorkflowMetadata;               // 元数据
-  
+  config?: WorkflowConfig; // 执行配置
+  metadata?: WorkflowMetadata; // 元数据
+
   // 时间戳
-  createdAt: Timestamp;                      // 创建时间
-  updatedAt: Timestamp;                      // 更新时间
-  
+  createdAt: Timestamp; // 创建时间
+  updatedAt: Timestamp; // 更新时间
+
   // 工具配置
   availableTools?: {
-    initial: Set<string>;                    // 初始可用工具集
+    initial: Set<string>; // 初始可用工具集
   };
 }
 ```
@@ -49,8 +49,8 @@ interface WorkflowDefinition {
 
 ```typescript
 enum WorkflowType {
-  AGENT_LOOP = "AGENT_LOOP",    // Agent 循环模式
-  GRAPH = "GRAPH"               // 图工作流模式
+  AGENT_LOOP = "AGENT_LOOP", // Agent 循环模式
+  GRAPH = "GRAPH", // 图工作流模式
 }
 ```
 
@@ -60,16 +60,17 @@ enum WorkflowType {
 
 ```typescript
 interface WorkflowConfig {
-  timeout?: number;                    // 执行超时（毫秒）
-  maxSteps?: number;                   // 最大执行步数
-  enableCheckpoints?: boolean;         // 是否启用检查点
+  timeout?: number; // 执行超时（毫秒）
+  maxSteps?: number; // 最大执行步数
+  enableCheckpoints?: boolean; // 是否启用检查点
   checkpointConfig?: CheckpointConfig; // 检查点配置
-  retryPolicy?: {                      // 重试策略
+  retryPolicy?: {
+    // 重试策略
     maxRetries?: number;
     retryDelay?: number;
     backoffMultiplier?: number;
   };
-  toolApproval?: ToolApprovalConfig;   // 工具审批配置
+  toolApproval?: ToolApprovalConfig; // 工具审批配置
 }
 ```
 
@@ -79,13 +80,13 @@ interface WorkflowConfig {
 
 ```typescript
 interface WorkflowVariable {
-  name: string;                        // 变量名
-  type: VariableValueType;             // 变量类型
-  defaultValue?: unknown;              // 默认值
-  description?: string;                // 描述
-  required?: boolean;                  // 是否必需
-  readonly?: boolean;                  // 是否只读
-  scope?: VariableScope;               // 作用域
+  name: string; // 变量名
+  type: VariableValueType; // 变量类型
+  defaultValue?: unknown; // 默认值
+  description?: string; // 描述
+  required?: boolean; // 是否必需
+  readonly?: boolean; // 是否只读
+  scope?: VariableScope; // 作用域
 }
 ```
 
@@ -95,10 +96,10 @@ interface WorkflowVariable {
 
 ```typescript
 interface WorkflowMetadata {
-  author?: string;                     // 作者
-  tags?: string[];                     // 标签
-  category?: string;                   // 分类
-  customFields?: Record<string, unknown>;  // 自定义字段
+  author?: string; // 作者
+  tags?: string[]; // 标签
+  category?: string; // 分类
+  customFields?: Record<string, unknown>; // 自定义字段
 }
 ```
 
@@ -118,13 +119,13 @@ WorkflowRegistry 负责 WorkflowDefinition 的注册、查询和管理。
 class WorkflowRegistry {
   // Workflow 定义存储
   private workflows: Map<string, WorkflowDefinition> = new Map();
-  
+
   // Workflow 关系管理
   private workflowRelationships: Map<string, WorkflowRelationship> = new Map();
-  
+
   // 活跃 Workflow 集合
   private activeWorkflows: Set<string> = new Set();
-  
+
   // 引用关系
   private referenceRelations: Map<string, WorkflowReferenceRelation[]> = new Map();
 }
@@ -142,13 +143,13 @@ register(workflow: WorkflowDefinition, options?: RegisterOptions): void {
   if (!validationResult.valid) {
     throw new ConfigurationValidationError(...);
   }
-  
+
   // 2. 检查 ID 是否已存在
   if (this.workflows.has(workflow.id)) {
     if (options?.skipIfExists) return;  // 幂等操作
     throw new ConfigurationValidationError(...);
   }
-  
+
   // 3. 保存 workflow 定义
   this.workflows.set(workflow.id, workflow);
 }
@@ -156,7 +157,7 @@ register(workflow: WorkflowDefinition, options?: RegisterOptions): void {
 // 异步注册（执行完整预处理）
 async registerAsync(workflow: WorkflowDefinition, options?: RegisterOptions): Promise<void> {
   // 1-3. 同上
-  
+
   // 4. 异步预处理 workflow
   try {
     await this.preprocessWorkflow(workflow);
@@ -221,7 +222,7 @@ update(workflowId: string, updates: Partial<WorkflowDefinition>, options?: Updat
     }
     throw new WorkflowNotFoundError(...);
   }
-  
+
   // 创建更新后的 workflow
   const updatedWorkflow: WorkflowDefinition = {
     ...workflow,
@@ -229,13 +230,13 @@ update(workflowId: string, updates: Partial<WorkflowDefinition>, options?: Updat
     id: workflow.id,        // ID 不可修改
     updatedAt: Date.now(),
   };
-  
+
   // 验证更新后的 workflow
   const validationResult = this.validate(updatedWorkflow);
   if (!validationResult.valid) {
     throw new ConfigurationValidationError(...);
   }
-  
+
   // 更新存储
   this.workflows.set(workflowId, updatedWorkflow);
 }
@@ -249,7 +250,7 @@ unregister(workflowId: string, options?: UnregisterOptions): void {
   if (!this.workflows.has(workflowId)) {
     throw new WorkflowNotFoundError(...);
   }
-  
+
   // 2. 检查引用关系
   if (options?.checkReferences !== false) {
     const checkResult = this.canSafelyDelete(workflowId, options);
@@ -257,10 +258,10 @@ unregister(workflowId: string, options?: UnregisterOptions): void {
       throw new ConfigurationValidationError(checkResult.details);
     }
   }
-  
+
   // 3. 删除 workflow
   this.workflows.delete(workflowId);
-  
+
   // 4. 清理引用关系
   this.cleanupWorkflowReferences(workflowId);
 }
@@ -271,24 +272,24 @@ unregister(workflowId: string, options?: UnregisterOptions): void {
 ```typescript
 validate(workflow: WorkflowDefinition): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  
+
   // 基本验证
   if (!workflow.id) {
     errors.push("Workflow ID is required");
   }
-  
+
   if (!workflow.name) {
     errors.push("Workflow name is required");
   }
-  
+
   if (!workflow.nodes || workflow.nodes.length === 0) {
     errors.push("Workflow must have at least one node");
   }
-  
+
   if (!workflow.edges) {
     errors.push("Workflow edges are required");
   }
-  
+
   return {
     valid: errors.length === 0,
     errors,
@@ -340,10 +341,10 @@ preprocessWorkflow(workflow)
 
 ```typescript
 interface WorkflowReferenceRelation {
-  sourceWorkflowId: string;      // 源 Workflow ID
-  targetWorkflowId: string;      // 目标 Workflow ID
-  referenceType: WorkflowReferenceType;  // 引用类型
-  nodeId?: string;               // 节点 ID（如果是节点引用）
+  sourceWorkflowId: string; // 源 Workflow ID
+  targetWorkflowId: string; // 目标 Workflow ID
+  referenceType: WorkflowReferenceType; // 引用类型
+  nodeId?: string; // 节点 ID（如果是节点引用）
 }
 ```
 
@@ -351,9 +352,9 @@ interface WorkflowReferenceRelation {
 
 ```typescript
 enum WorkflowReferenceType {
-  SUBGRAPH = "SUBGRAPH",                    // 子图引用
-  TRIGGERED_SUBWORKFLOW = "TRIGGERED_SUBWORKFLOW",  // 触发子工作流
-  TRIGGER = "TRIGGER"                       // 触发器引用
+  SUBGRAPH = "SUBGRAPH", // 子图引用
+  TRIGGERED_SUBWORKFLOW = "TRIGGERED_SUBWORKFLOW", // 触发子工作流
+  TRIGGER = "TRIGGER", // 触发器引用
 }
 ```
 
@@ -368,15 +369,15 @@ checkWorkflowReferences(workflowId: string): WorkflowReferenceInfo {
 
 canSafelyDelete(workflowId: string, options?: UnregisterOptions): { canDelete: boolean; details: string } {
   const referenceInfo = this.checkWorkflowReferences(workflowId);
-  
+
   if (!referenceInfo.hasReferences) {
     return { canDelete: true, details: "No references found" };
   }
-  
+
   if (options?.force) {
     return { canDelete: true, details: "Force delete enabled" };
   }
-  
+
   return { canDelete: false, details: "Has references" };
 }
 ```
@@ -431,7 +432,7 @@ export(workflowId: string): string {
   if (!workflow) {
     throw new WorkflowNotFoundError(...);
   }
-  
+
   return JSON.stringify(workflow, null, 2);
 }
 ```

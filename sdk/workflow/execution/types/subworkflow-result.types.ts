@@ -1,11 +1,11 @@
 /**
  * Subworkflow Execution Result Types
- * 
+ *
  * Standardized result interfaces for different subworkflow execution types:
  * - SUBGRAPH (synchronous child workflows)
  * - FORK_BRANCH (parallel fork branches)
  * - TRIGGERED_SUBWORKFLOW (asynchronously triggered subworkflows)
- * 
+ *
  * These interfaces provide consistent access to execution results across all subworkflow types.
  */
 
@@ -15,10 +15,10 @@ import type { ExecutedSubworkflowResult } from "./triggered-subworkflow.types.js
 
 /**
  * SUBGRAPH Execution Result
- * 
+ *
  * Represents the result of executing a SUBGRAPH node (synchronous child workflow).
  * SUBGRAPH nodes execute synchronously within the parent workflow's execution flow.
- * 
+ *
  * @example
  * ```typescript
  * const result: SubgraphExecutionResult = await executeSubgraph(...);
@@ -27,29 +27,29 @@ import type { ExecutedSubworkflowResult } from "./triggered-subworkflow.types.js
  * ```
  */
 export interface SubgraphExecutionResult {
-  /** 
+  /**
    * Subgraph execution entity - provides access to internal state, variables, and metadata.
    * Use this for debugging or when you need to inspect the execution context.
    * For normal usage, prefer `executionResult.output` to get the final output.
    */
   subgraphEntity: WorkflowExecutionEntity;
-  
-  /** 
+
+  /**
    * Execution result containing output data, status, and other metadata.
    * This is the primary source for retrieving the subgraph's output.
    */
   executionResult: WorkflowExecutionResult;
-  
+
   /** Execution time in milliseconds */
   executionTime: number;
 }
 
 /**
  * Fork Branch Execution Result
- * 
+ *
  * Represents the result of executing a single branch in a FORK node.
  * Each fork branch executes independently with isolated variable state.
- * 
+ *
  * @example
  * ```typescript
  * const results: ForkBranchResult[] = await executeForkBranches(...);
@@ -59,34 +59,34 @@ export interface SubgraphExecutionResult {
  * ```
  */
 export interface ForkBranchResult {
-  /** 
+  /**
    * Fork branch ID - identifies which branch this result belongs to.
    * Corresponds to the path ID in the FORK node configuration.
    */
   forkPathId: string;
-  
-  /** 
+
+  /**
    * Fork branch execution entity - provides access to internal state, variables, and metadata.
    * Each branch has its own isolated execution context.
    */
   branchEntity: WorkflowExecutionEntity;
-  
-  /** 
+
+  /**
    * Execution result containing output data, status, and other metadata.
    * This is the primary source for retrieving the branch's output.
    */
   executionResult: WorkflowExecutionResult;
-  
+
   /** Execution time in milliseconds */
   executionTime: number;
 }
 
 /**
  * Common Subworkflow Execution Result (Union Type)
- * 
+ *
  * A discriminated union that can represent any type of subworkflow execution result.
  * Use the `executionType` field to narrow down the specific type.
- * 
+ *
  * @example
  * ```typescript
  * function handleSubworkflowResult(result: SubWorkflowExecutionResult) {
@@ -107,7 +107,7 @@ export interface ForkBranchResult {
 export type SubWorkflowExecutionResult =
   | {
       /** Execution type: SUBGRAPH (synchronous child workflow) */
-      executionType: 'SUBGRAPH';
+      executionType: "SUBGRAPH";
       /** Subgraph execution entity */
       subgraphEntity: WorkflowExecutionEntity;
       /** Execution result */
@@ -117,7 +117,7 @@ export type SubWorkflowExecutionResult =
     }
   | {
       /** Execution type: FORK_BRANCH (parallel fork branch) */
-      executionType: 'FORK_BRANCH';
+      executionType: "FORK_BRANCH";
       /** Fork branch ID */
       forkPathId: string;
       /** Fork branch execution entity */
@@ -129,7 +129,7 @@ export type SubWorkflowExecutionResult =
     }
   | {
       /** Execution type: TRIGGERED_SUBWORKFLOW (asynchronously triggered) */
-      executionType: 'TRIGGERED_SUBWORKFLOW';
+      executionType: "TRIGGERED_SUBWORKFLOW";
       /** Trigger ID that initiated this subworkflow */
       triggerId: string;
       /** Subworkflow execution entity */
@@ -177,24 +177,29 @@ export function createForkBranchResult(
  */
 export function toSubWorkflowResult(result: SubgraphExecutionResult): SubWorkflowExecutionResult;
 export function toSubWorkflowResult(result: ForkBranchResult): SubWorkflowExecutionResult;
-export function toSubWorkflowResult(result: ExecutedSubworkflowResult & { triggerId: string }): SubWorkflowExecutionResult;
 export function toSubWorkflowResult(
-  result: SubgraphExecutionResult | ForkBranchResult | (ExecutedSubworkflowResult & { triggerId: string }),
+  result: ExecutedSubworkflowResult & { triggerId: string },
+): SubWorkflowExecutionResult;
+export function toSubWorkflowResult(
+  result:
+    | SubgraphExecutionResult
+    | ForkBranchResult
+    | (ExecutedSubworkflowResult & { triggerId: string }),
 ): SubWorkflowExecutionResult {
-  if ('subgraphEntity' in result && !('forkPathId' in result)) {
+  if ("subgraphEntity" in result && !("forkPathId" in result)) {
     // SubgraphExecutionResult
     const subgraphResult = result as SubgraphExecutionResult;
     return {
-      executionType: 'SUBGRAPH',
+      executionType: "SUBGRAPH",
       subgraphEntity: subgraphResult.subgraphEntity,
       executionResult: subgraphResult.executionResult,
       executionTime: subgraphResult.executionTime,
     };
-  } else if ('forkPathId' in result) {
+  } else if ("forkPathId" in result) {
     // ForkBranchResult
     const forkResult = result as ForkBranchResult;
     return {
-      executionType: 'FORK_BRANCH',
+      executionType: "FORK_BRANCH",
       forkPathId: forkResult.forkPathId,
       branchEntity: forkResult.branchEntity,
       executionResult: forkResult.executionResult,
@@ -204,7 +209,7 @@ export function toSubWorkflowResult(
     // ExecutedSubworkflowResult with triggerId
     const triggeredResult = result as ExecutedSubworkflowResult & { triggerId: string };
     return {
-      executionType: 'TRIGGERED_SUBWORKFLOW',
+      executionType: "TRIGGERED_SUBWORKFLOW",
       triggerId: triggeredResult.triggerId,
       subworkflowEntity: triggeredResult.subworkflowEntity,
       executionResult: triggeredResult.executionResult,

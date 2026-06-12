@@ -118,8 +118,12 @@ function createMockGlobalContext() {
     eventRegistry: createMockEventRegistry(),
     llmExecutor: {},
     metricsRegistry: {
-      getWorkflowCollector: vi.fn().mockReturnValue({ recordExecutionStart: vi.fn(), recordExecutionEnd: vi.fn() }),
-      getNodeCollector: vi.fn().mockReturnValue({ recordNodeExecutionStart: vi.fn(), recordNodeExecution: vi.fn() }),
+      getWorkflowCollector: vi
+        .fn()
+        .mockReturnValue({ recordExecutionStart: vi.fn(), recordExecutionEnd: vi.fn() }),
+      getNodeCollector: vi
+        .fn()
+        .mockReturnValue({ recordNodeExecutionStart: vi.fn(), recordNodeExecution: vi.fn() }),
     },
   };
 }
@@ -188,7 +192,8 @@ describe("TriggerCoordinator", () => {
     mockGraphRegistry = createMockGraphRegistry();
 
     contextFactoryConfig = {
-      workflowExecutionRegistry: createMockWorkflowExecutionRegistry() as unknown as WorkflowExecutionRegistry,
+      workflowExecutionRegistry:
+        createMockWorkflowExecutionRegistry() as unknown as WorkflowExecutionRegistry,
       workflowRegistry: createMockWorkflowRegistry() as unknown as WorkflowRegistry,
       stateManager: mockStateManager as any,
       globalContext: createMockGlobalContext() as any,
@@ -382,12 +387,14 @@ describe("TriggerCoordinator", () => {
         updatedAt: now,
       });
       mockGraphRegistry.get.mockReturnValue({
-        triggers: [{
-          id: "trigger-1",
-          name: "Test Trigger",
-          condition: { eventType: "NODE_COMPLETED" },
-          action: { type: "set_variable", parameters: {} },
-        }],
+        triggers: [
+          {
+            id: "trigger-1",
+            name: "Test Trigger",
+            condition: { eventType: "NODE_COMPLETED" },
+            action: { type: "set_variable", parameters: {} },
+          },
+        ],
       });
 
       const result = coordinator.get("trigger-1");
@@ -402,28 +409,46 @@ describe("TriggerCoordinator", () => {
   describe("getAll", () => {
     it("should return all triggers", () => {
       const now = Date.now();
-      mockStateManager.getAllStates.mockReturnValue(new Map([
-        ["trigger-1", {
-          triggerId: "trigger-1",
-          status: "enabled" as TriggerStatus,
-          executionId: "exec-1",
-          workflowId: "workflow-1",
-          triggerCount: 0,
-          updatedAt: now,
-        } as TriggerRuntimeState],
-        ["trigger-2", {
-          triggerId: "trigger-2",
-          status: "disabled" as TriggerStatus,
-          executionId: "exec-1",
-          workflowId: "workflow-1",
-          triggerCount: 1,
-          updatedAt: now,
-        } as TriggerRuntimeState],
-      ]));
+      mockStateManager.getAllStates.mockReturnValue(
+        new Map([
+          [
+            "trigger-1",
+            {
+              triggerId: "trigger-1",
+              status: "enabled" as TriggerStatus,
+              executionId: "exec-1",
+              workflowId: "workflow-1",
+              triggerCount: 0,
+              updatedAt: now,
+            } as TriggerRuntimeState,
+          ],
+          [
+            "trigger-2",
+            {
+              triggerId: "trigger-2",
+              status: "disabled" as TriggerStatus,
+              executionId: "exec-1",
+              workflowId: "workflow-1",
+              triggerCount: 1,
+              updatedAt: now,
+            } as TriggerRuntimeState,
+          ],
+        ]),
+      );
       mockGraphRegistry.get.mockReturnValue({
         triggers: [
-          { id: "trigger-1", name: "T1", condition: { eventType: "NODE_COMPLETED" }, action: { type: "set_variable", parameters: {} } },
-          { id: "trigger-2", name: "T2", condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" }, action: { type: "stop_workflow_execution", parameters: {} } },
+          {
+            id: "trigger-1",
+            name: "T1",
+            condition: { eventType: "NODE_COMPLETED" },
+            action: { type: "set_variable", parameters: {} },
+          },
+          {
+            id: "trigger-2",
+            name: "T2",
+            condition: { eventType: "WORKFLOW_EXECUTION_COMPLETED" },
+            action: { type: "stop_workflow_execution", parameters: {} },
+          },
         ],
       });
 

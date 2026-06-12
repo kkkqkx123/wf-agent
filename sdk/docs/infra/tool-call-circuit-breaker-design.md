@@ -7,6 +7,7 @@ This document describes the design for implementing a circuit breaker mechanism 
 ### 1.1 Problem Statement
 
 Currently, when an Agent Loop or Workflow execution encounters repeated tool call failures:
+
 - The system continues to retry the same failing tool
 - No mechanism exists to detect consecutive failures of the same tool
 - Resources are wasted on futile retry attempts
@@ -116,6 +117,7 @@ Manages circuit breaker logic during tool execution.
 **Location**: `sdk/core/executors/circuit-breaker-manager.ts`
 
 **Responsibilities**:
+
 - Check if a tool call should be allowed
 - Record tool call success/failure
 - Update circuit breaker state
@@ -127,13 +129,13 @@ export class CircuitBreakerManager {
   private state: CircuitBreakerState;
   private eventManager?: EventRegistry;
   private executionId: string;
-  private executionType: 'AGENT_LOOP' | 'WORKFLOW';
+  private executionType: "AGENT_LOOP" | "WORKFLOW";
 
   constructor(
     executionId: string,
-    executionType: 'AGENT_LOOP' | 'WORKFLOW',
+    executionType: "AGENT_LOOP" | "WORKFLOW",
     config?: Partial<CircuitBreakerState>,
-    eventManager?: EventRegistry
+    eventManager?: EventRegistry,
   );
 
   /**
@@ -270,20 +272,23 @@ export interface CircuitBreakerHalfOpenEvent extends BaseEvent {
 /**
  * Build TOOL_CIRCUIT_BREAKER_TRIGGERED event
  */
-export const buildCircuitBreakerTriggeredEvent = 
-  createBuilder<CircuitBreakerTriggeredEvent>("TOOL_CIRCUIT_BREAKER_TRIGGERED");
+export const buildCircuitBreakerTriggeredEvent = createBuilder<CircuitBreakerTriggeredEvent>(
+  "TOOL_CIRCUIT_BREAKER_TRIGGERED",
+);
 
 /**
  * Build TOOL_CIRCUIT_BREAKER_RESET event
  */
-export const buildCircuitBreakerResetEvent = 
-  createBuilder<CircuitBreakerResetEvent>("TOOL_CIRCUIT_BREAKER_RESET");
+export const buildCircuitBreakerResetEvent = createBuilder<CircuitBreakerResetEvent>(
+  "TOOL_CIRCUIT_BREAKER_RESET",
+);
 
 /**
  * Build TOOL_CIRCUIT_BREAKER_HALF_OPEN event
  */
-export const buildCircuitBreakerHalfOpenEvent = 
-  createBuilder<CircuitBreakerHalfOpenEvent>("TOOL_CIRCUIT_BREAKER_HALF_OPEN");
+export const buildCircuitBreakerHalfOpenEvent = createBuilder<CircuitBreakerHalfOpenEvent>(
+  "TOOL_CIRCUIT_BREAKER_HALF_OPEN",
+);
 ```
 
 ### 3.3 Type Guards
@@ -298,9 +303,9 @@ export function isCircuitBreakerEvent(
   event: Event,
 ): event is CircuitBreakerTriggeredEvent | CircuitBreakerResetEvent | CircuitBreakerHalfOpenEvent {
   return (
-    event.type === 'TOOL_CIRCUIT_BREAKER_TRIGGERED' ||
-    event.type === 'TOOL_CIRCUIT_BREAKER_RESET' ||
-    event.type === 'TOOL_CIRCUIT_BREAKER_HALF_OPEN'
+    event.type === "TOOL_CIRCUIT_BREAKER_TRIGGERED" ||
+    event.type === "TOOL_CIRCUIT_BREAKER_RESET" ||
+    event.type === "TOOL_CIRCUIT_BREAKER_HALF_OPEN"
   );
 }
 ```
@@ -334,13 +339,13 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   initializeCircuitBreakerManager(
     agentLoopId: string,
     eventManager?: EventRegistry,
-    config?: Partial<CircuitBreakerState>
+    config?: Partial<CircuitBreakerState>,
   ): void {
     this._circuitBreakerManager = new CircuitBreakerManager(
       agentLoopId,
-      'AGENT_LOOP',
+      "AGENT_LOOP",
       config,
-      eventManager
+      eventManager,
     );
   }
 }
@@ -355,7 +360,7 @@ Initialize circuit breaker manager when creating AgentLoopEntity:
 ```typescript
 constructor(config: AgentLoopRuntimeConfig, state: AgentLoopState) {
   // ... existing initialization ...
-  
+
   // Initialize circuit breaker manager
   state.initializeCircuitBreakerManager(
     this.id,
@@ -385,7 +390,7 @@ private async executeSingleToolCall(
   const circuitBreakerManager = this.getCircuitBreakerManager(executionId);
   if (circuitBreakerManager && !circuitBreakerManager.canExecuteTool(toolCall.name)) {
     const errorMessage = `Tool '${toolCall.name}' is currently blocked by circuit breaker due to consecutive failures`;
-    
+
     // Emit circuit breaker triggered event if not already emitted
     // Return failure result immediately without executing tool
     return {
@@ -400,21 +405,21 @@ private async executeSingleToolCall(
 
   try {
     // ... existing tool execution logic ...
-    
+
     const result = await this.toolService.execute(...);
-    
+
     // Record success
     if (circuitBreakerManager) {
       circuitBreakerManager.recordSuccess(toolCall.name);
     }
-    
+
     return result;
   } catch (error) {
     // Record failure
     if (circuitBreakerManager) {
       circuitBreakerManager.recordFailure(toolCall.name, error as Error);
     }
-    
+
     throw error;
   }
 }
@@ -449,13 +454,13 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   initializeCircuitBreakerManager(
     workflowExecutionId: string,
     eventManager?: EventRegistry,
-    config?: Partial<CircuitBreakerState>
+    config?: Partial<CircuitBreakerState>,
   ): void {
     this._circuitBreakerManager = new CircuitBreakerManager(
       workflowExecutionId,
-      'WORKFLOW',
+      "WORKFLOW",
       config,
-      eventManager
+      eventManager,
     );
   }
 }
@@ -504,7 +509,7 @@ enabled = true
 ```typescript
 export interface AgentLoopStateSnapshot {
   // ... existing fields ...
-  
+
   /** Circuit breaker state (serializable) */
   circuitBreakerState?: {
     records: Array<{
@@ -533,7 +538,7 @@ In `AgentLoopState.createSnapshot()`:
 createSnapshot(): AgentLoopStateSnapshot {
   return {
     // ... existing snapshot data ...
-    
+
     circuitBreakerState: this._circuitBreakerState ? {
       records: Array.from(this._circuitBreakerState.records.entries()).map(([toolName, record]) => ({
         toolName,
@@ -555,7 +560,7 @@ In `AgentLoopState.restoreFromSnapshot()`:
 ```typescript
 restoreFromSnapshot(snapshot: AgentLoopStateSnapshot): void {
   // ... existing restore logic ...
-  
+
   if (snapshot.circuitBreakerState) {
     this._circuitBreakerState = {
       records: new Map(
@@ -603,11 +608,11 @@ Provide APIs to manually reset circuit breakers:
 ```typescript
 // For Agent Loop
 const entity = agentLoopCoordinator.get(agentLoopId);
-entity.state.getCircuitBreakerManager()?.reset('problematic_tool');
+entity.state.getCircuitBreakerManager()?.reset("problematic_tool");
 
 // For Workflow
 const entity = workflowExecutionCoordinator.get(workflowExecutionId);
-entity.state.getCircuitBreakerManager()?.reset('problematic_tool');
+entity.state.getCircuitBreakerManager()?.reset("problematic_tool");
 ```
 
 ### 8.3 Auto-Reset on Execution End
@@ -674,52 +679,52 @@ wf-agent agent reset-circuit-breaker --id <agent-loop-id> --tool <tool-name>
 Test `CircuitBreakerManager` in isolation:
 
 ```typescript
-describe('CircuitBreakerManager', () => {
-  it('should allow tool execution when circuit is closed', () => {
-    const manager = new CircuitBreakerManager('test-id', 'AGENT_LOOP');
-    expect(manager.canExecuteTool('test_tool')).toBe(true);
+describe("CircuitBreakerManager", () => {
+  it("should allow tool execution when circuit is closed", () => {
+    const manager = new CircuitBreakerManager("test-id", "AGENT_LOOP");
+    expect(manager.canExecuteTool("test_tool")).toBe(true);
   });
 
-  it('should open circuit after 3 consecutive failures', () => {
-    const manager = new CircuitBreakerManager('test-id', 'AGENT_LOOP');
-    const error = new Error('Test error');
-    
-    manager.recordFailure('test_tool', error);
-    manager.recordFailure('test_tool', error);
-    manager.recordFailure('test_tool', error);
-    
-    expect(manager.getStatus('test_tool')).toBe(CircuitBreakerStatus.OPEN);
-    expect(manager.canExecuteTool('test_tool')).toBe(false);
+  it("should open circuit after 3 consecutive failures", () => {
+    const manager = new CircuitBreakerManager("test-id", "AGENT_LOOP");
+    const error = new Error("Test error");
+
+    manager.recordFailure("test_tool", error);
+    manager.recordFailure("test_tool", error);
+    manager.recordFailure("test_tool", error);
+
+    expect(manager.getStatus("test_tool")).toBe(CircuitBreakerStatus.OPEN);
+    expect(manager.canExecuteTool("test_tool")).toBe(false);
   });
 
-  it('should reset consecutive failures on success', () => {
-    const manager = new CircuitBreakerManager('test-id', 'AGENT_LOOP');
-    const error = new Error('Test error');
-    
-    manager.recordFailure('test_tool', error);
-    manager.recordFailure('test_tool', error);
-    manager.recordSuccess('test_tool');
-    manager.recordFailure('test_tool', error);
-    
-    expect(manager.getStatus('test_tool')).toBe(CircuitBreakerStatus.CLOSED);
+  it("should reset consecutive failures on success", () => {
+    const manager = new CircuitBreakerManager("test-id", "AGENT_LOOP");
+    const error = new Error("Test error");
+
+    manager.recordFailure("test_tool", error);
+    manager.recordFailure("test_tool", error);
+    manager.recordSuccess("test_tool");
+    manager.recordFailure("test_tool", error);
+
+    expect(manager.getStatus("test_tool")).toBe(CircuitBreakerStatus.CLOSED);
   });
 
-  it('should transition to half-open after cooldown', async () => {
-    const manager = new CircuitBreakerManager('test-id', 'AGENT_LOOP', {
+  it("should transition to half-open after cooldown", async () => {
+    const manager = new CircuitBreakerManager("test-id", "AGENT_LOOP", {
       cooldownPeriodMs: 100,
     });
-    const error = new Error('Test error');
-    
-    manager.recordFailure('test_tool', error);
-    manager.recordFailure('test_tool', error);
-    manager.recordFailure('test_tool', error);
-    
-    expect(manager.getStatus('test_tool')).toBe(CircuitBreakerStatus.OPEN);
-    
+    const error = new Error("Test error");
+
+    manager.recordFailure("test_tool", error);
+    manager.recordFailure("test_tool", error);
+    manager.recordFailure("test_tool", error);
+
+    expect(manager.getStatus("test_tool")).toBe(CircuitBreakerStatus.OPEN);
+
     await sleep(150);
-    manager.canExecuteTool('test_tool'); // Triggers cooldown check
-    
-    expect(manager.getStatus('test_tool')).toBe(CircuitBreakerStatus.HALF_OPEN);
+    manager.canExecuteTool("test_tool"); // Triggers cooldown check
+
+    expect(manager.getStatus("test_tool")).toBe(CircuitBreakerStatus.HALF_OPEN);
   });
 });
 ```
@@ -729,20 +734,20 @@ describe('CircuitBreakerManager', () => {
 Test integration with Agent Loop and Workflow execution:
 
 ```typescript
-describe('Circuit Breaker Integration', () => {
-  it('should block tool execution in Agent Loop after consecutive failures', async () => {
+describe("Circuit Breaker Integration", () => {
+  it("should block tool execution in Agent Loop after consecutive failures", async () => {
     // Create agent loop with mock tool that always fails
     // Execute 3 iterations
     // Verify 4th attempt is blocked by circuit breaker
   });
 
-  it('should emit circuit breaker events', async () => {
+  it("should emit circuit breaker events", async () => {
     // Subscribe to events
     // Trigger circuit breaker
     // Verify TOOL_CIRCUIT_BREAKER_TRIGGERED event was emitted
   });
 
-  it('should persist circuit breaker state in checkpoint', async () => {
+  it("should persist circuit breaker state in checkpoint", async () => {
     // Create agent loop
     // Trigger circuit breaker
     // Create checkpoint
@@ -755,24 +760,28 @@ describe('Circuit Breaker Integration', () => {
 ## 11. Implementation Roadmap
 
 ### Phase 1: Core Infrastructure (Week 1)
+
 - [ ] Define types in `packages/types/src/agent-execution/types.ts`
 - [ ] Implement `CircuitBreakerManager` class
 - [ ] Add event type definitions
 - [ ] Implement event builders
 
 ### Phase 2: Agent Loop Integration (Week 2)
+
 - [ ] Extend `AgentLoopState` with circuit breaker support
 - [ ] Integrate with `ToolCallExecutor`
 - [ ] Add serialization support
 - [ ] Write unit tests
 
 ### Phase 3: Workflow Integration (Week 3)
+
 - [ ] Extend `WorkflowExecutionState` with circuit breaker support
 - [ ] Integrate with workflow node handlers
 - [ ] Add serialization support
 - [ ] Write integration tests
 
 ### Phase 4: CLI/UI and Documentation (Week 4)
+
 - [ ] Add CLI commands for circuit breaker management
 - [ ] Update API documentation
 - [ ] Add user-facing error messages
@@ -785,6 +794,7 @@ describe('Circuit Breaker Integration', () => {
 **Decision**: Per-execution-instance
 
 **Rationale**:
+
 - Different executions may have different contexts and failure reasons
 - A tool failing in one execution doesn't mean it's broken globally
 - Provides better isolation and flexibility
@@ -794,6 +804,7 @@ describe('Circuit Breaker Integration', () => {
 **Decision**: Configurable, default to 3
 
 **Rationale**:
+
 - 3 failures is a reasonable balance between early detection and avoiding false positives
 - Allows customization for different use cases
 - Can be adjusted based on tool criticality
@@ -803,6 +814,7 @@ describe('Circuit Breaker Integration', () => {
 **Decision**: Configurable, default to 60 seconds
 
 **Rationale**:
+
 - Gives time for transient issues to resolve
 - Not too long to cause unnecessary delays
 - Can be tuned based on typical failure recovery time
@@ -812,6 +824,7 @@ describe('Circuit Breaker Integration', () => {
 **Decision**: Include half-open state
 
 **Rationale**:
+
 - Allows automatic recovery without manual intervention
 - Tests if the issue is resolved before fully reopening
 - Standard circuit breaker pattern

@@ -113,45 +113,57 @@ export class SearchAPI {
     const searchPromises: Promise<void>[] = [];
 
     if (types.includes("workflow")) {
-      searchPromises.push(this.searchWorkflows(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.workflow = items.length;
-      }));
+      searchPromises.push(
+        this.searchWorkflows(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.workflow = items.length;
+        }),
+      );
     }
 
     if (types.includes("execution")) {
-      searchPromises.push(this.searchExecutions(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.execution = items.length;
-      }));
+      searchPromises.push(
+        this.searchExecutions(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.execution = items.length;
+        }),
+      );
     }
 
     if (types.includes("task")) {
-      searchPromises.push(this.searchTasks(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.task = items.length;
-      }));
+      searchPromises.push(
+        this.searchTasks(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.task = items.length;
+        }),
+      );
     }
 
     if (types.includes("checkpoint")) {
-      searchPromises.push(this.searchCheckpoints(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.checkpoint = items.length;
-      }));
+      searchPromises.push(
+        this.searchCheckpoints(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.checkpoint = items.length;
+        }),
+      );
     }
 
     if (types.includes("event")) {
-      searchPromises.push(this.searchEvents(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.event = items.length;
-      }));
+      searchPromises.push(
+        this.searchEvents(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.event = items.length;
+        }),
+      );
     }
 
     if (types.includes("agent_loop")) {
-      searchPromises.push(this.searchAgentLoops(normalizedQuery, limitPerType).then(items => {
-        allItems.push(...items);
-        byType.agent_loop = items.length;
-      }));
+      searchPromises.push(
+        this.searchAgentLoops(normalizedQuery, limitPerType).then(items => {
+          allItems.push(...items);
+          byType.agent_loop = items.length;
+        }),
+      );
     }
 
     await Promise.all(searchPromises);
@@ -245,10 +257,7 @@ export class SearchAPI {
         const taskId = String(task.id);
         const statusStr = String(task.status ?? "");
 
-        if (
-          taskId.toLowerCase().includes(query) ||
-          statusStr.toLowerCase().includes(query)
-        ) {
+        if (taskId.toLowerCase().includes(query) || statusStr.toLowerCase().includes(query)) {
           items.push({
             id: task.id,
             type: "task" as SearchResourceType,

@@ -48,9 +48,7 @@ export function parseSSELines(lines: string[]): unknown[] {
  * Stream SSE data from a ReadableStream
  * Returns an async iterable of parsed SSE messages
  */
-export async function* streamSSE(
-  stream: ReadableStream<Uint8Array>
-): AsyncIterable<unknown> {
+export async function* streamSSE(stream: ReadableStream<Uint8Array>): AsyncIterable<unknown> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -96,7 +94,7 @@ export async function* streamSSE(
  */
 export async function readSSEStream(
   stream: ReadableStream<Uint8Array>,
-  handler: (data: unknown) => void
+  handler: (data: unknown) => void,
 ): Promise<void> {
   for await (const data of streamSSE(stream)) {
     handler(data);

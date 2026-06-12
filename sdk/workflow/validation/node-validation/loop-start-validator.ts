@@ -14,7 +14,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node: StaticNode definition
  * @returns: Verification result
  */
-export function validateLoopStartNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateLoopStartNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "LOOP_START");
   if (typeResult.isErr()) {
     return typeResult;

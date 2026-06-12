@@ -21,12 +21,11 @@ vi.mock("../../utils/contextual-logger.js", () => ({
   }),
 }));
 
-vi.mock("@wf-agent/common-utils", async (importOriginal) => {
+vi.mock("@wf-agent/common-utils", async importOriginal => {
   const actual = await importOriginal();
   return {
     ...(actual as Record<string, unknown>),
-    getErrorMessage: (error: unknown) =>
-      error instanceof Error ? error.message : String(error),
+    getErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   };
 });
 
@@ -46,14 +45,13 @@ vi.mock("../../execution/utils/workflow-reference-checker.js", () => ({
 }));
 
 import { preprocessWorkflow } from "../utils/workflow-preprocessor.js";
-import {
-  persistWorkflow,
-  removeWorkflow,
-  loadWorkflow,
-} from "../utils/workflow-storage-utils.js";
+import { persistWorkflow, removeWorkflow, loadWorkflow } from "../utils/workflow-storage-utils.js";
 import { checkWorkflowReferences } from "../../execution/utils/workflow-reference-checker.js";
 
-function createMockWorkflow(id: string, overrides: Partial<WorkflowTemplate> = {}): WorkflowTemplate {
+function createMockWorkflow(
+  id: string,
+  overrides: Partial<WorkflowTemplate> = {},
+): WorkflowTemplate {
   return {
     id,
     name: `Workflow ${id}`,
@@ -64,9 +62,7 @@ function createMockWorkflow(id: string, overrides: Partial<WorkflowTemplate> = {
       { id: "node-1", type: "START", config: {} },
       { id: "node-2", type: "END", config: {} },
     ],
-    edges: [
-      { id: "edge-1", source: "node-1", target: "node-2" },
-    ],
+    edges: [{ id: "edge-1", source: "node-1", target: "node-2" }],
     createdAt: Date.now(),
     updatedAt: Date.now(),
     metadata: {
@@ -299,10 +295,7 @@ describe("WorkflowRegistry", () => {
 
   describe("registerBatch", () => {
     it("should register multiple workflows", () => {
-      const workflows = [
-        createMockWorkflow("wf-1"),
-        createMockWorkflow("wf-2"),
-      ];
+      const workflows = [createMockWorkflow("wf-1"), createMockWorkflow("wf-2")];
 
       registry.registerBatch(workflows);
 
@@ -723,7 +716,9 @@ describe("WorkflowRegistry", () => {
     it("should delegate registerSubgraphRelationship", () => {
       registry.registerSubgraphRelationship("parent", "node-1", "child");
       expect(mockRelationshipRegistry.registerSubgraphRelationship).toHaveBeenCalledWith(
-        "parent", "node-1", "child",
+        "parent",
+        "node-1",
+        "child",
       );
     });
 

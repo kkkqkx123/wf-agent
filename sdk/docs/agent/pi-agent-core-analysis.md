@@ -23,18 +23,18 @@ prompt("Hello")
 
 **事件类型**：
 
-| 事件 | 描述 |
-|------|------|
-| `agent_start` | Agent 开始处理 |
-| `agent_end` | Agent 完成，返回所有新消息 |
-| `turn_start` | 新轮次开始（一次 LLM 调用 + 工具执行） |
-| `turn_end` | 轮次完成，返回 assistant 消息和工具结果 |
-| `message_start` | 任意消息开始（user/assistant/toolResult） |
-| `message_update` | 仅 assistant，包含 delta |
-| `message_end` | 消息完成 |
-| `tool_execution_start` | 工具开始执行 |
-| `tool_execution_update` | 工具流式进度 |
-| `tool_execution_end` | 工具执行完成 |
+| 事件                    | 描述                                      |
+| ----------------------- | ----------------------------------------- |
+| `agent_start`           | Agent 开始处理                            |
+| `agent_end`             | Agent 完成，返回所有新消息                |
+| `turn_start`            | 新轮次开始（一次 LLM 调用 + 工具执行）    |
+| `turn_end`              | 轮次完成，返回 assistant 消息和工具结果   |
+| `message_start`         | 任意消息开始（user/assistant/toolResult） |
+| `message_update`        | 仅 assistant，包含 delta                  |
+| `message_end`           | 消息完成                                  |
+| `tool_execution_start`  | 工具开始执行                              |
+| `tool_execution_update` | 工具流式进度                              |
+| `tool_execution_end`    | 工具执行完成                              |
 
 ### 2. 消息转换管道
 
@@ -59,6 +59,7 @@ declare module "@mariozechner/pi-agent-core" {
 ### 3. Steering 和 Follow-up 机制
 
 **Steering（转向）**：
+
 - 在工具执行过程中注入中断消息
 - 剩余工具被跳过并返回错误结果
 - LLM 响应中断消息
@@ -73,6 +74,7 @@ agent.steer({
 ```
 
 **Follow-up（后续）**：
+
 - 在 Agent 完成后自动追加任务
 - 仅在无工具调用且无 steering 消息时检查
 
@@ -95,13 +97,14 @@ interface AgentState {
   tools: AgentTool<any>[];
   messages: AgentMessage[];
   isStreaming: boolean;
-  streamMessage: AgentMessage | null;  // 流式过程中的部分消息
-  pendingToolCalls: Set<string>;       // 待完成的工具调用
+  streamMessage: AgentMessage | null; // 流式过程中的部分消息
+  pendingToolCalls: Set<string>; // 待完成的工具调用
   error?: string;
 }
 ```
 
 关键设计：
+
 - `streamMessage`: 保存流式过程中的部分消息，便于 UI 更新
 - `pendingToolCalls`: 追踪待完成的工具调用（Set 结构）
 
@@ -118,6 +121,7 @@ interface AgentTool {
 ```
 
 关键设计：
+
 - `label`: UI 友好的显示名称
 - `onUpdate`: 流式进度回调
 - 错误处理：抛出异常而非返回错误内容
@@ -138,8 +142,8 @@ await agent.continue();
 ```typescript
 const agent = new Agent({
   // 动态 API Key（支持 OAuth token 刷新）
-  getApiKey: async (provider) => refreshToken(),
-  
+  getApiKey: async provider => refreshToken(),
+
   // 自定义思考预算
   thinkingBudgets: {
     minimal: 128,
@@ -147,7 +151,7 @@ const agent = new Agent({
     medium: 1024,
     high: 2048,
   },
-  
+
   // Session ID（Provider 缓存）
   sessionId: "session-123",
 });
@@ -159,17 +163,17 @@ const agent = new Agent({
 
 ### 架构对比
 
-| 特性 | pi-agent-core | sdk/agent | 差距 |
-|------|---------------|-----------|------|
-| 事件粒度 | 细粒度（turn/message/tool） | 中粒度 | 缺少 turn 概念 |
-| 消息转换 | transformContext + convertToLlm | ConversationSession | 缺少转换管道 |
-| Steering | ✅ | ❌ | 缺少中断注入 |
-| Follow-up | ✅ | ❌ | 缺少后续队列 |
-| 工具流式进度 | onUpdate 回调 | ❌ | 缺少进度回调 |
-| continue() | ✅ | ❌（有 resume） | 语义不同 |
-| 动态 API Key | getApiKey | profileId | 不支持动态刷新 |
-| 自定义消息类型 | 声明合并 | ❌ | 不支持 |
-| Checkpoint | ❌ | ✅ | sdk/agent 优势 |
+| 特性           | pi-agent-core                   | sdk/agent           | 差距           |
+| -------------- | ------------------------------- | ------------------- | -------------- |
+| 事件粒度       | 细粒度（turn/message/tool）     | 中粒度              | 缺少 turn 概念 |
+| 消息转换       | transformContext + convertToLlm | ConversationSession | 缺少转换管道   |
+| Steering       | ✅                              | ❌                  | 缺少中断注入   |
+| Follow-up      | ✅                              | ❌                  | 缺少后续队列   |
+| 工具流式进度   | onUpdate 回调                   | ❌                  | 缺少进度回调   |
+| continue()     | ✅                              | ❌（有 resume）     | 语义不同       |
+| 动态 API Key   | getApiKey                       | profileId           | 不支持动态刷新 |
+| 自定义消息类型 | 声明合并                        | ❌                  | 不支持         |
+| Checkpoint     | ❌                              | ✅                  | sdk/agent 优势 |
 
 ### 当前 sdk/agent 的优势
 
@@ -189,18 +193,18 @@ const agent = new Agent({
 **新增事件类型**：
 
 ```typescript
-export type AgentStreamEvent = 
-  | { type: 'agent_start'; timestamp: number }
-  | { type: 'agent_end'; messages: LLMMessage[]; timestamp: number }
-  | { type: 'turn_start'; iteration: number; timestamp: number }
-  | { type: 'turn_end'; iteration: number; message: LLMMessage; toolResults: ToolResult[] }
-  | { type: 'message_start'; message: LLMMessage }
-  | { type: 'message_update'; delta: Partial<LLMMessage> }
-  | { type: 'message_end'; message: LLMMessage }
-  | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'tool_execution_update'; toolCallId: string; partialResult: unknown }
-  | { type: 'tool_execution_end'; toolCallId: string; result: ToolResult }
-  | { type: 'iteration_complete'; iteration: number; shouldContinue: boolean };
+export type AgentStreamEvent =
+  | { type: "agent_start"; timestamp: number }
+  | { type: "agent_end"; messages: LLMMessage[]; timestamp: number }
+  | { type: "turn_start"; iteration: number; timestamp: number }
+  | { type: "turn_end"; iteration: number; message: LLMMessage; toolResults: ToolResult[] }
+  | { type: "message_start"; message: LLMMessage }
+  | { type: "message_update"; delta: Partial<LLMMessage> }
+  | { type: "message_end"; message: LLMMessage }
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool_execution_update"; toolCallId: string; partialResult: unknown }
+  | { type: "tool_execution_end"; toolCallId: string; result: ToolResult }
+  | { type: "iteration_complete"; iteration: number; shouldContinue: boolean };
 ```
 
 ### 优先级 2：消息转换管道
@@ -212,10 +216,10 @@ export type AgentStreamEvent =
 ```typescript
 interface AgentLoopConfig {
   // ... existing fields
-  
+
   /** 消息转换管道（可选） */
   transformContext?: (messages: LLMMessage[], signal?: AbortSignal) => Promise<LLMMessage[]>;
-  
+
   /** 转换为 LLM 格式（可选，用于自定义消息类型） */
   convertToLlm?: (messages: LLMMessage[]) => LLMMessage[];
 }
@@ -231,13 +235,13 @@ interface AgentLoopConfig {
 class AgentLoopEntity {
   private steeringQueue: LLMMessage[] = [];
   private followUpQueue: LLMMessage[] = [];
-  
+
   /** 注入 Steering 消息（中断当前工具执行） */
   steer(message: LLMMessage): void;
-  
+
   /** 注入 Follow-up 消息（完成后追加） */
   followUp(message: LLMMessage): void;
-  
+
   /** 清空队列 */
   clearSteeringQueue(): void;
   clearFollowUpQueue(): void;
@@ -256,7 +260,7 @@ interface ToolExecutor {
   execute(
     toolCall: ToolCall,
     signal?: AbortSignal,
-    onUpdate?: (partial: ToolResult) => void  // 新增
+    onUpdate?: (partial: ToolResult) => void, // 新增
   ): Promise<ToolResult>;
 }
 ```
@@ -271,7 +275,7 @@ interface ToolExecutor {
 class AgentLoopState {
   /** 流式过程中的部分消息 */
   streamMessage: LLMMessage | null = null;
-  
+
   /** 待完成的工具调用 */
   pendingToolCalls: Set<string> = new Set();
 }

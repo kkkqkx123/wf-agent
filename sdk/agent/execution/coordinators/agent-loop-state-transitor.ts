@@ -45,8 +45,9 @@ export class AgentLoopStateTransitor {
    * Start Agent Loop Execution
    *
    * @param entity Agent loop entity instance
+   * @param messageCount Initial message count (optional, defaults to 0)
    */
-  async startAgentLoop(entity: AgentLoopEntity): Promise<void> {
+  async startAgentLoop(entity: AgentLoopEntity, messageCount = 0): Promise<void> {
     const previousStatus = entity.getStatus();
     logger.info("Starting agent loop execution", {
       agentLoopId: entity.id,
@@ -69,7 +70,7 @@ export class AgentLoopStateTransitor {
     const startedEvent = buildAgentStartedEvent({
       agentLoopId: entity.id,
       maxIterations: entity.config.maxIterations ?? -1,
-      initialMessageCount: entity.getMessages().length,
+      initialMessageCount: messageCount,
       executionId: entity.id,
     });
     await emit(this.eventManager, startedEvent);
@@ -153,10 +154,7 @@ export class AgentLoopStateTransitor {
    * @param entity Agent loop entity instance
    * @param result Execution result
    */
-  async completeAgentLoop(
-    entity: AgentLoopEntity,
-    result: AgentLoopResult,
-  ): Promise<void> {
+  async completeAgentLoop(entity: AgentLoopEntity, result: AgentLoopResult): Promise<void> {
     const previousStatus = entity.getStatus();
     logger.info("Completing agent loop execution", {
       agentLoopId: entity.id,
@@ -217,7 +215,8 @@ export class AgentLoopStateTransitor {
         agentLoopId: entity.id,
         iteration: entity.state.currentIteration,
         toolCallCount: entity.state.toolCallCount,
-        error: error instanceof Error ? { message: error.message, name: error.name } : String(error),
+        error:
+          error instanceof Error ? { message: error.message, name: error.name } : String(error),
         executionId: entity.id,
       });
       await emit(this.eventManager, failedEvent);

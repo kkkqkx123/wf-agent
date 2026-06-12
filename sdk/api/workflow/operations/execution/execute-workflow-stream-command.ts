@@ -114,7 +114,7 @@ export class ExecuteWorkflowStreamCommand extends BaseCommand<AsyncGenerator<Bas
     ];
 
     const unsubscribers: Array<() => void> = [];
-    
+
     // Use new EventEmitter API
     const emitter = eventManager.getEmitter(executionId);
     for (const eventType of eventTypes) {

@@ -88,11 +88,15 @@ describe("ExecutionQueue", () => {
   beforeEach(() => {
     taskRegistry = createMockTaskRegistry();
     eventRegistry = createMockEventRegistry();
-    executeFn = vi.fn<(executor: Executor<ExecutionInstance>, instance: ExecutionInstance) => Promise<unknown>>().mockImplementation(
-      async (_executor: Executor<ExecutionInstance>, instance: ExecutionInstance) => {
-        return { status: "completed", executionId: instance.id };
-      },
-    );
+    executeFn = vi
+      .fn<
+        (executor: Executor<ExecutionInstance>, instance: ExecutionInstance) => Promise<unknown>
+      >()
+      .mockImplementation(
+        async (_executor: Executor<ExecutionInstance>, instance: ExecutionInstance) => {
+          return { status: "completed", executionId: instance.id };
+        },
+      );
     executorFactory = {
       create(): Executor<ExecutionInstance> {
         return {
@@ -117,7 +121,12 @@ describe("ExecutionQueue", () => {
   describe("submitSync", () => {
     it("should execute the task and return the result", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("task-1");
       const result = await queue.submitSync("task-1", instance, "workflowExecution");
@@ -129,7 +138,12 @@ describe("ExecutionQueue", () => {
 
     it("should call taskRegistry.updateStatusToRunning", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("task-run-1");
       await queue.submitSync("task-run-1", instance, "workflowExecution");
@@ -139,7 +153,12 @@ describe("ExecutionQueue", () => {
 
     it("should call taskRegistry.updateStatusToCompleted on success", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("task-complete");
       await queue.submitSync("task-complete", instance, "workflowExecution");
@@ -154,12 +173,17 @@ describe("ExecutionQueue", () => {
       executeFn.mockRejectedValue(new Error("Execution failure"));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("task-fail");
-      await expect(
-        queue.submitSync("task-fail", instance, "workflowExecution"),
-      ).rejects.toThrow("Execution failure");
+      await expect(queue.submitSync("task-fail", instance, "workflowExecution")).rejects.toThrow(
+        "Execution failure",
+      );
 
       expect(taskRegistry.updateStatusToFailed).toHaveBeenCalledWith(
         "task-fail",
@@ -169,7 +193,12 @@ describe("ExecutionQueue", () => {
 
     it("should handle multiple tasks sequentially", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const promise1 = queue.submitSync("seq-1", createWFInstance("seq-1"), "workflowExecution");
       const promise2 = queue.submitSync("seq-2", createWFInstance("seq-2"), "workflowExecution");
@@ -183,7 +212,12 @@ describe("ExecutionQueue", () => {
 
     it("should return agentResult for agent instances", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       executeFn.mockResolvedValue({ agentOutput: "hello" });
 
@@ -202,7 +236,12 @@ describe("ExecutionQueue", () => {
   describe("submitAsync", () => {
     it("should return TaskSubmissionResult immediately", () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("async-task");
       const result = queue.submitAsync("async-task", instance, "workflowExecution");
@@ -214,7 +253,12 @@ describe("ExecutionQueue", () => {
 
     it("should still execute the task asynchronously", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("async-exec");
       queue.submitAsync("async-exec", instance, "workflowExecution");
@@ -230,7 +274,12 @@ describe("ExecutionQueue", () => {
       executeFn.mockRejectedValue(new Error("Async fail"));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("async-fail");
       queue.submitAsync("async-fail", instance, "workflowExecution");
@@ -253,7 +302,12 @@ describe("ExecutionQueue", () => {
       executeFn.mockImplementation(() => new Promise(() => {}));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       // First task occupies processQueue
       queue.submitAsync("blocker", createWFInstance("blocker"), "workflowExecution");
@@ -269,7 +323,12 @@ describe("ExecutionQueue", () => {
 
     it("should return false for non-existent task", () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const cancelled = queue.cancelTask("nonexistent");
       expect(cancelled).toBe(false);
@@ -280,7 +339,12 @@ describe("ExecutionQueue", () => {
       executeFn.mockImplementation(() => new Promise(() => {}));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("running-task");
       queue.submitAsync("running-task", instance, "workflowExecution");
@@ -300,7 +364,12 @@ describe("ExecutionQueue", () => {
   describe("getQueueStats", () => {
     it("should return initial stats", () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const stats = queue.getQueueStats();
       expect(stats.pendingCount).toBe(0);
@@ -313,7 +382,12 @@ describe("ExecutionQueue", () => {
       executeFn.mockImplementation(() => new Promise(() => {}));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       // First task occupies processQueue
       queue.submitAsync("stat-blocker", createWFInstance("stat-blocker"), "workflowExecution");
@@ -331,7 +405,12 @@ describe("ExecutionQueue", () => {
       taskRegistry.getStats = vi.fn().mockReturnValue(statsMock);
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const stats = queue.getQueueStats();
       expect(stats.completedCount).toBe(5);
@@ -350,7 +429,12 @@ describe("ExecutionQueue", () => {
       executeFn.mockImplementation(() => new Promise(() => {}));
 
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       // First task occupies processQueue
       queue.submitAsync("blocker", createWFInstance("blocker"), "workflowExecution");
@@ -368,7 +452,12 @@ describe("ExecutionQueue", () => {
 
       // Use maxExecutors=1 so only one task can run at once
       const pool = createFreshPool(executorFactory, { minExecutors: 1, maxExecutors: 1 });
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       // First task becomes running
       queue.submitAsync("running-1", createWFInstance("running-1"), "workflowExecution");
@@ -391,14 +480,24 @@ describe("ExecutionQueue", () => {
   describe("drain", () => {
     it("should resolve when no tasks are pending or running", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       await expect(queue.drain()).resolves.toBeUndefined();
     });
 
     it("should wait for tasks to complete", async () => {
       const pool = createFreshPool(executorFactory);
-      const queue = new ExecutionQueue(taskRegistry, pool, eventRegistry, executeFn as (...args: any[]) => any);
+      const queue = new ExecutionQueue(
+        taskRegistry,
+        pool,
+        eventRegistry,
+        executeFn as (...args: any[]) => any,
+      );
 
       const instance = createWFInstance("drain-1");
       const resultPromise = queue.submitSync("drain-1", instance, "workflowExecution");

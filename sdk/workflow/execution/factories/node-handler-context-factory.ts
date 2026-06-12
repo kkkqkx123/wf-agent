@@ -76,9 +76,12 @@ export class NodeHandlerContextFactory {
    * @returns Processor context with type-safe properties based on node type
    * @throws ExecutionError When required dependencies are missing
    */
-  createHandlerContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  createHandlerContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     const contextCreator = this.contextCreators.get(node.type);
-    
+
     if (!contextCreator) {
       // Other node types do not require any special context.
       return {};
@@ -90,7 +93,10 @@ export class NodeHandlerContextFactory {
   /**
    * Context creator functions mapped by node type
    */
-  private contextCreators: Map<string, (node: RuntimeNode, executionEntity: WorkflowExecutionEntity) => Record<string, unknown>> = new Map([
+  private contextCreators: Map<
+    string,
+    (node: RuntimeNode, executionEntity: WorkflowExecutionEntity) => Record<string, unknown>
+  > = new Map([
     ["USER_INTERACTION", (node, entity) => this.createUserInteractionContext(node, entity)],
     ["CONTEXT_PROCESSOR", (_node, entity) => this.createContextProcessorContext(entity)],
     ["LLM", (node, entity) => this.createLLMContext(node, entity)],
@@ -133,7 +139,9 @@ export class NodeHandlerContextFactory {
    * @returns Context with conversationManager, executionEntity, and workflowExecutionRegistry
    * @throws ExecutionError When conversationManager is not provided
    */
-  private createContextProcessorContext(executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createContextProcessorContext(
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.conversationManager) {
       throw new ExecutionError(
         "ConversationManager is required for CONTEXT_PROCESSOR node",
@@ -156,7 +164,10 @@ export class NodeHandlerContextFactory {
    * @returns Context with llmCoordinator, llmWrapper, eventManager, conversationManager
    * @throws ExecutionError When required dependencies are not provided
    */
-  private createLLMContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createLLMContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.llmWrapper) {
       throw new ExecutionError(
         "LLMWrapper is required for LLM node",
@@ -180,7 +191,10 @@ export class NodeHandlerContextFactory {
    * @returns Context with permissionManager and rejectionBuilder
    * @throws ExecutionError When permissionManager or rejectionBuilder is not provided
    */
-  private createToolVisibilityContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createToolVisibilityContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.permissionManager) {
       throw new ExecutionError(
         "ToolPermissionManager is required for TOOL_VISIBILITY node",
@@ -210,7 +224,10 @@ export class NodeHandlerContextFactory {
    * @returns Context with agentLoopExecutor, llmCoordinator, conversationManager, and eventManager
    * @throws ExecutionError When agentLoopExecutorFactory is not provided
    */
-  private createAgentLoopContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createAgentLoopContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.agentLoopExecutorFactory) {
       throw new ExecutionError(
         "AgentLoopExecutorFactory is required for AGENT_LOOP node",
@@ -239,7 +256,10 @@ export class NodeHandlerContextFactory {
    * @returns Context with executionBuilder and workflowExecutor
    * @throws ExecutionError When executionBuilder or workflowExecutor is not provided
    */
-  private createForkContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createForkContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.executionBuilder) {
       throw new ExecutionError(
         "WorkflowExecutionBuilder is required for FORK node",
@@ -269,7 +289,10 @@ export class NodeHandlerContextFactory {
    * @returns Context with executionBuilder and workflowExecutor
    * @throws ExecutionError When executionBuilder or workflowExecutor is not provided
    */
-  private createSubgraphContext(node: RuntimeNode, executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createSubgraphContext(
+    node: RuntimeNode,
+    executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     if (!this.config.executionBuilder) {
       throw new ExecutionError(
         "WorkflowExecutionBuilder is required for SUBGRAPH node",
@@ -297,7 +320,9 @@ export class NodeHandlerContextFactory {
    * @param _executionEntity WorkflowExecution entity (unused, kept for signature consistency)
    * @returns Context with optional triggerInput and conversationManager
    */
-  private createStartFromTriggerContext(_executionEntity: WorkflowExecutionEntity): Record<string, unknown> {
+  private createStartFromTriggerContext(
+    _executionEntity: WorkflowExecutionEntity,
+  ): Record<string, unknown> {
     return {
       conversationManager: this.config.conversationManager,
       // Note: triggerInput should be passed from the external trigger mechanism,

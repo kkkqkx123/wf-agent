@@ -68,19 +68,33 @@ export class WorkflowStateTransitor {
    */
   async startWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
-    logger.info("Starting workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus });
+    logger.info("Starting workflow execution", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      previousStatus,
+    });
 
-    validateTransition(workflowExecutionEntity.id, previousStatus, "RUNNING" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      previousStatus,
+      "RUNNING" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("RUNNING" as WorkflowExecutionStatus);
 
     const startedEvent = buildWorkflowExecutionStartedEvent(workflowExecutionEntity);
     await emit(this.eventManager, startedEvent);
 
-    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, previousStatus, "RUNNING");
+    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(
+      workflowExecutionEntity,
+      previousStatus,
+      "RUNNING",
+    );
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution started", { workflowExecutionId: workflowExecutionEntity.id, status: "RUNNING" });
+    logger.info("Workflow execution started", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      status: "RUNNING",
+    });
   }
 
   /**
@@ -92,20 +106,33 @@ export class WorkflowStateTransitor {
   async pauseWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "PAUSED") {
-      logger.debug("Workflow execution already paused, skipping", { workflowExecutionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already paused, skipping", {
+        workflowExecutionId: workflowExecutionEntity.id,
+      });
       return;
     }
 
-    logger.info("Pausing workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus: currentStatus });
+    logger.info("Pausing workflow execution", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      previousStatus: currentStatus,
+    });
 
-    validateTransition(workflowExecutionEntity.id, currentStatus, "PAUSED" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      currentStatus,
+      "PAUSED" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("PAUSED" as WorkflowExecutionStatus);
 
     const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionEntity);
     await emit(this.eventManager, pausedEvent);
 
-    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, currentStatus, "PAUSED");
+    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(
+      workflowExecutionEntity,
+      currentStatus,
+      "PAUSED",
+    );
     await emit(this.eventManager, stateChangedEvent);
 
     logger.info("Workflow execution paused", { workflowExecutionId: workflowExecutionEntity.id });
@@ -120,20 +147,33 @@ export class WorkflowStateTransitor {
   async resumeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "RUNNING") {
-      logger.debug("Workflow execution already running, skipping resume", { workflowExecutionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already running, skipping resume", {
+        workflowExecutionId: workflowExecutionEntity.id,
+      });
       return;
     }
 
-    logger.info("Resuming workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus: currentStatus });
+    logger.info("Resuming workflow execution", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      previousStatus: currentStatus,
+    });
 
-    validateTransition(workflowExecutionEntity.id, currentStatus, "RUNNING" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      currentStatus,
+      "RUNNING" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("RUNNING" as WorkflowExecutionStatus);
 
     const resumedEvent = buildWorkflowExecutionResumedEvent(workflowExecutionEntity);
     await emit(this.eventManager, resumedEvent);
 
-    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, currentStatus, "RUNNING");
+    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(
+      workflowExecutionEntity,
+      currentStatus,
+      "RUNNING",
+    );
     await emit(this.eventManager, stateChangedEvent);
 
     logger.info("Workflow execution resumed", { workflowExecutionId: workflowExecutionEntity.id });
@@ -146,12 +186,20 @@ export class WorkflowStateTransitor {
    * @param result Execution result
    * @throws ValidationError The status transition is invalid
    */
-  async completeWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, result: WorkflowExecutionResult): Promise<void> {
+  async completeWorkflowExecution(
+    workflowExecutionEntity: WorkflowExecutionEntity,
+    result: WorkflowExecutionResult,
+  ): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
-    logger.info("Completing workflow execution", { workflowExecutionId: workflowExecutionEntity.id, previousStatus });
+    logger.info("Completing workflow execution", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      previousStatus,
+    });
 
     if (previousStatus === "COMPLETED") {
-      logger.debug("Workflow execution already completed, emitting event only", { workflowExecutionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already completed, emitting event only", {
+        workflowExecutionId: workflowExecutionEntity.id,
+      });
       if (!workflowExecutionEntity.getEndTime()) {
         workflowExecutionEntity.state.complete();
       }
@@ -161,7 +209,11 @@ export class WorkflowStateTransitor {
       return;
     }
 
-    validateTransition(workflowExecutionEntity.id, previousStatus, "COMPLETED" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      previousStatus,
+      "COMPLETED" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("COMPLETED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.complete();
@@ -192,7 +244,10 @@ export class WorkflowStateTransitor {
    * @param error Error message
    * @throws ValidationError The status transition is invalid
    */
-  async failWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, error: Error): Promise<void> {
+  async failWorkflowExecution(
+    workflowExecutionEntity: WorkflowExecutionEntity,
+    error: Error,
+  ): Promise<void> {
     const previousStatus = workflowExecutionEntity.getStatus();
     logger.info("Failing workflow execution", {
       workflowExecutionId: workflowExecutionEntity.id,
@@ -200,17 +255,28 @@ export class WorkflowStateTransitor {
       errorMessage: error.message,
     });
 
-    validateTransition(workflowExecutionEntity.id, previousStatus, "FAILED" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      previousStatus,
+      "FAILED" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("FAILED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.fail(error);
     workflowExecutionEntity.getErrors().push(error.message);
     this.workflowConversationSession.cleanup();
 
-    const failedEvent = buildWorkflowExecutionFailedEvent({ executionId: workflowExecutionEntity.id, error });
+    const failedEvent = buildWorkflowExecutionFailedEvent({
+      executionId: workflowExecutionEntity.id,
+      error,
+    });
     await emit(this.eventManager, failedEvent);
 
-    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(workflowExecutionEntity, previousStatus, "FAILED");
+    const stateChangedEvent = buildWorkflowExecutionStateChangedEvent(
+      workflowExecutionEntity,
+      previousStatus,
+      "FAILED",
+    );
     await emit(this.eventManager, stateChangedEvent);
 
     const endTime = workflowExecutionEntity.getEndTime();
@@ -228,10 +294,15 @@ export class WorkflowStateTransitor {
    * @param reason Reason for cancellation
    * @throws ValidationError Illegal state transition
    */
-  async cancelWorkflowExecution(workflowExecutionEntity: WorkflowExecutionEntity, reason?: string): Promise<void> {
+  async cancelWorkflowExecution(
+    workflowExecutionEntity: WorkflowExecutionEntity,
+    reason?: string,
+  ): Promise<void> {
     const currentStatus = workflowExecutionEntity.getStatus();
     if (currentStatus === "CANCELLED") {
-      logger.debug("Workflow execution already cancelled, skipping", { workflowExecutionId: workflowExecutionEntity.id });
+      logger.debug("Workflow execution already cancelled, skipping", {
+        workflowExecutionId: workflowExecutionEntity.id,
+      });
       return;
     }
 
@@ -241,7 +312,11 @@ export class WorkflowStateTransitor {
       reason,
     });
 
-    validateTransition(workflowExecutionEntity.id, currentStatus, "CANCELLED" as WorkflowExecutionStatus);
+    validateTransition(
+      workflowExecutionEntity.id,
+      currentStatus,
+      "CANCELLED" as WorkflowExecutionStatus,
+    );
 
     workflowExecutionEntity.setStatus("CANCELLED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.cancel();
@@ -257,7 +332,10 @@ export class WorkflowStateTransitor {
     );
     await emit(this.eventManager, stateChangedEvent);
 
-    logger.info("Workflow execution cancelled", { workflowExecutionId: workflowExecutionEntity.id, reason });
+    logger.info("Workflow execution cancelled", {
+      workflowExecutionId: workflowExecutionEntity.id,
+      reason,
+    });
   }
 
   /**
@@ -270,9 +348,9 @@ export class WorkflowStateTransitor {
   async cascadeCancel(
     parentExecutionId: string,
     options?: {
-      timeout?: number;  // Overall timeout in milliseconds (default: 30000)
-      strategy?: 'sequential' | 'parallel';  // Cancellation strategy (default: 'parallel')
-    }
+      timeout?: number; // Overall timeout in milliseconds (default: 30000)
+      strategy?: "sequential" | "parallel"; // Cancellation strategy (default: 'parallel')
+    },
   ): Promise<number> {
     const parentContext = this.workflowExecutionRegistry.get(parentExecutionId);
     if (!parentContext) {
@@ -285,7 +363,7 @@ export class WorkflowStateTransitor {
     }
 
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_CONFIG.cascadeCancel;
-    const strategy = options?.strategy ?? 'parallel';
+    const strategy = options?.strategy ?? "parallel";
 
     logger.debug("Starting cascade cancel", {
       parentExecutionId,
@@ -295,7 +373,7 @@ export class WorkflowStateTransitor {
     });
 
     try {
-      if (strategy === 'parallel') {
+      if (strategy === "parallel") {
         // Parallel cancellation with shared timeout
         const cancelOperations: Record<string, () => Promise<boolean>> = {};
         for (const childExecutionId of childExecutionIds) {
@@ -303,11 +381,9 @@ export class WorkflowStateTransitor {
             this.cancelChildWorkflowExecution(childExecutionId);
         }
 
-        const results = await executeWithSharedTimeout(
-          cancelOperations,
-          timeout,
-          { message: `Cascade cancel timed out for parent: ${parentExecutionId}` }
-        );
+        const results = await executeWithSharedTimeout(cancelOperations, timeout, {
+          message: `Cascade cancel timed out for parent: ${parentExecutionId}`,
+        });
 
         const cancelledCount = Array.from(results.values()).filter(Boolean).length;
         logger.info("Parallel cascade cancel completed", {
@@ -326,10 +402,10 @@ export class WorkflowStateTransitor {
             const success = await executeWithSharedTimeout(
               { cancel: () => this.cancelChildWorkflowExecution(childExecutionId) },
               perOperationTimeout,
-              { message: `Cancel child ${childExecutionId} timed out` }
+              { message: `Cancel child ${childExecutionId} timed out` },
             );
 
-            if (success.get('cancel')) {
+            if (success.get("cancel")) {
               cancelledCount++;
             }
           } catch (error) {
@@ -407,8 +483,10 @@ export class WorkflowStateTransitor {
   async cleanupChildAgentLoops(executionId: string): Promise<void> {
     try {
       // Use unified hierarchy registry for cleanup
-      const hierarchyRegistry = this.globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
-      
+      const hierarchyRegistry = this.globalContext.container.get(
+        Identifiers.ExecutionHierarchyRegistry,
+      ) as ExecutionHierarchyRegistry;
+
       if (hierarchyRegistry) {
         // Use unified cleanup that handles mixed hierarchies (Workflow → Agent, Agent → Agent, etc.)
         const cleanedCount = hierarchyRegistry.cleanupHierarchy(executionId);
@@ -492,7 +570,9 @@ export class WorkflowStateTransitor {
     }
 
     // Get event manager from global context
-    const eventManager = this.globalContext.container.get(Identifiers.EventRegistry) as EventRegistry;
+    const eventManager = this.globalContext.container.get(
+      Identifiers.EventRegistry,
+    ) as EventRegistry;
     if (!eventManager) {
       logger.error("EventRegistry not available for waiting", { parentExecutionId });
       return false;
@@ -502,15 +582,16 @@ export class WorkflowStateTransitor {
       // Use event-driven waiting with shared timeout
       await executeWithSharedTimeout(
         {
-          wait: () => waitForMultipleWorkflowExecutionsCompleted(
-            eventManager,
-            childExecutionIds,
-            undefined,  // No individual timeout, use shared timeout
-            { timeoutMode: 'shared' }  // Use shared timeout mode
-          )
+          wait: () =>
+            waitForMultipleWorkflowExecutionsCompleted(
+              eventManager,
+              childExecutionIds,
+              undefined, // No individual timeout, use shared timeout
+              { timeoutMode: "shared" }, // Use shared timeout mode
+            ),
         },
         timeout,
-        { message: `Timeout waiting for all child executions of ${parentExecutionId}` }
+        { message: `Timeout waiting for all child executions of ${parentExecutionId}` },
       );
       return true;
     } catch (error) {
@@ -529,7 +610,6 @@ export class WorkflowStateTransitor {
       return false;
     }
   }
-
 
   /**
    * Get the depth of the workflow execution tree

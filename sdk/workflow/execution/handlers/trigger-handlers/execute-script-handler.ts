@@ -36,9 +36,7 @@ export async function executeScriptHandler(
       );
     }
 
-    const scriptService = globalContext.container.get(
-      Identifiers.ScriptRegistry,
-    ) as ScriptRegistry;
+    const scriptService = globalContext.container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
 
     if (!scriptService) {
       throw new ExecutionError("ScriptRegistry not available in DI container");

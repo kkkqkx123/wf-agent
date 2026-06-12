@@ -14,9 +14,7 @@
  * Basic interruption check result (domain-agnostic)
  * Only contains basic interruption states without domain-specific context
  */
-export type InterruptionCheckResult =
-  | { type: "continue" }
-  | { type: "aborted"; reason?: unknown };
+export type InterruptionCheckResult = { type: "continue" } | { type: "aborted"; reason?: unknown };
 
 /**
  * Check if signal is aborted
@@ -45,17 +43,17 @@ export function createNeverAbortSignal(): AbortSignal {
  */
 export function combineAbortSignals(signals: (AbortSignal | undefined)[]): AbortSignal {
   const validSignals = signals.filter((s): s is AbortSignal => s !== undefined);
-  
+
   if (validSignals.length === 0) {
     return createNeverAbortSignal();
   }
-  
+
   if (validSignals.length === 1) {
     return validSignals[0]!;
   }
-  
+
   const controller = new AbortController();
-  
+
   // If any signal is already aborted, abort immediately
   for (const signal of validSignals) {
     if (signal.aborted) {
@@ -63,7 +61,7 @@ export function combineAbortSignals(signals: (AbortSignal | undefined)[]): Abort
       return controller.signal;
     }
   }
-  
+
   // Listen to all signals and track listeners for cleanup
   const abortListeners: Array<[AbortSignal, () => void]> = [];
 
@@ -73,17 +71,21 @@ export function combineAbortSignals(signals: (AbortSignal | undefined)[]): Abort
         controller.abort(signal.reason);
       }
     };
-    signal.addEventListener('abort', handler, { once: true });
+    signal.addEventListener("abort", handler, { once: true });
     abortListeners.push([signal, handler]);
   }
 
   // Cleanup: when the combined signal itself is aborted (e.g. by caller),
   // remove all listeners from input signals to prevent memory leaks.
-  controller.signal.addEventListener('abort', () => {
-    for (const [signal, handler] of abortListeners) {
-      signal.removeEventListener('abort', handler);
-    }
-  }, { once: true });
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      for (const [signal, handler] of abortListeners) {
+        signal.removeEventListener("abort", handler);
+      }
+    },
+    { once: true },
+  );
 
   return controller.signal;
 }
@@ -102,7 +104,7 @@ export async function withAbortSignal<T>(
   try {
     if (signal?.aborted) {
       const originalError = signal.reason as Error;
-      const newError = new Error(originalError?.message || 'Operation aborted');
+      const newError = new Error(originalError?.message || "Operation aborted");
       // Preserve the original error in the cause chain for debugging
       if (originalError) {
         newError.cause = originalError;
@@ -112,12 +114,12 @@ export async function withAbortSignal<T>(
         error: newError,
       };
     }
-    
+
     const result = await fn();
-    
+
     if (signal?.aborted) {
       const originalError = signal.reason as Error;
-      const newError = new Error(originalError?.message || 'Operation aborted');
+      const newError = new Error(originalError?.message || "Operation aborted");
       if (originalError) {
         newError.cause = originalError;
       }
@@ -126,12 +128,15 @@ export async function withAbortSignal<T>(
         error: newError,
       };
     }
-    
+
     return { ok: true, value: result };
   } catch (error) {
-    if (signal?.aborted && (error instanceof DOMException || (error instanceof Error && error.name === 'AbortError'))) {
+    if (
+      signal?.aborted &&
+      (error instanceof DOMException || (error instanceof Error && error.name === "AbortError"))
+    ) {
       const originalError = signal.reason as Error;
-      const newError = new Error(originalError?.message || 'Operation aborted');
+      const newError = new Error(originalError?.message || "Operation aborted");
       if (originalError) {
         newError.cause = originalError;
       }

@@ -18,15 +18,15 @@ vi.mock("../../../utils/contextual-logger.js", () => ({
 }));
 
 vi.mock("../../../core/utils/event/builders/index.js", () => ({
-  buildCheckpointCreatedEvent: vi.fn((params) => ({
+  buildCheckpointCreatedEvent: vi.fn(params => ({
     type: "CHECKPOINT_CREATED",
     ...params,
   })),
-  buildCheckpointDeletedEvent: vi.fn((params) => ({
+  buildCheckpointDeletedEvent: vi.fn(params => ({
     type: "CHECKPOINT_DELETED",
     ...params,
   })),
-  buildCheckpointFailedEvent: vi.fn((params) => ({
+  buildCheckpointFailedEvent: vi.fn(params => ({
     type: "CHECKPOINT_FAILED",
     ...params,
   })),
@@ -176,12 +176,14 @@ describe("CheckpointState", () => {
       (instance as any).cleanupPolicy = cleanupPolicy;
 
       // Mock executeCleanupForEntity
-      const executeCleanupSpy = vi.spyOn(instance as any, "executeCleanupForEntity").mockResolvedValue({
-        deletedCheckpointIds: [],
-        deletedCount: 0,
-        freedSpaceBytes: 0,
-        remainingCount: 5,
-      });
+      const executeCleanupSpy = vi
+        .spyOn(instance as any, "executeCleanupForEntity")
+        .mockResolvedValue({
+          deletedCheckpointIds: [],
+          deletedCount: 0,
+          freedSpaceBytes: 0,
+          remainingCount: 5,
+        });
 
       await instance.create(mockCheckpoint);
 
@@ -290,9 +292,9 @@ describe("CheckpointState", () => {
     });
 
     it("should throw when executionId is empty", async () => {
-      await expect(
-        checkpointState.cleanupWorkflowExecutionCheckpoints(""),
-      ).rejects.toThrow("workflowExecutionId is required for cleanupWorkflowExecutionCheckpoints");
+      await expect(checkpointState.cleanupWorkflowExecutionCheckpoints("")).rejects.toThrow(
+        "workflowExecutionId is required for cleanupWorkflowExecutionCheckpoints",
+      );
     });
   });
 
@@ -363,7 +365,11 @@ describe("CheckpointState", () => {
 
   describe("buildFailedEvent", () => {
     it("should build failed event from error string", () => {
-      const event = (checkpointState as any).buildFailedEvent("cp-1", "Something went wrong", "create");
+      const event = (checkpointState as any).buildFailedEvent(
+        "cp-1",
+        "Something went wrong",
+        "create",
+      );
 
       expect(event).toEqual({
         type: "CHECKPOINT_FAILED",

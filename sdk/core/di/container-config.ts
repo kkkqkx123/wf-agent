@@ -306,9 +306,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.ToolRegistry)
     .toDynamicValue((c: IContainer): ToolRegistry => {
-      const storageAdapter = c.get(
-        Identifiers.ToolStorageAdapter,
-      ) as ToolStorageAdapter | null;
+      const storageAdapter = c.get(Identifiers.ToolStorageAdapter) as ToolStorageAdapter | null;
       return new ToolRegistry(undefined, storageAdapter);
     })
     .inSingletonScope();
@@ -316,9 +314,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.ScriptRegistry)
     .toDynamicValue((c: IContainer): ScriptRegistry => {
-      const storageAdapter = c.get(
-        Identifiers.ScriptStorageAdapter,
-      ) as ScriptStorageAdapter | null;
+      const storageAdapter = c.get(Identifiers.ScriptStorageAdapter) as ScriptStorageAdapter | null;
       return new ScriptRegistry(undefined, storageAdapter);
     })
     .inSingletonScope();
@@ -860,8 +856,10 @@ export function configureContainerBindings(
       // Create an adapter to convert null to undefined
       const workflowExecutionRegistryAdapter = {
         register: (entity: WorkflowExecutionEntity) => workflowExecutionRegistry.register(entity),
-        registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => 
-          workflowExecutionRegistry.registerStateCoordinator(executionId, stateCoordinator),
+        registerStateCoordinator: (
+          executionId: string,
+          stateCoordinator: WorkflowStateCoordinator,
+        ) => workflowExecutionRegistry.registerStateCoordinator(executionId, stateCoordinator),
         get: (id: string) => workflowExecutionRegistry.get(id) ?? undefined,
       };
       return new TriggeredSubworkflowHandler(
@@ -1124,8 +1122,7 @@ export function configureContainerBindings(
         try {
           const content = await fs.readFile(filePath, "utf-8");
           const format = getConfigFormatFromPath(filePath);
-          const parsed: unknown =
-            format === "toml" ? parseToml(content) : parseJson(content);
+          const parsed: unknown = format === "toml" ? parseToml(content) : parseJson(content);
           const config = mergeMetricsWithDefaults(parsed as Partial<MetricsConfig>);
           return config;
         } catch {
@@ -1185,8 +1182,7 @@ export function configureContainerBindings(
         try {
           const content = await fs.readFile(filePath, "utf-8");
           const format = getConfigFormatFromPath(filePath);
-          const parsed: unknown =
-            format === "toml" ? parseToml(content) : parseJson(content);
+          const parsed: unknown = format === "toml" ? parseToml(content) : parseJson(content);
           const config = mergeTimeoutWithDefaults(parsed as Partial<TimeoutConfig>);
           logger.info("Loaded timeout config from file", { path: filePath });
           return config;

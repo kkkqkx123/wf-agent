@@ -188,7 +188,9 @@ function createMainWorkflowReference(executionEntity: WorkflowExecutionEntity): 
 /**
  * Create a reference to the triggered sub-workflow.
  */
-function createTriggeredSubworkflowReference(executionEntity: WorkflowExecutionEntity): WorkflowReference {
+function createTriggeredSubworkflowReference(
+  executionEntity: WorkflowExecutionEntity,
+): WorkflowReference {
   return {
     type: "workflowExecution",
     sourceId: executionEntity.id,

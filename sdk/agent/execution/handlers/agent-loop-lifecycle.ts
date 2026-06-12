@@ -16,6 +16,8 @@ import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopCheckpointCoordinator, type CheckpointDependencies } from "../../checkpoint/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { CheckpointMetadata } from "@wf-agent/types";
+import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
+import { ConversationSession } from "../../../core/messaging/conversation-session.js";
 
 const logger = createContextualLogger({ component: "AgentLoopLifecycle" });
 
@@ -99,9 +101,13 @@ export function cleanupAgentLoop(entity: AgentLoopEntity): void {
 /**
  * Cloning the Agent Loop Entity
  * @param entity Agent Loop entity
- * @returns Cloned entity
+ * @param stateCoordinator Agent State Coordinator
+ * @returns Cloned entity and new state coordinator
  */
-export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
+export function cloneAgentLoop(
+  entity: AgentLoopEntity,
+  stateCoordinator: AgentStateCoordinator,
+): { entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator } {
   logger.debug("Cloning Agent Loop entity", {
     agentLoopId: entity.id,
     iteration: entity.state.currentIteration,
@@ -110,9 +116,15 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
 
   const cloned = new AgentLoopEntity(entity.id, { ...entity.config }, entity.state.clone());
 
-  // Cloning News History
-  const messageSnapshot = entity.getConversationManager().createSnapshot();
-  cloned.getConversationManager().restoreFromSnapshot(messageSnapshot);
+  // Clone message history using state coordinator snapshot/restore
+  const messageSnapshot = stateCoordinator.createSnapshot();
+  const newConversationSession = new ConversationSession({
+    executionId: cloned.id,
+  });
+  const newStateCoordinator = new AgentStateCoordinator({
+    conversationManager: newConversationSession,
+  });
+  newStateCoordinator.restoreFromSnapshot(messageSnapshot);
 
   // Clone parent context using unified hierarchy API
   const parentContext = entity.getParentContext();
@@ -126,5 +138,5 @@ export function cloneAgentLoop(entity: AgentLoopEntity): AgentLoopEntity {
     iteration: entity.state.currentIteration,
   });
 
-  return cloned;
+  return { entity: cloned, stateCoordinator: newStateCoordinator };
 }

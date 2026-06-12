@@ -1,14 +1,17 @@
 # Ask Follow-up Question Tool - Phase 1 Implementation Summary
 
 ## Overview
+
 Phase 1 implementation completed successfully. This phase focuses on SDK core changes including schema updates, handler implementation, and tool registry modifications.
 
 ## Completed Changes
 
 ### 1. Schema Update ✅
+
 **File**: `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/schema.ts`
 
 **Changes**:
+
 - Migrated from single-question format to multi-question nested structure
 - New schema supports 1-3 questions, each with 1-4 preset options
 - Added `additionalInfoLabel` field for free-form user input
@@ -18,6 +21,7 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
   - All text fields must be non-empty strings
 
 **Before**:
+
 ```typescript
 {
   question: string;
@@ -26,6 +30,7 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 ```
 
 **After**:
+
 ```typescript
 {
   questions: Array<{
@@ -37,9 +42,11 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 ```
 
 ### 2. Description Update ✅
+
 **File**: `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/description.ts`
 
 **Changes**:
+
 - Updated category from "code" to "interaction"
 - Rewrote description to reflect new multi-question capability
 - Updated parameter descriptions
@@ -47,21 +54,26 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 - Emphasized per-question options pattern
 
 **Key Points**:
+
 - Clear guidance on asking 1-3 questions maximum
 - Each question should have its own relevant options (1-4)
 - Additional info field for open-ended feedback
 
 ### 3. Type Definition Update ✅
+
 **File**: `packages/prompt-templates/src/types/tool-description.ts`
 
 **Changes**:
+
 - Added "interaction" to ToolCategory union type
 - Enables proper categorization of interaction tools
 
 ### 4. Handler Rewrite ✅
+
 **File**: `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/handler.ts`
 
 **Major Changes**:
+
 - Complete rewrite to support interactive mode with event system
 - Added fallback mode for environments without UI support
 - Implemented comprehensive parameter validation
@@ -70,6 +82,7 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 **Key Features**:
 
 #### Interactive Mode
+
 - Detects if event manager and execution ID are available
 - Emits `USER_INTERACTION_REQUESTED` event with structured payload
 - Waits for `USER_INTERACTION_RESPONDED` event
@@ -77,11 +90,13 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 - Includes timeout handling (5 minutes default)
 
 #### Fallback Mode
+
 - Returns formatted text when interactive infrastructure unavailable
 - Displays all questions and options in readable format
 - Allows manual response collection
 
 #### Validation
+
 - Validates questions array (1-3 items)
 - Validates each question has non-empty text
 - Validates options array (1-4 items per question)
@@ -89,6 +104,7 @@ Phase 1 implementation completed successfully. This phase focuses on SDK core ch
 - Returns descriptive error messages
 
 #### Response Formatting
+
 ```
 User Responses:
 
@@ -105,9 +121,11 @@ Must support legacy systems
 ```
 
 ### 5. Tool Registry Update ✅
+
 **File**: `sdk/resources/predefined/tools/registry.ts`
 
 **Changes**:
+
 - Added metadata to ask_followup_question tool registration
 - Marked as interactive tool with metadata flags:
   ```typescript
@@ -118,9 +136,11 @@ Must support legacy systems
   ```
 
 ### 6. ToolDefinitionLike Interface Update ✅
+
 **File**: `packages/tool-executors/src/utils.ts`
 
 **Changes**:
+
 - Added `metadata?: ToolMetadata` field to ToolDefinitionLike interface
 - Updated `toSdkTool()` function to pass through metadata
 - Imported ToolMetadata type from @wf-agent/types
@@ -130,36 +150,44 @@ Must support legacy systems
 ## Architecture Decisions
 
 ### 1. Nested Question-Option Structure
+
 **Decision**: Each question contains its own options array
 
 **Rationale**:
+
 - Semantic binding between questions and options
 - Prevents LLM confusion about option-question mapping
 - Different questions can have completely different option sets
 - Clearer mental model for both LLM and users
 
 ### 2. Event-Driven Interaction
+
 **Decision**: Use existing USER_INTERACTION_REQUESTED/RESPONDED event system
 
 **Rationale**:
+
 - Leverages existing infrastructure
 - Consistent with other interactive features
 - Separation of concerns (SDK handles logic, apps handle UI)
 - Flexible deployment across different app types (CLI, Web, VSCode)
 
 ### 3. Graceful Degradation
+
 **Decision**: Implement fallback mode when event system unavailable
 
 **Rationale**:
+
 - Ensures tool works in all environments
 - Backward compatibility during migration
 - No breaking changes for existing deployments
 - Gradual rollout path
 
 ### 4. Question Limit: 3 Maximum
+
 **Decision**: Limit to 3 questions + 1 additional info field = 4 input points max
 
 **Rationale**:
+
 - Balances information gathering with user experience
 - Prevents overwhelming users with too many decisions
 - Aligns with cognitive load best practices
@@ -167,6 +195,7 @@ Must support legacy systems
 ## Testing Recommendations
 
 ### Unit Tests Needed
+
 1. **Schema Validation**
    - Valid parameters (1-3 questions, 1-4 options each)
    - Invalid parameters (empty questions, too many questions/options)
@@ -185,6 +214,7 @@ Must support legacy systems
    - Response formatting
 
 ### Integration Tests Needed
+
 1. End-to-end flow with mock event system
 2. Multiple questions with mixed preset/custom answers
 3. All custom inputs scenario
@@ -194,17 +224,20 @@ Must support legacy systems
 ## Migration Path
 
 ### Current State (Phase 1 Complete)
+
 - ✅ Schema updated
 - ✅ Handler rewritten with dual-mode support
 - ✅ Tool registered with metadata
 - ⚠️ Falls back to text mode (no interactive UI yet)
 
 ### Next Steps (Phase 2)
+
 - [ ] Update ToolCallExecutor to detect interactive tools by metadata
 - [ ] Pass execution context to tool handlers
 - [ ] Wait for USER_INTERACTION_RESPONDED event in executor
 
 ### Future Steps (Phase 3)
+
 - [ ] Implement UI components in apps layer (CLI, Web, VSCode)
 - [ ] Subscribe to ASK_FOLLOWUP_QUESTION events
 - [ ] Format and emit USER_INTERACTION_RESPONDED responses
@@ -213,11 +246,14 @@ Must support legacy systems
 ## Breaking Changes
 
 ### For LLM Prompts
+
 LLMs need to learn the new parameter structure:
+
 - Old: `question` + `follow_up` array
 - New: `questions` array with nested `text` and `options`
 
 ### For Existing Code
+
 - Old single-question format no longer supported
 - Tools calling this with old format will get validation errors
 - Migration guide should be provided
@@ -225,6 +261,7 @@ LLMs need to learn the new parameter structure:
 ## Files Modified
 
 ### Phase 1 - Initial Implementation
+
 1. `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/schema.ts` (deleted)
 2. `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/description.ts` (deleted)
 3. `sdk/resources/predefined/tools/stateless/interaction/ask-followup-question/handler.ts` (deleted)
@@ -235,6 +272,7 @@ LLMs need to learn the new parameter structure:
 8. `packages/tool-executors/src/utils.ts`
 
 ### Migration to Builtin
+
 9. `sdk/resources/predefined/tools/builtin/interaction/ask-followup-question/schema.ts` (created)
 10. `sdk/resources/predefined/tools/builtin/interaction/ask-followup-question/description.ts` (created)
 11. `sdk/resources/predefined/tools/builtin/interaction/ask-followup-question/handler.ts` (created)
@@ -249,11 +287,13 @@ LLMs need to learn the new parameter structure:
 ## Compatibility Notes
 
 ### Backward Compatibility
+
 - ❌ Old parameter format NOT supported (breaking change)
 - ✅ Fallback mode ensures tool still works without UI
 - ⚠️ Requires LLM prompt updates to use new format
 
 ### Forward Compatibility
+
 - ✅ Metadata marking enables future enhancements
 - ✅ Event-driven architecture ready for UI integration
 - ✅ Flexible design supports future features (conditional questions, validation rules, etc.)

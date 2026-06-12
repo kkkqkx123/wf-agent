@@ -22,6 +22,18 @@ export type McpTransportType = "stdio" | "sse" | "streamable-http";
 export type McpServerSource = "global" | "project";
 
 /**
+ * MCP Connection Lifecycle Strategy
+ *
+ * - lazy (default) — Don't connect at startup. Connect on first tool call.
+ *   Disconnect after idle timeout. Cached metadata keeps search/list working.
+ * - eager — Connect at startup but don't auto-reconnect if the connection drops.
+ *   No idle timeout by default (set idleTimeout explicitly to enable).
+ * - keep-alive — Connect at startup. Auto-reconnect via health checks.
+ *   No idle timeout. Use for servers needed always.
+ */
+export type McpServerLifecycle = "lazy" | "eager" | "keep-alive";
+
+/**
  * Base MCP Server Configuration
  */
 export interface McpServerConfigBase {
@@ -31,6 +43,12 @@ export interface McpServerConfigBase {
   disabled?: boolean;
   /** Timeout in seconds (1-3600, default 60) */
   timeout?: number;
+  /** Connection lifecycle strategy (default: lazy) */
+  lifecycle?: McpServerLifecycle;
+  /** Idle timeout in seconds (0 = no idle timeout). Only applicable for lazy/eager. */
+  idleTimeout?: number;
+  /** Keep-alive health check interval in seconds (default: 30). Only for keep-alive mode. */
+  healthCheckInterval?: number;
   /** Tools that are always allowed without approval */
   alwaysAllow?: string[];
   /** Tools that are disabled */
@@ -165,6 +183,10 @@ export interface McpServerState {
   error?: string;
   /** Error history */
   errorHistory: McpErrorEntry[];
+  /** Last activity timestamp (when a tool was last called) */
+  lastActivity?: number;
+  /** Last health check timestamp */
+  lastHealthCheck?: number;
 }
 
 /**
@@ -228,6 +250,12 @@ export interface McpManagerOptions {
   connectionTimeout?: number;
   /** Debounce delay for config changes in milliseconds */
   configDebounceDelay?: number;
+  /** Default lifecycle strategy for all servers */
+  defaultLifecycle?: McpServerLifecycle;
+  /** Default idle timeout in seconds (0 = no idle timeout) */
+  defaultIdleTimeout?: number;
+  /** Default health check interval in seconds (only for keep-alive) */
+  defaultHealthCheckInterval?: number;
 }
 
 /**

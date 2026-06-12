@@ -5,14 +5,8 @@
  * This module only exports class definitions; instances are managed uniformly through DI container.
  */
 
-import type {
-  WorkflowRelationship,
-  WorkflowHierarchy,
-} from "../types/relationship.js";
-import type {
-  WorkflowReferenceRelation,
-  WorkflowReferenceType,
-} from "../types/reference.js";
+import type { WorkflowRelationship, WorkflowHierarchy } from "../types/relationship.js";
+import type { WorkflowReferenceRelation, WorkflowReferenceType } from "../types/reference.js";
 
 /**
  * WorkflowRelationshipRegistry

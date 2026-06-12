@@ -22,7 +22,10 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TriggeredSubworkflowHandler" });
 import type { ExecuteTriggeredSubworkflowActionConfig } from "@wf-agent/types";
-import type { ChildExecutionType, ChildExecutionConfig } from "../factories/workflow-execution-builder.js";
+import type {
+  ChildExecutionType,
+  ChildExecutionConfig,
+} from "../factories/workflow-execution-builder.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
@@ -84,7 +87,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private workflowExecutionRegistry: {
     register: (entity: WorkflowExecutionEntity) => void;
-    registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => void;
+    registerStateCoordinator: (
+      executionId: string,
+      stateCoordinator: WorkflowStateCoordinator,
+    ) => void;
     get: (id: string) => WorkflowExecutionEntity | undefined;
   };
 
@@ -98,7 +104,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     ) => Promise<WorkflowExecutionBuildResultSimple>;
     createChildExecution?: (
       parent: WorkflowExecutionEntity,
-      options: { type: ChildExecutionType; config: ChildExecutionConfig }
+      options: { type: ChildExecutionType; config: ChildExecutionConfig },
     ) => Promise<WorkflowExecutionBuildResultSimple>;
   };
 
@@ -135,7 +141,10 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     taskRegistry: TaskRegistry,
     workflowExecutionRegistry: {
       register: (entity: WorkflowExecutionEntity) => void;
-      registerStateCoordinator: (executionId: string, stateCoordinator: WorkflowStateCoordinator) => void;
+      registerStateCoordinator: (
+        executionId: string,
+        stateCoordinator: WorkflowStateCoordinator,
+      ) => void;
       get: (id: string) => WorkflowExecutionEntity | undefined;
     },
     executionBuilder: {
@@ -145,7 +154,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       ) => Promise<WorkflowExecutionBuildResultSimple>;
       createChildExecution?: (
         parent: WorkflowExecutionEntity,
-        options: { type: ChildExecutionType; config: ChildExecutionConfig }
+        options: { type: ChildExecutionType; config: ChildExecutionConfig },
       ) => Promise<WorkflowExecutionBuildResultSimple>;
     },
     taskQueueManager: TaskQueue,
@@ -193,21 +202,21 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Create a sub-workflow WorkflowExecutionEntity using unified API if available
     let subgraphEntity: WorkflowExecutionEntity;
-    
+
     let buildResult: { workflowExecutionEntity: any; stateCoordinator: any };
-    
+
     if (this.executionBuilder.createChildExecution) {
       // Use new unified API
       buildResult = await this.executionBuilder.createChildExecution(
         task.mainWorkflowExecutionEntity,
         {
-          type: 'TRIGGERED',
+          type: "TRIGGERED",
           config: {
             subworkflowId: task.subworkflowId,
             inputMapping: task.config?.inputMapping,
             async: task.config?.waitForCompletion !== true,
           },
-        }
+        },
       );
       subgraphEntity = buildResult.workflowExecutionEntity;
     } else {
@@ -221,9 +230,12 @@ export class TriggeredSubworkflowHandler implements TaskManager {
 
     // Register with WorkflowExecutionRegistry
     this.workflowExecutionRegistry.register(subgraphEntity);
-    
+
     // Register state coordinator
-    this.workflowExecutionRegistry.registerStateCoordinator(subgraphEntity.id, buildResult.stateCoordinator);
+    this.workflowExecutionRegistry.registerStateCoordinator(
+      subgraphEntity.id,
+      buildResult.stateCoordinator,
+    );
 
     // Set triggered subworkflow ID
     subgraphEntity.setTriggeredSubworkflowId(task.subworkflowId);
@@ -260,21 +272,21 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       triggerId: task.triggerId,
     };
 
-    if (source.type === 'agent') {
-      baseInput['agentMessages'] = source.messages as unknown as Record<string, unknown>[];
-      baseInput['agentLoopId'] = source.entityId;
-      baseInput['agentIteration'] = source.agentState?.currentIteration;
-      baseInput['agentToolCallCount'] = source.agentState?.toolCallCount;
-      baseInput['agentStatus'] = source.agentState?.status;
+    if (source.type === "agent") {
+      baseInput["agentMessages"] = source.messages as unknown as Record<string, unknown>[];
+      baseInput["agentLoopId"] = source.entityId;
+      baseInput["agentIteration"] = source.agentState?.currentIteration;
+      baseInput["agentToolCallCount"] = source.agentState?.toolCallCount;
+      baseInput["agentStatus"] = source.agentState?.status;
       // Also include parent workflow data for agent-triggered subworkflows
       const parentEntity = task.mainWorkflowExecutionEntity;
-      baseInput['parentOutput'] = parentEntity.getOutput();
-      baseInput['parentInput'] = parentEntity.getInput();
+      baseInput["parentOutput"] = parentEntity.getOutput();
+      baseInput["parentInput"] = parentEntity.getInput();
     } else {
       // Workflow source: backward compatible behavior
       const mainEntity = task.mainWorkflowExecutionEntity;
-      baseInput['output'] = mainEntity.getOutput();
-      baseInput['input'] = mainEntity.getInput();
+      baseInput["output"] = mainEntity.getOutput();
+      baseInput["input"] = mainEntity.getInput();
     }
 
     // Step 3: Apply input mapping if configured
@@ -294,7 +306,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       // Map message contexts (future: integrate with message reference architecture)
       if (config.inputMapping.messageContexts) {
         // TODO: Implement message context mapping using new reference architecture
-        logger.warn('Message context mapping not yet implemented');
+        logger.warn("Message context mapping not yet implemented");
       }
 
       // Add additional static parameters
@@ -322,12 +334,12 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Resolved data source with unified interface
    */
   private async resolveDataSource(task: TriggeredSubworkflowTask): Promise<ResolvedDataSource> {
-    if (task.sourceType === 'agent' && task.sourceEntityId) {
+    if (task.sourceType === "agent" && task.sourceEntityId) {
       try {
         const agentEntity = await this.agentExecutionRegistry.get(task.sourceEntityId);
         if (agentEntity) {
           return {
-            type: 'agent',
+            type: "agent",
             entityId: agentEntity.id,
             messages: agentEntity.getMessages(),
             agentState: {
@@ -337,11 +349,14 @@ export class TriggeredSubworkflowHandler implements TaskManager {
             },
           };
         }
-        logger.warn('Agent entity not found for data source resolution, falling back to workflow source', {
-          entityId: task.sourceEntityId,
-        });
+        logger.warn(
+          "Agent entity not found for data source resolution, falling back to workflow source",
+          {
+            entityId: task.sourceEntityId,
+          },
+        );
       } catch (error) {
-        logger.warn('Failed to resolve agent entity data source, falling back to workflow source', {
+        logger.warn("Failed to resolve agent entity data source, falling back to workflow source", {
           entityId: task.sourceEntityId,
           error: getErrorOrNew(error),
         });
@@ -351,14 +366,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     // Default: workflow data source
     const entity = task.mainWorkflowExecutionEntity;
     return {
-      type: 'workflow',
+      type: "workflow",
       entityId: entity.id,
       output: entity.getOutput(),
       workflowInput: entity.getInput(),
       variables: entity.getAllVariables(),
     };
   }
-
 
   /**
    * Synchronize execution
@@ -445,16 +459,16 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const taskInfo = this.taskRegistry
       .getAll()
       .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
-    
+
     if (taskInfo) {
       // Cleanup using unified function
       const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
       const parentEntity = this.getParentEntity(subgraphEntity);
-      
+
       if (parentEntity) {
-        await cleanupChildExecution(subgraphEntity, parentEntity, 'COMPLETED');
+        await cleanupChildExecution(subgraphEntity, parentEntity, "COMPLETED");
       }
-      
+
       // Clean up task records
       this.taskRegistry.delete(taskInfo.id);
     }
@@ -480,16 +494,16 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const taskInfo = this.taskRegistry
       .getAll()
       .find(t => t.instanceType === "workflowExecution" && t.instance.id === executionId);
-    
+
     if (taskInfo) {
       // Cleanup using unified function
       const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
       const parentEntity = this.getParentEntity(subgraphEntity);
-      
+
       if (parentEntity) {
-        await cleanupChildExecution(subgraphEntity, parentEntity, 'FAILED');
+        await cleanupChildExecution(subgraphEntity, parentEntity, "FAILED");
       }
-      
+
       // Clean up task records
       this.taskRegistry.delete(taskInfo.id);
     }
@@ -505,7 +519,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Get parent entity from child
    */
-  private getParentEntity(childEntity: WorkflowExecutionEntity): WorkflowExecutionEntity | undefined {
+  private getParentEntity(
+    childEntity: WorkflowExecutionEntity,
+  ): WorkflowExecutionEntity | undefined {
     const parentContext = childEntity.getParentContext();
     if (parentContext) {
       return this.workflowExecutionRegistry.get(parentContext.parentId);
@@ -518,14 +534,14 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    */
   private async cleanupCompletedTask(
     entity: WorkflowExecutionEntity,
-    taskId: string
+    taskId: string,
   ): Promise<void> {
     const parentEntity = this.getParentEntity(entity);
-    
+
     if (parentEntity) {
-      await cleanupChildExecution(entity, parentEntity, 'COMPLETED');
+      await cleanupChildExecution(entity, parentEntity, "COMPLETED");
     }
-    
+
     this.taskRegistry.delete(taskId);
     this.activeTasks.delete(entity.id);
   }
@@ -533,16 +549,13 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Cleanup failed task using unified function
    */
-  private async cleanupFailedTask(
-    entity: WorkflowExecutionEntity,
-    taskId: string
-  ): Promise<void> {
+  private async cleanupFailedTask(entity: WorkflowExecutionEntity, taskId: string): Promise<void> {
     const parentEntity = this.getParentEntity(entity);
-    
+
     if (parentEntity) {
-      await cleanupChildExecution(entity, parentEntity, 'FAILED');
+      await cleanupChildExecution(entity, parentEntity, "FAILED");
     }
-    
+
     this.taskRegistry.delete(taskId);
     this.activeTasks.delete(entity.id);
   }
@@ -635,9 +648,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         // Use unified cleanup function for parent-child relationship
         const subgraphEntity = taskInfo.instance as WorkflowExecutionEntity;
         const parentEntity = this.getParentEntity(subgraphEntity);
-        
+
         if (parentEntity) {
-          await cleanupChildExecution(subgraphEntity, parentEntity, 'CANCELLED');
+          await cleanupChildExecution(subgraphEntity, parentEntity, "CANCELLED");
         }
       }
     }

@@ -88,14 +88,14 @@ interface AskFollowupQuestionParams {
   questions: Array<{
     /** The question text */
     text: string;
-    
-    /** 
+
+    /**
      * Preset options for THIS specific question (1-4 items)
      * Options are bound to the question for clarity and flexibility
      */
     options: string[];
   }>;
-  
+
   /**
    * Label for additional information field
    * Displayed after all questions for free-form user input
@@ -111,19 +111,11 @@ interface AskFollowupQuestionParams {
   "questions": [
     {
       "text": "Which file path should I use for the configuration?",
-      "options": [
-        "./src/config.json",
-        "./config/app.json",
-        "./app.config.json"
-      ]
+      "options": ["./src/config.json", "./config/app.json", "./app.config.json"]
     },
     {
       "text": "What's your preferred approach for this task?",
-      "options": [
-        "Implement immediately",
-        "Plan first, then implement",
-        "Just provide guidance"
-      ]
+      "options": ["Implement immediately", "Plan first, then implement", "Just provide guidance"]
     }
   ],
   "additionalInfoLabel": "Any specific requirements or constraints?"
@@ -140,22 +132,22 @@ interface AskFollowupQuestionParams {
 interface UserInteractionResponse {
   /** Interaction ID from the request */
   interactionId: string;
-  
+
   /** User's answers to each question (array maintains order) */
   answers: Array<{
     /** Question text (included for clarity) */
     question: string;
-    
+
     /** Selected option index (-1 if custom input) */
     selectedOptionIndex: number;
-    
+
     /** Custom text input (if selectedOptionIndex === -1) */
     customInput?: string;
-    
+
     /** Final answer value */
     answer: string;
   }>;
-  
+
   /** Additional information provided by user (optional) */
   additionalInfo?: string;
 }
@@ -291,17 +283,17 @@ interface InteractiveToolContext {
 
 /**
  * Create the ask_followup_question tool handler
- * 
- * This handler supports both interactive mode (with event system) 
+ *
+ * This handler supports both interactive mode (with event system)
  * and fallback mode (returns formatted text).
  */
 export function createAskFollowupQuestionHandler() {
   return async (
     params: Record<string, unknown>,
-    context?: InteractiveToolContext
+    context?: InteractiveToolContext,
   ): Promise<ToolOutput> => {
     const startTime = now();
-    
+
     try {
       const { questions, additionalInfoLabel } = params as {
         questions: Array<{
@@ -331,7 +323,7 @@ export function createAskFollowupQuestionHandler() {
       // Validate each question
       for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
-        
+
         if (!q.text || typeof q.text !== "string" || q.text.trim().length === 0) {
           return {
             success: false,
@@ -339,7 +331,7 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} must have a non-empty 'text' field.`,
           };
         }
-        
+
         if (!q.options || !Array.isArray(q.options) || q.options.length === 0) {
           return {
             success: false,
@@ -347,7 +339,7 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} must have at least 1 option.`,
           };
         }
-        
+
         if (q.options.length > 4) {
           return {
             success: false,
@@ -355,10 +347,14 @@ export function createAskFollowupQuestionHandler() {
             error: `Question at index ${i} has too many options. Maximum 4 options allowed.`,
           };
         }
-        
+
         // Validate each option is a non-empty string
         for (let j = 0; j < q.options.length; j++) {
-          if (!q.options[j] || typeof q.options[j] !== "string" || q.options[j].trim().length === 0) {
+          if (
+            !q.options[j] ||
+            typeof q.options[j] !== "string" ||
+            q.options[j].trim().length === 0
+          ) {
             return {
               success: false,
               content: "",
@@ -413,7 +409,7 @@ export function createAskFollowupQuestionHandler() {
       const response = await waitForInteractionResponse(
         context.eventManager,
         interactionId,
-        timeout
+        timeout,
       );
 
       if (!response) {
@@ -448,7 +444,6 @@ export function createAskFollowupQuestionHandler() {
           interactionId,
         },
       };
-
     } catch (error) {
       return {
         success: false,
@@ -464,7 +459,7 @@ export function createAskFollowupQuestionHandler() {
  */
 function createFallbackResponse(
   questions: Array<{ text: string; options: string[] }>,
-  additionalInfoLabel?: string
+  additionalInfoLabel?: string,
 ): ToolOutput {
   const lines: string[] = [];
   lines.push("Interactive mode unavailable. Please provide the following information:");
@@ -495,9 +490,9 @@ function createFallbackResponse(
 async function waitForInteractionResponse(
   eventManager: EventRegistry,
   interactionId: string,
-  timeout: number
+  timeout: number,
 ): Promise<{ inputData: unknown } | null> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     let timeoutId: NodeJS.Timeout | null = null;
     let resolved = false;
 
@@ -536,23 +531,27 @@ function formatUserResponse(
     }>;
     additionalInfo?: string;
   },
-  additionalInfoLabel?: string
+  additionalInfoLabel?: string,
 ): string {
   const lines: string[] = [];
   lines.push("User Responses:");
   lines.push("");
 
-  userAnswers.answers.forEach((answer) => {
+  userAnswers.answers.forEach(answer => {
     const question = questions[answer.questionIndex];
     if (!question) return;
 
     lines.push(`Q${answer.questionIndex + 1}: ${question.text}`);
-    
+
     if (answer.selectedOptionIndex >= 0) {
       const option = question.options[answer.selectedOptionIndex];
-      lines.push(`A${answer.questionIndex + 1}: ${option || answer.answer} (selected from options)`);
+      lines.push(
+        `A${answer.questionIndex + 1}: ${option || answer.answer} (selected from options)`,
+      );
     } else {
-      lines.push(`A${answer.questionIndex + 1}: ${answer.customInput || answer.answer} (custom input)`);
+      lines.push(
+        `A${answer.questionIndex + 1}: ${answer.customInput || answer.answer} (custom input)`,
+      );
     }
     lines.push("");
   });
@@ -611,7 +610,7 @@ if (isInteractiveTool) {
     nodeId,
     timeout: executionOptions.timeout,
   };
-  
+
   const result = await this.toolService.execute(
     toolCall.name,
     JSON.parse(toolCall.arguments),
@@ -619,7 +618,7 @@ if (isInteractiveTool) {
     executionId,
     interactiveContext, // Pass context
   );
-  
+
   // ... rest of execution logic
 }
 ```
@@ -639,14 +638,14 @@ async execute(
   context?: Record<string, unknown> // Add context parameter
 ): Promise<Result<ToolExecutionOutput, Error>> {
   // ... existing code
-  
+
   // Pass context to handler if it accepts it
   if (tool.execute.length > 1) {
     result = await tool.execute(parameters, context);
   } else {
     result = await tool.execute(parameters);
   }
-  
+
   // ... rest of logic
 }
 ```
@@ -662,13 +661,13 @@ All apps (CLI, Web, VSCode) should follow this pattern:
 const api = createAPIFactory(dependencies);
 
 // Subscribe to interaction requests
-api.userInteractions.onInteractionRequested(async (event) => {
+api.userInteractions.onInteractionRequested(async event => {
   if (event.operationType === "ASK_FOLLOWUP_QUESTION") {
     const requestData = JSON.parse(event.prompt);
-    
+
     // Render UI based on requestData
     const userResponse = await renderAskFollowupQuestionUI(requestData);
-    
+
     // Emit response event
     await api.events.emit("USER_INTERACTION_RESPONDED", {
       interactionId: event.interactionId,
@@ -769,6 +768,7 @@ Apps must emit responses in this format:
 ### Apps Layer Tests
 
 Each app should test:
+
 1. UI rendering correctness
 2. Event subscription/unsubscription
 3. Response formatting
@@ -791,6 +791,7 @@ The current implementation returns formatted text. To migrate:
 The old single-question format will be deprecated. Provide migration guide:
 
 **Old Format** (deprecated):
+
 ```json
 {
   "question": "What is the path?",
@@ -799,6 +800,7 @@ The old single-question format will be deprecated. Provide migration guide:
 ```
 
 **New Format**:
+
 ```json
 {
   "questions": ["What is the path?"],

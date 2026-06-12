@@ -40,8 +40,8 @@ export function parseCommandChain(command: string): string[] {
   let result = [command];
 
   for (const op of operators) {
-    result = result.flatMap((cmd) => cmd.split(op).map((c) => c.trim()));
+    result = result.flatMap(cmd => cmd.split(op).map(c => c.trim()));
   }
 
-  return result.filter((cmd) => cmd.length > 0);
+  return result.filter(cmd => cmd.length > 0);
 }

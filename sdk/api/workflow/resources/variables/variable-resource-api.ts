@@ -141,10 +141,12 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
    * @param executionId Execution ID
    * @returns Record of variable definitions (name -> definition)
    */
-  async getWorkflowExecutionVariableDefinitions(executionId: string): Promise<Record<string, unknown>> {
+  async getWorkflowExecutionVariableDefinitions(
+    executionId: string,
+  ): Promise<Record<string, unknown>> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
     const definitions = executionEntity.variableStateManager.getAllVariableDefinitions();
-    
+
     // Convert array to record format
     const result: Record<string, unknown> = {};
     for (const def of definitions) {
@@ -205,10 +207,10 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   }> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
     const manager = executionEntity.variableStateManager;
-    
+
     // Get all variables (flat structure)
     const allVars = manager.getAllVariables();
-    
+
     return {
       execution: allVars,
       global: {}, // Deprecated - no longer used
@@ -272,7 +274,7 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   /**
    * Set variable value for an execution
    * This is a convenience method that encapsulates direct registry access
-   * 
+   *
    * @param executionId Execution ID
    * @param variableName Variable name
    * @param value Variable value
@@ -281,25 +283,29 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   async setVariable(
     executionId: string,
     variableName: string,
-    value: unknown
+    value: unknown,
   ): Promise<ExecutionResult<void>> {
     try {
       const executionContext = this.registry.get(executionId);
       if (!executionContext) {
         return failure(
-          new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId),
-          0
+          new WorkflowExecutionNotFoundError(
+            `Workflow execution not found: ${executionId}`,
+            executionId,
+          ),
+          0,
         );
       }
-      
+
       await executionContext.setVariable(variableName, value);
       return success(undefined, 0);
     } catch (error) {
-      const sdkError = error instanceof SDKError
-        ? error
-        : error instanceof Error
-          ? new SDKError(error.message, "error", undefined, error)
-          : new SDKError(String(error), "error");
+      const sdkError =
+        error instanceof SDKError
+          ? error
+          : error instanceof Error
+            ? new SDKError(error.message, "error", undefined, error)
+            : new SDKError(String(error), "error");
       return failure(sdkError, 0);
     }
   }
@@ -307,32 +313,33 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   /**
    * Delete variable for an execution
    * This is a convenience method that encapsulates direct registry access
-   * 
+   *
    * @param executionId Execution ID
    * @param variableName Variable name
    * @returns Execution result
    */
-  async deleteVariable(
-    executionId: string,
-    variableName: string
-  ): Promise<ExecutionResult<void>> {
+  async deleteVariable(executionId: string, variableName: string): Promise<ExecutionResult<void>> {
     try {
       const executionContext = this.registry.get(executionId);
       if (!executionContext) {
         return failure(
-          new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId),
-          0
+          new WorkflowExecutionNotFoundError(
+            `Workflow execution not found: ${executionId}`,
+            executionId,
+          ),
+          0,
         );
       }
-      
+
       await executionContext.deleteVariable(variableName);
       return success(undefined, 0);
     } catch (error) {
-      const sdkError = error instanceof SDKError
-        ? error
-        : error instanceof Error
-          ? new SDKError(error.message, "error", undefined, error)
-          : new SDKError(String(error), "error");
+      const sdkError =
+        error instanceof SDKError
+          ? error
+          : error instanceof Error
+            ? new SDKError(error.message, "error", undefined, error)
+            : new SDKError(String(error), "error");
       return failure(sdkError, 0);
     }
   }
@@ -349,7 +356,9 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   private parseVariableId(id: string): [string, string] {
     const parts = id.split(":");
     if (parts.length !== 2) {
-      throw new Error(`Invalid variable ID format: ${id}. Expected format: executionId:variableName`);
+      throw new Error(
+        `Invalid variable ID format: ${id}. Expected format: executionId:variableName`,
+      );
     }
     return [parts[0]!, parts[1]!];
   }
@@ -360,7 +369,10 @@ export class VariableResourceAPI extends ReadonlyResourceAPI<unknown, string, Va
   private async getWorkflowExecutionEntity(executionId: string) {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
     return executionEntity;
   }

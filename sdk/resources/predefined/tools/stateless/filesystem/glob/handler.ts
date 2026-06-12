@@ -99,13 +99,19 @@ async function globWalk(
       }
 
       if (shouldInclude) {
-        const subEntries = await globWalk(itemPath, relativePath, pattern, vfs, maxResults, ignoreController, resultCount);
+        const subEntries = await globWalk(
+          itemPath,
+          relativePath,
+          pattern,
+          vfs,
+          maxResults,
+          ignoreController,
+          resultCount,
+        );
         entries.push(...subEntries);
       }
     } else if (entryStat.type === "file") {
-      const shouldInclude = ignoreController
-        ? ignoreController.validateAccess(itemPath)
-        : true;
+      const shouldInclude = ignoreController ? ignoreController.validateAccess(itemPath) : true;
 
       if (shouldInclude && matchesGlob(relativePath, pattern)) {
         entries.push({ name, type: "file", path: relativePath });
@@ -136,7 +142,11 @@ export function createGlobHandler(config: GlobConfig = {}) {
 
   return async (params: Record<string, unknown>): Promise<ToolOutput> => {
     try {
-      const { path: targetPath, pattern, includeIgnored } = params as {
+      const {
+        path: targetPath,
+        pattern,
+        includeIgnored,
+      } = params as {
         path: string;
         pattern: string;
         includeIgnored?: boolean;
@@ -187,7 +197,15 @@ export function createGlobHandler(config: GlobConfig = {}) {
       }
 
       const resultCount = { count: 0 };
-      const entries = await globWalk(dirPath, targetPath, pattern, vfs, maxResults, ignoreController, resultCount);
+      const entries = await globWalk(
+        dirPath,
+        targetPath,
+        pattern,
+        vfs,
+        maxResults,
+        ignoreController,
+        resultCount,
+      );
 
       entries.sort((a, b) => {
         if (a.type !== b.type) {

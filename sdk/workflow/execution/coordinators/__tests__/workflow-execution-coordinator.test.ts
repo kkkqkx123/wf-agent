@@ -41,7 +41,9 @@ function createMockNavigator(): WorkflowNavigator {
   } as unknown as WorkflowNavigator;
 }
 
-function createMockEntity(_overrides: Partial<WorkflowExecutionEntity> = {}): WorkflowExecutionEntity {
+function createMockEntity(
+  _overrides: Partial<WorkflowExecutionEntity> = {},
+): WorkflowExecutionEntity {
   return {
     id: "test-exec-1",
     getWorkflowId: vi.fn().mockReturnValue("workflow-1"),

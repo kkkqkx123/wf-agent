@@ -30,7 +30,7 @@ const a = 2;
 >>>>>>> REPLACE`;
 
       const result = parseSearchReplaceBlocks(diff);
-      
+
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
       expect(result.blocks[0]!.searchContent).toBe("const a = 1;");
@@ -50,7 +50,7 @@ const b = 4;
 >>>>>>> REPLACE`;
 
       const result = parseSearchReplaceBlocks(diff);
-      
+
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(2);
       expect(result.blocks[0]!.searchContent).toBe("const a = 1;");
@@ -66,7 +66,7 @@ const x = 10;
 >>>>>>> REPLACE`;
 
       const result = parseSearchReplaceBlocks(diff);
-      
+
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
       expect(result.blocks[0]!.startLine).toBe(10);
@@ -75,9 +75,9 @@ const x = 10;
 
     it("should return error for invalid format", () => {
       const diff = "This is not a valid diff";
-      
+
       const result = parseSearchReplaceBlocks(diff);
-      
+
       expect(result.error).toBeDefined();
       expect(result.blocks).toHaveLength(0);
     });
@@ -91,7 +91,7 @@ Replaced
 >>>>>>> REPLACE`;
 
       const result = parseSearchReplaceBlocks(diff);
-      
+
       expect(result.error).toBeUndefined();
       expect(result.blocks).toHaveLength(1);
       expect(result.blocks[0]!.searchContent).toContain("<<<<<<< SEARCH");
@@ -107,7 +107,7 @@ replacement
 >>>>>>> REPLACE`;
 
       const result = validateMarkerSequencing(diff);
-      
+
       expect(result.success).toBe(true);
       expect(result.error).toBeUndefined();
     });
@@ -118,7 +118,7 @@ replacement
 >>>>>>> REPLACE`;
 
       const result = validateMarkerSequencing(diff);
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toContain("Expected SEARCH marker first");
     });
@@ -130,7 +130,7 @@ content
 replacement`;
 
       const result = validateMarkerSequencing(diff);
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toContain("Missing closing marker");
     });
@@ -145,7 +145,7 @@ replacement
 >>>>>>> REPLACE`;
 
       const result = validateMarkerSequencing(diff);
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toContain("Invalid marker sequence");
     });
@@ -179,11 +179,7 @@ replacement
 
       expect(result.success).toBe(true);
       if (result.success && "lines" in result) {
-        expect(result.lines).toEqual([
-          "function test() {",
-          "  return 2;",
-          "}",
-        ]);
+        expect(result.lines).toEqual(["function test() {", "  return 2;", "}"]);
       }
     });
 
@@ -259,7 +255,7 @@ replacement
     it("should handle Unicode normalization", () => {
       const lines = ['console.log("hello")'];
       const block: SearchReplaceBlock = {
-        searchContent: 'console.log(\u201chello\u201d)', // Fancy quotes
+        searchContent: "console.log(\u201chello\u201d)", // Fancy quotes
         replaceContent: 'console.log("world")',
       };
 
@@ -272,17 +268,17 @@ replacement
     });
 
     it("should handle trailing whitespace differences", () => {
-      const lines = ['const x = 1;   ']; // Trailing spaces
+      const lines = ["const x = 1;   "]; // Trailing spaces
       const block: SearchReplaceBlock = {
-        searchContent: 'const x = 1;', // No trailing spaces
-        replaceContent: 'const x = 2;',
+        searchContent: "const x = 1;", // No trailing spaces
+        replaceContent: "const x = 2;",
       };
 
       const result = applyBlock(lines, block, 0);
 
       expect(result.success).toBe(true);
       if (result.success && "lines" in result) {
-        expect(result.lines[0]).toBe('const x = 2;');
+        expect(result.lines[0]).toBe("const x = 2;");
       }
     });
   });
@@ -306,7 +302,7 @@ const a = 10;
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.content).toContain("Diff applied successfully");
-        
+
         const updatedContent = await readFile(testFile, "utf-8");
         expect(updatedContent).toBe("const a = 10;\nconst b = 2;\n");
       }

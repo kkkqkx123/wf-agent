@@ -5,20 +5,23 @@
 ### 1. Nested Question-Option Structure
 
 **Design**:
+
 ```typescript
 questions: Array<{
-  text: string;        // The question
-  options: string[];   // Options specific to THIS question (1-4 items)
-}>
+  text: string; // The question
+  options: string[]; // Options specific to THIS question (1-4 items)
+}>;
 ```
 
 **Rationale**:
+
 - ✅ Questions and options are semantically bound together
 - ✅ Prevents LLM confusion about which options belong to which question
 - ✅ Each question can have different, contextually relevant options
 - ✅ Clearer mental model for both LLM and users
 
 **Why NOT shared options?**
+
 - ❌ Separating questions and options increases cognitive load
 - ❌ Different questions often need completely different option sets
 - ❌ Risk of LLM mismatching options to wrong questions
@@ -28,6 +31,7 @@ questions: Array<{
 **Why**: Prevents LLM confusion about which answer maps to which question.
 
 **Format**:
+
 ```
 User Responses:
 
@@ -43,6 +47,7 @@ A2: Hybrid approach (custom input)
 **Decision**: Use **Array** (ordered list)
 
 **Rationale**:
+
 - ✅ Maintains question-answer correspondence by index
 - ✅ Predictable iteration order
 - ✅ Easy to validate completeness
@@ -51,17 +56,20 @@ A2: Hybrid approach (custom input)
 ### 4. Question Limit: 3 Maximum
 
 **Calculation**:
+
 - 3 questions + 1 additional info field = **4 input points max**
 - Balances information gathering with user experience
 - Prevents overwhelming users with too many decisions
 
 **Comparison**:
+
 - Old design: Up to 5 questions (too many)
 - New design: Max 3 questions + free-form feedback (optimal)
 
 ## Data Flow Example
 
 ### LLM Request
+
 ```json
 {
   "questions": [
@@ -79,6 +87,7 @@ A2: Hybrid approach (custom input)
 ```
 
 ### User Response
+
 ```typescript
 {
   interactionId: "abc123",
@@ -102,6 +111,7 @@ A2: Hybrid approach (custom input)
 ```
 
 ### Tool Result to LLM
+
 ```
 User Responses:
 
@@ -120,6 +130,7 @@ Must support legacy systems
 ### UI Design Principles
 
 ### Per-Question Options Pattern
+
 ```
 ┌──────────────────────────────────────┐
 │ Q1: Which configuration file?        │
@@ -138,6 +149,7 @@ Must support legacy systems
 ```
 
 **Benefits**:
+
 - Clear question-option association
 - Contextually relevant options per question
 - Reduces cognitive load for users
@@ -146,11 +158,13 @@ Must support legacy systems
 ## Migration Notes
 
 ### Breaking Changes
+
 - Old single-question format deprecated
 - Options now nested within each question object
 - No more shared `options` array at top level
 
 ### Backward Compatibility
+
 - Handler includes fallback mode (returns formatted text)
 - Gradual migration path available
 - Old tools will still work but won't get interactive UI
@@ -158,17 +172,20 @@ Must support legacy systems
 ## Implementation Checklist
 
 ### SDK Layer
+
 - [ ] Update schema to new structure
 - [ ] Rewrite handler with simplified params
 - [ ] Add context passing to ToolRegistry
 - [ ] Update tool metadata marker
 
 ### ToolCallExecutor
+
 - [ ] Detect interactive tools by metadata
 - [ ] Pass execution context to handlers
 - [ ] Wait for USER_INTERACTION_RESPONDED event
 
 ### Apps Layer
+
 - [ ] Subscribe to ASK_FOLLOWUP_QUESTION events
 - [ ] Implement shared options UI component
 - [ ] Format response with question text included

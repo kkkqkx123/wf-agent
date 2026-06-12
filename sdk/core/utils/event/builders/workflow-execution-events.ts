@@ -29,11 +29,17 @@ import type { WorkflowExecutionEntity } from "../../../../workflow/entities/work
 // =============================================================================
 
 const _buildStarted = createBuilder<WorkflowExecutionStartedEvent>("WORKFLOW_EXECUTION_STARTED");
-const _buildCompleted = createBuilder<WorkflowExecutionCompletedEvent>("WORKFLOW_EXECUTION_COMPLETED");
+const _buildCompleted = createBuilder<WorkflowExecutionCompletedEvent>(
+  "WORKFLOW_EXECUTION_COMPLETED",
+);
 const _buildPaused = createBuilder<WorkflowExecutionPausedEvent>("WORKFLOW_EXECUTION_PAUSED");
 const _buildResumed = createBuilder<WorkflowExecutionResumedEvent>("WORKFLOW_EXECUTION_RESUMED");
-const _buildCancelled = createBuilder<WorkflowExecutionCancelledEvent>("WORKFLOW_EXECUTION_CANCELLED");
-const _buildStateChanged = createBuilder<WorkflowExecutionStateChangedEvent>("WORKFLOW_EXECUTION_STATE_CHANGED");
+const _buildCancelled = createBuilder<WorkflowExecutionCancelledEvent>(
+  "WORKFLOW_EXECUTION_CANCELLED",
+);
+const _buildStateChanged = createBuilder<WorkflowExecutionStateChangedEvent>(
+  "WORKFLOW_EXECUTION_STATE_CHANGED",
+);
 
 // =============================================================================
 // Workflow Execution Lifecycle Events (built from WorkflowExecutionEntity)

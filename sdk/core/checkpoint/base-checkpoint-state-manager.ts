@@ -1,11 +1,18 @@
 /**
  * Base Checkpoint State Manager
- * 
+ *
  * Provides common CRUD operations and cleanup policy execution.
  * Subclasses only need to implement event building for their specific checkpoint types.
  */
 
-import type { BaseCheckpoint, CleanupPolicy, CleanupResult, CheckpointStorageMetadata, CheckpointInfo, BaseEvent } from "@wf-agent/types";
+import type {
+  BaseCheckpoint,
+  CleanupPolicy,
+  CleanupResult,
+  CheckpointStorageMetadata,
+  CheckpointInfo,
+  BaseEvent,
+} from "@wf-agent/types";
 import type { EventRegistry } from "../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
 import { createCleanupStrategy } from "./utils/cleanup-policy.js";
@@ -16,14 +23,14 @@ const logger = createContextualLogger({ component: "BaseCheckpointStateManager" 
 
 /**
  * Base Checkpoint State Manager
- * 
+ *
  * Provides common CRUD operations and cleanup policy execution.
  * Subclasses only need to implement event building for their specific checkpoint types.
- * 
+ *
  * @template TCheckpoint - The specific checkpoint type (e.g., Workflow Checkpoint or Agent Loop Checkpoint)
  */
 export abstract class BaseCheckpointStateManager<
-  TCheckpoint extends BaseCheckpoint<unknown, unknown>
+  TCheckpoint extends BaseCheckpoint<unknown, unknown>,
 > {
   protected storageAdapter: CheckpointStorageAdapter;
   protected eventManager?: EventRegistry;
@@ -34,7 +41,7 @@ export abstract class BaseCheckpointStateManager<
   constructor(
     storageAdapter: CheckpointStorageAdapter,
     eventManager?: EventRegistry,
-    cleanupPolicy?: CleanupPolicy
+    cleanupPolicy?: CleanupPolicy,
   ) {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
@@ -126,7 +133,9 @@ export abstract class BaseCheckpointStateManager<
         size: data.length,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`, { cause: error });
+      throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`, {
+        cause: error,
+      });
     }
   }
 
@@ -135,7 +144,10 @@ export abstract class BaseCheckpointStateManager<
    * @param checkpointId Checkpoint ID
    * @param reason Reason for deletion (manual, cleanup, or policy)
    */
-  async delete(checkpointId: string, reason: "manual" | "cleanup" | "policy" = "manual"): Promise<void> {
+  async delete(
+    checkpointId: string,
+    reason: "manual" | "cleanup" | "policy" = "manual",
+  ): Promise<void> {
     try {
       await this.storageAdapter.delete(checkpointId);
       this.checkpointSizes.delete(checkpointId);
@@ -168,7 +180,7 @@ export abstract class BaseCheckpointStateManager<
   /**
    * Execute cleanup policy for a specific entity
    * Optimized to only scan and clean checkpoints belonging to the specified entity
-   * 
+   *
    * @param entityId The entity ID
    * @param entityType The entity type ('workflow', 'agent', 'task')
    * @param policy Optional cleanup policy (overrides default if provided)
@@ -177,10 +189,10 @@ export abstract class BaseCheckpointStateManager<
   async executeCleanupForEntity(
     entityId: string,
     entityType: string,
-    policy?: CleanupPolicy
+    policy?: CleanupPolicy,
   ): Promise<CleanupResult> {
     const targetPolicy = policy || this.cleanupPolicy;
-    
+
     if (!targetPolicy) {
       return {
         deletedCheckpointIds: [],
@@ -199,21 +211,21 @@ export abstract class BaseCheckpointStateManager<
     // Load only this entity's checkpoints metadata (optimized query using indexes)
     const checkpointInfoArray = await this.storageAdapter.listByEntityWithMetadata(
       entityId,
-      entityType
+      entityType,
     );
 
     // Update checkpoint sizes from metadata if available
     for (const info of checkpointInfoArray) {
       const metadata = info.metadata as CheckpointStorageMetadata;
       const customFields = metadata.customFields;
-      const size = (customFields?.['blobSize'] as number) || 0;
+      const size = (customFields?.["blobSize"] as number) || 0;
       if (size > 0) {
         this.checkpointSizes.set(info.id, size);
       }
     }
 
     // Convert to CheckpointInfo format for strategy
-    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray.map((info) => ({
+    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray.map(info => ({
       checkpointId: info.id,
       metadata: info.metadata as CheckpointStorageMetadata,
     }));
@@ -302,7 +314,7 @@ export abstract class BaseCheckpointStateManager<
    */
   protected abstract buildDeletedEvent(
     checkpointId: string,
-    reason?: "manual" | "cleanup" | "policy"
+    reason?: "manual" | "cleanup" | "policy",
   ): unknown | Promise<unknown>;
 
   /**
@@ -315,6 +327,6 @@ export abstract class BaseCheckpointStateManager<
   protected abstract buildFailedEvent(
     checkpointId: string,
     error: unknown,
-    operation?: "create" | "restore" | "delete"
+    operation?: "create" | "restore" | "delete",
   ): unknown;
 }

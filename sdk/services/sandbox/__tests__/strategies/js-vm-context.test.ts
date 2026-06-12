@@ -177,8 +177,7 @@ describe("JavaScriptVmContextStrategy", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("Unexpected identifier");
     });
-
-  });  // close describe("execute")
+  }); // close describe("execute")
 
   // ── Sandbox restrictions ──
 
@@ -195,7 +194,7 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should provide process.env with NODE_ENV=sandbox", async () => {
       const options: StrategyExecuteOptions = {
-        command: 'console.log(process.env.NODE_ENV);',
+        command: "console.log(process.env.NODE_ENV);",
       };
       const result = await strategy.execute(options, defaultPolicy);
 
@@ -205,7 +204,7 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should provide process.cwd returning /workspace", async () => {
       const options: StrategyExecuteOptions = {
-        command: 'console.log(process.cwd());',
+        command: "console.log(process.cwd());",
       };
       const result = await strategy.execute(options, defaultPolicy);
 
@@ -215,7 +214,7 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should make eval undefined", async () => {
       const options: StrategyExecuteOptions = {
-        command: 'console.log(typeof eval);',
+        command: "console.log(typeof eval);",
       };
       const result = await strategy.execute(options, defaultPolicy);
 
@@ -225,7 +224,7 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should make Function undefined", async () => {
       const options: StrategyExecuteOptions = {
-        command: 'console.log(typeof Function);',
+        command: "console.log(typeof Function);",
       };
       const result = await strategy.execute(options, defaultPolicy);
 
@@ -235,7 +234,7 @@ describe("JavaScriptVmContextStrategy", () => {
 
     it("should have empty global object", async () => {
       const options: StrategyExecuteOptions = {
-        command: 'console.log(JSON.stringify(Object.keys(global)));',
+        command: "console.log(JSON.stringify(Object.keys(global)));",
       };
       const result = await strategy.execute(options, defaultPolicy);
 
@@ -254,8 +253,7 @@ describe("JavaScriptVmContextStrategy", () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain("timed out");
     });
-
-  });  // close describe("sandbox capabilities")
+  }); // close describe("sandbox capabilities")
 
   // ── Restricted require ──
 
@@ -519,7 +517,7 @@ describe("JavaScriptVmContextStrategy", () => {
       (mockVFS.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
       const options: StrategyExecuteOptions = {
-        command: 'console.log(typeof vfs.readFile);',
+        command: "console.log(typeof vfs.readFile);",
         vfs: mockVFS,
       };
       const result = await strategy.execute(options, defaultPolicy);

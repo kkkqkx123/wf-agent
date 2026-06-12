@@ -64,20 +64,22 @@ This document provides a complete analysis of the SDK module's output and loggin
 ### Key Design Patterns
 
 #### 1. **Pending Configuration Pattern**
+
 Configuration is stored before logger instances are created, ensuring correct settings regardless of access timing.
 
 ```typescript
 // Phase 1: Configuration (no side effects)
-configureSDKLogger({ level: 'debug', stream: fileStream });
+configureSDKLogger({ level: "debug", stream: fileStream });
 // Sets: pendingSDKConfig = { level: 'debug', stream: fileStream }
 
 // Phase 2: Lazy Initialization (on first use)
-sdkLogger.info('message');
+sdkLogger.info("message");
 // Proxy intercepts → getSDKLoggerInstance() → initializeSDKLogger()
 // Uses: config ?? pendingSDKConfig ?? env vars ?? defaults
 ```
 
 #### 2. **Proxy-based Lazy Initialization**
+
 Prevents module-load side effects while maintaining transparent API.
 
 ```typescript
@@ -90,6 +92,7 @@ export const sdkLogger: Logger = new Proxy({} as Logger, {
 ```
 
 #### 3. **Layered Environment Variables**
+
 Hierarchical configuration with clear priority chains.
 
 ```
@@ -101,6 +104,7 @@ Priority Order:
 ```
 
 #### 4. **Stream Abstraction**
+
 Unified `LogStream` interface allows interchangeable output targets.
 
 ```typescript
@@ -190,17 +194,20 @@ interface LogStream {
 
 **Problem**: Duplicate `getLogLevelFromEnv()` function in three locations.
 
-**Solution**: 
+**Solution**:
+
 - Removed duplicates from `sdk/utils/logger.ts` (16 lines)
 - Removed duplicates from `apps/cli-app/src/utils/logger.ts` (15 lines)
 - Both now import from `@wf-agent/common-utils`
 
-**Impact**: 
+**Impact**:
+
 - ~31 lines of duplicate code eliminated
 - Single maintenance point
 - Consistent behavior across modules
 
 **Files Modified**:
+
 - `sdk/utils/logger.ts`
 - `apps/cli-app/src/utils/logger.ts`
 
@@ -233,7 +240,7 @@ class BaseFileStream {
       bufferUtilization: this.bufferSize / this.maxBufferSize,
     };
   }
-  
+
   resetErrorState(): void {
     this.hasError = false;
     this.droppedLogsCount = 0;
@@ -242,6 +249,7 @@ class BaseFileStream {
 ```
 
 **Usage Example**:
+
 ```typescript
 const stream = createRotatingFileStream({...});
 const metrics = stream.getMetrics();
@@ -255,12 +263,14 @@ if (metrics.bufferUtilization > 0.9) {
 }
 ```
 
-**Impact**: 
+**Impact**:
+
 - Proactive monitoring capability
 - Visibility into system health
 - Enables alerting and automation
 
 **Files Modified**:
+
 - `packages/common-utils/src/logger/streams/base-file-stream.ts`
 
 ---
@@ -270,25 +280,27 @@ if (metrics.bufferUtilization > 0.9) {
 **Problem**: Rate limiter used `console.warn()` which could cause recursive logging.
 
 **Before**:
+
 ```typescript
 console.warn(`[Logger] Rate limit exceeded, dropped ${count} logs`);
 // ↑ If console is also rate-limited → infinite recursion risk
 ```
 
 **After**:
+
 ```typescript
-process.stderr.write(
-  `[Logger] Rate limit exceeded, dropped ${count} logs\n`
-);
+process.stderr.write(`[Logger] Rate limit exceeded, dropped ${count} logs\n`);
 // ↑ Bypasses logger system entirely
 ```
 
-**Impact**: 
+**Impact**:
+
 - Eliminates potential infinite recursion
 - More reliable error reporting
 - Minimal performance impact
 
 **Files Modified**:
+
 - `packages/common-utils/src/logger/logger.ts`
 
 ---
@@ -322,12 +334,14 @@ export function configureSDKLogger(config: {...}): void {
 }
 ```
 
-**Impact**: 
+**Impact**:
+
 - Early detection of initialization issues
 - Helps developers identify misconfiguration quickly
 - Disabled in test environments to avoid noise
 
 **Files Modified**:
+
 - `sdk/utils/logger.ts`
 
 ---
@@ -389,7 +403,7 @@ T0: initSDKLogger() executes
     │   ├─> pendingGraphConfig = { level: 'off', stream: fileStream }
     │   └─> pendingAgentConfig = { level: 'off', stream: fileStream }
     └─> setAllLoggersLevel('off')
-    
+
     State after T0:
     - sdkLoggerInstance: null (not created yet)
     - pendingSDKConfig: { level: 'off', stream: fileStream }
@@ -402,7 +416,7 @@ T1: getSDK() executes
     │   └─> this.bootstrapPromise = this.bootstrap(options)
     │       └─> Async operation queued in event loop
     └─> return globalSDK
-    
+
     State after T1:
     - SDK instance created
     - Bootstrap scheduled but not executed
@@ -422,7 +436,7 @@ T2: Event loop processes bootstrap promise
     │   │       └─> sdkLoggerInstance = createSDKLoggerInstance(level, stream)
     │   └─> sdkLoggerInstance.info(...) executes with correct config ✅
     └─> Continue bootstrap...
-    
+
     Final State:
     - sdkLoggerInstance: Created with correct configuration
     - All logs go to rotating file stream
@@ -432,14 +446,15 @@ T2: Event loop processes bootstrap promise
 ### Race Condition Analysis
 
 #### Scenario 1: Module Import Before Configuration
+
 ```typescript
 // In SDK module
-import { sdkLogger } from '../../utils/logger.js';
+import { sdkLogger } from "../../utils/logger.js";
 // ↑ Only creates Proxy, does NOT initialize logger
 
 // Later in function
 function doSomething() {
-  sdkLogger.info('message');
+  sdkLogger.info("message");
   // ↑ This triggers initialization
   // By this time, CLI has already called configureSDKLogger() ✅
 }
@@ -448,6 +463,7 @@ function doSomething() {
 **Result**: ✅ Safe - Imports don't trigger initialization
 
 #### Scenario 2: Async Bootstrap Access
+
 ```typescript
 // SDK constructor
 constructor() {
@@ -465,12 +481,13 @@ async bootstrap() {
 **Result**: ✅ Safe - JavaScript single-threaded execution guarantees order
 
 #### Scenario 3: Concurrent Access
+
 ```typescript
 // Thread 1 (CLI)
-configureSDKLogger({ level: 'debug' });
+configureSDKLogger({ level: "debug" });
 
 // Thread 2 (SDK bootstrap)
-logger.info('message');
+logger.info("message");
 ```
 
 **Result**: ✅ Safe - JavaScript is single-threaded, no true concurrency
@@ -538,16 +555,16 @@ export interface TelemetryProvider {
 export interface TelemetryConfig {
   /** Endpoint URL for telemetry collection */
   endpoint?: string;
-  
+
   /** Authentication credentials */
   credentials?: TelemetryCredentials;
-  
+
   /** Batch export configuration */
   batchConfig?: BatchExportConfig;
-  
+
   /** Sampling configuration */
   samplingConfig?: SamplingConfig;
-  
+
   /** Additional provider-specific options */
   options?: Record<string, unknown>;
 }
@@ -558,7 +575,7 @@ export interface TelemetryConfig {
 export interface TelemetryCredentials {
   /** API key or token */
   apiKey?: string;
-  
+
   /** Additional headers */
   headers?: Record<string, string>;
 }
@@ -569,10 +586,10 @@ export interface TelemetryCredentials {
 export interface BatchExportConfig {
   /** Maximum batch size */
   maxBatchSize?: number;
-  
+
   /** Maximum time to wait before exporting (ms) */
   scheduledDelayMillis?: number;
-  
+
   /** Maximum queue size */
   maxQueueSize?: number;
 }
@@ -583,7 +600,7 @@ export interface BatchExportConfig {
 export interface SamplingConfig {
   /** Sample rate (0.0 to 1.0) */
   sampleRate?: number;
-  
+
   /** Always sample these traces */
   alwaysSample?: string[];
 }
@@ -594,10 +611,10 @@ export interface SamplingConfig {
 export interface ExportResult {
   /** Number of items successfully exported */
   successCount: number;
-  
+
   /** Number of items that failed to export */
   failureCount: number;
-  
+
   /** Errors encountered during export */
   errors?: Error[];
 }
@@ -638,34 +655,34 @@ export interface TraceAPI {
 export interface Span {
   /** Unique identifier for this span */
   readonly spanId: string;
-  
+
   /** Identifier of the parent span (if any) */
   readonly parentSpanId?: string;
-  
+
   /** Identifier of the trace this span belongs to */
   readonly traceId: string;
-  
+
   /** Span name */
   readonly name: string;
-  
+
   /** Add an attribute to the span */
   setAttribute(key: string, value: SpanAttributeValue): void;
-  
+
   /** Add multiple attributes */
   setAttributes(attributes: SpanAttributes): void;
-  
+
   /** Add an event to the span */
   addEvent(name: string, attributes?: SpanAttributes, timestamp?: number): void;
-  
+
   /** Record an exception */
   recordException(exception: Error, time?: number): void;
-  
+
   /** Update span status */
   setStatus(status: SpanStatus): void;
-  
+
   /** End the span */
   end(endTime?: number): void;
-  
+
   /** Check if span is recording */
   isRecording(): boolean;
 }
@@ -673,7 +690,7 @@ export interface Span {
 /**
  * Span attribute values
  */
-export type SpanAttributeValue = 
+export type SpanAttributeValue =
   | string
   | number
   | boolean
@@ -711,13 +728,13 @@ export enum SpanStatusCode {
 export interface SpanOptions {
   /** Parent span or context */
   parent?: Span | SpanContext;
-  
+
   /** Span kind (client, server, producer, consumer, internal) */
   kind?: SpanKind;
-  
+
   /** Initial attributes */
   attributes?: SpanAttributes;
-  
+
   /** Start time (defaults to now) */
   startTime?: number;
 }
@@ -773,12 +790,12 @@ export interface Meter {
    * Create a counter instrument
    */
   createCounter(name: string, options?: MetricOptions): Counter;
-  
+
   /**
    * Create a gauge instrument
    */
   createGauge(name: string, options?: MetricOptions): Gauge;
-  
+
   /**
    * Create a histogram instrument
    */
@@ -821,10 +838,10 @@ export interface Histogram {
 export interface MetricOptions {
   /** Description of the metric */
   description?: string;
-  
+
   /** Unit of measurement */
   unit?: string;
-  
+
   /** Value type (int or double) */
   valueType?: ValueType;
 }
@@ -856,12 +873,12 @@ export interface TelemetryLogIntegration {
    * Enable telemetry for a logger instance
    */
   enableForLogger(logger: Logger, config?: LogTelemetryConfig): void;
-  
+
   /**
    * Disable telemetry for a logger instance
    */
   disableForLogger(logger: Logger): void;
-  
+
   /**
    * Convert log entry to telemetry format
    */
@@ -874,16 +891,16 @@ export interface TelemetryLogIntegration {
 export interface LogTelemetryConfig {
   /** Minimum log level to send to telemetry */
   minLevel?: LogLevel;
-  
+
   /** Include context/metadata in telemetry */
   includeContext?: boolean;
-  
+
   /** Include stack traces for errors */
   includeStackTraces?: boolean;
-  
+
   /** Sample rate for logs (0.0 to 1.0) */
   sampleRate?: number;
-  
+
   /** Custom attribute extractor */
   attributeExtractor?: (entry: LogEntry) => MetricAttributes;
 }
@@ -894,16 +911,16 @@ export interface LogTelemetryConfig {
 export interface TelemetryLogRecord {
   /** Timestamp */
   timestamp: number;
-  
+
   /** Severity/level */
   severity: LogSeverity;
-  
+
   /** Log message */
   body: string;
-  
+
   /** Attributes/metadata */
   attributes?: MetricAttributes;
-  
+
   /** Trace context (if available) */
   traceId?: string;
   spanId?: string;
@@ -927,7 +944,7 @@ export enum LogSeverity {
 #### Example 1: OpenTelemetry Provider
 
 ```typescript
-import { TelemetryProvider, TelemetryConfig, TelemetryData } from './telemetry-types';
+import { TelemetryProvider, TelemetryConfig, TelemetryData } from "./telemetry-types";
 
 /**
  * OpenTelemetry provider implementation
@@ -936,37 +953,37 @@ import { TelemetryProvider, TelemetryConfig, TelemetryData } from './telemetry-t
 export class OTLPProvider implements TelemetryProvider {
   private config?: TelemetryConfig;
   private exporter?: any; // OTLP exporter
-  
+
   async initialize(config: TelemetryConfig): Promise<void> {
     this.config = config;
-    
+
     // Initialize OTLP exporter
     // this.exporter = new OTLPTraceExporter({
     //   url: config.endpoint,
     //   headers: config.credentials?.headers,
     // });
   }
-  
+
   async export(data: TelemetryData): Promise<ExportResult> {
     if (!this.exporter) {
-      throw new Error('Provider not initialized');
+      throw new Error("Provider not initialized");
     }
-    
+
     // Convert to OTLP format and export
     // return this.exporter.export(data);
-    
+
     return { successCount: 0, failureCount: 0 };
   }
-  
+
   async flush(timeoutMs?: number): Promise<void> {
     // Flush pending exports
   }
-  
+
   async shutdown(): Promise<void> {
     await this.flush();
     // Shutdown exporter
   }
-  
+
   isHealthy(): boolean {
     return !!this.exporter;
   }
@@ -982,30 +999,30 @@ export class OTLPProvider implements TelemetryProvider {
  */
 export class HTTPProvider implements TelemetryProvider {
   private config?: TelemetryConfig;
-  
+
   async initialize(config: TelemetryConfig): Promise<void> {
     this.config = config;
   }
-  
+
   async export(data: TelemetryData): Promise<ExportResult> {
     if (!this.config?.endpoint) {
-      throw new Error('No endpoint configured');
+      throw new Error("No endpoint configured");
     }
-    
+
     try {
       const response = await fetch(this.config.endpoint, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...this.config.credentials?.headers,
         },
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       return { successCount: data.traces?.length || 0, failureCount: 0 };
     } catch (error) {
       return {
@@ -1015,15 +1032,15 @@ export class HTTPProvider implements TelemetryProvider {
       };
     }
   }
-  
+
   async flush(): Promise<void> {
     // No-op for HTTP provider
   }
-  
+
   async shutdown(): Promise<void> {
     await this.flush();
   }
-  
+
   isHealthy(): boolean {
     return !!this.config?.endpoint;
   }
@@ -1033,9 +1050,9 @@ export class HTTPProvider implements TelemetryProvider {
 #### Example 3: Usage in SDK
 
 ```typescript
-import { getSDK } from '@wf-agent/sdk';
-import { OTLPProvider } from './providers/otlp-provider';
-import { HTTPProvider } from './providers/http-provider';
+import { getSDK } from "@wf-agent/sdk";
+import { OTLPProvider } from "./providers/otlp-provider";
+import { HTTPProvider } from "./providers/http-provider";
 
 // Initialize SDK with telemetry
 const sdk = getSDK({
@@ -1044,7 +1061,7 @@ const sdk = getSDK({
     enabled: true,
     provider: new OTLPProvider(),
     config: {
-      endpoint: 'http://localhost:4318/v1/traces',
+      endpoint: "http://localhost:4318/v1/traces",
       samplingConfig: {
         sampleRate: 0.1, // Sample 10% of traces
       },
@@ -1055,9 +1072,9 @@ const sdk = getSDK({
 // Or use custom provider
 const customProvider = new HTTPProvider();
 await customProvider.initialize({
-  endpoint: 'https://my-telemetry-service.com/api/logs',
+  endpoint: "https://my-telemetry-service.com/api/logs",
   credentials: {
-    apiKey: 'secret-key',
+    apiKey: "secret-key",
   },
 });
 
@@ -1092,9 +1109,11 @@ To create a new telemetry provider:
 ### Priority P0: Immediate Value (1-2 weeks)
 
 #### 1. Log Query Tools
+
 **Goal**: Enable searching and filtering of JSON logs without external tools.
 
 **Features**:
+
 ```bash
 # Search logs by criteria
 cli-app logs search \
@@ -1117,15 +1136,17 @@ cli-app logs stats --today --by-level --by-module
 ---
 
 #### 2. Health Dashboard API
+
 **Goal**: Expose stream metrics via SDK API for monitoring.
 
 **API Design**:
+
 ```typescript
 interface LoggerHealth {
   streams: Array<{
     name: string;
-    type: 'console' | 'file' | 'rotating' | 'async';
-    status: 'healthy' | 'degraded' | 'error';
+    type: "console" | "file" | "rotating" | "async";
+    status: "healthy" | "degraded" | "error";
     metrics: {
       droppedLogs: number;
       bufferUtilization: number;
@@ -1133,13 +1154,13 @@ interface LoggerHealth {
       lastErrorTime?: number;
     };
   }>;
-  overallStatus: 'healthy' | 'warning' | 'critical';
+  overallStatus: "healthy" | "warning" | "critical";
 }
 
 // Usage
 const health = sdk.getLoggerHealth();
-if (health.overallStatus === 'critical') {
-  alert('Logging system degraded!');
+if (health.overallStatus === "critical") {
+  alert("Logging system degraded!");
 }
 ```
 
@@ -1151,15 +1172,18 @@ if (health.overallStatus === 'critical') {
 ### Priority P1: Performance & Reliability (2-4 weeks)
 
 #### 3. Async Batching by Default
+
 **Goal**: Improve I/O performance under high load.
 
 **Changes**:
+
 - Wrap file streams with `AsyncStream` by default
 - Configurable batch size (default: 100 entries)
 - Configurable flush interval (default: 100ms)
 - Automatic backpressure handling
 
 **Expected Benefits**:
+
 - 30-50% better throughput
 - Reduced blocking during peak logging
 - Lower CPU usage
@@ -1170,9 +1194,11 @@ if (health.overallStatus === 'critical') {
 ---
 
 #### 4. Benchmarking Suite
+
 **Goal**: Establish baseline metrics for data-driven optimization.
 
 **Features**:
+
 ```typescript
 const results = await benchmarkLogger({
   scenarios: [
@@ -1191,6 +1217,7 @@ const results = await benchmarkLogger({
 ```
 
 **Metrics**:
+
 - Operations per second
 - P50/P95/P99 latency
 - Memory usage
@@ -1204,9 +1231,11 @@ const results = await benchmarkLogger({
 ### Priority P2: Enterprise Features (1-2 months)
 
 #### 5. External Integration Plugins
+
 **Goal**: Support enterprise observability platforms.
 
 **Plugin Architecture**:
+
 ```typescript
 // Plugin interface
 interface TelemetryPlugin {
@@ -1228,9 +1257,11 @@ interface TelemetryPlugin {
 ---
 
 #### 6. Visual Log Explorer
+
 **Goal**: Web-based UI for log exploration.
 
 **Features**:
+
 - Real-time log streaming (WebSocket)
 - Advanced filtering (regex, field-based)
 - Color-coded severity levels
@@ -1240,6 +1271,7 @@ interface TelemetryPlugin {
 - Saved queries
 
 **Tech Stack**:
+
 - Frontend: React/Svelte + WebSocket client
 - Backend: Simple HTTP server with log file tailing
 - Storage: IndexedDB for query history
@@ -1252,9 +1284,11 @@ interface TelemetryPlugin {
 ### Priority P3: Nice-to-Have (3-6 months)
 
 #### 7. Advanced Rotation Policies
+
 **Goal**: More sophisticated log rotation options.
 
 **Features**:
+
 - Time-based rotation (daily, weekly, monthly)
 - Hybrid policies (size OR time)
 - Compression algorithms (gzip, zstd, lz4)
@@ -1267,9 +1301,11 @@ interface TelemetryPlugin {
 ---
 
 #### 8. Automatic Context Enrichment
+
 **Goal**: Reduce manual context passing.
 
 **Features**:
+
 ```typescript
 // Automatic enrichment middleware
 sdk.useMiddleware(autoEnrichment({
@@ -1307,45 +1343,43 @@ sdk.useMiddleware(autoEnrichment({
 ### Automated Tests
 
 #### Unit Tests
+
 ```typescript
-describe('SDK Logger', () => {
-  it('should use pending configuration when initialized', () => {
-    configureSDKLogger({ level: 'debug', stream: mockStream });
-    sdkLogger.info('test');
-    expect(mockStream.write).toHaveBeenCalledWith(
-      expect.objectContaining({ level: 'debug' })
-    );
+describe("SDK Logger", () => {
+  it("should use pending configuration when initialized", () => {
+    configureSDKLogger({ level: "debug", stream: mockStream });
+    sdkLogger.info("test");
+    expect(mockStream.write).toHaveBeenCalledWith(expect.objectContaining({ level: "debug" }));
   });
-  
-  it('should warn when accessed before configuration', () => {
-    const stderrSpy = jest.spyOn(process.stderr, 'write');
-    sdkLogger.info('test');
-    expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Warning')
-    );
+
+  it("should warn when accessed before configuration", () => {
+    const stderrSpy = jest.spyOn(process.stderr, "write");
+    sdkLogger.info("test");
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Warning"));
   });
-  
-  it('should support child loggers', () => {
-    const child = sdkLogger.child('test-module');
-    child.info('child message');
+
+  it("should support child loggers", () => {
+    const child = sdkLogger.child("test-module");
+    child.info("child message");
     // Verify context includes module name
   });
 });
 ```
 
 #### Integration Tests
+
 ```typescript
-describe('Logger Initialization Flow', () => {
-  it('should handle CLI -> SDK initialization sequence', async () => {
+describe("Logger Initialization Flow", () => {
+  it("should handle CLI -> SDK initialization sequence", async () => {
     // Simulate CLI initialization
     initSDKLogger({ debug: true });
-    
+
     // Simulate SDK bootstrap
     const sdk = getSDK();
     await sdk.waitForReady();
-    
+
     // Verify logs were written with correct config
-    const logContent = fs.readFileSync(logFile, 'utf-8');
+    const logContent = fs.readFileSync(logFile, "utf-8");
     expect(logContent).toContain('"level":"debug"');
   });
 });
@@ -1354,6 +1388,7 @@ describe('Logger Initialization Flow', () => {
 ### Manual Verification
 
 Run the verification script:
+
 ```bash
 cd sdk
 npm run build
@@ -1361,6 +1396,7 @@ node scripts/verify-logger-init.mjs
 ```
 
 Expected output:
+
 ```
 === SDK Logger Initialization Verification ===
 
@@ -1389,6 +1425,7 @@ Test 3: Child loggers inherit parent configuration
 ### 1. Initialization Order
 
 **Always configure before using**:
+
 ```typescript
 // ✅ Correct
 initSDKLogger({ debug: true });
@@ -1402,74 +1439,79 @@ initSDKLogger({ debug: true }); // Too late!
 ### 2. Logger Selection
 
 **Use appropriate logger for context**:
+
 ```typescript
 // ✅ For SDK operations
-import { sdkLogger } from '@wf-agent/sdk';
-sdkLogger.info('SDK operation');
+import { sdkLogger } from "@wf-agent/sdk";
+sdkLogger.info("SDK operation");
 
 // ✅ For specific modules
-const moduleLogger = sdkLogger.child('my-module');
-moduleLogger.info('Module-specific log');
+const moduleLogger = sdkLogger.child("my-module");
+moduleLogger.info("Module-specific log");
 
 // ✅ For contextual logging (recommended pattern)
-import { createContextualLogger } from '@wf-agent/sdk';
-const logger = createContextualLogger({ component: 'MyComponent' });
-logger.info('Operation with context');
+import { createContextualLogger } from "@wf-agent/sdk";
+const logger = createContextualLogger({ component: "MyComponent" });
+logger.info("Operation with context");
 ```
 
 ### 3. Structured Context
 
 **Pass rich context for better debugging**:
+
 ```typescript
 // ✅ Good
-logger.error('Workflow execution failed', {
-  workflowId: 'wf-123',
-  nodeId: 'node-456',
+logger.error("Workflow execution failed", {
+  workflowId: "wf-123",
+  nodeId: "node-456",
   error: error.message,
   stack: error.stack,
   retryCount: 3,
 });
 
 // ❌ Bad
-logger.error('Failed: ' + error.message);
+logger.error("Failed: " + error.message);
 ```
 
 ### 4. Performance Considerations
 
 **Avoid expensive operations in hot paths**:
+
 ```typescript
 // ✅ Check level before expensive serialization
-if (logger.isLevelEnabled('debug')) {
-  logger.debug('Data: ' + JSON.stringify(largeObject));
+if (logger.isLevelEnabled("debug")) {
+  logger.debug("Data: " + JSON.stringify(largeObject));
 }
 
 // ❌ Always serializes, even if debug is disabled
-logger.debug('Data: ' + JSON.stringify(largeObject));
+logger.debug("Data: " + JSON.stringify(largeObject));
 ```
 
 ### 5. Error Handling
 
 **Don't let logging failures break your app**:
+
 ```typescript
 try {
-  logger.info('Operation completed');
+  logger.info("Operation completed");
 } catch (error) {
   // Log failure shouldn't crash the application
-  console.error('Logging failed:', error);
+  console.error("Logging failed:", error);
 }
 ```
 
 ### 6. Production Configuration
 
 **Recommended production settings**:
+
 ```typescript
 initSDKLogger({
   debug: false,
   verbose: false,
   enableSDKLogs: true,
-  sdkLogLevel: 'warn', // Only warnings and errors
-  graphLogLevel: 'info', // Info for workflows
-  agentLogLevel: 'warn', // Warnings for agents
+  sdkLogLevel: "warn", // Only warnings and errors
+  graphLogLevel: "info", // Info for workflows
+  agentLogLevel: "warn", // Warnings for agents
   maxLogSize: 100 * 1024 * 1024, // 100MB
   maxLogFiles: 10, // Keep 10 rotated files
 });
@@ -1485,7 +1527,7 @@ The SDK logging system represents a mature, production-ready implementation with
 ✅ **Comprehensive Features**: Sampling, rate limiting, structured logging, multiple streams  
 ✅ **Verified Correctness**: No race conditions, proper initialization order  
 ✅ **Optimized Performance**: Buffered writes, async options, efficient serialization  
-✅ **Strong Observability**: Error metrics, health monitoring, detailed context  
+✅ **Strong Observability**: Error metrics, health monitoring, detailed context
 
 **Current Rating**: 9/10 (Excellent)
 
@@ -1499,19 +1541,19 @@ The SDK logging system represents a mature, production-ready implementation with
 
 ### A. Environment Variables Reference
 
-| Variable | Scope | Default | Description |
-|----------|-------|---------|-------------|
-| `GLOBAL_LOG_LEVEL` | All modules | `info` | Global log level fallback |
-| `SDK_LOG_LEVEL` | SDK | `info` | SDK log level |
-| `SDK_DISABLE_LOGS` | SDK | `false` | Disable all SDK logs |
-| `GLOBAL_LOG_MAX_SIZE` | File streams | `104857600` | Max log file size (bytes) |
-| `GLOBAL_LOG_MAX_FILES` | File streams | `10` | Max rotated files to keep |
+| Variable               | Scope        | Default     | Description               |
+| ---------------------- | ------------ | ----------- | ------------------------- |
+| `GLOBAL_LOG_LEVEL`     | All modules  | `info`      | Global log level fallback |
+| `SDK_LOG_LEVEL`        | SDK          | `info`      | SDK log level             |
+| `SDK_DISABLE_LOGS`     | SDK          | `false`     | Disable all SDK logs      |
+| `GLOBAL_LOG_MAX_SIZE`  | File streams | `104857600` | Max log file size (bytes) |
+| `GLOBAL_LOG_MAX_FILES` | File streams | `10`        | Max rotated files to keep |
 
 ### B. Log Entry Schema
 
 ```typescript
 interface LogEntry {
-  level: 'debug' | 'info' | 'warn' | 'error' | 'off';
+  level: "debug" | "info" | "warn" | "error" | "off";
   message: string;
   timestamp?: string; // ISO 8601
   logger?: string; // Logger name (e.g., 'sdk.graph')
@@ -1533,13 +1575,13 @@ interface LogEntry {
 
 ### C. Stream Types Comparison
 
-| Stream Type | Use Case | Performance | Durability |
-|-------------|----------|-------------|------------|
-| ConsoleStream | Development, debugging | Fast | None |
-| FileStream | Simple file logging | Medium | High |
-| RotatingFileStream | Production logging | Medium | High |
-| AsyncStream | High-throughput scenarios | Fastest | Medium |
-| Multistream | Multiple outputs | Varies | Varies |
+| Stream Type        | Use Case                  | Performance | Durability |
+| ------------------ | ------------------------- | ----------- | ---------- |
+| ConsoleStream      | Development, debugging    | Fast        | None       |
+| FileStream         | Simple file logging       | Medium      | High       |
+| RotatingFileStream | Production logging        | Medium      | High       |
+| AsyncStream        | High-throughput scenarios | Fastest     | Medium     |
+| Multistream        | Multiple outputs          | Varies      | Varies     |
 
 ### D. Related Documentation
 

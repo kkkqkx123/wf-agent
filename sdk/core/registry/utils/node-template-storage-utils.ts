@@ -123,7 +123,9 @@ export async function initializeNodeTemplatesFromStorage(
   templates: Map<string, NodeTemplate>,
 ): Promise<void> {
   if (!adapter) {
-    logger.debug("No storage adapter configured, skipping node template initialization from storage");
+    logger.debug(
+      "No storage adapter configured, skipping node template initialization from storage",
+    );
     return;
   }
 

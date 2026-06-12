@@ -31,12 +31,12 @@ export class SseTransport implements IMcpTransport {
   private handlers: TransportEventHandlers = {};
   private config: SseTransportConfig;
   private abortController: AbortController | null = null;
-  
+
   // State management
   private _state: TransportState = "disconnected";
   private _isClosing = false;
   private pendingMessages: unknown[] = [];
-  
+
   // Reconnection configuration
   private reconnectAttempts = 0;
   private maxReconnectAttempts: number;
@@ -46,7 +46,7 @@ export class SseTransport implements IMcpTransport {
 
   constructor(config: SseTransportConfig) {
     this.config = config;
-    
+
     // Initialize reconnection configuration with defaults
     const reconnection = config.reconnection || {};
     this.maxReconnectAttempts = reconnection.maxAttempts ?? 5;
@@ -58,11 +58,11 @@ export class SseTransport implements IMcpTransport {
   get isConnected(): boolean {
     return this._state === "connected";
   }
-  
+
   get state(): TransportState {
     return this._state;
   }
-  
+
   private setState(newState: TransportState): void {
     const oldState = this._state;
     this._state = newState;
@@ -78,7 +78,7 @@ export class SseTransport implements IMcpTransport {
     }
 
     this.setState("connecting");
-    
+
     return new Promise((resolve, reject) => {
       try {
         const url = new URL(this.config.url);
@@ -190,7 +190,7 @@ export class SseTransport implements IMcpTransport {
 
         this.setState("connected");
         this.reconnectAttempts = 0;
-        
+
         // Only resolve on first successful connection
         if (this.reconnectAttempts === 0) {
           resolve();
@@ -206,14 +206,13 @@ export class SseTransport implements IMcpTransport {
         // Stream ended, attempt reconnect
         this.setState("disconnected");
         await this.attemptReconnect(attemptConnection, reject);
-        
       } catch (error) {
         if ((error as Error).name === "AbortError") {
           this.setState("closed");
           this.handlers.onClose?.();
           return;
         }
-        
+
         this.setState("disconnected");
         await this.attemptReconnect(attemptConnection, reject);
       } finally {
@@ -226,7 +225,7 @@ export class SseTransport implements IMcpTransport {
 
     await attemptConnection();
   }
-  
+
   /**
    * Attempt to reconnect with exponential backoff
    */
@@ -237,35 +236,33 @@ export class SseTransport implements IMcpTransport {
     if (this._isClosing) {
       return;
     }
-    
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       const delay = Math.min(
         this.initialDelay * Math.pow(this.backoffMultiplier, this.reconnectAttempts - 1),
         this.maxDelay,
       );
-      
+
       this.setState("reconnecting");
       logger.warn(
         `SSE connection lost, attempting reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms`,
       );
-      
+
       await new Promise(resolve => setTimeout(resolve, delay));
-      
+
       // Check if closing during wait
       if (this._isClosing) {
         return;
       }
-      
+
       await attemptFn();
     } else {
-      this.handlers.onError?.(
-        new Error("SSE connection failed after maximum reconnect attempts"),
-      );
+      this.handlers.onError?.(new Error("SSE connection failed after maximum reconnect attempts"));
       reject(new Error("SSE connection failed"));
     }
   }
-  
+
   /**
    * Handle incoming messages with proper state management
    */
@@ -275,7 +272,7 @@ export class SseTransport implements IMcpTransport {
       this.pendingMessages.push(data);
       return;
     }
-    
+
     if (this._state === "connected") {
       this.handlers.onData?.(data);
     }
@@ -287,7 +284,7 @@ export class SseTransport implements IMcpTransport {
   async close(): Promise<void> {
     this._isClosing = true;
     this.setState("closing");
-    
+
     // Cancel any pending requests
     if (this.abortController) {
       this.abortController.abort();
@@ -296,16 +293,16 @@ export class SseTransport implements IMcpTransport {
       this.eventSource.close();
       this.eventSource = null;
     }
-    
+
     // Process any pending messages before closing
     while (this.pendingMessages.length > 0) {
       const msg = this.pendingMessages.shift();
       this.handlers.onData?.(msg);
     }
-    
+
     this.setState("closed");
     this.handlers.onClose?.();
-    
+
     // Clear abortController after everything is done
     this.abortController = null;
     this._isClosing = false;
@@ -320,11 +317,11 @@ export class SseTransport implements IMcpTransport {
     // For SSE transport, we need to send messages to a separate endpoint
     // Use configured messageEndpoint if provided, otherwise derive from SSE URL
     let messageUrl: string;
-    
+
     if (this.config.messageEndpoint) {
       messageUrl = this.config.messageEndpoint;
     } else {
-      const baseUrl = this.config.url.replace(/\/sse\/?$/, '');
+      const baseUrl = this.config.url.replace(/\/sse\/?$/, "");
       messageUrl = `${baseUrl}/message`;
     }
 

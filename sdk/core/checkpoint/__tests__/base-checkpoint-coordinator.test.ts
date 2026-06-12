@@ -3,11 +3,11 @@
  * Tests for the template method pattern coordinator
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { BaseCheckpointCoordinator } from '../base-checkpoint-coordinator.js';
-import { BaseDiffCalculator } from '../base-diff-calculator.js';
-import type { BaseCheckpoint, CheckpointMetadata } from '@wf-agent/types';
-import type { CheckpointableEntity, CheckpointDependencies } from '../types.js';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { BaseCheckpointCoordinator } from "../base-checkpoint-coordinator.js";
+import { BaseDiffCalculator } from "../base-diff-calculator.js";
+import type { BaseCheckpoint, CheckpointMetadata } from "@wf-agent/types";
+import type { CheckpointableEntity, CheckpointDependencies } from "../types.js";
 
 // Concrete implementation for testing the abstract class
 interface TestState {
@@ -15,14 +15,21 @@ interface TestState {
   value: number;
 }
 
-interface TestCheckpoint extends BaseCheckpoint<Record<string, { from: unknown; to: unknown }>, TestState> {
+interface TestCheckpoint extends BaseCheckpoint<
+  Record<string, { from: unknown; to: unknown }>,
+  TestState
+> {
   entityId: string;
 }
 
-class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint, CheckpointableEntity, TestState> {
+class TestCheckpointCoordinator extends BaseCheckpointCoordinator<
+  TestCheckpoint,
+  CheckpointableEntity,
+  TestState
+> {
   extractState(entity: CheckpointableEntity & Partial<TestState>): TestState {
     return {
-      name: (entity as any).name || 'default',
+      name: (entity as any).name || "default",
       value: (entity as any).value || 0,
     };
   }
@@ -30,12 +37,12 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint
   async buildCheckpoint(
     entity: CheckpointableEntity,
     currentState: TestState,
-    checkpointType: 'FULL' | 'DELTA',
+    checkpointType: "FULL" | "DELTA",
     checkpointId: string,
     timestamp: number,
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies<TestCheckpoint>,
-    metadata?: CheckpointMetadata
+    metadata?: CheckpointMetadata,
   ): Promise<TestCheckpoint> {
     const checkpoint: TestCheckpoint = {
       id: checkpointId,
@@ -45,7 +52,7 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint
       metadata,
     };
 
-    if (checkpointType === 'FULL') {
+    if (checkpointType === "FULL") {
       checkpoint.snapshot = currentState;
       checkpoint.baseCheckpointId = checkpointId;
     } else {
@@ -68,7 +75,7 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint
             const diffCalculator = new BaseDiffCalculator();
             checkpoint.delta = diffCalculator.calculateDelta(
               previousSnapshot,
-              currentState as unknown as Record<string, unknown>
+              currentState as unknown as Record<string, unknown>,
             );
           }
 
@@ -93,7 +100,7 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<TestCheckpoint
   }
 }
 
-describe('BaseCheckpointCoordinator', () => {
+describe("BaseCheckpointCoordinator", () => {
   let coordinator: TestCheckpointCoordinator;
   let mockDependencies: CheckpointDependencies<TestCheckpoint>;
   let savedCheckpoints: Map<string, TestCheckpoint>;
@@ -123,39 +130,39 @@ describe('BaseCheckpointCoordinator', () => {
     };
   });
 
-  describe('createCheckpoint', () => {
-    it('should create a FULL checkpoint when there are no previous checkpoints', async () => {
-      const entity = { id: 'entity-1', name: 'test', value: 42 };
+  describe("createCheckpoint", () => {
+    it("should create a FULL checkpoint when there are no previous checkpoints", async () => {
+      const entity = { id: "entity-1", name: "test", value: 42 };
 
       const cpId = await coordinator.createCheckpoint(entity, mockDependencies);
 
       expect(cpId).toBeDefined();
-      expect(typeof cpId).toBe('string');
+      expect(typeof cpId).toBe("string");
 
       const saved = savedCheckpoints.get(cpId)!;
-      expect(saved.type).toBe('FULL');
-      expect(saved.entityId).toBe('entity-1');
-      expect(saved.snapshot).toEqual({ name: 'test', value: 42 });
+      expect(saved.type).toBe("FULL");
+      expect(saved.entityId).toBe("entity-1");
+      expect(saved.snapshot).toEqual({ name: "test", value: 42 });
     });
 
-    it('should create a DELTA checkpoint when incremental storage is enabled', async () => {
+    it("should create a DELTA checkpoint when incremental storage is enabled", async () => {
       // First: FULL checkpoint
-      const entity = { id: 'entity-1', name: 'v1', value: 1 };
+      const entity = { id: "entity-1", name: "v1", value: 1 };
       await coordinator.createCheckpoint(entity, mockDependencies);
 
       // Second: DELTA checkpoint
-      const entity2 = { id: 'entity-1', name: 'v2', value: 2 };
+      const entity2 = { id: "entity-1", name: "v2", value: 2 };
       const cpId2 = await coordinator.createCheckpoint(entity2, mockDependencies);
 
       const cp2 = savedCheckpoints.get(cpId2)!;
-      expect(cp2.type).toBe('DELTA');
+      expect(cp2.type).toBe("DELTA");
       expect(cp2.delta).toBeDefined();
-      expect(cp2.delta!['name']).toBeDefined();
-      expect(cp2.delta!['value']).toBeDefined();
+      expect(cp2.delta!["name"]).toBeDefined();
+      expect(cp2.delta!["value"]).toBeDefined();
     });
 
-    it('should create FULL checkpoint on baseline interval', async () => {
-      const entity = { id: 'entity-1', name: 'test', value: 0 };
+    it("should create FULL checkpoint on baseline interval", async () => {
+      const entity = { id: "entity-1", name: "test", value: 0 };
 
       // Create checkpoints to reach baseline interval (3)
       for (let i = 0; i < 4; i++) {
@@ -167,15 +174,15 @@ describe('BaseCheckpointCoordinator', () => {
       // After 3 checkpoints saved, the count is 3 → 3 % 3 === 0 → FULL
       const ids = Array.from(savedCheckpoints.keys());
       const fourthCp = savedCheckpoints.get(ids[3]!)!;
-      expect(fourthCp.type).toBe('FULL');
+      expect(fourthCp.type).toBe("FULL");
     });
 
-    it('should pass metadata to the checkpoint', async () => {
-      const entity = { id: 'entity-1', name: 'test', value: 42 };
+    it("should pass metadata to the checkpoint", async () => {
+      const entity = { id: "entity-1", name: "test", value: 42 };
       const metadata: CheckpointMetadata = {
-        description: 'test checkpoint',
-        tags: ['test', 'unit'],
-        customFields: { source: 'unit-test' },
+        description: "test checkpoint",
+        tags: ["test", "unit"],
+        customFields: { source: "unit-test" },
       };
 
       const cpId = await coordinator.createCheckpoint(entity, mockDependencies, metadata);
@@ -183,145 +190,160 @@ describe('BaseCheckpointCoordinator', () => {
       expect(saved.metadata).toEqual(metadata);
     });
 
-    it('should return the checkpoint ID from saveCheckpoint', async () => {
+    it("should return the checkpoint ID from saveCheckpoint", async () => {
       mockDependencies.saveCheckpoint = vi.fn(async (_cp: TestCheckpoint) => {
-        return 'custom-id-123';
+        return "custom-id-123";
       });
 
-      const entity = { id: 'entity-1', name: 'test', value: 1 };
+      const entity = { id: "entity-1", name: "test", value: 1 };
       const cpId = await coordinator.createCheckpoint(entity, mockDependencies);
-      expect(cpId).toBe('custom-id-123');
+      expect(cpId).toBe("custom-id-123");
     });
   });
 
-  describe('restoreFromCheckpoint', () => {
-    it('should restore from FULL checkpoint', async () => {
-      const entity = { id: 'entity-1', name: 'test', value: 42 };
+  describe("restoreFromCheckpoint", () => {
+    it("should restore from FULL checkpoint", async () => {
+      const entity = { id: "entity-1", name: "test", value: 42 };
       const cpId = await coordinator.createCheckpoint(entity, mockDependencies);
 
       const restored = await coordinator.restoreFromCheckpoint(cpId, mockDependencies);
-      expect(restored.id).toBe('entity-1');
-      expect((restored as any).name).toBe('test');
+      expect(restored.id).toBe("entity-1");
+      expect((restored as any).name).toBe("test");
       expect((restored as any).value).toBe(42);
     });
 
-    it('should restore from DELTA checkpoint chain', async () => {
-      const entity = { id: 'entity-1', name: 'v1', value: 1 };
+    it("should restore from DELTA checkpoint chain", async () => {
+      const entity = { id: "entity-1", name: "v1", value: 1 };
 
       // Create a chain of checkpoints
       await coordinator.createCheckpoint(entity, mockDependencies);
-      entity.name = 'v2';
+      entity.name = "v2";
       entity.value = 2;
       await coordinator.createCheckpoint(entity, mockDependencies);
-      entity.name = 'v3';
+      entity.name = "v3";
       entity.value = 3;
       const cpId3 = await coordinator.createCheckpoint(entity, mockDependencies);
 
       // Restore from the last delta checkpoint
       const restored = await coordinator.restoreFromCheckpoint(cpId3, mockDependencies);
-      expect(restored.id).toBe('entity-1');
-      expect((restored as any).name).toBe('v3');
+      expect(restored.id).toBe("entity-1");
+      expect((restored as any).name).toBe("v3");
       expect((restored as any).value).toBe(3);
     });
 
-    it('should throw error when checkpoint does not exist', async () => {
+    it("should throw error when checkpoint does not exist", async () => {
       await expect(
-        coordinator.restoreFromCheckpoint('non-existent', mockDependencies)
-      ).rejects.toThrow('Checkpoint not found');
+        coordinator.restoreFromCheckpoint("non-existent", mockDependencies),
+      ).rejects.toThrow("Checkpoint not found");
     });
 
-    it('should throw error for invalid checkpoint (missing required fields)', async () => {
+    it("should throw error for invalid checkpoint (missing required fields)", async () => {
       // Save an invalid checkpoint manually
       const badCp: TestCheckpoint = {
-        id: 'bad-cp',
-        type: 'FULL' as any,
-        entityId: 'e1',
+        id: "bad-cp",
+        type: "FULL" as any,
+        entityId: "e1",
       };
       // No snapshot for FULL type
-      savedCheckpoints.set('bad-cp', badCp);
-      mockDependencies.listCheckpoints = vi.fn().mockResolvedValue(['bad-cp']);
+      savedCheckpoints.set("bad-cp", badCp);
+      mockDependencies.listCheckpoints = vi.fn().mockResolvedValue(["bad-cp"]);
       mockDependencies.getCheckpoint = vi.fn(async (id: string) => {
         return savedCheckpoints.get(id) || null;
       });
 
-      await expect(
-        coordinator.restoreFromCheckpoint('bad-cp', mockDependencies)
-      ).rejects.toThrow('Full checkpoint requires snapshot');
+      await expect(coordinator.restoreFromCheckpoint("bad-cp", mockDependencies)).rejects.toThrow(
+        "Full checkpoint requires snapshot",
+      );
     });
   });
 
-  describe('determineCheckpointType', () => {
-    it('should return FULL when delta storage is disabled', () => {
+  describe("determineCheckpointType", () => {
+    it("should return FULL when delta storage is disabled", () => {
       const config = { enabled: false, baselineInterval: 5, maxDeltaChainLength: 10 };
       // Access the protected method via any cast
       const type = (coordinator as any).determineCheckpointType(5, config);
-      expect(type).toBe('FULL');
+      expect(type).toBe("FULL");
     });
 
-    it('should return FULL for first checkpoint (count === 0)', () => {
+    it("should return FULL for first checkpoint (count === 0)", () => {
       const config = { enabled: true, baselineInterval: 5, maxDeltaChainLength: 10 };
       const type = (coordinator as any).determineCheckpointType(0, config);
-      expect(type).toBe('FULL');
+      expect(type).toBe("FULL");
     });
 
-    it('should return DELTA for non-baseline checkpoints', () => {
+    it("should return DELTA for non-baseline checkpoints", () => {
       const config = { enabled: true, baselineInterval: 5, maxDeltaChainLength: 10 };
       const type = (coordinator as any).determineCheckpointType(2, config);
-      expect(type).toBe('DELTA');
+      expect(type).toBe("DELTA");
     });
 
-    it('should return FULL at baseline interval boundaries', () => {
+    it("should return FULL at baseline interval boundaries", () => {
       const config = { enabled: true, baselineInterval: 3, maxDeltaChainLength: 10 };
       const type = (coordinator as any).determineCheckpointType(3, config);
-      expect(type).toBe('FULL');
+      expect(type).toBe("FULL");
     });
   });
 
-  describe('validateCheckpoint', () => {
-    it('should throw error for checkpoint without ID', () => {
-      const cp = { type: 'FULL', snapshot: {} } as any;
-      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow('Checkpoint ID is required');
+  describe("validateCheckpoint", () => {
+    it("should throw error for checkpoint without ID", () => {
+      const cp = { type: "FULL", snapshot: {} } as any;
+      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow(
+        "Checkpoint ID is required",
+      );
     });
 
-    it('should throw error for DELTA checkpoint without baseCheckpointId', () => {
-      const cp = { id: 'cp-1', type: 'DELTA', previousCheckpointId: 'prev', delta: {} } as any;
-      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow('Delta checkpoint requires baseCheckpointId');
+    it("should throw error for DELTA checkpoint without baseCheckpointId", () => {
+      const cp = { id: "cp-1", type: "DELTA", previousCheckpointId: "prev", delta: {} } as any;
+      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow(
+        "Delta checkpoint requires baseCheckpointId",
+      );
     });
 
-    it('should throw error for DELTA checkpoint without previousCheckpointId', () => {
-      const cp = { id: 'cp-1', type: 'DELTA', baseCheckpointId: 'base', delta: {} } as any;
-      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow('Delta checkpoint requires previousCheckpointId');
+    it("should throw error for DELTA checkpoint without previousCheckpointId", () => {
+      const cp = { id: "cp-1", type: "DELTA", baseCheckpointId: "base", delta: {} } as any;
+      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow(
+        "Delta checkpoint requires previousCheckpointId",
+      );
     });
 
-    it('should throw error for DELTA checkpoint without delta', () => {
-      const cp = { id: 'cp-1', type: 'DELTA', baseCheckpointId: 'base', previousCheckpointId: 'prev' } as any;
-      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow('Delta checkpoint requires delta data');
+    it("should throw error for DELTA checkpoint without delta", () => {
+      const cp = {
+        id: "cp-1",
+        type: "DELTA",
+        baseCheckpointId: "base",
+        previousCheckpointId: "prev",
+      } as any;
+      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow(
+        "Delta checkpoint requires delta data",
+      );
     });
 
-    it('should throw error for FULL checkpoint without snapshot', () => {
-      const cp = { id: 'cp-1', type: 'FULL' } as any;
-      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow('Full checkpoint requires snapshot');
+    it("should throw error for FULL checkpoint without snapshot", () => {
+      const cp = { id: "cp-1", type: "FULL" } as any;
+      expect(() => (coordinator as any).validateCheckpoint(cp)).toThrow(
+        "Full checkpoint requires snapshot",
+      );
     });
 
-    it('should pass validation for valid FULL checkpoint', () => {
-      const cp = { id: 'cp-1', type: 'FULL', snapshot: { a: 1 } } as any;
+    it("should pass validation for valid FULL checkpoint", () => {
+      const cp = { id: "cp-1", type: "FULL", snapshot: { a: 1 } } as any;
       expect(() => (coordinator as any).validateCheckpoint(cp)).not.toThrow();
     });
 
-    it('should pass validation for valid DELTA checkpoint', () => {
+    it("should pass validation for valid DELTA checkpoint", () => {
       const cp = {
-        id: 'cp-1',
-        type: 'DELTA',
-        baseCheckpointId: 'base',
-        previousCheckpointId: 'prev',
+        id: "cp-1",
+        type: "DELTA",
+        baseCheckpointId: "base",
+        previousCheckpointId: "prev",
         delta: { a: { from: 1, to: 2 } },
       } as any;
       expect(() => (coordinator as any).validateCheckpoint(cp)).not.toThrow();
     });
   });
 
-  describe('with custom DiffCalculator', () => {
-    it('should accept a custom diff calculator', () => {
+  describe("with custom DiffCalculator", () => {
+    it("should accept a custom diff calculator", () => {
       const mockDiffCalculator = new BaseDiffCalculator();
       const customCoordinator = new TestCheckpointCoordinator(mockDiffCalculator);
       expect((customCoordinator as any).diffCalculator).toBe(mockDiffCalculator);

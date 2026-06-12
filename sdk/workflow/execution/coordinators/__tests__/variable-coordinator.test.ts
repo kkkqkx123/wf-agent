@@ -34,7 +34,9 @@ function createMockEventRegistry(): EventRegistry {
   } as unknown as EventRegistry;
 }
 
-function createMockExecutionEntity(overrides: Partial<WorkflowExecutionEntity> = {}): WorkflowExecutionEntity {
+function createMockExecutionEntity(
+  overrides: Partial<WorkflowExecutionEntity> = {},
+): WorkflowExecutionEntity {
   return {
     id: "test-exec-1",
     getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
@@ -176,7 +178,9 @@ describe("VariableCoordinator", () => {
     it("should emit VARIABLE_CHANGED event on successful update", async () => {
       const emitter = { on: vi.fn(), emit: vi.fn() };
       const eventRegistry = createMockEventRegistry();
-      vi.mocked(eventRegistry.getEmitter).mockReturnValue(emitter as unknown as ExecutionEventEmitter);
+      vi.mocked(eventRegistry.getEmitter).mockReturnValue(
+        emitter as unknown as ExecutionEventEmitter,
+      );
 
       const c = new VariableCoordinator(eventRegistry);
       const manager = createVariableManager([

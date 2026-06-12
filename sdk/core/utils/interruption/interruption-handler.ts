@@ -9,9 +9,7 @@
  * - Support both Result-based and status-based return patterns
  */
 
-import {
-  createNeverAbortSignal,
-} from "./abort-signal-utils.js";
+import { createNeverAbortSignal } from "./abort-signal-utils.js";
 import { isAbortError } from "../error-utils.js";
 import {
   checkExecutionInterruption,
@@ -52,8 +50,7 @@ export async function executeWithInterruptionHandling<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<
-  | { success: true; result: T }
-  | { success: false; interruption: ExecutionInterruptionCheckResult }
+  { success: true; result: T } | { success: false; interruption: ExecutionInterruptionCheckResult }
 > {
   // Use never-abort signal if no signal provided
   const effectiveSignal = signal ?? createNeverAbortSignal();
@@ -89,7 +86,8 @@ export async function executeWithInterruptionHandling<T>(
     if (error instanceof Error && error.name === "InterruptionError" && "interruption" in error) {
       return {
         success: false,
-        interruption: (error as Error & { interruption?: ExecutionInterruptionCheckResult }).interruption!,
+        interruption: (error as Error & { interruption?: ExecutionInterruptionCheckResult })
+          .interruption!,
       };
     }
 
@@ -132,7 +130,7 @@ export interface StreamInterruptionConfig {
  *   }
  *   process(item.value);
  * }
- * 
+ *
  * // Check every 10 chunks for better performance
  * for await (const item of iterateWithInterruptionHandling(dataStream, signal, { checkFrequency: 10 })) {
  *   // ...

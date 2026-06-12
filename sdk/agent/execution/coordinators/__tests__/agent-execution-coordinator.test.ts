@@ -22,8 +22,10 @@ const __mocks__ = {
 };
 
 vi.mock("../../../../core/utils/interruption/index.js", () => ({
-  executeWithInterruptionHandling: (...args: any[]) => __mocks__.executeWithInterruptionHandling(...args),
-  iterateWithInterruptionHandling: (...args: any[]) => __mocks__.iterateWithInterruptionHandling(...args),
+  executeWithInterruptionHandling: (...args: any[]) =>
+    __mocks__.executeWithInterruptionHandling(...args),
+  iterateWithInterruptionHandling: (...args: any[]) =>
+    __mocks__.iterateWithInterruptionHandling(...args),
 }));
 
 vi.mock("../../handlers/agent-error-handler.js", () => ({
@@ -102,13 +104,11 @@ describe("AgentExecutionCoordinator", () => {
     it("should complete normally when iterations finish with final answer", async () => {
       wrapCallbackResult();
 
-      mockIterationCoordinator.executeIteration = vi
-        .fn()
-        .mockResolvedValueOnce({
-          success: true,
-          shouldContinue: false,
-          content: "Final answer",
-        });
+      mockIterationCoordinator.executeIteration = vi.fn().mockResolvedValueOnce({
+        success: true,
+        shouldContinue: false,
+        content: "Final answer",
+      });
 
       const result = await coordinator.execute(
         mockEntity,
@@ -278,13 +278,13 @@ describe("AgentExecutionCoordinator", () => {
 
   describe("executeStream (stream mode)", () => {
     it("should stream events and complete normally", async () => {
-      __mocks__.iterateWithInterruptionHandling.mockImplementation(
-        async function* (mainLoop: AsyncGenerator) {
-          for await (const item of mainLoop) {
-            yield { type: "value", value: item };
-          }
-        },
-      );
+      __mocks__.iterateWithInterruptionHandling.mockImplementation(async function* (
+        mainLoop: AsyncGenerator,
+      ) {
+        for await (const item of mainLoop) {
+          yield { type: "value", value: item };
+        }
+      });
 
       const genStream = (async function* () {
         yield { type: "iteration_complete", agentLoopId: "agent-loop-1", iteration: 1 };

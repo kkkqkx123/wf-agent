@@ -1,6 +1,6 @@
 /**
  * Timeout Manager State Manager
- * 
+ *
  * Manages individual timeout lifecycle within an execution context.
  * Provides registration, cancellation, refresh, and state management capabilities.
  */
@@ -43,10 +43,10 @@ interface TimeoutManagerInternalConfig extends ResolvedTimeoutManagerConfig {
 
 /**
  * Timeout Manager
- * 
+ *
  * Manages the lifecycle of timeouts within a single execution context.
  * Each execution should have its own TimeoutManager instance.
- * 
+ *
  * Features:
  * - Register timeouts with automatic cleanup
  * - Integration with InterruptionState for automatic cancellation
@@ -95,7 +95,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     options?: {
       eventRegistry?: EventRegistry;
       executionId?: string;
-    }
+    },
   ) {
     this.config = {
       ...DEFAULT_TIMEOUT_MANAGER_CONFIG,
@@ -133,7 +133,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     // Validate tag if provided
     if (tag && !isValidTimeoutTag(tag)) {
       logger.warn(
-        `Timeout '${id}' uses non-standard tag '${tag}'. Consider using standard tags from timeout-tags.ts`
+        `Timeout '${id}' uses non-standard tag '${tag}'. Consider using standard tags from timeout-tags.ts`,
       );
     }
 
@@ -145,7 +145,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     // Check max timeouts limit
     if (this.timeouts.size >= this.config.maxTimeoutsPerExecution) {
       throw new Error(
-        `Maximum number of timeouts (${this.config.maxTimeoutsPerExecution}) reached`
+        `Maximum number of timeouts (${this.config.maxTimeoutsPerExecution}) reached`,
       );
     }
 
@@ -161,7 +161,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
       }
       if (effectiveWarningThreshold >= validatedDuration) {
         logger.warn(
-          `Timeout '${id}': warning threshold (${effectiveWarningThreshold}ms) is greater than or equal to duration (${validatedDuration}ms)`
+          `Timeout '${id}': warning threshold (${effectiveWarningThreshold}ms) is greater than or equal to duration (${validatedDuration}ms)`,
         );
       }
     }
@@ -171,7 +171,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     // Ensure tag is included in metadata for diagnostic purposes
     const enrichedMetadata = metadata ? { ...metadata } : {};
     if (tag) {
-      enrichedMetadata['tag'] = tag;
+      enrichedMetadata["tag"] = tag;
     }
 
     // Create timeout entry
@@ -223,7 +223,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     }
 
     // Emit registration event
-    this.emitEvent('TIMEOUT_REGISTERED', {
+    this.emitEvent("TIMEOUT_REGISTERED", {
       timeoutId: id,
       duration: validatedDuration,
       tag,
@@ -235,14 +235,14 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
 
   /**
    * Register a timeout with automatic interruption protection
-   * 
+   *
    * This is a convenience method that automatically binds the timeout to the
    * current interruption state, ensuring it's cancelled when execution is interrupted.
-   * 
+   *
    * @param options Timeout registration options (interruptionState will be set automatically)
    * @param interruptionState The interruption state to bind to
    * @returns TimeoutHandle for managing the timeout
-   * 
+   *
    * @example
    * ```typescript
    * const handle = manager.registerWithInterruptionProtection(
@@ -257,8 +257,8 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    * ```
    */
   registerWithInterruptionProtection(
-    options: Omit<TimeoutRegistration, 'interruptionState'>,
-    interruptionState: InterruptionStateReference
+    options: Omit<TimeoutRegistration, "interruptionState">,
+    interruptionState: InterruptionStateReference,
   ): TimeoutHandle {
     return this.register({
       ...options,
@@ -381,7 +381,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    */
   size(): number {
     let count = 0;
-    this.timeouts.forEach((entry) => {
+    this.timeouts.forEach(entry => {
       if (entry.status === "active") {
         count++;
       }
@@ -400,7 +400,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    * Clear all timeouts
    */
   clear(): void {
-    this.timeouts.forEach((entry) => {
+    this.timeouts.forEach(entry => {
       this.cancelEntry(entry, "cancelled");
     });
     this.timeouts.clear();
@@ -437,7 +437,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
   serialize(): TimeoutSnapshot {
     const timeouts: TimeoutSnapshot["timeouts"] = [];
 
-    this.timeouts.forEach((entry) => {
+    this.timeouts.forEach(entry => {
       timeouts.push({
         id: entry.id,
         startTime: entry.startTime,
@@ -465,7 +465,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     this.clear();
 
     // Restore metadata (timers are not restored)
-    snapshot.timeouts.forEach((timeoutData) => {
+    snapshot.timeouts.forEach(timeoutData => {
       // We don't re-create timers on restore
       // The calling code should re-register timeouts as needed
       // This is mainly for tracking and metrics purposes
@@ -498,7 +498,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
 
     if (duration > this.config.maxTimeout) {
       logger.warn(
-        `Timeout duration ${duration}ms exceeds maximum ${this.config.maxTimeout}ms, capping to maximum`
+        `Timeout duration ${duration}ms exceeds maximum ${this.config.maxTimeout}ms, capping to maximum`,
       );
       return this.config.maxTimeout;
     }
@@ -560,10 +560,10 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     this.stats.durations.push(Date.now() - entry.startTime);
 
     // Emit cancellation event
-    this.emitEvent('TIMEOUT_CANCELLED', {
+    this.emitEvent("TIMEOUT_CANCELLED", {
       timeoutId: entry.id,
       reason: _reason,
-      tag: entry.metadata?.['tag'] as string | undefined,
+      tag: entry.metadata?.["tag"] as string | undefined,
     });
   }
 
@@ -586,26 +586,22 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     this.stats.durations.push(actualDuration);
 
     // Log timeout expiration
-    const tagInfo = entry.metadata?.['tag'] ? ` (tag: ${entry.metadata['tag']})` : '';
-    logger.debug(
-      `Timeout '${entry.id}' expired after ${actualDuration}ms${tagInfo}`
-    );
+    const tagInfo = entry.metadata?.["tag"] ? ` (tag: ${entry.metadata["tag"]})` : "";
+    logger.debug(`Timeout '${entry.id}' expired after ${actualDuration}ms${tagInfo}`);
 
     // Emit expiration event
-    this.emitEvent('TIMEOUT_EXPIRED', {
+    this.emitEvent("TIMEOUT_EXPIRED", {
       timeoutId: entry.id,
       actualDuration,
       configuredDuration: entry.duration,
-      tag: entry.metadata?.['tag'] as string | undefined,
+      tag: entry.metadata?.["tag"] as string | undefined,
     });
 
     // Execute timeout callback with error handling
     try {
       await entry.onTimeout();
     } catch (error) {
-      logger.error(
-        `Error in timeout callback for '${entry.id}'`,
-      );
+      logger.error(`Error in timeout callback for '${entry.id}'`);
     }
   }
 
@@ -614,7 +610,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    */
   private async handleWarning(
     entry: TimeoutEntryWithHandle,
-    warningThreshold: number
+    warningThreshold: number,
   ): Promise<void> {
     if (entry.status !== "active" || entry.warningEmitted) {
       return;
@@ -626,17 +622,17 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     const remainingTime = this.getRemainingTimeFromEntry(entry);
 
     // Log warning
-    const tagInfo = entry.metadata?.['tag'] ? ` (tag: ${entry.metadata['tag']})` : '';
+    const tagInfo = entry.metadata?.["tag"] ? ` (tag: ${entry.metadata["tag"]})` : "";
     logger.debug(
-      `Timeout '${entry.id}' warning: ${remainingTime}ms remaining (threshold: ${warningThreshold}ms)${tagInfo}`
+      `Timeout '${entry.id}' warning: ${remainingTime}ms remaining (threshold: ${warningThreshold}ms)${tagInfo}`,
     );
 
     // Emit warning event
-    this.emitEvent('TIMEOUT_WARNING', {
+    this.emitEvent("TIMEOUT_WARNING", {
       timeoutId: entry.id,
       remainingTime,
       warningThreshold,
-      tag: entry.metadata?.['tag'] as string | undefined,
+      tag: entry.metadata?.["tag"] as string | undefined,
     });
 
     // Execute warning callback with error handling
@@ -644,9 +640,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
       try {
         await entry.onWarning();
       } catch (error: unknown) {
-        logger.error(
-          `Error in warning callback for '${entry.id}'`,
-        );
+        logger.error(`Error in warning callback for '${entry.id}'`);
       }
     }
   }
@@ -656,7 +650,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
    */
   private bindToInterruptionState(
     entry: TimeoutEntry,
-    interruptionState: InterruptionStateReference
+    interruptionState: InterruptionStateReference,
   ): void {
     // Check if already interrupted
     if (interruptionState.shouldStop()) {
@@ -701,7 +695,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
           ...payload,
         };
         // Note: emit is async but we don't await to avoid blocking timeout operations
-        emitter.emit(event).catch((error) => {
+        emitter.emit(event).catch(error => {
           logger.warn("Failed to emit timeout event", { eventType, error });
         });
       }

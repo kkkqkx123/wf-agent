@@ -4,31 +4,31 @@ This document provides a comparative analysis of Thread and Agent Loop state mac
 
 ## Quick Comparison
 
-| Aspect | Thread | Agent Loop |
-|--------|--------|------------|
-| **Entity** | ThreadEntity | AgentLoopEntity |
-| **Status Type** | ThreadStatus | AgentLoopStatus |
-| **Initial State** | CREATED | CREATED |
-| **Active States** | RUNNING, PAUSED | RUNNING, PAUSED |
+| Aspect              | Thread                                | Agent Loop                   |
+| ------------------- | ------------------------------------- | ---------------------------- |
+| **Entity**          | ThreadEntity                          | AgentLoopEntity              |
+| **Status Type**     | ThreadStatus                          | AgentLoopStatus              |
+| **Initial State**   | CREATED                               | CREATED                      |
+| **Active States**   | RUNNING, PAUSED                       | RUNNING, PAUSED              |
 | **Terminal States** | COMPLETED, FAILED, CANCELLED, TIMEOUT | COMPLETED, FAILED, CANCELLED |
-| **State Manager** | ThreadState | AgentLoopState |
-| **Transitor** | ThreadStateTransitor | (inline in coordinator) |
-| **Validator** | ThreadStateValidator | (inline) |
-| **Location** | graph/state-managers/ | agent/entities/ |
+| **State Manager**   | ThreadState                           | AgentLoopState               |
+| **Transitor**       | ThreadStateTransitor                  | (inline in coordinator)      |
+| **Validator**       | ThreadStateValidator                  | (inline)                     |
+| **Location**        | graph/state-managers/                 | agent/entities/              |
 
 ## Status Mapping
 
 Both state machines can be mapped to a common conceptual status (for reference only):
 
 | ThreadStatus | AgentLoopStatus | Conceptual Status |
-|--------------|----------------|-------------------|
-| CREATED | CREATED | PENDING |
-| RUNNING | RUNNING | RUNNING |
-| PAUSED | PAUSED | PAUSED |
-| COMPLETED | COMPLETED | COMPLETED |
-| FAILED | FAILED | FAILED |
-| CANCELLED | CANCELLED | CANCELLED |
-| TIMEOUT | (N/A) | FAILED |
+| ------------ | --------------- | ----------------- |
+| CREATED      | CREATED         | PENDING           |
+| RUNNING      | RUNNING         | RUNNING           |
+| PAUSED       | PAUSED          | PAUSED            |
+| COMPLETED    | COMPLETED       | COMPLETED         |
+| FAILED       | FAILED          | FAILED            |
+| CANCELLED    | CANCELLED       | CANCELLED         |
+| TIMEOUT      | (N/A)           | FAILED            |
 
 **Note**: Thread has TIMEOUT status that maps to FAILED.
 
@@ -54,46 +54,46 @@ CREATED → RUNNING → [PAUSED | COMPLETED | FAILED | CANCELLED]
 
 ### 1. Scope
 
-| Thread | Agent Loop |
-|--------|-----------|
+| Thread                             | Agent Loop                           |
+| ---------------------------------- | ------------------------------------ |
 | Controls entire workflow execution | Controls single agent iteration loop |
-| May have child threads | May be part of a thread |
+| May have child threads             | May be part of a thread              |
 
 ### 2. Iteration Model
 
-| Thread | Agent Loop |
-|--------|-----------|
-| Single execution phase | Multiple iterations |
-| No iteration tracking | Tracks iteration count/history |
-| No tool call tracking | Tracks tool calls per iteration |
+| Thread                 | Agent Loop                      |
+| ---------------------- | ------------------------------- |
+| Single execution phase | Multiple iterations             |
+| No iteration tracking  | Tracks iteration count/history  |
+| No tool call tracking  | Tracks tool calls per iteration |
 
 ### 3. Timeout Handling
 
-| Thread | Agent Loop |
-|--------|-----------|
-| Has TIMEOUT status | No timeout status |
+| Thread             | Agent Loop                 |
+| ------------------ | -------------------------- |
+| Has TIMEOUT status | No timeout status          |
 | Timeout via config | Timeout via max iterations |
 
 ### 4. Streaming Support
 
-| Thread | Agent Loop |
-|--------|-----------|
-| No streaming state | Tracks streaming messages |
+| Thread                | Agent Loop                |
+| --------------------- | ------------------------- |
+| No streaming state    | Tracks streaming messages |
 | No pending tool calls | Tracks pending tool calls |
 
 ### 5. Child Thread Management
 
-| Thread | Agent Loop |
-|--------|-----------|
-| Supports child threads | N/A |
-| Cascade cancel | N/A |
+| Thread                 | Agent Loop |
+| ---------------------- | ---------- |
+| Supports child threads | N/A        |
+| Cascade cancel         | N/A        |
 
 ### 6. State Transitor Pattern
 
-| Thread | Agent Loop |
-|--------|-----------|
+| Thread                         | Agent Loop            |
+| ------------------------------ | --------------------- |
 | Dedicated ThreadStateTransitor | Inline in coordinator |
-| Separate validator module | Inline checks |
+| Separate validator module      | Inline checks         |
 
 ## Common Patterns
 
@@ -103,12 +103,12 @@ Both support pause/stop interrupts:
 
 ```typescript
 // ThreadState
-_shouldPause: boolean
-_shouldStop: boolean
+_shouldPause: boolean;
+_shouldStop: boolean;
 
 // AgentLoopState
-_shouldPause: boolean
-_shouldStop: boolean
+_shouldPause: boolean;
+_shouldStop: boolean;
 ```
 
 ### 2. Timing
@@ -116,8 +116,8 @@ _shouldStop: boolean
 Both track start/end time:
 
 ```typescript
-_startTime: number | null
-_endTime: number | null
+_startTime: number | null;
+_endTime: number | null;
 ```
 
 ### 3. Error Handling
@@ -125,12 +125,13 @@ _endTime: number | null
 Both track errors:
 
 ```typescript
-_error: unknown
+_error: unknown;
 ```
 
 ### 4. Lifecycle Events
 
 Both emit lifecycle events:
+
 - ThreadStarted/ThreadCompleted/ThreadFailed/etc.
 - (similar for AgentLoop)
 
@@ -162,13 +163,13 @@ Both emit lifecycle events:
 
 ## When to Use Which
 
-| Use Thread When | Use Agent Loop When |
-|----------------|-------------------|
-| Executing a workflow graph | Running an LLM loop with tools |
-| Need child thread support | Need iteration tracking |
-| Simple single-phase execution | Multi-turn conversation |
-| Need timeout control | Need stop condition logic |
-| No streaming requirements | Streaming LLM responses |
+| Use Thread When               | Use Agent Loop When            |
+| ----------------------------- | ------------------------------ |
+| Executing a workflow graph    | Running an LLM loop with tools |
+| Need child thread support     | Need iteration tracking        |
+| Simple single-phase execution | Multi-turn conversation        |
+| Need timeout control          | Need stop condition logic      |
+| No streaming requirements     | Streaming LLM responses        |
 
 ## Integration
 
@@ -190,6 +191,7 @@ Thread (RUNNING)
 ### Checkpoint Interaction
 
 Both support checkpoint:
+
 - Thread: Via CheckpointStateManager
 - AgentLoop: Via AgentLoopCheckpointCoordinator
 
@@ -199,6 +201,7 @@ Both support checkpoint:
 - **Agent Loop State Machine**: Designed for iteration-based LLM execution with tool call tracking
 
 Both follow similar patterns (CREATED → RUNNING → terminal states) but differ in:
+
 1. Iteration model (Thread: single, AgentLoop: multi)
 2. Tool call tracking (AgentLoop only)
 3. Streaming state (AgentLoop only)

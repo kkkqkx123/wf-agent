@@ -23,9 +23,7 @@ const logger = createContextualLogger({ component: "SyncNodeValidator" });
  * @param graph Graph data containing SYNC nodes
  * @returns List of validation errors
  */
-export function validateSyncNodes(
-  graph: WorkflowGraphData,
-): ConfigurationValidationError[] {
+export function validateSyncNodes(graph: WorkflowGraphData): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
   // Collect all SYNC nodes with full config
@@ -63,9 +61,11 @@ export function validateSyncNodes(
   const forkPathMapping = new Map<ID, ID>();
   for (const node of graph.nodes.values()) {
     if (node.type === ("FORK" as StaticNodeType)) {
-      const config = node.originalNode?.config as {
-        forkPaths?: Array<{ pathId: ID; childNodeId: ID }>;
-      } | undefined;
+      const config = node.originalNode?.config as
+        | {
+            forkPaths?: Array<{ pathId: ID; childNodeId: ID }>;
+          }
+        | undefined;
 
       if (config?.forkPaths) {
         for (const forkPath of config.forkPaths) {
@@ -87,16 +87,13 @@ export function validateSyncNodes(
     // Check if sourcePathId is present (only required for non-paired SYNC)
     if (!isPairedSync && (!config.sourcePathId || !config.sourcePathId.trim())) {
       errors.push(
-        new ConfigurationValidationError(
-          `SYNC node '${nodeId}' is missing required sourcePathId`,
-          {
-            configType: "workflow",
-            context: {
-              code: "MISSING_SYNC_SOURCE_PATH_ID",
-              nodeId,
-            },
-          }
-        )
+        new ConfigurationValidationError(`SYNC node '${nodeId}' is missing required sourcePathId`, {
+          configType: "workflow",
+          context: {
+            code: "MISSING_SYNC_SOURCE_PATH_ID",
+            nodeId,
+          },
+        }),
       );
     }
 
@@ -114,8 +111,8 @@ export function validateSyncNodes(
               nodeId,
               sourcePathId: config.sourcePathId,
             },
-          }
-        )
+          },
+        ),
       );
     }
 
@@ -132,8 +129,8 @@ export function validateSyncNodes(
                 nodeId,
                 targetPathId: config.targetPathId,
               },
-            }
-          )
+            },
+          ),
         );
       }
     }
@@ -155,8 +152,8 @@ export function validateSyncNodes(
                   nodeId,
                   internalName: mapping.internalName,
                 },
-              }
-            )
+              },
+            ),
           );
         } else {
           // Check for duplicate external names
@@ -171,8 +168,8 @@ export function validateSyncNodes(
                     nodeId,
                     externalName: mapping.externalName,
                   },
-                }
-              )
+                },
+              ),
             );
           }
           externalNames.add(mapping.externalName);
@@ -189,8 +186,8 @@ export function validateSyncNodes(
                   nodeId,
                   externalName: mapping.externalName,
                 },
-              }
-            )
+              },
+            ),
           );
         } else {
           // Check for duplicate internal names
@@ -205,8 +202,8 @@ export function validateSyncNodes(
                     nodeId,
                     internalName: mapping.internalName,
                   },
-                }
-              )
+                },
+              ),
             );
           }
           internalNames.add(mapping.internalName);
@@ -217,7 +214,7 @@ export function validateSyncNodes(
           // This is allowed but we can add a warning in development mode
           if (process.env["NODE_ENV"] === "development") {
             logger.warn(
-              `[DEV] SYNC node '${nodeId}' has self-mapping: ${mapping.externalName} -> ${mapping.internalName}`
+              `[DEV] SYNC node '${nodeId}' has self-mapping: ${mapping.externalName} -> ${mapping.internalName}`,
             );
           }
         }
@@ -238,8 +235,8 @@ export function validateSyncNodes(
                   nodeId,
                   sourcePathId: exchange.sourcePathId,
                 },
-              }
-            )
+              },
+            ),
           );
         }
         if (exchange.targetPathId && !forkPathMapping.has(exchange.targetPathId)) {
@@ -253,8 +250,8 @@ export function validateSyncNodes(
                   nodeId,
                   targetPathId: exchange.targetPathId,
                 },
-              }
-            )
+              },
+            ),
           );
         }
       }
@@ -273,8 +270,8 @@ export function validateSyncNodes(
               code: "ISOLATED_SYNC_NODE",
               nodeId,
             },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -310,8 +307,8 @@ function validatePairIdFormat(
               nodeId,
               pairId: config.pairId,
             },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -348,8 +345,8 @@ function validatePairIdUniquenessInGraph(
               pairId,
               nodeIds,
             },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -381,8 +378,8 @@ function validatePairedSyncExchangePresence(
               nodeId,
               pairId: config.pairId,
             },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -417,8 +414,8 @@ function validateExchangeIntegrity(
                 sourcePathId: exchange.sourcePathId,
                 targetPathId: exchange.targetPathId,
               },
-            }
-          )
+            },
+          ),
         );
       }
 
@@ -436,8 +433,8 @@ function validateExchangeIntegrity(
                 sourcePathId: exchange.sourcePathId,
                 sourceVariable: exchange.sourceVariable,
               },
-            }
-          )
+            },
+          ),
         );
       }
       exchangeSourceSet.add(exchangeKey);
@@ -488,8 +485,8 @@ function validateTopologicalPosition(
               nodeId,
               pairId: config.pairId,
             },
-          }
-        )
+          },
+        ),
       );
     }
   }
@@ -546,29 +543,29 @@ function isNodeConnectedToAny(
 
 /**
  * Validate SYNC node pairing and variable mapping consistency
- * 
+ *
  * This validation ensures that:
  * 1. If bidirectional sync is needed, paired SYNC nodes exist
  * 2. Variable mappings between paired nodes are consistent
  * 3. No conflicting data flows exist
- * 
+ *
  * @param syncNodes All SYNC nodes in the graph
  * @param _forkPathMapping Mapping of path IDs to FORK node IDs (reserved for future use)
  * @returns List of validation errors
  */
 function validateSyncNodePairing(
   syncNodes: Array<{ nodeId: ID; config: SyncNodeConfig }>,
-  _forkPathMapping: Map<ID, ID>
+  _forkPathMapping: Map<ID, ID>,
 ): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
   // Group SYNC nodes by their sourcePathId to identify potential pairs
   const syncBySourcePath = new Map<ID, Array<{ nodeId: ID; config: SyncNodeConfig }>>();
-  
+
   for (const syncNode of syncNodes) {
     const sourcePathId = syncNode.config.sourcePathId;
     if (!sourcePathId) continue;
-    
+
     if (!syncBySourcePath.has(sourcePathId)) {
       syncBySourcePath.set(sourcePathId, []);
     }
@@ -580,10 +577,10 @@ function validateSyncNodePairing(
     if (nodes.length > 1) {
       // Multiple SYNC nodes syncing from the same source path
       // This might be intentional (multiple targets) or a configuration error
-      
+
       // Check if any of them have overlapping variable mappings
       const allInternalNames = new Map<string, string>(); // internalName -> nodeId
-      
+
       for (const node of nodes) {
         if (node.config.variableMappings) {
           for (const mapping of node.config.variableMappings) {
@@ -594,7 +591,7 @@ function validateSyncNodePairing(
               errors.push(
                 new ConfigurationValidationError(
                   `Multiple SYNC nodes from sourcePathId '${sourcePathId}' map to the same internalName '${mapping.internalName}'. ` +
-                  `This may cause data conflicts. Nodes: '${existingNodeId}' and '${node.nodeId}'`,
+                    `This may cause data conflicts. Nodes: '${existingNodeId}' and '${node.nodeId}'`,
                   {
                     configType: "workflow",
                     context: {
@@ -604,8 +601,8 @@ function validateSyncNodePairing(
                       internalName: mapping.internalName,
                       conflictingNodeId: existingNodeId,
                     },
-                  }
-                )
+                  },
+                ),
               );
             }
             allInternalNames.set(mapping.internalName, node.nodeId);
@@ -618,18 +615,18 @@ function validateSyncNodePairing(
   // Validate bidirectional sync consistency (if applicable)
   // Look for pairs where A syncs to B and B syncs to A
   const syncPairs = new Map<string, { source: ID; target: ID }>();
-  
+
   for (const syncNode of syncNodes) {
-    const key = `${syncNode.config.sourcePathId}->${syncNode.config.targetPathId || 'auto'}`;
+    const key = `${syncNode.config.sourcePathId}->${syncNode.config.targetPathId || "auto"}`;
     syncPairs.set(key, {
       source: syncNode.config.sourcePathId!,
-      target: syncNode.config.targetPathId || 'auto'
+      target: syncNode.config.targetPathId || "auto",
     });
   }
 
   // Check for circular dependencies in variable mappings
   const reportedCycles = new Set<string>(); // Track reported cycles to avoid duplicates
-  
+
   for (const syncNode of syncNodes) {
     if (!syncNode.config.variableMappings || syncNode.config.variableMappings.length === 0) {
       continue;
@@ -637,26 +634,27 @@ function validateSyncNodePairing(
 
     // Check if any variable creates a circular dependency
     const sourceMapping = syncNode.config.variableMappings;
-    
+
     // Look for reverse SYNC node (target -> source)
-    const reverseSyncNode = syncNodes.find(other => 
-      other.nodeId !== syncNode.nodeId &&
-      other.config.sourcePathId === syncNode.config.targetPathId &&
-      other.config.targetPathId === syncNode.config.sourcePathId
+    const reverseSyncNode = syncNodes.find(
+      other =>
+        other.nodeId !== syncNode.nodeId &&
+        other.config.sourcePathId === syncNode.config.targetPathId &&
+        other.config.targetPathId === syncNode.config.sourcePathId,
     );
 
     if (reverseSyncNode && reverseSyncNode.config.variableMappings) {
       // Create a unique cycle key to avoid duplicate reports
-      const cycleKey = [syncNode.nodeId, reverseSyncNode.nodeId].sort().join('-');
-      
+      const cycleKey = [syncNode.nodeId, reverseSyncNode.nodeId].sort().join("-");
+
       if (reportedCycles.has(cycleKey)) {
         continue; // Already reported this cycle
       }
-      
+
       // Check for circular variable dependencies
       for (const forwardMapping of sourceMapping) {
         const reverseMapping = reverseSyncNode.config.variableMappings.find(
-          rm => rm.externalName === forwardMapping.internalName
+          rm => rm.externalName === forwardMapping.internalName,
         );
 
         if (reverseMapping && reverseMapping.internalName === forwardMapping.externalName) {
@@ -665,7 +663,7 @@ function validateSyncNodePairing(
           errors.push(
             new ConfigurationValidationError(
               `Circular variable dependency detected between SYNC nodes '${syncNode.nodeId}' and '${reverseSyncNode.nodeId}': ` +
-              `'${forwardMapping.externalName}' <-> '${forwardMapping.internalName}'`,
+                `'${forwardMapping.externalName}' <-> '${forwardMapping.internalName}'`,
               {
                 configType: "workflow",
                 context: {
@@ -674,8 +672,8 @@ function validateSyncNodePairing(
                   pairedNodeId: reverseSyncNode.nodeId,
                   variableName: forwardMapping.externalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
       }
@@ -687,16 +685,16 @@ function validateSyncNodePairing(
 
 /**
  * Validate data flow direction to ensure unidirectional flow
- * 
+ *
  * SYNC nodes should follow unidirectional data flow principles:
  * - Data flows from sourcePathId to the SYNC node's branch
  * - No circular data dependencies should exist
- * 
+ *
  * @param syncNodes All SYNC nodes in the graph
  * @returns List of validation errors
  */
 function validateDataFlowDirection(
-  syncNodes: Array<{ nodeId: ID; config: SyncNodeConfig }>
+  syncNodes: Array<{ nodeId: ID; config: SyncNodeConfig }>,
 ): ConfigurationValidationError[] {
   const errors: ConfigurationValidationError[] = [];
 
@@ -736,15 +734,15 @@ function validateDataFlowDirection(
           const cycle = path.slice(cycleStart).concat(neighbor);
           errors.push(
             new ConfigurationValidationError(
-              `Circular data flow detected in SYNC nodes: ${cycle.join(' -> ')}`,
+              `Circular data flow detected in SYNC nodes: ${cycle.join(" -> ")}`,
               {
                 configType: "workflow",
                 context: {
                   code: "CIRCULAR_DATA_FLOW",
                   cycle: cycle,
                 },
-              }
-            )
+              },
+            ),
           );
           return true;
         }

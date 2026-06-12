@@ -63,7 +63,10 @@ export class DisableTriggerCommand extends BaseCommand<void> {
   private async getTriggerManager(executionId: string) {
     const executionContext = this.dependencies.getWorkflowExecutionRegistry().get(executionId);
     if (!executionContext) {
-      throw new WorkflowExecutionNotFoundError(`Workflow execution not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
     return executionContext.triggerManager;
   }

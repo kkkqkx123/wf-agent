@@ -88,10 +88,9 @@ export class ExecutionState implements StateManager<SubgraphContext[]> {
    */
   exitSubgraph(): void {
     if (this.subgraphStack.length === 0) {
-      throw new RuntimeValidationError(
-        "Cannot exit subgraph: no active subgraph context",
-        { operation: "exitSubgraph" },
-      );
+      throw new RuntimeValidationError("Cannot exit subgraph: no active subgraph context", {
+        operation: "exitSubgraph",
+      });
     }
     this.subgraphStack.pop();
   }

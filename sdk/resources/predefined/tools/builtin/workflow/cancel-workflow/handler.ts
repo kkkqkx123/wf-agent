@@ -3,9 +3,7 @@
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
-import type {
-  CancelWorkflowResult,
-} from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import type { CancelWorkflowResult } from "@sdk/workflow/execution/types/workflow-tool.types.js";
 import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
@@ -16,7 +14,7 @@ import {
 
 /**
  * Cancel Workflow Tool Handler
- * 
+ *
  * @param params - CancelWorkflowParams containing taskId
  * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
  * @returns CancelWorkflowResult with cancellation status
@@ -48,14 +46,17 @@ export function createCancelWorkflowHandler() {
 
     // Validate parent workflow execution entity for hierarchy security
     if (!context.parentExecutionEntity) {
-      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow cancellation", {
-        operation: "cancel_workflow",
-        field: "parentExecutionEntity",
-        context: {
-          taskId,
-          executionId: context.executionId,
+      throw new RuntimeValidationError(
+        "Parent workflow execution entity is required for workflow cancellation",
+        {
+          operation: "cancel_workflow",
+          field: "parentExecutionEntity",
+          context: {
+            taskId,
+            executionId: context.executionId,
+          },
         },
-      });
+      );
     }
 
     // Get TriggeredSubworkflowHandler from DI container
@@ -65,7 +66,7 @@ export function createCancelWorkflowHandler() {
         operation: "cancel_workflow",
       });
     }
-    
+
     const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;

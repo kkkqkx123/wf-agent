@@ -1,6 +1,6 @@
 /**
  * Terminal Service Types
- * 
+ *
  * Type definitions for the terminal service that provides unified
  * terminal session management with multi-shell support.
  */
@@ -192,5 +192,5 @@ export interface TerminalServiceEvents {
   /** Output received */
   "output:received": [sessionId: string, line: string];
   /** Error occurred */
-  "error": [error: Error, sessionId?: string];
+  error: [error: Error, sessionId?: string];
 }

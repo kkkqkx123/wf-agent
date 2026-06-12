@@ -6,7 +6,9 @@ const MockMcpClient = vi.hoisted(() => {
   return class MockMcpClient {
     connect = vi.fn().mockResolvedValue(undefined);
     close = vi.fn().mockResolvedValue(undefined);
-    listTools = vi.fn().mockResolvedValue([{ name: "echo", description: "Echo test tool", inputSchema: {} }]);
+    listTools = vi
+      .fn()
+      .mockResolvedValue([{ name: "echo", description: "Echo test tool", inputSchema: {} }]);
     listResources = vi.fn().mockResolvedValue([]);
     listResourceTemplates = vi.fn().mockResolvedValue([]);
     callTool = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "done" }] });
@@ -16,11 +18,15 @@ const MockMcpClient = vi.hoisted(() => {
       // Each new instance gets fresh mocks
       this.connect = vi.fn().mockResolvedValue(undefined);
       this.close = vi.fn().mockResolvedValue(undefined);
-      this.listTools = vi.fn().mockResolvedValue([{ name: "echo", description: "Echo test tool", inputSchema: {} }]);
+      this.listTools = vi
+        .fn()
+        .mockResolvedValue([{ name: "echo", description: "Echo test tool", inputSchema: {} }]);
       this.listResources = vi.fn().mockResolvedValue([]);
       this.listResourceTemplates = vi.fn().mockResolvedValue([]);
       this.callTool = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "done" }] });
-      this.readResource = vi.fn().mockResolvedValue({ contents: [{ uri: "test:///", text: "content" }] });
+      this.readResource = vi
+        .fn()
+        .mockResolvedValue({ contents: [{ uri: "test:///", text: "content" }] });
       this.getInstructions = vi.fn().mockReturnValue(null);
     }
   };
@@ -117,7 +123,7 @@ describe("McpConnectionManager", () => {
 
     it("should emit events during connection", async () => {
       const events: string[] = [];
-      manager.addEventHandler((event) => events.push(event.type));
+      manager.addEventHandler(event => events.push(event.type));
 
       await manager.connectServer("echo", { type: "stdio", command: "echo" });
       expect(events).toContain("server:connecting");
@@ -168,7 +174,7 @@ describe("McpConnectionManager", () => {
 
       const connected = manager.getConnectedServers();
       expect(connected.length).toBeGreaterThanOrEqual(1);
-      expect(connected.every((s) => s.status === "connected")).toBe(true);
+      expect(connected.every(s => s.status === "connected")).toBe(true);
     });
   });
 

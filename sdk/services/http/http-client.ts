@@ -5,7 +5,12 @@
  */
 
 import { now, diffTimestamp } from "../../utils/timestamp-utils.js";
-import type { HttpClientConfig, HttpRequestOptions, HttpResponse, HttpLogger } from "@wf-agent/types";
+import type {
+  HttpClientConfig,
+  HttpRequestOptions,
+  HttpResponse,
+  HttpLogger,
+} from "@wf-agent/types";
 import { TimeoutError, CircuitBreakerOpenError, HttpError } from "@wf-agent/types";
 import { InterceptorManager } from "./interceptors.js";
 import type { RequestConfig, ResponseData } from "./interceptors.js";
@@ -314,7 +319,7 @@ export class HttpClient {
         error: String(error),
       });
       throw await this.interceptors.applyErrorInterceptors(
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }

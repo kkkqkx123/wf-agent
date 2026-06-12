@@ -45,11 +45,13 @@ MessageStream事件触发 (text, streamEvent等)
 ### 1.3 关键观察点
 
 **推理内容来源**：
+
 - OpenAI: `chunk.reasoningContent` 来自 `delta.reasoning_content`
 - Anthropic: `chunk.reasoningContent` 来自 thinking block
 - Gemini: `chunk.reasoningContent` 来自 thought parts
 
 **当前问题**：
+
 - `wrapper.ts` 第143行只推送了 `chunk.content`，**没有推送 `chunk.reasoningContent`**
 - `MessageStream` 只维护 `currentTextSnapshot`，没有独立的 `reasoningMessage` 累积
 - 缺少针对推理内容的专门检测机制
@@ -73,6 +75,7 @@ MessageStream事件触发 (text, streamEvent等)
 #### 方案A：在MessageStream中集成（推荐）
 
 **优势**：
+
 - MessageStream已经是流式响应的核心处理器
 - 天然拥有累积文本的能力
 - 可以在检测到死循环时直接abort()
@@ -81,20 +84,22 @@ MessageStream事件触发 (text, streamEvent等)
 **改造点**：
 
 1. **扩展MessageStream类**
+
    ```typescript
    export class MessageStream {
      // 新增：推理内容累积
      private reasoningMessage: string = "";
-     
+
      // 新增：死循环检测器
      private deadLoopDetector?: DeadLoopDetector;
-     
+
      // 新增：检查点状态
      private checkpointStates: Map<number, boolean> = new Map();
    }
    ```
 
 2. **修改pushText方法**
+
    ```typescript
    pushText(delta: string, isReasoning: boolean = false): void {
      if (isReasoning) {
@@ -108,6 +113,7 @@ MessageStream事件触发 (text, streamEvent等)
    ```
 
 3. **新增pushReasoning方法**
+
    ```typescript
    pushReasoning(delta: string): void {
      this.pushText(delta, true);
@@ -115,12 +121,13 @@ MessageStream事件触发 (text, streamEvent等)
    ```
 
 4. **在wrapper.ts中推送推理内容**
+
    ```typescript
    // wrapper.ts 第143行附近
    if (chunk.content) {
      stream.pushText(chunk.content);
    }
-   
+
    // 新增：推送推理内容
    if (chunk.reasoningContent) {
      stream.pushReasoning(chunk.reasoningContent);
@@ -130,10 +137,12 @@ MessageStream事件触发 (text, streamEvent等)
 #### 方案B：独立检测器中间件
 
 **优势**：
+
 - 完全解耦，不影响现有MessageStream逻辑
 - 可以灵活启用/禁用检测功能
 
 **劣势**：
+
 - 需要额外的数据传递机制
 - 检测到死循环后需要通过signal中断，不如方案A直接
 
@@ -151,13 +160,13 @@ MessageStream事件触发 (text, streamEvent等)
 ```typescript
 /**
  * LLM流式生成死循环检测器
- * 
+ *
  * 基于streaming-dead-loop-detector.md设计规范实现
  */
 
 export interface DeadLoopDetectionResult {
   detected: boolean;
-  type?: 'short-sequence' | 'paragraph-repeat' | 'list-repeat';
+  type?: "short-sequence" | "paragraph-repeat" | "list-repeat";
   details?: string;
 }
 
@@ -225,10 +234,7 @@ export class DeadLoopDetector {
   /**
    * 在指定检查点执行检测
    */
-  private detectAtCheckpoint(
-    text: string,
-    checkpoint: number
-  ): DeadLoopDetectionResult {
+  private detectAtCheckpoint(text: string, checkpoint: number): DeadLoopDetectionResult {
     // 获取检测范围的文本片段
     const previousCheckpoint = this.getPreviousCheckpoint(checkpoint);
     const startIndex = previousCheckpoint || 0;
@@ -265,14 +271,14 @@ export class DeadLoopDetector {
     // 正则匹配：至少2个字符的子串连续重复至少4次
     const pattern = new RegExp(
       `(.{${this.config.minRepeatUnitLength},})\\1{${this.config.minRepeatCount - 1},}`,
-      's'
+      "s",
     );
 
     const match = recentText.match(pattern);
     if (match) {
       return {
         detected: true,
-        type: 'short-sequence',
+        type: "short-sequence",
         details: `Detected short sequence loop: "${match[1]}" repeated`,
       };
     }
@@ -296,7 +302,7 @@ export class DeadLoopDetector {
     if (periodResult.detected) {
       return {
         detected: true,
-        type: 'paragraph-repeat',
+        type: "paragraph-repeat",
         details: `Detected paragraph repeat with period ${periodResult.period}`,
       };
     }
@@ -309,7 +315,7 @@ export class DeadLoopDetector {
    */
   private detectListRepeat(text: string): DeadLoopDetectionResult {
     // 步骤1：按行分割
-    const lines = text.split('\n');
+    const lines = text.split("\n");
 
     if (lines.length < this.config.minPeriodElements) {
       return { detected: false };
@@ -323,7 +329,7 @@ export class DeadLoopDetector {
     if (periodResult.detected) {
       return {
         detected: true,
-        type: 'list-repeat',
+        type: "list-repeat",
         details: `Detected list repeat with period ${periodResult.period}`,
       };
     }
@@ -335,10 +341,7 @@ export class DeadLoopDetector {
    * 通用周期检测逻辑（类型1和类型2共用）
    */
   private detectPeriod(elements: string[]): { detected: boolean; period?: number } {
-    const maxPeriod = Math.min(
-      this.config.maxPeriodLength,
-      Math.floor(elements.length / 2)
-    );
+    const maxPeriod = Math.min(this.config.maxPeriodLength, Math.floor(elements.length / 2));
 
     for (let p = 1; p <= maxPeriod; p++) {
       let consecutiveCount = 0;
@@ -376,7 +379,7 @@ export class DeadLoopDetector {
   private normalizeListItem(line: string): string {
     // 匹配有序列表标号模式：1. 2. 10. 等
     const listPattern = /^\d+\.\s*/;
-    return line.replace(listPattern, '');
+    return line.replace(listPattern, "");
   }
 
   /**
@@ -396,23 +399,23 @@ export class DeadLoopDetector {
 
 ```typescript
 // 在类定义中添加导入
-import { DeadLoopDetector, DeadLoopDetectionResult } from './dead-loop-detector.js';
+import { DeadLoopDetector, DeadLoopDetectionResult } from "./dead-loop-detector.js";
 
 export class MessageStream implements AsyncIterable<InternalStreamEvent> {
   // ... 现有属性
-  
+
   // 新增：推理内容累积
   private reasoningMessage: string = "";
-  
+
   // 新增：死循环检测器
   private deadLoopDetector: DeadLoopDetector;
-  
+
   // 新增：死循环检测回调
   private onDeadLoopDetected?: (result: DeadLoopDetectionResult) => void;
 
   constructor(onDeadLoopDetected?: (result: DeadLoopDetectionResult) => void) {
     // ... 现有初始化代码
-    
+
     // 初始化管理器
     this.deadLoopDetector = new DeadLoopDetector();
     this.onDeadLoopDetected = onDeadLoopDetected;
@@ -428,26 +431,26 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
     }
 
     this.reasoningMessage += delta;
-    
+
     // 检测死循环
     const detectionResult = this.deadLoopDetector.detect(this.reasoningMessage);
     if (detectionResult.detected) {
-      logger.warn('Dead loop detected in reasoning content', {
+      logger.warn("Dead loop detected in reasoning content", {
         type: detectionResult.type,
         details: detectionResult.details,
         reasoningLength: this.reasoningMessage.length,
       });
-      
+
       // 触发回调（如果设置了）
       if (this.onDeadLoopDetected) {
         this.onDeadLoopDetected(detectionResult);
       }
-      
+
       // 自动中止流
       this.abort();
       return;
     }
-    
+
     // 可选：触发推理内容事件
     this.emit("reasoningText", {
       type: "reasoningText",
@@ -473,10 +476,10 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
 ```typescript
 async generateStream(request: LLMRequest): Promise<Result<MessageStream, LLMError>> {
   // ... 现有代码
-  
+
   const result = await tryCatchAsyncWithSignal(async signal => {
     stream.setRequestId(generateId());
-    
+
     // 重置死循环检测器
     stream.resetDeadLoopDetector();
 
@@ -520,7 +523,7 @@ async generateStream(request: LLMRequest): Promise<Result<MessageStream, LLMErro
 
     // ... 后续代码
   }, request.signal);
-  
+
   // ... 返回结果
 }
 ```
@@ -531,21 +534,21 @@ async generateStream(request: LLMRequest): Promise<Result<MessageStream, LLMErro
 
 ```typescript
 // 新增事件类型
-export type MessageStreamEventType = 
-  | 'connect'
-  | 'streamEvent'
-  | 'text'
-  | 'inputJson'
-  | 'message'
-  | 'finalMessage'
-  | 'error'
-  | 'abort'
-  | 'end'
-  | 'reasoningText'; // 新增
+export type MessageStreamEventType =
+  | "connect"
+  | "streamEvent"
+  | "text"
+  | "inputJson"
+  | "message"
+  | "finalMessage"
+  | "error"
+  | "abort"
+  | "end"
+  | "reasoningText"; // 新增
 
 // 新增事件接口
 export interface MessageStreamReasoningTextEvent {
-  type: 'reasoningText';
+  type: "reasoningText";
   delta: string;
   snapshot: string;
 }
@@ -559,7 +562,7 @@ export interface MessageStreamReasoningTextEvent {
 // 在LLMProfile或LLMRequest中添加配置
 export interface LLMRequest {
   // ... 现有字段
-  
+
   /** 死循环检测配置 */
   deadLoopDetection?: {
     enabled?: boolean;
@@ -568,7 +571,7 @@ export interface LLMRequest {
 }
 
 // 在MessageStream构造函数中根据配置初始化
-constructor(options?: { 
+constructor(options?: {
   enableDeadLoopDetection?: boolean;
   deadLoopConfig?: DeadLoopDetectorConfig;
   onDeadLoopDetected?: (result: DeadLoopDetectionResult) => void;
@@ -587,66 +590,67 @@ constructor(options?: {
 **文件**: `sdk/core/llm/__tests__/dead-loop-detector.test.ts`
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { DeadLoopDetector } from '../dead-loop-detector.js';
+import { describe, it, expect } from "vitest";
+import { DeadLoopDetector } from "../dead-loop-detector.js";
 
-describe('DeadLoopDetector', () => {
-  describe('类型3：短序列循环检测', () => {
-    it('应该检测到短序列重复', () => {
+describe("DeadLoopDetector", () => {
+  describe("类型3：短序列循环检测", () => {
+    it("应该检测到短序列重复", () => {
       const detector = new DeadLoopDetector();
-      const text = '我需要思考'.repeat(10);
+      const text = "我需要思考".repeat(10);
       const result = detector.detect(text);
-      
+
       expect(result.detected).toBe(true);
-      expect(result.type).toBe('short-sequence');
+      expect(result.type).toBe("short-sequence");
     });
 
-    it('不应该误判正常文本', () => {
+    it("不应该误判正常文本", () => {
       const detector = new DeadLoopDetector();
-      const text = '这是一个正常的句子，没有任何重复模式。';
+      const text = "这是一个正常的句子，没有任何重复模式。";
       const result = detector.detect(text.repeat(3));
-      
+
       expect(result.detected).toBe(false);
     });
   });
 
-  describe('类型1：段落内容重复检测', () => {
-    it('应该检测到段落重复', () => {
+  describe("类型1：段落内容重复检测", () => {
+    it("应该检测到段落重复", () => {
       const detector = new DeadLoopDetector();
-      const text = '今天天气真好。我们出去玩吧！'.repeat(10);
+      const text = "今天天气真好。我们出去玩吧！".repeat(10);
       const result = detector.detect(text);
-      
+
       expect(result.detected).toBe(true);
-      expect(result.type).toBe('paragraph-repeat');
+      expect(result.type).toBe("paragraph-repeat");
     });
   });
 
-  describe('类型2：有序列表重复检测', () => {
-    it('应该检测到有序列表重复', () => {
+  describe("类型2：有序列表重复检测", () => {
+    it("应该检测到有序列表重复", () => {
       const detector = new DeadLoopDetector();
-      const text = Array.from({ length: 12 }, (_, i) => 
-        `${i + 1}. 分析需求\n${i + 2}. 设计方案`
-      ).join('\n');
-      
+      const text = Array.from(
+        { length: 12 },
+        (_, i) => `${i + 1}. 分析需求\n${i + 2}. 设计方案`,
+      ).join("\n");
+
       const result = detector.detect(text);
-      
+
       expect(result.detected).toBe(true);
-      expect(result.type).toBe('list-repeat');
+      expect(result.type).toBe("list-repeat");
     });
   });
 
-  describe('检查点机制', () => {
-    it('应该在达到检查点时才检测', () => {
+  describe("检查点机制", () => {
+    it("应该在达到检查点时才检测", () => {
       const detector = new DeadLoopDetector({
-        checkpoints: [100, 200, 300]
+        checkpoints: [100, 200, 300],
       });
-      
+
       // 未达到检查点
-      const shortText = '重复'.repeat(10);
+      const shortText = "重复".repeat(10);
       expect(detector.detect(shortText).detected).toBe(false);
-      
+
       // 达到第一个检查点
-      const longText = '重复'.repeat(100);
+      const longText = "重复".repeat(100);
       const result = detector.detect(longText);
       expect(result.detected).toBe(true);
     });
@@ -659,11 +663,11 @@ describe('DeadLoopDetector', () => {
 **文件**: `sdk/core/llm/__tests__/message-stream-dead-loop.int.test.ts`
 
 ```typescript
-import { describe, it, expect, vi } from 'vitest';
-import { MessageStream } from '../message-stream.js';
+import { describe, it, expect, vi } from "vitest";
+import { MessageStream } from "../message-stream.js";
 
-describe('MessageStream with Dead Loop Detection', () => {
-  it('应该在检测到死循环时自动abort', async () => {
+describe("MessageStream with Dead Loop Detection", () => {
+  it("应该在检测到死循环时自动abort", async () => {
     const onDeadLoopDetected = vi.fn();
     const stream = new MessageStream({
       enableDeadLoopDetection: true,
@@ -671,7 +675,7 @@ describe('MessageStream with Dead Loop Detection', () => {
     });
 
     // 模拟推送大量重复的推理内容
-    const repetitiveContent = '我需要分析这个问题。'.repeat(100);
+    const repetitiveContent = "我需要分析这个问题。".repeat(100);
     stream.pushReasoning(repetitiveContent);
 
     // 验证是否触发了死循环检测
@@ -679,14 +683,14 @@ describe('MessageStream with Dead Loop Detection', () => {
     expect(stream.isAborted()).toBe(true);
   });
 
-  it('正常内容不应该触发死循环检测', () => {
+  it("正常内容不应该触发死循环检测", () => {
     const onDeadLoopDetected = vi.fn();
     const stream = new MessageStream({
       enableDeadLoopDetection: true,
       onDeadLoopDetected,
     });
 
-    const normalContent = '这是一段正常的推理内容，没有重复模式。';
+    const normalContent = "这是一段正常的推理内容，没有重复模式。";
     stream.pushReasoning(normalContent.repeat(50));
 
     expect(onDeadLoopDetected).not.toHaveBeenCalled();
@@ -720,6 +724,7 @@ if (elements.length < this.config.minPeriodElements) {
 ### 5.4 可配置性
 
 允许用户根据场景调整参数：
+
 - 降低检查点阈值 → 更早检测但可能误判
 - 提高minPeriodElements → 减少误判但可能漏检
 - 禁用检测 → 对性能敏感的场景
@@ -729,7 +734,7 @@ if (elements.length < this.config.minPeriodElements) {
 ### 6.1 日志记录
 
 ```typescript
-logger.warn('Dead loop detected in reasoning content', {
+logger.warn("Dead loop detected in reasoning content", {
   type: detectionResult.type,
   details: detectionResult.details,
   reasoningLength: this.reasoningMessage.length,
@@ -740,6 +745,7 @@ logger.warn('Dead loop detected in reasoning content', {
 ### 6.2 事件通知
 
 除了自动abort，还可以：
+
 - 触发自定义回调 `onDeadLoopDetected`
 - 通过EventManager发出事件
 - 记录到metrics系统用于监控
@@ -747,12 +753,13 @@ logger.warn('Dead loop detected in reasoning content', {
 ### 6.3 优雅降级
 
 如果检测器抛出异常，不应影响正常流：
+
 ```typescript
 try {
   const detectionResult = this.deadLoopDetector.detect(this.reasoningMessage);
   // ... 处理结果
 } catch (error) {
-  logger.error('Dead loop detector error, skipping detection', { error });
+  logger.error("Dead loop detector error, skipping detection", { error });
   // 继续正常流程，不中断
 }
 ```
@@ -768,6 +775,7 @@ try {
 ### 7.2 多模型支持
 
 检测器对以下模型的reasoningContent都有效：
+
 - OpenAI: DeepSeek R1, o1系列
 - Anthropic: Claude with extended thinking
 - Gemini: Gemini thinking models
@@ -775,6 +783,7 @@ try {
 ### 7.3 与现有中断机制集成
 
 检测到死循环后调用`stream.abort()`，会：
+
 - 触发abort事件
 - 清理资源
 - 与现有的InterruptionState机制兼容
@@ -784,14 +793,14 @@ try {
 ### 8.1 基本使用（默认启用）
 
 ```typescript
-import { LLMWrapper } from '@wf-agent/sdk';
+import { LLMWrapper } from "@wf-agent/sdk";
 
 const wrapper = new LLMWrapper();
 
 // 默认启用死循环检测
 const result = await wrapper.generateStream({
-  profileId: 'openai-gpt4',
-  messages: [{ role: 'user', content: 'Solve this problem...' }],
+  profileId: "openai-gpt4",
+  messages: [{ role: "user", content: "Solve this problem..." }],
 });
 ```
 
@@ -800,8 +809,8 @@ const result = await wrapper.generateStream({
 ```typescript
 // 调整检查点阈值和检测参数
 const result = await wrapper.generateStream({
-  profileId: 'openai-gpt4',
-  messages: [{ role: 'user', content: 'Analyze...' }],
+  profileId: "openai-gpt4",
+  messages: [{ role: "user", content: "Analyze..." }],
   deadLoopDetection: {
     enabled: true,
     checkpoints: [300, 600, 1200], // 更早的检测点
@@ -816,8 +825,8 @@ const result = await wrapper.generateStream({
 ```typescript
 // 对性能敏感的场景可以禁用检测
 const result = await wrapper.generateStream({
-  profileId: 'mock-llm',
-  messages: [{ role: 'user', content: 'Test...' }],
+  profileId: "mock-llm",
+  messages: [{ role: "user", content: "Test..." }],
   deadLoopDetection: {
     enabled: false,
   },
@@ -829,41 +838,46 @@ const result = await wrapper.generateStream({
 ```typescript
 const stream = new MessageStream({
   enableDeadLoopDetection: true,
-  onDeadLoopDetected: (result) => {
-    console.log('Dead loop detected:', result.type, result.details);
+  onDeadLoopDetected: result => {
+    console.log("Dead loop detected:", result.type, result.details);
     // 可以执行自定义逻辑，如记录日志、发送告警等
   },
 });
 
 // 也可以通过事件系统监听推理内容
-stream.on('reasoningText', (data) => {
-  console.log('Reasoning delta:', data.delta);
-  console.log('Current reasoning:', data.snapshot);
+stream.on("reasoningText", data => {
+  console.log("Reasoning delta:", data.delta);
+  console.log("Current reasoning:", data.snapshot);
 });
 ```
 
 ## 九、实施路线图
 
 ### Phase 1: 核心实现（1-2天）
+
 1. 创建 `dead-loop-detector.ts`
 2. 编写单元测试
 3. 验证检测逻辑正确性
 
 ### Phase 2: MessageStream集成（1天）
+
 1. 扩展MessageStream类
 2. 添加pushReasoning方法
 3. 集成检测器调用
 
 ### Phase 3: Wrapper层适配（0.5天）
+
 1. 修改wrapper.ts推送reasoningContent
 2. 添加reset逻辑
 
 ### Phase 4: 配置化和优化（1天）
+
 1. 添加配置选项
 2. 性能测试和优化
 3. 完善日志和错误处理
 
 ### Phase 5: 集成测试和文档（1天）
+
 1. 编写集成测试
 2. 更新文档
 3. Code review和修复问题
@@ -874,16 +888,17 @@ stream.on('reasoningText', (data) => {
 
 ### 9.1 潜在风险
 
-| 风险 | 影响 | 缓解措施 |
-|------|------|----------|
-| 误判正常重复内容 | 用户体验下降 | 调整阈值，增加白名单机制 |
-| 性能开销 | 响应延迟增加 | 检查点机制，早期退出优化 |
-| 检测遗漏 | 死循环未被发现 | 多个检查点，多种检测类型 |
-| 与现有逻辑冲突 | 功能异常 | 充分测试，优雅降级 |
+| 风险             | 影响           | 缓解措施                 |
+| ---------------- | -------------- | ------------------------ |
+| 误判正常重复内容 | 用户体验下降   | 调整阈值，增加白名单机制 |
+| 性能开销         | 响应延迟增加   | 检查点机制，早期退出优化 |
+| 检测遗漏         | 死循环未被发现 | 多个检查点，多种检测类型 |
+| 与现有逻辑冲突   | 功能异常       | 充分测试，优雅降级       |
 
 ### 9.2 监控指标
 
 建议添加以下metrics：
+
 - 死循环检测触发次数
 - 误判率（人工反馈）
 - 检测耗时

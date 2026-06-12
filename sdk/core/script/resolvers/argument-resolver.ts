@@ -60,9 +60,7 @@ export class ArgumentResolver {
       throw new Error(`Argument '${arg.key}' must be a file path string, got ${typeof value}`);
     }
     if (arg.options && Array.isArray(arg.options) && !arg.options.includes(value)) {
-      throw new Error(
-        `Argument '${arg.key}' must be one of: ${arg.options.join(", ")}`,
-      );
+      throw new Error(`Argument '${arg.key}' must be one of: ${arg.options.join(", ")}`);
     }
     if (arg.pattern && typeof value === "string") {
       const regex = new RegExp(arg.pattern);

@@ -1,6 +1,6 @@
 /**
  * Base Diff Calculator
- * 
+ *
  * Provides generic deep comparison and delta calculation algorithms.
  * Works with any state snapshot type through generic typing.
  */
@@ -11,7 +11,7 @@ const logger = createContextualLogger({ component: "BaseDiffCalculator" });
 
 /**
  * Base Diff Calculator
- * 
+ *
  * Provides generic deep comparison and delta calculation algorithms.
  * Works with any state snapshot type through generic typing.
  */
@@ -24,7 +24,7 @@ export class BaseDiffCalculator {
    */
   calculateDelta<T extends Record<string, unknown>>(
     previous: T,
-    current: T
+    current: T,
   ): Record<string, { from: unknown; to: unknown }> {
     const delta: Record<string, { from: unknown; to: unknown }> = {};
 
@@ -67,7 +67,7 @@ export class BaseDiffCalculator {
    */
   applyDelta<T extends Record<string, unknown>>(
     base: T,
-    delta: Record<string, { from: unknown; to: unknown }>
+    delta: Record<string, { from: unknown; to: unknown }>,
   ): T {
     const result = { ...base } as T;
 
@@ -142,15 +142,21 @@ export class BaseDiffCalculator {
     }
 
     // Plain objects
-    if (typeof a === "object" && typeof b === "object" &&
-        a.constructor === Object && b.constructor === Object) {
+    if (
+      typeof a === "object" &&
+      typeof b === "object" &&
+      a.constructor === Object &&
+      b.constructor === Object
+    ) {
       const keysA = Object.keys(a);
       const keysB = Object.keys(b);
 
       if (keysA.length !== keysB.length) return false;
 
-      return keysA.every(key =>
-        keysB.includes(key) && this.deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
+      return keysA.every(
+        key =>
+          keysB.includes(key) &&
+          this.deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
       );
     }
 

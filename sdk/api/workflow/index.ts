@@ -21,7 +21,11 @@ export {
   type WorkflowExecutionSummary,
 } from "./resources/executions/workflow-execution-registry-api.js";
 
-export { WorkflowRegistryAPI, type WorkflowFilter, type WorkflowSummary } from "./resources/workflows/workflow-registry-api.js";
+export {
+  WorkflowRegistryAPI,
+  type WorkflowFilter,
+  type WorkflowSummary,
+} from "./resources/workflows/workflow-registry-api.js";
 
 export {
   MessageResourceAPI,
@@ -35,7 +39,10 @@ export {
   type VariableDefinition,
 } from "./resources/variables/variable-resource-api.js";
 
-export { TriggerResourceAPI, type TriggerFilter } from "./resources/triggers/trigger-resource-api.js";
+export {
+  TriggerResourceAPI,
+  type TriggerFilter,
+} from "./resources/triggers/trigger-resource-api.js";
 
 export { CheckpointResourceAPI } from "./resources/checkpoints/checkpoint-resource-api.js";
 

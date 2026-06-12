@@ -73,13 +73,12 @@ export class OnEventSubscription<T extends BaseEvent = BaseEvent> extends BaseSu
     },
   ) {
     super();
-    
+
     // Validate executionId is provided
     if (!options.executionId) {
-      throw new RuntimeValidationError(
-        "executionId is required for event subscriptions",
-        { field: "options.executionId" }
-      );
+      throw new RuntimeValidationError("executionId is required for event subscriptions", {
+        field: "options.executionId",
+      });
     }
   }
 
@@ -119,13 +118,12 @@ export class OnceEventSubscription<T extends BaseEvent = BaseEvent> extends Base
     },
   ) {
     super();
-    
+
     // Validate executionId is provided
     if (!options.executionId) {
-      throw new RuntimeValidationError(
-        "executionId is required for event subscriptions",
-        { field: "options.executionId" }
-      );
+      throw new RuntimeValidationError("executionId is required for event subscriptions", {
+        field: "options.executionId",
+      });
     }
   }
 
@@ -165,19 +163,18 @@ export class WaitForEventSubscription extends BaseSubscription {
     private readonly eventManager: EventRegistry,
   ) {
     super();
-    
+
     if (!executionId) {
-      throw new RuntimeValidationError(
-        "executionId is required for event subscriptions",
-        { field: "executionId" }
-      );
+      throw new RuntimeValidationError("executionId is required for event subscriptions", {
+        field: "executionId",
+      });
     }
   }
 
   subscribe(): () => void {
     // Use new EventEmitter API
     const emitter = this.eventManager.getEmitter(this.executionId);
-    
+
     const listener = (event: BaseEvent) => {
       if (this.resolve) {
         this.resolve(event);

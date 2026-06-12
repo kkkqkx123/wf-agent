@@ -15,6 +15,7 @@
 The project currently has **three separate approval mechanisms**:
 
 #### A. Workflow-Level Simple Whitelist
+
 **Location**: [`sdk/workflow/execution/coordinators/llm-execution-coordinator.ts`](file:///d:/项目/agent/wf-agent/sdk/workflow/execution/coordinators/llm-execution-coordinator.ts#L527-L535)
 
 ```typescript
@@ -22,13 +23,14 @@ private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undef
   if (!workflowConfig?.toolApproval) {
     return false; // No config = auto-execute all
   }
-  
+
   const autoApproved = workflowConfig.toolApproval.autoApprovedTools || [];
   return !autoApproved.includes(toolId); // Simple whitelist check
 }
 ```
 
 **Characteristics**:
+
 - ✅ Simple and easy to understand
 - ❌ Only supports basic whitelist
 - ❌ No risk-level awareness
@@ -36,6 +38,7 @@ private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undef
 - ❌ Limited to workflow context only
 
 #### B. Advanced Auto-Approval System
+
 **Location**: [`sdk/core/coordinators/tool-approval-coordinator.ts`](file:///d:/项目/agent/wf-agent/sdk/core/coordinators/tool-approval-coordinator.ts#L81-L128)
 
 ```typescript
@@ -45,18 +48,19 @@ async processToolApproval(params): Promise<ToolApprovalResult> {
     const decision = this.checkAutoApproval(tool, toolCall, options);
     // Returns approve/deny/ask/timeout decisions
   }
-  
+
   // 2. Legacy check: whitelist
   if (!this.requiresApproval(toolName, options)) {
     return { approved: true };
   }
-  
+
   // 3. Request user approval
   return this.requestUserApproval(params);
 }
 ```
 
 **Characteristics**:
+
 - ✅ Supports risk-based classification (READ_ONLY, WRITE, EXECUTE, MCP, NETWORK, SYSTEM, INTERACTION)
 - ✅ Fine-grained controls (file permissions, workspace boundaries, command/domain whitelists)
 - ✅ Category-based approval settings
@@ -65,6 +69,7 @@ async processToolApproval(params): Promise<ToolApprovalResult> {
 - ❌ Not integrated into Agent execution flow
 
 #### C. No Approval in Agent Execution
+
 **Location**: [`sdk/agent/execution/coordinators/agent-execution-coordinator.ts`](file:///d:/项目/agent/wf-agent/sdk/agent/execution/coordinators/agent-execution-coordinator.ts#L809-L845)
 
 ```typescript
@@ -82,6 +87,7 @@ private async executeToolCalls(entity, conversationManager, toolCalls): Promise<
 ```
 
 **Characteristics**:
+
 - ❌ **NO approval mechanism at all**
 - ❌ All tools execute automatically without user consent
 - ❌ Security risk for high-risk operations (EXECUTE, WRITE, etc.)
@@ -92,14 +98,15 @@ private async executeToolCalls(entity, conversationManager, toolCalls): Promise<
 
 ### 2.1 Configuration Inconsistency
 
-| Context | Configuration Type | Supported Features |
-|---------|-------------------|-------------------|
-| **Workflow** | `ToolApprovalConfig` (simple) | - Whitelist only (`autoApprovedTools`) |
-| **Agent** | None | - No configuration available |
-| **Graph** | Unknown (not checked) | - Likely missing |
-| **Core Coordinator** | `ToolApprovalOptions` (advanced) | - Full feature set |
+| Context              | Configuration Type               | Supported Features                     |
+| -------------------- | -------------------------------- | -------------------------------------- |
+| **Workflow**         | `ToolApprovalConfig` (simple)    | - Whitelist only (`autoApprovedTools`) |
+| **Agent**            | None                             | - No configuration available           |
+| **Graph**            | Unknown (not checked)            | - Likely missing                       |
+| **Core Coordinator** | `ToolApprovalOptions` (advanced) | - Full feature set                     |
 
 **Problem**: Two completely different configuration interfaces:
+
 - `ToolApprovalConfig` (workflow/config.ts) - simple whitelist
 - `ToolApprovalOptions` (tool/approval.ts) - advanced options
 
@@ -137,6 +144,7 @@ if (decision.decision === "deny") {
 Both coordinators implement similar approval logic:
 
 **LLMExecutionCoordinator** (lines 527-535):
+
 ```typescript
 private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undefined): boolean {
   if (!workflowConfig?.toolApproval) {
@@ -148,6 +156,7 @@ private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undef
 ```
 
 **ToolApprovalCoordinator** (lines 217-232):
+
 ```typescript
 requiresApproval(toolName: string, options?: ToolApprovalOptions): boolean {
   if (!options) {
@@ -162,6 +171,7 @@ requiresApproval(toolName: string, options?: ToolApprovalOptions): boolean {
 ```
 
 **Duplication Issues**:
+
 - Similar logic implemented twice
 - Different parameter types
 - Different behavior when config is missing
@@ -244,12 +254,13 @@ export interface ToolApprovalOptions {
   network?: NetworkSettings;
   mcp?: McpApprovalSettings;
   interaction?: InteractionSettings;
-  autoApprovedTools?: string[];  // Same field but optional!
+  autoApprovedTools?: string[]; // Same field but optional!
   approvalTimeout?: number;
 }
 ```
 
 **Issues**:
+
 - Different names (`Config` vs `Options`)
 - Different required/optional fields
 - `ToolApprovalConfig` is a subset of `ToolApprovalOptions`
@@ -261,14 +272,15 @@ export interface ToolApprovalOptions {
 
 ### 4.1 Security Risks
 
-| Risk | Severity | Affected Context |
-|------|----------|------------------|
-| Agent executes dangerous tools without approval | 🔴 **CRITICAL** | Agent Loop |
-| Workflow uses simple whitelist (no risk awareness) | 🟡 **MEDIUM** | Workflow LLM Nodes |
-| No centralized enforcement | 🟡 **MEDIUM** | All contexts |
-| Inconsistent behavior confuses users | 🟢 **LOW** | User Experience |
+| Risk                                               | Severity        | Affected Context   |
+| -------------------------------------------------- | --------------- | ------------------ |
+| Agent executes dangerous tools without approval    | 🔴 **CRITICAL** | Agent Loop         |
+| Workflow uses simple whitelist (no risk awareness) | 🟡 **MEDIUM**   | Workflow LLM Nodes |
+| No centralized enforcement                         | 🟡 **MEDIUM**   | All contexts       |
+| Inconsistent behavior confuses users               | 🟢 **LOW**      | User Experience    |
 
 **Example Attack Vector**:
+
 ```typescript
 // Agent mode: User asks "delete all files in /tmp"
 // LLM generates: execute_shell(command="rm -rf /tmp/*")
@@ -286,6 +298,7 @@ export interface ToolApprovalOptions {
 ### 4.3 Developer Confusion
 
 Developers asking:
+
 - "Which approval system should I use?"
 - "Why does my workflow approval config not work in agent mode?"
 - "How do I enable approval for custom tools?"
@@ -349,7 +362,8 @@ Benefits:
 
 **Action**: Replace `ToolApprovalConfig` with `ToolApprovalOptions` everywhere
 
-**Rationale**: 
+**Rationale**:
+
 - `ToolApprovalOptions` already has full feature set
 - `ToolApprovalConfig` is just a subset (only whitelist)
 - No need to create new types
@@ -392,15 +406,15 @@ export interface WorkflowConfig {
  * Preserves backward compatibility
  */
 export function migrateSimpleConfigToOptions(
-  simpleConfig: { autoApprovedTools: string[] } | undefined
+  simpleConfig: { autoApprovedTools: string[] } | undefined,
 ): ToolApprovalOptions {
   if (!simpleConfig) {
     return {};
   }
-  
+
   // Convert simple whitelist to advanced format
   return {
-    autoApprovalEnabled: false,  // Disabled by default for safety
+    autoApprovalEnabled: false, // Disabled by default for safety
     autoApprovedTools: simpleConfig.autoApprovedTools,
   };
 }
@@ -411,6 +425,7 @@ export function migrateSimpleConfigToOptions(
 **Action**: Delete the duplicate `requiresHumanApproval` method and use `ToolApprovalCoordinator` instead
 
 **Current Code** (TO BE REMOVED):
+
 ```typescript
 // sdk/workflow/execution/coordinators/llm-execution-coordinator.ts
 // Lines 527-535 - DELETE THIS
@@ -425,6 +440,7 @@ private requiresHumanApproval(toolId: ID, workflowConfig: WorkflowConfig | undef
 ```
 
 **Replacement**:
+
 ```typescript
 // Add ToolApprovalCoordinator as dependency
 import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
@@ -437,13 +453,13 @@ export class LLMExecutionCoordinator {
 
   constructor(config: LLMContextFactoryConfig) {
     this.contextFactory = new LLMContextFactory(config);
-    
+
     if (config.interruptionDetector) {
       this.interruptionDetector = config.interruptionDetector;
     } else if (config.executionRegistry) {
       this.interruptionDetector = new InterruptionDetectorImpl(config.executionRegistry);
     }
-    
+
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(config.eventManager);
   }
@@ -461,7 +477,7 @@ export class LLMExecutionCoordinator {
     for (const toolCall of toolCalls) {
       // Get tool definition for risk assessment
       const tool = this.contextFactory.getToolService().getTool(toolCall.name);
-      
+
       // Use ToolApprovalCoordinator for approval check
       const approvalResult = await this.approvalCoordinator.processToolApproval({
         toolCall: {
@@ -476,7 +492,7 @@ export class LLMExecutionCoordinator {
         contextId: executionId,
         nodeId,
         approvalHandler: {
-          requestApproval: async (request) => {
+          requestApproval: async request => {
             return this.requestToolApprovalInternal(request, executionId, nodeId);
           },
         },
@@ -527,6 +543,7 @@ export class LLMExecutionCoordinator {
 **Action**: Integrate `ToolApprovalCoordinator` into agent loop
 
 **Current Code** (MISSING APPROVAL):
+
 ```typescript
 // sdk/agent/execution/coordinators/agent-execution-coordinator.ts
 // Lines 809-845 - Currently executes tools without approval
@@ -545,6 +562,7 @@ private async executeToolCalls(entity, conversationManager, toolCalls): Promise<
 ```
 
 **Modified Code** (WITH APPROVAL):
+
 ```typescript
 // Add dependencies
 import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
@@ -555,7 +573,7 @@ export class AgentExecutionCoordinator {
 
   constructor(/* existing params */) {
     // ... existing initialization ...
-    
+
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(eventManager);
   }
@@ -591,13 +609,13 @@ export class AgentExecutionCoordinator {
 
     // NEW: Process each tool call through approval coordinator
     const approvedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
-    
+
     for (const toolCall of toolCalls) {
       const tool = this.toolService.getTool(toolCall.name);
-      
+
       // Get approval config from agent configuration
       const approvalOptions = this.getApprovalOptions(entity);
-      
+
       const approvalResult = await this.approvalCoordinator.processToolApproval({
         toolCall: {
           id: toolCall.id,
@@ -611,7 +629,7 @@ export class AgentExecutionCoordinator {
         contextId: entity.id,
         nodeId: entity.nodeId,
         approvalHandler: {
-          requestApproval: async (request) => {
+          requestApproval: async request => {
             return this.requestAgentApproval(request, entity);
           },
         },
@@ -624,12 +642,12 @@ export class AgentExecutionCoordinator {
           toolName: toolCall.name,
           reason: approvalResult.rejectionReason,
         });
-        
+
         // Record rejection
         entity.state.recordToolCallEnd(
           toolCall.id,
           undefined,
-          approvalResult.rejectionReason || "Rejected by user"
+          approvalResult.rejectionReason || "Rejected by user",
         );
         continue;
       }
@@ -675,9 +693,11 @@ export class AgentExecutionCoordinator {
 
   private getApprovalOptions(entity: AgentLoopEntity): ToolApprovalOptions {
     // Get from agent configuration or use defaults
-    return entity.config?.approvalOptions || {
-      autoApprovalEnabled: false,  // Safe default
-    };
+    return (
+      entity.config?.approvalOptions || {
+        autoApprovalEnabled: false, // Safe default
+      }
+    );
   }
 
   private async requestAgentApproval(
@@ -776,12 +796,14 @@ container
 ### For Existing Workflows
 
 **Before** (simple config):
+
 ```toml
 [workflow.config.toolApproval]
 autoApprovedTools = ["read_file", "search_files"]
 ```
 
 **After** (same behavior, using `ToolApprovalOptions`):
+
 ```toml
 [workflow.config.toolApproval]
 autoApprovalEnabled = false  # Explicit disable for safety
@@ -789,6 +811,7 @@ autoApprovedTools = ["read_file", "search_files"]
 ```
 
 **Or upgrade to advanced mode**:
+
 ```toml
 [workflow.config.toolApproval]
 autoApprovalEnabled = true
@@ -802,13 +825,14 @@ workspaceBoundary.allowReadOnlyOutsideWorkspace = true
 **Before**: No approval (unsafe)
 
 **After**:
+
 ```typescript
 const agent = new AgentLoop({
   approvalOptions: {
     autoApprovalEnabled: true,
     categories: {
       alwaysAllowReadOnly: true,
-      alwaysAllowExecute: false,  // Require approval for commands
+      alwaysAllowExecute: false, // Require approval for commands
     },
   },
 });
@@ -817,27 +841,30 @@ const agent = new AgentLoop({
 ### Code Changes Required
 
 1. **Replace imports**:
+
    ```typescript
    // OLD
    import type { ToolApprovalConfig } from "@wf-agent/types";
-   
+
    // NEW
    import type { ToolApprovalOptions } from "@wf-agent/types";
    ```
 
 2. **Update type references**:
+
    ```typescript
    // OLD
    toolApproval?: ToolApprovalConfig;
-   
+
    // NEW
    toolApproval?: ToolApprovalOptions;
    ```
 
 3. **Use migration helper if needed**:
+
    ```typescript
    import { migrateSimpleConfigToOptions } from "@wf-agent/types";
-   
+
    const options = migrateSimpleConfigToOptions(oldConfig);
    ```
 
@@ -849,7 +876,8 @@ const agent = new AgentLoop({
 
 **Priority**: **HIGH** (Security + Maintainability)
 
-**Approach**: 
+**Approach**:
+
 - **REMOVE** duplicate approval logic from `LLMExecutionCoordinator`
 - **ADD** approval support to `AgentExecutionCoordinator`
 - **USE** existing `ToolApprovalCoordinator` everywhere
@@ -857,6 +885,7 @@ const agent = new AgentLoop({
 - **NO** new modules or services created
 
 **Timeline**:
+
 - **Phase 1** (Standardize config type): 2-3 days
 - **Phase 2** (Remove duplicate from Workflow): 2-3 days
 - **Phase 3** (Add to Agent): 3-4 days
@@ -867,6 +896,7 @@ const agent = new AgentLoop({
 **Risk Level**: **LOW** (Refactoring existing code, backward compatible)
 
 **Key Success Factors**:
+
 1. Keep `ToolApprovalCoordinator` as the single implementation
 2. Remove ALL duplicate approval logic
 3. Comprehensive testing across all contexts

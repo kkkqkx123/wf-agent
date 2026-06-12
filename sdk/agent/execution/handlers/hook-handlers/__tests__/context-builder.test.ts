@@ -19,7 +19,7 @@ describe("Agent Hook Context Builder", () => {
     const toolConfig: AgentToolConfig = {
       tools: [],
     };
-    
+
     mockConfig = {
       profileId: "test-profile",
       systemPrompt: "You are a test assistant",
@@ -29,7 +29,7 @@ describe("Agent Hook Context Builder", () => {
 
     // Create an agent loop entity directly
     entity = new AgentLoopEntity("test-agent-1", mockConfig);
-    
+
     // Add initial messages
     entity.addMessage({ role: "system", content: "System message" });
     entity.addMessage({ role: "user", content: "Hello" });
@@ -81,18 +81,18 @@ describe("Agent Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input).toBeDefined();
-      expect(evalContext.input['messages']).toBeDefined();
-      expect(Array.isArray(evalContext.input['messages'])).toBe(true);
+      expect(evalContext.input["messages"]).toBeDefined();
+      expect(Array.isArray(evalContext.input["messages"])).toBe(true);
       // Should have system + user messages
-      expect((evalContext.input['messages'] as LLMMessage[]).length).toBe(2);
+      expect((evalContext.input["messages"] as LLMMessage[]).length).toBe(2);
     });
 
     it("should expose lastMessage in input namespace", () => {
       const hookContext = buildAgentHookEvaluationContext(entity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.input['lastMessage']).toBeDefined();
-      const lastMessage = evalContext.input['lastMessage'] as LLMMessage | null;
+      expect(evalContext.input["lastMessage"]).toBeDefined();
+      const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
       expect(lastMessage?.role).toBe("user");
       expect(lastMessage?.content).toBe("Hello");
     });
@@ -104,8 +104,8 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(emptyEntity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.input['messages']).toEqual([]);
-      expect(evalContext.input['lastMessage']).toBeNull();
+      expect(evalContext.input["messages"]).toEqual([]);
+      expect(evalContext.input["lastMessage"]).toBeNull();
     });
 
     it("should include all messages including invisible ones", () => {
@@ -117,8 +117,8 @@ describe("Agent Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Should have: system, user (initial) + assistant, user (added)
-      expect((evalContext.input['messages'] as LLMMessage[]).length).toBe(4);
-      const lastMessage = evalContext.input['lastMessage'] as LLMMessage | null;
+      expect((evalContext.input["messages"] as LLMMessage[]).length).toBe(4);
+      const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
       expect(lastMessage?.role).toBe("user");
       expect(lastMessage?.content).toBe("How are you?");
     });
@@ -130,7 +130,7 @@ describe("Agent Hook Context Builder", () => {
       testEntity.state.startIteration();
       testEntity.state.endIteration("Test response");
       testEntity.state.startIteration();
-      
+
       // Record tool calls
       testEntity.state.recordToolCallStart("tool-1", "test-tool", {});
       testEntity.state.recordToolCallEnd("tool-1", { result: "ok" });
@@ -142,9 +142,9 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(testEntity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.input['iteration']).toBe(2);
-      expect(evalContext.input['maxIterations']).toBe(10);
-      expect(evalContext.input['toolCallCount']).toBe(3);
+      expect(evalContext.input["iteration"]).toBe(2);
+      expect(evalContext.input["maxIterations"]).toBe(10);
+      expect(evalContext.input["toolCallCount"]).toBe(3);
     });
 
     it("should include output status and error", () => {
@@ -155,9 +155,9 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(testEntity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.output['status']).toBe("COMPLETED");
+      expect(evalContext.output["status"]).toBe("COMPLETED");
       // Error should be null when not set
-      expect(evalContext.output['error']).toBeNull();
+      expect(evalContext.output["error"]).toBeNull();
     });
 
     it("should include error information when present", () => {
@@ -169,8 +169,8 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(testEntity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      expect(evalContext.output['status']).toBe("FAILED");
-      expect(evalContext.output['error']).toBe(testError);
+      expect(evalContext.output["status"]).toBe("FAILED");
+      expect(evalContext.output["error"]).toBe(testError);
     });
 
     it("should have empty variables namespace", () => {
@@ -187,7 +187,7 @@ describe("Agent Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Simulate condition evaluation with type assertion
-      const lastMessage = evalContext.input['lastMessage'] as LLMMessage | null;
+      const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
       const lastMessageRole = lastMessage?.role;
       expect(lastMessageRole).toBe("user");
     });
@@ -198,7 +198,7 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(entity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      const messages = evalContext.input['messages'] as LLMMessage[];
+      const messages = evalContext.input["messages"] as LLMMessage[];
       const messageCount = messages.length;
       expect(messageCount).toBe(3); // system + 2 user/assistant
     });
@@ -209,7 +209,7 @@ describe("Agent Hook Context Builder", () => {
       const hookContext = buildAgentHookEvaluationContext(entity);
       const evalContext = convertToEvaluationContext(hookContext);
 
-      const lastMessage = evalContext.input['lastMessage'] as LLMMessage | null;
+      const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
       const lastContent = lastMessage?.content as string | undefined;
       const containsHelp = lastContent?.includes("help") ?? false;
       expect(containsHelp).toBe(true);
@@ -220,9 +220,9 @@ describe("Agent Hook Context Builder", () => {
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Safe access pattern with type assertions
-      const messages = evalContext.input['messages'] as LLMMessage[];
+      const messages = evalContext.input["messages"] as LLMMessage[];
       const hasMessages = messages.length > 0;
-      const lastMessage = evalContext.input['lastMessage'] as LLMMessage | null;
+      const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
       const lastRole = lastMessage?.role ?? "unknown";
 
       expect(hasMessages).toBe(true);

@@ -14,7 +14,9 @@ import { validateNodeType, validateNodeConfig } from "../../../core/validation/u
  * @param node Node definition
  * @returns Verification result
  */
-export function validateEmbedGraphNode(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateEmbedGraphNode(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   const typeResult = validateNodeType(node, "EMBED_GRAPH");
   if (typeResult.isErr()) {
     return typeResult;

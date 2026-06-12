@@ -38,7 +38,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(false);
@@ -60,7 +60,9 @@ describe("checkWorkflowReferences", () => {
         updatedAt: Date.now(),
       } as unknown as WorkflowTemplate;
 
-      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue("parent-workflow");
+      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue(
+        "parent-workflow",
+      );
       (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(parentWorkflow);
       (mockWorkflowRegistry.getWorkflowHierarchy as ReturnType<typeof vi.fn>).mockReturnValue({
         depth: 1,
@@ -71,7 +73,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -83,7 +85,9 @@ describe("checkWorkflowReferences", () => {
     });
 
     it("should handle parent workflow not found", async () => {
-      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue("parent-workflow");
+      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue(
+        "parent-workflow",
+      );
       (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(null);
       (mockWorkflowRegistry.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
       (mockExecutionRegistry.isWorkflowActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -91,7 +95,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(false);
@@ -134,7 +138,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -174,13 +178,15 @@ describe("checkWorkflowReferences", () => {
       (mockWorkflowRegistry.list as ReturnType<typeof vi.fn>).mockResolvedValue([
         { id: "trigger-ref-workflow", name: "Trigger Ref Workflow" },
       ]);
-      (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(workflowWithTriggerRef);
+      (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(
+        workflowWithTriggerRef,
+      );
       (mockExecutionRegistry.isWorkflowActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -210,7 +216,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(false);
@@ -242,13 +248,15 @@ describe("checkWorkflowReferences", () => {
       (mockWorkflowRegistry.list as ReturnType<typeof vi.fn>).mockResolvedValue([
         { id: "unnamed-trigger-workflow", name: "Unnamed Trigger Workflow" },
       ]);
-      (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(workflowWithUnnamedTrigger);
+      (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockReturnValue(
+        workflowWithUnnamedTrigger,
+      );
       (mockExecutionRegistry.isWorkflowActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
 
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -275,7 +283,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -303,7 +311,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -319,9 +327,11 @@ describe("checkWorkflowReferences", () => {
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         getExecutionType: vi.fn().mockReturnValue("subgraph"),
         getTriggeredSubworkflowId: vi.fn().mockReturnValue(null),
-        getSubgraphStack: vi.fn().mockReturnValue([
-          { workflowId: "workflow-1", depth: 2, parentWorkflowId: "parent-workflow" },
-        ]),
+        getSubgraphStack: vi
+          .fn()
+          .mockReturnValue([
+            { workflowId: "workflow-1", depth: 2, parentWorkflowId: "parent-workflow" },
+          ]),
       } as unknown as WorkflowExecutionEntity;
 
       (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue(null);
@@ -332,7 +342,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -349,7 +359,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(mockExecutionRegistry.getAll).not.toHaveBeenCalled();
@@ -402,13 +412,17 @@ describe("checkWorkflowReferences", () => {
         getSubgraphStack: vi.fn().mockReturnValue([]),
       } as unknown as WorkflowExecutionEntity;
 
-      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue("parent-workflow");
+      (mockWorkflowRegistry.getParentWorkflow as ReturnType<typeof vi.fn>).mockReturnValue(
+        "parent-workflow",
+      );
       (mockWorkflowRegistry.get as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
         if (id === "parent-workflow") return parentWorkflow;
         if (id === "trigger-workflow") return workflowWithTrigger;
         return null;
       });
-      (mockWorkflowRegistry.getWorkflowHierarchy as ReturnType<typeof vi.fn>).mockReturnValue({ depth: 1 });
+      (mockWorkflowRegistry.getWorkflowHierarchy as ReturnType<typeof vi.fn>).mockReturnValue({
+        depth: 1,
+      });
       (mockWorkflowRegistry.list as ReturnType<typeof vi.fn>).mockResolvedValue([
         { id: "trigger-workflow", name: "Trigger Workflow" },
       ]);
@@ -418,7 +432,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.hasReferences).toBe(true);
@@ -440,7 +454,7 @@ describe("checkWorkflowReferences", () => {
       const result = await checkWorkflowReferences(
         mockWorkflowRegistry,
         mockExecutionRegistry,
-        "workflow-1"
+        "workflow-1",
       );
 
       expect(result.stats).toEqual({

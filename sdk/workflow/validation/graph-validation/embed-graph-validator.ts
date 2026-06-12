@@ -28,13 +28,16 @@ export function validateEmbedGraphExistence(
       const embedConfig = node.originalNode?.config as { embedId?: string } | undefined;
       if (!embedConfig || !embedConfig.embedId) {
         errors.push(
-          new ConfigurationValidationError(`EMBED_GRAPH node (${node.id}) is missing embedId configuration`, {
-            configType: "workflow",
-            context: {
-              code: "MISSING_EMBED_ID",
-              nodeId: node.id,
+          new ConfigurationValidationError(
+            `EMBED_GRAPH node (${node.id}) is missing embedId configuration`,
+            {
+              configType: "workflow",
+              context: {
+                code: "MISSING_EMBED_ID",
+                nodeId: node.id,
+              },
             },
-          }),
+          ),
         );
       }
     }
@@ -75,10 +78,12 @@ export function validateEmbedGraphConstraints(
   for (const node of graph.nodes.values()) {
     const originalType = node.originalNode?.type;
     if (originalType === "EMBED_GRAPH") {
-      const config = node.originalNode?.config as {
-        variableInputs?: unknown[];
-        variableOutputs?: unknown[];
-      } | undefined;
+      const config = node.originalNode?.config as
+        | {
+            variableInputs?: unknown[];
+            variableOutputs?: unknown[];
+          }
+        | undefined;
 
       // EMBED_GRAPH should not have variable mappings
       if (config?.variableInputs && config.variableInputs.length > 0) {
@@ -91,8 +96,8 @@ export function validateEmbedGraphConstraints(
                 code: "EMBED_GRAPH_HAS_VARIABLE_INPUTS",
                 nodeId: node.id,
               },
-            }
-          )
+            },
+          ),
         );
       }
 
@@ -106,8 +111,8 @@ export function validateEmbedGraphConstraints(
                 code: "EMBED_GRAPH_HAS_VARIABLE_OUTPUTS",
                 nodeId: node.id,
               },
-            }
-          )
+            },
+          ),
         );
       }
     }

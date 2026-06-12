@@ -13,7 +13,14 @@
  * - This eliminates data redundancy and synchronization issues
  */
 
-import type { WorkflowExecution, WorkflowExecutionType, WorkflowExecutionOptions, WorkflowConfig, MessageContextRegistry, VariableDefinition } from "@wf-agent/types";
+import type {
+  WorkflowExecution,
+  WorkflowExecutionType,
+  WorkflowExecutionOptions,
+  WorkflowConfig,
+  MessageContextRegistry,
+  VariableDefinition,
+} from "@wf-agent/types";
 import type { WorkflowGraph } from "../../types/graph/preprocessed-graph.js";
 import { AvailableTools, resolveSchemaTools, resolveInitialTools } from "@wf-agent/types";
 import { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
@@ -28,7 +35,10 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import { ConversationSession } from "../../../core/messaging/conversation-session.js";
-import { InMemoryMessageContextRegistry, initializeExecutionContext } from "../../../core/messaging/index.js";
+import {
+  InMemoryMessageContextRegistry,
+  initializeExecutionContext,
+} from "../../../core/messaging/index.js";
 import { logError, emitErrorEvent } from "../../../core/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../core/registry/execution-hierarchy-registry.js";
 import type { GlobalContext } from "../../../core/global-context.js";
@@ -50,18 +60,23 @@ export interface WorkflowExecutionBuildResult {
 /**
  * Child Execution Type - Unified type for all child execution scenarios
  */
-export type ChildExecutionType = 'SUBGRAPH' | 'FORK_BRANCH' | 'TRIGGERED';
+export type ChildExecutionType = "SUBGRAPH" | "FORK_BRANCH" | "TRIGGERED";
 
 /**
  * Child Execution Configuration
  */
 export interface ChildExecutionConfig {
-  subworkflowId?: string;      // SUBGRAPH/TRIGGERED
-  forkPathId?: string;         // FORK_BRANCH
-  startNodeId?: string;        // FORK_BRANCH
-  nodeId?: string;             // SUBGRAPH (node ID in parent)
+  subworkflowId?: string; // SUBGRAPH/TRIGGERED
+  forkPathId?: string; // FORK_BRANCH
+  startNodeId?: string; // FORK_BRANCH
+  nodeId?: string; // SUBGRAPH (node ID in parent)
   variableMapping?: {
-    inputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+    inputs?: Array<{
+      externalName: string;
+      internalName: string;
+      required?: boolean;
+      defaultValue?: unknown;
+    }>;
     outputs?: Array<{ internalName: string; externalName: string }>;
   };
   /**
@@ -82,14 +97,14 @@ export interface ChildExecutionConfig {
    */
   dataMapping?: {
     inputs?: Array<{
-      parentField: string;         // key in parent's WorkflowExecution.input
-      childVariableName: string;   // variable name in child's VariableManager
+      parentField: string; // key in parent's WorkflowExecution.input
+      childVariableName: string; // variable name in child's VariableManager
       required?: boolean;
       defaultValue?: unknown;
     }>;
   };
-  inputMapping?: Record<string, unknown>;  // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
-  async?: boolean;             // TRIGGERED
+  inputMapping?: Record<string, unknown>; // TRIGGERED - ExecuteTriggeredSubworkflowActionConfig['inputMapping']
+  async?: boolean; // TRIGGERED
 }
 
 /**
@@ -100,7 +115,7 @@ export interface ChildExecutionOptions {
   config: ChildExecutionConfig;
   /**
    * Parent's state coordinator for message export (required)
-   * 
+   *
    * Initial messages are exported from the state coordinator
    * using exportMessagesForChild() method (single data source architecture).
    */
@@ -125,9 +140,13 @@ export class WorkflowExecutionBuilder {
    */
   private getWorkflowGraphRegistry(): WorkflowGraphRegistry {
     if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+      throw new Error(
+        "GlobalContext not initialized. Use constructor with GlobalContext parameter.",
+      );
     }
-    return this.globalContext.container.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry;
+    return this.globalContext.container.get(
+      Identifiers.WorkflowGraphRegistry,
+    ) as WorkflowGraphRegistry;
   }
 
   /**
@@ -135,7 +154,9 @@ export class WorkflowExecutionBuilder {
    */
   private getVariableCoordinator(): unknown {
     if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+      throw new Error(
+        "GlobalContext not initialized. Use constructor with GlobalContext parameter.",
+      );
     }
     return this.globalContext.container.get(Identifiers.VariableCoordinator);
   }
@@ -145,7 +166,9 @@ export class WorkflowExecutionBuilder {
    */
   private getEventManager(): EventRegistry {
     if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+      throw new Error(
+        "GlobalContext not initialized. Use constructor with GlobalContext parameter.",
+      );
     }
     return this.globalContext.eventRegistry;
   }
@@ -155,7 +178,9 @@ export class WorkflowExecutionBuilder {
    */
   private getWorkflowRegistry(): WorkflowRegistry {
     if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+      throw new Error(
+        "GlobalContext not initialized. Use constructor with GlobalContext parameter.",
+      );
     }
     return this.globalContext.container.get(Identifiers.WorkflowRegistry) as WorkflowRegistry;
   }
@@ -165,9 +190,13 @@ export class WorkflowExecutionBuilder {
    */
   private getExecutionHierarchyRegistry(): ExecutionHierarchyRegistry {
     if (!this.globalContext) {
-      throw new Error("GlobalContext not initialized. Use constructor with GlobalContext parameter.");
+      throw new Error(
+        "GlobalContext not initialized. Use constructor with GlobalContext parameter.",
+      );
     }
-    return this.globalContext.container.get(Identifiers.ExecutionHierarchyRegistry) as ExecutionHierarchyRegistry;
+    return this.globalContext.container.get(
+      Identifiers.ExecutionHierarchyRegistry,
+    ) as ExecutionHierarchyRegistry;
   }
 
   /**
@@ -281,7 +310,7 @@ export class WorkflowExecutionBuilder {
       executionState,
       workflowExecutionState,
       undefined,
-      registry
+      registry,
     );
 
     // Step 7: Initialize variables in the entity's VariableManager
@@ -289,19 +318,19 @@ export class WorkflowExecutionBuilder {
     const variableCoordinator = this.getVariableCoordinator() as {
       initializeFromDefinitions: (
         manager: VariableManager,
-        variables: VariableDefinition[]
+        variables: VariableDefinition[],
       ) => void;
     };
-    
+
     // Initialize variables from WorkflowGraph definitions
     variableCoordinator.initializeFromDefinitions(
       workflowExecutionEntity.variableStateManager,
-      workflowGraph.variables || []
+      workflowGraph.variables || [],
     );
 
     // Step 7: Create MessageContextRegistry and initialize contexts
     const messageContextRegistry = new InMemoryMessageContextRegistry();
-    
+
     // Initialize execution contexts based on workflow config
     let workflowConfig: WorkflowConfig | undefined;
     if (workflowId) {
@@ -314,9 +343,11 @@ export class WorkflowExecutionBuilder {
       }
     }
     initializeExecutionContext(messageContextRegistry, workflowConfig);
-    
+
     // Attach registry to workflow execution for handlers to access
-    (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry = messageContextRegistry;
+    (
+      workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+    ).messageContextRegistry = messageContextRegistry;
 
     // Step 7.5: Initialize ToolPermissionManager if AvailableTools is configured
     if (workflowConfig?.availableTools) {
@@ -324,23 +355,29 @@ export class WorkflowExecutionBuilder {
         const availableToolsConfig = workflowConfig.availableTools as AvailableTools;
         const schemaTools = resolveSchemaTools(availableToolsConfig);
         const initialTools = resolveInitialTools(availableToolsConfig);
-        
+
         const permissionManager = new ToolPermissionManager(initialTools, schemaTools);
-        
+
         // Store in DI container for this execution
         // Note: This adds a new binding that will take precedence over the placeholder
         if (this.globalContext) {
-          this.globalContext.container.bind(Identifiers.ToolPermissionManager).toConstantValue(permissionManager);
+          this.globalContext.container
+            .bind(Identifiers.ToolPermissionManager)
+            .toConstantValue(permissionManager);
         }
-        
-        logger.info('ToolPermissionManager initialized for workflow', {
+
+        logger.info("ToolPermissionManager initialized for workflow", {
           workflowId,
           executionId,
           schemaToolsCount: schemaTools.length,
           initialToolsCount: initialTools.length,
         });
       } catch (error) {
-        logger.warn('Failed to initialize ToolPermissionManager', { workflowId, executionId, error });
+        logger.warn("Failed to initialize ToolPermissionManager", {
+          workflowId,
+          executionId,
+          error,
+        });
       }
     }
 
@@ -434,12 +471,12 @@ export class WorkflowExecutionBuilder {
       executionState,
       workflowExecutionState,
       undefined,
-      registry
+      registry,
     );
 
     // Copy variable state from source entity to copied entity
     copiedWorkflowExecutionEntity.variableStateManager.copyFrom(
-      sourceWorkflowExecutionEntity.variableStateManager
+      sourceWorkflowExecutionEntity.variableStateManager,
     );
 
     // Get initial messages from source state coordinator
@@ -448,10 +485,10 @@ export class WorkflowExecutionBuilder {
         `sourceStateCoordinator is required for creating execution copy`,
         undefined,
         copiedExecutionId,
-        { sourceId: sourceWorkflowExecution.id }
+        { sourceId: sourceWorkflowExecution.id },
       );
     }
-    
+
     const initialMessages = sourceStateCoordinator.exportMessagesForChild();
 
     // Create ConversationSession (clone from source message history)
@@ -482,20 +519,20 @@ export class WorkflowExecutionBuilder {
 
   /**
    * Unified child execution creation method
-   * 
+   *
    * Replaces createSubgraph(), createFork(), and triggered workflow build() with a single API.
    * All child execution types share the same creation logic but differ in variable initialization strategies.
-   * 
+   *
    * @param parent Parent workflow execution entity
    * @param options Child execution type and configuration
    * @returns WorkflowExecutionBuildResult containing the child entity, state coordinator, and conversation manager
    */
   async createChildExecution(
     parent: WorkflowExecutionEntity,
-    options: ChildExecutionOptions
+    options: ChildExecutionOptions,
   ): Promise<WorkflowExecutionBuildResult> {
     const { type, config } = options;
-    
+
     logger.info("Creating child execution", {
       parentExecutionId: parent.id,
       childType: type,
@@ -505,44 +542,38 @@ export class WorkflowExecutionBuilder {
 
     // Step 1: Validate configuration
     this.validateChildExecutionConfig(type, config);
-    
+
     // Step 2: Get target workflow graph
     const targetGraph = await this.getTargetGraph(config);
-    
+
     // Step 3: Create execution entity (shared logic for all types)
     const executionId = generateId();
-    const childEntity = this.createExecutionEntity(
-      executionId,
-      targetGraph,
-      type,
-      config,
-      parent
-    );
-    
+    const childEntity = this.createExecutionEntity(executionId, targetGraph, type, config, parent);
+
     // Step 4: Initialize variables (different strategies per type)
     await this.initializeVariables(childEntity, parent, type, config);
-    
+
     // Step 5: Establish hierarchy relationship (unified using ExecutionHierarchyRegistry)
     this.establishHierarchy(parent, childEntity, type, config);
-    
+
     // Step 6: Create conversation session
     const conversationManager = this.createConversationSession(
       childEntity,
       parent,
-      options.parentStateCoordinator
+      options.parentStateCoordinator,
     );
-    
+
     // Step 7: Create state coordinator
     const stateCoordinator = new WorkflowStateCoordinator({
       conversationManager,
     });
-    
+
     logger.debug("Child execution created successfully", {
       childExecutionId: childEntity.id,
       parentExecutionId: parent.id,
       childType: type,
     });
-    
+
     return {
       workflowExecutionEntity: childEntity,
       stateCoordinator,
@@ -555,39 +586,39 @@ export class WorkflowExecutionBuilder {
    */
   private validateChildExecutionConfig(
     type: ChildExecutionType,
-    config: ChildExecutionConfig
+    config: ChildExecutionConfig,
   ): void {
     switch (type) {
-      case 'SUBGRAPH':
+      case "SUBGRAPH":
         if (!config.subworkflowId) {
-          throw new RuntimeValidationError('SUBGRAPH requires subworkflowId', {
-            field: 'subworkflowId',
+          throw new RuntimeValidationError("SUBGRAPH requires subworkflowId", {
+            field: "subworkflowId",
           });
         }
         if (!config.nodeId) {
-          throw new RuntimeValidationError('SUBGRAPH requires nodeId', {
-            field: 'nodeId',
+          throw new RuntimeValidationError("SUBGRAPH requires nodeId", {
+            field: "nodeId",
           });
         }
         break;
-        
-      case 'FORK_BRANCH':
+
+      case "FORK_BRANCH":
         if (!config.forkPathId) {
-          throw new RuntimeValidationError('FORK_BRANCH requires forkPathId', {
-            field: 'forkPathId',
+          throw new RuntimeValidationError("FORK_BRANCH requires forkPathId", {
+            field: "forkPathId",
           });
         }
         if (!config.startNodeId) {
-          throw new RuntimeValidationError('FORK_BRANCH requires startNodeId', {
-            field: 'startNodeId',
+          throw new RuntimeValidationError("FORK_BRANCH requires startNodeId", {
+            field: "startNodeId",
           });
         }
         break;
-        
-      case 'TRIGGERED':
+
+      case "TRIGGERED":
         if (!config.subworkflowId) {
-          throw new RuntimeValidationError('TRIGGERED requires subworkflowId', {
-            field: 'subworkflowId',
+          throw new RuntimeValidationError("TRIGGERED requires subworkflowId", {
+            field: "subworkflowId",
           });
         }
         break;
@@ -599,23 +630,23 @@ export class WorkflowExecutionBuilder {
    */
   private async getTargetGraph(config: ChildExecutionConfig): Promise<WorkflowGraph> {
     const subworkflowId = config.subworkflowId;
-    
+
     if (!subworkflowId) {
       // FORK_BRANCH uses parent's graph
-      throw new RuntimeValidationError('Cannot determine target graph', {
-        field: 'subworkflowId',
+      throw new RuntimeValidationError("Cannot determine target graph", {
+        field: "subworkflowId",
       });
     }
-    
+
     const graph = this.getWorkflowGraphRegistry().get(subworkflowId);
     if (!graph) {
       throw new ExecutionError(
         `Workflow '${subworkflowId}' not found or not preprocessed`,
         undefined,
-        subworkflowId
+        subworkflowId,
       );
     }
-    
+
     return graph;
   }
 
@@ -627,12 +658,11 @@ export class WorkflowExecutionBuilder {
     graph: WorkflowGraph,
     type: ChildExecutionType,
     config: ChildExecutionConfig,
-    parent: WorkflowExecutionEntity
+    parent: WorkflowExecutionEntity,
   ): WorkflowExecutionEntity {
-    
     // Determine start node
     let startNodeId: string;
-    if (type === 'FORK_BRANCH' && config.startNodeId) {
+    if (type === "FORK_BRANCH" && config.startNodeId) {
       startNodeId = config.startNodeId;
     } else {
       const startNode = Array.from(graph.nodes.values()).find(n => n.type === "START");
@@ -643,14 +673,14 @@ export class WorkflowExecutionBuilder {
       }
       startNodeId = startNode.id;
     }
-    
+
     // Determine execution type
     const executionTypeMap: Record<ChildExecutionType, string> = {
-      'SUBGRAPH': 'SUBGRAPH',
-      'FORK_BRANCH': 'FORK_JOIN',
-      'TRIGGERED': 'TRIGGERED_SUBWORKFLOW',
+      SUBGRAPH: "SUBGRAPH",
+      FORK_BRANCH: "FORK_JOIN",
+      TRIGGERED: "TRIGGERED_SUBWORKFLOW",
     };
-    
+
     // Create workflow execution data
     const execution: WorkflowExecution = {
       id: executionId,
@@ -665,37 +695,36 @@ export class WorkflowExecutionBuilder {
       errors: [],
       executionType: executionTypeMap[type] as WorkflowExecutionType,
     };
-    if (type === 'SUBGRAPH') {
+    if (type === "SUBGRAPH") {
       execution.hierarchy = {
         parent: {
-          parentType: 'WORKFLOW',
+          parentType: "WORKFLOW",
           parentId: parent.id,
           nodeId: config.nodeId,
         },
         children: [],
-        depth: parent.getHierarchyMetadata()?.depth ? 
-               parent.getHierarchyMetadata()!.depth + 1 : 1,
+        depth: parent.getHierarchyMetadata()?.depth ? parent.getHierarchyMetadata()!.depth + 1 : 1,
         rootExecutionId: parent.getRootExecutionId(),
         rootExecutionType: parent.getRootExecutionType(),
       };
-    } else if (type === 'FORK_BRANCH') {
+    } else if (type === "FORK_BRANCH") {
       execution.forkJoinContext = {
-        forkId: config.forkPathId || '',
-        forkPathId: config.forkPathId || '',
+        forkId: config.forkPathId || "",
+        forkPathId: config.forkPathId || "",
       };
     }
-    
+
     // Create states
     const executionState = new ExecutionState();
     const workflowExecutionState = new WorkflowExecutionState();
     const registry = this.getExecutionHierarchyRegistry();
-    
+
     return new WorkflowExecutionEntity(
       execution,
       executionState,
       workflowExecutionState,
       undefined,
-      registry
+      registry,
     );
   }
 
@@ -706,15 +735,15 @@ export class WorkflowExecutionBuilder {
     child: WorkflowExecutionEntity,
     parent: WorkflowExecutionEntity,
     type: ChildExecutionType,
-    config: ChildExecutionConfig
+    config: ChildExecutionConfig,
   ): Promise<void> {
     switch (type) {
-      case 'SUBGRAPH':
+      case "SUBGRAPH":
         // Subgraph: explicit mapping + deep clone
         if (config.variableMapping?.inputs && config.variableMapping.inputs.length > 0) {
           child.variableStateManager.importVariables(
             parent.variableStateManager,
-            config.variableMapping.inputs
+            config.variableMapping.inputs,
           );
           logger.debug("Imported variables to subgraph", {
             count: config.variableMapping.inputs.length,
@@ -734,10 +763,13 @@ export class WorkflowExecutionBuilder {
                 {
                   operation: "initializeVariables",
                   field: mapping.parentField,
-                }
+                },
               );
             } else if (mapping.defaultValue !== undefined) {
-              child.variableStateManager.setVariable(mapping.childVariableName, mapping.defaultValue);
+              child.variableStateManager.setVariable(
+                mapping.childVariableName,
+                mapping.defaultValue,
+              );
             }
           }
           logger.debug("Mapped data inputs to subgraph variables", {
@@ -745,31 +777,31 @@ export class WorkflowExecutionBuilder {
           });
         }
         break;
-        
-      case 'FORK_BRANCH':
+
+      case "FORK_BRANCH":
         // Fork: complete deep clone
         child.variableStateManager.copyFrom(parent.variableStateManager);
         logger.debug("Copied variables to fork branch (deep clone)");
         break;
-        
-      case 'TRIGGERED':
+
+      case "TRIGGERED":
         // Triggered: will be handled separately via input mapping
         // Variables will be set through prepareInputData in triggered-subworkflow-handler
         logger.debug("Triggered workflow - variables will be set via input mapping");
         break;
     }
-    
+
     // All types: initialize variables from workflow definitions
     const variableCoordinator = this.getVariableCoordinator() as {
       initializeFromDefinitions: (
         manager: VariableManager,
-        variables: VariableDefinition[]
+        variables: VariableDefinition[],
       ) => void;
     };
-    
+
     variableCoordinator.initializeFromDefinitions(
       child.variableStateManager,
-      (child.getWorkflowExecutionData().graph as unknown as WorkflowGraph).variables || []
+      (child.getWorkflowExecutionData().graph as unknown as WorkflowGraph).variables || [],
     );
   }
 
@@ -780,39 +812,39 @@ export class WorkflowExecutionBuilder {
     parent: WorkflowExecutionEntity,
     child: WorkflowExecutionEntity,
     type: ChildExecutionType,
-    config: ChildExecutionConfig
+    config: ChildExecutionConfig,
   ): void {
     const registry = this.getExecutionHierarchyRegistry();
-    
+
     // Step 1: Register to global registry
     registry.register(child);
-    
+
     // Step 2: Set parent context
     child.setParentContext({
-      parentType: 'WORKFLOW',
+      parentType: "WORKFLOW",
       parentId: parent.id,
       ...(config.nodeId && { nodeId: config.nodeId }),
     });
-    
+
     // Step 3: Register child reference in parent entity
     const shouldInheritInterruption = this.shouldInheritInterruption(type, config);
     parent.registerChild({
-      childType: 'WORKFLOW',
+      childType: "WORKFLOW",
       childId: child.id,
       createdAt: Date.now(),
       ...(config.forkPathId && { forkPathId: config.forkPathId }),
       inheritsInterruption: shouldInheritInterruption,
     });
-    
+
     // Step 4: Setup interruption cascade propagation via EventRegistry
     if (shouldInheritInterruption) {
       const childInterruptionState = child.getInterruptionState();
-      
+
       if (childInterruptionState) {
         // Set EventRegistry for event emission and connect to parent for cascade
         childInterruptionState.setEventRegistry(this.getEventManager());
         childInterruptionState.connectToParent(parent.id);
-        
+
         logger.info("Interruption cascade established", {
           parentExecutionId: parent.id,
           childExecutionId: child.id,
@@ -820,8 +852,8 @@ export class WorkflowExecutionBuilder {
         });
       }
     }
-    
-    logger.debug('Child hierarchy established', {
+
+    logger.debug("Child hierarchy established", {
       childExecutionId: child.id,
       parentExecutionId: parent.id,
       childType: type,
@@ -832,28 +864,28 @@ export class WorkflowExecutionBuilder {
 
   /**
    * Create conversation session for child execution
-   * 
+   *
    * Uses parentStateCoordinator.exportMessagesForChild() to get initial messages.
    */
   private createConversationSession(
     child: WorkflowExecutionEntity,
     parent: WorkflowExecutionEntity,
-    parentStateCoordinator?: WorkflowStateCoordinator
+    parentStateCoordinator?: WorkflowStateCoordinator,
   ): ConversationSession {
     const childExecution = child.getWorkflowExecutionData();
-    
+
     // Get initial messages from parent's state coordinator
     if (!parentStateCoordinator) {
       throw new ExecutionError(
         `parentStateCoordinator is required for child execution creation`,
         undefined,
         childExecution.id,
-        { parentId: parent.id }
+        { parentId: parent.id },
       );
     }
-    
+
     const initialMessages = parentStateCoordinator.exportMessagesForChild();
-    
+
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),
       workflowExecutionId: childExecution.id,
@@ -861,29 +893,29 @@ export class WorkflowExecutionBuilder {
       initialMessages,
     });
     conversationManager.setContext(childExecution.workflowId, childExecution.id);
-    
+
     return conversationManager;
   }
-  
+
   /**
    * Determine whether child should inherit parent's interruption state
    */
   private shouldInheritInterruption(
     type: ChildExecutionType,
-    config: ChildExecutionConfig
+    config: ChildExecutionConfig,
   ): boolean {
     switch (type) {
-      case 'SUBGRAPH':
+      case "SUBGRAPH":
         return true; // Synchronous, always inherits
-        
-      case 'FORK_BRANCH':
+
+      case "FORK_BRANCH":
         return true; // Synchronous, always inherits
-        
-      case 'TRIGGERED':
+
+      case "TRIGGERED":
         // Explicitly check execution mode for clarity
         // Default to false (asynchronous, independent) if not specified
         return config.async === true ? false : true;
-        
+
       default:
         return false;
     }

@@ -4,10 +4,7 @@
  */
 
 import { createBuilder } from "./common.js";
-import type {
-  MessageAddedEvent,
-  ConversationStateChangedEvent,
-} from "@wf-agent/types";
+import type { MessageAddedEvent, ConversationStateChangedEvent } from "@wf-agent/types";
 
 // =============================================================================
 // Message Events

@@ -148,5 +148,4 @@
 
 - ⚠️ **warning** at line 862:11: Unexpected any. Specify a different type
 
-*... and 11 more files (use --verbose to see all)*
-
+_... and 11 more files (use --verbose to see all)_

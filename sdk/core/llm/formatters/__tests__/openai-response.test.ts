@@ -8,7 +8,7 @@ import type { FormatterConfig } from "../types.js";
 
 vi.mock("./tool-converter.js", () => ({
   convertToolsToOpenAIFormat: vi.fn((tools: any[]) =>
-    tools.map((t: any) => ({ type: "function", function: { name: t.name } }))
+    tools.map((t: any) => ({ type: "function", function: { name: t.name } })),
   ),
 }));
 
@@ -60,7 +60,13 @@ describe("OpenAIResponseFormatter", () => {
     it("should include tools in body when provided", () => {
       const request: LLMRequest = {
         messages: [{ role: "user", content: "Use a tool" }],
-        tools: [{ id: "tool-1", description: "A test tool", parameters: { type: "object", properties: {}, required: [] } }],
+        tools: [
+          {
+            id: "tool-1",
+            description: "A test tool",
+            parameters: { type: "object", properties: {}, required: [] },
+          },
+        ],
       };
       const result = formatter.buildRequest(request, mockConfig);
       const body = result.httpRequest.body as Record<string, unknown>;
@@ -108,7 +114,11 @@ describe("OpenAIResponseFormatter", () => {
           {
             content: [{ text: "" }],
             tool_calls: [
-              { id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city":"London"}' } },
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "get_weather", arguments: '{"city":"London"}' },
+              },
             ],
           },
         ],
@@ -157,7 +167,11 @@ describe("OpenAIResponseFormatter", () => {
         output: [
           {
             tool_calls: [
-              { id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } },
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "get_weather", arguments: '{"city":"Paris"}' },
+              },
             ],
           },
         ],
@@ -187,7 +201,9 @@ describe("OpenAIResponseFormatter", () => {
         {
           role: "assistant",
           content: "",
-          toolCalls: [{ id: "call-1", type: "function", function: { name: "get_weather", arguments: "{}" } }],
+          toolCalls: [
+            { id: "call-1", type: "function", function: { name: "get_weather", arguments: "{}" } },
+          ],
         },
       ];
       const result = formatter.convertMessages(messages);
@@ -215,18 +231,14 @@ describe("OpenAIResponseFormatter", () => {
     });
 
     it("should parse tool calls with flat name/arguments structure", () => {
-      const toolCalls = [
-        { id: "call-2", name: "search", arguments: '{"q":"test"}' },
-      ];
+      const toolCalls = [{ id: "call-2", name: "search", arguments: '{"q":"test"}' }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result).toHaveLength(1);
       expect(result[0]!.function.name).toBe("search");
     });
 
     it("should handle missing arguments gracefully", () => {
-      const toolCalls = [
-        { id: "call-3", name: "noop" },
-      ];
+      const toolCalls = [{ id: "call-3", name: "noop" }];
       const result = formatter.parseToolCalls(toolCalls);
       expect(result[0]!.function.arguments).toBe("{}");
     });

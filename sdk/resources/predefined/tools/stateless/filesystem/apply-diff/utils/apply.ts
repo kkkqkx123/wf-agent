@@ -15,19 +15,19 @@ function preserveIndentation(
   replaceLines: string[],
 ): string[] {
   // Get original indentation
-  const originalIndents = matchedLines.map((line) => {
+  const originalIndents = matchedLines.map(line => {
     const match = line.match(/^[\t ]*/);
     return match![0];
   });
 
   // Get search block indentation
-  const searchIndents = searchLines.map((line) => {
+  const searchIndents = searchLines.map(line => {
     const match = line.match(/^[\t ]*/);
     return match![0];
   });
 
   // Apply replacement with preserved indentation
-  return replaceLines.map((line) => {
+  return replaceLines.map(line => {
     const matchedIndent = originalIndents[0] ?? "";
     const currentIndentMatch = line.match(/^[\t ]*/);
     const currentIndent = currentIndentMatch ? currentIndentMatch[0] : "";
@@ -100,10 +100,7 @@ export function applyBlock(
     if (contextIndex !== null) {
       // Search around the context hint (±10 lines)
       const contextStart = Math.max(0, contextIndex - 10);
-      const contextEnd = Math.min(
-        resultLines.length,
-        contextIndex + searchLines.length + 10,
-      );
+      const contextEnd = Math.min(resultLines.length, contextIndex + searchLines.length + 10);
       const contextLines = resultLines.slice(0, contextEnd);
       matchIndex = seekSequence(contextLines, searchLines, contextStart);
     }
@@ -119,15 +116,14 @@ export function applyBlock(
     const lineRange = startLine ? ` near line: ${startLine}` : "";
     const context =
       startLine > 0
-        ? resultLines.slice(
-            Math.max(0, startLine - 3),
-            Math.min(resultLines.length, startLine + 4),
-          )
+        ? resultLines.slice(Math.max(0, startLine - 3), Math.min(resultLines.length, startLine + 4))
         : resultLines.slice(0, 7);
-    const contextStr = context.map((l, i) => {
-      const lineNum = startLine > 0 ? startLine - 3 + i : i + 1;
-      return `${lineNum}: ${l}`;
-    }).join("\n");
+    const contextStr = context
+      .map((l, i) => {
+        const lineNum = startLine > 0 ? startLine - 3 + i : i + 1;
+        return `${lineNum}: ${l}`;
+      })
+      .join("\n");
     const contextLabel = contextHint ? ` near "${contextHint}"` : "";
     return {
       success: false,
@@ -136,16 +132,9 @@ export function applyBlock(
   }
 
   // Get matched lines and preserve indentation
-  const matchedLines = resultLines.slice(
-    matchIndex,
-    matchIndex + searchLines.length,
-  );
+  const matchedLines = resultLines.slice(matchIndex, matchIndex + searchLines.length);
 
-  const indentedReplaceLines = preserveIndentation(
-    matchedLines,
-    searchLines,
-    replaceLines,
-  );
+  const indentedReplaceLines = preserveIndentation(matchedLines, searchLines, replaceLines);
 
   // Apply replacement
   const beforeMatch = resultLines.slice(0, matchIndex);

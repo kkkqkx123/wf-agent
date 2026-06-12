@@ -1,6 +1,6 @@
 /**
  * Workflow Metrics Collector
- * 
+ *
  * Tracks workflow execution metrics including:
  * - Execution count by workflow ID and version
  * - Success/failure rates
@@ -26,20 +26,27 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
   /**
    * Record workflow execution start
    */
-  recordExecutionStart(workflowId: string, executionId: string, labels?: {
-    version?: string;
-    executionType?: 'MAIN' | 'FORK_JOIN' | 'TRIGGERED_SUBWORKFLOW';
-  }): void {
+  recordExecutionStart(
+    workflowId: string,
+    executionId: string,
+    labels?: {
+      version?: string;
+      executionType?: "MAIN" | "FORK_JOIN" | "TRIGGERED_SUBWORKFLOW";
+    },
+  ): void {
     if (!workflowId || !executionId) {
-      logger.warn("recordExecutionStart called with missing parameters", { workflowId, executionId });
+      logger.warn("recordExecutionStart called with missing parameters", {
+        workflowId,
+        executionId,
+      });
       return;
     }
 
     // Increment execution count
     this.incrementCounter(WORKFLOW_METRICS.EXECUTION_COUNT, {
       workflow_id: workflowId,
-      workflow_version: labels?.version || 'unknown',
-      execution_type: labels?.executionType || 'MAIN',
+      workflow_version: labels?.version || "unknown",
+      execution_type: labels?.executionType || "MAIN",
       execution_id: executionId,
     });
 
@@ -55,12 +62,16 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
   /**
    * Record workflow execution completion
    */
-  recordExecutionComplete(workflowId: string, executionId: string, result: {
-    success: boolean;
-    duration: number;
-    nodeCount: number;
-    errorType?: string;
-  }): void {
+  recordExecutionComplete(
+    workflowId: string,
+    executionId: string,
+    result: {
+      success: boolean;
+      duration: number;
+      nodeCount: number;
+      errorType?: string;
+    },
+  ): void {
     if (!workflowId || !executionId) {
       logger.warn("recordExecutionComplete called with missing parameters");
       return;
@@ -90,15 +101,15 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     } else {
       this.incrementCounter(WORKFLOW_METRICS.FAILURE_COUNT, {
         workflow_id: workflowId,
-        error_type: result.errorType || 'unknown',
+        error_type: result.errorType || "unknown",
       });
     }
 
-    logger.debug("Recorded workflow execution complete", { 
-      workflowId, 
-      executionId, 
+    logger.debug("Recorded workflow execution complete", {
+      workflowId,
+      executionId,
       success: result.success,
-      duration: result.duration 
+      duration: result.duration,
     });
   }
 
@@ -115,34 +126,36 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     p99Duration: number;
     byVersion: Record<string, number>;
   } {
-    const filter = workflowId ? {
-      labels: { workflow_id: workflowId }
-    } : {};
+    const filter = workflowId
+      ? {
+          labels: { workflow_id: workflowId },
+        }
+      : {};
 
     // Query execution count
     const countResult = this.query({
       metricName: WORKFLOW_METRICS.EXECUTION_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
       ...filter,
     });
 
     // Query success/failure counts
     const successResult = this.query({
       metricName: WORKFLOW_METRICS.SUCCESS_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
       ...filter,
     });
 
     const failureResult = this.query({
       metricName: WORKFLOW_METRICS.FAILURE_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
       ...filter,
     });
 
     // Query duration histogram
     const durationResult = this.query({
       metricName: WORKFLOW_METRICS.EXECUTION_DURATION,
-      metricType: 'histogram',
+      metricType: "histogram",
       ...filter,
     });
 
@@ -156,7 +169,7 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     let p95Duration = 0;
     let p99Duration = 0;
 
-    const durationMetric = durationResult.metrics.get('workflow.execution.duration');
+    const durationMetric = durationResult.metrics.get("workflow.execution.duration");
     if (durationMetric && durationMetric.timeSeries && durationMetric.timeSeries.length > 0) {
       const values = durationMetric.timeSeries.map(ts => ts.value).sort((a, b) => a - b);
       avgDuration = values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -172,7 +185,8 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
         try {
           const labels = JSON.parse(labelKey);
           if (labels.workflow_version) {
-            byVersion[labels.workflow_version] = (byVersion[labels.workflow_version] || 0) + labelAgg.value;
+            byVersion[labels.workflow_version] =
+              (byVersion[labels.workflow_version] || 0) + labelAgg.value;
           }
         } catch (error) {
           logger.warn("Failed to parse label key", { labelKey, error });
@@ -202,7 +216,7 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
   }> {
     const countResult = this.query({
       metricName: WORKFLOW_METRICS.EXECUTION_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const workflows: Map<string, { count: number; success: number; failure: number }> = new Map();
@@ -229,7 +243,7 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
     // Get success counts
     const successMetric = this.query({
       metricName: WORKFLOW_METRICS.SUCCESS_COUNT,
-      metricType: 'counter',
+      metricType: "counter",
     }).metrics.get(WORKFLOW_METRICS.SUCCESS_COUNT);
 
     if (successMetric) {
@@ -239,10 +253,10 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
           if (labels.workflow_id && workflows.has(labels.workflow_id)) {
             const workflowStats = workflows.get(labels.workflow_id)!;
             workflowStats.success += labelAgg.value;
-            logger.debug("Updated workflow success count", { 
-              workflowId: labels.workflow_id, 
+            logger.debug("Updated workflow success count", {
+              workflowId: labels.workflow_id,
               successCount: workflowStats.success,
-              increment: labelAgg.value
+              increment: labelAgg.value,
             });
           }
         } catch (error) {
@@ -268,57 +282,57 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const stats = this.getWorkflowUsageStats();
     const metrics: PrometheusMetric[] = [];
-    
+
     // Total executions counter
     metrics.push({
-      name: 'workflow_execution_total',
-      type: 'counter',
-      help: 'Total workflow executions',
-      samples: [{ value: stats.totalExecutions }]
+      name: "workflow_execution_total",
+      type: "counter",
+      help: "Total workflow executions",
+      samples: [{ value: stats.totalExecutions }],
     });
-    
+
     // Success rate gauge
     metrics.push({
-      name: 'workflow_execution_success_rate',
-      type: 'gauge',
-      help: 'Workflow execution success rate (0-1)',
-      samples: [{ value: stats.successRate }]
+      name: "workflow_execution_success_rate",
+      type: "gauge",
+      help: "Workflow execution success rate (0-1)",
+      samples: [{ value: stats.successRate }],
     });
-    
+
     // Duration summary with quantiles
     metrics.push({
-      name: 'workflow_execution_duration_seconds',
-      type: 'summary',
-      help: 'Workflow execution duration in seconds',
+      name: "workflow_execution_duration_seconds",
+      type: "summary",
+      help: "Workflow execution duration in seconds",
       samples: [
-        { labels: { quantile: '0.5' }, value: stats.avgDuration / 1000 },
-        { labels: { quantile: '0.95' }, value: stats.p95Duration / 1000 },
-        { labels: { quantile: '0.99' }, value: stats.p99Duration / 1000 },
-      ]
+        { labels: { quantile: "0.5" }, value: stats.avgDuration / 1000 },
+        { labels: { quantile: "0.95" }, value: stats.p95Duration / 1000 },
+        { labels: { quantile: "0.99" }, value: stats.p99Duration / 1000 },
+      ],
     });
-    
+
     // Executions by version
     for (const [version, count] of Object.entries(stats.byVersion)) {
       metrics.push({
-        name: 'workflow_execution_by_version_total',
-        type: 'counter',
-        help: 'Workflow executions grouped by version',
-        samples: [{ labels: { version }, value: count }]
+        name: "workflow_execution_by_version_total",
+        type: "counter",
+        help: "Workflow executions grouped by version",
+        samples: [{ labels: { version }, value: count }],
       });
     }
-    
+
     // Format all metrics
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     return {
-      type: 'workflow',
+      type: "workflow",
       stats: this.getWorkflowUsageStats(),
-      topWorkflows: this.getTopWorkflows(10)
+      topWorkflows: this.getTopWorkflows(10),
     };
   }
 }

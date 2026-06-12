@@ -4,23 +4,18 @@
  * Handles the parsing and transformation of AgentLoopConfigFile to AgentLoopRuntimeConfig
  */
 
-import type {
-  AgentLoopRuntimeConfig,
-  AgentHook,
-  AgentHookType,
-} from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentHook, AgentHookType } from "@wf-agent/types";
 import type { Condition } from "@wf-agent/types";
-import type {
-  AgentLoopConfigFile,
-  AgentHookConfigFile,
-} from "../types.js";
+import type { AgentLoopConfigFile, AgentHookConfigFile } from "../types.js";
 
 /**
  * Convert the configuration file format to runtime configuration
  * @param configFile The agent loop configuration file
  * @returns AgentLoopRuntimeConfig
  */
-export function transformToAgentLoopConfig(configFile: AgentLoopConfigFile): AgentLoopRuntimeConfig {
+export function transformToAgentLoopConfig(
+  configFile: AgentLoopConfigFile,
+): AgentLoopRuntimeConfig {
   const config: AgentLoopRuntimeConfig = {
     profileId: configFile.profileId,
     systemPrompt: configFile.systemPrompt,

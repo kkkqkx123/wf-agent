@@ -35,11 +35,7 @@ export function validateExecutorConfig(
 
   if (!result.success) {
     const errors = result.error.issues.map(
-      issue =>
-        new ValidationError(
-          issue.message,
-          issue.path.join("."),
-        ),
+      issue => new ValidationError(issue.message, issue.path.join(".")),
     );
     return err(errors);
   }
@@ -56,9 +52,7 @@ export function validateExecutorConfig(
  * @param config The parsed configuration object
  * @returns The transformed ScriptExecutorConfig
  */
-export function transformExecutorConfig(
-  config: ParsedConfig<"executor">,
-): ScriptExecutorConfig {
+export function transformExecutorConfig(config: ParsedConfig<"executor">): ScriptExecutorConfig {
   return { ...config.config };
 }
 
@@ -69,8 +63,6 @@ export function transformExecutorConfig(
  * @param config ScriptExecutorConfig object
  * @returns The executor config data ready for export
  */
-export function exportExecutorConfig(
-  config: ScriptExecutorConfig,
-): ScriptExecutorConfig {
+export function exportExecutorConfig(config: ScriptExecutorConfig): ScriptExecutorConfig {
   return config;
 }

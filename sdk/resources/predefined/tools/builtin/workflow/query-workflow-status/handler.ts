@@ -3,9 +3,7 @@
  */
 
 import type { BuiltinToolExecutionContext } from "@wf-agent/types";
-import type {
-  QueryWorkflowStatusResult,
-} from "@sdk/workflow/execution/types/workflow-tool.types.js";
+import type { QueryWorkflowStatusResult } from "@sdk/workflow/execution/types/workflow-tool.types.js";
 import * as Identifiers from "@sdk/core/di/service-identifiers.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { TriggeredSubworkflowHandler } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
@@ -17,7 +15,7 @@ import {
 
 /**
  * Query Workflow Status Tool Handler
- * 
+ *
  * @param params - QueryWorkflowStatusParams containing taskId
  * @param context - WorkflowToolExecutionContext with parentExecutionEntity and globalContext
  * @returns QueryWorkflowStatusResult with task status information
@@ -49,14 +47,17 @@ export function createQueryWorkflowStatusHandler() {
 
     // Validate parent workflow execution entity for hierarchy security
     if (!context.parentExecutionEntity) {
-      throw new RuntimeValidationError("Parent workflow execution entity is required for workflow status query", {
-        operation: "query_workflow_status",
-        field: "parentExecutionEntity",
-        context: {
-          taskId,
-          executionId: context.executionId,
+      throw new RuntimeValidationError(
+        "Parent workflow execution entity is required for workflow status query",
+        {
+          operation: "query_workflow_status",
+          field: "parentExecutionEntity",
+          context: {
+            taskId,
+            executionId: context.executionId,
+          },
         },
-      });
+      );
     }
 
     // Get TriggeredSubworkflowHandler from DI container
@@ -66,7 +67,7 @@ export function createQueryWorkflowStatusHandler() {
         operation: "query_workflow_status",
       });
     }
-    
+
     const triggeredSubworkflowManager = globalContext.container.get(
       Identifiers.TriggeredSubworkflowHandler,
     ) as TriggeredSubworkflowHandler;

@@ -5,7 +5,7 @@
  * - Encapsulates event listener registration as Subscription pattern
  * - Provides unified API layer interface for Agent events
  * - Supports all event types from EventRegistry
- * 
+ *
  * All event listeners must be execution-scoped:
  * - executionId is REQUIRED
  * - Automatically cleaned up when execution ends
@@ -46,7 +46,7 @@ export function createExecutionScopedAgentSubscription(
   eventType: EventType,
   listener: EventListener<BaseEvent>,
   dependencies: APIDependencyManager,
-  additionalOptions?: Omit<OnAgentEventParams['options'], 'executionId'>,
+  additionalOptions?: Omit<OnAgentEventParams["options"], "executionId">,
 ): OnEventSubscription {
   return new OnEventSubscription(
     {

@@ -338,7 +338,7 @@ export class WorkflowStateCoordinator {
   cleanup(): void {
     // Cleanup ConversationSession (primary data source)
     this.conversationManager.cleanup();
-    
+
     // Note: messageHistoryManager cleanup is handled by WorkflowExecutionEntity
     // We don't directly manage it here to maintain clear responsibility boundaries
   }

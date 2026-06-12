@@ -35,9 +35,7 @@ export const CANCEL_WORKFLOW_TOOL_DESCRIPTION: ToolDescriptionData = {
  * @param workflows - Optional list of available workflows to include in the description
  * @returns ToolDescriptionData with dynamic workflow information
  */
-export function generateCancelWorkflowDescription(
-  workflows?: WorkflowInfo[],
-): ToolDescriptionData {
+export function generateCancelWorkflowDescription(workflows?: WorkflowInfo[]): ToolDescriptionData {
   if (!workflows || workflows.length === 0) {
     return CANCEL_WORKFLOW_TOOL_DESCRIPTION;
   }

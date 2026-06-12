@@ -1,6 +1,6 @@
 /**
  * Misc utilities for file processing and text handling.
- * 
+ *
  * This module provides reusable utilities for:
  * - File reading with different modes (slice, indentation)
  * - Line formatting, numbering, and validation
@@ -25,17 +25,9 @@ export {
 // Re-export from tool-utils for convenience (already available via @wf-agent/sdk)
 export { formatLineNumbers, truncateText } from "../tool-utils.js";
 
-export {
-  readLinesWithStream,
-  countFileLines,
-  type StreamReadResult,
-} from "./stream-reader.js";
+export { readLinesWithStream, countFileLines, type StreamReadResult } from "./stream-reader.js";
 
-export {
-  stripLineNumbers,
-  everyLineHasLineNumbers,
-  truncateOutput,
-} from "./line-number-utils.js";
+export { stripLineNumbers, everyLineHasLineNumbers, truncateOutput } from "./line-number-utils.js";
 
 export {
   countFileLinesAndTokens,

@@ -16,10 +16,7 @@ const logger = createContextualLogger();
  * @param tool Tool definition to persist
  * @param adapter Storage adapter or null
  */
-export async function persistTool(
-  tool: Tool,
-  adapter?: ToolStorageAdapter | null,
-): Promise<void> {
+export async function persistTool(tool: Tool, adapter?: ToolStorageAdapter | null): Promise<void> {
   if (!adapter) {
     logger.debug("No storage adapter configured, skipping tool persistence");
     return;

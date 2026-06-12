@@ -141,7 +141,6 @@ export class ObservableImpl<T> implements Observable<T> {
     };
   }
 
-
   /**
    * Cancel all cleanup functions
    */

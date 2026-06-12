@@ -1,6 +1,6 @@
 /**
  * Standard Timeout Tags
- * 
+ *
  * Defines standardized tag prefixes and values for timeout management.
  * Using consistent tags enables efficient batch operations and monitoring.
  */
@@ -10,36 +10,36 @@
  */
 export const TIMEOUT_TAG_PREFIXES = {
   /** LLM-related timeouts */
-  LLM: 'llm',
-  
+  LLM: "llm",
+
   /** Tool execution timeouts */
-  TOOL: 'tool',
-  
+  TOOL: "tool",
+
   /** Workflow-related timeouts */
-  WORKFLOW: 'workflow',
-  
+  WORKFLOW: "workflow",
+
   /** Interruption-related timeouts */
-  INTERRUPTION: 'interruption',
-  
+  INTERRUPTION: "interruption",
+
   /** User interaction timeouts */
-  USER: 'user',
+  USER: "user",
 } as const;
 
 /** Union type of all timeout tag prefix values */
-export type TimeoutTagPrefix = typeof TIMEOUT_TAG_PREFIXES[keyof typeof TIMEOUT_TAG_PREFIXES];
+export type TimeoutTagPrefix = (typeof TIMEOUT_TAG_PREFIXES)[keyof typeof TIMEOUT_TAG_PREFIXES];
 
 /**
  * LLM-related timeout tags
  */
 export const LLM_TIMEOUT_TAGS = {
   /** Single LLM call */
-  CALL: 'llm-call',
-  
+  CALL: "llm-call",
+
   /** LLM streaming response */
-  STREAM: 'llm-stream',
-  
+  STREAM: "llm-stream",
+
   /** LLM retry attempt */
-  RETRY: 'llm-retry',
+  RETRY: "llm-retry",
 } as const;
 
 /**
@@ -47,13 +47,13 @@ export const LLM_TIMEOUT_TAGS = {
  */
 export const TOOL_TIMEOUT_TAGS = {
   /** Generic tool execution */
-  EXECUTION: 'tool-execution',
-  
+  EXECUTION: "tool-execution",
+
   /** Shell command execution */
-  SHELL: 'tool-shell',
-  
+  SHELL: "tool-shell",
+
   /** API call tool */
-  API: 'tool-api',
+  API: "tool-api",
 } as const;
 
 /**
@@ -61,13 +61,13 @@ export const TOOL_TIMEOUT_TAGS = {
  */
 export const WORKFLOW_TIMEOUT_TAGS = {
   /** Overall workflow execution */
-  EXECUTION: 'workflow-execution',
-  
+  EXECUTION: "workflow-execution",
+
   /** Pause state monitoring */
-  PAUSE: 'workflow-pause',
-  
+  PAUSE: "workflow-pause",
+
   /** Node execution */
-  NODE: 'workflow-node',
+  NODE: "workflow-node",
 } as const;
 
 /**
@@ -75,10 +75,10 @@ export const WORKFLOW_TIMEOUT_TAGS = {
  */
 export const INTERRUPTION_TIMEOUT_TAGS = {
   /** Interruption hook execution */
-  HOOK: 'interruption-hook',
-  
+  HOOK: "interruption-hook",
+
   /** Interruption cleanup operations */
-  CLEANUP: 'interruption-cleanup',
+  CLEANUP: "interruption-cleanup",
 } as const;
 
 /**
@@ -86,10 +86,10 @@ export const INTERRUPTION_TIMEOUT_TAGS = {
  */
 export const USER_TIMEOUT_TAGS = {
   /** Waiting for user input */
-  INPUT: 'user-input',
-  
+  INPUT: "user-input",
+
   /** Waiting for user approval */
-  APPROVAL: 'user-approval',
+  APPROVAL: "user-approval",
 } as const;
 
 /**
@@ -106,7 +106,7 @@ export const STANDARD_TIMEOUT_TAGS = {
 /**
  * Type representing all valid standard timeout tags
  */
-export type StandardTimeoutTag = typeof STANDARD_TIMEOUT_TAGS[keyof typeof STANDARD_TIMEOUT_TAGS];
+export type StandardTimeoutTag = (typeof STANDARD_TIMEOUT_TAGS)[keyof typeof STANDARD_TIMEOUT_TAGS];
 
 /**
  * Validate if a tag follows the standard naming convention
@@ -118,16 +118,16 @@ export function isValidTimeoutTag(tag: string): boolean {
   if (Object.values(STANDARD_TIMEOUT_TAGS).includes(tag as StandardTimeoutTag)) {
     return true;
   }
-  
+
   // Check if it follows the prefix pattern (prefix-suffix)
-  const parts = tag.split('-');
+  const parts = tag.split("-");
   if (parts.length < 2) {
     return false;
   }
-  
+
   const prefix = parts[0];
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
-  
+
   return validPrefixes.includes(prefix as TimeoutTagPrefix);
 }
 
@@ -137,17 +137,17 @@ export function isValidTimeoutTag(tag: string): boolean {
  * @returns Tag category prefix or null if invalid
  */
 export function getTagCategory(tag: string): string | null {
-  const parts = tag.split('-');
+  const parts = tag.split("-");
   if (parts.length < 2) {
     return null;
   }
-  
+
   const prefix = parts[0];
   if (!prefix) {
     return null;
   }
-  
+
   const validPrefixes = Object.values(TIMEOUT_TAG_PREFIXES);
-  
+
   return validPrefixes.includes(prefix as TimeoutTagPrefix) ? prefix : null;
 }

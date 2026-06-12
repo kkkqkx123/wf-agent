@@ -46,7 +46,7 @@ describe("ToolVisibilityMessageBuilder", () => {
   describe("buildVisibilityDeclarationMessage", () => {
     it("should build message with available tools", () => {
       const availableTools = ["tool1", "tool2"];
-      
+
       (mockToolRegistry.getTool as ReturnType<typeof vi.fn>).mockImplementation((id: string) => {
         if (id === "tool1") {
           return { id: "tool1", description: "First tool" };
@@ -66,7 +66,7 @@ describe("ToolVisibilityMessageBuilder", () => {
 
     it("should handle missing tool descriptions", () => {
       const availableTools = ["unknown-tool"];
-      
+
       (mockToolRegistry.getTool as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
       const message = builder.buildVisibilityDeclarationMessage(availableTools);
@@ -87,7 +87,7 @@ describe("ToolVisibilityMessageBuilder", () => {
         "workflow",
         "scope-123",
         ["tool1", "tool2"],
-        "added"
+        "added",
       );
 
       expect(metadata).toEqual({
@@ -106,7 +106,7 @@ describe("ToolVisibilityMessageBuilder", () => {
         "node",
         "node-456",
         [],
-        "removed"
+        "removed",
       );
       const after = Date.now();
 
@@ -172,7 +172,7 @@ describe("ToolVisibilityMessageBuilder", () => {
         "workflow",
         "scope-123",
         ["tool1", "tool2"],
-        undefined
+        undefined,
       );
 
       expect(metadata).toEqual({
@@ -185,12 +185,10 @@ describe("ToolVisibilityMessageBuilder", () => {
     });
 
     it("should build metadata with removed tools", () => {
-      const metadata = builder.buildEventMetadata(
-        "node",
-        "node-456",
-        undefined,
-        ["tool3", "tool4"]
-      );
+      const metadata = builder.buildEventMetadata("node", "node-456", undefined, [
+        "tool3",
+        "tool4",
+      ]);
 
       expect(metadata).toEqual({
         type: "tool_update",
@@ -202,12 +200,7 @@ describe("ToolVisibilityMessageBuilder", () => {
     });
 
     it("should build metadata with both added and removed tools", () => {
-      const metadata = builder.buildEventMetadata(
-        "workflow",
-        "scope-789",
-        ["tool1"],
-        ["tool2"]
-      );
+      const metadata = builder.buildEventMetadata("workflow", "scope-789", ["tool1"], ["tool2"]);
 
       expect(metadata).toEqual({
         type: "tool_update",
@@ -233,12 +226,8 @@ describe("ToolVisibilityMessageBuilder", () => {
 
   describe("stateless design", () => {
     it("should not maintain state between calls", () => {
-      const message1 = builder.buildUpdateNotification([
-        { id: "tool1", description: "First" },
-      ]);
-      const message2 = builder.buildUpdateNotification([
-        { id: "tool2", description: "Second" },
-      ]);
+      const message1 = builder.buildUpdateNotification([{ id: "tool1", description: "First" }]);
+      const message2 = builder.buildUpdateNotification([{ id: "tool2", description: "Second" }]);
 
       expect(message1).toContain("tool1");
       expect(message1).not.toContain("tool2");

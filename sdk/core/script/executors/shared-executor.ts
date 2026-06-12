@@ -41,11 +41,9 @@ export class SharedExecutor extends BaseExecutor {
         this.sessionCwd = cwd || null;
       }
 
-      const result = await this.terminalService.executeInSession(
-        this.sessionId,
-        command,
-        { timeout },
-      );
+      const result = await this.terminalService.executeInSession(this.sessionId, command, {
+        timeout,
+      });
 
       return {
         success: result.success,

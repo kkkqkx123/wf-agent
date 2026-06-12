@@ -16,7 +16,7 @@ import type {
  * Used for converting tool definitions from the app layer format to the SDK Tool format.
  */
 export interface ToolDefinitionLike {
-  /** 
+  /**
    * Unique Tool Identifier
    * Must be human-readable and follow naming conventions (lowercase_with_underscores)
    * Examples: "read_file", "write_file", "run_shell"

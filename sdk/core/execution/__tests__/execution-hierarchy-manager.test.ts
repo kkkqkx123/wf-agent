@@ -91,9 +91,7 @@ describe("ExecutionHierarchyManager", () => {
     it("should restore parent, depth, root info, and children", () => {
       const existing: ExecutionHierarchyMetadata = {
         parent: { parentId: "parent-1", parentType: "WORKFLOW" },
-        children: [
-          { childId: "child-1", childType: "AGENT_LOOP", createdAt: Date.now() },
-        ],
+        children: [{ childId: "child-1", childType: "AGENT_LOOP", createdAt: Date.now() }],
         depth: 3,
         rootExecutionId: "root-1",
         rootExecutionType: "WORKFLOW",
@@ -169,9 +167,9 @@ describe("ExecutionHierarchyManager", () => {
 
     it("should reject setting self as parent (cycle detection)", () => {
       const mgr = new ExecutionHierarchyManager("exec-1", "WORKFLOW");
-      expect(() =>
-        mgr.setParent({ parentId: "exec-1", parentType: "WORKFLOW" }),
-      ).toThrow(/circular/i);
+      expect(() => mgr.setParent({ parentId: "exec-1", parentType: "WORKFLOW" })).toThrow(
+        /circular/i,
+      );
     });
 
     it("should allow overwriting parent", () => {
@@ -284,7 +282,9 @@ describe("ExecutionHierarchyManager", () => {
       const mgrA = new ExecutionHierarchyManager("exec-A", "WORKFLOW", undefined, registry);
 
       // Setting parent to exec-B would create a cycle (exec-B's parent is exec-A)
-      expect(() => mgrA.setParent({ parentId: "exec-B", parentType: "WORKFLOW" })).toThrow(/circular/i);
+      expect(() => mgrA.setParent({ parentId: "exec-B", parentType: "WORKFLOW" })).toThrow(
+        /circular/i,
+      );
     });
 
     it("should allow valid parent chain", () => {
@@ -309,16 +309,14 @@ describe("ExecutionHierarchyManager", () => {
       const registry = createMockRegistry(entities);
 
       const mgrC = new ExecutionHierarchyManager("exec-C", "WORKFLOW", undefined, registry);
-      expect(() =>
-        mgrC.setParent({ parentId: "exec-B", parentType: "WORKFLOW" }),
-      ).not.toThrow();
+      expect(() => mgrC.setParent({ parentId: "exec-B", parentType: "WORKFLOW" })).not.toThrow();
     });
 
     it("should detect self-cycle without registry", () => {
       const mgr = new ExecutionHierarchyManager("self", "WORKFLOW");
-      expect(() =>
-        mgr.setParent({ parentId: "self", parentType: "WORKFLOW" }),
-      ).toThrow(/circular/i);
+      expect(() => mgr.setParent({ parentId: "self", parentType: "WORKFLOW" })).toThrow(
+        /circular/i,
+      );
     });
   });
 
@@ -361,9 +359,9 @@ describe("ExecutionHierarchyManager", () => {
       // So a node at depth 10 (node-10) can have a child at depth 11 which would fail.
 
       const newNode = new ExecutionHierarchyManager("new-node", "AGENT_LOOP", undefined, registry);
-      expect(() =>
-        newNode.setParent({ parentId: "node-10", parentType: "WORKFLOW" }),
-      ).toThrow(/depth.*exceeded|maximum/i);
+      expect(() => newNode.setParent({ parentId: "node-10", parentType: "WORKFLOW" })).toThrow(
+        /depth.*exceeded|maximum/i,
+      );
     });
   });
 

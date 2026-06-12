@@ -48,12 +48,14 @@ export const buildForkStartedEvent = createBuilder<ForkStartedEvent>("FORK_START
 /**
  * Build fork branch started event
  */
-export const buildForkBranchStartedEvent = createBuilder<ForkBranchStartedEvent>("FORK_BRANCH_STARTED");
+export const buildForkBranchStartedEvent =
+  createBuilder<ForkBranchStartedEvent>("FORK_BRANCH_STARTED");
 
 /**
  * Build fork branch completed event
  */
-export const buildForkBranchCompletedEvent = createBuilder<ForkBranchCompletedEvent>("FORK_BRANCH_COMPLETED");
+export const buildForkBranchCompletedEvent =
+  createBuilder<ForkBranchCompletedEvent>("FORK_BRANCH_COMPLETED");
 
 /**
  * Build fork completed event
@@ -72,7 +74,8 @@ export const buildNodeSyncStartedEvent = createBuilder<NodeSyncStartedEvent>("NO
 /**
  * Build sync node completed event
  */
-export const buildNodeSyncCompletedEvent = createBuilder<NodeSyncCompletedEvent>("NODE_SYNC_COMPLETED");
+export const buildNodeSyncCompletedEvent =
+  createBuilder<NodeSyncCompletedEvent>("NODE_SYNC_COMPLETED");
 
 /**
  * Build sync node failed event

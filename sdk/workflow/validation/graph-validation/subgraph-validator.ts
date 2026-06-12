@@ -28,13 +28,16 @@ export function validateSubgraphExistence(
       const _subgraphConfig = node.originalNode?.config as { subgraphId?: string } | undefined;
       if (!_subgraphConfig || !_subgraphConfig.subgraphId) {
         errors.push(
-          new ConfigurationValidationError(`SUBGRAPH node (${node.id}) is missing subgraphId configuration`, {
-            configType: "workflow",
-            context: {
-              code: "MISSING_SUBGRAPH_ID",
-              nodeId: node.id,
+          new ConfigurationValidationError(
+            `SUBGRAPH node (${node.id}) is missing subgraphId configuration`,
+            {
+              configType: "workflow",
+              context: {
+                code: "MISSING_SUBGRAPH_ID",
+                nodeId: node.id,
+              },
             },
-          }),
+          ),
         );
       }
     }
@@ -65,19 +68,41 @@ export function validateSubgraphCompatibility(
   const subgraphNodes: Array<{
     nodeId: string;
     subworkflowId: string;
-    variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+    variableInputs?: Array<{
+      externalName: string;
+      internalName: string;
+      required?: boolean;
+      defaultValue?: unknown;
+    }>;
     variableOutputs?: Array<{ internalName: string; externalName: string }>;
-    dataInputs?: Array<{ parentField: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
+    dataInputs?: Array<{
+      parentField: string;
+      internalName: string;
+      required?: boolean;
+      defaultValue?: unknown;
+    }>;
   }> = [];
 
   for (const node of graph.nodes.values()) {
     if (node.type === ("SUBGRAPH" as StaticNodeType)) {
-      const config = node.originalNode?.config as {
-        subgraphId?: string;
-        variableInputs?: Array<{ externalName: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
-        variableOutputs?: Array<{ internalName: string; externalName: string }>;
-        dataInputs?: Array<{ parentField: string; internalName: string; required?: boolean; defaultValue?: unknown }>;
-      } | undefined;
+      const config = node.originalNode?.config as
+        | {
+            subgraphId?: string;
+            variableInputs?: Array<{
+              externalName: string;
+              internalName: string;
+              required?: boolean;
+              defaultValue?: unknown;
+            }>;
+            variableOutputs?: Array<{ internalName: string; externalName: string }>;
+            dataInputs?: Array<{
+              parentField: string;
+              internalName: string;
+              required?: boolean;
+              defaultValue?: unknown;
+            }>;
+          }
+        | undefined;
 
       if (config?.subgraphId) {
         subgraphNodes.push({
@@ -109,8 +134,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: input.internalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
 
@@ -126,8 +151,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   externalName: input.externalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
 
@@ -155,8 +180,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   externalName: output.externalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
 
@@ -172,8 +197,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: output.internalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
       }
@@ -194,8 +219,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: dataInput.internalName,
                 },
-              }
-            )
+              },
+            ),
           );
         }
 
@@ -211,8 +236,8 @@ export function validateSubgraphCompatibility(
                   subworkflowId: subgraphNode.subworkflowId,
                   parentField: dataInput.parentField,
                 },
-              }
-            )
+              },
+            ),
           );
         }
       }

@@ -81,7 +81,7 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
 
     if (keyExtractor) {
       const previousKeys = new Set(previous.map(keyExtractor));
-      return current.filter((item) => !previousKeys.has(keyExtractor(item)));
+      return current.filter(item => !previousKeys.has(keyExtractor(item)));
     }
 
     if (current.length > previous.length) {
@@ -179,7 +179,8 @@ export abstract class DeltaCalculator<TSnapshot, TDelta> {
 
       for (const key of keysA) {
         if (!keysB.includes(key)) return false;
-        if (!this.isEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+        if (!this.isEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+          return false;
       }
       return true;
     }

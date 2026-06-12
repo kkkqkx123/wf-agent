@@ -52,7 +52,9 @@ export interface CompletionHandler<T> {
  * AsyncCompletionManager - Asynchronous Task Completion Manager
  * @typeparam T Result Type of the Task
  */
-export class AsyncCompletionManager<T = unknown> implements StateManager<Map<string, CompletionHandler<T>>> {
+export class AsyncCompletionManager<T = unknown> implements StateManager<
+  Map<string, CompletionHandler<T>>
+> {
   /**
    * Completion Handler Mapping
    */
@@ -98,9 +100,9 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
         const event = buildAsyncCompletionRegisteredEvent({ executionId });
         await emit(this.eventManager, event);
       } catch (error) {
-        logger.warn("Failed to emit ASYNC_COMPLETION_REGISTERED event", { 
-          error: getErrorOrNew(error).message, 
-          executionId 
+        logger.warn("Failed to emit ASYNC_COMPLETION_REGISTERED event", {
+          error: getErrorOrNew(error).message,
+          executionId,
         });
       }
     }
@@ -133,9 +135,9 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
           const event = buildAsyncCompletionTriggeredEvent({ executionId });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_COMPLETION_TRIGGERED event", { 
-            error: getErrorOrNew(error).message, 
-            executionId 
+          logger.warn("Failed to emit ASYNC_COMPLETION_TRIGGERED event", {
+            error: getErrorOrNew(error).message,
+            executionId,
           });
         }
       }
@@ -158,9 +160,9 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
           const event = buildAsyncCompletionFailedEvent({ executionId, error: sdkError });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", { 
-            error: getErrorOrNew(error).message, 
-            executionId 
+          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", {
+            error: getErrorOrNew(error).message,
+            executionId,
           });
         }
       }
@@ -194,9 +196,9 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
           const event = buildAsyncCompletionErrorTriggeredEvent({ executionId, error });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_COMPLETION_ERROR_TRIGGERED event", { 
-            error: getErrorOrNew(error).message, 
-            executionId 
+          logger.warn("Failed to emit ASYNC_COMPLETION_ERROR_TRIGGERED event", {
+            error: getErrorOrNew(error).message,
+            executionId,
           });
         }
       }
@@ -212,15 +214,15 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit failure event (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildAsyncCompletionFailedEvent({ 
-            executionId, 
-            error: err instanceof Error ? err : new Error(String(err))
+          const event = buildAsyncCompletionFailedEvent({
+            executionId,
+            error: err instanceof Error ? err : new Error(String(err)),
           });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", { 
-            error: getErrorOrNew(error).message, 
-            executionId 
+          logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", {
+            error: getErrorOrNew(error).message,
+            executionId,
           });
         }
       }
@@ -265,15 +267,15 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
         // Emit cleanup event (non-critical)
         if (this.eventManager) {
           try {
-            const event = buildAsyncCompletionCleanedUpEvent({ 
+            const event = buildAsyncCompletionCleanedUpEvent({
               executionId,
-              reason: "global_cleanup"
+              reason: "global_cleanup",
             });
             await emit(this.eventManager, event);
           } catch (error) {
-            logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", { 
-              error: getErrorOrNew(error).message, 
-              executionId 
+            logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", {
+              error: getErrorOrNew(error).message,
+              executionId,
             });
           }
         }
@@ -307,15 +309,15 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit cleanup event (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildAsyncCompletionCleanedUpEvent({ 
+          const event = buildAsyncCompletionCleanedUpEvent({
             executionId,
-            reason: "individual_cleanup"
+            reason: "individual_cleanup",
           });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", { 
-            error: getErrorOrNew(error).message, 
-            executionId 
+          logger.warn("Failed to emit ASYNC_COMPLETION_CLEANED_UP event", {
+            error: getErrorOrNew(error).message,
+            executionId,
           });
         }
       }

@@ -17,10 +17,10 @@ describe("InterceptorManager", () => {
   describe("request interceptors", () => {
     it("should apply request interceptors in order", async () => {
       manager.addRequestInterceptor({
-        intercept: (config) => ({ ...config, headers: { ...config.headers, a: "1" } }),
+        intercept: config => ({ ...config, headers: { ...config.headers, a: "1" } }),
       });
       manager.addRequestInterceptor({
-        intercept: (config) => ({ ...config, headers: { ...config.headers, b: "2" } }),
+        intercept: config => ({ ...config, headers: { ...config.headers, b: "2" } }),
       });
 
       const result = await manager.applyRequestInterceptors({
@@ -33,7 +33,7 @@ describe("InterceptorManager", () => {
 
     it("should support async interceptors", async () => {
       manager.addRequestInterceptor({
-        intercept: async (config) => ({
+        intercept: async config => ({
           ...config,
           headers: { ...config.headers, async: "true" },
         }),
@@ -56,10 +56,10 @@ describe("InterceptorManager", () => {
   describe("response interceptors", () => {
     it("should apply response interceptors in order", async () => {
       manager.addResponseInterceptor({
-        intercept: (resp) => ({ ...resp, status: resp.status + 1 }),
+        intercept: resp => ({ ...resp, status: resp.status + 1 }),
       });
       manager.addResponseInterceptor({
-        intercept: (resp) => ({ ...resp, data: { transformed: true } }),
+        intercept: resp => ({ ...resp, data: { transformed: true } }),
       });
 
       const result = await manager.applyResponseInterceptors({
@@ -80,7 +80,7 @@ describe("InterceptorManager", () => {
   describe("error interceptors", () => {
     it("should apply error interceptors", async () => {
       manager.addErrorInterceptor({
-        intercept: (error) => {
+        intercept: error => {
           error.message = `Transformed: ${error.message}`;
           return error;
         },
@@ -94,7 +94,7 @@ describe("InterceptorManager", () => {
   describe("clear", () => {
     it("should remove all interceptors", async () => {
       manager.addRequestInterceptor({
-        intercept: (config) => ({ ...config, url: "/modified" }),
+        intercept: config => ({ ...config, url: "/modified" }),
       });
       manager.clear();
 

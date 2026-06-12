@@ -46,9 +46,7 @@ describe("Agent Loop Execution Flow", () => {
 
   describe("Single Iteration (no tools)", () => {
     it("should complete a single iteration with a final answer", async () => {
-      fixture.mockLLMWrapper.setDefaultResponse(
-        "This is the final answer from the mock LLM.",
-      );
+      fixture.mockLLMWrapper.setDefaultResponse("This is the final answer from the mock LLM.");
 
       const config = createBasicAgentConfig({ maxIterations: 1 });
 

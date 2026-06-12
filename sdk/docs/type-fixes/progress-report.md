@@ -1,15 +1,18 @@
 # Type Fix Progress Report
 
 ## Summary
+
 Fixed `any` type issues in core checkpoint and workflow handler files. Replaced unsafe `any` types with proper TypeScript type constraints using `unknown`, generic constraints, and proper interface definitions.
 
 ## Completed Fixes ✅
 
 ### 1. sdk/core/checkpoint/base-diff-calculator.ts
+
 **Status:** ✅ COMPLETE  
 **Lines Fixed:** 8 occurrences
 
 **Changes:**
+
 - Generic constraint: `Record<string, any>` → `Record<string, unknown>`
 - Delta type: `{ from: any; to: any }` → `{ from: unknown; to: unknown }`
 - Deep equality: Parameters changed from `any` to `unknown`
@@ -21,10 +24,12 @@ Fixed `any` type issues in core checkpoint and workflow handler files. Replaced 
 ---
 
 ### 2. sdk/workflow/execution/handlers/subgraph-handler.ts
+
 **Status:** ✅ COMPLETE  
 **Lines Fixed:** 7 occurrences
 
 **Changes:**
+
 - Added imports: `MessageContextRegistry`, `WorkflowExecution`
 - Registry access: Changed from `(executionEntity as any).workflowExecution` to proper type assertion using `getWorkflowExecutionData()`
 - Removed unnecessary casts: `startNode as any` → `startNode`
@@ -37,10 +42,12 @@ Fixed `any` type issues in core checkpoint and workflow handler files. Replaced 
 ---
 
 ### 3. sdk/core/checkpoint/types.ts
+
 **Status:** ✅ COMPLETE  
 **Lines Fixed:** 2 occurrences
 
 **Changes:**
+
 - Storage adapter: `BaseCheckpoint<any, any>` → `BaseCheckpoint<unknown, unknown>`
 - Dependencies: Same generic constraint fix
 
@@ -49,10 +56,12 @@ Fixed `any` type issues in core checkpoint and workflow handler files. Replaced 
 ---
 
 ### 4. sdk/core/checkpoint/base-checkpoint-state-manager.ts
+
 **Status:** ✅ COMPLETE  
 **Lines Fixed:** 8 occurrences
 
 **Changes:**
+
 - Removed unused import: `CheckpointMetadata`
 - Added import: `CheckpointStorageMetadata`
 - Generic constraint: `BaseCheckpoint<any, any>` → `BaseCheckpoint<unknown, unknown>`
@@ -70,12 +79,15 @@ Fixed `any` type issues in core checkpoint and workflow handler files. Replaced 
 ### High Priority Files (Need Immediate Attention)
 
 #### 5. sdk/workflow/builder/workflow-graph-builder.ts
+
 **Issues:** 6 occurrences
+
 - Line 27: Unused import `SUBGRAPH_METADATA_KEYS`
 - Lines 383-384, 417-418: Config casts with `as any`
 - Line 401: Array cast `as Array<any>`
 
 **Action Required:**
+
 ```typescript
 // Remove unused import
 // Define proper config interfaces
@@ -92,7 +104,9 @@ const startConfig = node.config as SubgraphStartConfig;
 ```
 
 #### 6. sdk/workflow/execution/handlers/node-handlers/context-processor-handler.ts
+
 **Issues:** 6 occurrences
+
 - Line 102: Registry access with `as any`
 - Lines 156, 159, 188: Unused variables (prefix with `_`)
 - Lines 222, 224: Registry operations with `as any`
@@ -100,7 +114,9 @@ const startConfig = node.config as SubgraphStartConfig;
 **Action Required:** Similar pattern to subgraph-handler.ts fixes
 
 #### 7. sdk/workflow/checkpoint/checkpoint-state-manager.ts
+
 **Issues:** 5 occurrences
+
 - Lines 9-10, 18: Unused imports
 - Line 39: Constructor parameter `any` type
 - Line 139: Unused parameter
@@ -112,15 +128,19 @@ const startConfig = node.config as SubgraphStartConfig;
 ### Medium Priority Files
 
 #### 8. sdk/core/registry/event-registry.ts
+
 **Issues:** 5 occurrences - All unused imports
 
 #### 9. sdk/api/shared/core/sdk-instance.ts
+
 **Issues:** 5 occurrences - Profile registration type safety
 
 #### 10. sdk/workflow/execution/coordinators/node-execution-coordinator.ts
+
 **Issues:** 5 occurrences - Node type casting in hook execution
 
 #### 11. sdk/agent/checkpoint/checkpoint-state-manager.ts
+
 **Issues:** 4 occurrences - List options typing and unused imports
 
 ---
@@ -128,6 +148,7 @@ const startConfig = node.config as SubgraphStartConfig;
 ## Low Priority Files (Minor Issues)
 
 Multiple files with 1-3 occurrences each:
+
 - Unused imports/variables (easy fix: remove or prefix with `_`)
 - Single `any` type casts that need proper interface definitions
 - Console statements (should use logger instead)
@@ -137,15 +158,17 @@ Multiple files with 1-3 occurrences each:
 ## Fix Patterns Applied
 
 ### Pattern 1: Replace `any` with `unknown` for Generic Constraints
+
 ```typescript
 // Before
-class Manager<T extends Record<string, any>> { }
+class Manager<T extends Record<string, any>> {}
 
 // After
-class Manager<T extends Record<string, unknown>> { }
+class Manager<T extends Record<string, unknown>> {}
 ```
 
 ### Pattern 2: Use Proper Type Assertions for Dynamic Properties
+
 ```typescript
 // Before
 (obj as any).dynamicProp = value;
@@ -155,18 +178,20 @@ class Manager<T extends Record<string, unknown>> { }
 ```
 
 ### Pattern 3: Access Private Members Through Public API
+
 ```typescript
 // Before
 const registry = (entity as any).workflowExecution.messageContextRegistry;
 
 // After
-const workflowExecution = entity.getWorkflowExecutionData() as WorkflowExecution & { 
-  messageContextRegistry?: MessageContextRegistry 
+const workflowExecution = entity.getWorkflowExecutionData() as WorkflowExecution & {
+  messageContextRegistry?: MessageContextRegistry;
 };
 const registry = workflowExecution.messageContextRegistry;
 ```
 
 ### Pattern 4: Define Proper Return Types for Abstract Methods
+
 ```typescript
 // Before
 protected abstract extractMetadata(checkpoint: T): unknown;
@@ -176,12 +201,15 @@ protected abstract extractMetadata(checkpoint: T): CheckpointStorageMetadata;
 ```
 
 ### Pattern 5: Use Type Guards Instead of Unsafe Casts
+
 ```typescript
 // Before
-if ((inputDef as any).defaultMessages) { }
+if ((inputDef as any).defaultMessages) {
+}
 
 // After
-if ('defaultMessages' in inputDef && inputDef.defaultMessages) { }
+if ("defaultMessages" in inputDef && inputDef.defaultMessages) {
+}
 ```
 
 ---
@@ -191,17 +219,20 @@ if ('defaultMessages' in inputDef && inputDef.defaultMessages) { }
 After applying all fixes:
 
 1. **Type Checking:**
+
    ```bash
    cd sdk && pnpm typecheck
    ```
 
 2. **Unit Tests:**
+
    ```bash
    cd sdk && pnpm test __tests__/checkpoint
    cd sdk && pnpm test __tests__/workflow
    ```
 
 3. **Integration Tests:**
+
    ```bash
    cd sdk && pnpm test __tests__/integration
    ```
@@ -243,6 +274,7 @@ After applying all fixes:
 ## Notes
 
 ✅ **Best Practices Applied:**
+
 - Prefer `unknown` over `any` for truly dynamic types
 - Use type guards to narrow `unknown` before use
 - Define proper interfaces for configuration objects
@@ -250,10 +282,12 @@ After applying all fixes:
 - Document why certain patterns are used
 
 ⚠️ **Temporary Workarounds:**
+
 - Some dynamic property access still requires type assertions
 - Event system uses base event type for flexibility
 - Consider creating more specific event types in future refactoring
 
 📝 **Documentation:**
+
 - See `any-type-fix-summary.md` for detailed patterns and examples
 - Review checkpoint architecture docs for context on type relationships

@@ -48,7 +48,10 @@ export class TemplateRenderError extends Error {
   }
 }
 
-export function getVariableValue(variableName: string, variables: Record<string, unknown>): unknown {
+export function getVariableValue(
+  variableName: string,
+  variables: Record<string, unknown>,
+): unknown {
   if (!variableName || !variables) {
     return undefined;
   }

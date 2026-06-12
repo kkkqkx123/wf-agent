@@ -24,10 +24,7 @@ export function isWorkflowToolExecutionContext(
   context: unknown,
 ): context is WorkflowToolExecutionContext {
   const ctx = context as Partial<WorkflowToolExecutionContext>;
-  return (
-    ctx.globalContext !== undefined &&
-    ctx.parentExecutionEntity !== undefined
-  );
+  return ctx.globalContext !== undefined && ctx.parentExecutionEntity !== undefined;
 }
 
 /**

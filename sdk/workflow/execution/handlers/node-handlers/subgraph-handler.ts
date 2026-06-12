@@ -17,7 +17,12 @@
  * - Consistent with Fork/Triggered patterns: Uses same architecture as other child executions
  */
 
-import type { RuntimeNode, SubgraphNodeConfig, SubgraphNodeOutput, StaticNode } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  SubgraphNodeConfig,
+  SubgraphNodeOutput,
+  StaticNode,
+} from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { GlobalContext } from "../../../../core/global-context.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
@@ -123,7 +128,9 @@ export async function subgraphHandler(
 
     // Step 4: Handle message context entering (via subgraph-handler)
     // Note: We need to pass the original SUBGRAPH static node for message context validation
-    const staticNode = ("originalNode" in node ? node.originalNode : node) as StaticNode & { config: SubgraphNodeConfig };
+    const staticNode = ("originalNode" in node ? node.originalNode : node) as StaticNode & {
+      config: SubgraphNodeConfig;
+    };
     if (staticNode && staticNode.type === "SUBGRAPH") {
       await enterSubgraph(
         workflowExecutionEntity,

@@ -35,7 +35,10 @@ export async function skipNodeHandler(
     const executionEntity = workflowExecutionRegistry.get(executionId);
 
     if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found: ${executionId}`, executionId);
+      throw new WorkflowExecutionNotFoundError(
+        `WorkflowExecutionEntity not found: ${executionId}`,
+        executionId,
+      );
     }
 
     const workflowExecution = executionEntity.getExecution();

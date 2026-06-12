@@ -56,7 +56,9 @@ export { validateSyncNode } from "./sync-validator.js";
  * @param node Static node definition
  * @returns Verification result
  */
-export function validateNodeByType(node: StaticNode): Result<StaticNode, ConfigurationValidationError[]> {
+export function validateNodeByType(
+  node: StaticNode,
+): Result<StaticNode, ConfigurationValidationError[]> {
   switch (node.type) {
     case "START":
       return validateStartNode(node);

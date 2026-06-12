@@ -6,7 +6,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { WorkflowGraphRegistry } from "../workflow-graph-registry.js";
 import type { WorkflowGraph } from "../../types/graph/preprocessed-graph.js";
 
-function createMockGraph(workflowId: string, overrides: Partial<WorkflowGraph> = {}): WorkflowGraph {
+function createMockGraph(
+  workflowId: string,
+  overrides: Partial<WorkflowGraph> = {},
+): WorkflowGraph {
   return {
     workflowId,
     workflowVersion: "1.0",

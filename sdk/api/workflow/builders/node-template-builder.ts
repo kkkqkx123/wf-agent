@@ -13,7 +13,7 @@ import type { GlobalContext } from "../../../core/global-context.js";
 export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
   private _name: string;
   private _type: StaticNodeType;
-  private _config: Partial<StaticNode['config']> = {};
+  private _config: Partial<StaticNode["config"]> = {};
   private globalContext: GlobalContext;
 
   private constructor(globalContext: GlobalContext, name: string, type: StaticNodeType) {
@@ -30,7 +30,11 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param type: StaticNode type
    * @returns: NodeTemplateBuilder instance
    */
-  static create(globalContext: GlobalContext, name: string, type: StaticNodeType): NodeTemplateBuilder {
+  static create(
+    globalContext: GlobalContext,
+    name: string,
+    type: StaticNodeType,
+  ): NodeTemplateBuilder {
     return new NodeTemplateBuilder(globalContext, name, type);
   }
 
@@ -39,7 +43,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param config Node configuration
    * @returns this
    */
-  config(config: StaticNode['config']): this {
+  config(config: StaticNode["config"]): this {
     this._config = config;
     this.updateTimestamp();
     return this;
@@ -50,9 +54,9 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
    * @param partialConfig: A partial configuration object that will be merged shallowly into the existing configuration
    * @returns: The updated configuration object
    */
-  mergeConfig(partialConfig: Partial<StaticNode['config']>): this {
+  mergeConfig(partialConfig: Partial<StaticNode["config"]>): this {
     if (!this._config) {
-      this._config = {} as StaticNode['config'];
+      this._config = {} as StaticNode["config"];
     }
     this._config = { ...this._config, ...partialConfig };
     this.updateTimestamp();
@@ -87,7 +91,7 @@ export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
     return {
       name: this._name,
       type: this._type,
-      config: this._config as StaticNode['config'],  // Type assertion: config has been validated
+      config: this._config as StaticNode["config"], // Type assertion: config has been validated
       description: this._description,
       metadata: this._metadata,
       createdAt: this.getCreatedAt(),

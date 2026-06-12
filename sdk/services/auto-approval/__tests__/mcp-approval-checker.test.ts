@@ -130,7 +130,10 @@ describe("checkMcpApproval", () => {
         },
       ]);
       const result = checkMcpApproval({ settings, request: makeToolCall() });
-      expect(result).toEqual({ decision: "deny", reason: expect.stringContaining("not in allowlist") });
+      expect(result).toEqual({
+        decision: "deny",
+        reason: expect.stringContaining("not in allowlist"),
+      });
     });
 
     it("should ask when defaultToolBehavior is always_ask", () => {
@@ -394,10 +397,7 @@ describe("getAutoApprovedTools", () => {
     const settings = makeSettings([
       {
         name: "my-server",
-        tools: [
-          { name: "tool1", alwaysAllow: false },
-          { name: "tool2" },
-        ],
+        tools: [{ name: "tool1", alwaysAllow: false }, { name: "tool2" }],
       },
     ]);
     const tools = getAutoApprovedTools(settings, "my-server");

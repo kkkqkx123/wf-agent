@@ -39,7 +39,7 @@ export function detectCycles(graph: WorkflowGraphStructure): CycleDetectionResul
           }
         }
       }
-      
+
       // Add the last edge (from the last node back to the first node).
       const lastNode = cycleNodes[cycleNodes.length - 1];
       const firstNode = cycleNodes[0];

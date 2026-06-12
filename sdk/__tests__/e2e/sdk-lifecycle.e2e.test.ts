@@ -65,8 +65,12 @@ describe("SDK Lifecycle E2E", () => {
       const sdk = createSDK({
         debug: true,
         hooks: {
-          onBootstrapStart: async () => { hooksCalled.push("start"); },
-          onBootstrapComplete: async () => { hooksCalled.push("complete"); },
+          onBootstrapStart: async () => {
+            hooksCalled.push("start");
+          },
+          onBootstrapComplete: async () => {
+            hooksCalled.push("complete");
+          },
         },
         presets: {
           predefinedTools: { enabled: false },
@@ -89,7 +93,7 @@ describe("SDK Lifecycle E2E", () => {
       const sdk = createSDK({
         debug: true,
         hooks: {
-          onBootstrapError: async (error) => {
+          onBootstrapError: async error => {
             errorHookCalled.push(`error: ${error.message}`);
           },
         },
@@ -205,7 +209,9 @@ describe("SDK Lifecycle E2E", () => {
 
       const sdk = createSDK({
         hooks: {
-          onDestroy: async () => { destroyCalled = true; },
+          onDestroy: async () => {
+            destroyCalled = true;
+          },
         },
         presets: {
           predefinedTools: { enabled: false },

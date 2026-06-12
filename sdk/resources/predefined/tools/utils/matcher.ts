@@ -2,7 +2,7 @@
  * Universal fuzzy sequence matching utilities
  * Implements multi-pass sequence matching (exact, trim-end, trim, Unicode-normalized)
  * to locate patterns within text lines
- * 
+ *
  * This module is shared across multiple tools (apply_diff, apply_patch, etc.)
  */
 
@@ -15,7 +15,7 @@ export function normalizeUnicode(s: string): string {
   return s
     .trim()
     .split("")
-    .map((c) => {
+    .map(c => {
       // Various dash/hyphen code-points → ASCII '-'
       if ("\u2010\u2011\u2012\u2013\u2014\u2015\u2212".includes(c)) {
         return "-";
@@ -29,7 +29,9 @@ export function normalizeUnicode(s: string): string {
         return '"';
       }
       // Non-breaking space and other odd spaces → normal space
-      if ("\u00A0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000".includes(c)) {
+      if (
+        "\u00A0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000".includes(c)
+      ) {
         return " ";
       }
       return c;

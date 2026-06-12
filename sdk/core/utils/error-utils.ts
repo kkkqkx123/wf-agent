@@ -144,7 +144,7 @@ export async function emitErrorEvent(
     });
     return;
   }
-  
+
   await emit(eventManager, buildErrorEvent(params));
 }
 
@@ -224,7 +224,11 @@ export function isAbortError(error: unknown): error is Error {
   }
 
   // Check for nested causes
-  if (error instanceof Error && error.cause instanceof Error && (error.cause as Error).name === "AbortError") {
+  if (
+    error instanceof Error &&
+    error.cause instanceof Error &&
+    (error.cause as Error).name === "AbortError"
+  ) {
     return true;
   }
 

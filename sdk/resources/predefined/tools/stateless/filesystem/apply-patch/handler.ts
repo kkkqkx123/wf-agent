@@ -16,7 +16,10 @@ import { HostFSAdapter } from "../../../utils/host-fs-adapter.js";
 /**
  * Check if a path is a file (not a directory) via VFS
  */
-async function isFileOnVFS(filePath: string, vfs: import("../../../types.js").VFSFileIO): Promise<boolean> {
+async function isFileOnVFS(
+  filePath: string,
+  vfs: import("../../../types.js").VFSFileIO,
+): Promise<boolean> {
   try {
     const entry = await vfs.stat(filePath);
     return entry !== null && entry.type === "file";

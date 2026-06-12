@@ -10,14 +10,12 @@ import path from "path";
 
 // --- Mocks (use vi.hoisted to ensure vars are available when vi.mock is hoisted) ---
 
-const { mockFastIgnore, mockReadFile, mockAccess, mockRealpathSync } = vi.hoisted(
-  () => ({
-    mockFastIgnore: vi.fn(),
-    mockReadFile: vi.fn(),
-    mockAccess: vi.fn(),
-    mockRealpathSync: vi.fn(),
-  })
-);
+const { mockFastIgnore, mockReadFile, mockAccess, mockRealpathSync } = vi.hoisted(() => ({
+  mockFastIgnore: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockAccess: vi.fn(),
+  mockRealpathSync: vi.fn(),
+}));
 
 vi.mock("fast-ignore", () => ({
   default: mockFastIgnore,
@@ -112,13 +110,8 @@ describe("IgnoreController", () => {
       const controller = new IgnoreController({ cwd: testCwd, mode: "all" });
       await controller.initialize();
 
-      expect(mockAccess).toHaveBeenCalledWith(
-        path.join(testCwd, ".gitignore")
-      );
-      expect(mockReadFile).toHaveBeenCalledWith(
-        path.join(testCwd, ".gitignore"),
-        "utf8"
-      );
+      expect(mockAccess).toHaveBeenCalledWith(path.join(testCwd, ".gitignore"));
+      expect(mockReadFile).toHaveBeenCalledWith(path.join(testCwd, ".gitignore"), "utf8");
     });
 
     it("should load custom ignore file when mode includes custom", async () => {
@@ -132,14 +125,9 @@ describe("IgnoreController", () => {
       });
       await controller.initialize();
 
-      expect(mockAccess).toHaveBeenCalledWith(
-        path.join(testCwd, ".agentignore")
-      );
+      expect(mockAccess).toHaveBeenCalledWith(path.join(testCwd, ".agentignore"));
       // Should combine file content + customIgnoreFile + customPatterns
-      expect(mockReadFile).toHaveBeenCalledWith(
-        path.join(testCwd, ".agentignore"),
-        "utf8"
-      );
+      expect(mockReadFile).toHaveBeenCalledWith(path.join(testCwd, ".agentignore"), "utf8");
     });
 
     it("should not load gitignore when mode is 'builtin'", async () => {
@@ -330,17 +318,28 @@ describe("IgnoreController", () => {
     });
 
     it("should exclude builtin-ignored directories", () => {
-      const result = controller.shouldIncludeDirectory("node_modules", "C:\\test\\project\\node_modules");
+      const result = controller.shouldIncludeDirectory(
+        "node_modules",
+        "C:\\test\\project\\node_modules",
+      );
       expect(result).toBe(false);
     });
 
     it("should include the target directory even if hidden", () => {
-      const result = controller.shouldIncludeDirectory(".vscode", "C:\\test\\project\\.vscode", true);
+      const result = controller.shouldIncludeDirectory(
+        ".vscode",
+        "C:\\test\\project\\.vscode",
+        true,
+      );
       expect(result).toBe(true);
     });
 
     it("should exclude critical directories even if they are the target", () => {
-      const result = controller.shouldIncludeDirectory("node_modules", "C:\\test\\project\\node_modules", true);
+      const result = controller.shouldIncludeDirectory(
+        "node_modules",
+        "C:\\test\\project\\node_modules",
+        true,
+      );
       expect(result).toBe(false);
     });
 
@@ -351,7 +350,7 @@ describe("IgnoreController", () => {
         ".vscode/settings.json",
         "C:\\test\\project\\.vscode\\settings.json",
         false,
-        true
+        true,
       );
       // Should call validateAccess internally via the logic
       expect(result).toBe(true);
@@ -362,7 +361,7 @@ describe("IgnoreController", () => {
         "node_modules",
         "C:\\test\\project\\node_modules",
         false,
-        true
+        true,
       );
       expect(result).toBe(false);
     });
@@ -374,12 +373,7 @@ describe("IgnoreController", () => {
       mockFastIgnore.mockReturnValue(vi.fn((p: string) => p.includes("node_modules")));
 
       const controller = new IgnoreController({ cwd: testCwd, mode: "builtin" });
-      const paths = [
-        "src/index.ts",
-        "node_modules/foo/index.js",
-        "README.md",
-        "dist/bundle.js",
-      ];
+      const paths = ["src/index.ts", "node_modules/foo/index.js", "README.md", "dist/bundle.js"];
       const result = controller.filterPaths(paths);
       // Only first and third should pass (if builtin checker matches node_modules and dist)
       // But since we mocked the checker to only match "node_modules", dist should pass

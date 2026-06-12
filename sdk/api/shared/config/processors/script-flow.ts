@@ -24,25 +24,22 @@ export function validateScriptFlow(
   const errors: ValidationError[] = [];
 
   if (!scriptFlow.name) {
-    errors.push(
-      new ValidationError("Script flow name is required", "name"),
-    );
+    errors.push(new ValidationError("Script flow name is required", "name"));
   }
 
   if (!scriptFlow.branches || !Array.isArray(scriptFlow.branches)) {
-    errors.push(
-      new ValidationError("Script flow must have at least one branch", "branches"),
-    );
+    errors.push(new ValidationError("Script flow must have at least one branch", "branches"));
   } else {
     for (const branch of scriptFlow.branches) {
       if (!branch.key) {
-        errors.push(
-          new ValidationError("Each branch must have a key", "branches.key"),
-        );
+        errors.push(new ValidationError("Each branch must have a key", "branches.key"));
       }
       if (!branch.modules || !Array.isArray(branch.modules) || branch.modules.length === 0) {
         errors.push(
-          new ValidationError(`Branch '${branch.key}' must have at least one module`, `branches.${branch.key}.modules`),
+          new ValidationError(
+            `Branch '${branch.key}' must have at least one module`,
+            `branches.${branch.key}.modules`,
+          ),
         );
       }
     }

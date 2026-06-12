@@ -232,8 +232,6 @@ describe("createAutoSaveStrategy", () => {
       loadCheckpoint,
     });
 
-    await expect(
-      strategy.beforeResume!({ executionId: "e1", state: {} }),
-    ).resolves.toBeUndefined();
+    await expect(strategy.beforeResume!({ executionId: "e1", state: {} })).resolves.toBeUndefined();
   });
 });

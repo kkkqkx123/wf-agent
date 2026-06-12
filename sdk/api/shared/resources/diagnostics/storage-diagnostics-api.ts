@@ -197,7 +197,9 @@ export class StorageDiagnosticsAPI {
 
     // Determine overall status
     const hasError = adapterHealth.some(a => a.status === "error");
-    const allConfigured = adapterHealth.every(a => a.status === "healthy" || a.status === "not_configured");
+    const allConfigured = adapterHealth.every(
+      a => a.status === "healthy" || a.status === "not_configured",
+    );
     const hasHealthy = adapterHealth.some(a => a.status === "healthy");
 
     let overallStatus: "healthy" | "degraded" | "unhealthy";

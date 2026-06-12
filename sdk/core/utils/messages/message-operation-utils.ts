@@ -61,11 +61,7 @@ export async function executeOperation(
 
   switch (operation.operation) {
     case "APPEND":
-      result = executeAppendOperation(
-        messages,
-        markMap,
-        operation as AppendMessageOperation,
-      );
+      result = executeAppendOperation(messages, markMap, operation as AppendMessageOperation);
       break;
     case "TRUNCATE":
       result = executeTruncateOperation(
@@ -108,11 +104,7 @@ export async function executeOperation(
       );
       break;
     case "ROLLBACK":
-      result = executeRollbackOperation(
-        messages,
-        markMap,
-        operation as RollbackMessageOperation,
-      );
+      result = executeRollbackOperation(messages, markMap, operation as RollbackMessageOperation);
       break;
     case "BATCH_MANAGEMENT":
       result = executeBatchManagementOperation(
@@ -145,14 +137,14 @@ function executeAppendOperation(
 ): MessageOperationResult {
   // APPEND always adds to the end, no visibility concerns
   const workingMessages = [...messages, ...operation.messages];
-  
+
   // Update markMap to include new messages
   const newOriginalIndices = [...markMap.originalIndices];
   const startIndex = messages.length;
   for (let i = 0; i < operation.messages.length; i++) {
     newOriginalIndices.push(startIndex + i);
   }
-  
+
   const workingMarkMap: MessageMarkMap = {
     ...markMap,
     originalIndices: newOriginalIndices,
@@ -397,7 +389,7 @@ function executeFilterOperation(
     const boundary = getCurrentBoundary(markMap);
     const visibleIndices = getVisibleOriginalIndices(markMap);
     const invisibleIndices = markMap.originalIndices.filter(idx => idx < boundary);
-    
+
     // Create indexed messages to preserve original indices
     const visibleIndexedMessages = visibleIndices.map((originalIdx, visibleIdx) => ({
       message: messages[originalIdx]!,
@@ -423,7 +415,7 @@ function executeFilterOperation(
           excludes: operation.contentExcludes,
         },
       );
-      
+
       // Map back to indexed messages
       const filteredSet = new Set(filteredMessages);
       filteredIndexedMessages = filteredIndexedMessages.filter(({ message }) =>
@@ -484,7 +476,7 @@ function executeRollbackOperation(
 ): MessageOperationResult {
   // Rollback to specified batch
   const workingMarkMap = rollbackToBatch(markMap, operation.targetBatchIndex);
-  
+
   // Get visible messages after rollback
   const workingMessages = getVisibleMessages(messages, workingMarkMap);
 
@@ -657,6 +649,8 @@ function convertStrategyToOptions(
     case "RANGE":
       return { range: { start: strategy.start, end: strategy.end } };
     default:
-      throw new ExecutionError(`Unsupported strategy type: ${(strategy as { type?: string }).type}`);
+      throw new ExecutionError(
+        `Unsupported strategy type: ${(strategy as { type?: string }).type}`,
+      );
   }
 }

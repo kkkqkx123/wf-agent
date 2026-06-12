@@ -3,21 +3,21 @@
  * Tests for interactive-script-validator.ts functionality
  */
 
-import { describe, it, expect } from 'vitest';
-import { validateInteractiveScriptNode } from '../interactive-script-validator.js';
-import type { StaticNode } from '@wf-agent/types';
-import { ConfigurationValidationError } from '@wf-agent/types';
+import { describe, it, expect } from "vitest";
+import { validateInteractiveScriptNode } from "../interactive-script-validator.js";
+import type { StaticNode } from "@wf-agent/types";
+import { ConfigurationValidationError } from "@wf-agent/types";
 
-describe('validateInteractiveScriptNode', () => {
-  describe('valid INTERACTIVE_SCRIPT nodes', () => {
-    it('should validate INTERACTIVE_SCRIPT node with basic config', () => {
+describe("validateInteractiveScriptNode", () => {
+  describe("valid INTERACTIVE_SCRIPT nodes", () => {
+    it("should validate INTERACTIVE_SCRIPT node with basic config", () => {
       const validNode: StaticNode = {
-        id: 'interactive-script-1',
-        name: 'Interactive Script Node',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "interactive-script-1",
+        name: "Interactive Script Node",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'interactive-test-script',
-          risk: 'low',
+          scriptName: "interactive-test-script",
+          risk: "low",
         },
       } as StaticNode;
 
@@ -29,23 +29,23 @@ describe('validateInteractiveScriptNode', () => {
       }
     });
 
-    it('should validate INTERACTIVE_SCRIPT node with full config', () => {
+    it("should validate INTERACTIVE_SCRIPT node with full config", () => {
       const validNode: StaticNode = {
-        id: 'interactive-script-2',
-        name: 'Full Config Interactive Script',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "interactive-script-2",
+        name: "Full Config Interactive Script",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'full-interactive-script',
-          risk: 'medium',
-          interactionMode: 'hybrid',
-          promptPatterns: ['[?>:]\\s*$', 'password:'],
+          scriptName: "full-interactive-script",
+          risk: "medium",
+          interactionMode: "hybrid",
+          promptPatterns: ["[?>:]\\s*$", "password:"],
           maxRounds: 5,
           roundTimeout: 30000,
           executor: {
-            mode: 'pty',
-            shell: 'bash',
+            mode: "pty",
+            shell: "bash",
           },
-          flowId: 'interactive-flow-1',
+          flowId: "interactive-flow-1",
         },
       } as StaticNode;
 
@@ -57,15 +57,15 @@ describe('validateInteractiveScriptNode', () => {
       }
     });
 
-    it('should validate INTERACTIVE_SCRIPT node with llm-assisted mode', () => {
+    it("should validate INTERACTIVE_SCRIPT node with llm-assisted mode", () => {
       const validNode: StaticNode = {
-        id: 'interactive-script-3',
-        name: 'LLM Assisted Script',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "interactive-script-3",
+        name: "LLM Assisted Script",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'llm-assisted-script',
-          risk: 'low',
-          interactionMode: 'llm-assisted',
+          scriptName: "llm-assisted-script",
+          risk: "low",
+          interactionMode: "llm-assisted",
           maxRounds: 20,
         },
       } as StaticNode;
@@ -76,12 +76,12 @@ describe('validateInteractiveScriptNode', () => {
     });
   });
 
-  describe('invalid INTERACTIVE_SCRIPT nodes', () => {
-    it('should reject node with wrong type', () => {
+  describe("invalid INTERACTIVE_SCRIPT nodes", () => {
+    it("should reject node with wrong type", () => {
       const wrongTypeNode: StaticNode = {
-        id: 'wrong-type',
-        name: 'Wrong Type',
-        type: 'LLM',
+        id: "wrong-type",
+        name: "Wrong Type",
+        type: "LLM",
         config: {},
       } as StaticNode;
 
@@ -91,15 +91,15 @@ describe('validateInteractiveScriptNode', () => {
       if (result.isErr()) {
         expect(result.error).toHaveLength(1);
         expect(result.error[0]).toBeInstanceOf(ConfigurationValidationError);
-        expect(result.error[0]?.message).toContain('Expected INTERACTIVE_SCRIPT node');
+        expect(result.error[0]?.message).toContain("Expected INTERACTIVE_SCRIPT node");
       }
     });
 
-    it('should reject node missing scriptName', () => {
+    it("should reject node missing scriptName", () => {
       const missingScriptNode: StaticNode = {
-        id: 'missing-script',
-        name: 'Missing Script',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "missing-script",
+        name: "Missing Script",
+        type: "INTERACTIVE_SCRIPT",
         config: {} as any,
       };
 
@@ -108,15 +108,15 @@ describe('validateInteractiveScriptNode', () => {
       expect(result.isErr()).toBe(true);
     });
 
-    it('should reject node with invalid interaction mode', () => {
+    it("should reject node with invalid interaction mode", () => {
       const invalidModeNode: StaticNode = {
-        id: 'invalid-mode',
-        name: 'Invalid Mode',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "invalid-mode",
+        name: "Invalid Mode",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'test',
-          risk: 'low',
-          interactionMode: 'auto',
+          scriptName: "test",
+          risk: "low",
+          interactionMode: "auto",
         },
       } as any;
 
@@ -125,14 +125,14 @@ describe('validateInteractiveScriptNode', () => {
       expect(result.isErr()).toBe(true);
     });
 
-    it('should reject node with negative maxRounds', () => {
+    it("should reject node with negative maxRounds", () => {
       const invalidRoundsNode: StaticNode = {
-        id: 'invalid-rounds',
-        name: 'Invalid Rounds',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "invalid-rounds",
+        name: "Invalid Rounds",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'test',
-          risk: 'low',
+          scriptName: "test",
+          risk: "low",
           maxRounds: -1,
         },
       } as any;
@@ -143,12 +143,12 @@ describe('validateInteractiveScriptNode', () => {
     });
   });
 
-  describe('edge cases', () => {
-    it('should handle node with null config', () => {
+  describe("edge cases", () => {
+    it("should handle node with null config", () => {
       const nullConfigNode: StaticNode = {
-        id: 'null-config',
-        name: 'Null Config',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "null-config",
+        name: "Null Config",
+        type: "INTERACTIVE_SCRIPT",
         config: null as any,
       };
 
@@ -157,14 +157,14 @@ describe('validateInteractiveScriptNode', () => {
       expect(result.isErr()).toBe(true);
     });
 
-    it('should handle node with default blocking mode', () => {
+    it("should handle node with default blocking mode", () => {
       const defaultModeNode: StaticNode = {
-        id: 'default-mode',
-        name: 'Default Mode',
-        type: 'INTERACTIVE_SCRIPT',
+        id: "default-mode",
+        name: "Default Mode",
+        type: "INTERACTIVE_SCRIPT",
         config: {
-          scriptName: 'default-mode-script',
-          risk: 'high',
+          scriptName: "default-mode-script",
+          risk: "high",
         },
       } as StaticNode;
 

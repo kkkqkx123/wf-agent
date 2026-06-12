@@ -1,6 +1,6 @@
 /**
  * Workflow Interruption Types
- * 
+ *
  * Workflow-specific interruption exception types.
  * These extend the core interruption types with workflow-specific context.
  */
@@ -10,7 +10,7 @@ import type { InterruptionType } from "../../../core/types/interruption-types.js
 
 /**
  * Workflow Execution Interrupt Exception
- * 
+ *
  * Extends InterruptedException with workflow-specific context (executionId, nodeId).
  */
 export class WorkflowExecutionInterruptedException extends InterruptedException {

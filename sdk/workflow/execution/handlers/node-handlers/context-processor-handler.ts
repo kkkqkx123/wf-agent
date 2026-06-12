@@ -93,7 +93,7 @@ function getOrCreateNamedContext(
   contextId: string,
 ): NamedMessageContext {
   let context = registry.get(contextId);
-  
+
   if (!context) {
     // Auto-create context if it doesn't exist
     context = {
@@ -105,7 +105,7 @@ function getOrCreateNamedContext(
     };
     registry.register(context);
   }
-  
+
   return context;
 }
 
@@ -132,30 +132,32 @@ export async function contextProcessorHandler(
   }
 
   // 2. Determine source and target contexts
-  const sourceContextId = config.sourceContext || 'current';
-  const targetContextId = config.targetContext || 'current';
-  
+  const sourceContextId = config.sourceContext || "current";
+  const targetContextId = config.targetContext || "current";
+
   // Get registry for context operations (single retrieval)
-  const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-  
+  const registry = (
+    workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+  ).messageContextRegistry;
+
   if (!registry) {
     throw new RuntimeValidationError("MessageContextRegistry not found in execution context", {
       operation: "initializeContexts",
       field: "messageContextRegistry",
     });
   }
-  
+
   // Get or create source and target contexts
   const sourceContext = getOrCreateNamedContext(registry, sourceContextId);
-  
+
   // Ensure target context exists before processing
   // The registry.update() method requires the context to exist (throws error if not found)
   // This call auto-creates the context if needed
   const targetContextExisted = registry.has(targetContextId);
   getOrCreateNamedContext(registry, targetContextId);
-  
+
   if (!targetContextExisted) {
-    logger.debug('Auto-created target context for message operations', {
+    logger.debug("Auto-created target context for message operations", {
       targetContextId,
       nodeId: node.id,
     });
@@ -176,11 +178,14 @@ export async function contextProcessorHandler(
         if (parentExecutionEntity) {
           targetConversationManager =
             parentExecutionEntity.getConversationManager() as ContextProcessorHandlerContext["conversationManager"];
-          logger.info(`Targeting parent workflow execution: ${parentContext.parentId} for context processing`, {
-            nodeId: node.id,
-            executionId: workflowExecution.id,
-            parentExecutionId: parentContext.parentId,
-          });
+          logger.info(
+            `Targeting parent workflow execution: ${parentContext.parentId} for context processing`,
+            {
+              nodeId: node.id,
+              executionId: workflowExecution.id,
+              parentExecutionId: parentContext.parentId,
+            },
+          );
         }
       }
     }
@@ -191,7 +196,7 @@ export async function contextProcessorHandler(
     // Load source messages into the conversation manager
     targetConversationManager.clearMessages(false);
     targetConversationManager.addMessages(...sourceContext.messages);
-    logger.debug('Synced messages from source context to target', {
+    logger.debug("Synced messages from source context to target", {
       sourceContextId,
       targetContextId,
       messageCount: sourceContext.messages.length,
@@ -199,7 +204,7 @@ export async function contextProcessorHandler(
   } else {
     // Source and target are the same, messages should already be in conversation manager
     const currentMessages = targetConversationManager.getMessages();
-    logger.debug('Source and target context are the same, using existing messages', {
+    logger.debug("Source and target context are the same, using existing messages", {
       contextId: sourceContextId,
       messageCount: currentMessages.length,
     });
@@ -216,12 +221,12 @@ export async function contextProcessorHandler(
 
   // 6. Save processed messages back to target context
   const processedMessages = targetConversationManager.getMessages();
-  
+
   // Update the target context with processed messages
   // At this point, targetContext is guaranteed to exist due to getOrCreateNamedContext call above
   registry.update(targetContextId, processedMessages);
-  
-  logger.debug('Saved processed messages to target context', {
+
+  logger.debug("Saved processed messages to target context", {
     targetContextId,
     messageCount: processedMessages.length,
     nodeId: node.id,

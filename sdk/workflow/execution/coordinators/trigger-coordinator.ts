@@ -65,9 +65,9 @@ export interface TriggerEventContext {
 export class TriggerCoordinator {
   /** Context Factory */
   private contextFactory: TriggerHandlerContextFactory;
-  
+
   /** Error handling strategy configuration */
-  private errorHandlingStrategy: 'silent' | 'log' | 'throw' = 'log';
+  private errorHandlingStrategy: "silent" | "log" | "throw" = "log";
 
   /**
    * Constructor (using factory configuration)
@@ -77,10 +77,10 @@ export class TriggerCoordinator {
    */
   constructor(
     config: TriggerHandlerContextFactoryConfig,
-    options?: { errorHandlingStrategy?: 'silent' | 'log' | 'throw' }
+    options?: { errorHandlingStrategy?: "silent" | "log" | "throw" },
   ) {
     this.contextFactory = new TriggerHandlerContextFactory(config);
-    this.errorHandlingStrategy = options?.errorHandlingStrategy || 'log';
+    this.errorHandlingStrategy = options?.errorHandlingStrategy || "log";
   }
 
   /**
@@ -272,12 +272,9 @@ export class TriggerCoordinator {
     // Convert BaseEvent to BaseEventData for the core matcher
     const eventData: BaseEventData = {
       type: event.type,
-      eventName: event.type === "NODE_CUSTOM_EVENT"
-        ? (event as NodeCustomEvent).eventName
-        : undefined,
-      data: event.type === "NODE_CUSTOM_EVENT"
-        ? (event as NodeCustomEvent).eventData
-        : {},
+      eventName:
+        event.type === "NODE_CUSTOM_EVENT" ? (event as NodeCustomEvent).eventName : undefined,
+      data: event.type === "NODE_CUSTOM_EVENT" ? (event as NodeCustomEvent).eventData : {},
       timestamp: event.timestamp,
       sourceId: event.executionId,
     };
@@ -300,17 +297,22 @@ export class TriggerCoordinator {
         // Handle errors based on configured strategy
         const errorObj = getErrorOrNew(error);
         switch (this.errorHandlingStrategy) {
-          case 'silent':
+          case "silent":
             break;
-          case 'log':
-            logger.warn('Trigger execution failed', {
-              triggerId: trigger.id,
-              triggerName: trigger.name,
-              error: errorObj.message,
-              eventType: event.type,
-            }, undefined, errorObj);
+          case "log":
+            logger.warn(
+              "Trigger execution failed",
+              {
+                triggerId: trigger.id,
+                triggerName: trigger.name,
+                error: errorObj.message,
+                eventType: event.type,
+              },
+              undefined,
+              errorObj,
+            );
             break;
-          case 'throw':
+          case "throw":
             throw error;
         }
       }
@@ -322,7 +324,10 @@ export class TriggerCoordinator {
    * @param trigger The trigger
    * @param eventContext Optional event context for agent hook triggered events
    */
-  private async executeTrigger(trigger: Trigger, eventContext?: TriggerEventContext): Promise<void> {
+  private async executeTrigger(
+    trigger: Trigger,
+    eventContext?: TriggerEventContext,
+  ): Promise<void> {
     const {
       checkpointStateManager,
       graphRegistry,
@@ -350,15 +355,11 @@ export class TriggerCoordinator {
             workflowGraphRegistry: graphRegistry,
           };
 
-          await CheckpointCoordinator.createCheckpoint(
-            trigger.executionId,
-            dependencies,
-            {
-              metadata: {
-                description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
-              },
+          await CheckpointCoordinator.createCheckpoint(trigger.executionId, dependencies, {
+            metadata: {
+              description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
             },
-          );
+          });
         } catch (error) {
           // The failure to create a checkpoint should not affect the execution of the trigger; only the error should be logged.
           logger.warn(
@@ -401,14 +402,20 @@ export class TriggerCoordinator {
 
       case "set_variable":
         if (!workflowExecutionRegistry) {
-          throw new DependencyInjectionError("WorkflowExecutionRegistry not provided", "WorkflowExecutionRegistry");
+          throw new DependencyInjectionError(
+            "WorkflowExecutionRegistry not provided",
+            "WorkflowExecutionRegistry",
+          );
         }
         await handler(trigger.action, trigger.id, workflowExecutionRegistry);
         break;
 
       case "apply_message_operation":
         if (!workflowExecutionRegistry) {
-          throw new DependencyInjectionError("WorkflowExecutionRegistry not provided", "WorkflowExecutionRegistry");
+          throw new DependencyInjectionError(
+            "WorkflowExecutionRegistry not provided",
+            "WorkflowExecutionRegistry",
+          );
         }
         await handler(trigger.action, trigger.id, workflowExecutionRegistry, stateCoordinatorMap);
         break;
@@ -433,10 +440,15 @@ export class TriggerCoordinator {
               agentLoopEntity = await agentExecutionRegistry.get(eventContext.agentLoopEntityId);
             }
           } catch (error) {
-            logger.warn('Failed to resolve agent loop entity from event context', {
-              agentLoopEntityId: eventContext.agentLoopEntityId,
-              triggerId: trigger.id,
-            }, undefined, getErrorOrNew(error));
+            logger.warn(
+              "Failed to resolve agent loop entity from event context",
+              {
+                agentLoopEntityId: eventContext.agentLoopEntityId,
+                triggerId: trigger.id,
+              },
+              undefined,
+              getErrorOrNew(error),
+            );
           }
         }
 

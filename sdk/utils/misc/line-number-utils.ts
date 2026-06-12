@@ -1,6 +1,6 @@
 /**
  * Line number utilities for content formatting and validation.
- * 
+ *
  * Provides functionality for:
  * - Stripping line numbers from formatted content
  * - Validating if content has line numbers
@@ -10,18 +10,18 @@
 /**
  * Checks if every line in the content has line numbers prefixed (e.g., "123 | content").
  * Line numbers must be followed by a single pipe character (not double pipes).
- * 
+ *
  * @param content - The content to check
  * @returns True if every non-empty line has line numbers
  */
 export function everyLineHasLineNumbers(content: string): boolean {
   const lines = content.split(/\r?\n/); // Handles both CRLF and LF line endings
-  return lines.length > 0 && lines.every((line) => /^\s*\d+\s+\|(?!\|)/.test(line));
+  return lines.length > 0 && lines.every(line => /^\s*\d+\s+\|(?!\|)/.test(line));
 }
 
 /**
  * Strips line numbers from content while preserving the actual content.
- * 
+ *
  * @param content - The content to process
  * @param aggressive - When false (default): Only strips lines with clear number patterns like "123 | content"
  *                     When true: Uses a more lenient pattern that also matches lines with just a pipe character,
@@ -33,7 +33,7 @@ export function stripLineNumbers(content: string, aggressive: boolean = false): 
   const lines = content.split(/\r?\n/);
 
   // Process each line
-  const processedLines = lines.map((line) => {
+  const processedLines = lines.map(line => {
     // Match line number pattern and capture everything after the pipe
     const match = aggressive
       ? line.match(/^\s*(?:\d+\s)?\|\s(.*)$/)
@@ -59,34 +59,34 @@ export function stripLineNumbers(content: string, aggressive: boolean = false): 
  * Truncates multi-line output while preserving context from both the beginning and end.
  * When truncation is needed, it keeps 20% of the lines from the start and 80% from the end,
  * with a clear indicator of how many lines were omitted in between.
- * 
+ *
  * IMPORTANT: Character limit takes precedence over line limit. This is because:
  * 1. Character limit provides a hard cap on memory usage and context window consumption
  * 2. A single line with millions of characters could bypass line limits and cause issues
  * 3. Character limit ensures consistent behavior regardless of line structure
- * 
+ *
  * When both limits are specified:
  * - If content exceeds character limit, character-based truncation is applied (regardless of line count)
  * - If content is within character limit but exceeds line limit, line-based truncation is applied
  * - This prevents edge cases where extremely long lines could consume excessive resources
- * 
+ *
  * @param content - The multi-line string to truncate
  * @param lineLimit - Optional maximum number of lines to keep. If not provided or 0, no line limit is applied
  * @param characterLimit - Optional maximum number of characters to keep. If not provided or 0, no character limit is applied
  * @returns The truncated string with an indicator of omitted content, or the original content if no truncation needed
- * 
+ *
  * @example
  * // With 10 line limit on 25 lines of content:
  * // - Keeps first 2 lines (20% of 10)
  * // - Keeps last 8 lines (80% of 10)
  * // - Adds "[...15 lines omitted...]" in between
- * 
+ *
  * @example
  * // With character limit on long single line:
  * // - Keeps first 20% of characters
  * // - Keeps last 80% of characters
  * // - Adds "[...X characters omitted...]" in between
- * 
+ *
  * @example
  * // Character limit takes precedence:
  * // content = "A".repeat(50000) + "\n" + "B".repeat(50000) // 2 lines, 100,002 chars
@@ -96,7 +96,7 @@ export function stripLineNumbers(content: string, aggressive: boolean = false): 
 export function truncateOutput(
   content: string,
   lineLimit?: number,
-  characterLimit?: number
+  characterLimit?: number,
 ): string {
   // If no limits are specified, return original content
   if (!lineLimit && !characterLimit) {

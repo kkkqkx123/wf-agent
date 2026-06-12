@@ -11,15 +11,7 @@
  *   const content = await vfs.readFile("/path/to/file");
  */
 
-import {
-  readFile,
-  writeFile,
-  stat,
-  mkdir,
-  unlink,
-  rename,
-  readdir,
-} from "fs/promises";
+import { readFile, writeFile, stat, mkdir, unlink, rename, readdir } from "fs/promises";
 import { existsSync } from "fs";
 import { basename, dirname } from "path";
 import type { VFSFileIO } from "../types.js";
@@ -72,6 +64,6 @@ export class HostFSAdapter implements VFSFileIO {
 
   async readdir(path: string): Promise<string[]> {
     const entries = await readdir(path, { withFileTypes: true });
-    return entries.map((e) => e.name);
+    return entries.map(e => e.name);
   }
 }

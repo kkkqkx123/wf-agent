@@ -1,6 +1,6 @@
 /**
  * Terminal Service
- * 
+ *
  * Provides unified terminal session management with:
  * - Multi-shell support (bash, zsh, fish, pwsh, cmd, powershell, git-bash, wsl)
  * - Working directory management
@@ -28,7 +28,7 @@ import type {
 
 /**
  * Terminal Service
- * 
+ *
  * Main service class for terminal session management.
  */
 export class TerminalService extends EventEmitter<TerminalServiceEvents> {
@@ -57,7 +57,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
 
     // Resolve shell type
     const shellType = await this.shellDetector.resolveShellType(
-      options?.shellType ?? this.config.defaultShellType
+      options?.shellType ?? this.config.defaultShellType,
     );
 
     // Resolve working directory
@@ -90,12 +90,12 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
 
   /**
    * Get or create a session for a specific working directory
-   * 
+   *
    * Implements intelligent session reuse.
    */
   async getOrCreateSession(
     cwd: string,
-    options?: TerminalSessionOptions
+    options?: TerminalSessionOptions,
   ): Promise<TerminalSession> {
     // Try to find an available session
     const existingSession = this.registry.findAvailable(cwd, options?.taskId);
@@ -121,7 +121,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   async executeInSession(
     sessionId: string,
     command: string,
-    options?: ExecuteOptions
+    options?: ExecuteOptions,
   ): Promise<ExecuteResult> {
     const session = this.registry.get(sessionId);
 
@@ -145,7 +145,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
         session.shellType,
         options?.cwd ?? session.cwd,
         { ...session.env, ...options?.env },
-        options?.timeout ?? this.config.defaultTimeout
+        options?.timeout ?? this.config.defaultTimeout,
       );
 
       // Update session activity
@@ -182,7 +182,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
    */
   async executeOneOff(
     command: string,
-    options?: TerminalSessionOptions & ExecuteOptions
+    options?: TerminalSessionOptions & ExecuteOptions,
   ): Promise<ExecuteResult> {
     // Phase B: Empty command check
     if (!command?.trim()) {
@@ -197,7 +197,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
 
     // Resolve shell type
     const shellType = await this.shellDetector.resolveShellType(
-      options?.shellType ?? this.config.defaultShellType
+      options?.shellType ?? this.config.defaultShellType,
     );
 
     // Resolve working directory
@@ -215,7 +215,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       shellType,
       execCwd,
       execEnv,
-      options?.timeout ?? this.config.defaultTimeout
+      options?.timeout ?? this.config.defaultTimeout,
     );
   }
 
@@ -232,7 +232,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   async spawnProcess(options: ProcessSpawnOptions): Promise<ChildProcess> {
     // Resolve shell type
     const shellType = await this.shellDetector.resolveShellType(
-      options?.shellType ?? this.config.defaultShellType
+      options?.shellType ?? this.config.defaultShellType,
     );
 
     // Resolve working directory
@@ -274,7 +274,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
    * @param timeout - Optional timeout in milliseconds
    */
   async monitorProcess(proc: ChildProcess, timeout?: number): Promise<ExecuteResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = "";
       let stderr = "";
 
@@ -305,7 +305,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       });
 
       // Handle completion
-      proc.on("close", (code) => {
+      proc.on("close", code => {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
@@ -323,7 +323,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       });
 
       // Handle error
-      proc.on("error", (error) => {
+      proc.on("error", error => {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
@@ -342,10 +342,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   /**
    * Get output from a session
    */
-  async getOutput(
-    sessionId: string,
-    options?: OutputOptions
-  ): Promise<string> {
+  async getOutput(sessionId: string, options?: OutputOptions): Promise<string> {
     const session = this.registry.get(sessionId);
 
     if (!session) {
@@ -360,7 +357,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     if (options?.filter) {
       try {
         const regex = new RegExp(options.filter);
-        lines = lines.filter((line) => regex.test(line));
+        lines = lines.filter(line => regex.test(line));
       } catch {
         // Invalid regex, return all lines
       }
@@ -400,7 +397,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
         process.kill("SIGTERM");
 
         // Wait for graceful termination
-        await new Promise<void>((resolve) => {
+        await new Promise<void>(resolve => {
           setTimeout(() => {
             try {
               process.kill("SIGKILL");
@@ -505,15 +502,15 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   async executeWithInput(
     command: string,
     input: string,
-    options?: TerminalSessionOptions & ExecuteOptions
+    options?: TerminalSessionOptions & ExecuteOptions,
   ): Promise<ExecuteResult> {
     const shellType = await this.shellDetector.resolveShellType(
-      options?.shellType ?? this.config.defaultShellType
+      options?.shellType ?? this.config.defaultShellType,
     );
     const execCwd = options?.cwd ?? this.config.defaultCwd ?? processCwd();
     const execEnv = { ...this.config.defaultEnv, ...options?.env };
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = "";
       let stderr = "";
 
@@ -556,7 +553,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
         }
       });
 
-      proc.on("close", (code) => {
+      proc.on("close", code => {
         if (timeoutId) clearTimeout(timeoutId);
         const exitCode = code ?? 0;
         resolve({
@@ -568,7 +565,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
         });
       });
 
-      proc.on("error", (error) => {
+      proc.on("error", error => {
         if (timeoutId) clearTimeout(timeoutId);
         resolve({
           success: false,
@@ -589,9 +586,9 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     shellType: ShellType,
     cwd: string,
     env: Record<string, string>,
-    timeout?: number
+    timeout?: number,
   ): Promise<ExecuteResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = "";
       let stderr = "";
 
@@ -647,7 +644,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       });
 
       // Handle completion
-      proc.on("close", (code) => {
+      proc.on("close", code => {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
@@ -665,7 +662,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       });
 
       // Handle error
-      proc.on("error", (error) => {
+      proc.on("error", error => {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
@@ -687,7 +684,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
   async startBackgroundCommand(
     sessionId: string,
     command: string,
-    options?: { timeout?: number }
+    options?: { timeout?: number },
   ): Promise<ExecuteResult> {
     const session = this.registry.get(sessionId);
 
@@ -758,7 +755,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     proc.stderr?.on("data", handleOutput);
 
     // Handle completion
-    proc.on("close", (code) => {
+    proc.on("close", code => {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
@@ -777,7 +774,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
     });
 
     // Handle error
-    proc.on("error", (error) => {
+    proc.on("error", error => {
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
@@ -824,7 +821,7 @@ export class TerminalService extends EventEmitter<TerminalServiceEvents> {
       process.kill("SIGTERM");
 
       // Wait for graceful termination
-      await new Promise<void>((resolve) => {
+      await new Promise<void>(resolve => {
         setTimeout(() => {
           try {
             process.kill("SIGKILL");

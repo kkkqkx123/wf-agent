@@ -27,7 +27,7 @@ function createFakeChildProcess() {
     stdout: {
       on: vi.fn((event: string, handler: (data: Buffer) => void) => {
         if (event === "data") {
-          fakeProcess['_stdoutHandler'] = handler;
+          fakeProcess["_stdoutHandler"] = handler;
         }
       }),
       pipe: vi.fn(),
@@ -35,13 +35,13 @@ function createFakeChildProcess() {
     stderr: {
       on: vi.fn((event: string, handler: (data: Buffer) => void) => {
         if (event === "data") {
-          fakeProcess['_stderrHandler'] = handler;
+          fakeProcess["_stderrHandler"] = handler;
         }
       }),
       pipe: vi.fn(),
     },
     kill: vi.fn((_signal?: string | number) => {
-      fakeProcess['killed'] = true;
+      fakeProcess["killed"] = true;
       return true;
     }),
     on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
@@ -51,7 +51,7 @@ function createFakeChildProcess() {
     removeListener: vi.fn(),
     emit: (event: string, ...args: unknown[]) => {
       const handlers = eventListeners[event] || [];
-      handlers.forEach((h) => h(...args));
+      handlers.forEach(h => h(...args));
     },
     _stdoutHandler: null as ((data: Buffer) => void) | null,
     _stderrHandler: null as ((data: Buffer) => void) | null,
@@ -93,7 +93,10 @@ describe("StdioTransport", () => {
 
       await transport.start();
       // Emit error event
-      (fakeProcess['emit'] as (event: string, ...args: unknown[]) => void)("error", new Error("Process crash"));
+      (fakeProcess["emit"] as (event: string, ...args: unknown[]) => void)(
+        "error",
+        new Error("Process crash"),
+      );
       expect(onError).toHaveBeenCalled();
     });
 
@@ -103,8 +106,10 @@ describe("StdioTransport", () => {
 
       await transport.start();
       // Simulate stdout data
-      if (fakeProcess['_stdoutHandler']) {
-        (fakeProcess['_stdoutHandler'] as Function)(Buffer.from('{"jsonrpc":"2.0","id":1,"result":"ok"}'));
+      if (fakeProcess["_stdoutHandler"]) {
+        (fakeProcess["_stdoutHandler"] as Function)(
+          Buffer.from('{"jsonrpc":"2.0","id":1,"result":"ok"}'),
+        );
       }
       expect(onData).toHaveBeenCalledWith({ jsonrpc: "2.0", id: 1, result: "ok" });
     });
@@ -113,7 +118,7 @@ describe("StdioTransport", () => {
   describe("send", () => {
     it("should write JSON to stdin", async () => {
       await transport.start();
-      const stdinWrite = (fakeProcess['stdin'] as { write: ReturnType<typeof vi.fn> }).write;
+      const stdinWrite = (fakeProcess["stdin"] as { write: ReturnType<typeof vi.fn> }).write;
       await transport.send({ jsonrpc: "2.0", method: "ping" });
 
       expect(stdinWrite).toHaveBeenCalledWith(
@@ -135,7 +140,7 @@ describe("StdioTransport", () => {
 
       // Simulate process exit event (happens after kill)
       setImmediate(() => {
-        (fakeProcess['emit'] as (event: string, ...args: unknown[]) => void)("exit", 0, "SIGTERM");
+        (fakeProcess["emit"] as (event: string, ...args: unknown[]) => void)("exit", 0, "SIGTERM");
       });
 
       await closePromise;
@@ -146,7 +151,7 @@ describe("StdioTransport", () => {
   describe("getStderr", () => {
     it("should return stderr stream after start", async () => {
       await transport.start();
-      expect(transport.getStderr()).toBe((fakeProcess as Record<string, unknown>)['stderr']);
+      expect(transport.getStderr()).toBe((fakeProcess as Record<string, unknown>)["stderr"]);
     });
 
     it("should return null before start", () => {

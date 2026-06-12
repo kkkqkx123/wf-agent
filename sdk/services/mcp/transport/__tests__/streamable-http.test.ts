@@ -29,7 +29,10 @@ describe("StreamableHttpTransport", () => {
   describe("start", () => {
     it("should connect successfully on HEAD ok", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
 
       await transport.start();
       expect(transport.isConnected).toBe(true);
@@ -37,7 +40,10 @@ describe("StreamableHttpTransport", () => {
 
     it("should throw on HEAD failure", async () => {
       globalThis.fetch = vi.fn().mockRejectedValue(new Error("Connection refused"));
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
 
       await expect(transport.start()).rejects.toThrow("Connection refused");
       expect(transport.isConnected).toBe(false);
@@ -45,7 +51,10 @@ describe("StreamableHttpTransport", () => {
 
     it("should be idempotent when already connected", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
 
       await transport.start();
       await transport.start(); // Second call should not call fetch again
@@ -55,7 +64,8 @@ describe("StreamableHttpTransport", () => {
 
   describe("send", () => {
     it("should send message and handle JSON response", async () => {
-      globalThis.fetch = vi.fn()
+      globalThis.fetch = vi
+        .fn()
         .mockResolvedValueOnce(new Response(null, { status: 200 })) // HEAD for start
         .mockResolvedValueOnce(
           new Response(JSON.stringify({ result: "ok" }), {
@@ -64,7 +74,10 @@ describe("StreamableHttpTransport", () => {
           }),
         );
 
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
       await transport.start();
 
       const onData = vi.fn();
@@ -84,7 +97,8 @@ describe("StreamableHttpTransport", () => {
         },
       });
 
-      globalThis.fetch = vi.fn()
+      globalThis.fetch = vi
+        .fn()
         .mockResolvedValueOnce(new Response(null, { status: 200 })) // HEAD
         .mockResolvedValueOnce(
           new Response(stream, {
@@ -93,7 +107,10 @@ describe("StreamableHttpTransport", () => {
           }),
         );
 
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
       await transport.start();
 
       const onData = vi.fn();
@@ -106,7 +123,10 @@ describe("StreamableHttpTransport", () => {
     });
 
     it("should throw if not connected", async () => {
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
       await expect(transport.send({})).rejects.toThrow("Transport not connected");
     });
   });
@@ -114,7 +134,10 @@ describe("StreamableHttpTransport", () => {
   describe("close", () => {
     it("should close and mark disconnected", async () => {
       globalThis.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-      transport = new StreamableHttpTransport({ type: "streamable-http", url: "https://example.com/mcp" });
+      transport = new StreamableHttpTransport({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      });
       await transport.start();
 
       const onClose = vi.fn();

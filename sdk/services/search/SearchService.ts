@@ -9,11 +9,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { RipgrepExecutor } from "../executors/implementations/ripgrep/index.js";
 import { sortByFuzzyMatch } from "./fuzzy/index.js";
-import type {
-  FileSearchOptions,
-  ListAllFilesOptions,
-  FileSearchResult,
-} from "./types.js";
+import type { FileSearchOptions, ListAllFilesOptions, FileSearchResult } from "./types.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SearchService" });
@@ -47,7 +43,7 @@ export class SearchService {
         limit,
       });
 
-      return files.map((file) => ({
+      return files.map(file => ({
         path: file.path,
         type: file.type,
         label: file.label,
@@ -74,18 +70,14 @@ export class SearchService {
       }
 
       // Perform fuzzy search
-      const matched = sortByFuzzyMatch(
-        allFiles,
-        query,
-        (item) => `${item.path} ${item.label || ""}`,
-      );
+      const matched = sortByFuzzyMatch(allFiles, query, item => `${item.path} ${item.label || ""}`);
 
       // Take top results
       const topResults = matched.slice(0, limit).map(({ item }) => item);
 
       // Verify types of results
       const verifiedResults = await Promise.all(
-        topResults.map(async (result) => {
+        topResults.map(async result => {
           const fullPath = path.join(workspacePath, result.path);
           try {
             if (fs.existsSync(fullPath)) {

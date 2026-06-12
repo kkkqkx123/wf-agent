@@ -1,9 +1,9 @@
 /**
  * Event Metrics Collector
- * 
+ *
  * Collects and aggregates event metrics across all workflow executions.
  * Replaces the legacy MetricsAggregator with the new Universal Metrics system.
- * 
+ *
  * Design Principles:
  * - Use Counter metrics for event occurrence tracking
  * - Support flexible label-based filtering (workflow_id, node_type, tool_name, etc.)
@@ -68,7 +68,7 @@ export interface EventMetricsSummary {
 
 /**
  * EventMetricsCollector - Unified event metrics collection
- * 
+ *
  * Responsibilities:
  * - Record event occurrences as Counter metrics
  * - Aggregate statistics by event type and labels
@@ -86,7 +86,7 @@ export class EventMetricsCollector extends BaseMetricCollector {
    * @param eventType Event type (e.g., 'NODE_COMPLETED', 'WORKFLOW_STARTED')
    * @param executionId Execution ID
    * @param labels Additional dimension labels
-   * 
+   *
    * @example
    * ```typescript
    * collector.recordEvent('NODE_COMPLETED', 'exec-123', {
@@ -96,11 +96,7 @@ export class EventMetricsCollector extends BaseMetricCollector {
    * });
    * ```
    */
-  recordEvent(
-    eventType: string,
-    executionId: string,
-    labels?: EventMetricLabels,
-  ): void {
+  recordEvent(eventType: string, executionId: string, labels?: EventMetricLabels): void {
     if (!eventType) {
       logger.warn("recordEvent called with missing eventType");
       return;
@@ -111,8 +107,8 @@ export class EventMetricsCollector extends BaseMetricCollector {
     }
 
     // Convert to Counter metric with standardized naming
-    const metricName = `event.${eventType.toLowerCase().replace(/_/g, '.')}.count`;
-    
+    const metricName = `event.${eventType.toLowerCase().replace(/_/g, ".")}.count`;
+
     // Merge execution_id into labels
     const mergedLabels: Record<string, string> = {
       execution_id: executionId,
@@ -125,16 +121,16 @@ export class EventMetricsCollector extends BaseMetricCollector {
   /**
    * Get aggregated statistics for a specific event type
    * Backward compatible with old MetricsAggregator API
-   * 
+   *
    * @param eventType Event type to query
    * @returns Aggregated statistics or undefined if not found
    */
   getStatistics(eventType: string): AggregatedEventStat | undefined {
-    const metricName = `event.${eventType.toLowerCase().replace(/_/g, '.')}.count`;
-    
+    const metricName = `event.${eventType.toLowerCase().replace(/_/g, ".")}.count`;
+
     const result = this.query({
       metricName,
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     if (result.totalCount === 0) {
@@ -152,8 +148,8 @@ export class EventMetricsCollector extends BaseMetricCollector {
     const aggregated = result.metrics.get(metricName);
     if (aggregated && aggregated.timeSeries) {
       stat.count = aggregated.value;
-      
-        // Extract time series data
+
+      // Extract time series data
       if (aggregated.timeSeries && aggregated.timeSeries.length > 0) {
         stat.firstSeen = aggregated.timeSeries[0]!.timestamp;
         stat.lastSeen = aggregated.timeSeries[aggregated.timeSeries.length - 1]!.timestamp;
@@ -178,22 +174,22 @@ export class EventMetricsCollector extends BaseMetricCollector {
   /**
    * Get all aggregated statistics
    * Backward compatible with old MetricsAggregator API
-   * 
+   *
    * @returns Map of event type to statistics
    */
   getAllStatistics(): Map<string, AggregatedEventStat> {
     const result = this.query({
-      metricType: 'counter',
+      metricType: "counter",
     });
 
     const stats = new Map<string, AggregatedEventStat>();
 
     for (const [metricName, aggregated] of result.metrics.entries()) {
       // Extract event type from metric name
-      if (metricName.startsWith('event.') && metricName.endsWith('.count')) {
+      if (metricName.startsWith("event.") && metricName.endsWith(".count")) {
         const eventType = metricName
           .slice(6, -6) // Remove 'event.' prefix and '.count' suffix
-          .replace(/\./g, '_')
+          .replace(/\./g, "_")
           .toUpperCase();
 
         const stat: AggregatedEventStat = {
@@ -230,12 +226,12 @@ export class EventMetricsCollector extends BaseMetricCollector {
   /**
    * Generate a complete event metrics summary
    * Backward compatible with old MetricsAggregator API
-   * 
+   *
    * @returns Comprehensive summary of all event metrics
    */
   generateSummary(): EventMetricsSummary {
     const allStats = this.getAllStatistics();
-    
+
     // Calculate total events
     let totalEvents = 0;
     for (const stat of allStats.values()) {
@@ -260,10 +256,10 @@ export class EventMetricsCollector extends BaseMetricCollector {
 
   /**
    * Query event metrics with advanced filters
-   * 
+   *
    * @param filter Query filter criteria
    * @returns Query result with aggregated metrics
-   * 
+   *
    * @example
    * ```typescript
    * // Query all NODE_COMPLETED events for a specific workflow
@@ -280,7 +276,7 @@ export class EventMetricsCollector extends BaseMetricCollector {
   /**
    * Cleanup metrics for a specific execution
    * Called when an execution completes to free memory
-   * 
+   *
    * @param executionId Execution ID to cleanup
    * @returns Number of metrics entries cleaned
    */
@@ -293,8 +289,8 @@ export class EventMetricsCollector extends BaseMetricCollector {
     let cleanedCount = 0;
 
     // Filter out metrics for this execution
-    const remainingMetrics = this.metricsBuffer.filter((metric) => {
-      if (metric.labels?.['execution_id'] === executionId) {
+    const remainingMetrics = this.metricsBuffer.filter(metric => {
+      if (metric.labels?.["execution_id"] === executionId) {
         cleanedCount++;
         return false;
       }
@@ -315,56 +311,59 @@ export class EventMetricsCollector extends BaseMetricCollector {
   toPrometheus(): string[] {
     const summary = this.generateSummary();
     const metrics: PrometheusMetric[] = [];
-    
+
     // Total events published
     metrics.push({
-      name: 'event_published_total',
-      type: 'counter',
-      help: 'Total events published',
-      samples: [{ value: summary.totalEvents }]
+      name: "event_published_total",
+      type: "counter",
+      help: "Total events published",
+      samples: [{ value: summary.totalEvents }],
     });
-    
+
     // Events by type
     for (const [eventType, stat] of summary.byEventType.entries()) {
       metrics.push({
-        name: 'event_published_by_type_total',
-        type: 'counter',
-        help: 'Events published grouped by type',
-        samples: [{ labels: { event_type: eventType }, value: stat.count }]
+        name: "event_published_by_type_total",
+        type: "counter",
+        help: "Events published grouped by type",
+        samples: [{ labels: { event_type: eventType }, value: stat.count }],
       });
     }
-    
+
     return metrics.flatMap(m => PrometheusFormatter.formatMetric(m));
   }
-  
+
   /**
    * Export as JSON
    */
   toJSON(): Record<string, unknown> {
     const summary = this.generateSummary();
-    
+
     // Convert Map to plain object for JSON serialization
-    const byEventTypeObj: Record<string, {
-      count: number;
-      lastSeen: number;
-      firstSeen: number;
-      byExecution: Record<string, number>;
-    }> = {};
+    const byEventTypeObj: Record<
+      string,
+      {
+        count: number;
+        lastSeen: number;
+        firstSeen: number;
+        byExecution: Record<string, number>;
+      }
+    > = {};
     for (const [eventType, stat] of summary.byEventType.entries()) {
       byEventTypeObj[eventType] = {
         count: stat.count,
         lastSeen: stat.lastSeen ?? 0,
         firstSeen: stat.firstSeen ?? 0,
-        byExecution: Object.fromEntries(stat.byExecution)
+        byExecution: Object.fromEntries(stat.byExecution),
       };
     }
-    
+
     return {
-      type: 'event',
+      type: "event",
       totalEvents: summary.totalEvents,
       byEventType: byEventTypeObj,
       activeExecutions: summary.activeExecutions,
-      generatedAt: summary.generatedAt
+      generatedAt: summary.generatedAt,
     };
   }
 }

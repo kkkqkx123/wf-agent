@@ -17,7 +17,16 @@ import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 // use vi.hoisted() to be available at that point.
 // =============================================================================
 
-const { mockRandomUUID, mockEntityInitializeMessages, mockEntitySetMessages, mockEntitySetParentContext, MockAgentLoopEntity, MockAgentLoopCheckpointCoordinator, mockRestoreFromCheckpoint, mockRegisterChildAgentLoop } = vi.hoisted(() => {
+const {
+  mockRandomUUID,
+  mockEntityInitializeMessages,
+  mockEntitySetMessages,
+  mockEntitySetParentContext,
+  MockAgentLoopEntity,
+  MockAgentLoopCheckpointCoordinator,
+  mockRestoreFromCheckpoint,
+  mockRegisterChildAgentLoop,
+} = vi.hoisted(() => {
   const _mockRandomUUID = vi.fn();
 
   const _mockEntityInitializeMessages = vi.fn();
@@ -163,9 +172,7 @@ describe("AgentLoopFactory", () => {
     });
 
     it("should pass initialMessages to initializeMessages when provided", async () => {
-      const initialMessages = [
-        { role: "user", content: "Custom message" } as any,
-      ];
+      const initialMessages = [{ role: "user", content: "Custom message" } as any];
       mockOptions.initialMessages = initialMessages;
 
       await AgentLoopFactory.create(mockGlobalContext, mockConfig, mockOptions);
@@ -180,9 +187,7 @@ describe("AgentLoopFactory", () => {
     });
 
     it("should call setMessages when initialMessages.length > 0", async () => {
-      const initialMessages = [
-        { role: "user", content: "Override" } as any,
-      ];
+      const initialMessages = [{ role: "user", content: "Override" } as any];
       mockOptions.initialMessages = initialMessages;
 
       await AgentLoopFactory.create(mockGlobalContext, mockConfig, mockOptions);
@@ -306,13 +311,14 @@ describe("AgentLoopFactory", () => {
       };
       mockRestoreFromCheckpoint.mockResolvedValue(restoredEntity);
 
-      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, mockConfig, mockCheckpointDeps);
-
-      expect(MockAgentLoopCheckpointCoordinator).toHaveBeenCalledTimes(1);
-      expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(
+      const entity = await AgentLoopFactory.fromCheckpoint(
         checkpointId,
+        mockConfig,
         mockCheckpointDeps,
       );
+
+      expect(MockAgentLoopCheckpointCoordinator).toHaveBeenCalledTimes(1);
+      expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(checkpointId, mockCheckpointDeps);
       expect(entity).toBe(restoredEntity);
     });
 
@@ -338,10 +344,7 @@ describe("AgentLoopFactory", () => {
 
       const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, mockConfig, depsWithDelta);
 
-      expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(
-        checkpointId,
-        depsWithDelta,
-      );
+      expect(mockRestoreFromCheckpoint).toHaveBeenCalledWith(checkpointId, depsWithDelta);
       expect(entity).toBe(restoredEntity);
     });
   });

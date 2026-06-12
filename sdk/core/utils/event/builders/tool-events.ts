@@ -32,7 +32,8 @@ export const buildToolCallCompletedEvent =
  * Build tool call failed event
  * Converts Error to string with "Unknown error" fallback
  */
-export const buildToolCallFailedEvent = createStringErrorBuilder<ToolCallFailedEvent>("TOOL_CALL_FAILED");
+export const buildToolCallFailedEvent =
+  createStringErrorBuilder<ToolCallFailedEvent>("TOOL_CALL_FAILED");
 
 /**
  * Build tool call blocked event (NEW - for failure protection)

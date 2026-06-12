@@ -72,25 +72,25 @@ describe("ToolFormatSelector", () => {
   describe("getToolFormatDescription", () => {
     it("should return description for function_call", () => {
       expect(getToolFormatDescription("function_call")).toBe(
-        "Uses the LLM provider's native function calling API (OpenAI, Anthropic, etc.)"
+        "Uses the LLM provider's native function calling API (OpenAI, Anthropic, etc.)",
       );
     });
 
     it("should return description for xml", () => {
       expect(getToolFormatDescription("xml")).toBe(
-        "Tools described in XML format, LLM outputs XML tool calls"
+        "Tools described in XML format, LLM outputs XML tool calls",
       );
     });
 
     it("should return description for json_wrapped", () => {
       expect(getToolFormatDescription("json_wrapped")).toBe(
-        "Tools described in JSON, LLM outputs JSON wrapped with custom markers"
+        "Tools described in JSON, LLM outputs JSON wrapped with custom markers",
       );
     });
 
     it("should return description for json_raw", () => {
       expect(getToolFormatDescription("json_raw")).toBe(
-        "Tools described in JSON, LLM outputs raw JSON without markers"
+        "Tools described in JSON, LLM outputs raw JSON without markers",
       );
     });
 

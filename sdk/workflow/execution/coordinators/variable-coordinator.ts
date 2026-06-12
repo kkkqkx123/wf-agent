@@ -41,36 +41,41 @@ const logger = createContextualLogger({ component: "VariableCoordinator" });
  * - Coordination logic: Encapsulates the logic for coordinating variable operations
  * - Dependency injection: Receives managers for dependencies through method parameters
  * - Delegation pattern: Uses the VariableManager to perform atomic state operations
- * 
+ *
  * IMPORTANT: This coordinator is stateless and receives VariableManager as a parameter
  * in each method call. This ensures it always operates on the correct instance.
  */
 export class VariableCoordinator {
-  constructor(
-    private eventManager?: EventRegistry,
-  ) {}
+  constructor(private eventManager?: EventRegistry) {}
 
   /**
    * Initialize variables from VariableDefinition array
    * @param manager The VariableManager instance to initialize
    * @param variableDefinitions Array of variable definitions
    */
-  initializeFromDefinitions(manager: VariableManager, variableDefinitions: VariableDefinition[]): void {
+  initializeFromDefinitions(
+    manager: VariableManager,
+    variableDefinitions: VariableDefinition[],
+  ): void {
     manager.initializeFromDefinitions(variableDefinitions);
   }
 
   /**
    * Retrieve the value of a variable
    * Delegates to VariableManager.getVariable() which handles all scope priority logic
-   * 
+   *
    * Priority: loop > subgraph > execution > global
-   * 
+   *
    * @param manager The VariableManager instance to use
    * @param _executionEntity WorkflowExecutionEntity instance (kept for API compatibility)
    * @param name Variable name
    * @returns Variable value or undefined if not found
    */
-  getVariable(manager: VariableManager, _executionEntity: WorkflowExecutionEntity, name: string): unknown {
+  getVariable(
+    manager: VariableManager,
+    _executionEntity: WorkflowExecutionEntity,
+    name: string,
+  ): unknown {
     // Simple delegation to VariableManager
     // All scope priority logic is centralized in VariableManager.getVariable()
     return manager.getVariable(name);
@@ -144,7 +149,11 @@ export class VariableCoordinator {
    * @param name Variable name
    * @returns Whether the variable exists
    */
-  hasVariable(manager: VariableManager, executionEntity: WorkflowExecutionEntity, name: string): boolean {
+  hasVariable(
+    manager: VariableManager,
+    executionEntity: WorkflowExecutionEntity,
+    name: string,
+  ): boolean {
     return this.getVariable(manager, executionEntity, name) !== undefined;
   }
 
@@ -203,7 +212,7 @@ export class VariableCoordinator {
    * Trigger a variable change event
    * Note: This is for observability only. If no listeners need to act on variable changes,
    * consider removing this and just using logger.debug().
-   * 
+   *
    * @param executionEntity WorkflowExecutionEntity instance
    * @param name Variable name
    * @param value New value

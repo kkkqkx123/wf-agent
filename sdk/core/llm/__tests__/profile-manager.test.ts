@@ -48,9 +48,9 @@ describe("ProfileManager", () => {
     });
 
     it("should throw ConfigurationValidationError if id is missing", () => {
-      expect(() =>
-        manager.register(createProfile({ id: "" as any })),
-      ).toThrow(ConfigurationValidationError);
+      expect(() => manager.register(createProfile({ id: "" as any }))).toThrow(
+        ConfigurationValidationError,
+      );
     });
 
     it("should throw ConfigurationValidationError if id is undefined", () => {
@@ -103,9 +103,7 @@ describe("ProfileManager", () => {
 
     it("should return default profile when no id provided", () => {
       manager.register(createProfile({ id: "default-profile" }));
-      expect(manager.get()).toEqual(
-        expect.objectContaining({ id: "default-profile" }),
-      );
+      expect(manager.get()).toEqual(expect.objectContaining({ id: "default-profile" }));
     });
 
     it("should return undefined when no id provided and no default set", () => {

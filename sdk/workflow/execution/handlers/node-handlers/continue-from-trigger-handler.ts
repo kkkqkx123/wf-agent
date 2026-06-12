@@ -5,7 +5,12 @@
  * This handler now handles data outputs, variable callbacks, and message context outputs.
  */
 
-import type { RuntimeNode, MessageContextRegistry, WorkflowExecution, WorkflowEndConfig } from "@wf-agent/types";
+import type {
+  RuntimeNode,
+  MessageContextRegistry,
+  WorkflowExecution,
+  WorkflowEndConfig,
+} from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
@@ -52,23 +57,29 @@ export async function continueFromTriggerHandler(
   if (config.messageOutputs && config.messageOutputs.length > 0) {
     const workflowExecution = workflowExecutionEntity.getExecution();
     const mainWorkflowExecution = mainWorkflowExecutionEntity.getExecution();
-    
+
     // Access message context registries
-    const registry = (workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-    const parentRegistry = (mainWorkflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }).messageContextRegistry;
-    
+    const registry = (
+      workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+    ).messageContextRegistry;
+    const parentRegistry = (
+      mainWorkflowExecution as WorkflowExecution & {
+        messageContextRegistry?: MessageContextRegistry;
+      }
+    ).messageContextRegistry;
+
     if (registry && parentRegistry) {
       for (const outputDef of config.messageOutputs) {
         const { internalName, externalName } = outputDef;
-        
+
         // Get the message context from subworkflow's registry
         const context = registry.get(internalName);
-        
+
         if (context) {
           // Copy to parent workflow's registry with external name
           parentRegistry.register({
             id: externalName,
-            messages: [...context.messages],  // Shallow copy
+            messages: [...context.messages], // Shallow copy
             createdAt: Date.now(),
             updatedAt: Date.now(),
             metadata: {
@@ -85,10 +96,10 @@ export async function continueFromTriggerHandler(
   if (config.variableOutputs && config.variableOutputs.length > 0) {
     for (const outputDef of config.variableOutputs) {
       const { internalName, externalName } = outputDef;
-      
+
       // Get the variable value from subworkflow's VariableManager
       const value = workflowExecutionEntity.variableStateManager.getVariable(internalName);
-      
+
       if (value !== undefined) {
         // Set the variable in main workflow's VariableManager with external name
         mainWorkflowExecutionEntity.setVariable(externalName, value);

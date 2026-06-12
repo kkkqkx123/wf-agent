@@ -1,6 +1,6 @@
 /**
  * State Managers Module
- * 
+ *
  * Provides state management for various SDK components.
  */
 

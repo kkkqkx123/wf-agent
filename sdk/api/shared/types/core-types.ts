@@ -47,6 +47,12 @@ export interface McpConfig {
   connectionTimeout?: number;
   /** Debounce delay for config changes in milliseconds */
   configDebounceDelay?: number;
+  /** Default lifecycle strategy for all servers */
+  defaultLifecycle?: "lazy" | "eager" | "keep-alive";
+  /** Default idle timeout in seconds (0 = no idle timeout) */
+  defaultIdleTimeout?: number;
+  /** Default health check interval in seconds (only for keep-alive) */
+  defaultHealthCheckInterval?: number;
 }
 
 /**

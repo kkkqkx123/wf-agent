@@ -24,7 +24,7 @@ describe("partialParse – complete JSON", () => {
   });
 
   it("should parse arrays", () => {
-    const result = partialParse('[1, 2, 3]');
+    const result = partialParse("[1, 2, 3]");
     expect(result).toEqual([1, 2, 3]);
   });
 
@@ -84,7 +84,7 @@ describe("partialParse – partial / incomplete JSON", () => {
   });
 
   it("should parse part of an array", () => {
-    const result = partialParse('[1, 2,');
+    const result = partialParse("[1, 2,");
     expect(result).toEqual([1, 2]);
   });
 
@@ -254,7 +254,7 @@ describe("isValidPartialJson", () => {
   });
 
   it("should return false for more closing brackets than opening", () => {
-    expect(isValidPartialJson('[1, 2]]')).toBe(false);
+    expect(isValidPartialJson("[1, 2]]")).toBe(false);
   });
 
   it("should return false for mismatched closing brace (no opener)", () => {
@@ -287,7 +287,7 @@ describe("invariant: partialParse(valid JSON) === JSON.parse", () => {
     '{"nested":{"x":{"y":"z"}}}',
     "[]",
     "{}",
-    '[1,2,3]',
+    "[1,2,3]",
     '{"s":"with spaces"}',
     '{"e":"underscores_and_123"}',
   ];

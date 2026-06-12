@@ -39,7 +39,9 @@ export function mergeOutputWithDefaults(userConfig: Partial<OutputConfig>): Requ
 /**
  * Get environment-specific defaults for output configuration.
  */
-export function getOutputEnvironmentDefaults(env: "development" | "production"): Required<OutputConfig> {
+export function getOutputEnvironmentDefaults(
+  env: "development" | "production",
+): Required<OutputConfig> {
   if (env === "development") {
     return {
       ...DEFAULT_OUTPUT_CONFIG,

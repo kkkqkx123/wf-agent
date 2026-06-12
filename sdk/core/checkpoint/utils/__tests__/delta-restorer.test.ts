@@ -306,9 +306,9 @@ describe("DeltaRestorer", () => {
         return null;
       });
 
-      await expect(
-        restorer["buildDeltaChain"]("cp-base", "cp-a"),
-      ).rejects.toThrow("Circular reference detected");
+      await expect(restorer["buildDeltaChain"]("cp-base", "cp-a")).rejects.toThrow(
+        "Circular reference detected",
+      );
     });
 
     it("should throw error for self-referencing checkpoint", async () => {
@@ -318,9 +318,9 @@ describe("DeltaRestorer", () => {
 
       vi.mocked(mockLoader.load).mockResolvedValue(selfRefCp);
 
-      await expect(
-        restorer["buildDeltaChain"]("cp-base", "cp-self"),
-      ).rejects.toThrow("Circular reference detected");
+      await expect(restorer["buildDeltaChain"]("cp-base", "cp-self")).rejects.toThrow(
+        "Circular reference detected",
+      );
     });
 
     it("should handle checkpoint with null reference (no previousCheckpointId)", async () => {

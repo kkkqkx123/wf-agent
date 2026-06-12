@@ -59,7 +59,7 @@ export class ScriptFlowEngine {
     const order = this.topologicalSort(flow);
 
     for (const branchKey of order) {
-      const branch = flow.branches.find((b) => b.key === branchKey);
+      const branch = flow.branches.find(b => b.key === branchKey);
       if (!branch) continue;
 
       logger.debug("Executing flow branch", { flow: flow.name, branch: branchKey });
@@ -84,7 +84,7 @@ export class ScriptFlowEngine {
         moduleResults.push(result);
       }
 
-      const allSuccess = moduleResults.every((r) => r.success);
+      const allSuccess = moduleResults.every(r => r.success);
       branches[branchKey] = {
         success: allSuccess,
         modules: moduleResults,
@@ -93,7 +93,7 @@ export class ScriptFlowEngine {
       executed.add(branchKey);
     }
 
-    const allBranchesSuccess = Object.values(branches).every((b) => b.success);
+    const allBranchesSuccess = Object.values(branches).every(b => b.success);
 
     return {
       success: allBranchesSuccess,
@@ -109,12 +109,14 @@ export class ScriptFlowEngine {
     const visited = new Set<string>();
     const visiting = new Set<string>();
     const order: string[] = [];
-    const branchMap = new Map(flow.branches.map((b) => [b.key, b]));
+    const branchMap = new Map(flow.branches.map(b => [b.key, b]));
 
     function visit(key: string): void {
       if (visited.has(key)) return;
       if (visiting.has(key)) {
-        throw new Error(`Circular dependency detected in flow '${flow.name}' involving branch '${key}'`);
+        throw new Error(
+          `Circular dependency detected in flow '${flow.name}' involving branch '${key}'`,
+        );
       }
       visiting.add(key);
 

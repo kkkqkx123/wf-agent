@@ -26,6 +26,7 @@ import type { AgentLoopResult, AgentHookTriggeredEvent } from "@wf-agent/types";
 import type { ToolApprovalHandler } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
+import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 import type { ToolRegistry } from "../../../core/registry/tool-registry.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { MetricsRegistry } from "../../../core/metrics/metrics-registry.js";
@@ -36,7 +37,10 @@ import { ToolCallExecutor } from "../../../core/executors/tool-call-executor.js"
 import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import { emit } from "../../../core/utils/event/emit-event.js";
-import { AgentExecutionCoordinator, type AgentLoopStreamEvent } from "../coordinators/agent-execution-coordinator.js";
+import {
+  AgentExecutionCoordinator,
+  type AgentLoopStreamEvent,
+} from "../coordinators/agent-execution-coordinator.js";
 import { AgentIterationCoordinator } from "../coordinators/agent-iteration-coordinator.js";
 import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../core/coordinators/llm-execution-coordinator.js";
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
@@ -97,10 +101,14 @@ export class AgentLoopExecutor {
     if (!cpDeps && deps.globalContext) {
       try {
         cpDeps = {
-          workflowExecutionRegistry: deps.globalContext.container.get(Identifiers.WorkflowExecutionRegistry),
+          workflowExecutionRegistry: deps.globalContext.container.get(
+            Identifiers.WorkflowExecutionRegistry,
+          ),
           checkpointStateManager: deps.globalContext.container.get(Identifiers.CheckpointState),
           workflowRegistry: deps.globalContext.container.get(Identifiers.WorkflowRegistry),
-          workflowGraphRegistry: deps.globalContext.container.get(Identifiers.WorkflowGraphRegistry),
+          workflowGraphRegistry: deps.globalContext.container.get(
+            Identifiers.WorkflowGraphRegistry,
+          ),
         };
       } catch {
         logger.debug("Failed to resolve checkpoint dependencies from global context");
@@ -132,15 +140,23 @@ export class AgentLoopExecutor {
    * Execute Agent Loop
    *
    * @param entity Agent Loop entity
+   * @param stateCoordinator Agent State Coordinator for message management
    * @returns Execution result
    */
-  async execute(entity: AgentLoopEntity): Promise<AgentLoopResult> {
-    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(entity, "sync");
+  async execute(
+    entity: AgentLoopEntity,
+    stateCoordinator: AgentStateCoordinator,
+  ): Promise<AgentLoopResult> {
+    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(
+      entity,
+      stateCoordinator,
+      "sync",
+    );
 
     const coordinator = this.createCoordinator();
     return coordinator.execute(
       entity,
-      entity.getConversationManager(),
+      stateCoordinator.getConversationManager(),
       toolSchemas,
       profileId,
       maxIterations,
@@ -151,15 +167,23 @@ export class AgentLoopExecutor {
    * Stream execute Agent Loop
    *
    * @param entity Agent Loop entity
+   * @param stateCoordinator Agent State Coordinator for message management
    * @returns Stream event generator
    */
-  async *executeStream(entity: AgentLoopEntity): AsyncGenerator<AgentLoopStreamEvent> {
-    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(entity, "stream");
+  async *executeStream(
+    entity: AgentLoopEntity,
+    stateCoordinator: AgentStateCoordinator,
+  ): AsyncGenerator<AgentLoopStreamEvent> {
+    const { toolSchemas, maxIterations, profileId } = this.prepareExecution(
+      entity,
+      stateCoordinator,
+      "stream",
+    );
 
     const coordinator = this.createCoordinator();
     yield* coordinator.executeStream(
       entity,
-      entity.getConversationManager(),
+      stateCoordinator.getConversationManager(),
       toolSchemas,
       profileId,
       maxIterations,
@@ -173,8 +197,13 @@ export class AgentLoopExecutor {
    */
   private prepareExecution(
     entity: AgentLoopEntity,
+    stateCoordinator: AgentStateCoordinator,
     mode: "sync" | "stream",
-  ): { toolSchemas: ReturnType<typeof prepareToolSchemas>; maxIterations: number; profileId: string } {
+  ): {
+    toolSchemas: ReturnType<typeof prepareToolSchemas>;
+    maxIterations: number;
+    profileId: string;
+  } {
     const config = entity.config;
     const maxIterations = config.maxIterations ?? 10;
     const profileId = config.profileId || "DEFAULT";
@@ -184,7 +213,7 @@ export class AgentLoopExecutor {
       maxIterations,
       toolsCount: getAvailableTools(config.availableTools).length,
       profileId,
-      initialMessageCount: entity.getConversationManager().getMessageCount(),
+      initialMessageCount: stateCoordinator.getMessageCount(),
     });
 
     const toolIds = getAvailableTools(config.availableTools);
@@ -192,7 +221,10 @@ export class AgentLoopExecutor {
 
     const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
     if (toolSchemas) {
-      logger.debug("Tool schemas prepared", { agentLoopId: entity.id, toolsCount: toolSchemas.length });
+      logger.debug("Tool schemas prepared", {
+        agentLoopId: entity.id,
+        toolsCount: toolSchemas.length,
+      });
     }
 
     return { toolSchemas, maxIterations, profileId };

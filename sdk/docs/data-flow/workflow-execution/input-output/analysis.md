@@ -17,10 +17,10 @@
 ```typescript
 export interface Thread {
   // ... 其他字段
-  
+
   /**
    * Input data (as a special variable, accessible via path)
-   * 
+   *
    * Description: Stores the input data for the workflow
    * - Initialized when the START node is executed
    * - Can be accessed through expression parsing (using input.)
@@ -28,19 +28,19 @@ export interface Thread {
    * - Used to pass external inputs into the workflow
    */
   input: Record<string, unknown>;
-  
+
   // ... 其他字段
 }
 ```
 
 ### 1.2 核心作用
 
-| 特性 | 说明 |
-|------|------|
-| **初始输入源** | 存储工作流执行时从外部传入的输入参数 |
-| **只读数据** | 在整个工作流执行过程中保持不变 |
-| **路径访问** | 支持通过 `input.` 前缀在表达式中访问嵌套属性 |
-| **数据传递** | 用于将外部数据注入到工作流内部 |
+| 特性           | 说明                                         |
+| -------------- | -------------------------------------------- |
+| **初始输入源** | 存储工作流执行时从外部传入的输入参数         |
+| **只读数据**   | 在整个工作流执行过程中保持不变               |
+| **路径访问**   | 支持通过 `input.` 前缀在表达式中访问嵌套属性 |
+| **数据传递**   | 用于将外部数据注入到工作流内部               |
 
 ### 1.3 生命周期
 
@@ -48,7 +48,7 @@ export interface Thread {
    - 在 `WorkflowExecutionBuilder.build()` 方法中初始化
    - 从 `WorkflowExecutionOptions.input` 参数获取
    - 默认值为空对象 `{}`
-   
+
    ```typescript
    // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 167 行)
    const thread: Thread = {
@@ -66,7 +66,7 @@ export interface Thread {
 3. **复制与继承**
    - **Fork 操作**: 子线程会深拷贝父线程的 input
    - **子工作流**: 触发子工作流时 input 会被复制传递
-   
+
    ```typescript
    // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 334 行)
    input: { ...parentThread.input },
@@ -77,28 +77,30 @@ export interface Thread {
 #### 通过 VariableAccessor 访问
 
 ```typescript
-import { VariableAccessor } from 'sdk/graph/execution/utils/variable-accessor.js';
+import { VariableAccessor } from "sdk/graph/execution/utils/variable-accessor.js";
 
 const accessor = new VariableAccessor(threadEntity);
 
 // 访问顶层属性
-const userName = accessor.get('input.userName');
+const userName = accessor.get("input.userName");
 
 // 访问嵌套属性
-const timeout = accessor.get('input.config.timeout');
+const timeout = accessor.get("input.config.timeout");
 
 // 访问数组元素
-const firstItem = accessor.get('input.items[0].name');
+const firstItem = accessor.get("input.items[0].name");
 
 // 检查是否存在
-const exists = accessor.has('input.userName');
+const exists = accessor.has("input.userName");
 ```
 
 #### 在模板表达式中使用
 
 ```handlebars
 <!-- 在 Prompt 模板或条件表达式中 -->
-Hello {{input.userName}}, your timeout is {{input.config.timeout}}
+Hello
+{{input.userName}}, your timeout is
+{{input.config.timeout}}
 ```
 
 #### 直接获取
@@ -114,13 +116,13 @@ const input = thread.input;
 
 ### 1.5 与变量的区别
 
-| 特性 | input | variableScopes.thread |
-|------|-------|----------------------|
-| **用途** | 工作流初始输入 | 工作流执行过程中的变量 |
-| **可变性** | 只读 | 可读写 |
-| **初始化** | 创建时从外部传入 | 可定义默认值或运行时设置 |
-| **生命周期** | 全程不变 | 可随执行流程变化 |
-| **访问前缀** | `input.` | 直接访问或 `thread.` |
+| 特性         | input            | variableScopes.thread    |
+| ------------ | ---------------- | ------------------------ |
+| **用途**     | 工作流初始输入   | 工作流执行过程中的变量   |
+| **可变性**   | 只读             | 可读写                   |
+| **初始化**   | 创建时从外部传入 | 可定义默认值或运行时设置 |
+| **生命周期** | 全程不变         | 可随执行流程变化         |
+| **访问前缀** | `input.`         | 直接访问或 `thread.`     |
 
 ---
 
@@ -135,10 +137,10 @@ const input = thread.input;
 ```typescript
 export interface Thread {
   // ... 其他字段
-  
+
   /**
    * Output data (as a special variable, accessible via path)
-   * 
+   *
    * Description: Stores the final output data of the workflow
    * - Set when the END node is executed
    * - Can be accessed through expression parsing (using output.)
@@ -146,25 +148,25 @@ export interface Thread {
    * - Used to return the execution result of the workflow
    */
   output: Record<string, unknown>;
-  
+
   // ... 其他字段
 }
 ```
 
 ### 2.2 核心作用
 
-| 特性 | 说明 |
-|------|------|
-| **最终结果** | 存储工作流执行完毕后的输出数据 |
+| 特性         | 说明                                                |
+| ------------ | --------------------------------------------------- |
+| **最终结果** | 存储工作流执行完毕后的输出数据                      |
 | **结果返回** | 作为 `WorkflowExecutionResult` 的一部分返回给调用者 |
-| **节点设置** | 通常由 END 节点或最后一个执行节点设置 |
-| **数据聚合** | 可聚合多个节点的执行结果 |
+| **节点设置** | 通常由 END 节点或最后一个执行节点设置               |
+| **数据聚合** | 可聚合多个节点的执行结果                            |
 
 ### 2.3 生命周期
 
 1. **初始化阶段**
    - 创建 Thread 时初始化为空对象 `{}`
-   
+
    ```typescript
    // sdk/workflow/execution/factories/workflow-execution-builder.ts (第 168 行)
    output: {},
@@ -176,7 +178,7 @@ export interface Thread {
 
 3. **返回阶段**
    - 作为 `WorkflowExecutionResult.output` 返回
-   
+
    ```typescript
    // sdk/workflow/execution/coordinators/workflow-execution-coordinator.ts (第 124 行)
    return {
@@ -195,12 +197,12 @@ export interface Thread {
 ```typescript
 // 通过 WorkflowExecutionEntity 设置输出
 threadEntity.setOutput({
-  result: 'Task completed',
-  status: 'success',
-  data: { 
+  result: "Task completed",
+  status: "success",
+  data: {
     count: 10,
-    processedItems: ['item1', 'item2']
-  }
+    processedItems: ["item1", "item2"],
+  },
 });
 
 // 在 END 节点中设置
@@ -212,8 +214,8 @@ threadEntity.setOutput({
 ```typescript
 // 通过 VariableAccessor 访问
 const accessor = new VariableAccessor(threadEntity);
-const result = accessor.get('output.result');
-const data = accessor.get('output.data.count');
+const result = accessor.get("output.result");
+const data = accessor.get("output.data.count");
 
 // 通过 WorkflowExecutionEntity 获取完整输出
 const output = threadEntity.getOutput();
@@ -249,6 +251,7 @@ output: {},
 ### 3.1 设计目标
 
 提供统一的变量访问接口，支持：
+
 - 嵌套路径解析
 - 命名空间访问
 - 数组索引访问
@@ -259,12 +262,12 @@ output: {},
 ```typescript
 // sdk/graph/execution/utils/variable-accessor.ts (第 36-42 行)
 export type VariableNamespace =
-  | "input"    // 输入数据
-  | "output"   // 输出数据
-  | "global"   // 全局作用域
-  | "thread"   // 线程作用域
-  | "local"    // 局部作用域
-  | "loop";    // 循环作用域
+  | "input" // 输入数据
+  | "output" // 输出数据
+  | "global" // 全局作用域
+  | "thread" // 线程作用域
+  | "local" // 局部作用域
+  | "loop"; // 循环作用域
 ```
 
 ### 3.3 访问示例
@@ -273,18 +276,18 @@ export type VariableNamespace =
 const accessor = new VariableAccessor(threadEntity);
 
 // 输入数据
-accessor.get('input.userName')           // 获取用户名
-accessor.get('input.config.timeout')     // 获取嵌套配置
+accessor.get("input.userName"); // 获取用户名
+accessor.get("input.config.timeout"); // 获取嵌套配置
 
 // 输出数据
-accessor.get('output.result')            // 获取执行结果
-accessor.get('output.data.items[0]')     // 获取数组元素
+accessor.get("output.result"); // 获取执行结果
+accessor.get("output.data.items[0]"); // 获取数组元素
 
 // 普通变量（按作用域优先级）
-accessor.get('userName')                 // 查找变量
-accessor.get('global.config')            // 全局变量
-accessor.get('thread.state')             // 线程变量
-accessor.get('loop.item')                // 循环变量
+accessor.get("userName"); // 查找变量
+accessor.get("global.config"); // 全局变量
+accessor.get("thread.state"); // 线程变量
+accessor.get("loop.item"); // 循环变量
 ```
 
 ### 3.4 实现原理
@@ -293,12 +296,12 @@ accessor.get('loop.item')                // 循环变量
 // sdk/graph/execution/utils/variable-accessor.ts (第 77-110 行)
 get(path: string): unknown {
   if (!path) return undefined;
-  
+
   // 解析命名空间
   const parts = path.split('.');
   const namespace = parts[0];
   const remainingPath = parts.slice(1).join('.');
-  
+
   // 根据命名空间路由到不同的获取方法
   switch (namespace) {
     case 'input':
@@ -410,18 +413,19 @@ Return WorkflowExecutionResult.output
 ### 5.2 最佳实践
 
 #### 输入数据设计
+
 ```typescript
 // ✅ 推荐：结构化输入
 const input = {
-  user: { id: 123, name: 'Alice' },
+  user: { id: 123, name: "Alice" },
   config: { timeout: 5000, retry: 3 },
-  items: ['item1', 'item2', 'item3']
+  items: ["item1", "item2", "item3"],
 };
 
 // ❌ 避免：扁平化或过于复杂的输入
 const input = {
   userId: 123,
-  userName: 'Alice',
+  userName: "Alice",
   userTimeout: 5000,
   userRetry: 3,
   // ...
@@ -429,6 +433,7 @@ const input = {
 ```
 
 #### 输出数据设计
+
 ```typescript
 // ✅ 推荐：结构清晰的输出
 threadEntity.setOutput({
@@ -450,10 +455,11 @@ threadEntity.setOutput({
 ```
 
 #### 变量访问
+
 ```typescript
 // ✅ 推荐：明确命名空间
-const userName = accessor.get('input.userName');
-const result = accessor.get('output.result');
+const userName = accessor.get("input.userName");
+const result = accessor.get("output.result");
 
 // ❌ 避免：混淆输入输出与变量
 // 不要将 input 数据赋值给普通变量后忘记来源
@@ -461,22 +467,24 @@ const result = accessor.get('output.result');
 
 ### 5.3 常见误区
 
-| 误区 | 正确做法 |
-|------|---------|
-| 尝试修改 `input` | `input` 是只读的，应使用变量存储中间状态 |
-| 在 START 节点设置 `output` | `output` 应在 END 节点或最后设置 |
-| 混淆 `input` 和普通变量 | 明确区分：`input` 是输入，变量是中间状态 |
-| 过度嵌套 `input` | 保持输入结构合理，避免过深的嵌套 |
+| 误区                       | 正确做法                                 |
+| -------------------------- | ---------------------------------------- |
+| 尝试修改 `input`           | `input` 是只读的，应使用变量存储中间状态 |
+| 在 START 节点设置 `output` | `output` 应在 END 节点或最后设置         |
+| 混淆 `input` 和普通变量    | 明确区分：`input` 是输入，变量是中间状态 |
+| 过度嵌套 `input`           | 保持输入结构合理，避免过深的嵌套         |
 
 ---
 
 ## 6. 相关代码位置
 
 ### 6.1 类型定义
+
 - `packages/types/src/workflow-execution/definition.ts` - WorkflowExecution 接口定义
 - `packages/types/src/workflow-execution/execution.ts` - WorkflowExecutionOptions 和 WorkflowExecutionResult
 
 ### 6.2 核心实现
+
 - `sdk/workflow/entities/workflow-execution-entity.ts` - WorkflowExecutionEntity 类
 - `sdk/workflow/execution/factories/workflow-execution-builder.ts` - WorkflowExecution 构建逻辑
 - `sdk/workflow/execution/coordinators/workflow-execution-coordinator.ts` - 执行协调器
@@ -484,6 +492,7 @@ const result = accessor.get('output.result');
 - `sdk/workflow/execution/coordinators/variable-coordinator.ts` - 变量协调器
 
 ### 6.3 状态管理
+
 - `sdk/workflow/state-managers/variable-state.ts` - 变量状态管理
 - `sdk/workflow/execution/workflow-execution-context.ts` - 执行上下文
 

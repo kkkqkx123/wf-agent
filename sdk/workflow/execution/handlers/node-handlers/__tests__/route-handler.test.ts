@@ -55,6 +55,4 @@ describe("routeHandler", () => {
 
     await expect(routeHandler(mockEntity, node)).rejects.toThrow();
   });
-
 });
-

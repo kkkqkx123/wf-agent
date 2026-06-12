@@ -14,18 +14,15 @@ const response = await callTool("ask_followup_question", {
   questions: [
     {
       text: "Which file path should I use for the configuration?",
-      options: [
-        "./src/config.json",
-        "./config/app.json",
-        "./app.config.json"
-      ]
-    }
+      options: ["./src/config.json", "./config/app.json", "./app.config.json"],
+    },
   ],
-  additionalInfoLabel: "Any specific requirements?"
+  additionalInfoLabel: "Any specific requirements?",
 });
 ```
 
 **CLI Output:**
+
 ```
 ============================================================
 📝 Follow-up Questions
@@ -42,7 +39,7 @@ Enter your choice (1-4): 1
 
 Additional comments or information:
 (Press Enter to skip)
-> 
+>
 
 ✅ Response submitted successfully
 ```
@@ -54,22 +51,23 @@ const response = await callTool("ask_followup_question", {
   questions: [
     {
       text: "Which database should we use?",
-      options: ["PostgreSQL", "MySQL", "MongoDB"]
+      options: ["PostgreSQL", "MySQL", "MongoDB"],
     },
     {
       text: "What's the deployment environment?",
-      options: ["Development", "Staging", "Production"]
+      options: ["Development", "Staging", "Production"],
     },
     {
       text: "Implementation priority?",
-      options: ["High", "Medium", "Low"]
-    }
+      options: ["High", "Medium", "Low"],
+    },
   ],
-  additionalInfoLabel: "Additional constraints or requirements"
+  additionalInfoLabel: "Additional constraints or requirements",
 });
 ```
 
 **CLI Output:**
+
 ```
 ============================================================
 📝 Follow-up Questions
@@ -132,6 +130,7 @@ Please enter your custom response:
 ### 1. Keep Questions Focused
 
 ❌ **Bad:**
+
 ```typescript
 {
   text: "Tell me about your project requirements, tech stack preferences, deployment strategy, and any other considerations?",
@@ -140,13 +139,14 @@ Please enter your custom response:
 ```
 
 ✅ **Good:**
+
 ```typescript
 {
   questions: [
     { text: "What's the primary programming language?", options: ["TypeScript", "Python", "Go"] },
     { text: "Which framework do you prefer?", options: ["React", "Vue", "Angular"] },
-    { text: "Where will this be deployed?", options: ["AWS", "Azure", "GCP"] }
-  ]
+    { text: "Where will this be deployed?", options: ["AWS", "Azure", "GCP"] },
+  ];
 }
 ```
 
@@ -155,22 +155,24 @@ Please enter your custom response:
 Each question should have options directly related to that specific question:
 
 ✅ **Good:**
+
 ```typescript
 {
   questions: [
     {
       text: "Database type?",
-      options: ["SQL", "NoSQL", "Graph"]
+      options: ["SQL", "NoSQL", "Graph"],
     },
     {
       text: "Authentication method?",
-      options: ["OAuth2", "JWT", "API Key"]
-    }
-  ]
+      options: ["OAuth2", "JWT", "API Key"],
+    },
+  ];
 }
 ```
 
 ❌ **Bad:**
+
 ```typescript
 {
   questions: ["Database type?", "Authentication method?"],
@@ -183,25 +185,27 @@ Each question should have options directly related to that specific question:
 The tool enforces a maximum of 3 questions per call to avoid overwhelming users:
 
 ✅ **Good:**
+
 ```typescript
 {
   questions: [
     { text: "Question 1?", options: ["A", "B"] },
     { text: "Question 2?", options: ["C", "D"] },
-    { text: "Question 3?", options: ["E", "F"] }
-  ]
+    { text: "Question 3?", options: ["E", "F"] },
+  ];
 }
 ```
 
 ❌ **Bad:**
+
 ```typescript
 {
   questions: [
     { text: "Q1?", options: ["A"] },
     { text: "Q2?", options: ["B"] },
     { text: "Q3?", options: ["C"] },
-    { text: "Q4?", options: ["D"] } // This will fail validation!
-  ]
+    { text: "Q4?", options: ["D"] }, // This will fail validation!
+  ];
 }
 ```
 
@@ -227,19 +231,21 @@ The tool validates parameters and returns clear error messages:
 ```typescript
 // Error: Too many questions
 {
-  questions: [/* 4+ questions */]
+  questions: [
+    /* 4+ questions */
+  ];
 }
 // → "Too many questions. Maximum 3 questions allowed per call."
 
 // Error: Missing options
 {
-  questions: [{ text: "Question?", options: [] }]
+  questions: [{ text: "Question?", options: [] }];
 }
 // → "Question at index 0 must have at least 1 option."
 
 // Error: Too many options
 {
-  questions: [{ text: "Question?", options: ["A", "B", "C", "D", "E"] }]
+  questions: [{ text: "Question?", options: ["A", "B", "C", "D", "E"] }];
 }
 // → "Question at index 0 has too many options. Maximum 4 options allowed."
 ```
@@ -327,6 +333,7 @@ The LLM can then continue processing with this information.
 ### Issue: Questions not displaying in CLI
 
 **Solution:** Ensure the CLI app is running and the SDK is properly initialized:
+
 ```bash
 cd apps/cli-app
 pnpm build

@@ -58,7 +58,6 @@ export interface LLMCallContext {
   toolService: ToolRegistry;
 }
 
-
 /**
  * LLM Context Factory Configuration
  */
@@ -172,7 +171,6 @@ export class LLMContextFactory {
       toolService: this.config.toolService,
     };
   }
-
 
   /**
    * Check if the tool approval feature is supported

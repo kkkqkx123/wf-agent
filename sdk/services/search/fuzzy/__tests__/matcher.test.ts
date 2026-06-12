@@ -111,22 +111,19 @@ describe("sortByFuzzyMatch", () => {
   ];
 
   it("should sort items by score descending", () => {
-    const result = sortByFuzzyMatch(items, "but", (item) => item);
+    const result = sortByFuzzyMatch(items, "but", item => item);
     expect(result.length).toBeGreaterThan(0);
     expect(result[0]!.item).toBe("src/components/Button.tsx");
   });
 
   it("should exclude items that don't match", () => {
-    const result = sortByFuzzyMatch(items, "xyz", (item) => item);
+    const result = sortByFuzzyMatch(items, "xyz", item => item);
     expect(result).toHaveLength(0);
   });
 
   it("should tie-break by path length (shorter first)", () => {
-    const shortItems = [
-      "a/very/long/path/file.ts",
-      "short.ts",
-    ];
-    const result = sortByFuzzyMatch(shortItems, "short", (item) => item);
+    const shortItems = ["a/very/long/path/file.ts", "short.ts"];
+    const result = sortByFuzzyMatch(shortItems, "short", item => item);
     if (result.length === 2 && result[0]!.score === result[1]!.score) {
       expect(result[0]!.item).toBe("short.ts");
     }
@@ -137,27 +134,27 @@ describe("sortByFuzzyMatch", () => {
       { name: "hello.ts", path: "/src/hello.ts" },
       { name: "world.ts", path: "/src/world.ts" },
     ];
-    const result = sortByFuzzyMatch(objects, "world", (item) => item.name);
+    const result = sortByFuzzyMatch(objects, "world", item => item.name);
     expect(result).toHaveLength(1);
     expect(result[0]!.item).toEqual({ name: "world.ts", path: "/src/world.ts" });
   });
 
   it("should return empty array for empty items", () => {
-    const result = sortByFuzzyMatch([], "query", (item) => item);
+    const result = sortByFuzzyMatch([], "query", item => item);
     expect(result).toEqual([]);
   });
 
   it("should handle empty query", () => {
-    const result = sortByFuzzyMatch(items, "", (item) => item);
+    const result = sortByFuzzyMatch(items, "", item => item);
     expect(result.length).toBe(items.length);
-    expect(result.every((r) => r.score === 0)).toBe(true);
+    expect(result.every(r => r.score === 0)).toBe(true);
   });
 
   it("should match items against combined search text", () => {
     const result = sortByFuzzyMatch(
       [{ path: "src/file.ts", label: "My File" }],
       "my",
-      (item) => `${item.path} ${item.label}`,
+      item => `${item.path} ${item.label}`,
     );
     expect(result.length).toBe(1);
   });

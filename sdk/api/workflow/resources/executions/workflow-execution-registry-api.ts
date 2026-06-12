@@ -170,16 +170,16 @@ export class WorkflowExecutionRegistryAPI extends CrudResourceAPI<
     filter?: WorkflowExecutionFilter,
   ): Promise<WorkflowExecutionSummary[]> {
     const executionEntities = this.dependencies.getWorkflowExecutionRegistry().getAll();
-    
+
     // Apply filtering if filter is provided
     let filteredEntities = executionEntities;
     if (filter) {
       const executions = executionEntities.map(entity => entity.getWorkflowExecutionData());
       const filteredExecutions = this.applyFilter(executions, filter);
-      
+
       // Map back to entities
-      filteredEntities = executionEntities.filter(entity => 
-        filteredExecutions.some(exec => exec.id === entity.getExecutionId())
+      filteredEntities = executionEntities.filter(entity =>
+        filteredExecutions.some(exec => exec.id === entity.getExecutionId()),
       );
     }
 

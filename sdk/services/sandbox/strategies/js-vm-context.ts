@@ -10,7 +10,13 @@
 
 import vm from "node:vm";
 import { createRequire } from "node:module";
-import type { SandboxPolicy, JavaScriptPolicy, ScriptExecutionResult, StrategyExecuteOptions, VFSProvider } from "@wf-agent/types";
+import type {
+  SandboxPolicy,
+  JavaScriptPolicy,
+  ScriptExecutionResult,
+  StrategyExecuteOptions,
+  VFSProvider,
+} from "@wf-agent/types";
 import type { StrategyImplementation } from "../types.js";
 
 const _require = createRequire(import.meta.url);
@@ -190,7 +196,11 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
         exitCode: 0,
       };
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
+      ) {
         return {
           success: false,
           scriptName: "sandbox-javascript",
@@ -213,14 +223,20 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
    * Capture console output into the buffer.
    */
   private captureOutput(buffer: string[], _level: string, args: unknown[]): void {
-    const line = args.map(a => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a))).join(" ");
+    const line = args
+      .map(a => (typeof a === "object" ? JSON.stringify(a, null, 2) : String(a)))
+      .join(" ");
     buffer.push(line);
   }
 
   /**
    * Restricted require with module whitelist/blacklist and readonly fs proxy.
    */
-  private restrictedRequire(moduleName: string, policy: JavaScriptPolicy, vfs: VFSProvider | null): unknown {
+  private restrictedRequire(
+    moduleName: string,
+    policy: JavaScriptPolicy,
+    vfs: VFSProvider | null,
+  ): unknown {
     const denylist = new Set(policy.deniedModules);
 
     if (policy.allowedModules.length > 0 && !policy.allowedModules.includes(moduleName)) {
@@ -319,7 +335,9 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
     // Read directory
     fsProxy["readdir"] = async (path: string) => {
       // VFSProvider doesn't have readdir, so fall back to real fs readdir
-      const realFs = _require("fs") as { readdir: (p: string, cb: (e: Error | null, f: string[]) => void) => void };
+      const realFs = _require("fs") as {
+        readdir: (p: string, cb: (e: Error | null, f: string[]) => void) => void;
+      };
       return new Promise<string[]>((resolve, reject) => {
         realFs.readdir(path, (err, files) => {
           if (err) reject(err);
@@ -330,10 +348,21 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
 
     // Sync methods are not supported with async VFS — throw clear error
     const syncBlocked = [
-      "readFileSync", "writeFileSync", "appendFileSync", "statSync",
-      "existsSync", "readdirSync", "mkdirSync", "rmdirSync",
-      "unlinkSync", "renameSync", "copyFileSync", "chmodSync",
-      "openSync", "closeSync", "fsyncSync",
+      "readFileSync",
+      "writeFileSync",
+      "appendFileSync",
+      "statSync",
+      "existsSync",
+      "readdirSync",
+      "mkdirSync",
+      "rmdirSync",
+      "unlinkSync",
+      "renameSync",
+      "copyFileSync",
+      "chmodSync",
+      "openSync",
+      "closeSync",
+      "fsyncSync",
     ];
     for (const method of syncBlocked) {
       fsProxy[method] = () => {
@@ -347,7 +376,9 @@ export class JavaScriptVmContextStrategy implements StrategyImplementation<Scrip
     const forbidden = ["mkdir", "rmdir", "unlink", "rename", "chmod", "copyFile", "truncate"];
     for (const method of forbidden) {
       fsProxy[method] = () => {
-        throw new Error(`VFS-backed filesystem: ${method} is not supported via require('fs'). Use the vfs sandbox global instead.`);
+        throw new Error(
+          `VFS-backed filesystem: ${method} is not supported via require('fs'). Use the vfs sandbox global instead.`,
+        );
       };
     }
 

@@ -6,7 +6,7 @@ import type { BaseCheckpoint, DeltaStorageConfig } from "@wf-agent/types";
 
 /**
  * Storage adapter interface for checkpoint persistence
- * 
+ *
  * Note: This adapter works with serialized data (Uint8Array).
  * Serialization/deserialization is handled externally by StateCodec.
  * The adapter is agnostic to the specific checkpoint type.
@@ -21,10 +21,12 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
    * List checkpoints with metadata only (without loading BLOB data)
    * More efficient for cleanup operations
    */
-  listWithMetadata(options?: Record<string, unknown>): Promise<Array<{
-    id: string;
-    metadata: TMetadata;
-  }>>;
+  listWithMetadata(options?: Record<string, unknown>): Promise<
+    Array<{
+      id: string;
+      metadata: TMetadata;
+    }>
+  >;
   /**
    * List checkpoints for a specific entity with metadata
    * Optimized for entity-level queries using database indexes
@@ -32,11 +34,13 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
   listByEntityWithMetadata(
     entityId: string,
     entityType: string,
-    options?: { limit?: number; offset?: number }
-  ): Promise<Array<{
-    id: string;
-    metadata: TMetadata;
-  }>>;
+    options?: { limit?: number; offset?: number },
+  ): Promise<
+    Array<{
+      id: string;
+      metadata: TMetadata;
+    }>
+  >;
   /**
    * Get the latest N checkpoints for a specific entity
    * Optimized for quick recovery scenarios
@@ -45,12 +49,14 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
     entityId: string,
     entityType: string,
     count?: number,
-    includeData?: boolean
-  ): Promise<Array<{
-    id: string;
-    metadata: TMetadata;
-    data?: Uint8Array;
-  }>>;
+    includeData?: boolean,
+  ): Promise<
+    Array<{
+      id: string;
+      metadata: TMetadata;
+      data?: Uint8Array;
+    }>
+  >;
   /**
    * Delete checkpoints for a specific entity with advanced options
    * Supports batch deletion with retention policies
@@ -61,7 +67,7 @@ export interface CheckpointStorageAdapter<TMetadata = unknown> {
     options?: {
       keepLatest?: number;
       olderThan?: number;
-    }
+    },
   ): Promise<number>;
   initialize?(): Promise<void>;
   close?(): Promise<void>;

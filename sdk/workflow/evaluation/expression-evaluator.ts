@@ -5,7 +5,13 @@
 
 import type { EvaluationContext } from "@wf-agent/types";
 import { ExpressionSecurityError, RuntimeValidationError } from "@wf-agent/types";
-import { validatePath, validateExpression, validateArrayIndex, validateValueType, SECURITY_CONFIG } from "./security-validator.js";
+import {
+  validatePath,
+  validateExpression,
+  validateArrayIndex,
+  validateValueType,
+  SECURITY_CONFIG,
+} from "./security-validator.js";
 import { resolvePath } from "./path-resolver.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { expressionCompiler } from "./expression-compiler.js";
@@ -38,10 +44,11 @@ export class ExpressionEvaluator {
       const compiled = expressionCompiler.compile(expression);
       ast = compiled.ast;
     } catch {
-      throw new RuntimeValidationError(
-        `Failed to evaluate expression: ${expression}`,
-        { operation: "evaluate", field: "expression", value: expression },
-      );
+      throw new RuntimeValidationError(`Failed to evaluate expression: ${expression}`, {
+        operation: "evaluate",
+        field: "expression",
+        value: expression,
+      });
     }
 
     this.validateMemberAccessDepth(ast);
@@ -322,7 +329,7 @@ export class ExpressionEvaluator {
         });
       }
       try {
-        const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+        const args = node.arguments.map(arg => this.evaluateAST(arg, context));
         return func(...args);
       } catch (error) {
         this.logger.error(`Function execution failed: ${funcName}`, {
@@ -345,11 +352,28 @@ export class ExpressionEvaluator {
 
   private determineMethodKind(methodName: string): "arrayMethod" | "stringMethod" | "function" {
     const arrayMethods = [
-      "someEqual", "someContains", "everyEqual", "everyHas",
-      "countWhere", "countWhereContains", "findEqual", "findContains",
-      "has", "hasContains", "sum", "avg", "min", "max",
-      "someGreaterThan", "someLessThan", "everyGreaterThan", "everyLessThan",
-      "map", "distinct", "first", "last",
+      "someEqual",
+      "someContains",
+      "everyEqual",
+      "everyHas",
+      "countWhere",
+      "countWhereContains",
+      "findEqual",
+      "findContains",
+      "has",
+      "hasContains",
+      "sum",
+      "avg",
+      "min",
+      "max",
+      "someGreaterThan",
+      "someLessThan",
+      "everyGreaterThan",
+      "everyLessThan",
+      "map",
+      "distinct",
+      "first",
+      "last",
     ];
 
     if (arrayMethods.includes(methodName)) {
@@ -378,7 +402,7 @@ export class ExpressionEvaluator {
       return false;
     }
 
-    const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+    const args = node.arguments.map(arg => this.evaluateAST(arg, context));
 
     switch (methodName) {
       case "startsWith":
@@ -408,7 +432,7 @@ export class ExpressionEvaluator {
     node: CallExpr,
     context: EvaluationContext,
   ): unknown {
-    const cacheKey = `${methodName}:${JSON.stringify(node.arguments.map((a) => this.evaluateAST(a, context)))}`;
+    const cacheKey = `${methodName}:${JSON.stringify(node.arguments.map(a => this.evaluateAST(a, context)))}`;
     const cached = this.arrayMethodCache.get(cacheKey);
     const now = Date.now();
     if (cached && now - cached.timestamp < this.ARRAY_METHOD_CACHE_TTL) {
@@ -445,7 +469,7 @@ export class ExpressionEvaluator {
       return false;
     }
 
-    const args = node.arguments.map((arg) => this.evaluateAST(arg, context));
+    const args = node.arguments.map(arg => this.evaluateAST(arg, context));
     const propertyName = args.length > 0 ? String(args[0]) : "";
     const value = args.length > 1 ? args[1] : undefined;
 
@@ -455,36 +479,36 @@ export class ExpressionEvaluator {
 
     switch (methodName) {
       case "someEqual":
-        return array.some((item) => this.getPropertyValue(item, propertyName) === value);
+        return array.some(item => this.getPropertyValue(item, propertyName) === value);
       case "someContains":
-        return array.some((item) => {
+        return array.some(item => {
           const propValue = this.getPropertyValue(item, propertyName);
           return typeof propValue === "string" && propValue.includes(String(value));
         });
       case "everyEqual":
-        return array.every((item) => this.getPropertyValue(item, propertyName) === value);
+        return array.every(item => this.getPropertyValue(item, propertyName) === value);
       case "everyHas":
-        return array.every((item) => propertyName in item && item[propertyName] != null);
+        return array.every(item => propertyName in item && item[propertyName] != null);
       case "countWhere":
-        return array.filter((item) => this.getPropertyValue(item, propertyName) === value).length;
+        return array.filter(item => this.getPropertyValue(item, propertyName) === value).length;
       case "countWhereContains":
-        return array.filter((item) => {
+        return array.filter(item => {
           const propValue = this.getPropertyValue(item, propertyName);
           return typeof propValue === "string" && propValue.includes(String(value));
         }).length;
       case "findEqual":
-        return array.find((item) => this.getPropertyValue(item, propertyName) === value) ?? null;
+        return array.find(item => this.getPropertyValue(item, propertyName) === value) ?? null;
       case "findContains":
         return (
-          array.find((item) => {
+          array.find(item => {
             const propValue = this.getPropertyValue(item, propertyName);
             return typeof propValue === "string" && propValue.includes(String(value));
           }) ?? null
         );
       case "has":
-        return array.some((item) => this.getPropertyValue(item, propertyName) === value);
+        return array.some(item => this.getPropertyValue(item, propertyName) === value);
       case "hasContains":
-        return array.some((item) => {
+        return array.some(item => {
           const propValue = this.getPropertyValue(item, propertyName);
           return typeof propValue === "string" && propValue.includes(String(value));
         });
@@ -495,47 +519,47 @@ export class ExpressionEvaluator {
         }, 0);
       case "avg": {
         const numericValues = array
-          .map((item) => this.getPropertyValue(item, propertyName))
-          .filter((v) => typeof v === "number");
+          .map(item => this.getPropertyValue(item, propertyName))
+          .filter(v => typeof v === "number");
         if (numericValues.length === 0) return 0;
         return numericValues.reduce((acc, val) => acc + val, 0) / numericValues.length;
       }
       case "min": {
         const values = array
-          .map((item) => this.getPropertyValue(item, propertyName))
-          .filter((v) => typeof v === "number");
+          .map(item => this.getPropertyValue(item, propertyName))
+          .filter(v => typeof v === "number");
         return values.length > 0 ? Math.min(...values) : null;
       }
       case "max": {
         const maxValues = array
-          .map((item) => this.getPropertyValue(item, propertyName))
-          .filter((v) => typeof v === "number");
+          .map(item => this.getPropertyValue(item, propertyName))
+          .filter(v => typeof v === "number");
         return maxValues.length > 0 ? Math.max(...maxValues) : null;
       }
       case "someGreaterThan":
-        return array.some((item) => {
+        return array.some(item => {
           const val = this.getPropertyValue(item, propertyName);
           return typeof val === "number" && val > (value as number);
         });
       case "someLessThan":
-        return array.some((item) => {
+        return array.some(item => {
           const val = this.getPropertyValue(item, propertyName);
           return typeof val === "number" && val < (value as number);
         });
       case "everyGreaterThan":
-        return array.every((item) => {
+        return array.every(item => {
           const val = this.getPropertyValue(item, propertyName);
           return typeof val === "number" && val > (value as number);
         });
       case "everyLessThan":
-        return array.every((item) => {
+        return array.every(item => {
           const val = this.getPropertyValue(item, propertyName);
           return typeof val === "number" && val < (value as number);
         });
       case "map":
-        return array.map((item) => this.getPropertyValue(item, propertyName));
+        return array.map(item => this.getPropertyValue(item, propertyName));
       case "distinct": {
-        const distinctValues = array.map((item) => this.getPropertyValue(item, propertyName));
+        const distinctValues = array.map(item => this.getPropertyValue(item, propertyName));
         return [...new Set(distinctValues)];
       }
       case "first":
@@ -552,7 +576,14 @@ export class ExpressionEvaluator {
   }
 
   private handleEmptyArray(method: string): unknown {
-    const boolFalse = ["someEqual", "someContains", "has", "hasContains", "someGreaterThan", "someLessThan"];
+    const boolFalse = [
+      "someEqual",
+      "someContains",
+      "has",
+      "hasContains",
+      "someGreaterThan",
+      "someLessThan",
+    ];
     const boolTrue = ["everyEqual", "everyHas", "everyGreaterThan", "everyLessThan"];
     const zero = ["countWhere", "countWhereContains", "sum"];
     const nullResult = ["findEqual", "findContains", "first", "last", "min", "max"];
@@ -586,7 +617,7 @@ export class ExpressionEvaluator {
   }
 
   private evaluateArrayLiteral(node: ArrayLiteralExpr, context: EvaluationContext): unknown[] {
-    return node.elements.map((el) => this.evaluateAST(el, context));
+    return node.elements.map(el => this.evaluateAST(el, context));
   }
 
   private getVariableValue(variablePath: string, context: EvaluationContext): unknown {
@@ -635,7 +666,11 @@ export class ExpressionEvaluator {
       return undefined;
     }
 
-    if (node.property === "__proto__" || node.property === "constructor" || node.property === "prototype") {
+    if (
+      node.property === "__proto__" ||
+      node.property === "constructor" ||
+      node.property === "prototype"
+    ) {
       this.logger.warn(`Blocked access to forbidden property: ${node.property}`);
       throw new ExpressionSecurityError(
         `Access to forbidden property '${node.property}' is not allowed`,

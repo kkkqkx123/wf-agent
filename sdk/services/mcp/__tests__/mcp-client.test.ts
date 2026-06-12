@@ -10,7 +10,11 @@ function createMockTransport(): {
   simulateData: (data: unknown) => void;
   simulateError: (error: Error) => void;
   simulateClose: () => void;
-  handlers: { onData?: (data: unknown) => void; onError?: (error: Error) => void; onClose?: () => void };
+  handlers: {
+    onData?: (data: unknown) => void;
+    onError?: (error: Error) => void;
+    onClose?: () => void;
+  };
   sentMessages: unknown[];
 } {
   const sentMessages: unknown[] = [];
@@ -99,7 +103,9 @@ describe("McpClient", () => {
       mockTransport2.transport.start = vi.fn().mockRejectedValue(new Error("Connection refused"));
       const client2 = new McpClient(mockTransport2.transport);
 
-      await expect(client2.connect({ name: "t", version: "1.0" })).rejects.toThrow("Connection refused");
+      await expect(client2.connect({ name: "t", version: "1.0" })).rejects.toThrow(
+        "Connection refused",
+      );
     });
   });
 

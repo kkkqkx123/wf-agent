@@ -153,7 +153,11 @@ export class WorkflowExecutionPool {
    */
   async allocateExecutor(): Promise<WorkflowExecutor> {
     if (this.isShutdown) {
-      throw new StateManagementError("WorkflowExecutionPool is shutdown", "workflowExecutionPool", "read");
+      throw new StateManagementError(
+        "WorkflowExecutionPool is shutdown",
+        "workflowExecutionPool",
+        "read",
+      );
     }
 
     if (this.idleExecutors.length > 0) {
@@ -310,7 +314,13 @@ export class WorkflowExecutionPool {
     this.isShutdown = true;
 
     for (const waiting of this.waitingPromises) {
-      waiting.reject(new StateManagementError("WorkflowExecutionPool is shutdown", "workflowExecutionPool", "read"));
+      waiting.reject(
+        new StateManagementError(
+          "WorkflowExecutionPool is shutdown",
+          "workflowExecutionPool",
+          "read",
+        ),
+      );
     }
     this.waitingPromises = [];
 

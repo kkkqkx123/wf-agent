@@ -19,10 +19,7 @@
  * @param parameters The parameter object containing replacement values
  * @returns A new object with parameters substituted (or original if no params)
  */
-export function substituteParameters<T>(
-  obj: T,
-  parameters?: Record<string, unknown>,
-): T {
+export function substituteParameters<T>(obj: T, parameters?: Record<string, unknown>): T {
   // If no parameters, return original object (idempotent for empty params)
   if (!parameters || Object.keys(parameters).length === 0) {
     return obj;
@@ -40,10 +37,7 @@ export function substituteParameters<T>(
  * @param obj The object to be processed (modified in place)
  * @param parameters The parameter object
  */
-function replaceParametersInObject(
-  obj: unknown,
-  parameters: Record<string, unknown>,
-): void {
+function replaceParametersInObject(obj: unknown, parameters: Record<string, unknown>): void {
   if (Array.isArray(obj)) {
     for (let i = 0; i < obj.length; i++) {
       if (typeof obj[i] === "string") {
@@ -57,10 +51,7 @@ function replaceParametersInObject(
     for (const key in objRecord) {
       if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
         if (typeof objRecord[key] === "string") {
-          objRecord[key] = replaceParameterInString(
-            objRecord[key] as string,
-            parameters,
-          );
+          objRecord[key] = replaceParameterInString(objRecord[key] as string, parameters);
         } else if (typeof objRecord[key] === "object" && objRecord[key] !== null) {
           replaceParametersInObject(objRecord[key], parameters);
         }
@@ -84,10 +75,7 @@ function replaceParametersInObject(
  * @param parameters The parameter object
  * @returns The string with placeholders replaced
  */
-function replaceParameterInString(
-  str: string,
-  parameters: Record<string, unknown>,
-): string {
+function replaceParameterInString(str: string, parameters: Record<string, unknown>): string {
   // Support parameter names with letters, digits, underscores, dots, and hyphens
   const regex = /\{\{parameters\.([a-zA-Z0-9_.-]+)\}\}/g;
   return str.replace(regex, (match, paramName: string) => {

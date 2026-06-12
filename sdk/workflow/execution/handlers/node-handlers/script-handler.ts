@@ -67,7 +67,9 @@ export async function scriptHandler(
           : { mode: executorMode, shell: "auto" as const },
         options: {
           timeout: 30000,
-          sandboxConfig: config.sandboxConfig as import("@wf-agent/types").SandboxConfig | undefined,
+          sandboxConfig: config.sandboxConfig as
+            | import("@wf-agent/types").SandboxConfig
+            | undefined,
         },
         language: config.sandboxConfig ? "auto" : undefined,
       };

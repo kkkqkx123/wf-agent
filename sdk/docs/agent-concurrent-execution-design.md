@@ -11,11 +11,13 @@
 ### 1.1 Sub-Agent 与主 Agent 并发
 
 **场景描述**:
+
 - 主 Agent 执行过程中调用 Sub-Agent
 - Sub-Agent 独立执行，可能需要并发
 - 主 Agent 等待 Sub-Agent 结果
 
 **示例**:
+
 ```
 主 Agent (代码审查)
   ├─ Sub-Agent 1 (审查模块 A)
@@ -26,6 +28,7 @@
 ```
 
 **并发需求**:
+
 - 多个 Sub-Agent 可以并行执行
 - 需要限制并发数量（避免 API 限流）
 - 需要管理 Sub-Agent 的生命周期
@@ -33,11 +36,13 @@
 ### 1.2 多 Agent 在不同 Git Worktree 并发
 
 **场景描述**:
+
 - 多个 Agent 在不同的 git worktree 中工作
 - 每个 Agent 独立修改不同的分支
 - 需要并发执行以提高效率
 
 **示例**:
+
 ```
 项目根目录
   ├─ worktree/feature-a (Agent 1 修改 feature-a 分支)
@@ -46,6 +51,7 @@
 ```
 
 **并发需求**:
+
 - 多个 Agent 可以并行执行
 - 每个 Agent 独立的工作目录
 - 需要资源隔离和管理
@@ -53,11 +59,13 @@
 ### 1.3 其他并发场景
 
 **批量任务处理**:
+
 - 批量处理多个文件
 - 批量执行多个测试
 - 批量生成多个报告
 
 **多用户场景**:
+
 - 多个用户同时使用 Agent
 - 每个 Agent 独立的会话
 - 需要限制总并发数
@@ -68,13 +76,13 @@
 
 ### 2.1 并发性质对比
 
-| 特性 | Graph 并发 | Agent 并发 |
-|------|-----------|-----------|
-| 触发方式 | 触发器触发子工作流 | 主 Agent 调用 Sub-Agent |
-| 并发单元 | ThreadEntity | AgentLoopEntity |
+| 特性     | Graph 并发               | Agent 并发                 |
+| -------- | ------------------------ | -------------------------- |
+| 触发方式 | 触发器触发子工作流       | 主 Agent 调用 Sub-Agent    |
+| 并发单元 | ThreadEntity             | AgentLoopEntity            |
 | 依赖关系 | 子工作流可能依赖父工作流 | Sub-Agent 可能依赖主 Agent |
-| 资源隔离 | 共享 Graph Registry | 可能需要工作目录隔离 |
-| 结果处理 | 回调或 Promise | Promise 或 Stream |
+| 资源隔离 | 共享 Graph Registry      | 可能需要工作目录隔离       |
+| 结果处理 | 回调或 Promise           | Promise 或 Stream          |
 
 ### 2.2 相似之处
 
@@ -85,13 +93,13 @@
 
 ### 2.3 差异之处
 
-| 特性 | Graph | Agent |
-|------|-------|-------|
-| 执行器 | ThreadExecutor | AgentLoopExecutor |
-| 实例管理 | ThreadRegistry | AgentLoopRegistry |
-| 任务注册 | TaskRegistry | 可复用 TaskRegistry |
-| 事件系统 | EventManager | EventManager |
-| 工作目录 | 无需隔离 | 可能需要隔离 |
+| 特性     | Graph          | Agent               |
+| -------- | -------------- | ------------------- |
+| 执行器   | ThreadExecutor | AgentLoopExecutor   |
+| 实例管理 | ThreadRegistry | AgentLoopRegistry   |
+| 任务注册 | TaskRegistry   | 可复用 TaskRegistry |
+| 事件系统 | EventManager   | EventManager        |
+| 工作目录 | 无需隔离       | 可能需要隔离        |
 
 ---
 
@@ -145,6 +153,7 @@
 **位置**: `sdk/graph/services/task-registry.ts`
 
 **已支持**:
+
 - 统一的 TaskInfo 接口
 - 支持 Agent 和 Thread 实例
 - 任务状态管理
@@ -158,6 +167,7 @@
 **建议重命名**: `ExecutionPoolService`
 
 **泛化设计**:
+
 ```typescript
 // sdk/core/services/execution-pool-service.ts
 export interface ExecutorFactory<T extends ExecutionInstance> {
@@ -172,7 +182,7 @@ export interface Executor<T extends ExecutionInstance> {
 export class ExecutionPoolService<T extends ExecutionInstance> {
   constructor(
     private executorFactory: ExecutorFactory<T>,
-    private config: ThreadPoolConfig
+    private config: ThreadPoolConfig,
   ) {}
 
   async allocateExecutor(): Promise<Executor<T>>;
@@ -189,25 +199,26 @@ export class ExecutionPoolService<T extends ExecutionInstance> {
 **建议重命名**: `ExecutionQueueManager`
 
 **泛化设计**:
+
 ```typescript
 // sdk/core/managers/execution-queue-manager.ts
 export class ExecutionQueueManager<T extends ExecutionInstance> {
   constructor(
     private taskRegistry: TaskRegistry,
     private poolService: ExecutionPoolService<T>,
-    private eventManager: EventManager
+    private eventManager: EventManager,
   ) {}
 
   async submitSync(
     instance: T,
     instanceType: ExecutionInstanceType,
-    timeout?: number
+    timeout?: number,
   ): Promise<ExecutionResult>;
 
   submitAsync(
     instance: T,
     instanceType: ExecutionInstanceType,
-    timeout?: number
+    timeout?: number,
   ): TaskSubmissionResult;
 
   cancelTask(taskId: string): boolean;
@@ -229,19 +240,13 @@ export class ThreadExecutionManager {
   private poolService: ExecutionPoolService<ThreadEntity>;
   private queueManager: ExecutionQueueManager<ThreadEntity>;
 
-  constructor(
-    taskRegistry: TaskRegistry,
-    deps: ThreadExecutionManagerDependencies
-  ) {
+  constructor(taskRegistry: TaskRegistry, deps: ThreadExecutionManagerDependencies) {
     this.taskRegistry = taskRegistry; // Injected from DI container
-    this.poolService = new ExecutionPoolService(
-      deps.executorFactory,
-      deps.poolConfig
-    );
+    this.poolService = new ExecutionPoolService(deps.executorFactory, deps.poolConfig);
     this.queueManager = new ExecutionQueueManager(
       this.taskRegistry,
       this.poolService,
-      deps.eventManager
+      deps.eventManager,
     );
   }
 
@@ -267,19 +272,13 @@ export class AgentExecutionManager {
   private poolService: ExecutionPoolService<AgentLoopEntity>;
   private queueManager: ExecutionQueueManager<AgentLoopEntity>;
 
-  constructor(
-    taskRegistry: TaskRegistry,
-    deps: AgentExecutionManagerDependencies
-  ) {
+  constructor(taskRegistry: TaskRegistry, deps: AgentExecutionManagerDependencies) {
     this.taskRegistry = taskRegistry; // Injected from DI container
-    this.poolService = new ExecutionPoolService(
-      deps.executorFactory,
-      deps.poolConfig
-    );
+    this.poolService = new ExecutionPoolService(deps.executorFactory, deps.poolConfig);
     this.queueManager = new ExecutionQueueManager(
       this.taskRegistry,
       this.poolService,
-      deps.eventManager
+      deps.eventManager,
     );
   }
 
@@ -363,7 +362,7 @@ const graphPoolConfig: ThreadPoolConfig = {
 ```typescript
 const agentPoolConfig: ThreadPoolConfig = {
   minExecutors: 1,
-  maxExecutors: 5,  // 限制并发 Agent 数量
+  maxExecutors: 5, // 限制并发 Agent 数量
   idleTimeout: 60000,
   defaultTimeout: 120000,
 };
@@ -442,13 +441,13 @@ await agentExecutionManager.waitForAll(taskIds.map(r => r.taskId));
 
 ### 7.1 优先级
 
-| 任务 | 优先级 | 工作量 |
-|------|--------|--------|
-| 泛化 ThreadPoolService | 高 | 中 |
-| 泛化 TaskQueueManager | 高 | 中 |
-| 创建 AgentExecutionManager | 高 | 中 |
-| 重构 TriggeredSubworkflowManager | 中 | 低 |
-| 更新文档和测试 | 中 | 中 |
+| 任务                             | 优先级 | 工作量 |
+| -------------------------------- | ------ | ------ |
+| 泛化 ThreadPoolService           | 高     | 中     |
+| 泛化 TaskQueueManager            | 高     | 中     |
+| 创建 AgentExecutionManager       | 高     | 中     |
+| 重构 TriggeredSubworkflowManager | 中     | 低     |
+| 更新文档和测试                   | 中     | 中     |
 
 ### 7.2 实施步骤
 
@@ -475,6 +474,7 @@ await agentExecutionManager.waitForAll(taskIds.map(r => r.taskId));
 ### 7.3 向后兼容
 
 1. **保留别名**:
+
    ```typescript
    // 向后兼容
    export { ExecutionPoolService as ThreadPoolService };

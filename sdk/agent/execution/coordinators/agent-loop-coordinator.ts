@@ -22,6 +22,7 @@ import { now } from "@wf-agent/common-utils";
 import * as Identifiers from "../../../core/di/service-identifiers.js";
 import type { InterruptionStateFactory } from "../../../core/di/factory-types.js";
 import type { InterruptionState } from "../../../core/utils/interruption/interruption-state.js";
+import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -72,7 +73,7 @@ export class AgentLoopCoordinator {
   private async buildEntity(
     config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
-  ): Promise<AgentLoopEntity> {
+  ): Promise<{ entity: AgentLoopEntity; stateCoordinator: AgentStateCoordinator }> {
     // If a checkpoint ID is provided, restore from that checkpoint.
     if (options.checkpointId) {
       throw new Error(
@@ -80,11 +81,20 @@ export class AgentLoopCoordinator {
       );
     }
 
-    // Create a new instance using the factory method.
-    const entity = await AgentLoopFactory.create(this.globalContext, config, options);
-    
+    // Create entity and state coordinator using the factory method.
+    const { entity, stateCoordinator } = await AgentLoopFactory.create(
+      this.globalContext,
+      config,
+      options,
+    );
+
+    // Register state coordinator in registry
+    this.registry.registerStateCoordinator(entity.id, stateCoordinator);
+
     // Create and set InterruptionState for the agent loop
-    const interruptionManagerFactory = this.globalContext.container.get(Identifiers.InterruptionState);
+    const interruptionManagerFactory = this.globalContext.container.get(
+      Identifiers.InterruptionState,
+    );
     const interruptionManager = (
       interruptionManagerFactory as unknown as InterruptionStateFactory<InterruptionState>
     ).create(entity.id, {
@@ -92,14 +102,14 @@ export class AgentLoopCoordinator {
       agentExecutionId: entity.id,
       iteration: entity.state.currentIteration,
     });
-    
+
     // Set the interruption state on the entity so getAbortSignal() returns the same signal
     entity.setInterruptionState(interruptionManager);
-    
+
     logger.debug("InterruptionState set for Agent Loop", {
       agentLoopId: entity.id,
     });
-    
+
     // Setup interruption cascade propagation from parent workflow (via EventRegistry)
     if (options.parentExecutionId) {
       try {
@@ -107,7 +117,7 @@ export class AgentLoopCoordinator {
         if (eventRegistry && interruptionManager) {
           interruptionManager.setEventRegistry(eventRegistry);
           interruptionManager.connectToParent(options.parentExecutionId);
-          
+
           logger.info("Interruption cascade established for AgentLoop", {
             parentExecutionId: options.parentExecutionId,
             agentLoopId: entity.id,
@@ -122,8 +132,8 @@ export class AgentLoopCoordinator {
         });
       }
     }
-    
-    return entity;
+
+    return { entity, stateCoordinator };
   }
 
   /**
@@ -136,8 +146,8 @@ export class AgentLoopCoordinator {
     config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
   ): Promise<AgentLoopResult> {
-    // 1. Construct entities
-    const entity = await this.buildEntity(config, options);
+    // 1. Construct entities and state coordinator
+    const { entity, stateCoordinator } = await this.buildEntity(config, options);
 
     logger.info("Agent Loop entity created", {
       agentLoopId: entity.id,
@@ -156,13 +166,14 @@ export class AgentLoopCoordinator {
     logger.debug("Agent Loop registered", { agentLoopId: entity.id });
 
     // 3. Start execution using state transitor
-    await this.stateTransitor.startAgentLoop(entity);
+    const messageCount = stateCoordinator.getMessageCount();
+    await this.stateTransitor.startAgentLoop(entity, messageCount);
 
     const startTime = now();
 
     try {
       // 4. Execute the loop
-      const result = await this.executor.execute(entity);
+      const result = await this.executor.execute(entity, stateCoordinator);
 
       const duration = now() - startTime;
 
@@ -250,8 +261,8 @@ export class AgentLoopCoordinator {
     config: AgentLoopRuntimeConfig,
     options: AgentLoopExecuteOptions = {},
   ): AsyncGenerator<AgentLoopStreamEvent> {
-    // 1. Build entities
-    const entity = await this.buildEntity(config, options);
+    // 1. Build entities and state coordinator
+    const { entity, stateCoordinator } = await this.buildEntity(config, options);
 
     logger.info("Agent Loop entity created for stream execution", {
       agentLoopId: entity.id,
@@ -265,11 +276,12 @@ export class AgentLoopCoordinator {
     logger.debug("Agent Loop registered for stream execution", { agentLoopId: entity.id });
 
     // 3. Start execution using state transitor
-    await this.stateTransitor.startAgentLoop(entity);
+    const messageCount = stateCoordinator.getMessageCount();
+    await this.stateTransitor.startAgentLoop(entity, messageCount);
 
     try {
       // 4. Stream Execution Loop
-      for await (const event of this.executor.executeStream(entity)) {
+      for await (const event of this.executor.executeStream(entity, stateCoordinator)) {
         yield event;
 
         // Check the interrupt signal.
@@ -310,8 +322,8 @@ export class AgentLoopCoordinator {
    * @returns: Instance ID
    */
   async start(config: AgentLoopRuntimeConfig, options: AgentLoopExecuteOptions = {}): Promise<ID> {
-    // 1. Construct entities
-    const entity = await this.buildEntity(config, options);
+    // 1. Construct entities and state coordinator
+    const { entity, stateCoordinator } = await this.buildEntity(config, options);
 
     logger.info("Agent Loop entity created for async execution", {
       agentLoopId: entity.id,
@@ -325,11 +337,12 @@ export class AgentLoopCoordinator {
     logger.debug("Agent Loop registered for async execution", { agentLoopId: entity.id });
 
     // 3. Start execution using state transitor
-    await this.stateTransitor.startAgentLoop(entity);
+    const messageCount = stateCoordinator.getMessageCount();
+    await this.stateTransitor.startAgentLoop(entity, messageCount);
 
     // 4. Asynchronous execution (without waiting for results)
     this.executor
-      .execute(entity)
+      .execute(entity, stateCoordinator)
       .then(async result => {
         if (result.success) {
           if (entity.getStatus() === AgentLoopStatus.RUNNING) {
@@ -432,8 +445,16 @@ export class AgentLoopCoordinator {
     // Resume execution using state transitor
     await this.stateTransitor.resumeAgentLoop(entity);
 
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    if (!stateCoordinator) {
+      logger.warn("Agent Loop state coordinator not found for resume operation", {
+        agentLoopId: id,
+      });
+      throw new Error(`AgentLoop state coordinator not found: ${id}`);
+    }
+
     try {
-      const result = await this.executor.execute(entity);
+      const result = await this.executor.execute(entity, stateCoordinator);
 
       if (result.success) {
         if (entity.getStatus() === AgentLoopStatus.RUNNING) {
@@ -492,7 +513,8 @@ export class AgentLoopCoordinator {
     }
 
     // Validate last message
-    const messages = entity.getMessages();
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    const messages = stateCoordinator?.getMessages() ?? [];
     const lastMessage = messages[messages.length - 1];
 
     if (!lastMessage) {
@@ -513,8 +535,16 @@ export class AgentLoopCoordinator {
     // Reset state for continuation using state transitor
     await this.stateTransitor.resumeAgentLoop(entity);
 
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    if (!stateCoordinator) {
+      logger.warn("Agent Loop state coordinator not found for continue operation", {
+        agentLoopId: id,
+      });
+      throw new Error(`AgentLoop state coordinator not found: ${id}`);
+    }
+
     try {
-      const result = await this.executor.execute(entity);
+      const result = await this.executor.execute(entity, stateCoordinator);
 
       if (result.success) {
         if (entity.getStatus() === AgentLoopStatus.RUNNING) {
@@ -554,13 +584,13 @@ export class AgentLoopCoordinator {
     // Set a stop flag and abort the process using state transitor
     entity.interrupt("STOP");
     await this.stateTransitor.cancelAgentLoop(entity, "User requested stop");
-    
+
     // Cleanup entity resources after stopping
     entity.cleanup();
-    
+
     // Unregister from registry
     this.registry.unregister(id);
-    
+
     // Cleanup execution-scoped event listeners
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(id);
     if (cleanedCount > 0) {
@@ -569,7 +599,7 @@ export class AgentLoopCoordinator {
         cleanedCount,
       });
     }
-    
+
     logger.info("Agent Loop stopped and cleaned up", { agentLoopId: id });
   }
 

@@ -9,10 +9,11 @@ This document analyzes the tool binding mechanism in the wf-agent framework and 
 ### How Tools Are Currently Bound
 
 1. **Tool Definition**: Each tool has both `id` and `name` fields
+
    ```typescript
    interface Tool {
-     id: ID;           // Internal identifier
-     name: string;     // Human-readable name
+     id: ID; // Internal identifier
+     name: string; // Human-readable name
      // ... other fields
    }
    ```
@@ -31,12 +32,14 @@ This document analyzes the tool binding mechanism in the wf-agent framework and 
 ### Issue 1: Inconsistent Binding Strategy
 
 **Current Behavior:**
+
 - System sends `tool.id` to LLM
 - LLM returns `tool.id` in response
 - System looks up tool by returned value
 
 **Problem:**
 If `tool.id` is not human-readable (e.g., UUIDs like `"tool_abc123"`), the LLM may have difficulty:
+
 - Understanding what the tool does from its name alone
 - Generating correct tool calls in natural language contexts
 - Distinguishing between similar tools
@@ -44,6 +47,7 @@ If `tool.id` is not human-readable (e.g., UUIDs like `"tool_abc123"`), the LLM m
 ### Issue 2: Registry Lookup Limitation (FIXED)
 
 **Previous Problem:**
+
 ```typescript
 // Old implementation - only supported ID lookup
 getTool(toolId: string): Tool {
@@ -58,6 +62,7 @@ getTool(toolId: string): Tool {
 When LLM returned `tool.name` but registry only looked up by `tool.id`, it would fail unless they were identical.
 
 **Solution Implemented:**
+
 ```typescript
 // New implementation - supports both ID and name
 getTool(toolId: string): Tool {
@@ -66,13 +71,13 @@ getTool(toolId: string): Tool {
   if (tool) {
     return tool;
   }
-  
+
   // Fallback: search by name (for LLM compatibility)
   const toolByName = Array.from(this.tools.values()).find(t => t.name === toolId);
   if (toolByName) {
     return toolByName;
   }
-  
+
   throw new ToolNotFoundError(`Tool with id or name '${toolId}' not found`, toolId);
 }
 ```
@@ -81,6 +86,7 @@ getTool(toolId: string): Tool {
 
 **Industry Practice:**
 All major LLM providers expect **human-readable names** for tools:
+
 - OpenAI: "Use descriptive function names"
 - Anthropic: "Name should be clear and descriptive"
 - Gemini: "Function name should be meaningful"
@@ -102,15 +108,17 @@ Using `tool.id` which may not be human-readable violates this best practice.
 ### Medium-term Improvements
 
 1. **Enforce Naming Convention**: Ensure `tool.id` is always human-readable
+
    ```typescript
    // Good
    id: "read_file", name: "Read File"
-   
+
    // Bad
    id: "tool_abc123", name: "Read File"
    ```
 
 2. **Add Validation**: Warn when `id` doesn't match naming conventions
+
    ```typescript
    // Suggested validation rule
    if (!/^[a-z][a-z0-9_]*$/.test(tool.id)) {
@@ -122,7 +130,7 @@ Using `tool.id` which may not be human-readable violates this best practice.
    ```typescript
    // Future simplified structure
    interface Tool {
-     id: string;  // Always human-readable, used for LLM binding
+     id: string; // Always human-readable, used for LLM binding
      description: string;
      // ... no separate 'name' field needed
    }
@@ -131,11 +139,12 @@ Using `tool.id` which may not be human-readable violates this best practice.
 ### Long-term Architecture
 
 1. **Explicit Binding Configuration**: Allow tools to specify which field to use for LLM binding
+
    ```typescript
    interface Tool {
      id: string;
      name: string;
-     llmBindingField?: 'id' | 'name';  // Explicit control
+     llmBindingField?: "id" | "name"; // Explicit control
    }
    ```
 
@@ -144,23 +153,26 @@ Using `tool.id` which may not be human-readable violates this best practice.
    interface Tool {
      id: string;
      name: string;
-     aliases?: string[];  // Alternative names LLM can use
+     aliases?: string[]; // Alternative names LLM can use
    }
    ```
 
 ## Impact Assessment
 
 ### Breaking Changes
+
 - **None**: The fix is backward compatible
 - Existing tools continue to work
 - No API changes required
 
 ### Performance Impact
+
 - **Minimal**: Name lookup is O(n) vs O(1) for ID lookup
 - Only triggered when ID lookup fails (rare case)
 - Can be optimized with a name-to-ID index if needed
 
 ### Reliability Improvement
+
 - **Significant**: Eliminates tool lookup failures
 - Better LLM compatibility
 - More flexible tool naming
@@ -170,30 +182,33 @@ Using `tool.id` which may not be human-readable violates this best practice.
 ### For Tool Developers
 
 1. **Use Descriptive IDs**: Make `tool.id` human-readable
+
    ```typescript
    // ✅ Recommended
    { id: "read_file", name: "Read File" }
-   
+
    // ❌ Avoid
    { id: "t_001", name: "Read File" }
    ```
 
 2. **Keep ID and Name Consistent**: If possible, make them the same or very similar
+
    ```typescript
    // ✅ Ideal
    { id: "search_web", name: "search_web" }
-   
+
    // ✅ Acceptable
    { id: "search_web", name: "Search Web" }
    ```
 
 3. **Follow Naming Conventions**: Use lowercase with underscores
+
    ```typescript
    // ✅ Good
-   id: "get_weather", "read_file", "execute_script"
-   
+   id: ("get_weather", "read_file", "execute_script");
+
    // ❌ Bad
-   id: "GetWeather", "readFile", "EXECUTE_SCRIPT"
+   id: ("GetWeather", "readFile", "EXECUTE_SCRIPT");
    ```
 
 ### For Configuration Files

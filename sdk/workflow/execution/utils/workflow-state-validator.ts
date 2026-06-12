@@ -78,7 +78,9 @@ export function validateTransition(
  * @param currentStatus: The current status
  * @returns: An array of target states that are allowed
  */
-export function getAllowedTransitions(currentStatus: WorkflowExecutionStatus): WorkflowExecutionStatus[] {
+export function getAllowedTransitions(
+  currentStatus: WorkflowExecutionStatus,
+): WorkflowExecutionStatus[] {
   return (STATE_TRANSITIONS[currentStatus] || []) as WorkflowExecutionStatus[];
 }
 

@@ -475,7 +475,11 @@ export class ToolCallExecutor {
         }
 
         // Trigger tool call blocked event (NEW)
-        if (this.options.eventManager && this.options.eventBuilder?.buildToolCallBlockedEvent && this.options.safeEmitFn) {
+        if (
+          this.options.eventManager &&
+          this.options.eventBuilder?.buildToolCallBlockedEvent &&
+          this.options.safeEmitFn
+        ) {
           const blockedEvent = this.options.eventBuilder.buildToolCallBlockedEvent({
             executionId: executionId || "",
             nodeId: nodeId || "",
@@ -644,9 +648,8 @@ export class ToolCallExecutor {
           eventManager: this.options.eventManager,
           executionId,
           nodeId,
-          parentExecutionEntity: this.options.checkpointDependencies?.workflowExecutionRegistry?.get(
-            executionId || "",
-          ),
+          parentExecutionEntity:
+            this.options.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
           executionRegistry: this.options.checkpointDependencies?.workflowExecutionRegistry,
           globalContext: this.options.globalContext,
         };
@@ -655,9 +658,8 @@ export class ToolCallExecutor {
           eventManager: this.options.eventManager,
           executionId,
           nodeId,
-          parentExecutionEntity: this.options.checkpointDependencies?.workflowExecutionRegistry?.get(
-            executionId || "",
-          ),
+          parentExecutionEntity:
+            this.options.checkpointDependencies?.workflowExecutionRegistry?.get(executionId || ""),
         };
       }
 

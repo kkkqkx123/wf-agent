@@ -22,12 +22,12 @@ import { SDKError } from "@wf-agent/types";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
 import { emit } from "../../core/utils/event/emit-event.js";
 import {
-  buildPromiseCallbackRegisteredEvent,
-  buildPromiseCallbackResolvedEvent,
-  buildPromiseCallbackRejectedEvent,
-  buildPromiseCallbackFailedEvent,
-  buildPromiseCallbackCleanedUpEvent,
-} from "../../core/utils/event/builders/promise-callback-events.js";
+  buildAsyncCompletionRegisteredEvent,
+  buildAsyncCompletionTriggeredEvent,
+  buildAsyncCompletionErrorTriggeredEvent,
+  buildAsyncCompletionFailedEvent,
+  buildAsyncCompletionCleanedUpEvent,
+} from "../../core/utils/event/builders/async-completion-events.js";
 import { logError } from "../../core/utils/error-utils.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { StateManager } from "../../core/types/state-manager.js";
@@ -95,7 +95,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
     // Emit event for observability (non-critical)
     if (this.eventManager) {
       try {
-        const event = buildPromiseCallbackRegisteredEvent({ executionId });
+        const event = buildAsyncCompletionRegisteredEvent({ executionId });
         await emit(this.eventManager, event);
       } catch (error) {
         logger.warn("Failed to emit ASYNC_COMPLETION_REGISTERED event", { 
@@ -130,7 +130,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit event for observability (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildPromiseCallbackResolvedEvent({ executionId });
+          const event = buildAsyncCompletionTriggeredEvent({ executionId });
           await emit(this.eventManager, event);
         } catch (error) {
           logger.warn("Failed to emit ASYNC_COMPLETION_TRIGGERED event", { 
@@ -155,7 +155,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit failure event (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildPromiseCallbackFailedEvent({ executionId, error: sdkError });
+          const event = buildAsyncCompletionFailedEvent({ executionId, error: sdkError });
           await emit(this.eventManager, event);
         } catch (error) {
           logger.warn("Failed to emit ASYNC_COMPLETION_FAILED event", { 
@@ -191,10 +191,10 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit event for observability (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildPromiseCallbackRejectedEvent({ executionId, error });
+          const event = buildAsyncCompletionErrorTriggeredEvent({ executionId, error });
           await emit(this.eventManager, event);
         } catch (error) {
-          logger.warn("Failed to emit ASYNC_ERROR_TRIGGERED event", { 
+          logger.warn("Failed to emit ASYNC_COMPLETION_ERROR_TRIGGERED event", { 
             error: getErrorOrNew(error).message, 
             executionId 
           });
@@ -212,7 +212,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit failure event (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildPromiseCallbackFailedEvent({ 
+          const event = buildAsyncCompletionFailedEvent({ 
             executionId, 
             error: err instanceof Error ? err : new Error(String(err))
           });
@@ -265,7 +265,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
         // Emit cleanup event (non-critical)
         if (this.eventManager) {
           try {
-            const event = buildPromiseCallbackCleanedUpEvent({ 
+            const event = buildAsyncCompletionCleanedUpEvent({ 
               executionId,
               reason: "global_cleanup"
             });
@@ -307,7 +307,7 @@ export class AsyncCompletionManager<T = unknown> implements StateManager<Map<str
       // Emit cleanup event (non-critical)
       if (this.eventManager) {
         try {
-          const event = buildPromiseCallbackCleanedUpEvent({ 
+          const event = buildAsyncCompletionCleanedUpEvent({ 
             executionId,
             reason: "individual_cleanup"
           });

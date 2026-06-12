@@ -122,16 +122,16 @@ export type EventType =
   | "SKILL_LOAD_COMPLETED"
   /** Skill load failed */
   | "SKILL_LOAD_FAILED"
-  /** Promise callback registered */
-  | "PROMISE_CALLBACK_REGISTERED"
-  /** Promise callback resolved successfully */
-  | "PROMISE_CALLBACK_RESOLVED"
-  /** Promise callback rejected with error */
-  | "PROMISE_CALLBACK_REJECTED"
-  /** Promise callback execution failed */
-  | "PROMISE_CALLBACK_FAILED"
-  /** Promise callback cleaned up */
-  | "PROMISE_CALLBACK_CLEANED_UP"
+  /** Async completion registered */
+  | "ASYNC_COMPLETION_REGISTERED"
+  /** Async completion triggered successfully */
+  | "ASYNC_COMPLETION_TRIGGERED"
+  /** Async completion error triggered */
+  | "ASYNC_COMPLETION_ERROR_TRIGGERED"
+  /** Async completion execution failed */
+  | "ASYNC_COMPLETION_FAILED"
+  /** Async completion cleaned up */
+  | "ASYNC_COMPLETION_CLEANED_UP"
   /** Agent started */
   | "AGENT_STARTED"
   /** Agent completed */

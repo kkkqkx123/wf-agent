@@ -36,8 +36,8 @@ export * from "./agent-events.js";
 // Export Skill related events
 export * from "./skill-events.js";
 
-// Export Promise callback related events
-export * from "./promise-callback-events.js";
+// Export Async Completion related events
+export * from "./async-completion-events.js";
 
 // Re-export the EventType for backward compatibility.
 export { EventType } from "./base.js";
@@ -151,12 +151,12 @@ import type {
 } from "./skill-events.js";
 
 import type {
-  PromiseCallbackRegisteredEvent,
-  PromiseCallbackResolvedEvent,
-  PromiseCallbackRejectedEvent,
-  PromiseCallbackFailedEvent,
-  PromiseCallbackCleanedUpEvent,
-} from "./promise-callback-events.js";
+  AsyncCompletionRegisteredEvent,
+  AsyncCompletionTriggeredEvent,
+  AsyncCompletionErrorTriggeredEvent,
+  AsyncCompletionFailedEvent,
+  AsyncCompletionCleanedUpEvent,
+} from "./async-completion-events.js";
 
 /**
  * Union type for all event types
@@ -230,11 +230,11 @@ export type Event =
   | SkillLoadStartedEvent
   | SkillLoadCompletedEvent
   | SkillLoadFailedEvent
-  | PromiseCallbackRegisteredEvent
-  | PromiseCallbackResolvedEvent
-  | PromiseCallbackRejectedEvent
-  | PromiseCallbackFailedEvent
-  | PromiseCallbackCleanedUpEvent
+  | AsyncCompletionRegisteredEvent
+  | AsyncCompletionTriggeredEvent
+  | AsyncCompletionErrorTriggeredEvent
+  | AsyncCompletionFailedEvent
+  | AsyncCompletionCleanedUpEvent
   | ProgressiveToolExecutionStartEvent
   | ProgressiveToolExecutionEndEvent
   | ToolQueueUpdateEvent

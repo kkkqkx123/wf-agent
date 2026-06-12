@@ -55,12 +55,12 @@ import type {
   WorkflowExecutionCopyCompletedEvent,
 } from "./workflow-execution-events.js";
 import type {
-  PromiseCallbackRegisteredEvent,
-  PromiseCallbackResolvedEvent,
-  PromiseCallbackRejectedEvent,
-  PromiseCallbackFailedEvent,
-  PromiseCallbackCleanedUpEvent,
-} from "./promise-callback-events.js";
+  AsyncCompletionRegisteredEvent,
+  AsyncCompletionTriggeredEvent,
+  AsyncCompletionErrorTriggeredEvent,
+  AsyncCompletionFailedEvent,
+  AsyncCompletionCleanedUpEvent,
+} from "./async-completion-events.js";
 import type {
   SkillLoadStartedEvent,
   SkillLoadCompletedEvent,
@@ -257,23 +257,23 @@ export function isCompletionEvent(
 }
 
 /**
- * Type guard for promise callback-related events
- * Narrows to: PromiseCallbackRegisteredEvent | PromiseCallbackResolvedEvent | PromiseCallbackRejectedEvent | PromiseCallbackFailedEvent | PromiseCallbackCleanedUpEvent
+ * Type guard for async completion-related events
+ * Narrows to: AsyncCompletionRegisteredEvent | AsyncCompletionTriggeredEvent | AsyncCompletionErrorTriggeredEvent | AsyncCompletionFailedEvent | AsyncCompletionCleanedUpEvent
  */
-export function isPromiseCallbackEvent(
+export function isAsyncCompletionEvent(
   event: Event,
 ): event is
-  | PromiseCallbackRegisteredEvent
-  | PromiseCallbackResolvedEvent
-  | PromiseCallbackRejectedEvent
-  | PromiseCallbackFailedEvent
-  | PromiseCallbackCleanedUpEvent {
+  | AsyncCompletionRegisteredEvent
+  | AsyncCompletionTriggeredEvent
+  | AsyncCompletionErrorTriggeredEvent
+  | AsyncCompletionFailedEvent
+  | AsyncCompletionCleanedUpEvent {
   return (
-    event.type === 'PROMISE_CALLBACK_REGISTERED' ||
-    event.type === 'PROMISE_CALLBACK_RESOLVED' ||
-    event.type === 'PROMISE_CALLBACK_REJECTED' ||
-    event.type === 'PROMISE_CALLBACK_FAILED' ||
-    event.type === 'PROMISE_CALLBACK_CLEANED_UP'
+    event.type === 'ASYNC_COMPLETION_REGISTERED' ||
+    event.type === 'ASYNC_COMPLETION_TRIGGERED' ||
+    event.type === 'ASYNC_COMPLETION_ERROR_TRIGGERED' ||
+    event.type === 'ASYNC_COMPLETION_FAILED' ||
+    event.type === 'ASYNC_COMPLETION_CLEANED_UP'
   );
 }
 
@@ -378,7 +378,7 @@ export const eventTypeGuards = {
   isCompletionEvent,
   isAgentEvent,
   hasAgentLoopId,
-  isPromiseCallbackEvent,
+  isAsyncCompletionEvent,
   isSkillEvent,
   isConversationEvent,
   isToolApprovalEvent,

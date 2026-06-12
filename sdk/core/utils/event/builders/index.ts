@@ -54,8 +54,8 @@ export * from "./agent-events.js";
 // Hook events
 export * from "./hook-events.js";
 
-// Promise Callback events
-export * from "./promise-callback-events.js";
+// Async Completion events
+export * from "./async-completion-events.js";
 
 // Custom events
 export * from "./custom-events.js";

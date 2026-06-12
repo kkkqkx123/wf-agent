@@ -28,30 +28,45 @@ export async function cleanupFailedSubworkflow(
   parentEntity: WorkflowExecutionEntity,
   registry: ExecutionHierarchyRegistry,
 ): Promise<void> {
+  logger.debug("Cleaning up failed subworkflow", {
+    childExecutionId: childEntity.id,
+    parentExecutionId: parentEntity.id,
+  });
+
+  // Step 1: Stop execution if running (independent try-catch)
   try {
-    logger.debug("Cleaning up failed subworkflow", {
-      childExecutionId: childEntity.id,
-      parentExecutionId: parentEntity.id,
-    });
-
-    // Stop execution if running
     childEntity.stop();
+  } catch (stopError) {
+    logger.warn("Failed to stop child execution", {
+      childExecutionId: childEntity.id,
+      stopError,
+    });
+  }
 
-    // Unregister from hierarchy registry
+  // Step 2: Unregister from hierarchy registry (independent try-catch)
+  try {
     if (registry && typeof registry.unregister === 'function') {
       registry.unregister(childEntity.id);
     }
-
-    // Remove from parent's children list
-    parentEntity.unregisterChild(childEntity.id, 'WORKFLOW');
-
-    logger.info("Failed subworkflow cleaned up successfully", {
+  } catch (unregisterError) {
+    logger.warn("Failed to unregister from hierarchy registry", {
       childExecutionId: childEntity.id,
-    });
-  } catch (cleanupError) {
-    logger.warn("Failed to cleanup subworkflow after error", {
-      childExecutionId: childEntity.id,
-      cleanupError,
+      unregisterError,
     });
   }
+
+  // Step 3: Remove from parent's children list (independent try-catch)
+  try {
+    parentEntity.unregisterChild(childEntity.id, 'WORKFLOW');
+  } catch (removeError) {
+    logger.warn("Failed to remove child from parent's children list", {
+      childExecutionId: childEntity.id,
+      parentExecutionId: parentEntity.id,
+      removeError,
+    });
+  }
+
+  logger.info("Failed subworkflow cleanup completed", {
+    childExecutionId: childEntity.id,
+  });
 }

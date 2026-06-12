@@ -10,7 +10,7 @@ export { ExecutionState, type SubgraphContext } from "./execution-state.js";
 export {
   AsyncCompletionManager,
   type CompletionHandler,
-} from "./promise-resolution-manager.js";
+} from "./async-completion-manager.js";
 export { TriggerState, type TriggerRuntimeState } from "./trigger-state.js";
 export {
   WorkflowExecutionState,

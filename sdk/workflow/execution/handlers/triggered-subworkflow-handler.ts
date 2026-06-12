@@ -27,7 +27,7 @@ import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import { TaskQueue } from "../../stores/task/task-queue.js";
-import { AsyncCompletionManager } from "../../state-managers/promise-resolution-manager.js";
+import { AsyncCompletionManager } from "../../state-managers/async-completion-manager.js";
 import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
 import {

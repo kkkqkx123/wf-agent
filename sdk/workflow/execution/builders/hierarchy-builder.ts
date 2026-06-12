@@ -245,7 +245,7 @@ function getHierarchyRegistry(entity: WorkflowExecutionEntity): ExecutionHierarc
   // TODO: Consider adding a getRegistry() method to WorkflowExecutionEntity
   try {
     // This is a workaround - ideally the entity should expose its registry
-    const anyEntity = entity as unknown as { hierarchyManager?: { registry?: unknown } };
+    const anyEntity = entity as unknown as { hierarchyManager?: { registry?: ExecutionHierarchyRegistry } };
     return anyEntity.hierarchyManager?.registry;
   } catch {
     return undefined;

@@ -230,7 +230,13 @@ export class ScriptInteractionCoordinator {
         };
       }
 
-      const sent = await this.terminalService.sendInput(session.sessionId, input);
+      let sent: boolean;
+      try {
+        sent = await this.terminalService.sendInput(session.sessionId, input);
+      } catch (error) {
+        logger.warn("Failed to send input", { scriptName, round: i + 1, error });
+        break;
+      }
       if (!sent) {
         logger.warn("Failed to send input, process may have ended", { scriptName, round: i + 1 });
         break;
@@ -428,7 +434,10 @@ export class ScriptInteractionCoordinator {
     return result.content?.trim() ?? "";
   }
 
-  private delay(ms: number): Promise<void> {
+  /**
+   * Delay helper - made protected for testability (can be overridden to use fake timers)
+   */
+  protected delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

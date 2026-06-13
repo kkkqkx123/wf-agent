@@ -104,15 +104,6 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Set the status (internal - prefer using lifecycle methods like start(), pause(), resume() etc.)
-   * @internal This setter exists for WorkflowExecutionEntity.setStatus() compatibility.
-   *           Direct status assignment should be migrated to use lifecycle methods.
-   */
-  set status(value: WorkflowExecutionStatus) {
-    this._status = value;
-  }
-
-  /**
    * Get the start time
    */
   get startTime(): number | null {
@@ -141,10 +132,9 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Set the interrupted flag (prefer using interrupt()/resetInterrupt() methods)
-   * @internal This setter exists for backward compatibility.
+   * Set the interrupted flag (private - use interrupt()/resetInterrupt() methods)
    */
-  set interrupted(value: boolean) {
+  private set interrupted(value: boolean) {
     this._interrupted = value;
   }
 
@@ -251,6 +241,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * @param type: Type of the interrupt
    */
   interrupt(type: "PAUSE" | "STOP"): void {
+    this._interrupted = true;
     if (type === "PAUSE") {
       this._shouldPause = true;
     } else {
@@ -262,6 +253,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * Reset the interrupt flag.
    */
   resetInterrupt(): void {
+    this._interrupted = false;
     this._shouldPause = false;
     this._shouldStop = false;
   }

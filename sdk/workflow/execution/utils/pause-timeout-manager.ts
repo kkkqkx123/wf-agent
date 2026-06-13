@@ -230,7 +230,6 @@ export class PauseTimeoutManager {
 
     try {
       // Update status to CANCELLED
-      workflowExecutionEntity.setStatus("CANCELLED");
       workflowExecutionEntity.state.cancel();
 
       // Emit cancellation event

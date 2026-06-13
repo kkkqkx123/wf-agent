@@ -69,9 +69,8 @@ export async function startFromTriggerHandler(
   }
 
   // Initialize WorkflowExecution state via WorkflowExecutionEntity
-  workflowExecutionEntity.setStatus("RUNNING");
-  workflowExecutionEntity.setCurrentNodeId(node.id);
   workflowExecutionEntity.state.start();
+  workflowExecutionEntity.setCurrentNodeId(node.id);
 
   // Variables and results for initializing a WorkflowExecution
   const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();

@@ -274,7 +274,7 @@ export class NodeExecutionCoordinator {
 
     // Trigger the corresponding event with rich context
     if (type === "PAUSE") {
-      workflowExecutionContext.setStatus("PAUSED");
+      workflowExecutionContext.state.pause();
       const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionContext, {
         nodeId,
         completedNodes: workflowExecutionContext.getNodeResults().length,
@@ -288,7 +288,6 @@ export class NodeExecutionCoordinator {
         nodeId,
       });
     } else if (type === "STOP") {
-      workflowExecutionContext.setStatus("CANCELLED");
       workflowExecutionContext.state.cancel();
       const cancelledEvent = buildWorkflowExecutionCancelledEvent(
         workflowExecutionContext,

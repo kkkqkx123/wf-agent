@@ -40,9 +40,8 @@ export async function startHandler(
   }
 
   // Initialize WorkflowExecution state via WorkflowExecutionEntity
-  workflowExecutionEntity.setStatus("RUNNING");
-  workflowExecutionEntity.setCurrentNodeId(node.id);
   workflowExecutionEntity.state.start();
+  workflowExecutionEntity.setCurrentNodeId(node.id);
 
   // Initializing variables and results for the WorkflowExecution
   const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();

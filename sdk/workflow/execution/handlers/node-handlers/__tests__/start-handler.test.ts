@@ -5,7 +5,6 @@ import type { RuntimeNode } from "@wf-agent/types";
 
 const mockEntity = {
   getStatus: vi.fn(),
-  setStatus: vi.fn(),
   setCurrentNodeId: vi.fn(),
   state: { start: vi.fn() },
   getExecution: vi.fn(),
@@ -40,9 +39,8 @@ describe("startHandler", () => {
   it("should initialize workflow and return start message when status is CREATED", async () => {
     const result = await startHandler(mockEntity, mockNode);
 
-    expect(mockEntity.setStatus).toHaveBeenCalledWith("RUNNING");
-    expect(mockEntity.setCurrentNodeId).toHaveBeenCalledWith("start-node-1");
     expect(mockEntity.state.start).toHaveBeenCalled();
+    expect(mockEntity.setCurrentNodeId).toHaveBeenCalledWith("start-node-1");
     expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
       expect.objectContaining({ nodeId: "start-node-1", status: "COMPLETED" }),
     );
@@ -57,7 +55,7 @@ describe("startHandler", () => {
 
     const result = await startHandler(mockEntity, mockNode);
 
-    expect(mockEntity.setStatus).toHaveBeenCalledWith("RUNNING");
+    expect(mockEntity.state.start).toHaveBeenCalled();
     expect(result).toEqual({ message: "Workflow started", input: {} });
   });
 

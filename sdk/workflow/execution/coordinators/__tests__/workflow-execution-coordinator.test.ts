@@ -48,7 +48,6 @@ function createMockEntity(
     id: "test-exec-1",
     getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
     getStatus: vi.fn().mockReturnValue("RUNNING"),
-    setStatus: vi.fn(),
     getCurrentNodeId: vi.fn().mockReturnValue("node-1"),
     setCurrentNodeId: vi.fn(),
     getOutput: vi.fn().mockReturnValue({}),

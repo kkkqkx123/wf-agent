@@ -132,8 +132,12 @@ export class WorkflowExecutionCoordinator {
       );
     }
 
-    // Update status
-    this.workflowExecutionEntity.setStatus(type === "PAUSE" ? "PAUSED" : "CANCELLED");
+    // Update status via state lifecycle method
+    if (type === "PAUSE") {
+      this.workflowExecutionEntity.state.pause();
+    } else {
+      this.workflowExecutionEntity.state.cancel();
+    }
 
     // Build interrupted result
     return {

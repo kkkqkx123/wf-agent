@@ -194,11 +194,11 @@ describe("WorkflowExecutionState", () => {
   });
 
   describe("interrupted property", () => {
-    it("should set interrupted flag", () => {
-      state.interrupted = true;
+    it("should set interrupted flag via interrupt()", () => {
+      state.interrupt("PAUSE");
       expect(state.interrupted).toBe(true);
 
-      state.interrupted = false;
+      state.resetInterrupt();
       expect(state.interrupted).toBe(false);
     });
   });
@@ -330,7 +330,6 @@ describe("WorkflowExecutionState", () => {
       // Arrange
       state.start();
       state.interrupt("PAUSE");
-      state.interrupted = true;
       const operation: OperationState = {
         type: "LLM_STREAMING",
         operationId: "req-1",
@@ -397,7 +396,6 @@ describe("WorkflowExecutionState", () => {
       // Arrange
       state.start();
       state.interrupt("STOP");
-      state.interrupted = true;
       state.fail(new Error("error"));
       const operation: OperationState = {
         type: "LLM_STREAMING",
@@ -427,7 +425,6 @@ describe("WorkflowExecutionState", () => {
       // Arrange
       state.start();
       state.interrupt("PAUSE");
-      state.interrupted = true;
       const operation: OperationState = {
         type: "LLM_STREAMING",
         operationId: "req-1",

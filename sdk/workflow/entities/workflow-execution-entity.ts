@@ -207,10 +207,6 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
     return this.state.status === "CANCELLED";
   }
 
-  setStatus(status: WorkflowExecutionStatus): void {
-    this.state.status = status;
-  }
-
   getExecutionType(): WorkflowExecutionType {
     return this.workflowExecution.executionType || "MAIN";
   }

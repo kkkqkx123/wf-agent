@@ -7,7 +7,6 @@ import type { StartFromTriggerHandlerContext } from "../start-from-trigger-handl
 const mockEntity = {
   getStatus: vi.fn(),
   getNodeResults: vi.fn().mockReturnValue([]),
-  setStatus: vi.fn(),
   setCurrentNodeId: vi.fn(),
   state: { start: vi.fn() },
   getExecution: vi.fn(),
@@ -55,7 +54,7 @@ describe("startFromTriggerHandler", () => {
 
     const result = await startFromTriggerHandler(mockEntity, node, context);
 
-    expect(mockEntity.setStatus).toHaveBeenCalledWith("RUNNING");
+    expect(mockEntity.state.start).toHaveBeenCalled();
     expect(mockExecution.variables).toEqual([{ name: "var1", value: "test" }]);
     expect(result).toEqual({
       message: "Triggered subgraph started",

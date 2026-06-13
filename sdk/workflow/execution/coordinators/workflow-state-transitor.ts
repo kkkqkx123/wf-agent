@@ -79,7 +79,7 @@ export class WorkflowStateTransitor {
       "RUNNING" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("RUNNING" as WorkflowExecutionStatus);
+    workflowExecutionEntity.state.start();
 
     const startedEvent = buildWorkflowExecutionStartedEvent(workflowExecutionEntity);
     await emit(this.eventManager, startedEvent);
@@ -123,7 +123,7 @@ export class WorkflowStateTransitor {
       "PAUSED" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("PAUSED" as WorkflowExecutionStatus);
+    workflowExecutionEntity.state.pause();
 
     const pausedEvent = buildWorkflowExecutionPausedEvent(workflowExecutionEntity);
     await emit(this.eventManager, pausedEvent);
@@ -164,7 +164,7 @@ export class WorkflowStateTransitor {
       "RUNNING" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("RUNNING" as WorkflowExecutionStatus);
+    workflowExecutionEntity.state.resume();
 
     const resumedEvent = buildWorkflowExecutionResumedEvent(workflowExecutionEntity);
     await emit(this.eventManager, resumedEvent);
@@ -215,7 +215,6 @@ export class WorkflowStateTransitor {
       "COMPLETED" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("COMPLETED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.complete();
     this.workflowConversationSession.cleanup();
 
@@ -261,7 +260,6 @@ export class WorkflowStateTransitor {
       "FAILED" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("FAILED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.fail(error);
     workflowExecutionEntity.getErrors().push(error.message);
     this.workflowConversationSession.cleanup();
@@ -318,7 +316,6 @@ export class WorkflowStateTransitor {
       "CANCELLED" as WorkflowExecutionStatus,
     );
 
-    workflowExecutionEntity.setStatus("CANCELLED" as WorkflowExecutionStatus);
     workflowExecutionEntity.state.cancel();
     this.workflowConversationSession.cleanup();
 

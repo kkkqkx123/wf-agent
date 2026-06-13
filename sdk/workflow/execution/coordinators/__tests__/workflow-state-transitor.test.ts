@@ -54,7 +54,6 @@ function createMockEntity(
     id: "test-exec-1",
     getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
     getStatus: vi.fn().mockReturnValue("CREATED"),
-    setStatus: vi.fn(),
     getCurrentNodeId: vi.fn().mockReturnValue("node-1"),
     setCurrentNodeId: vi.fn(),
     getOutput: vi.fn().mockReturnValue({}),
@@ -73,6 +72,9 @@ function createMockEntity(
     getHierarchyDepth: vi.fn().mockReturnValue(0),
     getChildExecutionIds: vi.fn().mockReturnValue([]),
     state: {
+      start: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
       complete: vi.fn(),
       fail: vi.fn(),
       cancel: vi.fn(),
@@ -172,7 +174,7 @@ describe("WorkflowStateTransitor", () => {
     it("should transition from CREATED to RUNNING", async () => {
       await transitor.startWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("RUNNING");
+      expect(mockEntity.state.start).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // started + stateChanged
     });
 
@@ -189,7 +191,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.pauseWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("PAUSED");
+      expect(mockEntity.state.pause).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // paused + stateChanged
     });
 
@@ -198,7 +200,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.pauseWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).not.toHaveBeenCalled();
+      expect(mockEntity.state.pause).not.toHaveBeenCalled();
       expect(mockEventRegistry.emit).not.toHaveBeenCalled();
     });
 
@@ -215,7 +217,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.resumeWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("RUNNING");
+      expect(mockEntity.state.resume).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // resumed + stateChanged
     });
 
@@ -224,7 +226,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.resumeWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).not.toHaveBeenCalled();
+      expect(mockEntity.state.resume).not.toHaveBeenCalled();
       expect(mockEventRegistry.emit).not.toHaveBeenCalled();
     });
   });
@@ -236,7 +238,6 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.completeWorkflowExecution(mockEntity, result);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("COMPLETED");
       expect(mockEntity.state.complete).toHaveBeenCalled();
       expect(mockConversationSession.cleanup).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // completed + stateChanged
@@ -252,8 +253,7 @@ describe("WorkflowStateTransitor", () => {
       // Should still emit completed event and cleanup
       expect(mockConversationSession.cleanup).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(1); // only completedEvent
-      // Should NOT call setStatus or state.complete (already completed)
-      expect(mockEntity.setStatus).not.toHaveBeenCalled();
+      // Should NOT call state.complete (already completed)
       expect(mockEntity.state.complete).not.toHaveBeenCalled();
     });
 
@@ -283,7 +283,6 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.failWorkflowExecution(mockEntity, error);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("FAILED");
       expect(mockEntity.state.fail).toHaveBeenCalledWith(error);
       expect(mockConversationSession.cleanup).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // failed + stateChanged
@@ -314,7 +313,6 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.cancelWorkflowExecution(mockEntity, "user_requested");
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("CANCELLED");
       expect(mockEntity.state.cancel).toHaveBeenCalled();
       expect(mockConversationSession.cleanup).toHaveBeenCalled();
       expect(mockEventRegistry.emit).toHaveBeenCalledTimes(2); // cancelled + stateChanged
@@ -325,7 +323,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.cancelWorkflowExecution(mockEntity, "user_requested");
 
-      expect(mockEntity.setStatus).not.toHaveBeenCalled();
+      expect(mockEntity.state.cancel).not.toHaveBeenCalled();
       expect(mockEventRegistry.emit).not.toHaveBeenCalled();
     });
 
@@ -342,7 +340,7 @@ describe("WorkflowStateTransitor", () => {
 
       await transitor.cancelWorkflowExecution(mockEntity);
 
-      expect(mockEntity.setStatus).toHaveBeenCalledWith("CANCELLED");
+      expect(mockEntity.state.cancel).toHaveBeenCalled();
     });
   });
 
@@ -378,7 +376,7 @@ describe("WorkflowStateTransitor", () => {
       const result = await (transitor as any).cancelChildWorkflowExecution("child-1");
 
       expect(result).toBe(true);
-      expect(childEntity.setStatus).toHaveBeenCalledWith("CANCELLED");
+      expect(childEntity.state.cancel).toHaveBeenCalled();
     });
 
     it("should cancel a paused child execution", async () => {
@@ -392,7 +390,7 @@ describe("WorkflowStateTransitor", () => {
       const result = await (transitor as any).cancelChildWorkflowExecution("child-1");
 
       expect(result).toBe(true);
-      expect(childEntity.setStatus).toHaveBeenCalledWith("CANCELLED");
+      expect(childEntity.state.cancel).toHaveBeenCalled();
     });
 
     it("should skip completed child execution", async () => {
@@ -406,7 +404,7 @@ describe("WorkflowStateTransitor", () => {
       const result = await (transitor as any).cancelChildWorkflowExecution("child-1");
 
       expect(result).toBe(false);
-      expect(childEntity.setStatus).not.toHaveBeenCalled();
+      expect(childEntity.state.cancel).not.toHaveBeenCalled();
     });
 
     it("should return false when child execution not found", async () => {

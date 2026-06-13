@@ -9,6 +9,7 @@ import {
   AgentLoopCoordinator,
   AgentLoopRegistry,
   AgentLoopExecutor,
+  AgentStateCoordinator,
   createAgentLoopCheckpoint,
   cleanupAgentLoop,
   cloneAgentLoop,
@@ -27,6 +28,7 @@ import {
   injectSkillMetadata,
   isToolAvailable,
   METADATA_TOOL_NAMES,
+  ConversationSession,
 } from "@wf-agent/sdk/core";
 import type {
   AgentLoopRuntimeConfig,
@@ -537,8 +539,9 @@ export class AgentLoopAdapter extends BaseAdapter {
   ): Promise<{ id: ID }> {
     return this.executeWithErrorHandling(async () => {
       const globalContext = this.sdk.getGlobalContext();
-      const entity = await AgentLoopFactory.create(globalContext, config, options);
+      const { entity, stateCoordinator } = await AgentLoopFactory.create(globalContext, config, options);
       this.registry.register(entity);
+      this.registry.registerStateCoordinator(entity.id, stateCoordinator);
 
       this.output.infoLog(`Agent Loop created successfully: ${entity.id}`);
       return { id: entity.id };
@@ -691,12 +694,15 @@ export class AgentLoopAdapter extends BaseAdapter {
       return undefined;
     }
 
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    const messages = stateCoordinator?.getMessages() ?? [];
+
     return {
       id: entity.id,
       status: entity.getStatus(),
       currentIteration: entity.state.currentIteration,
       toolCallCount: entity.state.toolCallCount,
-      messageCount: entity.getMessages().length,
+      messageCount: messages.length,
     };
   }
 
@@ -810,11 +816,17 @@ export class AgentLoopAdapter extends BaseAdapter {
    */
   async restoreFromCheckpoint(
     checkpointId: string,
+    config: AgentLoopRuntimeConfig,
     dependencies: AgentLoopCheckpointDependencies,
   ): Promise<{ id: ID }> {
     return this.executeWithErrorHandling(async () => {
-      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, dependencies);
+      const entity = await AgentLoopFactory.fromCheckpoint(checkpointId, config, dependencies);
       this.registry.register(entity);
+
+      // Create AgentStateCoordinator for the restored entity
+      const conversationSession = new ConversationSession({ executionId: entity.id });
+      const stateCoordinator = new AgentStateCoordinator({ conversationManager: conversationSession });
+      this.registry.registerStateCoordinator(entity.id, stateCoordinator);
 
       this.output.infoLog(`Agent Loop restored from checkpoint: ${entity.id}`);
       return { id: entity.id };
@@ -832,11 +844,17 @@ export class AgentLoopAdapter extends BaseAdapter {
         throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
       }
 
-      const cloned = cloneAgentLoop(entity);
-      this.registry.register(cloned);
+      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+      if (!stateCoordinator) {
+        throw new CLINotFoundError(`Agent State Coordinator not found for: ${id}`, "AgentLoop", id);
+      }
 
-      this.output.infoLog(`Agent Loop cloned: ${cloned.id}`);
-      return { id: cloned.id };
+      const cloned = cloneAgentLoop(entity, stateCoordinator);
+      this.registry.register(cloned.entity);
+      this.registry.registerStateCoordinator(cloned.entity.id, cloned.stateCoordinator);
+
+      this.output.infoLog(`Agent Loop cloned: ${cloned.entity.id}`);
+      return { id: cloned.entity.id };
     }, "Clone Agent Loop");
   }
 
@@ -868,6 +886,7 @@ export class AgentLoopAdapter extends BaseAdapter {
       throw new CLINotFoundError(`Agent Loop not found: ${id}`, "AgentLoop", id);
     }
 
-    return entity.getMessages();
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    return stateCoordinator?.getMessages() ?? [];
   }
 }

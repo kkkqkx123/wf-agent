@@ -9,6 +9,13 @@ export {
 export { MessageArrayManager } from "./message-array-manager.js";
 export { HistoryConverter, type HistoryConversionOptions } from "./history-converter.js";
 
+// Base State Coordinator (shared by Agent/Workflow state coordinators)
+export {
+  BaseStateCoordinator,
+  type StateCoordinatorSnapshot,
+  type BaseStateCoordinatorConfig,
+} from "./base-state-coordinator.js";
+
 // Named Message Context exports
 export { InMemoryMessageContextRegistry } from "./message-context-registry.js";
 export { initializeExecutionContext, getOrCreateContext } from "./message-context-utils.js";

@@ -23,6 +23,9 @@ export {
   isStoredTaskInfo,
 } from "./execution.js";
 
+// Execution Entity Interface - Unified contract for all execution entities
+export { type IExecutionEntity, type ExecutionStatus } from "./execution-entity.js";
+
 // Pool types - Worker and Execution Pool Definitions
 export {
   WorkerStatus,

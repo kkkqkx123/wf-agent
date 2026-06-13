@@ -41,7 +41,7 @@ export interface HookEvaluationContext {
  */
 export function buildHookEvaluationContext(context: HookExecutionContext): HookEvaluationContext {
   const { workflowExecutionEntity, node, result, conversationManager } = context;
-  const workflowExecution = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
 
   return {
     // NEW: Expose workflow input

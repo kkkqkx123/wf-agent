@@ -37,7 +37,7 @@ import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
 import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../core/registry/event-registry.js";
-import type { Abortable } from "../../core/types/abortable.js";
+import type { IExecutionEntity } from "../../core/types/execution-entity.js";
 import { DependencyManager } from "../evaluation/index.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -63,9 +63,12 @@ const logger = createContextualLogger({ operation: "WorkflowExecutionEntity" });
  * - Use WorkflowStateCoordinator for unified state management
  * - This eliminates data redundancy and synchronization issues
  */
-export class WorkflowExecutionEntity implements Abortable {
+export class WorkflowExecutionEntity implements IExecutionEntity {
   /** Execute instance ID */
   readonly id: string;
+
+  /** Discriminant property for type-safe dispatch */
+  readonly instanceType = "workflowExecution" as const;
 
   /** WorkflowExecution data object (private, not exposed) */
   private readonly workflowExecution: WorkflowExecution;
@@ -167,6 +170,41 @@ export class WorkflowExecutionEntity implements Abortable {
 
   getStatus(): WorkflowExecutionStatus {
     return this.state.status;
+  }
+
+  /**
+   * Check if it is running
+   */
+  isRunning(): boolean {
+    return this.state.status === "RUNNING";
+  }
+
+  /**
+   * Check if it has been paused
+   */
+  isPaused(): boolean {
+    return this.state.status === "PAUSED";
+  }
+
+  /**
+   * Checking for completion
+   */
+  isCompleted(): boolean {
+    return this.state.status === "COMPLETED";
+  }
+
+  /**
+   * Checking for failure
+   */
+  isFailed(): boolean {
+    return this.state.status === "FAILED";
+  }
+
+  /**
+   * Check if it has been canceled
+   */
+  isCancelled(): boolean {
+    return this.state.status === "CANCELLED";
   }
 
   setStatus(status: WorkflowExecutionStatus): void {
@@ -328,6 +366,39 @@ export class WorkflowExecutionEntity implements Abortable {
   // Stop control ============
 
   /**
+   * Check if you should pause
+   *
+   * Checks both WorkflowExecutionState (via state.shouldPause()) and InterruptionState
+   * (via external requestPause()) to handle both interruption paths.
+   * Consistent with AgentLoopEntity.shouldPause() behavior.
+   */
+  shouldPause(): boolean {
+    if (this.state.shouldPause()) {
+      return true;
+    }
+    if (this.interruptionState?.shouldPause()) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if you should stop
+   *
+   * Checks both WorkflowExecutionState and InterruptionState to handle both interruption paths.
+   * Consistent with AgentLoopEntity.shouldStop() behavior.
+   */
+  shouldStop(): boolean {
+    if (this.state.shouldStop()) {
+      return true;
+    }
+    if (this.interruptionState?.shouldStop()) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Set the interruption state manager (called by coordinator after creation)
    * @param interruptionState The InterruptionState instance to use
    */
@@ -362,14 +433,17 @@ export class WorkflowExecutionEntity implements Abortable {
 
   /**
    * Abort execution
+   *
+   * Only aborts the AbortController signal. Does NOT mutate state status.
+   * State transitions should be handled by WorkflowStateTransitor for consistency.
+   * This is consistent with AgentLoopEntity.abort() behavior.
+   *
    * @param reason Optional reason for abortion
    */
   abort(reason?: string): void {
-    if (!this.abortController) {
-      this.abortController = new AbortController();
+    if (this.abortController) {
+      this.abortController.abort(reason);
     }
-    this.abortController.abort(reason);
-    this.state.status = "CANCELLED";
   }
 
   /**
@@ -424,15 +498,11 @@ export class WorkflowExecutionEntity implements Abortable {
   // ========== Data Access (for internal use) ----------
 
   /**
-   * Get the raw WorkflowExecution data object (alias for getWorkflowExecutionData for compatibility)
-   * @returns WorkflowExecution data object
-   */
-  getExecution(): WorkflowExecution {
-    return this.workflowExecution;
-  }
-
-  /**
    * Get the raw WorkflowExecution data object
+   *
+   * This is the primary access method for the underlying data object.
+   * Use this instead of the deprecated getExecution() alias.
+   *
    * @returns WorkflowExecution data object
    * @internal For internal use only
    */
@@ -501,51 +571,79 @@ export class WorkflowExecutionEntity implements Abortable {
 
   /**
    * Pause the workflow execution
+   *
+   * Delegates to WorkflowExecutionState.pause() which validates the transition.
+   * Consistent with AgentLoopEntity.pause() behavior.
    */
   pause(): void {
-    this.state.status = "PAUSED";
+    this.state.pause();
   }
 
   /**
    * Resume the workflow execution
+   *
+   * Delegates to WorkflowExecutionState.resume() which validates the transition.
+   * Consistent with AgentLoopEntity.resume() behavior.
    */
   resume(): void {
-    this.state.status = "RUNNING";
+    this.state.resume();
   }
 
   /**
    * Stop the workflow execution
+   *
+   * Consistent with AgentLoopEntity.stop() behavior:
+   * delegates to state.cancel() for status transition and aborts for signal propagation.
    */
   stop(): void {
-    this.state.status = "STOPPED";
-    if (this.abortController) {
-      this.abortController.abort();
-    }
+    this.state.cancel();
+    this.abort();
   }
 
   /**
    * Interrupt the workflow execution
+   *
+   * Updates both WorkflowExecutionState and InterruptionState (if available)
+   * for cascade propagation, AbortSignal, and event emission.
+   *
+   * When InterruptionState is available, the cascade flow is:
+   *   interrupt("PAUSE") → interruptState.requestPause()
+   *     → sets interruptionType, aborts signal, emits EVENT_PAUSED via EventRegistry
+   *     → child executions with connectToParent() auto-receive the pause
+   *
+   * This is consistent with AgentLoopEntity.interrupt() behavior.
+   *
    * @param type Interrupt type (PAUSE or STOP)
    */
   interrupt(type: "PAUSE" | "STOP"): void {
     this.state.interrupt(type);
 
-    // Create proper abort reason with workflow context (nodeId)
-    const currentNodeId = this.getCurrentNodeId();
-    if (currentNodeId && this.abortController) {
-      const abortReason = createWorkflowInterruptionAbortReason(type, this.id, currentNodeId);
-      this.abortController.abort(abortReason);
+    if (this.interruptionState) {
+      // Delegate to InterruptionState for signal abort, event emission, and child cascade
+      if (type === "PAUSE") {
+        this.interruptionState.requestPause();
+      } else {
+        this.interruptionState.requestStop();
+      }
+    } else {
+      // Fallback: abort own controller with workflow context (nodeId) if no InterruptionState is configured
+      const currentNodeId = this.getCurrentNodeId();
+      if (currentNodeId && this.abortController) {
+        const abortReason = createWorkflowInterruptionAbortReason(type, this.id, currentNodeId);
+        this.abortController.abort(abortReason);
+      }
     }
   }
 
   /**
    * Reset the interrupt flag
    *
-   * NOTE: This method now also calls interruptionState.resume() to trigger
-   * automatic cascade propagation to all children (if interruption state is set).
+   * Updates both WorkflowExecutionState and InterruptionState (if available)
+   * for cascade propagation to children.
+   * Consistent with AgentLoopEntity.resetInterrupt() behavior.
    */
   resetInterrupt(): void {
-    this.state.interrupted = false;
+    this.state.resetInterrupt();
 
     // Trigger resume on interruption state to auto-propagate to children
     if (this.interruptionState) {

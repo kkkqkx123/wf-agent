@@ -125,7 +125,7 @@ export async function variableHandler(
   const config = node.config as VariableNodeConfig;
 
   // Check if the variable is read-only.
-  const workflowExecution = executionEntity.getExecution();
+  const workflowExecution = executionEntity.getWorkflowExecutionData();
   const existingVariable = workflowExecution.variables?.find(
     (v: { name: string; readonly?: boolean }) => v.name === config.variableName,
   );

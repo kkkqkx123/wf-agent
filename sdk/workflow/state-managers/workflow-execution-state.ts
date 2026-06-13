@@ -104,7 +104,9 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Set the status
+   * Set the status (internal - prefer using lifecycle methods like start(), pause(), resume() etc.)
+   * @internal This setter exists for WorkflowExecutionEntity.setStatus() compatibility.
+   *           Direct status assignment should be migrated to use lifecycle methods.
    */
   set status(value: WorkflowExecutionStatus) {
     this._status = value;
@@ -139,7 +141,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Set the interrupted flag
+   * Set the interrupted flag (prefer using interrupt()/resetInterrupt() methods)
+   * @internal This setter exists for backward compatibility.
    */
   set interrupted(value: boolean) {
     this._interrupted = value;

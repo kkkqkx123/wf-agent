@@ -55,8 +55,8 @@ export async function continueFromTriggerHandler(
 
   // Handle message context outputs if configured
   if (config.messageOutputs && config.messageOutputs.length > 0) {
-    const workflowExecution = workflowExecutionEntity.getExecution();
-    const mainWorkflowExecution = mainWorkflowExecutionEntity.getExecution();
+    const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
+    const mainWorkflowExecution = mainWorkflowExecutionEntity.getWorkflowExecutionData();
 
     // Access message context registries
     const registry = (

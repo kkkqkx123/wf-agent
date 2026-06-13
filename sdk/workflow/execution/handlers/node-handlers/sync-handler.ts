@@ -342,8 +342,8 @@ export async function syncHandler(
       logger.debug("Syncing message contexts from source to target", {
         count: config.messageInputs.length,
       });
-      const sourceExecution = sourceExecutionEntity.getExecution();
-      const targetExecution = workflowExecutionEntity.getExecution();
+      const sourceExecution = sourceExecutionEntity.getWorkflowExecutionData();
+      const targetExecution = workflowExecutionEntity.getWorkflowExecutionData();
       const sourceRegistry = (
         sourceExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
       ).messageContextRegistry;

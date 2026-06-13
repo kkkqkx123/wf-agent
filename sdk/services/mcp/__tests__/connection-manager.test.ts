@@ -95,6 +95,7 @@ describe("McpConnectionManager", () => {
         type: "stdio",
         command: "node",
         args: ["-e", "console.log('ready')"],
+        lifecycle: "eager",
       });
 
       const state = manager.getServerState("echo");
@@ -123,11 +124,94 @@ describe("McpConnectionManager", () => {
 
     it("should emit events during connection", async () => {
       const events: string[] = [];
-      manager.addEventHandler(event => events.push(event.type));
+      manager.addEventHandler((event) => events.push(event.type));
 
-      await manager.connectServer("echo", { type: "stdio", command: "echo" });
+      await manager.connectServer("echo", { type: "stdio", command: "echo", lifecycle: "eager" });
       expect(events).toContain("server:connecting");
       expect(events).toContain("server:connected");
+    });
+
+    it("should not auto-connect in lazy mode", async () => {
+      await manager.connectServer(
+        "lazy-server",
+        { type: "stdio", command: "echo", lifecycle: "lazy" },
+        "global"
+      );
+
+      const state = manager.getServerState("lazy-server");
+      expect(state).toBeDefined();
+      expect(state!.status).toBe("disconnected");
+    });
+
+    it("should auto-connect in eager mode", async () => {
+      await manager.connectServer(
+        "eager-server",
+        { type: "stdio", command: "echo", lifecycle: "eager" },
+        "global"
+      );
+
+      const state = manager.getServerState("eager-server");
+      expect(state).toBeDefined();
+      expect(state!.status).toBe("connected");
+    });
+
+    it("should auto-connect in keep-alive mode", async () => {
+      await manager.connectServer(
+        "keepalive-server",
+        { type: "stdio", command: "echo", lifecycle: "keep-alive" },
+        "global"
+      );
+
+      const state = manager.getServerState("keepalive-server");
+      expect(state).toBeDefined();
+      expect(state!.status).toBe("connected");
+    });
+
+    it("should respect manager-level defaultLifecycle", async () => {
+      const mgr = new McpConnectionManager(
+        { name: "app", version: "1.0" },
+        { defaultLifecycle: "eager", connectionTimeout: 5000 }
+      );
+
+      await mgr.connectServer(
+        "default-eager",
+        { type: "stdio", command: "echo" },
+        "global"
+      );
+
+      const state = mgr.getServerState("default-eager");
+      expect(state!.status).toBe("connected");
+      await mgr.disconnectAll();
+    });
+  });
+
+  describe("lifecycle — lazy auto-connect on callTool", () => {
+    it("should auto-connect lazy server on first callTool", async () => {
+      await manager.connectServer(
+        "lazy",
+        { type: "stdio", command: "echo", lifecycle: "lazy" },
+        "global"
+      );
+
+      const before = manager.getServerState("lazy");
+      expect(before!.status).toBe("disconnected");
+
+      await manager.callTool("lazy", "echo", {});
+
+      const after = manager.getServerState("lazy");
+      expect(after!.status).toBe("connected");
+    });
+
+    it("should throw for unregistered server on callTool", async () => {
+      await expect(manager.callTool("nonexistent", "tool")).rejects.toThrow(
+        "No server registered"
+      );
+    });
+
+    it("should throw for unregistered server on readResource", async () => {
+      await expect(manager.readResource("nonexistent", "uri")).rejects.toThrow(
+        "No server registered"
+      );
     });
   });
 
@@ -167,9 +251,8 @@ describe("McpConnectionManager", () => {
 
   describe("getConnectedServers", () => {
     it("should return only connected servers", async () => {
-      await manager.connectServer("s1", { type: "stdio", command: "echo" });
+      await manager.connectServer("s1", { type: "stdio", command: "echo", lifecycle: "eager" });
 
-      // Add disabled entry
       await manager.connectServer("disabled", { type: "stdio", command: "echo", disabled: true });
 
       const connected = manager.getConnectedServers();
@@ -188,12 +271,21 @@ describe("McpConnectionManager", () => {
     });
 
     it("should throw on unknown server", async () => {
-      await expect(manager.callTool("unknown", "tool")).rejects.toThrow("No connection found");
+      await expect(manager.callTool("unknown", "tool")).rejects.toThrow("No server registered");
     });
 
     it("should throw on disabled server", async () => {
       await manager.connectServer("disabled", { type: "stdio", command: "echo", disabled: true });
       await expect(manager.callTool("disabled", "tool")).rejects.toThrow("disabled");
+    });
+
+    it("should update lastActivity after tool call", async () => {
+      await manager.connectServer("echo", { type: "stdio", command: "echo" });
+
+      await manager.callTool("echo", "echo", {});
+
+      const state = manager.getServerState("echo");
+      expect(state!.lastActivity).toBeDefined();
     });
   });
 
@@ -206,7 +298,7 @@ describe("McpConnectionManager", () => {
     });
 
     it("should throw on unknown server", async () => {
-      await expect(manager.readResource("unknown", "uri")).rejects.toThrow("No connection found");
+      await expect(manager.readResource("unknown", "uri")).rejects.toThrow("No server registered");
     });
   });
 

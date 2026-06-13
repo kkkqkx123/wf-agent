@@ -40,6 +40,7 @@ import type {
 } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
+import type { IExecutionEntity } from "../../core/types/execution-entity.js";
 import { AgentLoopState } from "../state-managers/agent-loop-state.js";
 import { ExecutionHierarchyManager } from "../../core/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../core/registry/execution-hierarchy-registry.js";
@@ -47,7 +48,6 @@ import { createAgentInterruptionAbortReason } from "../execution/utils/index.js"
 import { ToolFailureProtectionState } from "../../core/state-managers/tool-failure-protection-state.js";
 import type { ToolFailureProtectionConfig } from "../../core/state-managers/tool-failure-protection-types.js";
 import type { InterruptionState } from "../../core/utils/interruption/interruption-state.js";
-import type { Abortable } from "../../core/types/abortable.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "AgentLoopEntity" });
@@ -86,9 +86,12 @@ export type FollowUpMode = "one-at-a-time" | "all";
  * - Use a unified ConversationSession to manage message history.
  * - Encapsulation: conversationManager is private, accessed via getter.
  */
-export class AgentLoopEntity implements Abortable {
+export class AgentLoopEntity implements IExecutionEntity {
   /** Execution Instance ID */
   readonly id: string;
+
+  /** Discriminant property for type-safe dispatch */
+  readonly instanceType = "agent" as const;
 
   /** Runtime configuration (immutable) */
   readonly config: AgentLoopRuntimeConfig;
@@ -155,15 +158,6 @@ export class AgentLoopEntity implements Abortable {
 
     // Initialize tool failure protection state
     this.toolFailureProtection = new ToolFailureProtectionState(toolFailureProtectionConfig);
-  }
-
-  /**
-   * Asynchronous initialization message
-   * Deprecated: Conversation session is now managed externally by AgentStateCoordinator.
-   * @param _config Message configuration (ignored)
-   */
-  async initializeMessages(): Promise<void> {
-    // No-op: ConversationSession is managed externally by AgentStateCoordinator
   }
 
   // Status Access

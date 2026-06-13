@@ -62,6 +62,6 @@ export class RestoreFromCheckpointCommand extends BaseCommand<WorkflowExecution>
       this.params.checkpointId,
       dependencies,
     );
-    return workflowExecutionEntity.getExecution();
+    return workflowExecutionEntity.getWorkflowExecutionData();
   }
 }

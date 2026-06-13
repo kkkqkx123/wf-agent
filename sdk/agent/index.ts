@@ -26,7 +26,7 @@ export {
 export { type AgentLoopStateSnapshot } from "@wf-agent/types";
 
 // State Manager Layer
-export { AgentLoopState } from "./state-managers/index.js";
+export { AgentLoopState, AgentStateCoordinator } from "./state-managers/index.js";
 
 // Execution Layer (Factories and Lifecycle)
 export {

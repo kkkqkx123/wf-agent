@@ -338,10 +338,12 @@ export class TriggeredSubworkflowHandler implements TaskManager {
       try {
         const agentEntity = await this.agentExecutionRegistry.get(task.sourceEntityId);
         if (agentEntity) {
+          // Retrieve messages from the AgentStateCoordinator (single data source)
+          const stateCoordinator = this.agentExecutionRegistry.getStateCoordinator(agentEntity.id);
           return {
             type: "agent",
             entityId: agentEntity.id,
-            messages: agentEntity.getMessages(),
+            messages: stateCoordinator?.getMessages() ?? [],
             agentState: {
               currentIteration: agentEntity.state.currentIteration,
               toolCallCount: agentEntity.state.toolCallCount,

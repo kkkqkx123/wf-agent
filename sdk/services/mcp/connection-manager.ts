@@ -194,7 +194,7 @@ export class McpConnectionManager {
       return;
     }
 
-    await this.doConnect(name, config, source, projectPath);
+    await this.doConnect(name, config);
 
     if (lifecycle === "keep-alive") {
       this.startHealthCheck(name);
@@ -211,8 +211,6 @@ export class McpConnectionManager {
   private async doConnect(
     name: string,
     config: McpServerConfig,
-    source: McpServerSource,
-    projectPath?: string,
   ): Promise<void> {
     const entry = this.connections.get(name);
     if (!entry) return;
@@ -279,7 +277,7 @@ export class McpConnectionManager {
 
     if (needsConnect) {
       logger.debug(`Auto-connecting lazy server "${name}"`);
-      await this.doConnect(name, entry.config, entry.state.source, entry.state.projectPath);
+      await this.doConnect(name, entry.config);
     }
 
     const reloaded = this.connections.get(name);

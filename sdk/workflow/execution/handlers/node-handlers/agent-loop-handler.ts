@@ -274,7 +274,7 @@ function resolveAgentRuntimeConfig(config: AgentLoopNodeConfig): ResolvedAgentRu
 }
 
 interface AgentLoopExecutionEntity {
-  getExecution(): WorkflowExecution;
+  getWorkflowExecutionData(): WorkflowExecution;
   getInput?(): Record<string, unknown>;
 }
 
@@ -287,7 +287,7 @@ export async function agentLoopHandler(
   node: RuntimeNode,
   context: AgentLoopHandlerContext,
 ): Promise<AgentLoopExecutionResult> {
-  const execution = executionEntity.getExecution();
+  const execution = executionEntity.getWorkflowExecutionData();
   const config = node.config as AgentLoopNodeConfig;
   const startTime = now();
 
@@ -542,7 +542,8 @@ export async function* agentLoopStreamHandler(
     const entity = coordinator.getRunning()[0] || coordinator.getPaused()[0];
     const iterations = entity?.state.currentIteration ?? 0;
     const toolCallCount = entity?.state.toolCallCount ?? 0;
-    const content = entity
+    const stateCoordinator = entity ? coordinator.getStateCoordinator(entity.id) : null;
+    const content = stateCoordinator
       ?.getMessages()
       .filter((m: { role: string; content: unknown }) => m.role === "assistant")
       .pop()?.content;

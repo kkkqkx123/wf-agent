@@ -153,7 +153,7 @@ export class AgentLoopExecutor {
       "sync",
     );
 
-    const coordinator = this.createCoordinator();
+    const coordinator = this.createCoordinator(stateCoordinator);
     return coordinator.execute(
       entity,
       stateCoordinator.getConversationManager(),
@@ -180,7 +180,7 @@ export class AgentLoopExecutor {
       "stream",
     );
 
-    const coordinator = this.createCoordinator();
+    const coordinator = this.createCoordinator(stateCoordinator);
     yield* coordinator.executeStream(
       entity,
       stateCoordinator.getConversationManager(),
@@ -232,14 +232,16 @@ export class AgentLoopExecutor {
 
   /**
    * Create AgentExecutionCoordinator
+   * @param stateCoordinator Agent State Coordinator for message access
    */
-  private createCoordinator(): AgentExecutionCoordinator {
+  private createCoordinator(stateCoordinator: AgentStateCoordinator): AgentExecutionCoordinator {
     // Create ToolExecutionCoordinator first
     const toolExecutionCoordinator = new ToolExecutionCoordinator({
       toolCallExecutor: this.toolCallExecutor,
       eventManager: this.eventManager,
       toolApprovalHandler: this.toolApprovalHandler,
       emitEvent: this.emitEvent,
+      stateCoordinator,
     });
 
     // Create CoreLLMExecutionCoordinator for unified LLM execution with transformContext support
@@ -258,6 +260,7 @@ export class AgentLoopExecutor {
       toolExecutionCoordinator,
       emitAgentEvent: this.emitAgentEvent.bind(this),
       eventManager: this.eventManager,
+      stateCoordinator,
     });
 
     // Create AgentExecutionCoordinator with iteration coordinator and metrics

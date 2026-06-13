@@ -41,7 +41,7 @@ export async function skipNodeHandler(
       );
     }
 
-    const workflowExecution = executionEntity.getExecution();
+    const workflowExecution = executionEntity.getWorkflowExecutionData();
 
     const result: NodeExecutionResult = {
       nodeId,

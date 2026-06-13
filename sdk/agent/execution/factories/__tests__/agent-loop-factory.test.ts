@@ -29,7 +29,6 @@ const {
 } = vi.hoisted(() => {
   const _mockRandomUUID = vi.fn();
 
-  const _mockEntityInitializeMessages = vi.fn();
   const _mockEntitySetMessages = vi.fn();
   const _mockEntitySetParentContext = vi.fn();
 
@@ -41,7 +40,6 @@ const {
     this.id = id;
     this.config = config;
     this.state = { currentIteration: 0 };
-    this.initializeMessages = _mockEntityInitializeMessages;
     this.setMessages = _mockEntitySetMessages;
     this.setParentContext = _mockEntitySetParentContext;
   });
@@ -169,21 +167,6 @@ describe("AgentLoopFactory", () => {
         initialMessages: undefined,
       });
       expect(entity.id).toBe("agent-loop-test-uuid-123");
-    });
-
-    it("should pass initialMessages to initializeMessages when provided", async () => {
-      const initialMessages = [{ role: "user", content: "Custom message" } as any];
-      mockOptions.initialMessages = initialMessages;
-
-      await AgentLoopFactory.create(mockGlobalContext, mockConfig, mockOptions);
-
-      expect(mockEntityInitializeMessages).toHaveBeenCalledWith({
-        systemPrompt: "You are a helpful assistant.",
-        systemPromptTemplateId: undefined,
-        systemPromptTemplateVariables: undefined,
-        initialUserMessage: "Hello!",
-        initialMessages,
-      });
     });
 
     it("should call setMessages when initialMessages.length > 0", async () => {

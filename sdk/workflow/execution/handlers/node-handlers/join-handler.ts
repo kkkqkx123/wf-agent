@@ -187,7 +187,7 @@ function evaluateStrategy(
 function getMessageContextRegistry(
   entity: WorkflowExecutionEntity,
 ): MessageContextRegistry | undefined {
-  const execution = entity.getExecution();
+  const execution = entity.getWorkflowExecutionData();
   return (execution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry })
     .messageContextRegistry;
 }

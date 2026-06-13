@@ -513,7 +513,7 @@ export class AgentLoopCoordinator {
     }
 
     // Validate last message
-    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    let stateCoordinator = this.registry.getStateCoordinator(entity.id);
     const messages = stateCoordinator?.getMessages() ?? [];
     const lastMessage = messages[messages.length - 1];
 
@@ -535,7 +535,7 @@ export class AgentLoopCoordinator {
     // Reset state for continuation using state transitor
     await this.stateTransitor.resumeAgentLoop(entity);
 
-    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    stateCoordinator = this.registry.getStateCoordinator(entity.id);
     if (!stateCoordinator) {
       logger.warn("Agent Loop state coordinator not found for continue operation", {
         agentLoopId: id,
@@ -632,6 +632,15 @@ export class AgentLoopCoordinator {
    */
   getPaused(): AgentLoopEntity[] {
     return this.registry.getPaused();
+  }
+
+  /**
+   * Get the AgentStateCoordinator for a given agent loop entity
+   * @param agentLoopId Agent Loop ID
+   * @returns AgentStateCoordinator instance or null
+   */
+  getStateCoordinator(agentLoopId: ID): AgentStateCoordinator | null {
+    return this.registry.getStateCoordinator(agentLoopId);
   }
 
   /**

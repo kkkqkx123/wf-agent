@@ -14,6 +14,9 @@ import type { WorkflowExecutionResult, TaskStatus } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
 
+// Re-export IExecutionEntity and ExecutionStatus
+export type { IExecutionEntity, ExecutionStatus } from "./execution-entity.js";
+
 // ============================================================================
 // Execution Instance Types
 // ============================================================================
@@ -27,6 +30,7 @@ export type ExecutionInstanceType = "agent" | "workflowExecution";
 /**
  * Unified execution instance type
  * Supports both AgentLoopEntity and WorkflowExecutionEntity
+ * Both implement IExecutionEntity and provide instanceType discriminant
  */
 export type ExecutionInstance = AgentLoopEntity | WorkflowExecutionEntity;
 
@@ -36,22 +40,24 @@ export type ExecutionInstance = AgentLoopEntity | WorkflowExecutionEntity;
 
 /**
  * Check if the execution instance is an AgentLoopEntity
+ * Uses the instanceType discriminant property for reliable type narrowing
  * @param instance Execution instance
  * @returns True if the instance is an AgentLoopEntity
  */
 export function isAgentInstance(instance: ExecutionInstance): instance is AgentLoopEntity {
-  return "config" in instance && "conversationManager" in instance;
+  return instance.instanceType === "agent";
 }
 
 /**
  * Check if the execution instance is a WorkflowExecutionEntity
+ * Uses the instanceType discriminant property for reliable type narrowing
  * @param instance Execution instance
  * @returns True if the instance is a WorkflowExecutionEntity
  */
 export function isWorkflowExecutionInstance(
   instance: ExecutionInstance,
 ): instance is WorkflowExecutionEntity {
-  return "getExecutionId" in instance && "getWorkflowId" in instance;
+  return instance.instanceType === "workflowExecution";
 }
 
 /**

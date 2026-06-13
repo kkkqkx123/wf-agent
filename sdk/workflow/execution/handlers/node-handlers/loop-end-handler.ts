@@ -171,7 +171,7 @@ export async function loopEndHandler(
   workflowExecutionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  const workflowExecution = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
 
   // Check if it is possible to execute.
   if (!canExecute(workflowExecutionEntity, node)) {

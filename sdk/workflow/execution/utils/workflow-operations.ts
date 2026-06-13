@@ -551,7 +551,7 @@ async function waitForCompletion(
       for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
-          const WorkflowExecution = executionEntity.getExecution();
+          const WorkflowExecution = executionEntity.getWorkflowExecutionData();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedExecutions.push(WorkflowExecution);
@@ -570,7 +570,7 @@ async function waitForCompletion(
       for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
-          const WorkflowExecution = executionEntity.getExecution();
+          const WorkflowExecution = executionEntity.getWorkflowExecutionData();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedExecutions.push(WorkflowExecution);
@@ -590,7 +590,7 @@ async function waitForCompletion(
       for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
-          const WorkflowExecution = executionEntity.getExecution();
+          const WorkflowExecution = executionEntity.getWorkflowExecutionData();
           const status = executionEntity.getStatus();
           if (status === "FAILED" || status === "CANCELLED") {
             failedExecutions.push(WorkflowExecution);
@@ -609,7 +609,7 @@ async function waitForCompletion(
       for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
-          const WorkflowExecution = executionEntity.getExecution();
+          const WorkflowExecution = executionEntity.getWorkflowExecutionData();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedExecutions.push(WorkflowExecution);
@@ -629,7 +629,7 @@ async function waitForCompletion(
       for (const executionId of childExecutionIds) {
         const executionEntity = workflowExecutionRegistry.get(executionId);
         if (executionEntity) {
-          const WorkflowExecution = executionEntity.getExecution();
+          const WorkflowExecution = executionEntity.getWorkflowExecutionData();
           const status = executionEntity.getStatus();
           if (status === "COMPLETED") {
             completedExecutions.push(WorkflowExecution);

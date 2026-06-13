@@ -305,7 +305,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
    * Extract state from entity for checkpoint creation
    */
   protected extractState(entity: WorkflowExecutionEntity): WorkflowExecutionStateSnapshot {
-    const workflowExecution = entity.getExecution();
+    const workflowExecution = entity.getWorkflowExecutionData();
     const convManager = this.currentConversationManager;
 
     // Create variable snapshot

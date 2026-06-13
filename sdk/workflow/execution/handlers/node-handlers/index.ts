@@ -72,7 +72,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     // Handlers that don't use globalContext (ignore it)
     CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
       contextProcessorHandler(
-        workflowExecutionEntity.getExecution(),
+        workflowExecutionEntity.getWorkflowExecutionData(),
         node,
         context as ContextProcessorHandlerContext,
       ),
@@ -89,7 +89,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
     JOIN: (globalContext, workflowExecutionEntity, node, _ctx) =>
       joinHandler(globalContext, workflowExecutionEntity, node),
     LLM: (_gc, workflowExecutionEntity, node, context) =>
-      llmHandler(workflowExecutionEntity.getExecution(), node, context as LLMHandlerContext),
+      llmHandler(workflowExecutionEntity.getWorkflowExecutionData(), node, context as LLMHandlerContext),
     LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) =>
       loopEndHandler(workflowExecutionEntity, node),
     LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) =>
@@ -117,7 +117,7 @@ export function getNodeHandler(nodeType: string): NodeHandlerFn {
       embedEndHandler(workflowExecutionEntity, node),
     USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
       userInteractionHandler(
-        workflowExecutionEntity.getExecution(),
+        workflowExecutionEntity.getWorkflowExecutionData(),
         node,
         context as UserInteractionHandlerContext,
         workflowExecutionEntity,

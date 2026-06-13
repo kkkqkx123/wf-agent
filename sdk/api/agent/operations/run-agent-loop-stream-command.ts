@@ -29,6 +29,8 @@ import {
   type AgentLoopStreamEvent,
 } from "../../../agent/execution/executors/agent-loop-executor.js";
 import { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
+import { ConversationSession } from "../../../core/messaging/conversation-session.js";
+import { AgentStateCoordinator } from "../../../agent/state-managers/agent-state-coordinator.js";
 
 /**
  * Run the Agent with cyclic command parameters
@@ -56,7 +58,13 @@ export class RunAgentLoopStreamCommand extends BaseCommand<AsyncGenerator<AgentL
 
   protected async executeInternal(): Promise<AsyncGenerator<AgentLoopStreamEvent>> {
     const entity = new AgentLoopEntity(`command-${Date.now()}`, this.params.config);
-    return this.agentLoopExecutor.executeStream(entity);
+    const conversationSession = new ConversationSession({
+      executionId: entity.id,
+    });
+    const stateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
+    return this.agentLoopExecutor.executeStream(entity, stateCoordinator);
   }
   validate(): CommandValidationResult {
     const errors: string[] = [];

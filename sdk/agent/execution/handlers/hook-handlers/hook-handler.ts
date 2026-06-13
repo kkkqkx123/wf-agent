@@ -24,6 +24,7 @@ import {
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { buildAgentHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
 import { emitAgentHookEvent } from "./event-emitter.js";
+import type { AgentStateCoordinator } from "../../../state-managers/agent-state-coordinator.js";
 
 // Logger is available for future use
 void createContextualLogger({ component: "AgentHookHandler" });
@@ -54,8 +55,15 @@ export interface AgentHookExecutionContext extends BaseHookContext {
 /**
  * Build an Agent Hook to evaluate the context
  */
-function buildAgentEvalContext(context: AgentHookExecutionContext): Record<string, unknown> {
-  const hookEvalContext = buildAgentHookEvaluationContext(context.entity, context.toolCall);
+function buildAgentEvalContext(
+  context: AgentHookExecutionContext,
+  stateCoordinator: AgentStateCoordinator,
+): Record<string, unknown> {
+  const hookEvalContext = buildAgentHookEvaluationContext(
+    context.entity,
+    stateCoordinator,
+    context.toolCall,
+  );
   return convertToEvaluationContext(hookEvalContext);
 }
 
@@ -77,6 +85,7 @@ function createEventEmitterHandler(
  * @param entity: Agent Loop entity
  * @param hookType: Hook type
  * @param emitEvent: Event emission function
+ * @param stateCoordinator: Agent State Coordinator for message access
  * @param toolCallInfo: Tool call information (optional)
  * @param llmResponse: LLM response information (optional)
  */
@@ -84,6 +93,7 @@ export async function executeAgentHook(
   entity: AgentLoopEntity,
   hookType: AgentHookType,
   emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
+  stateCoordinator: AgentStateCoordinator,
   toolCallInfo?: {
     id: string;
     name: string;
@@ -127,7 +137,7 @@ export async function executeAgentHook(
   await executeHooks(
     hooks,
     context,
-    buildAgentEvalContext,
+    (ctx) => buildAgentEvalContext(ctx, stateCoordinator),
     handlers,
     async () => {
       // The event has been processed by createEventEmitterHandler.

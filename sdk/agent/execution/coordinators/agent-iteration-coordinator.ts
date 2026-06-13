@@ -37,6 +37,7 @@ import {
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 import {
   buildAgentStartedEvent,
   buildAgentCompletedEvent,
@@ -84,12 +85,14 @@ export class AgentIterationCoordinator {
   private readonly toolExecutionCoordinator: ToolExecutionCoordinator;
   private readonly emitAgentEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
   private readonly eventManager?: EventRegistry;
+  private readonly stateCoordinator: AgentStateCoordinator;
 
-  constructor(deps: AgentIterationCoordinatorDependencies) {
+  constructor(deps: AgentIterationCoordinatorDependencies & { stateCoordinator: AgentStateCoordinator }) {
     this.coreCoordinator = deps.coreCoordinator;
     this.toolExecutionCoordinator = deps.toolExecutionCoordinator;
     this.emitAgentEvent = deps.emitAgentEvent;
     this.eventManager = deps.eventManager;
+    this.stateCoordinator = deps.stateCoordinator;
   }
 
   /**
@@ -109,7 +112,7 @@ export class AgentIterationCoordinator {
   }> {
     const agentLoopId = entity.id;
 
-    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
+    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent, this.stateCoordinator);
     entity.state.startIteration();
 
     const iterationStartEvent = this.createIterationStartEvent(
@@ -118,7 +121,7 @@ export class AgentIterationCoordinator {
     );
     await this.emitToRegistry(iterationStartEvent, entity);
 
-    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
+    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent, this.stateCoordinator);
 
     const preCheck = checkAgentInterruption(abortSignal, entity.state.currentIteration);
     if (preCheck.type === "paused" || preCheck.type === "stopped") {
@@ -169,7 +172,7 @@ export class AgentIterationCoordinator {
 
     const response = llmResult;
 
-    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, undefined, {
+    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, this.stateCoordinator, undefined, {
       content: response.content,
       toolCalls: response.toolCalls,
     });
@@ -199,7 +202,7 @@ export class AgentIterationCoordinator {
       });
 
       entity.state.endIteration(response.content);
-      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
+      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
       entity.state.complete();
 
       return { success: true, shouldContinue: false, content: response.content };
@@ -215,7 +218,7 @@ export class AgentIterationCoordinator {
       })),
     );
     entity.state.endIteration(response.content);
-    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
+    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
 
     return { success: true, shouldContinue: true, content: response.content };
   }
@@ -231,7 +234,7 @@ export class AgentIterationCoordinator {
   ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
     const agentLoopId = entity.id;
 
-    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent);
+    await executeAgentHook(entity, "BEFORE_ITERATION", this.emitAgentEvent, this.stateCoordinator);
     entity.state.startIteration();
 
     yield this.createIterationStartEvent(agentLoopId, entity.state.currentIteration);
@@ -240,7 +243,7 @@ export class AgentIterationCoordinator {
       entity,
     );
 
-    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent);
+    await executeAgentHook(entity, "BEFORE_LLM_CALL", this.emitAgentEvent, this.stateCoordinator);
 
     logger.debug("Calling LLM for stream", {
       agentLoopId,
@@ -273,7 +276,7 @@ export class AgentIterationCoordinator {
 
     const finalResult = result.finalResult!;
 
-    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, undefined, {
+    await executeAgentHook(entity, "AFTER_LLM_CALL", this.emitAgentEvent, this.stateCoordinator, undefined, {
       content: finalResult.content,
       toolCalls: finalResult.toolCalls,
     });
@@ -307,7 +310,7 @@ export class AgentIterationCoordinator {
       );
 
       entity.state.endIteration(finalResult.content);
-      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
+      await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
 
       return false;
     }
@@ -330,7 +333,7 @@ export class AgentIterationCoordinator {
     });
 
     entity.state.endIteration(finalResult.content);
-    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent);
+    await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
 
     return true;
   }

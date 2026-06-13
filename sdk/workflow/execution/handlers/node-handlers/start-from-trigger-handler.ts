@@ -74,7 +74,7 @@ export async function startFromTriggerHandler(
   workflowExecutionEntity.state.start();
 
   // Variables and results for initializing a WorkflowExecution
-  const workflowExecution = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
   if (!workflowExecution.variables) {
     workflowExecution.variables = [];
   }
@@ -137,7 +137,7 @@ export async function startFromTriggerHandler(
   // Handle message contexts if configured
   if (config?.messageInputs && config.messageInputs.length > 0) {
     // Access the message context registry from workflowExecution
-    const workflowExecution = workflowExecutionEntity.getExecution();
+    const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
     const registry = (
       workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
     ).messageContextRegistry;

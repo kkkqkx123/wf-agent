@@ -45,7 +45,7 @@ export async function startHandler(
   workflowExecutionEntity.state.start();
 
   // Initializing variables and results for the WorkflowExecution
-  const workflowExecution = workflowExecutionEntity.getExecution();
+  const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
   if (!workflowExecution.variables) {
     workflowExecution.variables = [];
   }

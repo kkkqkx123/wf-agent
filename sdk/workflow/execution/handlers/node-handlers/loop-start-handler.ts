@@ -270,7 +270,7 @@ export async function loopStartHandler(
   executionEntity: WorkflowExecutionEntity,
   node: RuntimeNode,
 ): Promise<unknown> {
-  const workflowExecution = executionEntity.getExecution();
+  const workflowExecution = executionEntity.getWorkflowExecutionData();
 
   const config = node.config as LoopStartNodeConfig;
 

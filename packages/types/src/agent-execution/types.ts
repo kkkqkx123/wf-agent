@@ -15,6 +15,10 @@
 
 /**
  * Agent Loop Execution Status Enumeration
+ *
+ * Unified with WorkflowExecutionStatus to provide consistent status values
+ * across both execution types. STOPPED and TIMEOUT are added for consistency,
+ * though Agent typically maps stop requests to CANCELLED.
  */
 export const AgentLoopStatus = {
   CREATED: "CREATED",
@@ -23,6 +27,8 @@ export const AgentLoopStatus = {
   COMPLETED: "COMPLETED",
   FAILED: "FAILED",
   CANCELLED: "CANCELLED",
+  STOPPED: "STOPPED",
+  TIMEOUT: "TIMEOUT",
 } as const;
 
 /**

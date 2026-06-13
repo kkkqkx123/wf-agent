@@ -30,6 +30,7 @@ import type { EventRegistry } from "../../../core/registry/event-registry.js";
 import { ToolApprovalCoordinator } from "../../../core/coordinators/tool-approval-coordinator.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 
 const logger = createContextualLogger({ component: "ToolExecutionCoordinator" });
 
@@ -58,12 +59,14 @@ export class ToolExecutionCoordinator {
   private readonly eventManager?: EventRegistry;
   private readonly toolApprovalHandler?: ToolApprovalHandler;
   private readonly emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
+  private readonly stateCoordinator: AgentStateCoordinator;
 
-  constructor(deps: ToolExecutionCoordinatorDependencies) {
+  constructor(deps: ToolExecutionCoordinatorDependencies & { stateCoordinator: AgentStateCoordinator }) {
     this.toolCallExecutor = deps.toolCallExecutor;
     this.eventManager = deps.eventManager;
     this.toolApprovalHandler = deps.toolApprovalHandler;
     this.emitEvent = deps.emitEvent;
+    this.stateCoordinator = deps.stateCoordinator;
 
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
@@ -266,6 +269,7 @@ export class ToolExecutionCoordinator {
         entity,
         "BEFORE_TOOL_CALL",
         this.emitAgentEvent.bind(this),
+        this.stateCoordinator,
         toolCallInfo,
       );
 
@@ -285,7 +289,7 @@ export class ToolExecutionCoordinator {
 
       if (result.success) {
         entity.state.recordToolCallEnd(result.toolCallId, result.result);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), {
+        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
           ...toolCallInfo,
           result: result.result,
         });
@@ -308,7 +312,7 @@ export class ToolExecutionCoordinator {
         await this.emitToRegistry(endEvent, entity);
       } else {
         entity.state.recordToolCallEnd(result.toolCallId, undefined, result.error);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), {
+        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
           ...toolCallInfo,
           error: result.error,
         });
@@ -354,6 +358,7 @@ export class ToolExecutionCoordinator {
       entity,
       "BEFORE_TOOL_CALL",
       this.emitAgentEvent.bind(this),
+      this.stateCoordinator,
       toolCallInfo,
     );
 
@@ -376,7 +381,7 @@ export class ToolExecutionCoordinator {
       const result = toolResults[0];
       if (result?.success) {
         entity.state.recordToolCallEnd(toolCall.id, result.result);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), {
+        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
           ...toolCallInfo,
           result: result.result,
         });
@@ -386,7 +391,7 @@ export class ToolExecutionCoordinator {
           undefined,
           result?.error || "Tool execution failed",
         );
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), {
+        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
           ...toolCallInfo,
           error: result?.error,
         });
@@ -403,7 +408,7 @@ export class ToolExecutionCoordinator {
         undefined,
         executionResult.error || "Rejected by user",
       );
-      await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), {
+      await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
         ...toolCallInfo,
         error: executionResult.error,
       });

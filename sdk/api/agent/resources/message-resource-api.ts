@@ -71,7 +71,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return null;
     }
 
-    const messages = entity.getMessages();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    const messages = stateCoordinator?.getMessages() ?? [];
     const index = parseInt(indexStr, 10);
     if (isNaN(index) || index < 0 || index >= messages.length) {
       return null;
@@ -89,7 +90,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
     const allMessages: LLMMessage[] = [];
 
     for (const entity of entities) {
-      const messages = entity.getMessages();
+      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+      const messages = stateCoordinator?.getMessages() ?? [];
       allMessages.push(...messages);
     }
 
@@ -141,7 +143,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return [];
     }
 
-    let messages = entity.getMessages();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    let messages = stateCoordinator?.getMessages() ?? [];
 
     // Application Sorting
     if (orderBy === "desc") {
@@ -170,7 +173,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return [];
     }
 
-    return entity.getRecentMessages(count);
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    return stateCoordinator?.getRecentMessages(count) ?? [];
   }
 
   /**
@@ -185,7 +189,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return [];
     }
 
-    const messages = entity.getMessages();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    const messages = stateCoordinator?.getMessages() ?? [];
     return messages.filter(message => {
       const content =
         typeof message.content === "string" ? message.content : JSON.stringify(message.content);
@@ -214,8 +219,9 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       };
     }
 
-    const messages = entity.getMessages();
-    const tokenUsage = entity.getConversationManager().getTokenUsage();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    const messages = stateCoordinator?.getMessages() ?? [];
+    const tokenUsage = stateCoordinator?.getTokenUsage() ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
     // Build stats from ConversationSession data
     const roleDistribution: Record<string, number> = {};
@@ -241,9 +247,9 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
    * @param agentLoopId Agent Loop ID
    */
   async normalizeHistory(agentLoopId: ID): Promise<void> {
-    const entity = await this.registry.get(agentLoopId);
-    if (entity) {
-      entity.normalizeHistory();
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    if (stateCoordinator) {
+      stateCoordinator.normalizeHistory();
     }
   }
 
@@ -264,7 +270,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
     };
 
     for (const entity of entities) {
-      const messages = entity.getMessages();
+      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+      const messages = stateCoordinator?.getMessages() ?? [];
       const agentLoopId = entity.id;
 
       stats.byAgentLoop[agentLoopId] = messages.length;
@@ -305,7 +312,8 @@ export class AgentLoopMessageResourceAPI extends ReadonlyResourceAPI<
       return 0;
     }
 
-    return entity.getMessages().length;
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    return stateCoordinator?.getMessageCount() ?? 0;
   }
 
   /**

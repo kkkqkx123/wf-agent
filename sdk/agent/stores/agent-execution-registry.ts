@@ -8,6 +8,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../entities/agent-loop-entity.js";
+import type { AgentStateCoordinator } from "../state-managers/agent-state-coordinator.js";
 
 /**
  * Filter for querying agent executions
@@ -50,4 +51,11 @@ export interface IAgentExecutionRegistry {
    * Query agent loop entities with optional filter
    */
   query(filter?: AgentExecutionFilter): AgentLoopEntity[];
+
+  /**
+   * Get the AgentStateCoordinator for a given agent loop entity
+   * @param agentLoopId Agent Loop ID
+   * @returns AgentStateCoordinator instance or null
+   */
+  getStateCoordinator(agentLoopId: ID): AgentStateCoordinator | null;
 }

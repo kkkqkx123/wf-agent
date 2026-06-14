@@ -9,9 +9,12 @@ import { describe, it, expect, beforeEach } from "vitest";
 import type { LLMMessage, AgentLoopRuntimeConfig, AgentToolConfig } from "@wf-agent/types";
 import { buildAgentHookEvaluationContext, convertToEvaluationContext } from "../context-builder.js";
 import { AgentLoopEntity } from "../../../../entities/agent-loop-entity.js";
+import { ConversationSession } from "../../../../../core/messaging/conversation-session.js";
+import { AgentStateCoordinator } from "../../../../state-managers/agent-state-coordinator.js";
 
 describe("Agent Hook Context Builder", () => {
   let entity: AgentLoopEntity;
+  let stateCoordinator: AgentStateCoordinator;
   let mockConfig: AgentLoopRuntimeConfig;
 
   beforeEach(() => {
@@ -30,14 +33,23 @@ describe("Agent Hook Context Builder", () => {
     // Create an agent loop entity directly
     entity = new AgentLoopEntity("test-agent-1", mockConfig);
 
-    // Add initial messages
-    entity.addMessage({ role: "system", content: "System message" });
-    entity.addMessage({ role: "user", content: "Hello" });
+    // Create ConversationSession with initial messages
+    const conversationSession = new ConversationSession({
+      initialMessages: [
+        { role: "system", content: "System message" },
+        { role: "user", content: "Hello" },
+      ],
+    });
+
+    // Create AgentStateCoordinator wrapping the ConversationSession
+    stateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
   });
 
   describe("buildAgentHookEvaluationContext", () => {
     it("should build context with conversation manager reference", () => {
-      const context = buildAgentHookEvaluationContext(entity);
+      const context = buildAgentHookEvaluationContext(entity, stateCoordinator);
 
       expect(context).toBeDefined();
       expect(context.iteration).toBe(0);
@@ -58,7 +70,7 @@ describe("Agent Hook Context Builder", () => {
         result: { data: "result" },
       };
 
-      const context = buildAgentHookEvaluationContext(entity, toolCallInfo);
+      const context = buildAgentHookEvaluationContext(entity, stateCoordinator, toolCallInfo);
 
       expect(context.toolCall).toBeDefined();
       expect(context.toolCall?.id).toBe("tool-1");
@@ -67,7 +79,7 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should provide tools API", () => {
-      const context = buildAgentHookEvaluationContext(entity);
+      const context = buildAgentHookEvaluationContext(entity, stateCoordinator);
 
       expect(context.tools).toBeDefined();
       expect(typeof context.tools.isAvailable).toBe("function");
@@ -77,7 +89,7 @@ describe("Agent Hook Context Builder", () => {
 
   describe("convertToEvaluationContext - Message Access", () => {
     it("should expose messages in input namespace", () => {
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input).toBeDefined();
@@ -88,7 +100,7 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should expose lastMessage in input namespace", () => {
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input["lastMessage"]).toBeDefined();
@@ -100,8 +112,12 @@ describe("Agent Hook Context Builder", () => {
     it("should handle empty message history", () => {
       // Create entity with no messages
       const emptyEntity = new AgentLoopEntity("test-agent-empty", mockConfig);
+      const emptySession = new ConversationSession();
+      const emptyCoordinator = new AgentStateCoordinator({
+        conversationManager: emptySession,
+      });
 
-      const hookContext = buildAgentHookEvaluationContext(emptyEntity);
+      const hookContext = buildAgentHookEvaluationContext(emptyEntity, emptyCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input["messages"]).toEqual([]);
@@ -109,11 +125,11 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should include all messages including invisible ones", () => {
-      // Add more messages to test
-      entity.addMessage({ role: "assistant", content: "Hi there!" });
-      entity.addMessage({ role: "user", content: "How are you?" });
+      // Add more messages via stateCoordinator
+      stateCoordinator.addMessage({ role: "assistant", content: "Hi there!" });
+      stateCoordinator.addMessage({ role: "user", content: "How are you?" });
 
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Should have: system, user (initial) + assistant, user (added)
@@ -126,6 +142,10 @@ describe("Agent Hook Context Builder", () => {
     it("should preserve iteration metadata", () => {
       // Simulate some iterations by creating new state and using proper methods
       const testEntity = new AgentLoopEntity("test-agent-2", mockConfig);
+      const testSession = new ConversationSession();
+      const testCoordinator = new AgentStateCoordinator({
+        conversationManager: testSession,
+      });
       testEntity.state.start();
       testEntity.state.startIteration();
       testEntity.state.endIteration("Test response");
@@ -139,7 +159,7 @@ describe("Agent Hook Context Builder", () => {
       testEntity.state.recordToolCallStart("tool-3", "test-tool-3", {});
       testEntity.state.recordToolCallEnd("tool-3", { result: "ok" });
 
-      const hookContext = buildAgentHookEvaluationContext(testEntity);
+      const hookContext = buildAgentHookEvaluationContext(testEntity, testCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.input["iteration"]).toBe(2);
@@ -149,10 +169,14 @@ describe("Agent Hook Context Builder", () => {
 
     it("should include output status and error", () => {
       const testEntity = new AgentLoopEntity("test-agent-3", mockConfig);
+      const testSession = new ConversationSession();
+      const testCoordinator = new AgentStateCoordinator({
+        conversationManager: testSession,
+      });
       testEntity.state.start();
       testEntity.state.complete();
 
-      const hookContext = buildAgentHookEvaluationContext(testEntity);
+      const hookContext = buildAgentHookEvaluationContext(testEntity, testCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.output["status"]).toBe("COMPLETED");
@@ -162,11 +186,15 @@ describe("Agent Hook Context Builder", () => {
 
     it("should include error information when present", () => {
       const testEntity = new AgentLoopEntity("test-agent-4", mockConfig);
+      const testSession = new ConversationSession();
+      const testCoordinator = new AgentStateCoordinator({
+        conversationManager: testSession,
+      });
       testEntity.state.start();
       const testError = new Error("Test error");
       testEntity.state.fail(testError);
 
-      const hookContext = buildAgentHookEvaluationContext(testEntity);
+      const hookContext = buildAgentHookEvaluationContext(testEntity, testCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.output["status"]).toBe("FAILED");
@@ -174,7 +202,7 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should have empty variables namespace", () => {
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       expect(evalContext.variables).toEqual({});
@@ -183,7 +211,7 @@ describe("Agent Hook Context Builder", () => {
 
   describe("convertToEvaluationContext - Use Cases", () => {
     it("should support checking last message role", () => {
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Simulate condition evaluation with type assertion
@@ -193,9 +221,9 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should support checking message count", () => {
-      entity.addMessage({ role: "assistant", content: "Response" });
+      stateCoordinator.addMessage({ role: "assistant", content: "Response" });
 
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       const messages = evalContext.input["messages"] as LLMMessage[];
@@ -204,9 +232,9 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should support checking for specific content patterns", () => {
-      entity.addMessage({ role: "user", content: "I need help with this" });
+      stateCoordinator.addMessage({ role: "user", content: "I need help with this" });
 
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       const lastMessage = evalContext.input["lastMessage"] as LLMMessage | null;
@@ -216,7 +244,7 @@ describe("Agent Hook Context Builder", () => {
     });
 
     it("should support accessing message properties safely", () => {
-      const hookContext = buildAgentHookEvaluationContext(entity);
+      const hookContext = buildAgentHookEvaluationContext(entity, stateCoordinator);
       const evalContext = convertToEvaluationContext(hookContext);
 
       // Safe access pattern with type assertions

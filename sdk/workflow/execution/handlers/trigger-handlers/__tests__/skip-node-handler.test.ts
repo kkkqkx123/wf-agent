@@ -18,7 +18,7 @@ const mockExecution = {
 const mockEntity = {
   id: "exec-1",
   getWorkflowId: vi.fn().mockReturnValue("wf-1"),
-  getExecution: vi.fn().mockReturnValue(mockExecution),
+  getWorkflowExecutionData: vi.fn().mockReturnValue(mockExecution),
 } as unknown as WorkflowExecutionEntity;
 
 const mockRegistry = {

@@ -9,6 +9,7 @@ function createMockWorkflowEntity(
 ) {
   return {
     id,
+    instanceType: "workflowExecution",
     getChildren: () => children,
     getParentContext: () => parentContext,
     getWorkflowId: () => `wf-${id}`,
@@ -24,9 +25,10 @@ function createMockAgentEntity(
 ) {
   return {
     id,
+    instanceType: "agent",
     getChildren: () => children,
     getParentContext: () => parentContext,
-    conversationManager: { id: `cm-${id}` },
+    getConversationManager: () => ({ id: `cm-${id}` }),
     stop: vi.fn(),
     cleanup: vi.fn(),
   } as any;

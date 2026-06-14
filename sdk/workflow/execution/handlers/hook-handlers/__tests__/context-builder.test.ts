@@ -34,7 +34,7 @@ describe("Workflow Hook Context Builder", () => {
       variableStateManager: {
         getAllVariables: vi.fn().mockReturnValue({ var1: "value1", var2: 42 }),
       },
-      getExecution: vi.fn().mockReturnValue({
+      getWorkflowExecutionData: vi.fn().mockReturnValue({
         output: { finalResult: "done" },
       }),
     } as any;
@@ -66,7 +66,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -80,7 +80,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -94,7 +94,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: undefined,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -105,11 +105,15 @@ describe("Workflow Hook Context Builder", () => {
     });
 
     it("should expose message history", () => {
+      const mockMessages = [
+        { role: "user", content: "Hello" },
+        { role: "assistant", content: "Hi there!" },
+      ];
       const context: HookExecutionContext = {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue(mockMessages) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -124,7 +128,7 @@ describe("Workflow Hook Context Builder", () => {
         workflowExecutionEntity: mockEntity,
         node: mockNode,
         result: mockResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -251,7 +255,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { scriptName: "test_script", risk: "low" },
         },
         result: scriptResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([{ role: "user", content: "Hello" }, { role: "assistant", content: "Hi there!" }]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -292,7 +296,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { subgraphId: "test-subgraph", async: false },
         },
         result: subgraphResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);
@@ -324,7 +328,7 @@ describe("Workflow Hook Context Builder", () => {
           config: { profileId: "test-profile" },
         },
         result: llmResult,
-        conversationManager: {} as any,
+        conversationManager: { getMessages: vi.fn().mockReturnValue([]) } as any,
       };
 
       const hookContext = buildHookEvaluationContext(context);

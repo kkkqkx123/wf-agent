@@ -98,6 +98,14 @@ describe("AgentLoopCoordinator", () => {
       cleanup: vi.fn(),
     };
 
+    const mockStateCoordinator = {
+      getMessageCount: vi.fn().mockReturnValue(0),
+      getMessages: vi.fn().mockReturnValue([]),
+      getConversationManager: vi.fn().mockReturnValue({
+        getAllMessages: vi.fn().mockReturnValue([]),
+      }),
+    };
+
     mockRegistry = {
       register: vi.fn(),
       unregister: vi.fn(),
@@ -106,6 +114,8 @@ describe("AgentLoopCoordinator", () => {
       getPaused: vi.fn().mockReturnValue([]),
       cleanupTerminated: vi.fn().mockReturnValue(0),
       clear: vi.fn(),
+      registerStateCoordinator: vi.fn(),
+      getStateCoordinator: vi.fn().mockReturnValue(mockStateCoordinator),
     } as unknown as AgentLoopRegistry;
 
     mockExecutor = {
@@ -139,7 +149,10 @@ describe("AgentLoopCoordinator", () => {
   describe("execute", () => {
     it("should create entity, execute and complete successfully", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,
@@ -153,12 +166,15 @@ describe("AgentLoopCoordinator", () => {
       expect(result.success).toBe(true);
       expect(result.content).toBe("Final answer");
       expect(mockRegistry.register).toHaveBeenCalledWith(mockEntity);
-      expect(mockExecutor.execute).toHaveBeenCalledWith(mockEntity);
+      expect(mockExecutor.execute).toHaveBeenCalledWith(mockEntity, expect.any(Object));
     });
 
     it("should emit events via stateTransitor on success", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockEntity.getStatus
         .mockReturnValueOnce(AgentLoopStatus.CREATED) // before start
@@ -180,7 +196,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should handle execution failure", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockExecutor.execute = vi.fn().mockResolvedValue({
         success: false,
@@ -210,7 +229,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should handle exceptions during execution", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockExecutor.execute = vi.fn().mockRejectedValue(new Error("Unexpected error"));
 
@@ -235,7 +257,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should establish interruption cascade when parentExecutionId is provided", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,
@@ -260,7 +285,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should not re-complete if entity already completed internally", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       // Entity already COMPLETED (e.g., by executeIteration internally)
       mockEntity.getStatus.mockReturnValue(AgentLoopStatus.COMPLETED);
@@ -282,7 +310,10 @@ describe("AgentLoopCoordinator", () => {
   describe("executeStream", () => {
     it("should stream events and complete", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       const mockStream = (async function* (): AsyncGenerator<AgentLoopStreamEvent> {
         yield { type: "agent_start", agentLoopId: "agent-loop-1" } as AgentLoopStreamEvent;
@@ -313,7 +344,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should handle pause during stream execution", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockEntity.shouldPause = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
 
@@ -341,7 +375,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should handle stop during stream execution", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockEntity.shouldStop = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
 
@@ -369,7 +406,10 @@ describe("AgentLoopCoordinator", () => {
 
     it("should handle errors during stream execution", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       mockExecutor.executeStream = vi.fn().mockImplementation(async function* () {
         throw new Error("Stream execution error");
@@ -394,7 +434,10 @@ describe("AgentLoopCoordinator", () => {
   describe("start (async execution)", () => {
     it("should return entity ID immediately", async () => {
       const { AgentLoopFactory } = await import("../../factories/agent-loop-factory.js");
-      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue(mockEntity);
+      (AgentLoopFactory.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entity: mockEntity,
+        stateCoordinator: mockRegistry.getStateCoordinator("agent-loop-1"),
+      });
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,
@@ -509,7 +552,13 @@ describe("AgentLoopCoordinator", () => {
   describe("continue", () => {
     it("should continue execution when last message is not assistant", async () => {
       mockEntity.isRunning.mockReturnValue(false);
-      mockEntity.getMessages.mockReturnValue([{ role: "user", content: "Continue please" }]);
+      mockRegistry.getStateCoordinator = vi.fn().mockReturnValue({
+        getMessages: vi.fn().mockReturnValue([{ role: "user", content: "Continue please" }]),
+        getMessageCount: vi.fn().mockReturnValue(1),
+        getConversationManager: vi.fn().mockReturnValue({
+          getAllMessages: vi.fn().mockReturnValue([]),
+        }),
+      });
       mockEntity.getStatus
         .mockReturnValueOnce(AgentLoopStatus.CREATED)
         .mockReturnValueOnce(AgentLoopStatus.RUNNING)
@@ -525,7 +574,7 @@ describe("AgentLoopCoordinator", () => {
       const result = await coordinator.continue("agent-loop-1");
 
       expect(result.success).toBe(true);
-      expect(mockExecutor.execute).toHaveBeenCalledWith(mockEntity);
+      expect(mockExecutor.execute).toHaveBeenCalledWith(mockEntity, expect.any(Object));
     });
 
     it("should throw if entity is running", async () => {
@@ -545,9 +594,15 @@ describe("AgentLoopCoordinator", () => {
 
     it("should throw if last message is assistant", async () => {
       mockEntity.isRunning.mockReturnValue(false);
-      mockEntity.getMessages.mockReturnValue([
-        { role: "assistant", content: "Here is the answer" },
-      ]);
+      mockRegistry.getStateCoordinator = vi.fn().mockReturnValue({
+        getMessages: vi.fn().mockReturnValue([
+          { role: "assistant", content: "Here is the answer" },
+        ]),
+        getMessageCount: vi.fn().mockReturnValue(1),
+        getConversationManager: vi.fn().mockReturnValue({
+          getAllMessages: vi.fn().mockReturnValue([]),
+        }),
+      });
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,
@@ -563,7 +618,13 @@ describe("AgentLoopCoordinator", () => {
 
     it("should throw if entity has no messages", async () => {
       mockEntity.isRunning.mockReturnValue(false);
-      mockEntity.getMessages.mockReturnValue([]);
+      mockRegistry.getStateCoordinator = vi.fn().mockReturnValue({
+        getMessages: vi.fn().mockReturnValue([]),
+        getMessageCount: vi.fn().mockReturnValue(0),
+        getConversationManager: vi.fn().mockReturnValue({
+          getAllMessages: vi.fn().mockReturnValue([]),
+        }),
+      });
 
       coordinator = new AgentLoopCoordinator(
         mockRegistry,

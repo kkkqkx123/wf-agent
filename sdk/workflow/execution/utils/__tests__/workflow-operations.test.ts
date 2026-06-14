@@ -214,17 +214,33 @@ describe("join", () => {
   let mockEventManager: EventRegistry;
   let mockParentEntity: WorkflowExecutionEntity;
   let mockChildEntity: WorkflowExecutionEntity;
+  let mockStateCoordinatorMap: Map<string, WorkflowStateCoordinator>;
+  let mockSourceStateCoordinator: WorkflowStateCoordinator;
+  let mockParentStateCoordinator: WorkflowStateCoordinator;
 
   beforeEach(() => {
     vi.clearAllMocks();
 
+    mockSourceStateCoordinator = {
+      exportMessagesForChild: vi.fn().mockReturnValue([]),
+      importMessagesFromChild: vi.fn(),
+      cleanup: vi.fn(),
+    } as unknown as WorkflowStateCoordinator;
+
+    mockParentStateCoordinator = {
+      exportMessagesForChild: vi.fn().mockReturnValue([]),
+      importMessagesFromChild: vi.fn(),
+      cleanup: vi.fn(),
+    } as unknown as WorkflowStateCoordinator;
+
+    mockStateCoordinatorMap = new Map([
+      ["child-exec-1", mockSourceStateCoordinator],
+      ["parent-exec-1", mockParentStateCoordinator],
+    ]);
+
     mockParentEntity = {
       id: "parent-exec-1",
       getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
-      messageHistoryManager: {
-        getMessages: vi.fn().mockReturnValue([]),
-        addMessage: vi.fn(),
-      },
       variableStateManager: {
         getVariable: vi.fn(),
         setVariable: vi.fn(),
@@ -235,13 +251,10 @@ describe("join", () => {
       id: "child-exec-1",
       getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
       getStatus: vi.fn().mockReturnValue("COMPLETED"),
-      getExecution: vi.fn().mockReturnValue({
+      getWorkflowExecutionData: vi.fn().mockReturnValue({
         id: "child-exec-1",
         forkJoinContext: { forkPathId: "path-1" },
       }),
-      messageHistoryManager: {
-        getMessages: vi.fn().mockReturnValue([]),
-      },
       variableStateManager: {
         getVariable: vi.fn().mockReturnValue("value"),
       },
@@ -284,6 +297,9 @@ describe("join", () => {
           0,
           "parent-exec-1",
           mockEventManager,
+          undefined,
+          undefined,
+          mockStateCoordinatorMap,
         ),
       ).resolves.not.toThrow();
     });
@@ -299,6 +315,9 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
+        undefined,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
       expect(result.success).toBe(true);
@@ -315,6 +334,9 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
+        undefined,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
       expect(result.success).toBe(true);
@@ -331,6 +353,9 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
+        undefined,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
       expect(mockEventManager.emit).toHaveBeenCalled();
@@ -344,11 +369,11 @@ describe("join", () => {
   });
 
   describe("message export", () => {
-    it("should export messages from main path", async () => {
+    it("should export messages from main path via stateCoordinatorMap", async () => {
       const messages = [{ role: "user", content: "test" }];
-      (
-        (mockChildEntity as any).messageHistoryManager.getMessages as ReturnType<typeof vi.fn>
-      ).mockReturnValue(messages);
+      (mockSourceStateCoordinator.exportMessagesForChild as ReturnType<typeof vi.fn>).mockReturnValue(
+        messages,
+      );
 
       await join(
         ["child-exec-1"],
@@ -358,9 +383,13 @@ describe("join", () => {
         0,
         "parent-exec-1",
         mockEventManager,
+        undefined,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
-      expect((mockParentEntity as any).messageHistoryManager.addMessage).toHaveBeenCalled();
+      expect(mockSourceStateCoordinator.exportMessagesForChild).toHaveBeenCalled();
+      expect(mockParentStateCoordinator.importMessagesFromChild).toHaveBeenCalled();
     });
   });
 
@@ -379,6 +408,8 @@ describe("join", () => {
         "parent-exec-1",
         mockEventManager,
         variableOutputs,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
       expect(mockParentEntity.variableStateManager.setVariable).toHaveBeenCalledWith(
@@ -403,6 +434,8 @@ describe("join", () => {
         "parent-exec-1",
         mockEventManager,
         variableOutputs,
+        undefined,
+        mockStateCoordinatorMap,
       );
 
       // Should not throw
@@ -411,39 +444,40 @@ describe("join", () => {
   });
 });
 
-describe("copy", () => {
-  let mockSourceEntity: WorkflowExecutionEntity;
-  let mockExecutionBuilder: WorkflowExecutionBuilder;
-  let mockSourceStateCoordinator: WorkflowStateCoordinator;
-  let mockEventManager: EventRegistry;
-  let mockCopiedEntity: WorkflowExecutionEntity;
+  describe("copy", () => {
+    let mockSourceEntity: WorkflowExecutionEntity;
+    let mockExecutionBuilder: WorkflowExecutionBuilder;
+    let mockSourceStateCoordinator: WorkflowStateCoordinator;
+    let mockEventManager: EventRegistry;
+    let mockCopiedEntity: WorkflowExecutionEntity;
 
-  beforeEach(() => {
-    vi.clearAllMocks();
+    beforeEach(() => {
+      vi.clearAllMocks();
 
-    mockSourceEntity = {
-      id: "source-exec-1",
-      getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
-    } as unknown as WorkflowExecutionEntity;
+      mockSourceEntity = {
+        id: "source-exec-1",
+        getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
+        cleanup: vi.fn(),
+      } as unknown as WorkflowExecutionEntity;
 
-    mockCopiedEntity = {
-      id: "copied-exec-1",
-    } as unknown as WorkflowExecutionEntity;
+      mockCopiedEntity = {
+        id: "copied-exec-1",
+      } as unknown as WorkflowExecutionEntity;
 
-    mockExecutionBuilder = {
-      createCopy: vi.fn().mockResolvedValue({
-        workflowExecutionEntity: mockCopiedEntity,
-      }),
-    } as unknown as WorkflowExecutionBuilder;
+      mockExecutionBuilder = {
+        createCopy: vi.fn().mockResolvedValue({
+          workflowExecutionEntity: mockCopiedEntity,
+        }),
+      } as unknown as WorkflowExecutionBuilder;
 
-    mockSourceStateCoordinator = {
-      cleanup: vi.fn(),
-    } as unknown as WorkflowStateCoordinator;
+      mockSourceStateCoordinator = {
+        cleanup: vi.fn(),
+      } as unknown as WorkflowStateCoordinator;
 
-    mockEventManager = {
-      emit: vi.fn(),
-    } as unknown as EventRegistry;
-  });
+      mockEventManager = {
+        emit: vi.fn(),
+      } as unknown as EventRegistry;
+    });
 
   describe("validation", () => {
     it("should throw error when source entity is null", async () => {
@@ -475,7 +509,10 @@ describe("copy", () => {
         mockSourceStateCoordinator,
       );
 
-      expect(mockExecutionBuilder.createCopy).toHaveBeenCalledWith(mockSourceEntity);
+      expect(mockExecutionBuilder.createCopy).toHaveBeenCalledWith(
+        mockSourceEntity,
+        mockSourceStateCoordinator,
+      );
       expect(copiedEntity.id).toBe("copied-exec-1");
     });
   });

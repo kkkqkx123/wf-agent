@@ -40,8 +40,8 @@ vi.mock("../../../../utils/index.js", () => ({
 function createMockExecutionEntity(id: string): WorkflowExecutionEntity {
   return {
     id,
+    instanceType: "workflowExecution",
     getWorkflowId: vi.fn(() => "wf-1"),
-    getExecutionId: vi.fn(() => id),
   } as unknown as WorkflowExecutionEntity;
 }
 

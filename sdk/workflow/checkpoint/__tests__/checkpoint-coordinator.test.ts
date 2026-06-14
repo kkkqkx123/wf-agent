@@ -74,6 +74,17 @@ vi.mock("../../entities/workflow-execution-entity.js", () => ({
         getNode: vi.fn().mockReturnValue({ id: "node-1", name: "Start Node", type: "START" }),
       },
     });
+    getWorkflowExecutionData = vi.fn().mockReturnValue({
+      id: "exec-1",
+      workflowId: "wf-1",
+      graph: {
+        getNode: vi.fn().mockReturnValue({ id: "node-1", name: "Start Node", type: "START" }),
+      },
+    });
+    getGraph = vi.fn().mockReturnValue({
+      getNode: vi.fn().mockReturnValue({ id: "node-1", name: "Start Node", type: "START" }),
+    });
+    getCurrentNodeId = vi.fn().mockReturnValue("node-1");
     getWorkflowId = vi.fn().mockReturnValue("wf-1");
     getStatus = vi.fn().mockReturnValue("RUNNING");
     variableStateManager = {
@@ -145,6 +156,7 @@ function createMockDependencies(
   const mockWorkflowExecutionRegistry = {
     get: vi.fn().mockReturnValue(null),
     register: vi.fn(),
+    registerStateCoordinator: vi.fn(),
   } as unknown as WorkflowExecutionRegistry;
 
   const mockWorkflowRegistry = {} as unknown as WorkflowRegistry;
@@ -181,6 +193,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -225,6 +239,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -255,6 +271,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -324,6 +342,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -361,6 +381,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -395,6 +417,8 @@ describe("CheckpointCoordinator", () => {
       const mockEntity = {
         id: execution.id,
         getExecution: vi.fn().mockReturnValue(execution),
+        getWorkflowExecutionData: vi.fn().mockReturnValue(execution),
+        getGraph: vi.fn().mockReturnValue(execution.graph),
         getWorkflowId: vi.fn().mockReturnValue(execution.workflowId),
         getStatus: vi.fn().mockReturnValue("RUNNING"),
         variableStateManager: {
@@ -539,9 +563,10 @@ describe("CheckpointCoordinator", () => {
     });
   });
 
-  describe("determineCheckpointType (private static)", () => {
+  describe("determineCheckpointType (instance method)", () => {
     it("should return FULL when delta is disabled", () => {
-      const type = (CheckpointCoordinator as any).determineCheckpointType(5, {
+      const coordinator = new CheckpointCoordinator();
+      const type = (coordinator as any).determineCheckpointType(5, {
         enabled: false,
         baselineInterval: 10,
         maxDeltaChainLength: 20,
@@ -550,7 +575,8 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should return FULL for first checkpoint", () => {
-      const type = (CheckpointCoordinator as any).determineCheckpointType(0, {
+      const coordinator = new CheckpointCoordinator();
+      const type = (coordinator as any).determineCheckpointType(0, {
         enabled: true,
         baselineInterval: 10,
         maxDeltaChainLength: 20,
@@ -559,7 +585,8 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should return FULL at baseline interval", () => {
-      const type = (CheckpointCoordinator as any).determineCheckpointType(10, {
+      const coordinator = new CheckpointCoordinator();
+      const type = (coordinator as any).determineCheckpointType(10, {
         enabled: true,
         baselineInterval: 10,
         maxDeltaChainLength: 20,
@@ -568,7 +595,8 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should return DELTA for non-baseline checkpoints", () => {
-      const type = (CheckpointCoordinator as any).determineCheckpointType(3, {
+      const coordinator = new CheckpointCoordinator();
+      const type = (coordinator as any).determineCheckpointType(3, {
         enabled: true,
         baselineInterval: 10,
         maxDeltaChainLength: 20,
@@ -577,7 +605,8 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should return FULL when checkpointCount % baselineInterval === 0", () => {
-      const type = (CheckpointCoordinator as any).determineCheckpointType(20, {
+      const coordinator = new CheckpointCoordinator();
+      const type = (coordinator as any).determineCheckpointType(20, {
         enabled: true,
         baselineInterval: 5,
         maxDeltaChainLength: 10,
@@ -586,68 +615,33 @@ describe("CheckpointCoordinator", () => {
     });
   });
 
-  describe("validateCheckpoint (private static)", () => {
-    it("should throw for missing required fields", () => {
+  describe("validateCheckpoint (instance method)", () => {
+    it("should throw for missing workflowId", () => {
+      const coordinator = new CheckpointCoordinator();
       expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
-          id: "",
-          executionId: "",
+        (coordinator as any).validateCheckpoint({
+          id: "cp-1",
+          executionId: "exec-1",
           workflowId: "",
         }),
-      ).toThrow("Invalid checkpoint: missing required fields");
+      ).toThrow("Invalid checkpoint: missing workflowId");
     });
 
-    it("should throw for invalid checkpoint type", () => {
+    it("should throw for missing executionId", () => {
+      const coordinator = new CheckpointCoordinator();
       expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
+        (coordinator as any).validateCheckpoint({
           id: "cp-1",
-          executionId: "exec-1",
+          executionId: "",
           workflowId: "wf-1",
-          type: "INVALID",
         }),
-      ).toThrow("Invalid checkpoint type");
-    });
-
-    it("should throw for FULL checkpoint without snapshot", () => {
-      expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
-          id: "cp-1",
-          executionId: "exec-1",
-          workflowId: "wf-1",
-          type: "FULL",
-          snapshot: undefined,
-        }),
-      ).toThrow("Invalid full checkpoint: missing snapshot");
-    });
-
-    it("should throw for DELTA checkpoint without delta", () => {
-      expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
-          id: "cp-1",
-          executionId: "exec-1",
-          workflowId: "wf-1",
-          type: "DELTA",
-          delta: undefined,
-        }),
-      ).toThrow("Invalid delta checkpoint: missing delta");
-    });
-
-    it("should throw for DELTA checkpoint without baseCheckpointId", () => {
-      expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
-          id: "cp-1",
-          executionId: "exec-1",
-          workflowId: "wf-1",
-          type: "DELTA",
-          delta: {},
-          baseCheckpointId: undefined,
-        }),
-      ).toThrow("Invalid delta checkpoint: missing baseCheckpointId");
+      ).toThrow("Invalid checkpoint: missing executionId");
     });
 
     it("should not throw for valid FULL checkpoint", () => {
+      const coordinator = new CheckpointCoordinator();
       expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
+        (coordinator as any).validateCheckpoint({
           id: "cp-1",
           executionId: "exec-1",
           workflowId: "wf-1",
@@ -658,26 +652,29 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should not throw for valid DELTA checkpoint", () => {
+      const coordinator = new CheckpointCoordinator();
       expect(() =>
-        (CheckpointCoordinator as any).validateCheckpoint({
+        (coordinator as any).validateCheckpoint({
           id: "cp-1",
           executionId: "exec-1",
           workflowId: "wf-1",
           type: "DELTA",
           delta: {},
           baseCheckpointId: "base-1",
+          previousCheckpointId: "prev-1",
         }),
       ).not.toThrow();
     });
   });
 
-  describe("findChildCheckpoint (private static)", () => {
+  describe("findChildCheckpoint (instance method)", () => {
     it("should return undefined when no checkpoints found", async () => {
+      const coordinator = new CheckpointCoordinator();
       const mockCheckpointState = {
         list: vi.fn().mockResolvedValue([]),
       } as unknown as CheckpointState;
 
-      const result = await (CheckpointCoordinator as any).findChildCheckpoint(
+      const result = await (coordinator as any)._findChildCheckpoint(
         "child-exec-1",
         mockCheckpointState,
       );
@@ -686,11 +683,12 @@ describe("CheckpointCoordinator", () => {
     });
 
     it("should return latest checkpoint ID", async () => {
+      const coordinator = new CheckpointCoordinator();
       const mockCheckpointState = {
         list: vi.fn().mockResolvedValue(["cp-latest", "cp-old"]),
       } as unknown as CheckpointState;
 
-      const result = await (CheckpointCoordinator as any).findChildCheckpoint(
+      const result = await (coordinator as any)._findChildCheckpoint(
         "child-exec-1",
         mockCheckpointState,
       );

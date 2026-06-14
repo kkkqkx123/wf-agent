@@ -98,6 +98,9 @@ describe("AgentLoopCheckpointCoordinator", () => {
 
   describe("restoreFromCheckpoint", () => {
     it("should restore entity from checkpoint", async () => {
+      // Set restoreConfig before calling restoreFromCheckpoint
+      coordinator.setConfig({} as any);
+
       const checkpoint = {
         id: "cp-1",
         agentLoopId: "agent-1",

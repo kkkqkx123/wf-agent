@@ -97,6 +97,7 @@ describe("AgentLoopExecutor", () => {
   let mockGlobalContext: GlobalContext;
   let mockEntity: any;
   let mockConversationManager: any;
+  let mockStateCoordinator: any;
   let mockEmitEvent: any;
   let mockToolApprovalHandler: any;
   let baseDeps: any;
@@ -141,6 +142,12 @@ describe("AgentLoopExecutor", () => {
       conversationManager: mockConversationManager,
       getConversationManager: vi.fn(() => mockConversationManager),
       getAbortSignal: vi.fn().mockReturnValue(new AbortController().signal),
+    };
+
+    mockStateCoordinator = {
+      getMessageCount: vi.fn().mockReturnValue(5),
+      getMessages: vi.fn().mockReturnValue([]),
+      getConversationManager: vi.fn().mockReturnValue(mockConversationManager),
     };
 
     mockEmitEvent = vi.fn().mockResolvedValue(undefined);
@@ -244,7 +251,7 @@ describe("AgentLoopExecutor", () => {
         { id: "tool2", description: "Tool 2" },
       ]);
 
-      const result = await executor.execute(mockEntity);
+      const result = await executor.execute(mockEntity, mockStateCoordinator);
 
       expect(mockPrepareToolSchemas).toHaveBeenCalledWith(["tool1", "tool2"], mockToolService);
       expect(MockAgentExecutionCoordinator).toHaveBeenCalledTimes(1);
@@ -269,7 +276,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await executor.execute(entityWithoutMax);
+      await executor.execute(entityWithoutMax, mockStateCoordinator);
 
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         entityWithoutMax,
@@ -288,7 +295,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await executor.execute(entityWithCustomMax);
+      await executor.execute(entityWithCustomMax, mockStateCoordinator);
 
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         entityWithCustomMax,
@@ -307,7 +314,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await executor.execute(entityNoTools);
+      await executor.execute(entityNoTools, mockStateCoordinator);
 
       expect(mockPrepareToolSchemas).toHaveBeenCalledWith([], mockToolService);
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
@@ -327,7 +334,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await executor.execute(entityNoProfile);
+      await executor.execute(entityNoProfile, mockStateCoordinator);
 
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         entityNoProfile,
@@ -346,7 +353,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await executor.execute(entityEmptyTools);
+      await executor.execute(entityEmptyTools, mockStateCoordinator);
 
       expect(mockPrepareToolSchemas).toHaveBeenCalledWith([], mockToolService);
     });
@@ -361,7 +368,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue(mockResult);
 
-      const result = await executor.execute(mockEntity);
+      const result = await executor.execute(mockEntity, mockStateCoordinator);
 
       expect(result).toEqual(mockResult);
     });
@@ -389,7 +396,7 @@ describe("AgentLoopExecutor", () => {
       mockCoordinatorExecuteStream.mockReturnValue(mockStream());
 
       const events: any[] = [];
-      for await (const event of executor.executeStream(mockEntity)) {
+      for await (const event of executor.executeStream(mockEntity, mockStateCoordinator)) {
         events.push(event);
       }
 
@@ -417,7 +424,7 @@ describe("AgentLoopExecutor", () => {
       mockCoordinatorExecuteStream.mockReturnValue(emptyStream());
 
       const events: any[] = [];
-      for await (const event of executor.executeStream(entityMinimal)) {
+      for await (const event of executor.executeStream(entityMinimal, mockStateCoordinator)) {
         events.push(event);
       }
 
@@ -439,7 +446,7 @@ describe("AgentLoopExecutor", () => {
       mockCoordinatorExecuteStream.mockReturnValue(emptyStream());
 
       const events: any[] = [];
-      for await (const event of executor.executeStream(mockEntity)) {
+      for await (const event of executor.executeStream(mockEntity, mockStateCoordinator)) {
         events.push(event);
       }
 
@@ -461,7 +468,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await exec.execute(mockEntity);
+      await exec.execute(mockEntity, mockStateCoordinator);
 
       expect(MockAgentExecutionCoordinator).toHaveBeenCalledTimes(1);
     });
@@ -475,7 +482,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await exec.execute(mockEntity);
+      await exec.execute(mockEntity, mockStateCoordinator);
 
       expect(MockAgentExecutionCoordinator).toHaveBeenCalledTimes(1);
     });
@@ -489,7 +496,7 @@ describe("AgentLoopExecutor", () => {
       mockPrepareToolSchemas.mockReturnValue(undefined);
       mockCoordinatorExecute.mockResolvedValue({ success: true });
 
-      await exec.execute(mockEntity);
+      await exec.execute(mockEntity, mockStateCoordinator);
 
       expect(MockAgentExecutionCoordinator).toHaveBeenCalledTimes(1);
     });

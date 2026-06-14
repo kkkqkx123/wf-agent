@@ -29,6 +29,7 @@ const {
 } = vi.hoisted(() => {
   const _mockRandomUUID = vi.fn();
 
+  const _mockEntityInitializeMessages = vi.fn();
   const _mockEntitySetMessages = vi.fn();
   const _mockEntitySetParentContext = vi.fn();
 
@@ -148,7 +149,7 @@ describe("AgentLoopFactory", () => {
 
   describe("create", () => {
     it("should create a new AgentLoopEntity with minimal options", async () => {
-      const entity = await AgentLoopFactory.create(mockGlobalContext, mockConfig);
+      const result = await AgentLoopFactory.create(mockGlobalContext, mockConfig);
 
       expect(mockRandomUUID).toHaveBeenCalled();
       expect(MockAgentLoopEntity).toHaveBeenCalledWith(
@@ -156,17 +157,11 @@ describe("AgentLoopFactory", () => {
         mockConfig,
         undefined,
         undefined,
-        undefined,
         mockExecutionHierarchyRegistry,
       );
-      expect(mockEntityInitializeMessages).toHaveBeenCalledWith({
-        systemPrompt: "You are a helpful assistant.",
-        systemPromptTemplateId: undefined,
-        systemPromptTemplateVariables: undefined,
-        initialUserMessage: "Hello!",
-        initialMessages: undefined,
-      });
-      expect(entity.id).toBe("agent-loop-test-uuid-123");
+      // Messages are now set via stateCoordinator.setMessages() in the factory
+      // No longer calls entity.initializeMessages()
+      expect(result.entity.id).toBe("agent-loop-test-uuid-123");
     });
 
     it("should call setMessages when initialMessages.length > 0", async () => {
@@ -175,7 +170,8 @@ describe("AgentLoopFactory", () => {
 
       await AgentLoopFactory.create(mockGlobalContext, mockConfig, mockOptions);
 
-      expect(mockEntitySetMessages).toHaveBeenCalledWith(initialMessages);
+      // Messages are set on stateCoordinator, not entity
+      expect(mockEntitySetMessages).not.toHaveBeenCalled();
     });
 
     it("should NOT call setMessages when initialMessages is empty", async () => {
@@ -267,7 +263,6 @@ describe("AgentLoopFactory", () => {
       expect(MockAgentLoopEntity).toHaveBeenCalledWith(
         "agent-loop-test-uuid-123",
         configWithoutProfile,
-        undefined,
         undefined,
         undefined,
         mockExecutionHierarchyRegistry,

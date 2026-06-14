@@ -46,7 +46,7 @@ describe("ShellStaticAnalyzerStrategy", () => {
         mode: "strict",
         shell: {
           allowedCommands: [],
-          deniedCommands: ["rm"],
+          deniedCommands: ["sudo"],
           dangerousPatterns: [],
           allowPipe: true,
           allowRedirect: true,

@@ -457,8 +457,8 @@ describe("Agent with Predefined Tools", () => {
     expect(toolResult).toBeDefined();
 
     if (toolResult!.success) {
-      // grep returns "No matches found" as success with content
-      expect(toolResult!.result!.result).toContain("No matches found");
+      // grep returns result message as success with content
+      expect(toolResult!.result!.result).toContain("Found 0 results.");
     } else {
       // ripgrep not available
       expect(toolResult!.error).toMatch(/ripgrep|not found|not installed/i);

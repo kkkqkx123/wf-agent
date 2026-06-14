@@ -559,10 +559,8 @@ describe("AgentLoopState", () => {
       const restoredState = new AgentLoopState();
       restoredState.restoreFromSnapshot(snapshot);
 
-      // Runtime-only fields should be reset
-      expect(restoredState.isStreaming).toBe(false);
-      expect(restoredState.streamMessage).toBeNull();
-      expect(restoredState.getPendingToolCallCount()).toBe(0);
+      // Streaming state is now serialized in snapshots for pause/resume precision
+      // Runtime-only control flags (shouldPause/shouldStop) should be reset
       expect(restoredState.shouldPause()).toBe(false);
       expect(restoredState.shouldStop()).toBe(false);
     });
@@ -616,16 +614,16 @@ describe("AgentLoopState", () => {
       // The restored state should have currentIterationRecord set via restore
     });
 
-    it("should create snapshot without streaming fields in checkpoint data", () => {
+    it("should include streaming fields in snapshot for pause/resume precision", () => {
       state.start();
       state.startStreaming();
       state.updateStreamMessage({ role: "assistant", content: "test" } as LLMMessage);
 
       const snapshot = state.createSnapshot();
 
-      // Streaming fields should not be in the snapshot
-      expect((snapshot as Record<string, unknown>)["isStreaming"]).toBeUndefined();
-      expect((snapshot as Record<string, unknown>)["streamMessage"]).toBeUndefined();
+      // Streaming fields are now included in snapshots for pause/resume precision
+      expect((snapshot as Record<string, unknown>)["isStreaming"]).toBe(true);
+      expect((snapshot as Record<string, unknown>)["streamMessage"]).toBeDefined();
     });
   });
 

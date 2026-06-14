@@ -60,6 +60,7 @@ function createFreshPool(
 function createWFInstance(id: string): ExecutionInstance {
   return {
     id,
+    instanceType: "workflowExecution" as const,
     getExecutionId: () => id,
     getWorkflowId: () => "wf-1",
     getTriggeredSubworkflowId: () => "sub-1",
@@ -70,6 +71,7 @@ function createWFInstance(id: string): ExecutionInstance {
 function createAgentInstance(id: string): ExecutionInstance {
   return {
     id,
+    instanceType: "agent" as const,
     config: {},
     conversationManager: {},
   } as unknown as ExecutionInstance;

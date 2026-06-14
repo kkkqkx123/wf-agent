@@ -49,7 +49,7 @@ const mockEntity = {
   setOutput: vi.fn(),
   getWorkflowId: vi.fn().mockReturnValue("wf-1"),
   variableStateManager: mockVariableManager,
-  getExecution: vi.fn().mockReturnValue({
+  getWorkflowExecutionData: vi.fn().mockReturnValue({
     messageContextRegistry: mockMessageContextRegistry,
   }),
 } as unknown as WorkflowExecutionEntity;
@@ -59,7 +59,7 @@ const mockBranchEntity = {
   getStatus: vi.fn().mockReturnValue("COMPLETED"),
   getSyncBarrier: vi.fn(),
   variableStateManager: mockVariableManager,
-  getExecution: vi.fn().mockReturnValue({
+  getWorkflowExecutionData: vi.fn().mockReturnValue({
     messageContextRegistry: mockMessageContextRegistry,
   }),
 } as unknown as WorkflowExecutionEntity;

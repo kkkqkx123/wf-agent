@@ -12,7 +12,7 @@ const mockManager = {
 
 const mockEntity = {
   getStatus: vi.fn(),
-  getExecution: vi.fn(),
+  getWorkflowExecutionData: vi.fn(),
   variableStateManager: mockManager,
 } as unknown as WorkflowExecutionEntity;
 
@@ -29,7 +29,7 @@ const mockExecution = {
 beforeEach(() => {
   vi.clearAllMocks();
   (mockEntity.getStatus as any).mockReturnValue("RUNNING");
-  (mockEntity.getExecution as any).mockReturnValue(mockExecution);
+  (mockEntity.getWorkflowExecutionData as any).mockReturnValue(mockExecution);
   mockExecution.nodeResults = [];
   mockExecution.variables = [];
   mockManager.getVariable.mockReturnValue(undefined);

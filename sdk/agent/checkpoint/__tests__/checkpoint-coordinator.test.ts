@@ -12,9 +12,15 @@ import { AgentLoopStatus } from "@wf-agent/types";
 describe("AgentLoopCheckpointCoordinator", () => {
   let coordinator: AgentLoopCheckpointCoordinator;
   let dependencies: CheckpointDependencies;
+  let mockConfig: any;
 
   beforeEach(() => {
-    coordinator = new AgentLoopCheckpointCoordinator();
+    mockConfig = {
+      profileId: "test-profile",
+      transformContext: vi.fn(),
+      convertToLlm: vi.fn(),
+    };
+    coordinator = new AgentLoopCheckpointCoordinator(mockConfig);
     dependencies = {
       saveCheckpoint: vi.fn(),
       getCheckpoint: vi.fn(),

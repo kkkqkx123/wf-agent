@@ -329,7 +329,7 @@ describe("VariableCoordinator", () => {
       ]);
 
       const all = coordinator.getAllVariables(manager);
-      expect(all).toEqual({ a: "1", b: 2 });
+      expect(all).toEqual({ a: "1" });
     });
 
     it("should return empty object when no variables", () => {

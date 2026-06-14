@@ -9,7 +9,7 @@ const mockEntity = {
   getNodeResults: vi.fn().mockReturnValue([]),
   setCurrentNodeId: vi.fn(),
   state: { start: vi.fn() },
-  getExecution: vi.fn(),
+  getWorkflowExecutionData: vi.fn(),
   addNodeResult: vi.fn(),
   getInput: vi.fn().mockReturnValue({}),
 } as unknown as WorkflowExecutionEntity;
@@ -35,7 +35,7 @@ const mockRegistry = {
 beforeEach(() => {
   vi.clearAllMocks();
   (mockEntity.getStatus as any).mockReturnValue("CREATED");
-  (mockEntity.getExecution as any).mockReturnValue(mockExecution);
+  (mockEntity.getWorkflowExecutionData as any).mockReturnValue(mockExecution);
   mockExecution.variables = [];
   mockExecution.errors = [];
   mockExecution.input = {};

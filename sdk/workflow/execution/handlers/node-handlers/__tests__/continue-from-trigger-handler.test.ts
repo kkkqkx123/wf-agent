@@ -5,7 +5,7 @@ import type { RuntimeNode, ContinueFromTriggerNodeConfig } from "@wf-agent/types
 import type { ContinueFromTriggerHandlerContext } from "../continue-from-trigger-handler.js";
 
 const mockMainEntity = {
-  getExecution: vi.fn(),
+  getWorkflowExecutionData: vi.fn(),
   setVariable: vi.fn(),
 } as unknown as WorkflowExecutionEntity;
 
@@ -14,7 +14,7 @@ const mockMainExecution = {};
 const mockSubEntity = {
   getStatus: vi.fn(),
   getNodeResults: vi.fn().mockReturnValue([]),
-  getExecution: vi.fn(),
+  getWorkflowExecutionData: vi.fn(),
   addNodeResult: vi.fn(),
   getWorkflowId: vi.fn().mockReturnValue("sub-wf"),
   getOutput: vi.fn().mockReturnValue({}),
@@ -45,8 +45,8 @@ const mockParentRegistry = {
 beforeEach(() => {
   vi.clearAllMocks();
   (mockSubEntity.getStatus as any).mockReturnValue("RUNNING");
-  (mockSubEntity.getExecution as any).mockReturnValue(mockSubExecution);
-  (mockMainEntity.getExecution as any).mockReturnValue(mockMainExecution);
+  (mockSubEntity.getWorkflowExecutionData as any).mockReturnValue(mockSubExecution);
+  (mockMainEntity.getWorkflowExecutionData as any).mockReturnValue(mockMainExecution);
   (mockSubEntity.getNodeResults as any).mockReturnValue([]);
 });
 

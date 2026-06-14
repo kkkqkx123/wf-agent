@@ -96,6 +96,7 @@ import {
   cloneAgentLoop,
   type AgentLoopCheckpointDependencies,
 } from "../agent-loop-lifecycle.js";
+import { AgentStateCoordinator } from "../../../state-managers/agent-state-coordinator.js";
 
 describe("AgentLoopLifecycle", () => {
   let mockEntity: AgentLoopEntityType;
@@ -186,8 +187,26 @@ describe("AgentLoopLifecycle", () => {
   });
 
   describe("cloneAgentLoop", () => {
+    let mockStateCoordinator: AgentStateCoordinator;
+
+    beforeEach(() => {
+      mockStateCoordinator = {
+        createSnapshot: vi.fn().mockReturnValue({
+          messages: [],
+          markMap: {
+            originalIndices: [],
+            batchBoundaries: [],
+            boundaryToBatch: [],
+            currentBatch: 0,
+          },
+        }),
+        restoreFromSnapshot: vi.fn(),
+      } as unknown as AgentStateCoordinator;
+    });
+
     it("should create a new AgentLoopEntity with cloned state", () => {
-      const cloned = cloneAgentLoop(mockEntity);
+      const result = cloneAgentLoop(mockEntity, mockStateCoordinator);
+      const cloned = result.entity;
 
       expect(cloned).toBeInstanceOf(Object);
       expect(cloned.id).toBe("agent-loop-1");
@@ -201,11 +220,11 @@ describe("AgentLoopLifecycle", () => {
 
     it("should clone conversation manager snapshot", () => {
       const snapshot = { messages: [{ role: "user", content: "hello" }] };
-      mockConversationManagerRef.createSnapshot = vi.fn(() => snapshot);
+      mockStateCoordinator.createSnapshot = vi.fn(() => snapshot);
 
-      cloneAgentLoop(mockEntity);
+      cloneAgentLoop(mockEntity, mockStateCoordinator);
 
-      expect(mockConversationManagerRef.createSnapshot).toHaveBeenCalled();
+      expect(mockStateCoordinator.createSnapshot).toHaveBeenCalled();
     });
 
     it("should set parent context if entity has one", () => {
@@ -214,7 +233,8 @@ describe("AgentLoopLifecycle", () => {
         parentContext,
       );
 
-      const cloned = cloneAgentLoop(mockEntity);
+      const result = cloneAgentLoop(mockEntity, mockStateCoordinator);
+      const cloned = result.entity;
 
       expect(cloned.getParentContext?.()).toEqual(parentContext);
     });
@@ -222,7 +242,8 @@ describe("AgentLoopLifecycle", () => {
     it("should not set parent context when entity has none", () => {
       (mockGetParentContextRef as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
-      const cloned = cloneAgentLoop(mockEntity);
+      const result = cloneAgentLoop(mockEntity, mockStateCoordinator);
+      const cloned = result.entity;
 
       expect(cloned.getParentContext?.()).toBeUndefined();
     });

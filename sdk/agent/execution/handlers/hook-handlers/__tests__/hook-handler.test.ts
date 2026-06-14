@@ -54,10 +54,13 @@ vi.mock("../event-emitter.js", () => ({
 
 import { executeAgentHook } from "../hook-handler.js";
 import { filterAndSortHooks, executeHooks } from "../../../../../core/hooks/index.js";
+import { ConversationSession } from "../../../../../core/messaging/conversation-session.js";
+import { AgentStateCoordinator } from "../../../../state-managers/agent-state-coordinator.js";
 
 describe("AgentHookHandler", () => {
   let mockEntity: AgentLoopEntity;
   let mockEmitEvent: (event: AgentHookTriggeredEvent) => Promise<void>;
+  let mockStateCoordinator: AgentStateCoordinator;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -80,11 +83,12 @@ describe("AgentHookHandler", () => {
       },
       isToolAvailable: vi.fn(() => true),
       getAvailableTools: vi.fn(() => new Set(["tool-1"])),
-      conversationManager: {
-        getAllMessages: vi.fn(() => []),
-        getMessages: vi.fn(() => []),
-      },
     } as unknown as AgentLoopEntity;
+
+    const conversationSession = new ConversationSession();
+    mockStateCoordinator = new AgentStateCoordinator({
+      conversationManager: conversationSession,
+    });
 
     mockEmitEvent = vi.fn() as unknown as (event: AgentHookTriggeredEvent) => Promise<void>;
   });
@@ -92,7 +96,7 @@ describe("AgentHookHandler", () => {
   it("should return early when config has no hooks", async () => {
     (mockEntity.config as Record<string, unknown>)["hooks"] = undefined;
 
-    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent);
+    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent, mockStateCoordinator);
 
     expect(filterAndSortHooks).not.toHaveBeenCalled();
     expect(executeHooks).not.toHaveBeenCalled();
@@ -101,7 +105,7 @@ describe("AgentHookHandler", () => {
   it("should return early when config has empty hooks", async () => {
     (mockEntity.config as Record<string, unknown>)["hooks"] = [];
 
-    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent);
+    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent, mockStateCoordinator);
 
     expect(filterAndSortHooks).not.toHaveBeenCalled();
     expect(executeHooks).not.toHaveBeenCalled();
@@ -110,7 +114,7 @@ describe("AgentHookHandler", () => {
   it("should return early when no hooks match the given type", async () => {
     vi.mocked(filterAndSortHooks).mockReturnValue([]);
 
-    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent);
+    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent, mockStateCoordinator);
 
     expect(filterAndSortHooks).toHaveBeenCalledWith(mockEntity.config.hooks, "BEFORE_ITERATION");
     expect(executeHooks).not.toHaveBeenCalled();
@@ -122,7 +126,7 @@ describe("AgentHookHandler", () => {
     ];
     vi.mocked(filterAndSortHooks).mockReturnValue(matchingHooks);
 
-    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent);
+    await executeAgentHook(mockEntity, "BEFORE_ITERATION", mockEmitEvent, mockStateCoordinator);
 
     expect(filterAndSortHooks).toHaveBeenCalledWith(mockEntity.config.hooks, "BEFORE_ITERATION");
     expect(executeHooks).toHaveBeenCalledWith(
@@ -155,7 +159,7 @@ describe("AgentHookHandler", () => {
       result: 3,
     };
 
-    await executeAgentHook(mockEntity, "AFTER_TOOL_CALL", mockEmitEvent, toolCallInfo);
+    await executeAgentHook(mockEntity, "AFTER_TOOL_CALL", mockEmitEvent, mockStateCoordinator, toolCallInfo);
 
     expect(executeHooks).toHaveBeenCalledWith(
       matchingHooks,
@@ -178,7 +182,7 @@ describe("AgentHookHandler", () => {
       toolCalls: [{ id: "tc-1", name: "search" }],
     };
 
-    await executeAgentHook(mockEntity, "AFTER_LLM_CALL", mockEmitEvent, undefined, llmResponse);
+    await executeAgentHook(mockEntity, "AFTER_LLM_CALL", mockEmitEvent, mockStateCoordinator, undefined, llmResponse);
 
     expect(executeHooks).toHaveBeenCalledWith(
       matchingHooks,

@@ -11,7 +11,7 @@ export interface InitialMessagesConfig extends SystemPromptConfig {
   initialMessages?: LLMMessage[];
 }
 
-export async function buildInitialMessages(config: InitialMessagesConfig): Promise<LLMMessage[]> {
+export function buildInitialMessages(config: InitialMessagesConfig): LLMMessage[] {
   if (config.initialMessages && config.initialMessages.length > 0) {
     return [...config.initialMessages];
   }
@@ -26,7 +26,7 @@ export async function buildInitialMessages(config: InitialMessagesConfig): Promi
     });
   }
 
-  const userMessage = await resolveInitialUserMessage(config);
+  const userMessage = resolveInitialUserMessage(config);
   if (userMessage) {
     messages.push({
       role: "user",
@@ -42,7 +42,7 @@ export async function buildInitialMessages(config: InitialMessagesConfig): Promi
   return messages;
 }
 
-async function resolveInitialUserMessage(config: InitialMessagesConfig): Promise<string | null> {
+function resolveInitialUserMessage(config: InitialMessagesConfig): string | null {
   if (config.initialUserMessageTemplateId) {
     const rendered = templateRegistry.render(
       config.initialUserMessageTemplateId,

@@ -6,16 +6,12 @@ export interface SystemPromptConfig {
   systemPrompt?: string;
   systemPromptTemplateId?: string;
   systemPromptTemplateVariables?: Record<string, unknown>;
-  systemPromptFragments?: string[];
-  systemPromptFragmentVariables?: Map<string, Record<string, unknown>>;
 }
 
 /**
  * Resolve system prompt using template registry and variable rendering.
  *
- * The new design uses an explicit ID-list approach for fragment composition.
- * Fragment IDs are passed as `systemPromptFragments` and composed by the caller
- * (e.g., Composer.renderSystemPrompt), rather than using inline fragment markers.
+ * Fragment composition is handled by the caller (e.g., Composer.renderSystemPrompt).
  *
  * @param config System prompt configuration
  * @returns Resolved system prompt string

@@ -14,7 +14,7 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { ExecutionEventRecord, AgentLoopStatus } from "@wf-agent/types";
+import type { ExecutionEventRecord } from "@wf-agent/types";
 import type { AgentExecutionState } from "../../../api/agent/resources/agent-execution-state-api.js";
 import type { ResourceUsageRecord } from "../../../api/agent/resources/agent-loop-iteration-api.js";
 import type {
@@ -22,28 +22,18 @@ import type {
   PersistenceLayerHealth,
   EventQueryFilter,
   TimeRange,
-} from "./persistence-interfaces.js";
+} from "../core/persistence-interfaces.js";
+import type { IterationSystemMetrics, IterationLLMMetrics } from "../../agent/resources/agent-loop-iteration-api.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import Database from "better-sqlite3";
+import type { Database as DatabaseType } from "better-sqlite3";
 
 const logger = createContextualLogger({ operation: "SQLitePersistenceLayer" });
 
-// Database types (actual sqlite3/better-sqlite3 would be used at runtime)
-interface Database {
-  exec(sql: string): void;
-  prepare(sql: string): Statement;
-  close(): void;
-}
-
-interface Statement {
-  run(...params: unknown[]): RunResult;
-  all(...params: unknown[]): unknown[];
-  get(...params: unknown[]): unknown | undefined;
-}
-
-interface RunResult {
-  changes: number;
-  lastInsertRowid: number;
-}
+/**
+ * Internal type for persisted resource usage records
+ * Matches the database schema, distinct from the public ResourceUsageRecord
+ */
 
 /**
  * SQLite Persistence Layer
@@ -55,15 +45,16 @@ interface RunResult {
  * - flushInterval: Interval to flush writes (default: 5000ms)
  */
 export class SQLitePersistenceLayer implements PersistenceLayer {
-  private db: Database | null = null;
+  private db: DatabaseType | null = null;
   private path: string;
   private retentionDays: number;
   private batchSize: number;
   private flushInterval: number;
-  private eventQueue: ExecutionEventRecord[] = [];
-  private flushTimer: NodeJS.Timer | null = null;
+  private eventQueue: Array<{ executionId: ID; event: ExecutionEventRecord }> = [];
+  private flushTimer: NodeJS.Timeout | null = null;
   private isInitialized = false;
   private isShuttingDown = false;
+  private lastFlushTime: number = 0;
 
   constructor(options?: {
     path?: string;
@@ -88,8 +79,15 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
     try {
       logger.info("Initializing SQLite persistence layer", { path: this.path });
 
-      // In a real implementation, this would use actual sqlite3/better-sqlite3
-      // For now, we document the schema that would be created
+      // Create actual database connection using better-sqlite3
+      this.db = new Database(this.path);
+
+      // Enable foreign keys and optimize for concurrent access
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("synchronous = NORMAL");
+      this.db.pragma("foreign_keys = ON");
+
+      // Create schema
       this.createSchema();
 
       this.isInitialized = true;
@@ -97,7 +95,7 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       // Start flush timer
       this.startFlushTimer();
 
-      logger.info("SQLite persistence layer initialized successfully");
+      logger.info("SQLite persistence layer initialized successfully", { path: this.path });
     } catch (error) {
       logger.error("Failed to initialize SQLite persistence layer", { error });
       throw error;
@@ -222,7 +220,7 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       }
 
       if (result && typeof result === 'object' && 'state_data' in result) {
-        return JSON.parse((result as Record<string, unknown>).state_data as string);
+        return JSON.parse((result as Record<string, unknown>)['state_data'] as string);
       }
 
       return null;
@@ -251,13 +249,13 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       const results = stmt?.all(executionId, limit || 10) || [];
 
       return results
-        .map(result => {
-          if (typeof result === 'object' && 'state_data' in result) {
-            return JSON.parse((result as Record<string, unknown>).state_data as string);
+        .map((result: any) => {
+          if (result !== null && typeof result === 'object' && 'state_data' in result) {
+            return JSON.parse((result as Record<string, unknown>)['state_data'] as string);
           }
           return null;
         })
-        .filter((s): s is AgentExecutionState => s !== null);
+        .filter((s: any): s is AgentExecutionState => s !== null);
     } catch (error) {
       logger.error("Failed to list execution state snapshots", { error });
       return [];
@@ -265,9 +263,13 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
   }
 
   /**
-   * Save resource usage record
+   * Save resource usage record with iteration context
    */
-  async saveResourceUsageRecord(executionId: ID, record: ResourceUsageRecord): Promise<void> {
+  async saveResourceUsageRecord(
+    executionId: ID,
+    _record: ResourceUsageRecord,
+    context?: { iteration?: number; cpuTime?: number; memoryUsed?: number },
+  ): Promise<void> {
     if (!this.isInitialized) {
       return;
     }
@@ -280,9 +282,9 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
 
       stmt?.run(
         executionId,
-        record.iteration,
-        record.cpuTime || 0,
-        record.memoryUsed || 0,
+        context?.iteration ?? 0,
+        context?.cpuTime ?? 0,
+        context?.memoryUsed ?? 0,
         Date.now(),
       );
     } catch (error) {
@@ -326,17 +328,23 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       const results = stmt?.all(...params) || [];
 
       return results
-        .map(r => {
-          if (typeof r === 'object' && 'iteration' in r) {
-            return {
-              iteration: (r as Record<string, unknown>).iteration as number,
-              cpuTime: (r as Record<string, unknown>).cpu_time as number,
-              memoryUsed: (r as Record<string, unknown>).memory_used as number,
-            };
+        .map((r: any) => {
+          if (typeof r === 'object' && r !== null && 'iteration' in r) {
+            const record = r as Record<string, unknown>;
+            // Map persisted resource usage to ResourceUsageRecord
+            // Only include the fields that ResourceUsageRecord actually supports
+            const resourceRecord: ResourceUsageRecord = {};
+
+            // If we have memory peak data, include it
+            if (record['memory_used']) {
+              resourceRecord.memoryPeak = record['memory_used'] as number;
+            }
+
+            return resourceRecord;
           }
           return null;
         })
-        .filter((r): r is ResourceUsageRecord => r !== null);
+        .filter((r: any): r is ResourceUsageRecord => r !== null);
     } catch (error) {
       logger.error("Failed to get resource usage records", { error });
       return [];
@@ -344,14 +352,201 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
   }
 
   /**
-   * Save event (queued for batch writing)
+   * Save system metrics record
    */
-  async saveEvent(event: ExecutionEventRecord): Promise<void> {
+  async saveSystemMetrics(
+    executionId: ID,
+    iteration: number,
+    metrics: IterationSystemMetrics,
+  ): Promise<void> {
     if (!this.isInitialized) {
       return;
     }
 
-    this.eventQueue.push(event);
+    try {
+      const stmt = this.db?.prepare(`
+        INSERT INTO system_metrics (execution_id, iteration, cpu_time_ms, memory_peak_mb, duration_ms, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      stmt?.run(
+        executionId,
+        iteration,
+        metrics.cpuTimeMs,
+        metrics.memoryPeakMb,
+        metrics.durationMs,
+        metrics.timestamp,
+      );
+    } catch (error) {
+      logger.error("Failed to save system metrics", { error });
+    }
+  }
+
+  /**
+   * Save LLM metrics records
+   */
+  async saveLLMMetrics(
+    executionId: ID,
+    metrics: IterationLLMMetrics[],
+  ): Promise<void> {
+    if (!this.isInitialized) {
+      return;
+    }
+
+    try {
+      const stmt = this.db?.prepare(`
+        INSERT INTO llm_metrics (execution_id, iteration, tool_call_id, input_tokens, output_tokens, cost_usd, model, duration_ms, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const metric of metrics) {
+        stmt?.run(
+          executionId,
+          metric.iteration,
+          metric.toolCallId || null,
+          metric.inputTokens,
+          metric.outputTokens,
+          metric.costUsd,
+          metric.model,
+          metric.durationMs,
+          metric.timestamp,
+        );
+      }
+    } catch (error) {
+      logger.error("Failed to save LLM metrics", { error });
+    }
+  }
+
+  /**
+   * Get system metrics records
+   */
+  async getSystemMetrics(
+    executionId: ID,
+    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+  ): Promise<IterationSystemMetrics[]> {
+    if (!this.isInitialized) {
+      return [];
+    }
+
+    try {
+      let sql = `
+        SELECT iteration, cpu_time_ms, memory_peak_mb, duration_ms, timestamp
+        FROM system_metrics
+        WHERE execution_id = ?
+      `;
+
+      const params: unknown[] = [executionId];
+
+      if (filter?.timeRange) {
+        sql += ` AND timestamp >= ? AND timestamp <= ?`;
+        params.push(filter.timeRange.start, filter.timeRange.end);
+      }
+
+      if (filter?.iterationRange) {
+        sql += ` AND iteration >= ? AND iteration <= ?`;
+        params.push(filter.iterationRange[0], filter.iterationRange[1]);
+      }
+
+      sql += ` ORDER BY iteration ASC`;
+
+      const stmt = this.db?.prepare(sql);
+      const results = stmt?.all(...params) || [];
+
+      return results
+        .map((r: any) => {
+          if (typeof r === 'object' && r !== null && 'iteration' in r) {
+            const record = r as Record<string, unknown>;
+            return {
+              iteration: record['iteration'] as number,
+              cpuTimeMs: record['cpu_time_ms'] as number,
+              memoryPeakMb: record['memory_peak_mb'] as number,
+              durationMs: record['duration_ms'] as number,
+              timestamp: record['timestamp'] as number,
+            };
+          }
+          return null;
+        })
+        .filter((m: any): m is IterationSystemMetrics => m !== null);
+    } catch (error) {
+      logger.error("Failed to get system metrics", { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get LLM metrics records
+   */
+  async getLLMMetrics(
+    executionId: ID,
+    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+  ): Promise<IterationLLMMetrics[]> {
+    if (!this.isInitialized) {
+      return [];
+    }
+
+    try {
+      let sql = `
+        SELECT iteration, tool_call_id, input_tokens, output_tokens, cost_usd, model, duration_ms, timestamp
+        FROM llm_metrics
+        WHERE execution_id = ?
+      `;
+
+      const params: unknown[] = [executionId];
+
+      if (filter?.timeRange) {
+        sql += ` AND timestamp >= ? AND timestamp <= ?`;
+        params.push(filter.timeRange.start, filter.timeRange.end);
+      }
+
+      if (filter?.iterationRange) {
+        sql += ` AND iteration >= ? AND iteration <= ?`;
+        params.push(filter.iterationRange[0], filter.iterationRange[1]);
+      }
+
+      sql += ` ORDER BY iteration ASC`;
+
+      const stmt = this.db?.prepare(sql);
+      const results = stmt?.all(...params) || [];
+
+      return results
+        .map((r: any) => {
+          if (typeof r === 'object' && r !== null && 'iteration' in r) {
+            const record = r as Record<string, unknown>;
+            const metric: IterationLLMMetrics = {
+              iteration: record['iteration'] as number,
+              inputTokens: record['input_tokens'] as number,
+              outputTokens: record['output_tokens'] as number,
+              costUsd: record['cost_usd'] as number,
+              model: record['model'] as string,
+              durationMs: record['duration_ms'] as number,
+              timestamp: record['timestamp'] as number,
+            };
+            if (record['tool_call_id']) {
+              metric.toolCallId = record['tool_call_id'] as string;
+            }
+            return metric;
+          }
+          return null;
+        })
+        .filter((m: any): m is IterationLLMMetrics => m !== null);
+    } catch (error) {
+      logger.error("Failed to get LLM metrics", { error });
+      return [];
+    }
+  }
+
+  /**
+   * Save event (queued for batch writing)
+   */
+  async saveEvent(executionId: ID, event: ExecutionEventRecord): Promise<void> {
+    if (!this.isInitialized) {
+      return;
+    }
+
+    this.eventQueue.push({
+      executionId,
+      event,
+    });
 
     // Flush if batch size reached
     if (this.eventQueue.length >= this.batchSize) {
@@ -407,13 +602,13 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       const results = stmt?.all(...params) || [];
 
       return results
-        .map(r => {
-          if (typeof r === 'object' && 'event_data' in r) {
-            return JSON.parse((r as Record<string, unknown>).event_data as string);
+        .map((r: any) => {
+          if (r !== null && typeof r === 'object' && 'event_data' in r) {
+            return JSON.parse((r as Record<string, unknown>)['event_data'] as string);
           }
           return null;
         })
-        .filter((e): e is ExecutionEventRecord => e !== null);
+        .filter((e: any): e is ExecutionEventRecord => e !== null);
     } catch (error) {
       logger.error("Failed to query events", { error });
       return [];
@@ -450,8 +645,8 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       const stmt = this.db?.prepare(sql);
       const result = stmt?.get(...params);
 
-      if (typeof result === 'object' && 'count' in result) {
-        return (result as Record<string, unknown>).count as number;
+      if (result !== null && typeof result === 'object' && 'count' in result) {
+        return (result as Record<string, unknown>)['count'] as number;
       }
 
       return 0;
@@ -500,16 +695,16 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       const results = stmt?.all(executionId) || [];
 
       return results
-        .map(r => {
-          if (typeof r === 'object' && 'checkpoint_id' in r && 'timestamp' in r) {
+        .map((r: any) => {
+          if (r !== null && typeof r === 'object' && 'checkpoint_id' in r && 'timestamp' in r) {
             return {
-              checkpointId: (r as Record<string, unknown>).checkpoint_id as string,
-              timestamp: (r as Record<string, unknown>).timestamp as number,
+              checkpointId: (r as Record<string, unknown>)['checkpoint_id'] as string,
+              timestamp: (r as Record<string, unknown>)['timestamp'] as number,
             };
           }
           return null;
         })
-        .filter((c): c is { checkpointId: string; timestamp: number } => c !== null);
+        .filter((c: any): c is { checkpointId: string; timestamp: number } => c !== null);
     } catch (error) {
       logger.error("Failed to get checkpoint history", { error });
       return [];
@@ -559,6 +754,35 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
           created_at INTEGER DEFAULT (strftime('%s', 'now'))
         );
 
+        CREATE TABLE IF NOT EXISTS system_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          execution_id TEXT NOT NULL,
+          iteration INTEGER NOT NULL,
+          cpu_time_ms REAL NOT NULL,
+          memory_peak_mb REAL NOT NULL,
+          duration_ms REAL NOT NULL,
+          disk_io_bytes INTEGER,
+          network_io_bytes INTEGER,
+          timestamp INTEGER NOT NULL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS llm_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          execution_id TEXT NOT NULL,
+          iteration INTEGER NOT NULL,
+          tool_call_id TEXT,
+          input_tokens INTEGER NOT NULL,
+          output_tokens INTEGER NOT NULL,
+          cost_usd REAL NOT NULL,
+          model TEXT NOT NULL,
+          duration_ms REAL NOT NULL,
+          cache_read_tokens INTEGER,
+          cache_creation_tokens INTEGER,
+          timestamp INTEGER NOT NULL,
+          created_at INTEGER DEFAULT (strftime('%s', 'now'))
+        );
+
         CREATE TABLE IF NOT EXISTS checkpoints (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           checkpoint_id TEXT NOT NULL,
@@ -573,6 +797,8 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
         CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
         CREATE INDEX IF NOT EXISTS idx_execution_states_execution_id ON execution_states(execution_id);
         CREATE INDEX IF NOT EXISTS idx_resource_usage_execution_id ON resource_usage(execution_id);
+        CREATE INDEX IF NOT EXISTS idx_system_metrics_execution_id ON system_metrics(execution_id);
+        CREATE INDEX IF NOT EXISTS idx_llm_metrics_execution_id ON llm_metrics(execution_id);
       `);
 
       logger.debug("Database schema created successfully");
@@ -586,29 +812,31 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       return;
     }
 
+    const toFlush = this.eventQueue.splice(0, this.batchSize);
+
     try {
-      const toFlush = this.eventQueue.splice(0, this.batchSize);
       const stmt = this.db.prepare(`
         INSERT INTO events (execution_id, event_id, type, timestamp, severity, event_data)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
 
-      for (const event of toFlush) {
+      for (const { executionId, event } of toFlush) {
         stmt.run(
-          event.executionId || 'unknown',
+          executionId,
           event.id,
           event.type,
           event.timestamp,
-          (event as Record<string, unknown>).severity || 'info',
+          event.severity || 'info',
           JSON.stringify(event),
         );
       }
 
+      this.lastFlushTime = Date.now();
       logger.debug("Flushed events to database", { count: toFlush.length });
     } catch (error) {
       logger.error("Failed to flush events", { error });
-      // Re-queue events if flush failed
-      this.eventQueue.unshift(...arguments[0]);
+      // Re-queue failed events for retry on next flush interval
+      this.eventQueue.unshift(...toFlush);
     }
   }
 
@@ -645,7 +873,6 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
   }
 
   private getLastFlushTime(): number | undefined {
-    // In a real implementation, track last flush time
-    return undefined;
+    return this.lastFlushTime > 0 ? this.lastFlushTime : undefined;
   }
 }

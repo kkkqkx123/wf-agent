@@ -9,7 +9,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentExecutionState } from "../../../api/agent/resources/agent-execution-state-api.js";
-import type { ResourceUsageRecord } from "../../../api/agent/resources/agent-loop-iteration-api.js";
+import type { ResourceUsageRecord, IterationSystemMetrics, IterationLLMMetrics } from "../../../api/agent/resources/agent-loop-iteration-api.js";
 import type { ExecutionEventRecord } from "@wf-agent/types";
 
 /**
@@ -73,7 +73,7 @@ export interface PersistenceLayer {
   // ============ Performance metrics ============
 
   /**
-   * Save resource usage record
+   * Save resource usage record (legacy, for backward compatibility)
    */
   saveResourceUsageRecord(executionId: ID, record: ResourceUsageRecord): Promise<void>;
 
@@ -85,12 +85,40 @@ export interface PersistenceLayer {
     filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
   ): Promise<ResourceUsageRecord[]>;
 
+  /**
+   * Save system metrics record (new method for Design Issue #4 fix)
+   */
+  saveSystemMetrics(executionId: ID, iteration: number, metrics: IterationSystemMetrics): Promise<void>;
+
+  /**
+   * Save LLM metrics records (new method for Design Issue #4 fix)
+   */
+  saveLLMMetrics(executionId: ID, metrics: IterationLLMMetrics[]): Promise<void>;
+
+  /**
+   * Get system metrics records
+   */
+  getSystemMetrics(
+    executionId: ID,
+    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+  ): Promise<IterationSystemMetrics[]>;
+
+  /**
+   * Get LLM metrics records
+   */
+  getLLMMetrics(
+    executionId: ID,
+    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+  ): Promise<IterationLLMMetrics[]>;
+
   // ============ Event history ============
 
   /**
    * Save event
+   * @param executionId Execution ID to associate with the event
+   * @param event Event record to persist
    */
-  saveEvent(event: ExecutionEventRecord): Promise<void>;
+  saveEvent(executionId: ID, event: ExecutionEventRecord): Promise<void>;
 
   /**
    * Query events with filter
@@ -157,23 +185,39 @@ export class NoOpPersistenceLayer implements PersistenceLayer {
     return [];
   }
 
-  async saveEvent(): Promise<void> {
+  async saveSystemMetrics(): Promise<void> {
     // No-op
   }
 
-  async queryEvents(): Promise<ExecutionEventRecord[]> {
+  async saveLLMMetrics(): Promise<void> {
+    // No-op
+  }
+
+  async getSystemMetrics(): Promise<IterationSystemMetrics[]> {
     return [];
   }
 
-  async countEvents(): Promise<number> {
-    return 0;
+  async getLLMMetrics(): Promise<IterationLLMMetrics[]> {
+    return [];
   }
 
-  async saveCheckpoint(): Promise<void> {
+  async saveEvent(_executionId: ID, _event: ExecutionEventRecord): Promise<void> {
     // No-op
   }
 
-  async getCheckpointHistory(): Promise<Array<{ checkpointId: string; timestamp: number }>> {
+  async queryEvents(_filter: EventQueryFilter): Promise<ExecutionEventRecord[]> {
+    return [];
+  }
+
+  async countEvents(_filter: EventQueryFilter): Promise<number> {
+    return 0;
+  }
+
+  async saveCheckpoint(_checkpointId: string, _metadata: Record<string, unknown>): Promise<void> {
+    // No-op
+  }
+
+  async getCheckpointHistory(_executionId: ID): Promise<Array<{ checkpointId: string; timestamp: number }>> {
     return [];
   }
 

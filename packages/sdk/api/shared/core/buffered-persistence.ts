@@ -33,7 +33,7 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
   // Buffers
   private stateBuffer: Map<ID, AgentExecutionState[]> = new Map();
   private metricsBuffer: Map<ID, ResourceUsageRecord[]> = new Map();
-  private eventBuffer: ExecutionEventRecord[] = [];
+  private eventBuffer: Array<{ executionId: ID; event: ExecutionEventRecord }> = [];
 
   // Configuration
   private stateBufferSize: number = 50;
@@ -155,10 +155,30 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
     return buffer.slice(-100);
   }
 
+  async saveSystemMetrics(
+    executionId: ID,
+    iteration: number,
+    metrics: any,
+  ): Promise<void> {
+    await this.backend.saveSystemMetrics(executionId, iteration, metrics);
+  }
+
+  async saveLLMMetrics(executionId: ID, metrics: any[]): Promise<void> {
+    await this.backend.saveLLMMetrics(executionId, metrics);
+  }
+
+  async getSystemMetrics(executionId: ID, filter?: any): Promise<any[]> {
+    return await this.backend.getSystemMetrics(executionId, filter);
+  }
+
+  async getLLMMetrics(executionId: ID, filter?: any): Promise<any[]> {
+    return await this.backend.getLLMMetrics(executionId, filter);
+  }
+
   // ============ Event history ============
 
-  async saveEvent(event: ExecutionEventRecord): Promise<void> {
-    this.eventBuffer.push(event);
+  async saveEvent(executionId: ID, event: ExecutionEventRecord): Promise<void> {
+    this.eventBuffer.push({ executionId, event });
 
     if (this.eventBuffer.length >= this.eventBufferSize) {
       await this.flushEventBuffer();
@@ -166,23 +186,54 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
   }
 
   async queryEvents(filter: EventQueryFilter): Promise<ExecutionEventRecord[]> {
-    // Query buffer
+    // Query buffer with full filter criteria
     let bufferResults = this.eventBuffer;
 
     if (filter.executionId) {
-      bufferResults = bufferResults.filter((e) => (e as any).executionId === filter.executionId);
+      bufferResults = bufferResults.filter((e) => e.executionId === filter.executionId);
     }
 
     if (filter.type && filter.type.length > 0) {
-      bufferResults = bufferResults.filter((e) => filter.type!.includes(e.type));
+      bufferResults = bufferResults.filter((e) => filter.type!.includes(e.event.type));
+    }
+
+    // Apply severity filter
+    if (filter.severity && filter.severity.length > 0) {
+      bufferResults = bufferResults.filter((e) => {
+        const eventSeverity = (e.event as unknown as Record<string, unknown>)['severity'] as string | undefined;
+        return filter.severity!.includes(eventSeverity || 'info');
+      });
+    }
+
+    // Apply timeRange filter
+    if (filter.timeRange) {
+      bufferResults = bufferResults.filter((e) => {
+        return e.event.timestamp >= filter.timeRange!.start && e.event.timestamp <= filter.timeRange!.end;
+      });
     }
 
     // Query backend
     const backendResults = await this.backend.queryEvents(filter);
 
-    // Merge results
-    const combined = [...bufferResults, ...backendResults];
-    return combined.slice(0, filter.limit ?? 100);
+    // Merge results with deduplication by event ID
+    const eventMap = new Map<string, ExecutionEventRecord>();
+
+    // Add buffer results
+    for (const bufferEvent of bufferResults) {
+      eventMap.set(bufferEvent.event.id, bufferEvent.event);
+    }
+
+    // Add backend results (won't duplicate due to Map keying)
+    for (const backendEvent of backendResults) {
+      eventMap.set(backendEvent.id, backendEvent);
+    }
+
+    // Apply offset and limit
+    const allEvents = Array.from(eventMap.values());
+    const offset = filter.offset ?? 0;
+    const limit = filter.limit ?? 100;
+
+    return allEvents.slice(offset, offset + limit);
   }
 
   async countEvents(filter: EventQueryFilter): Promise<number> {
@@ -287,8 +338,8 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
     const events = this.eventBuffer.splice(0, this.eventBufferSize);
 
     try {
-      for (const event of events) {
-        await this.backend.saveEvent(event);
+      for (const { executionId, event } of events) {
+        await this.backend.saveEvent(executionId, event);
       }
     } catch (error) {
       logger.error("Failed to flush event buffer", { error });

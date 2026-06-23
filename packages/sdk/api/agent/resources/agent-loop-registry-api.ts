@@ -432,16 +432,22 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
     // Add interruption events
     for (const interruptRecord of state.getInterruptionHistory()) {
       const typeMap: Record<string, ExecutionTimelineEntryType> = {
-        'pause': 'interruption_pause',
-        'resume': 'interruption_resume',
-        'stop': 'interruption_stop',
-        'timeout': 'interruption_timeout',
+        'PAUSE': 'interruption_pause',
+        'STOP': 'interruption_stop',
       };
+
+      // Map interrupt type to user-friendly description
+      const descriptionMap: Record<string, string> = {
+        'PAUSE': 'paused',
+        'STOP': 'stopped',
+      };
+      const typeDescription = descriptionMap[interruptRecord.type] || 'paused';
+
       timeline.push({
         id: interruptRecord.id,
         timestamp: interruptRecord.timestamp,
         type: (typeMap[interruptRecord.type] || 'interruption_pause') as ExecutionTimelineEntryType,
-        description: `Execution ${interruptRecord.type}d by ${interruptRecord.initiator}`,
+        description: `Execution ${typeDescription}: ${interruptRecord.reason}`,
         iteration: interruptRecord.iteration,
       });
     }
@@ -470,18 +476,32 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
   /**
    * Get variable history - track how a specific variable changed throughout execution
    * @param agentLoopId Agent loop ID
-   * @param variableName Variable name to track
+   * @param _variableName Variable name to track
    * @returns Variable snapshots in chronological order
    */
-  async getVariableHistory(agentLoopId: ID, variableName: string): Promise<VariableHistoryEntry[]> {
+  async getVariableHistory(agentLoopId: ID, _variableName: string): Promise<VariableHistoryEntry[]> {
     const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return [];
     }
 
-    // For now, return empty. In future, integrate with VariableState tracking
-    // This would require Agent Loop to track variable changes during execution
-    return [];
+    const history: VariableHistoryEntry[] = [];
+
+    // TODO: Design Issue #3 - Variable history tracking incomplete
+    // Current implementation is incomplete because:
+    // 1. IterationRecord lacks context/timestamp fields for variable state
+    // 2. ExecutionState.variableState is a point-in-time snapshot, not a history
+    // 3. Need to add variableSnapshots array to ExecutionState to store per-iteration state
+    //
+    // Expected implementation pattern:
+    // - Capture variable snapshots at end of each iteration
+    // - Store in ExecutionState.variableSnapshots[]
+    // - Query and correlate snapshots with iteration records
+    //
+    // For now, return empty array until architecture is completed
+    // See DESIGN_ISSUES.md#Issue-3 for full analysis and solution
+
+    return history;
   }
 
   /**
@@ -606,8 +626,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       iterations.push({
         iteration: record.iteration,
         toolCalls: record.toolCalls.map(tc => ({
-          name: tc.toolName,
-          status: tc.status,
+          name: tc.name,
+          status: tc.error ? 'failed' : (tc.result !== undefined ? 'completed' : 'pending'),
           startTime: tc.startTime,
           endTime: tc.endTime,
         })),

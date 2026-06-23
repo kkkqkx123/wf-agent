@@ -368,7 +368,7 @@ export class AgentErrorAnalysisAPI
         if (!errorsByIteration[err.iteration]) {
           errorsByIteration[err.iteration] = [];
         }
-        errorsByIteration[err.iteration].push(err);
+        errorsByIteration[err.iteration]!.push(err);
       }
     });
 
@@ -583,7 +583,10 @@ export class AgentErrorAnalysisAPI
       timeIntervals.push(sortedErrors[i]!.timestamp - sortedErrors[i - 1]!.timestamp);
     }
 
-    const avgInterval = timeIntervals.reduce((a, b) => a + b, 0) / timeIntervals.length;
+    // If there are not enough intervals to determine pattern, return none
+    if (timeIntervals.length < 2) {
+      return 'none';
+    }
 
     // If errors are getting closer together, pattern is 'accelerating'
     const recent = timeIntervals.slice(-3);

@@ -512,10 +512,10 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
   /**
    * Get interruption history with optional filtering
-   * @param filter Optional filter: 'pause' | 'resume' | 'stop' | 'timeout'
+   * @param filter Optional filter: 'PAUSE' | 'STOP'
    * @returns Filtered interruption records
    */
-  getInterruptionHistory(filter?: 'pause' | 'resume' | 'stop' | 'timeout'): ExecutionInterruptionRecord[] {
+  getInterruptionHistory(filter?: 'PAUSE' | 'STOP'): ExecutionInterruptionRecord[] {
     if (!filter) {
       return this.getInterruptionRecords();
     }
@@ -563,12 +563,12 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       }
 
       // Track recovery attempts
-      if (record.type === 'pause') {
+      if (record.type === 'PAUSE') {
         recoveryAttempts++;
       }
 
       // Track successful recoveries
-      if (record.resumeReason === 'manual_resume' || record.resumeReason === 'auto_resume') {
+      if (record.status === 'resumed') {
         successfulRecoveries++;
       }
     });

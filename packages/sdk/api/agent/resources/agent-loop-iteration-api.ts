@@ -118,8 +118,61 @@ export interface ErrorContextRecord {
 }
 
 /**
+ * System Metrics Record
+ * Tracks infrastructure costs and system resource consumption during iteration
+ * Persisted separately from LLM metrics for independent query patterns
+ */
+export interface IterationSystemMetrics {
+  /** Iteration number */
+  iteration: number;
+  /** Timestamp (milliseconds since epoch) */
+  timestamp: number;
+  /** CPU time used (milliseconds) */
+  cpuTimeMs: number;
+  /** Memory peak usage (megabytes) */
+  memoryPeakMb: number;
+  /** Total duration (milliseconds) */
+  durationMs: number;
+  /** Disk I/O bytes */
+  diskIoBytes?: number;
+  /** Network I/O bytes */
+  networkIoBytes?: number;
+}
+
+/**
+ * LLM Metrics Record
+ * Tracks model consumption and API costs during iteration
+ * Persisted separately from system metrics for cost analysis
+ */
+export interface IterationLLMMetrics {
+  /** Iteration number */
+  iteration: number;
+  /** Associated tool call ID (if from a specific tool call) */
+  toolCallId?: string;
+  /** Timestamp (milliseconds since epoch) */
+  timestamp: number;
+  /** Input tokens consumed */
+  inputTokens: number;
+  /** Output tokens generated */
+  outputTokens: number;
+  /** Cost in USD */
+  costUsd: number;
+  /** Model name/identifier */
+  model: string;
+  /** Request duration (milliseconds) */
+  durationMs: number;
+  /** Cache read tokens (for models supporting prompt caching) */
+  cacheReadTokens?: number;
+  /** Cache creation tokens (for models supporting prompt caching) */
+  cacheCreationTokens?: number;
+}
+
+/**
  * Resource Usage Record
  * Tracks resource consumption during iteration
+ * TODO: Design Issue #4 - This type conflates system and LLM metrics
+ * Long-term: Use separate IterationSystemMetrics and IterationLLMMetrics
+ * Current use: Backward compatibility wrapper
  */
 export interface ResourceUsageRecord {
   /** LLM tokens used (input) */

@@ -131,6 +131,26 @@ export interface ExecutionInterruptionRecord {
   /** Node ID when interruption occurred (for workflows) */
   nodeId?: string;
 
+  /** Who/what triggered the pause */
+  triggeredBy?: {
+    /** Trigger source */
+    source: "user" | "system" | "timeout" | "error";
+    /** User ID if user-initiated */
+    userId?: string;
+    /** Detailed reason */
+    reason: string;
+  };
+
+  /** Execution context when paused */
+  executionContext?: {
+    /** Current iteration */
+    iteration: number;
+    /** Execution status */
+    status: string;
+    /** Last successful tool call ID */
+    lastSuccessfulToolCall?: string;
+  };
+
   /** Current status of the interruption */
   status: "pending" | "resumed" | "abandoned";
 
@@ -139,6 +159,17 @@ export interface ExecutionInterruptionRecord {
 
   /** Timestamp when interruption was resumed */
   resumedAt?: Timestamp;
+
+  /** Reason for resuming */
+  resumedReason?: string;
+
+  /** Who/what resumed the execution */
+  resumedBy?: {
+    /** Resume source */
+    source: "user" | "system" | "automatic";
+    /** User ID if user-initiated */
+    userId?: string;
+  };
 
   /** Checkpoint ID used when resuming from this interruption */
   resumedFromCheckpointId?: string;

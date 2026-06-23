@@ -257,12 +257,12 @@ export class AgentPerformanceAnalysisAPI extends QueryableResourceAPI<
         // Add tool call operations
         for (const toolCall of record.toolCalls) {
           operations.push({
-            name: toolCall.toolName,
+            name: toolCall.name,
             type: 'tool_call',
             startTime: toolCall.startTime,
             endTime: toolCall.endTime || record.endTime || endTime,
             duration: (toolCall.endTime || record.endTime || endTime) - toolCall.startTime,
-            success: toolCall.status === 'success' || toolCall.status === 'completed',
+            success: !toolCall.error && toolCall.result !== undefined,
           });
         }
 

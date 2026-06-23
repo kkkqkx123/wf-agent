@@ -1,0 +1,12 @@
+# Output & Logging Configuration
+#
+# Controls how the application outputs logs and data.
+#
+# Processor: sdk/api/shared/config/processors/output.ts → mergeOutputWithDefaults()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadOutputConfig()
+
+dir = "./outputs"                     # Base output directory
+logFilePattern = "app-{date}.log"     # Log file naming pattern
+enableLogTerminal = true              # Also write logs to terminal
+enableSDKLogs = true                  # Include SDK-internal logs
+sdkLogLevel = "warn"                  # SDK log verbosity: silent | error | warn | info | debug

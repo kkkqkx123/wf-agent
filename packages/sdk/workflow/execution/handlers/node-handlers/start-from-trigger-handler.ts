@@ -1,0 +1,233 @@
+/**
+ * StartFromTrigger node function
+ * Responsible for initializing the trigger sub-workflow and receiving input data from the main workflow execution
+ */
+
+import type {
+  RuntimeNode,
+  LLMMessage,
+  WorkflowStartConfig,
+  MessageContextRegistry,
+  WorkflowExecution,
+} from "@wf-agent/types";
+import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
+import { now } from "@wf-agent/common-utils";
+import type { ConversationSession } from "../../../../shared/messaging/conversation-session.js";
+
+/**
+ * StartFromTrigger handler context
+ */
+export interface StartFromTriggerHandlerContext {
+  /** Trigger input data */
+  triggerInput?: Record<string, unknown> & {
+    variables?: Array<{ name: string; value: unknown }>;
+    conversationHistory?: LLMMessage[];
+    messageContexts?: Record<string, LLMMessage[]>;
+  };
+  /** Conversation manager */
+  conversationManager?: ConversationSession;
+}
+
+/**
+ * Check whether the node can be executed.
+ */
+function canExecute(workflowExecutionEntity: WorkflowExecutionEntity, node: RuntimeNode): boolean {
+  // The START_FROM_TRIGGER node can execute in either the CREATED or RUNNING state.
+  const status = workflowExecutionEntity.getStatus();
+  if (status !== "CREATED" && status !== "RUNNING") {
+    return false;
+  }
+
+  if (workflowExecutionEntity.getNodeResults().some(result => result.nodeId === node.id)) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * StartFromTrigger node processing function
+ * @param workflowExecutionEntity WorkflowExecutionEntity instance
+ * @param node Node definition
+ * @param context Processor context (optional)
+ * @returns Execution result
+ */
+export async function startFromTriggerHandler(
+  workflowExecutionEntity: WorkflowExecutionEntity,
+  node: RuntimeNode,
+  context?: StartFromTriggerHandlerContext,
+): Promise<unknown> {
+  // Check if it is possible to execute.
+  if (!canExecute(workflowExecutionEntity, node)) {
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      status: "SKIPPED",
+      step: workflowExecutionEntity.getNodeResults().length + 1,
+      executionTime: 0,
+    };
+  }
+
+  // Initialize WorkflowExecution state via WorkflowExecutionEntity
+  workflowExecutionEntity.state.start();
+  workflowExecutionEntity.setCurrentNodeId(node.id);
+
+  // Variables and results for initializing a WorkflowExecution
+  const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
+  if (!workflowExecution.variables) {
+    workflowExecution.variables = [];
+  }
+  if (!workflowExecution.errors) {
+    workflowExecution.errors = [];
+  }
+
+  // Initialize WorkflowExecution input
+  if (!workflowExecution.input) {
+    workflowExecution.input = {};
+  }
+
+  // Get the input data passed from the trigger from the context.
+  const triggerInput = context?.triggerInput || {};
+
+  // Get node config for messageInputs validation
+  const config = node.config as WorkflowStartConfig | undefined;
+
+  // Set input data to workflowExecution.input
+  let updatedInput: Record<string, unknown>;
+
+  // Validate and map inputs based on messageInputs configuration
+  if (config?.messageInputs && config.messageInputs.length > 0) {
+    const validatedInput: Record<string, unknown> = {};
+
+    for (const inputDef of config.messageInputs) {
+      const { externalName, internalName, required } = inputDef;
+
+      // Look for the value in triggerInput using externalName
+      const value = triggerInput[externalName];
+
+      if (value === undefined) {
+        if (required) {
+          throw new Error(
+            `Required input '${externalName}' (mapped to '${internalName}') is missing`,
+          );
+        }
+        continue;
+      }
+
+      // Map to internal name
+      validatedInput[internalName] = value;
+    }
+
+    // Set validated input to workflowExecution.input
+    updatedInput = {
+      ...workflowExecutionEntity.getInput(),
+      ...validatedInput,
+    };
+  } else {
+    // Fallback: use triggerInput directly (backward compatibility)
+    updatedInput = {
+      ...workflowExecutionEntity.getInput(),
+      ...triggerInput,
+    };
+  }
+
+  workflowExecution.input = updatedInput;
+
+  // Handle message contexts if configured
+  if (config?.messageInputs && config.messageInputs.length > 0) {
+    // Access the message context registry from workflowExecution
+    const workflowExecution = workflowExecutionEntity.getWorkflowExecutionData();
+    const registry = (
+      workflowExecution as WorkflowExecution & { messageContextRegistry?: MessageContextRegistry }
+    ).messageContextRegistry;
+
+    if (registry) {
+      for (const inputDef of config.messageInputs) {
+        const { externalName, internalName, required, defaultMessages } = inputDef;
+
+        // Try to get messages from triggerInput.messageContexts first
+        let messages = triggerInput.messageContexts?.[externalName];
+
+        // Fallback to triggerInput[externalName] if it's an array (backward compatibility)
+        if (!messages && Array.isArray(triggerInput[externalName])) {
+          messages = triggerInput[externalName] as LLMMessage[];
+        }
+
+        if (!messages) {
+          if (required) {
+            throw new Error(
+              `Required message context '${externalName}' (mapped to '${internalName}') is missing`,
+            );
+          }
+          // Use default messages if provided
+          if (defaultMessages && defaultMessages.length > 0) {
+            registry.register({
+              id: internalName,
+              messages: [...defaultMessages],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+          continue;
+        }
+
+        // Register the message context with internal name
+        registry.register({
+          id: internalName,
+          messages: [...messages], // Shallow copy
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: { sourceContext: externalName } as Record<string, unknown>,
+        });
+      }
+    }
+  }
+
+  // Handle data inputs if configured: map execution input data fields to internal variables
+  if (config?.dataInputs && config.dataInputs.length > 0) {
+    const executionInput = workflowExecutionEntity.getInput();
+    for (const inputDef of config.dataInputs) {
+      const { parentField, internalName, required, defaultValue } = inputDef;
+      let value = executionInput[parentField];
+
+      if (value === undefined) {
+        if (defaultValue !== undefined) {
+          value = defaultValue;
+        } else if (required) {
+          throw new Error(
+            `Required data input '${parentField}' (mapped to variable '${internalName}') is missing`,
+          );
+        }
+      }
+
+      if (value !== undefined) {
+        workflowExecutionEntity.variableStateManager.setVariable(internalName, value);
+      }
+    }
+  }
+
+  // If there are variables passed, initialize them in the workflowExecution.
+  if (triggerInput.variables) {
+    workflowExecution.variables = triggerInput.variables as typeof workflowExecution.variables;
+  }
+
+  // If there is any passed conversation history, initialize it into the conversationManager.
+  if (triggerInput.conversationHistory && context?.conversationManager) {
+    context.conversationManager.addMessages(...triggerInput.conversationHistory);
+  }
+
+  // Record execution history
+  workflowExecutionEntity.addNodeResult({
+    step: workflowExecutionEntity.getNodeResults().length + 1,
+    nodeId: node.id,
+    nodeType: node.type,
+    status: "COMPLETED",
+    timestamp: now(),
+  });
+
+  // Return the execution results
+  return {
+    message: "Triggered subgraph started",
+    input: updatedInput,
+  };
+}

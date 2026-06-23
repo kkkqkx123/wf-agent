@@ -1,0 +1,40 @@
+# Storage Configuration
+#
+# Configures the storage backend for workflow/checkpoint/task persistence.
+#
+# Processor: sdk/api/shared/config/processors/storage.ts → mergeStorageWithDefaults()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadStorageConfig()
+
+type = "json"                         # Storage backend: json | sqlite | postgres | memory
+
+# --- JSON storage options (used when type = "json") ---
+[json]
+baseDir = "./storage"
+enableFileLock = true
+
+[json.compression]
+enabled = true
+algorithm = "gzip"                    # gzip | brotli
+threshold = 1024                      # Bytes — only compress files larger than this
+
+# --- SQLite storage options (used when type = "sqlite") ---
+[sqlite]
+dbPath = "./data/workflow.db"
+enableWAL = true
+enableLogging = false
+readonly = false
+fileMustExist = false
+timeout = 5000                        # Connection timeout in ms
+
+# --- PostgreSQL storage options (used when type = "postgres") ---
+[postgres]
+host = "localhost"
+port = 5432
+username = "postgres"
+password = "${DB_PASSWORD:postgres}"  # Supports env var injection
+database = "wf_agent"
+ssl = false
+poolSize = 20
+minConnections = 1
+idleTimeout = 30000
+connectionTimeout = 5000

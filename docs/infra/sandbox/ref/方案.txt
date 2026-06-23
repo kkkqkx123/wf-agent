@@ -1,0 +1,326 @@
+你说得非常对！这是沙箱设计中**最关键的认知升级**。当AI可以编写并执行任意脚本时，单纯的shell拦截已经完全失效。
+
+## 问题本质：逐级失控的威胁
+
+```
+Level 1: AI直接调用 rm -rf /etc
+        ↓ (shell拦截 ✅ 可防护)
+
+Level 2: AI编写 del.py，然后执行 python del.py
+        ↓ (shell拦截看到的是"python del.py"，无法知道del.py的内容 ❌)
+
+Level 3: AI编写恶意模块，通过import执行
+        ↓ (更隐蔽)
+
+Level 4: AI生成二进制文件，chmod +x后执行
+        ↓ (彻底失控)
+```
+
+**结论**：一旦允许AI编写任意代码并执行，**必须在系统调用层拦截**，shell别名/包装都不可靠。
+
+## 威胁模型分析
+
+| 操作方式 | 举例 | Shell拦截效果 | 需要的防护 |
+|---------|-----|--------------|-----------|
+| 直接shell命令 | `rm file` | ✅ 可拦截 | 命令解析 |
+| Python脚本 | `python del.py` | ❌ 只看到python | 系统调用拦截 |
+| 编译执行 | `gcc evil.c -o evil && ./evil` | ❌ | 系统调用拦截 |
+| 动态库注入 | `LD_PRELOAD=evil.so ./app` | ❌ | 内核级拦截 |
+| 利用系统工具 | `perl -e 'unlink("/etc/passwd")'` | ❌ | 系统调用拦截 |
+| 间接删除 | `find / -name "*.log" -delete` | ? | 路径解析拦截 |
+
+## 正确的分层防护架构
+
+```
+┌─────────────────────────────────────────┐
+│      AI Agent (不可信代码)               │
+└─────────────────┬───────────────────────┘
+                  │
+         ┌────────▼────────┐
+         │  应用层拦截      │ ← 第一道防线（针对AgentFS SDK调用）
+         │  (路径白名单)    │   
+         └────────┬────────┘
+                  │
+         ┌────────▼────────┐
+         │  系统调用拦截    │ ← 第二道防线（关键！）
+         │  (Seccomp/       │   拦截所有进程的文件操作
+         │   Landlock/      │
+         │   AppContainer)  │
+         └────────┬────────┘
+                  │
+         ┌────────▼────────┐
+         │   内核VFS层      │ ← 最后防线
+         └──────────────────┘
+```
+
+## 核心解决方案：系统调用拦截
+
+### Linux方案：Seccomp + Landlock（最成熟）
+
+```c
+// agentfs_sandbox.c - 限制所有子进程的文件操作
+#include <seccomp.h>
+#include <sys/landlock.h>
+
+void setup_comprehensive_sandbox(const char* workspace) {
+    // 1. Landlock - 限制文件系统访问
+    struct landlock_ruleset_attr ruleset_attr = {
+        .handled_access_fs = LANDLOCK_ACCESS_FS_WRITE_FILE |
+                             LANDLOCK_ACCESS_FS_READ_FILE |
+                             LANDLOCK_ACCESS_FS_REMOVE_FILE |
+                             LANDLOCK_ACCESS_FS_MAKE_DIR |
+                             LANDLOCK_ACCESS_FS_RENAME
+    };
+    
+    int ruleset_fd = landlock_create_ruleset(&ruleset_attr, 
+                                             sizeof(ruleset_attr), 0);
+    
+    // 只允许访问workspace
+    struct landlock_path_beneath_attr path_beneath = {
+        .allowed_access = ruleset_attr.handled_access_fs,
+        .parent_fd = open(workspace, O_PATH | O_DIRECTORY)
+    };
+    landlock_add_rule(ruleset_fd, LANDLOCK_RULE_PATH_BENEATH, 
+                      &path_beneath, 0);
+    landlock_restrict_self(ruleset_fd, 0);
+    
+    // 2. Seccomp - 限制系统调用
+    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_KILL);
+    
+    // 允许必要的系统调用
+    seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(read), 0);
+    seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(write), 0);
+    seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(openat), 0);
+    
+    // 关键：限制execve只能执行白名单路径
+    seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(execve), 1,
+                     SCMP_A1(SCMP_CMP_EQ, (int64_t)workspace));
+    
+    // 禁止危险系统调用
+    seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EACCES), SCMP_SYS(mount), 0);
+    seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EACCES), SCMP_SYS(reboot), 0);
+    seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EACCES), SCMP_SYS(ptrace), 0);
+    
+    seccomp_load(ctx);
+}
+```
+
+### Windows方案：Job Object + AppContainer + 进程限制
+
+```c
+// agentfs_sandbox_windows.cpp
+void SetupWindowsSandbox(HANDLE hProcess, const wchar_t* workspace) {
+    // 1. 创建AppContainer
+    PSECURITY_CAPABILITIES pCapabilities = NULL;
+    CreateAppContainerProfile(L"AgentFSSandbox", ...);
+    
+    // 2. 授予workspace的FILE_ALL_ACCESS
+    LPWSTR capabilities[] = {L"FILE_ACCESS_ALLOWED_ONLY_IN_WORKSPACE"};
+    
+    // 3. 创建受限Token
+    HANDLE hRestrictedToken;
+    CreateLowBoxToken(hToken, TOKEN_ALL_ACCESS, pPackage, ...);
+    
+    // 4. 分配给Job Object进行额外限制
+    HANDLE hJob = CreateJobObject(NULL, L"AgentFSJob");
+    
+    JOBOBJECT_BASIC_LIMIT_INFORMATION jobLimits = {};
+    jobLimits.LimitFlags = JOB_OBJECT_LIMIT_ACTIVE_PROCESS |
+                           JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    
+    // 关键：禁止创建子进程（可选）
+    jobLimits.LimitFlags |= JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+    
+    // 5. 分配Token和Job
+    AssignProcessToJobObject(hJob, hProcess);
+    SetTokenInformation(hRestrictedToken, TokenAppContainerSid, ...);
+}
+```
+
+## 针对Python脚本的特殊处理
+
+### 方案A：Python沙箱（双重重置）
+
+```python
+# agentfs/sandbox/python_sandbox.py
+import sys
+import builtins
+import os
+
+class PythonPathSandbox:
+    """替换Python的内建文件操作"""
+    
+    def __init__(self, workspace):
+        self.workspace = os.path.abspath(workspace)
+        self._original_open = builtins.open
+        self._original_os_open = os.open
+        
+    def install(self):
+        """替换Python内置函数"""
+        builtins.open = self._safe_open
+        os.open = self._safe_os_open
+        os.remove = self._safe_remove
+        os.unlink = self._safe_remove
+        os.rename = self._safe_rename
+        os.chdir = self._safe_chdir
+        
+        # 替换subprocess模块
+        import subprocess
+        subprocess.Popen = self._safe_popen
+        subprocess.run = self._safe_run
+        
+        # 替换import机制（防止import恶意识别）
+        self._hook_import()
+        
+    def _safe_open(self, file, mode='r', *args, **kwargs):
+        if 'w' in mode or 'a' in mode or '+' in mode:
+            if not self._is_allowed_path(file):
+                raise PermissionError(f"Cannot write to {file}")
+        return self._original_open(file, mode, *args, **kwargs)
+    
+    def _safe_popen(self, args, *args, **kwargs):
+        # 递归检查子进程命令
+        cmd = args[0] if isinstance(args, list) else args
+        if not self._is_command_allowed(cmd):
+            raise PermissionError(f"Blocked subprocess: {cmd}")
+        return original_popen(args, *args, **kwargs)
+```
+
+### 方案B：Python执行重定向（更彻底）
+
+```python
+# 不让AI直接执行python，而是通过包装器
+#!/usr/bin/env python3
+# /usr/local/bin/safe-python
+
+import sys
+import os
+import site
+
+# 修改sys.path，只允许workspace的包
+workspace = os.environ.get('AGENTFS_WORKSPACE', '/workspace')
+sys.path = [f"{workspace}/python-libs"] + \
+           [p for p in sys.path if p.startswith(workspace)]
+
+# 禁用site-packages
+site.ENABLE_USER_SITE = False
+
+# 限制__import__
+original_import = __builtins__.__import__
+def safe_import(name, *args, **kwargs):
+    if name.startswith(('os', 'subprocess', 'sys', 'shutil')):
+        # 返回受限版本而非原版
+        return get_restricted_module(name)
+    return original_import(name, *args, **kwargs)
+
+__builtins__.__import__ = safe_import
+
+# 执行用户脚本
+if __name__ == '__main__':
+    sys.argv[0] = os.path.basename(sys.argv[0])
+    exec(open(sys.argv[1]).read())
+```
+
+## 针对编译执行的处理
+
+### 方案：限制/tmp和编译器输出
+
+```c
+// 通过Landlock限制gcc的输出路径
+struct landlock_rule {
+    .path = "/tmp",
+    .access = LANDLOCK_ACCESS_FS_READ_FILE
+    // 不允许写入/tmp/evil
+};
+
+// 或者限制编译器只能输出到workspace
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(execve), 1,
+                 SCMP_A0(SCMP_CMP_STR_EQ, "/usr/bin/gcc"));
+// 但检查-o参数只能指向workspace
+```
+
+## AgentFS的推荐实现路径
+
+鉴于复杂度，建议采用**渐进式实现**：
+
+### Phase 1：应用层拦截（当前阶段）
+- SDK层做路径检查
+- shell包装器拦截直接命令
+- **接受风险**：AI可能通过脚本绕过
+
+### Phase 2：语言级沙箱（下一阶段）
+- Python SDK自动注入沙箱hooks
+- 替换Python builtins（open, subprocess等）
+- 限制import的模块
+
+```python
+# agentfs自动为AI注入
+class AgentFSRuntime:
+    def __init__(self, workspace):
+        self.workspace = workspace
+        self._install_sandbox_hooks()
+        
+    def _install_sandbox_hooks(self):
+        """在AI执行前自动安装"""
+        import sys
+        sys.modules['os'].open = self._restricted_open
+        sys.modules['subprocess'].Popen = self._restricted_popen
+```
+
+### Phase 3：系统调用拦截（终极方案）
+- Linux: Landlock + Seccomp
+- Windows: AppContainer + Job Object + MinHook
+- 对所有AI启动的进程强制执行
+
+## 实用建议：轻量级系统调用拦截
+
+如果不想完全实现Landlock，可以用`ptrace`（Linux）追踪系统调用：
+
+```python
+# 使用strace-like方式监控所有子进程
+import ptrace
+from ptrace.debugger import ProcessDebugger
+
+class SystemCallMonitor:
+    def __init__(self, workspace):
+        self.workspace = workspace
+        
+    def run_command(self, cmd):
+        proc = subprocess.Popen(cmd, shell=True)
+        debugger = PtraceDebugger()
+        process = debugger.addProcess(proc.pid, False)
+        
+        while True:
+            process.waitSignals()
+            if process.isSyscall():
+                syscall = process.getSystemCall()
+                if syscall.name in ['open', 'openat', 'unlink']:
+                    path = syscall.getArgument(0)
+                    if not path.startswith(self.workspace):
+                        # 拒绝并终止进程
+                        process.kill()
+                        break
+            process.syscall()
+```
+
+## 总结
+
+**关键结论**：
+1. ✅ **必须**在系统调用层面做拦截，仅shell包装完全不够
+2. ✅ **最简单有效的增强**：在AgentFS启动时设置Landlock（Linux）或AppContainer（Windows）
+3. ✅ **对于Python特别**：注入Python沙箱hooks作为第二层
+4. ⚠️ **不要**试图只通过应用层解决脚本执行问题
+
+**最简可用方案**：
+```bash
+# 使用bubblewrap（轻量级容器）
+bwrap --ro-bind /usr /usr \
+      --bind /workspace /workspace \
+      --dev /dev \
+      --proc /proc \
+      --unshare-net \
+      bash
+# AI的所有命令都在这个受限环境中执行
+```
+
+这让所有系统调用都被namespace隔离，无法触及workspace外的文件。

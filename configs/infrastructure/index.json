@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "type": "infrastructure_presets",
+  "paths": [
+    "./*.json"
+  ]
+}

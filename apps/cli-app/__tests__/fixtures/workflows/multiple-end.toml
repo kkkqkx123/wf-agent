@@ -1,0 +1,29 @@
+[workflow]
+id = "multiple-end-wf"
+name = "Multiple End Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "end1"
+type = "END"
+
+[[nodes]]
+id = "end2"
+type = "END"
+
+[[edges]]
+id = "e1"
+sourceNodeId = "start"
+targetNodeId = "end1"
+type = "NORMAL"
+
+[[edges]]
+id = "e2"
+sourceNodeId = "start"
+targetNodeId = "end2"
+type = "NORMAL"

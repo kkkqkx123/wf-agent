@@ -1,0 +1,179 @@
+# Developer Guide
+
+This document provides essential information for AI agents working with the Modular Agent Framework.
+
+**No-backward-compatible**
+At present, the project is in the development stage and there is no need to specifically consider backward compatibility. Prioritize ensuring the long-term maintainability of the architecture and refactoring design defects as early as possible.
+
+## Project Overview
+
+The Modular Agent Framework is a monorepo containing:
+
+- **SDK Module**: TypeScript workflow execution engine with 15 node types
+- **Multi-model LLM integration**: OpenAI, Anthropic, Gemini, Mock
+- **Flexible tool system**: Built-in, native, REST, MCP
+- **Fork/Join support**: Parallel execution capabilities
+- **Checkpoint mechanism**: State snapshots and resumption
+- **Event-driven architecture**: Extensibility features
+- **Shared packages**: Reusable utilities and components
+- **Application modules**: Ready-to-deploy applications
+
+## Development Environment Setup
+
+### Prerequisites
+
+Node.js v22.0.0+, pnpm v10.28.2, Turbo v2.8.3
+
+### Install Dependencies
+
+```bash
+pnpm install
+```
+
+### Build
+
+**build first when there are module cross-module issues**
+
+```bash
+pnpm build
+```
+
+### Testing
+
+```bash
+pnpm test
+# Run specific package test
+pnpm --filter <package-name> test
+```
+
+## Code Architecture
+
+### Monorepo Structure
+
+**Apps Layer** (`apps/`)
+
+- Contains application modules
+- Uses packages and SDK as dependencies
+- Deployable applications
+
+**Packages Layer** (`packages/`)
+
+- Shared utility packages
+- Reusable components and libraries
+- Cross-project functionality
+
+**SDK Layer** (`sdk/`)
+
+- Core workflow execution engine
+- LLM integrations and tool systems
+- Detailed architecture in SDK documentation
+
+### Directory Structure
+
+```
+modular-agent-framework/
+├── apps/  # Application modules
+│   ├── web-app/  # Web application
+│   └── ...
+├── packages/  # Shared packages
+│   ├── common-utils/  # Common utilities
+│   ├── types/  # Type Definition
+│   ├── prompt-templates/  # contain all basic prompt definition
+│   └── ...
+├── sdk/  # Core SDK module
+│   ├── core/  # Core execution logic(shared by agent and graph)
+│   ├── api/  # External API interfaces
+│   ├── agent/  # Agent-loop implemention
+│   ├── graph/  # Graph-workflow implemention
+│   └── utils/  # Utility functions
+├── package.json  # Root workspace config
+├── pnpm-workspace.yaml  # Workspace definitions
+└── turbo.json  # Build orchestration
+```
+
+## Dependency Management
+
+### Centralized Dependencies
+
+- Common devDependencies defined in root `package.json`
+- Shared TypeScript, Vitest, ESLint configurations
+- Consistent versions across all packages
+
+### Workspace Protocol
+
+- Use `workspace:*` for internal package references
+- Automatic linking between packages
+- Version consistency guaranteed
+
+## Development Process
+
+### 1. Package Development
+
+- Create new packages in `packages/` directory
+- Add to workspace in parent `package.json`
+- Use `workspace:*` for internal dependencies
+
+### 2. App Development
+
+- Create new apps in `apps/` directory
+- Reference packages and SDK using `workspace:*`
+- Follow consistent build and test patterns
+
+### 3. Testing Strategy
+
+- **Unit tests**: In `__tests__` folders of current path
+  Note: The `__tests__` directory where the unit tests are located must be exactly the same directory as the original file. It is forbidden to create any unit tests at the upper level.
+
+- **Integration tests**: In `__tests__` folders of current package root
+  (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)
+  Focus: Cross-module functional collaboration.
+
+- **Public type tests (SDK-only)**: In `<sdk>/__tests__/test-d/`
+  File: `<package>/__tests__/test-d/<domain>[optional]/<type>.test-d.ts` (run via `tsd`)
+  Focus: Validate exported public APIs/interfaces/types from user perspective.
+
+- **End-to-end tests**: In `apps/` for complete workflows
+
+- **Run Tests**:
+  - Unit&integration: `cd <package>; pnpm test <path>`
+  - Type: `cd <package>; pnpm test:type`
+  - Typecheck for test: `cd <package>; pnpm typecheck:type`
+    **Never run all tests at once. `pnpm test` without path is forbidden.**
+
+### 4. Build Orchestration
+
+- Use Turbo for efficient task execution
+- Leverage caching and incremental builds
+- Dependency-aware task ordering
+
+## Design Principles
+
+### 1. Modularity
+
+- Clear separation between apps, packages, and SDK
+- Independent deployability of components
+- Loose coupling with explicit contracts
+
+### 2. Consistency
+
+- Uniform tooling across all packages
+- Shared linting and formatting rules
+- Standardized project templates
+
+### 3. Scalability
+
+- Efficient dependency management
+- Fast builds with caching
+- Parallel task execution
+
+## Important Notes
+
+1. **Version Management**: Use root `package.json` for common dependencies
+2. **Workspace Protocol**: Always use `workspace:*` for internal references
+3. Avoid importing and dynamically using static types within the module. Use explicit type annotations and avoid indirect type resolution or dynamic type imports. (Only use when really need lazy import)
+4. **Plan/Design Document**: Avoid including complete code snippets. Mainly using concise natural language descriptions.
+
+## Language
+
+Always use English in code, comments, logging, error info or other string literal. Use Chinese in docs (except code block)
+**Never use any Chinese in any code files or code block.**

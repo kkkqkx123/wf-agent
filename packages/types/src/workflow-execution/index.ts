@@ -1,0 +1,26 @@
+/**
+ * Unified export of Workflow Execution type definitions
+ * Defining the structure of a workflow execution (execution instance)
+ * WorkflowExecution contains complete graph structure information, making it a self-contained execution unit
+ */
+
+// Exporting workflow execution definitions
+export * from "./definition.js";
+
+// Export Status Type
+export * from "./status.js";
+
+// Export Context Type
+export * from "./context.js";
+
+// Exporting Variable Types
+export * from "./variables.js";
+
+// Export execution-related types (WorkflowExecutionOptions, WorkflowExecutionResult, etc.)
+export * from "./execution.js";
+
+// Export graph structure types (WorkflowGraphStructure, WorkflowNode, WorkflowEdge, etc.)
+export * from "./graph-structure.js";
+
+// Export History Type
+export * from "./history.js";

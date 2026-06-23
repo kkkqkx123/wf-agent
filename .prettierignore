@@ -1,0 +1,48 @@
+# Build outputs
+**/dist
+**/build
+**/coverage
+**/node_modules
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Package manager files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Test snapshots
+__snapshots__
+
+# TypeScript declaration maps
+**/*.d.ts.map
+
+# Generated files
+**/generated
+**/.turbo
+
+# Ref directory
+ref/
+
+# Configs directory
+configs/
+
+# Docs directory
+**/docs/
+
+# Specs directory
+specs/
+
+# Scripts directory
+scripts/

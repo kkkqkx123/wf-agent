@@ -1,0 +1,377 @@
+/**
+ * TaskQueue - Task Queue Manager
+ *
+ * Responsibilities:
+ * - Manages the queue of WorkflowExecutionContexts waiting to be executed
+ * - Coordinates the assignment of tasks to the workflow execution pool
+ * - Supports both synchronous and asynchronous task submission
+ * - Handles task completion and failure
+ *
+ * Design Principles:
+ * - Stateful multi-instance architecture, held by TriggeredSubworkflowHandler
+ * - Supports both synchronous and asynchronous execution modes
+ * - Automatically handles coordination between the queue and the workflow execution pool
+ */
+
+import { WorkflowExecutor } from "../../execution/executors/workflow-executor.js";
+import { TaskRegistry } from "./task-registry.js";
+import { WorkflowExecutionPool } from "../../execution/workflow-execution-pool.js";
+import type { EventRegistry } from "../../../shared/registry/event-registry.js";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
+import type { WorkflowExecutionResult } from "@wf-agent/types";
+import {
+  type TriggeredSubworkflowQueueTask,
+  type ExecutedSubworkflowResult,
+  type TaskSubmissionResult,
+} from "../../execution/types/triggered-subworkflow.types.js";
+import type { QueueStats } from "../../../shared/types/index.js";
+import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
+import { emit } from "../../../shared/utils/event/emit-event.js";
+import {
+  buildTriggeredSubgraphCompletedEvent,
+  buildTriggeredSubgraphFailedEvent,
+} from "../../../shared/utils/event/builders/index.js";
+import { SDKError } from "@wf-agent/types";
+import { logError, emitErrorEvent } from "../../../shared/utils/error-utils.js";
+
+/**
+ * TaskQueue - Task Queue Manager
+ */
+export class TaskQueue {
+  /**
+   * Waiting Execution Queue
+   */
+  private pendingQueue: TriggeredSubworkflowQueueTask[] = [];
+
+  /**
+   * Running task mapping
+   */
+  private runningTasks: Map<string, TriggeredSubworkflowQueueTask> = new Map();
+
+  /**
+   * Task registration registry
+   */
+  private taskRegistry: TaskRegistry;
+
+  /**
+   * Workflow Execution Pool Service
+   */
+  private workflowExecutionPool: WorkflowExecutionPool;
+
+  /**
+   * Event Manager
+   */
+  private eventManager: EventRegistry;
+
+  /**
+   * Is the queue being processed?
+   */
+  private isProcessing: boolean = false;
+
+  /**
+   * Constructor
+   * @param taskRegistry Task Registry
+   * @param workflowExecutionPool Workflow Execution Pool Service
+   * @param eventManager Event Manager
+   */
+  constructor(
+    taskRegistry: TaskRegistry,
+    workflowExecutionPool: WorkflowExecutionPool,
+    eventManager: EventRegistry,
+  ) {
+    this.taskRegistry = taskRegistry;
+    this.workflowExecutionPool = workflowExecutionPool;
+    this.eventManager = eventManager;
+  }
+
+  /**
+   * Submit a synchronization task
+   * @param taskId Task ID (registered by the manager)
+   * @param executionEntity WorkflowExecution entity
+   * @param timeout Timeout period (in milliseconds)
+   * @returns Execution result
+   */
+  async submitSync(
+    taskId: string,
+    executionEntity: WorkflowExecutionEntity,
+    timeout?: number,
+  ): Promise<ExecutedSubworkflowResult> {
+    return new Promise((resolve, reject) => {
+      const queueTask: TriggeredSubworkflowQueueTask = {
+        taskId,
+        workflowExecutionEntity: executionEntity,
+        resolve: resolve as (
+          value: ExecutedSubworkflowResult | PromiseLike<ExecutedSubworkflowResult>,
+        ) => void,
+        reject,
+        submitTime: now(),
+        timeout,
+      };
+
+      this.pendingQueue.push(queueTask);
+
+      // Trigger queue processing
+      this.processQueue();
+    });
+  }
+
+  /**
+   * Submit an asynchronous task
+   * @param taskId Task ID (already registered by the manager)
+   * @param executionEntity WorkflowExecution entity
+   * @param timeout Timeout period (in milliseconds)
+   * @returns Task submission result
+   */
+  submitAsync(
+    taskId: string,
+    executionEntity: WorkflowExecutionEntity,
+    timeout?: number,
+  ): TaskSubmissionResult {
+    const queueTask: TriggeredSubworkflowQueueTask = {
+      taskId,
+      workflowExecutionEntity: executionEntity,
+      resolve: () => {}, // Asynchronous tasks do not require resolve
+      reject: () => {}, // Asynchronous tasks do not require reject
+      submitTime: now(),
+      timeout,
+    };
+
+    this.pendingQueue.push(queueTask);
+
+    // Trigger queue processing
+    this.processQueue();
+
+    return {
+      taskId,
+      status: "QUEUED",
+      message: "Task submitted successfully",
+      submitTime: now(),
+    };
+  }
+
+  /**
+   * Processing queue
+   */
+  private async processQueue(): Promise<void> {
+    if (this.isProcessing || this.pendingQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessing = true;
+
+    try {
+      while (this.pendingQueue.length > 0) {
+        // Peek at the first task without removing it from the queue.
+        // We defer the shift() until after the async await to ensure the task
+        // remains in pendingQueue (findable by cancelTask) during the await window.
+        const queueTask = this.pendingQueue[0]!;
+
+        // Assign an executor
+        const executor = await this.workflowExecutionPool.allocateExecutor();
+
+        // Now remove the task from the queue (after the async boundary).
+        if (this.pendingQueue.length === 0 || this.pendingQueue[0] !== queueTask) {
+          // Task was cancelled or queue was modified during the await; skip it.
+          continue;
+        }
+        this.pendingQueue.shift();
+
+        // Update task status
+        this.taskRegistry.updateStatusToRunning(queueTask.taskId);
+        this.runningTasks.set(queueTask.taskId, queueTask);
+
+        // Execute the task.
+        this.executeTask(executor, queueTask);
+      }
+    } catch (error) {
+      const errorObj = getErrorOrNew(error);
+      const sdkError = new SDKError("Error processing queue", "error", {}, errorObj);
+      logError(sdkError);
+      emitErrorEvent(this.eventManager, {
+        executionId: "",
+        workflowId: "",
+        error: sdkError,
+      });
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  /**
+   * Execute the task.
+   * @param executor: The executor
+   * @param queueTask: The queue task
+   */
+  private async executeTask(
+    executor: WorkflowExecutor,
+    queueTask: TriggeredSubworkflowQueueTask,
+  ): Promise<void> {
+    const startTime = now();
+
+    try {
+      // Execute Workflow
+      const executionResult = await executor.executeWorkflow(queueTask.workflowExecutionEntity);
+
+      const executionTime = diffTimestamp(startTime, now());
+
+      // Task completion.
+      await this.handleTaskCompleted(queueTask, executionResult, executionTime);
+    } catch (error) {
+      const executionTime = diffTimestamp(startTime, now());
+
+      // Task processing failed.
+      await this.handleTaskFailed(queueTask, error as Error, executionTime);
+    } finally {
+      // Release the executor
+      await this.workflowExecutionPool.releaseExecutor(executor);
+
+      // Continue processing the queue.
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Task processing completed.
+   * @param queueTask: Queue task
+   * @param executionResult: Execution result
+   * @param executionTime: Execution time
+   */
+  private async handleTaskCompleted(
+    queueTask: TriggeredSubworkflowQueueTask,
+    executionResult: WorkflowExecutionResult,
+    executionTime: number,
+  ): Promise<void> {
+    // Update task registry
+    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, executionResult);
+
+    // Remove from the running tasks.
+    this.runningTasks.delete(queueTask.taskId);
+
+    // Trigger the completion event
+    const completedEvent = buildTriggeredSubgraphCompletedEvent({
+      executionId: queueTask.workflowExecutionEntity.id,
+      workflowId: queueTask.workflowExecutionEntity.getWorkflowId(),
+      subgraphId: queueTask.workflowExecutionEntity.getTriggeredSubworkflowId() || "",
+      triggerId: "",
+      output: queueTask.workflowExecutionEntity.getOutput(),
+      executionTime,
+    });
+    await emit(this.eventManager, completedEvent);
+
+    // If it is a synchronous task, call resolve.
+    if (queueTask.resolve) {
+      const result: ExecutedSubworkflowResult = {
+        subworkflowEntity: queueTask.workflowExecutionEntity,
+        executionResult,
+        executionTime,
+      };
+      queueTask.resolve(result);
+    }
+  }
+
+  /**
+   * Task processing failed.
+   * @param queueTask: Queue task
+   * @param error: Error message
+   * @param executionTime: Execution time
+   */
+  private async handleTaskFailed(
+    queueTask: TriggeredSubworkflowQueueTask,
+    error: Error,
+    _executionTime: number,
+  ): Promise<void> {
+    // Update task registry
+    this.taskRegistry.updateStatusToFailed(queueTask.taskId, error);
+
+    // Remove from the running tasks.
+    this.runningTasks.delete(queueTask.taskId);
+
+    // Trigger a failure event.
+    const failedEvent = buildTriggeredSubgraphFailedEvent({
+      executionId: queueTask.workflowExecutionEntity.id,
+      workflowId: queueTask.workflowExecutionEntity.getWorkflowId(),
+      subgraphId: queueTask.workflowExecutionEntity.getTriggeredSubworkflowId() || "",
+      triggerId: "",
+      error: getErrorOrNew(error),
+    });
+    await emit(this.eventManager, failedEvent);
+
+    // If it's a synchronous task, call reject.
+    if (queueTask.reject) {
+      queueTask.reject(error);
+    }
+  }
+
+  /**
+   * Cancel Task
+   * @param taskId Task ID
+   * @returns Whether the cancellation was successful
+   */
+  cancelTask(taskId: string): boolean {
+    // Check if the task is in the queue of pending execution.
+    const pendingIndex = this.pendingQueue.findIndex(task => task.taskId === taskId);
+    if (pendingIndex > -1) {
+      const queueTask = this.pendingQueue.splice(pendingIndex, 1)[0];
+      if (!queueTask) {
+        return false;
+      }
+
+      this.taskRegistry.updateStatusToCancelled(taskId);
+
+      // Trigger the cancellation event (using the FAILED event type, as the CANCELLED event type does not exist)
+      const cancelledEvent = buildTriggeredSubgraphFailedEvent({
+        executionId: queueTask.workflowExecutionEntity.id,
+        workflowId: queueTask.workflowExecutionEntity.getWorkflowId(),
+        subgraphId: queueTask.workflowExecutionEntity.getTriggeredSubworkflowId() || "",
+        triggerId: "",
+        error: new Error("Task cancelled"),
+      });
+      emit(this.eventManager, cancelledEvent);
+
+      return true;
+    }
+
+    // Check if the task is running.
+    if (this.runningTasks.has(taskId)) {
+      // The running task cannot be canceled.
+      return false;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get queue statistics information
+   * @returns Statistical information
+   */
+  getQueueStats(): QueueStats {
+    return {
+      pendingCount: this.pendingQueue.length,
+      runningCount: this.runningTasks.size,
+      completedCount: this.taskRegistry.getStats().completed,
+      failedCount: this.taskRegistry.getStats().failed,
+      cancelledCount: this.taskRegistry.getStats().cancelled,
+    };
+  }
+
+  /**
+   * Wait for all tasks to complete.
+   */
+  async drain(): Promise<void> {
+    while (this.pendingQueue.length > 0 || this.runningTasks.size > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  /**
+   * Clear the queue
+   */
+  clear(): void {
+    // Cancel all pending tasks.
+    for (const queueTask of this.pendingQueue) {
+      this.taskRegistry.updateStatusToCancelled(queueTask.taskId);
+    }
+
+    this.pendingQueue = [];
+  }
+}

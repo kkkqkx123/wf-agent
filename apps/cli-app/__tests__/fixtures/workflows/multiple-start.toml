@@ -1,0 +1,13 @@
+[workflow]
+id = "multiple-start-wf"
+name = "Multiple Start Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start1"
+type = "START"
+
+[[nodes]]
+id = "start2"
+type = "START"

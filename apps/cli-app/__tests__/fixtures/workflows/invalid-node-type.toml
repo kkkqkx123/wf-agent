@@ -1,0 +1,9 @@
+[workflow]
+id = "invalid-node-type-wf"
+name = "Invalid Node Type Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "INVALID_TYPE"

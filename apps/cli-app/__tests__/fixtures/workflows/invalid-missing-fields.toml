@@ -1,0 +1,5 @@
+[workflow]
+# 缺少 id
+# 缺少 name
+type = "STANDALONE"
+version = "1.0.0"

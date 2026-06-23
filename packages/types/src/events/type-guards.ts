@@ -1,0 +1,389 @@
+/**
+ * Event Type Guard Functions
+ *
+ * Provides type-safe narrowing functions using discriminated union types
+ * All guards check the event.type field for precise type narrowing
+ */
+
+import type { Event } from "./index.js";
+import type {
+  NodeStartedEvent,
+  NodeCompletedEvent,
+  NodeFailedEvent,
+  NodeCustomEvent,
+} from "./node-events.js";
+import type {
+  CheckpointCreatedEvent,
+  CheckpointRestoredEvent,
+  CheckpointDeletedEvent,
+  CheckpointFailedEvent,
+} from "./checkpoint-events.js";
+import type {
+  ToolCallStartedEvent,
+  ToolCallCompletedEvent,
+  ToolCallFailedEvent,
+  ToolAddedEvent,
+} from "./tool-events.js";
+import type {
+  AgentStartedEvent,
+  AgentCompletedEvent,
+  AgentTurnStartedEvent,
+  AgentTurnCompletedEvent,
+  AgentMessageStartedEvent,
+  AgentMessageCompletedEvent,
+  AgentToolExecutionStartedEvent,
+  AgentToolExecutionCompletedEvent,
+  AgentIterationStartedEvent,
+  AgentIterationCompletedEvent,
+  AgentHookTriggeredEvent,
+} from "./agent-events.js";
+import type {
+  WorkflowExecutionStartedEvent,
+  WorkflowExecutionCompletedEvent,
+  WorkflowExecutionFailedEvent,
+  WorkflowExecutionPausedEvent,
+  WorkflowExecutionResumedEvent,
+  WorkflowExecutionCancelledEvent,
+  WorkflowExecutionStateChangedEvent,
+  WorkflowExecutionForkStartedEvent,
+  WorkflowExecutionForkCompletedEvent,
+  WorkflowExecutionJoinStartedEvent,
+  WorkflowExecutionJoinConditionMetEvent,
+  WorkflowExecutionJoinCompletedEvent,
+  WorkflowExecutionJoinFailedEvent,
+  WorkflowExecutionCopyStartedEvent,
+  WorkflowExecutionCopyCompletedEvent,
+} from "./workflow-execution-events.js";
+import type {
+  AsyncCompletionRegisteredEvent,
+  AsyncCompletionTriggeredEvent,
+  AsyncCompletionErrorTriggeredEvent,
+  AsyncCompletionFailedEvent,
+  AsyncCompletionCleanedUpEvent,
+} from "./async-completion-events.js";
+import type {
+  SkillLoadStartedEvent,
+  SkillLoadCompletedEvent,
+  SkillLoadFailedEvent,
+} from "./skill-events.js";
+import type {
+  MessageAddedEvent,
+  ConversationStateChangedEvent,
+} from "./conversation-events.js";
+import type {
+  ToolApprovalRequestedEvent,
+  FollowupQuestionRequestedEvent,
+} from "./interaction-events.js";
+import type {
+  SubgraphStartedEvent,
+  SubgraphCompletedEvent,
+  TriggeredSubgraphStartedEvent,
+  TriggeredSubgraphCompletedEvent,
+  TriggeredSubgraphFailedEvent,
+} from "./subgraph-events.js";
+
+// ============================================================================
+// Event Category Guards (Discriminated Union Based)
+// These provide better type safety by checking the event.type field
+// ============================================================================
+
+/**
+ * Type guard for node-related events
+ * Narrows to: NodeStartedEvent | NodeCompletedEvent | NodeFailedEvent | NodeCustomEvent
+ */
+export function isNodeEvent(
+  event: Event,
+): event is NodeStartedEvent | NodeCompletedEvent | NodeFailedEvent | NodeCustomEvent {
+  return (
+    event.type === 'NODE_STARTED' ||
+    event.type === 'NODE_COMPLETED' ||
+    event.type === 'NODE_FAILED' ||
+    event.type === 'NODE_CUSTOM_EVENT'
+  );
+}
+
+/**
+ * Type guard for checkpoint-related events
+ * Narrows to: CheckpointCreatedEvent | CheckpointRestoredEvent | CheckpointDeletedEvent | CheckpointFailedEvent
+ */
+export function isCheckpointEvent(
+  event: Event,
+): event is CheckpointCreatedEvent | CheckpointRestoredEvent | CheckpointDeletedEvent | CheckpointFailedEvent {
+  return (
+    event.type === 'CHECKPOINT_CREATED' ||
+    event.type === 'CHECKPOINT_RESTORED' ||
+    event.type === 'CHECKPOINT_DELETED' ||
+    event.type === 'CHECKPOINT_FAILED'
+  );
+}
+
+/**
+ * Type guard for tool-related events
+ * Narrows to: ToolCallStartedEvent | ToolCallCompletedEvent | ToolCallFailedEvent | ToolAddedEvent
+ */
+export function isToolEvent(
+  event: Event,
+): event is ToolCallStartedEvent | ToolCallCompletedEvent | ToolCallFailedEvent | ToolAddedEvent {
+  return (
+    event.type === 'TOOL_CALL_STARTED' ||
+    event.type === 'TOOL_CALL_COMPLETED' ||
+    event.type === 'TOOL_CALL_FAILED' ||
+    event.type === 'TOOL_ADDED'
+  );
+}
+
+/**
+ * Type guard for workflow execution events
+ * Narrows to all workflow execution state events
+ */
+export function isWorkflowExecutionEvent(
+  event: Event,
+): event is
+  | WorkflowExecutionStartedEvent
+  | WorkflowExecutionCompletedEvent
+  | WorkflowExecutionFailedEvent
+  | WorkflowExecutionPausedEvent
+  | WorkflowExecutionResumedEvent
+  | WorkflowExecutionCancelledEvent
+  | WorkflowExecutionStateChangedEvent
+  | WorkflowExecutionForkStartedEvent
+  | WorkflowExecutionForkCompletedEvent
+  | WorkflowExecutionJoinStartedEvent
+  | WorkflowExecutionJoinConditionMetEvent
+  | WorkflowExecutionJoinCompletedEvent
+  | WorkflowExecutionJoinFailedEvent
+  | WorkflowExecutionCopyStartedEvent
+  | WorkflowExecutionCopyCompletedEvent {
+  return (
+    event.type === 'WORKFLOW_EXECUTION_STARTED' ||
+    event.type === 'WORKFLOW_EXECUTION_COMPLETED' ||
+    event.type === 'WORKFLOW_EXECUTION_FAILED' ||
+    event.type === 'WORKFLOW_EXECUTION_PAUSED' ||
+    event.type === 'WORKFLOW_EXECUTION_RESUMED' ||
+    event.type === 'WORKFLOW_EXECUTION_CANCELLED' ||
+    event.type === 'WORKFLOW_EXECUTION_STATE_CHANGED' ||
+    event.type === 'WORKFLOW_EXECUTION_FORK_STARTED' ||
+    event.type === 'WORKFLOW_EXECUTION_FORK_COMPLETED' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_STARTED' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_CONDITION_MET' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_COMPLETED' ||
+    event.type === 'WORKFLOW_EXECUTION_JOIN_FAILED' ||
+    event.type === 'WORKFLOW_EXECUTION_COPY_STARTED' ||
+    event.type === 'WORKFLOW_EXECUTION_COPY_COMPLETED'
+  );
+}
+
+/**
+ * Type guard for agent hook triggered event
+ */
+export function isAgentHookTriggeredEvent(event: Event): event is AgentHookTriggeredEvent {
+  return event.type === 'AGENT_HOOK_TRIGGERED';
+}
+
+/**
+ * Type guard for all agent-related events
+ * Narrows to any agent lifecycle event
+ */
+export function isAgentEvent(
+  event: Event,
+): event is
+  | AgentStartedEvent
+  | AgentCompletedEvent
+  | AgentTurnStartedEvent
+  | AgentTurnCompletedEvent
+  | AgentMessageStartedEvent
+  | AgentMessageCompletedEvent
+  | AgentToolExecutionStartedEvent
+  | AgentToolExecutionCompletedEvent
+  | AgentIterationStartedEvent
+  | AgentIterationCompletedEvent
+  | AgentHookTriggeredEvent {
+  return (
+    event.type === 'AGENT_STARTED' ||
+    event.type === 'AGENT_COMPLETED' ||
+    event.type === 'AGENT_TURN_STARTED' ||
+    event.type === 'AGENT_TURN_COMPLETED' ||
+    event.type === 'AGENT_MESSAGE_STARTED' ||
+    event.type === 'AGENT_MESSAGE_COMPLETED' ||
+    event.type === 'AGENT_TOOL_EXECUTION_STARTED' ||
+    event.type === 'AGENT_TOOL_EXECUTION_COMPLETED' ||
+    event.type === 'AGENT_ITERATION_STARTED' ||
+    event.type === 'AGENT_ITERATION_COMPLETED' ||
+    event.type === 'AGENT_HOOK_TRIGGERED'
+  );
+}
+
+/**
+ * Type guard for events with agentLoopId property
+ */
+export function hasAgentLoopId(
+  event: Event,
+): event is Event & { agentLoopId: string } {
+  return 'agentLoopId' in event && typeof event.agentLoopId === 'string';
+}
+
+/**
+ * Type guard for error events (events that contain error information)
+ */
+export function isErrorEvent(
+  event: Event,
+): event is Event & { error: unknown } {
+  return (
+    event.type === 'WORKFLOW_EXECUTION_FAILED' ||
+    event.type === 'NODE_FAILED' ||
+    event.type === 'TOOL_CALL_FAILED' ||
+    event.type === 'CHECKPOINT_FAILED' ||
+    event.type === 'ERROR' ||
+    event.type === 'TOOL_APPROVAL_FAILED' ||
+    event.type === 'FOLLOWUP_QUESTION_FAILED' ||
+    event.type === 'TRIGGERED_SUBGRAPH_FAILED' ||
+    event.type === 'SKILL_LOAD_FAILED'
+  );
+}
+
+/**
+ * Type guard for completion events (events that contain output/results)
+ */
+export function isCompletionEvent(
+  event: Event,
+): event is Event & { output?: unknown; executionTime?: number } {
+  return (
+    event.type === 'WORKFLOW_EXECUTION_COMPLETED' ||
+    event.type === 'NODE_COMPLETED' ||
+    event.type === 'TOOL_CALL_COMPLETED' ||
+    event.type === 'SUBGRAPH_COMPLETED' ||
+    event.type === 'TRIGGERED_SUBGRAPH_COMPLETED'
+  );
+}
+
+/**
+ * Type guard for async completion-related events
+ * Narrows to: AsyncCompletionRegisteredEvent | AsyncCompletionTriggeredEvent | AsyncCompletionErrorTriggeredEvent | AsyncCompletionFailedEvent | AsyncCompletionCleanedUpEvent
+ */
+export function isAsyncCompletionEvent(
+  event: Event,
+): event is
+  | AsyncCompletionRegisteredEvent
+  | AsyncCompletionTriggeredEvent
+  | AsyncCompletionErrorTriggeredEvent
+  | AsyncCompletionFailedEvent
+  | AsyncCompletionCleanedUpEvent {
+  return (
+    event.type === 'ASYNC_COMPLETION_REGISTERED' ||
+    event.type === 'ASYNC_COMPLETION_TRIGGERED' ||
+    event.type === 'ASYNC_COMPLETION_ERROR_TRIGGERED' ||
+    event.type === 'ASYNC_COMPLETION_FAILED' ||
+    event.type === 'ASYNC_COMPLETION_CLEANED_UP'
+  );
+}
+
+/**
+ * Type guard for skill-related events
+ * Narrows to: SkillLoadStartedEvent | SkillLoadCompletedEvent | SkillLoadFailedEvent
+ */
+export function isSkillEvent(
+  event: Event,
+): event is SkillLoadStartedEvent | SkillLoadCompletedEvent | SkillLoadFailedEvent {
+  return (
+    event.type === 'SKILL_LOAD_STARTED' ||
+    event.type === 'SKILL_LOAD_COMPLETED' ||
+    event.type === 'SKILL_LOAD_FAILED'
+  );
+}
+
+/**
+ * Type guard for conversation-related events
+ * Narrows to: MessageAddedEvent | ConversationStateChangedEvent
+ */
+export function isConversationEvent(
+  event: Event,
+): event is MessageAddedEvent | ConversationStateChangedEvent {
+  return (
+    event.type === 'MESSAGE_ADDED' ||
+    event.type === 'CONVERSATION_STATE_CHANGED'
+  );
+}
+
+/**
+ * Type guard for tool approval events
+ * Narrows to all tool approval lifecycle events
+ */
+export function isToolApprovalEvent(
+  event: Event,
+): event is ToolApprovalRequestedEvent {
+  return event.type === 'TOOL_APPROVAL_REQUESTED';
+}
+
+/**
+ * Type guard for follow-up question events
+ * Narrows to all follow-up question lifecycle events
+ */
+export function isFollowupQuestionEvent(
+  event: Event,
+): event is FollowupQuestionRequestedEvent {
+  return event.type === 'FOLLOWUP_QUESTION_REQUESTED';
+}
+
+/**
+ * Type guard for all interaction events (tool approval + follow-up question)
+ */
+export function isInteractionEvent(
+  event: Event,
+): event is
+  | ToolApprovalRequestedEvent
+  | FollowupQuestionRequestedEvent {
+  return isToolApprovalEvent(event) || isFollowupQuestionEvent(event);
+}
+
+/**
+ * Type guard for subgraph events
+ * Narrows to: SubgraphStartedEvent | SubgraphCompletedEvent
+ */
+export function isSubgraphEvent(
+  event: Event,
+): event is SubgraphStartedEvent | SubgraphCompletedEvent {
+  return (
+    event.type === 'SUBGRAPH_STARTED' ||
+    event.type === 'SUBGRAPH_COMPLETED'
+  );
+}
+
+/**
+ * Type guard for triggered subgraph events
+ * Narrows to: TriggeredSubgraphStartedEvent | TriggeredSubgraphCompletedEvent | TriggeredSubgraphFailedEvent
+ */
+export function isTriggeredSubgraphEvent(
+  event: Event,
+): event is
+  | TriggeredSubgraphStartedEvent
+  | TriggeredSubgraphCompletedEvent
+  | TriggeredSubgraphFailedEvent {
+  return (
+    event.type === 'TRIGGERED_SUBGRAPH_STARTED' ||
+    event.type === 'TRIGGERED_SUBGRAPH_COMPLETED' ||
+    event.type === 'TRIGGERED_SUBGRAPH_FAILED'
+  );
+}
+
+/**
+ * Export all type guards
+ */
+export const eventTypeGuards = {
+  isNodeEvent,
+  isCheckpointEvent,
+  isToolEvent,
+  isWorkflowExecutionEvent,
+  isAgentHookTriggeredEvent,
+  isErrorEvent,
+  isCompletionEvent,
+  isAgentEvent,
+  hasAgentLoopId,
+  isAsyncCompletionEvent,
+  isSkillEvent,
+  isConversationEvent,
+  isToolApprovalEvent,
+  isFollowupQuestionEvent,
+  isInteractionEvent,
+  isSubgraphEvent,
+  isTriggeredSubgraphEvent,
+};

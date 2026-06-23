@@ -1,0 +1,749 @@
+/**
+ * TaskRegistry - Task Registry (DI Container Managed Service)
+ *
+ * Responsibilities:
+ * - Stores and manages information about all tasks
+ * - Tracks task status, execution results, timestamps, etc.
+ * - Provides functionality for querying and cleaning up tasks
+ * - Routes task operations to the appropriate managers
+ * - Supports optional persistence through TaskStorageAdapter
+ *
+ * Design Principles:
+ * - Managed by DI container (one instance per SDK instance)
+ * - Workflow-execution-safe management of task information
+ * - Supports regular cleaning of expired tasks
+ * - Provides manager routing functionality
+ * - Optional persistence layer for task data
+ * - Initialized automatically by DI container with proper async initialization
+ */
+
+import { generateId } from "../../../utils/index.js";
+import { now } from "@wf-agent/common-utils";
+import type { WorkflowExecutionEntity } from "../../entities/index.js";
+import type { WorkflowExecutionResult, TaskStorageMetadata } from "@wf-agent/types";
+import {
+  TaskStatus,
+  type TaskInfo,
+  type StoredTaskInfo,
+  type ExecutionInstance,
+  type ExecutionInstanceType,
+  isWorkflowExecutionInstance,
+  hasLoadedInstance,
+  isStoredTaskInfo,
+} from "../../../shared/types/index.js";
+import type { TaskStorageAdapter } from "@wf-agent/storage";
+import { ErrorCodec, StateCodec } from "@wf-agent/common-utils";
+import { type TaskSnapshot, TaskSerializationUtils } from "../../../shared/types/index.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "TaskRegistry" });
+
+/**
+ * Task Manager Interface
+ * All managers that need to manage tasks must implement this interface.
+ */
+export interface TaskManager {
+  /**
+   * Cancel Task
+   * @param taskId Task ID
+   * @returns Whether the cancellation was successful
+   */
+  cancelTask(taskId: string): Promise<boolean>;
+
+  /**
+   * Get task status
+   * @param taskId Task ID
+   * @returns Task information
+   */
+  getTaskStatus(taskId: string): TaskInfo | null;
+}
+
+/**
+ * TaskRegistry Configuration
+ */
+export interface TaskRegistryConfig {
+  /** Optional storage adapter for persistence */
+  storageAdapter?: TaskStorageAdapter;
+  /** Enable auto-persist on status changes */
+  autoPersist?: boolean;
+}
+
+/**
+ * TaskRegistry - Task Registry (managed by DI container)
+ *
+ * Supports both in-memory and persistent storage modes:
+ * - Without storageAdapter: Pure in-memory mode (default)
+ * - With storageAdapter: Persistent mode with automatic sync
+ *
+ * Lifecycle:
+ * - Created and initialized by DI container during SDK initialization
+ * - One instance per SDK instance (container-scoped singleton)
+ * - Automatically initializes storage if configured
+ */
+export class TaskRegistry {
+  /**
+   * Task Mapping
+   * Stores both active (with loaded instance) and stored (with reference) tasks
+   */
+  private tasks: Map<string, TaskInfo | StoredTaskInfo> = new Map();
+
+  /**
+   * Task ID to Manager Mapping
+   */
+  private taskManagers: Map<string, TaskManager> = new Map();
+
+  /**
+   * Statistics counter
+   */
+  private stats = {
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    timeout: 0,
+  };
+
+  /**
+   * Storage adapter for persistence (optional)
+   */
+  private storageAdapter?: TaskStorageAdapter;
+
+  /**
+   * Auto-persist flag
+   */
+  private autoPersist: boolean = false;
+
+  /**
+   * Initialization flag
+   */
+  private _initialized: boolean = false;
+
+  /**
+   * Constructor - creates and initializes TaskRegistry
+   * @param config Configuration options
+   *
+   * Note: This constructor performs synchronous setup only.
+   * Async initialization (loading from storage) should be done
+   * by calling initialize() after construction, typically handled
+   * by the DI container factory.
+   */
+  constructor(config?: TaskRegistryConfig) {
+    if (config?.storageAdapter) {
+      this.storageAdapter = config.storageAdapter;
+      this.autoPersist = config.autoPersist ?? true;
+    }
+    // Mark as initialized for in-memory mode (no async init needed)
+    if (!config?.storageAdapter) {
+      this._initialized = true;
+    }
+  }
+
+  /**
+   * Initialize the registry with optional persistence
+   * @param config Configuration options
+   * @throws Error if called on an already initialized registry
+   */
+  async initialize(config?: TaskRegistryConfig): Promise<void> {
+    // Prevent re-initialization
+    if (this._initialized) {
+      logger.warn("TaskRegistry already initialized, skipping");
+      return;
+    }
+
+    if (config?.storageAdapter) {
+      this.storageAdapter = config.storageAdapter;
+      this.autoPersist = config.autoPersist ?? true;
+
+      // Initialize storage if not already initialized
+      try {
+        await this.storageAdapter.initialize();
+
+        // Load existing tasks from storage
+        await this.loadFromStorage();
+
+        this._initialized = true;
+        logger.info("TaskRegistry initialized with persistence enabled");
+      } catch (error) {
+        // If storage initialization fails, fall back to in-memory mode
+        logger.warn("Failed to initialize task storage, falling back to in-memory mode", { error });
+        this.storageAdapter = undefined;
+        this.autoPersist = false;
+        this._initialized = true; // Still mark as initialized (in-memory mode)
+      }
+    } else {
+      // No storage adapter, just mark as initialized
+      this._initialized = true;
+      logger.info("TaskRegistry initialized in in-memory mode");
+    }
+  }
+
+  /**
+   * Load tasks from storage
+   */
+  private async loadFromStorage(): Promise<void> {
+    if (!this.storageAdapter) return;
+
+    try {
+      const taskIds = await this.storageAdapter.list();
+      const codec = new StateCodec();
+
+      for (const taskId of taskIds) {
+        const data = await this.storageAdapter.load(taskId);
+        if (data) {
+          const snapshot = await codec.deserialize<TaskSnapshot>(data);
+          const storedTask: StoredTaskInfo = {
+            id: snapshot.id,
+            instanceType: snapshot.instanceType,
+            instanceRef: { type: "reference", instanceId: snapshot.instanceId },
+            status: snapshot.status,
+            submitTime: snapshot.submitTime,
+            startTime: snapshot.startTime,
+            completeTime: snapshot.completeTime,
+            timeout: snapshot.timeout,
+          };
+
+          if (snapshot.result) {
+            storedTask.result = snapshot.result;
+          }
+
+          if (snapshot.error) {
+            storedTask.error = ErrorCodec.deserialize(snapshot.error);
+          }
+
+          this.tasks.set(taskId, storedTask);
+        }
+      }
+    } catch (error) {
+      logger.warn("Failed to load tasks from storage", { error });
+    }
+  }
+
+  /**
+   * Persist a single task to storage
+   * @param taskId Task ID
+   */
+  private async persistTask(taskId: string): Promise<void> {
+    if (!this.storageAdapter || !this.autoPersist) return;
+
+    const taskInfo = this.tasks.get(taskId);
+    if (!taskInfo) return;
+
+    try {
+      const codec = new StateCodec();
+      let snapshot: TaskSnapshot;
+
+      if (hasLoadedInstance(taskInfo)) {
+        snapshot = TaskSerializationUtils.createTaskSnapshotFromTaskInfo(taskInfo);
+      } else {
+        const storedTask = taskInfo as StoredTaskInfo;
+        const instanceId =
+          storedTask.instanceRef.type === "reference"
+            ? storedTask.instanceRef.instanceId
+            : storedTask.instanceRef.instance.id;
+
+        snapshot = {
+          _version: 1,
+          _timestamp: Date.now(),
+          _entityType: "task",
+          id: storedTask.id,
+          instanceType: storedTask.instanceType,
+          instanceId,
+          workflowId: "",
+          status: storedTask.status,
+          submitTime: storedTask.submitTime,
+          startTime: storedTask.startTime,
+          completeTime: storedTask.completeTime,
+          timeout: storedTask.timeout,
+        };
+
+        if (
+          storedTask.instanceRef.type === "loaded" &&
+          isWorkflowExecutionInstance(storedTask.instanceRef.instance)
+        ) {
+          snapshot.executionId = storedTask.instanceRef.instance.id;
+          snapshot.workflowId = storedTask.instanceRef.instance.getWorkflowId();
+        }
+
+        if (storedTask.result) {
+          snapshot.result = storedTask.result;
+        }
+
+        if (storedTask.error) {
+          snapshot.error = ErrorCodec.serialize(storedTask.error);
+        }
+      }
+
+      const data = await codec.serialize(snapshot);
+
+      const metadata: TaskStorageMetadata = {
+        taskId: snapshot.id,
+        executionId: snapshot.executionId ?? snapshot.instanceId,
+        workflowId: snapshot.workflowId,
+        status: snapshot.status,
+        submitTime: snapshot.submitTime,
+        startTime: snapshot.startTime,
+        completeTime: snapshot.completeTime,
+        timeout: snapshot.timeout,
+        error: snapshot.error?.message,
+        errorStack: snapshot.error?.stack,
+      };
+
+      await this.storageAdapter.save(taskId, data, metadata);
+    } catch (error) {
+      logger.warn(`Failed to persist task ${taskId}`, { error });
+    }
+  }
+
+  /**
+   * Delete a task from storage
+   * @param taskId Task ID
+   */
+  private async unpersistTask(taskId: string): Promise<void> {
+    if (!this.storageAdapter) return;
+
+    try {
+      await this.storageAdapter.delete(taskId);
+    } catch (error) {
+      logger.warn(`Failed to delete task ${taskId} from storage`, { error });
+    }
+  }
+
+  /**
+   * Register a task (unified method for both Agent and WorkflowExecution)
+   * @param instance Execution instance (AgentLoopEntity or WorkflowExecutionEntity)
+   * @param instanceType Execution instance type
+   * @param manager Task manager
+   * @param timeout Timeout period (in milliseconds)
+   * @returns Task ID
+   */
+  register(
+    instance: ExecutionInstance,
+    instanceType: ExecutionInstanceType,
+    manager: TaskManager,
+    timeout?: number,
+  ): string {
+    const taskId = generateId();
+
+    const taskInfo: TaskInfo = {
+      id: taskId,
+      instanceType,
+      instance,
+      status: "QUEUED",
+      submitTime: now(),
+      timeout,
+    };
+
+    this.tasks.set(taskId, taskInfo);
+    this.taskManagers.set(taskId, manager);
+
+    // Persist to storage (async, non-blocking)
+    this.persistTask(taskId).catch(() => {});
+
+    return taskId;
+  }
+
+  /**
+   * Register a WorkflowExecution task (convenience method for backward compatibility)
+   * @param executionEntity WorkflowExecution entity
+   * @param manager Task manager
+   * @param timeout Timeout period (in milliseconds)
+   * @returns Task ID
+   */
+  registerWorkflowExecution(
+    executionEntity: WorkflowExecutionEntity,
+    manager: TaskManager,
+    timeout?: number,
+  ): string {
+    return this.register(executionEntity, "workflowExecution", manager, timeout);
+  }
+
+  /**
+   * Update the task status to Running.
+   * @param taskId Task ID
+   */
+  updateStatusToRunning(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "RUNNING";
+      taskInfo.startTime = now();
+      this.persistTask(taskId).catch(() => {});
+    }
+  }
+
+  /**
+   * Update the task status to Completed
+   * @param taskId Task ID
+   * @param result Execution result
+   */
+  updateStatusToCompleted(taskId: string, result: WorkflowExecutionResult): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "COMPLETED";
+      taskInfo.completeTime = now();
+      taskInfo.result = result;
+      this.stats.completed++;
+      this.persistTask(taskId).catch(() => {});
+    }
+  }
+
+  /**
+   * Update the task status to Failed.
+   * @param taskId Task ID
+   * @param error Error message
+   */
+  updateStatusToFailed(taskId: string, error: Error): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "FAILED";
+      taskInfo.completeTime = now();
+      taskInfo.error = error;
+      this.stats.failed++;
+      this.persistTask(taskId).catch(() => {});
+    }
+  }
+
+  /**
+   * Update the task status to Canceled
+   * @param taskId Task ID
+   */
+  updateStatusToCancelled(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "CANCELLED";
+      taskInfo.completeTime = now();
+      this.stats.cancelled++;
+      this.persistTask(taskId).catch(() => {});
+    }
+  }
+
+  /**
+   * Update the task status to Timeout
+   * @param taskId Task ID
+   */
+  updateStatusToTimeout(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "TIMEOUT";
+      taskInfo.completeTime = now();
+      this.stats.timeout++;
+      this.persistTask(taskId).catch(() => {});
+    }
+  }
+
+  /**
+   * Update the instance for a stored task (restore from reference)
+   * @param taskId Task ID
+   * @param instance Execution instance
+   * @returns True if the instance was updated
+   */
+  updateInstance(taskId: string, instance: ExecutionInstance): boolean {
+    const taskInfo = this.tasks.get(taskId);
+    if (!taskInfo) return false;
+
+    if (isStoredTaskInfo(taskInfo)) {
+      // Convert StoredTaskInfo to TaskInfo
+      const taskInfoWithInstance: TaskInfo = {
+        id: taskInfo.id,
+        instanceType: taskInfo.instanceType,
+        instance,
+        status: taskInfo.status,
+        submitTime: taskInfo.submitTime,
+        startTime: taskInfo.startTime,
+        completeTime: taskInfo.completeTime,
+        result: taskInfo.result,
+        error: taskInfo.error,
+        timeout: taskInfo.timeout,
+      };
+      this.tasks.set(taskId, taskInfoWithInstance);
+      return true;
+    }
+
+    // Already has loaded instance
+    return false;
+  }
+
+  /**
+   * Cancel a task (route to the appropriate manager)
+   * @param taskId Task ID
+   * @returns Whether the cancellation was successful
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    const manager = this.taskManagers.get(taskId);
+    if (!manager) {
+      return false;
+    }
+
+    const success = await manager.cancelTask(taskId);
+
+    if (success) {
+      this.updateStatusToCancelled(taskId);
+      this.taskManagers.delete(taskId);
+    }
+
+    return success;
+  }
+
+  /**
+   * Get task information
+   * @param taskId Task ID
+   * @returns Task information (null if not found or if instance is not loaded)
+   */
+  get(taskId: string): TaskInfo | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+
+    // Return only if the instance is loaded
+    if (hasLoadedInstance(task)) {
+      return task;
+    }
+
+    // Task exists but instance is not loaded (StoredTaskInfo)
+    return null;
+  }
+
+  /**
+   * Get stored task information (including tasks with unloaded instances)
+   * @param taskId Task ID
+   * @returns Stored task information
+   */
+  getStored(taskId: string): StoredTaskInfo | null {
+    const task = this.tasks.get(taskId);
+    if (!task) return null;
+
+    if (isStoredTaskInfo(task)) {
+      return task;
+    }
+
+    // Convert TaskInfo to StoredTaskInfo
+    return {
+      id: task.id,
+      instanceType: task.instanceType,
+      instanceRef: { type: "loaded", instance: task.instance },
+      status: task.status,
+      submitTime: task.submitTime,
+      startTime: task.startTime,
+      completeTime: task.completeTime,
+      result: task.result,
+      error: task.error,
+      timeout: task.timeout,
+    };
+  }
+
+  /**
+   * Check if the task exists
+   * @param taskId Task ID
+   * @returns Whether it exists
+   */
+  has(taskId: string): boolean {
+    return this.tasks.has(taskId);
+  }
+
+  /**
+   * Get all tasks with loaded instances
+   * @returns Array of all task information with loaded instances
+   */
+  getAll(): TaskInfo[] {
+    return Array.from(this.tasks.values()).filter(hasLoadedInstance);
+  }
+
+  /**
+   * Get all stored tasks (including those with unloaded instances)
+   * @returns Array of all stored task information
+   */
+  getAllStored(): StoredTaskInfo[] {
+    return Array.from(this.tasks.values()).map(task => {
+      if (isStoredTaskInfo(task)) {
+        return task;
+      }
+      return {
+        id: task.id,
+        instanceType: task.instanceType,
+        instanceRef: { type: "loaded", instance: task.instance },
+        status: task.status,
+        submitTime: task.submitTime,
+        startTime: task.startTime,
+        completeTime: task.completeTime,
+        result: task.result,
+        error: task.error,
+        timeout: task.timeout,
+      };
+    });
+  }
+
+  /**
+   * Get tasks based on the status (only with loaded instances)
+   * @param status Task status
+   * @returns Array of tasks in the specified status
+   */
+  getByStatus(status: TaskStatus): TaskInfo[] {
+    return Array.from(this.tasks.values())
+      .filter(hasLoadedInstance)
+      .filter(task => task.status === status);
+  }
+
+  /**
+   * Get a task by execution ID
+   * @param executionId Execution ID
+   * @returns Task information
+   */
+  getByExecutionId(executionId: string): TaskInfo | null {
+    return (
+      this.getAll().find(task => {
+        if (
+          task.instanceType === "workflowExecution" &&
+          isWorkflowExecutionInstance(task.instance)
+        ) {
+          return task.instance.id === executionId;
+        }
+        return false;
+      }) || null
+    );
+  }
+
+  /**
+   * Get a task by instance ID (works for both Agent and WorkflowExecution)
+   * @param instanceId Instance ID
+   * @returns Task information
+   */
+  getByInstanceId(instanceId: string): TaskInfo | null {
+    return this.getAll().find(task => task.instance.id === instanceId) || null;
+  }
+
+  /**
+   * Delete Task
+   * @param taskId Task ID
+   * @returns Whether the deletion was successful
+   */
+  async delete(taskId: string): Promise<boolean> {
+    this.taskManagers.delete(taskId);
+    const result = this.tasks.delete(taskId);
+
+    if (result) {
+      await this.unpersistTask(taskId);
+    }
+
+    return result;
+  }
+
+  /**
+   * Clean up expired tasks
+   * @param retentionTime Retention time in milliseconds, default is 1 hour
+   * @returns Number of tasks that were cleaned up
+   */
+  async cleanup(retentionTime: number = 60 * 60 * 1000): Promise<number> {
+    const currentTime = now();
+    let cleanedCount = 0;
+
+    for (const [taskId, taskInfo] of this.tasks.entries()) {
+      // Only clean up tasks that have been completed, failed, canceled, or timed out.
+      if (
+        (taskInfo.status === "COMPLETED" ||
+          taskInfo.status === "FAILED" ||
+          taskInfo.status === "CANCELLED" ||
+          taskInfo.status === "TIMEOUT") &&
+        taskInfo.completeTime &&
+        currentTime - taskInfo.completeTime > retentionTime
+      ) {
+        this.tasks.delete(taskId);
+        this.taskManagers.delete(taskId);
+        await this.unpersistTask(taskId);
+        cleanedCount++;
+      }
+    }
+
+    return cleanedCount;
+  }
+
+  /**
+   * Get statistical information
+   * @returns Statistical information
+   */
+  getStats() {
+    const tasks = Array.from(this.tasks.values());
+
+    return {
+      total: tasks.length,
+      queued: tasks.filter(t => t.status === "QUEUED").length,
+      running: tasks.filter(t => t.status === "RUNNING").length,
+      completed: this.stats.completed,
+      failed: this.stats.failed,
+      cancelled: this.stats.cancelled,
+      timeout: this.stats.timeout,
+    };
+  }
+
+  /**
+   * Clear all tasks
+   */
+  async clear(): Promise<void> {
+    // Clear from storage if persistence is enabled
+    if (this.storageAdapter) {
+      try {
+        await this.storageAdapter.clear();
+      } catch (error) {
+        logger.warn("Failed to clear task storage", { error });
+      }
+    }
+
+    this.tasks.clear();
+    this.taskManagers.clear();
+    this.stats = {
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      timeout: 0,
+    };
+  }
+
+  /**
+   * Get the number of tasks
+   * @returns The number of tasks
+   */
+  size(): number {
+    return this.tasks.size;
+  }
+
+  /**
+   * Close the registry and release resources
+   */
+  async close(): Promise<void> {
+    if (this.storageAdapter) {
+      try {
+        await this.storageAdapter.close();
+      } catch (error) {
+        logger.warn("Failed to close task storage", { error });
+      }
+    }
+    this._initialized = false;
+  }
+
+  /**
+   * Check if the registry has been initialized
+   * @returns Whether initialization is complete
+   */
+  isInitialized(): boolean {
+    return this._initialized;
+  }
+
+  /**
+   * Check if persistence is enabled
+   * @returns Whether persistence is enabled
+   */
+  isPersistenceEnabled(): boolean {
+    return this.storageAdapter !== undefined;
+  }
+
+  /**
+   * Get task snapshot from storage (for tasks loaded from persistence)
+   * @param taskId Task ID
+   * @returns Task snapshot or null
+   */
+  async getTaskSnapshot(taskId: string): Promise<TaskSnapshot | null> {
+    if (!this.storageAdapter) return null;
+
+    const data = await this.storageAdapter.load(taskId);
+    if (!data) return null;
+
+    const codec = new StateCodec();
+    return codec.deserialize<TaskSnapshot>(data);
+  }
+}

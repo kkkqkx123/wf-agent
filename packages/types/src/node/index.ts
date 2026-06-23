@@ -1,0 +1,135 @@
+/**
+ * Node Type Definition Unified Export
+ * 
+ * Architecture:
+ * - StaticNode types: Used for workflow definition, validation, preprocessing
+ * - RuntimeNode types: Used for execution after preprocessing
+ * - SUBGRAPH nodes create independent execution entities at runtime (Phase 1: Scheme C)
+ * - EMBED_GRAPH nodes are expanded during preprocessing for lightweight reuse (Phase 3)
+ */
+
+// Export shared base types
+export {
+  NodeIdentity,
+  StaticNodeDisplayProps,
+  NodeExecutionConfig,
+  RuntimeNodeContext,
+} from "./shared-node-types.js";
+
+// Export static node types (for workflow definition and validation)
+export {
+  StaticNodeType,
+  BaseStaticNode,
+  StaticNodeConfigMap,
+  StaticNodeOfType,
+  // Specific static node types
+  StartNode as StaticStartNode,
+  EndNode as StaticEndNode,
+  VariableNode as StaticVariableNode,
+  ForkNode as StaticForkNode,
+  JoinNode as StaticJoinNode,
+  SyncNode as StaticSyncNode,
+  SubgraphNode,
+  EmbedGraphNode,
+  ScriptNode as StaticScriptNode,
+  InteractiveScriptNode as StaticInteractiveScriptNode,
+  LLMNode as StaticLLMNode,
+  ToolVisibilityNode as StaticToolVisibilityNode,
+  UserInteractionNode as StaticUserInteractionNode,
+  RouteNode as StaticRouteNode,
+  ContextProcessorNode as StaticContextProcessorNode,
+  LoopStartNode as StaticLoopStartNode,
+  LoopEndNode as StaticLoopEndNode,
+  AgentLoopNode as StaticAgentLoopNode,
+  StartFromTriggerNode as StaticStartFromTriggerNode,
+  ContinueFromTriggerNode as StaticContinueFromTriggerNode,
+  StaticNode,
+  // Static type guards
+  isStartNode as isStaticStartNode,
+  isEndNode as isStaticEndNode,
+  isVariableNode as isStaticVariableNode,
+  isForkNode as isStaticForkNode,
+  isJoinNode as isStaticJoinNode,
+  isSyncNode as isStaticSyncNode,
+  isSubgraphNode,
+  isEmbedGraphNode,
+  isScriptNode as isStaticScriptNode,
+  isInteractiveScriptNode as isStaticInteractiveScriptNode,
+  isLLMNode as isStaticLLMNode,
+  isToolVisibilityNode as isStaticToolVisibilityNode,
+  isUserInteractionNode as isStaticUserInteractionNode,
+  isRouteNode as isStaticRouteNode,
+  isContextProcessorNode as isStaticContextProcessorNode,
+  isLoopStartNode as isStaticLoopStartNode,
+  isLoopEndNode as isStaticLoopEndNode,
+  isAgentLoopNode as isStaticAgentLoopNode,
+  isStartFromTriggerNode as isStaticStartFromTriggerNode,
+  isContinueFromTriggerNode as isStaticContinueFromTriggerNode,
+} from "./static-node-types.js";
+
+// Export runtime node types (for execution)
+export {
+  RuntimeNodeType,
+  BaseRuntimeNode,
+  RuntimeNodeConfigMap,
+  RuntimeNodeOfType,
+  // Specific runtime node types
+  StartNode as RuntimeStartNode,
+  EndNode as RuntimeEndNode,
+  VariableNode as RuntimeVariableNode,
+  ForkNode as RuntimeForkNode,
+  JoinNode as RuntimeJoinNode,
+  SyncNode as RuntimeSyncNode,
+  SubgraphNode as RuntimeSubgraphNode,  // Exists at runtime (Phase 1: Scheme C)
+  ScriptNode as RuntimeScriptNode,
+  InteractiveScriptNode as RuntimeInteractiveScriptNode,
+  LLMNode as RuntimeLLMNode,
+  ToolVisibilityNode as RuntimeToolVisibilityNode,
+  UserInteractionNode as RuntimeUserInteractionNode,
+  RouteNode as RuntimeRouteNode,
+  ContextProcessorNode as RuntimeContextProcessorNode,
+  LoopStartNode as RuntimeLoopStartNode,
+  LoopEndNode as RuntimeLoopEndNode,
+  AgentLoopNode as RuntimeAgentLoopNode,
+  StartFromTriggerNode as RuntimeStartFromTriggerNode,
+  ContinueFromTriggerNode as RuntimeContinueFromTriggerNode,
+  // Internal types (used ONLY for EMBED_GRAPH expansion, not for public use)
+  EmbedStartNode,
+  EmbedEndNode,
+  RuntimeNode,
+  // Runtime type guards
+  isStartNode as isRuntimeStartNode,
+  isEndNode as isRuntimeEndNode,
+  isVariableNode as isRuntimeVariableNode,
+  isForkNode as isRuntimeForkNode,
+  isJoinNode as isRuntimeJoinNode,
+  isSyncNode as isRuntimeSyncNode,
+  isSubgraphNode as isRuntimeSubgraphNode,  // Exists at runtime
+  isScriptNode as isRuntimeScriptNode,
+  isInteractiveScriptNode as isRuntimeInteractiveScriptNode,
+  isLLMNode as isRuntimeLLMNode,
+  isToolVisibilityNode as isRuntimeToolVisibilityNode,
+  isUserInteractionNode as isRuntimeUserInteractionNode,
+  isRouteNode as isRuntimeRouteNode,
+  isContextProcessorNode as isRuntimeContextProcessorNode,
+  isLoopStartNode as isRuntimeLoopStartNode,
+  isLoopEndNode as isRuntimeLoopEndNode,
+  isAgentLoopNode as isRuntimeAgentLoopNode,
+  isStartFromTriggerNode as isRuntimeStartFromTriggerNode,
+  isContinueFromTriggerNode as isRuntimeContinueFromTriggerNode,
+  // Internal type guards (used ONLY for EMBED_GRAPH expansion, not for public use)
+  isEmbedStartNode,
+  isEmbedEndNode,
+} from "./runtime-node-types.js";
+
+// Export runtime node output map and helpers
+export {
+  RuntimeNodeOutputMap,
+  RuntimeNodeOutputOfType,
+} from "./runtime-node-types.js";
+
+// Export node configuration types (detailed version for external references)
+export * from "./configs/index.js";
+
+// Export Hook Related Types
+export * from "./hooks.js";

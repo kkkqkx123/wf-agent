@@ -1,0 +1,89 @@
+# Workflow Configuration Example
+#
+# Defines a complete workflow graph with nodes, edges, triggers, and variables.
+# Workflow files go in configs/workflows/ directory.
+#
+# Type: packages/types/src/workflow/definition.ts → WorkflowTemplate
+
+id = "wf-code-review"
+name = "Code Review Pipeline"
+type = "STANDALONE"
+description = "Automated code review workflow that analyzes PR diffs and generates review comments"
+version = "1.0.0"
+
+# --- Variables — declare required workflow inputs ---
+[[variables]]
+name = "prNumber"
+type = "string"
+required = true
+description = "Pull request number to review"
+
+[[variables]]
+name = "repoPath"
+type = "string"
+required = true
+description = "Repository path"
+
+# --- Triggers — what starts this workflow ---
+[[triggers]]
+type = "event"
+event = "pr.opened"
+[triggers.config]
+filter = "repoPath != ''"
+
+# --- Nodes — individual execution steps ---
+[[nodes]]
+id = "fetch-changes"
+type = "CUSTOM"
+
+[nodes.config]
+category = "code"
+action = "git diff HEAD~1"
+timeout = 30000
+
+[[nodes]]
+id = "analyze"
+type = "LLM"
+[nodes.config]
+providerId = "llm-default"
+promptTemplateId = "code-review-system"
+inputs = { diff = "$ref:fetch-changes.output" }
+temperature = 0.3
+maxTokens = 4096
+
+[[nodes]]
+id = "post-comment"
+type = "CUSTOM"
+[nodes.config]
+category = "github"
+action = "createReviewComment"
+inputs = { review = "$ref:analyze.output", pr = "$var:prNumber" }
+
+# --- Edges — define node execution order ---
+[[edges]]
+sourceId = "__start__"
+targetId = "fetch-changes"
+
+[[edges]]
+sourceId = "fetch-changes"
+targetId = "analyze"
+
+[[edges]]
+sourceId = "analyze"
+targetId = "post-comment"
+
+[[edges]]
+sourceId = "post-comment"
+targetId = "__end__"
+
+# --- Config — workflow execution behavior ---
+[config]
+timeout = 600000
+maxRetries = 2
+enableCheckpoint = true
+
+# --- Metadata ---
+[metadata]
+author = "platform-team"
+tags = ["code-review", "automation", "github"]
+category = "development"

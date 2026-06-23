@@ -1,0 +1,667 @@
+/**
+ * SQLite Storage Base Class
+ * Provides general database storage functionality, including connection management, error handling, initialization, etc.
+ */
+
+import Database, { SqliteError } from "better-sqlite3";
+import { StorageError, StorageInitializationError } from "../types/storage-errors.js";
+import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
+import { createModuleLogger } from "../logger.js";
+import { configurePragmas, type PragmaConfig } from "./sqlite-pragma.js";
+import {
+  SqliteConnectionPool,
+  getGlobalConnectionPool,
+} from "./connection-pool.js";
+import type { StorageMetrics } from "../types/metrics.js";
+
+const logger = createModuleLogger("sqlite-storage");
+
+/**
+ * SQLite Storage Basics Configuration
+ */
+export interface BaseSqliteStorageConfig {
+  /** Database File Path */
+  dbPath: string;
+  /** Whether to enable logging */
+  enableLogging?: boolean;
+  /** Whether to open in read-only mode */
+  readonly?: boolean;
+  /** Whether to throw an error if the database file does not exist */
+  fileMustExist?: boolean;
+  /** Timeout in milliseconds for database locks */
+  timeout?: number;
+  /** Use shared connection pool (default: true) */
+  useConnectionPool?: boolean;
+  /** Custom connection pool instance (optional, uses global pool if not provided) */
+  connectionPool?: SqliteConnectionPool;
+  /** Enable data integrity verification on load (default: false for performance) */
+  verifyIntegrity?: boolean;
+  /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
+  integrityCheckFrequency?: number;
+  /** Auto-vacuum mode: NONE (default), FULL, or INCREMENTAL */
+  autoVacuum?: 'NONE' | 'FULL' | 'INCREMENTAL';
+  /** Journal size limit in bytes (default: 64MB, prevents unbounded WAL growth) */
+  journalSizeLimit?: number;
+  /** Page size in bytes (default: 4096, must be set before table creation, requires VACUUM to change) */
+  pageSize?: number;
+  /** Periodic maintenance interval in ms (default: 0 = disabled).
+   *  When enabled, checks fragmentation ratio at interval and runs optimize() if > 20%. */
+  maintenanceIntervalMs?: number;
+}
+
+/**
+ * Default pagination limits
+ */
+const DEFAULT_PAGE_LIMIT = 100;
+const MAX_PAGE_LIMIT = 1000;
+
+/**
+ * SQLite File Storage Abstract Base Class
+ * @template TMetadata metadata type
+ * @template TListOptions list options type
+ */
+export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string, unknown>>
+  extends StorageAdapterBase<TMetadata, TListOptions>
+{
+  protected db: Database.Database | null = null;
+  protected usingPool: boolean = false;
+  private connectionPool: SqliteConnectionPool | null = null;
+  protected loadCounter: number = 0; // Counter for integrity check frequency
+  private statementCache: Map<string, Database.Statement> = new Map();
+  private readonly MAX_CACHE_SIZE = 100;
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(protected readonly config: BaseSqliteStorageConfig) {
+    super();
+  }
+
+  /**
+   * Get table name
+   * Subclasses must implement this method to return the table name.
+   */
+  protected abstract getTableName(): string;
+
+  /**
+   * Get BLOB table name (return null if not using separate BLOB table)
+   * Subclasses must implement this method
+   */
+  protected abstract getBlobTableName(): string | null;
+
+  /**
+   * Creating a Table Structure
+   * Subclasses must implement this method to create a concrete table structure
+   */
+  protected abstract createTableSchema(): void;
+
+  /**
+   * Initializing Storage
+   * Creating database connections and table structures
+   */
+  async initialize(): Promise<void> {
+    logger.debug("Initializing SQLite storage", {
+      dbPath: this.config.dbPath,
+      readonly: this.config.readonly,
+      usePool: this.config.useConnectionPool ?? true,
+    });
+
+    try {
+      const usePool = this.config.useConnectionPool ?? true;
+
+      // Disable connection pool when fileMustExist is true to ensure proper error handling
+      const shouldUsePool = usePool && !this.config.readonly && !(this.config.fileMustExist ?? false);
+
+      if (shouldUsePool) {
+        // Use connection pool
+        this.connectionPool = this.config.connectionPool ?? getGlobalConnectionPool();
+        this.db = this.connectionPool.getConnection(this.config.dbPath);
+        this.usingPool = true;
+        logger.debug("Using pooled SQLite connection", { dbPath: this.config.dbPath });
+      } else {
+        // Create dedicated connection (for readonly, fileMustExist, or when pool is disabled)
+        const options: Database.Options = {
+          readonly: this.config.readonly ?? false,
+          fileMustExist: this.config.fileMustExist ?? false,
+          timeout: this.config.timeout ?? 5000,
+        };
+
+        this.db = new Database(this.config.dbPath, options);
+        this.usingPool = false;
+
+        // Apply standard PRAGMA configuration
+        configurePragmas(this.db, {
+          autoVacuum: this.config.autoVacuum,
+          journalSizeLimit: this.config.journalSizeLimit,
+          synchronous: 'NORMAL',
+          walAutocheckpoint: 1000,
+        } as PragmaConfig);
+
+        // Page size: must be set before any tables are created (not covered by configurePragmas)
+        if (this.config.pageSize) {
+          this.db.pragma(`page_size = ${this.config.pageSize}`);
+        }
+
+        logger.debug("Created dedicated SQLite connection", { dbPath: this.config.dbPath });
+      }
+
+      // is marked as initialized so that createTableSchema can use the getDb
+      this.initialized = true;
+
+      // Create or migrate schema (skip in read-only mode)
+      if (!this.config.readonly) {
+        await this.initializeSchema();
+      }
+
+      // Start periodic maintenance if enabled (non-readonly, non-pooled connections)
+      if (!this.config.readonly && this.config.maintenanceIntervalMs && this.config.maintenanceIntervalMs > 0) {
+        this.startMaintenanceTimer(this.config.maintenanceIntervalMs);
+      }
+
+      logger.info("SQLite storage initialized", {
+        dbPath: this.config.dbPath,
+        tableName: this.getTableName(),
+        usingPool: this.usingPool,
+      });
+    } catch (error) {
+      this.initialized = false;
+      
+      // Clean up connection on failure to prevent resource leaks
+      if (this.db) {
+        try {
+          if (this.usingPool && this.connectionPool) {
+            this.connectionPool.releaseConnection(this.config.dbPath);
+          } else {
+            this.db.close();
+          }
+        } catch (cleanupError) {
+          logger.error("Error cleaning up connection after initialization failure", {
+            dbPath: this.config.dbPath,
+            error: (cleanupError as Error).message,
+          });
+        } finally {
+          this.db = null;
+        }
+      }
+      
+      logger.error("Failed to initialize SQLite storage", {
+        dbPath: this.config.dbPath,
+        error: (error as Error).message,
+      });
+      throw new StorageInitializationError(
+        `Failed to initialize SQLite storage: ${this.config.dbPath}`,
+        error as Error,
+      );
+    }
+  }
+
+  /**
+   * Initialize database schema
+   */
+  private async initializeSchema(): Promise<void> {
+    // Create tables (IF NOT EXISTS ensures idempotency)
+    logger.info("Initializing schema", { table: this.getTableName() });
+    this.createTableSchema();
+    
+    logger.debug("Schema initialized", { table: this.getTableName() });
+  }
+
+  /**
+   * Validate and normalize pagination parameters
+   */
+  protected validatePagination(limit?: number, offset?: number): { limit: number; offset: number } {
+    const validatedLimit = limit !== undefined 
+      ? Math.min(Math.max(1, limit), MAX_PAGE_LIMIT) 
+      : DEFAULT_PAGE_LIMIT;
+    const validatedOffset = offset !== undefined ? Math.max(0, offset) : 0;
+    
+    return { limit: validatedLimit, offset: validatedOffset };
+  }
+
+  /**
+   * Getting a database instance
+   */
+  protected getDb(): Database.Database {
+    this.ensureInitialized();
+    if (!this.db) {
+      throw new StorageError("Storage not initialized. Call initialize() first.", "initialize");
+    }
+    return this.db!;
+  }
+
+  /**
+   * Get or create a prepared statement with caching
+   * @param sql SQL query string
+   * @returns Cached or newly created prepared statement
+   */
+  protected getPreparedStatement(sql: string): Database.Statement {
+    // Check cache first
+    const cached = this.statementCache.get(sql);
+    if (cached) {
+      return cached;
+    }
+
+    // Prepare new statement
+    const db = this.getDb();
+    const stmt = db.prepare(sql);
+
+    // Add to cache with LRU eviction
+    if (this.statementCache.size >= this.MAX_CACHE_SIZE) {
+      // Remove oldest entry (first key in Map)
+      const firstKey = this.statementCache.keys().next().value;
+      if (firstKey) {
+        this.statementCache.delete(firstKey);
+      }
+    }
+
+    this.statementCache.set(sql, stmt);
+    return stmt;
+  }
+
+  /**
+   * Clear statement cache
+   * Call this when schema changes or for memory management
+   */
+  protected clearStatementCache(): void {
+    this.statementCache.clear();
+  }
+
+  /**
+   * Compute hash for BLOB data using Web Crypto API
+   * Uses sampling for large objects to improve performance
+   * Can be overridden by subclasses for different hash algorithms
+   */
+  protected async computeHash(data: Uint8Array): Promise<string> {
+    // For very large objects (>1MB), use sampling to improve performance
+    const LARGE_OBJECT_THRESHOLD = 1024 * 1024; // 1MB
+    
+    let hashInput: Uint8Array;
+    if (data.length > LARGE_OBJECT_THRESHOLD) {
+      // Sample-based hashing: first 64KB + last 64KB + size
+      const sampleSize = 64 * 1024; // 64KB
+      const sample = new Uint8Array(sampleSize * 2 + 8);
+      
+      // Copy first 64KB
+      sample.set(data.slice(0, sampleSize));
+      // Copy last 64KB
+      sample.set(data.slice(-sampleSize), sampleSize);
+      // Append size as uint64
+      const view = new DataView(sample.buffer);
+      view.setBigUint64(sampleSize * 2, BigInt(data.length), true); // little-endian
+      
+      hashInput = sample;
+    } else {
+      hashInput = data;
+    }
+    
+    // Convert to ArrayBuffer for crypto API compatibility
+    const arrayBuffer = hashInput.buffer.slice(
+      hashInput.byteOffset, 
+      hashInput.byteOffset + hashInput.byteLength
+    ) as ArrayBuffer;
+    
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
+  }
+
+  /**
+   * Verify data integrity by comparing hash
+   * @param data The data to verify
+   * @param expectedHash The expected hash from metadata
+   * @param id The ID of the data (for logging)
+   * @throws StorageError if integrity check fails
+   */
+  protected async verifyIntegrity(
+    data: Uint8Array,
+    expectedHash: string,
+    id: string,
+  ): Promise<void> {
+    const actualHash = await this.computeHash(data);
+    if (actualHash !== expectedHash) {
+      logger.error("Data integrity check failed", { 
+        id, 
+        expected: expectedHash, 
+        actual: actualHash 
+      });
+      throw new StorageError(
+        "Data integrity verification failed",
+        "load",
+        { id, expectedHash, actualHash }
+      );
+    }
+  }
+
+  /**
+   * Check if integrity verification should be performed
+   */
+  protected shouldVerifyIntegrity(): boolean {
+    if (!this.config.verifyIntegrity) {
+      return false;
+    }
+    
+    const frequency = this.config.integrityCheckFrequency ?? 100;
+    this.loadCounter++;
+    return this.loadCounter % frequency === 0;
+  }
+
+  /**
+   * Handling SQLite Errors
+   */
+  protected handleSqliteError(
+    error: unknown,
+    operation: string,
+    context?: Record<string, unknown>,
+  ): never {
+    logger.error("SQLite operation failed", {
+      operation,
+      context,
+      error: (error as Error).message,
+    });
+
+    if (error instanceof SqliteError) {
+      throw new StorageError(
+        `SQLite error [${error.code}]: ${error.message}`,
+        operation,
+        { ...context, code: error.code },
+        error,
+      );
+    }
+
+    throw new StorageError(
+      `Storage operation failed: ${operation}`,
+      operation,
+      context,
+      error as Error,
+    );
+  }
+
+  /**
+   * Delete data
+   */
+  async delete(id: string): Promise<void> {
+    try {
+      const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+      stmt.run(id);
+      logger.debug("Data deleted from SQLite", { id, table: this.getTableName() });
+    } catch (error) {
+      this.handleSqliteError(error, "delete", { id });
+    }
+  }
+
+  /**
+   * Check if data exists
+   */
+  async exists(id: string): Promise<boolean> {
+    try {
+      const stmt = this.getPreparedStatement(`SELECT 1 FROM ${this.getTableName()} WHERE id = ?`);
+      const row = stmt.get(id);
+      return row !== undefined;
+    } catch (error) {
+      this.handleSqliteError(error, "exists", { id });
+    }
+  }
+
+  /**
+   * Clear all data
+   */
+  async clear(): Promise<void> {
+    try {
+      const db = this.getDb();
+      const blobTableName = this.getBlobTableName();
+
+      // Use transaction to delete from both tables atomically
+      const clearTransaction = db.transaction(() => {
+        // Delete from blob table first (if exists) to respect FK constraints
+        if (blobTableName) {
+          db.prepare(`DELETE FROM ${blobTableName}`).run();
+        }
+        db.prepare(`DELETE FROM ${this.getTableName()}`).run();
+      });
+
+      clearTransaction();
+      logger.info("SQLite tables cleared", { table: this.getTableName(), blobTable: blobTableName });
+    } catch (error) {
+      this.handleSqliteError(error, "clear", {});
+    }
+  }
+
+  /**
+   * Delete multiple items atomically in a single transaction.
+   *
+   * Delegates to each `delete(id)` call within a better-sqlite3 transaction,
+   * ensuring all-or-nothing semantics. This is important because subclasses
+   * rely on ON DELETE CASCADE to clean up associated blob data — aborting
+   * mid-way would leave orphaned rows in the blob table.
+   *
+   * If a subclass needs custom batch delete logic (e.g., multi-table cleanup),
+   * it should override this method directly.
+   */
+  override async deleteBatch(ids: string[]): Promise<void> {
+    const db = this.getDb();
+    const startTime = Date.now();
+
+    try {
+      if (ids.length === 0) {
+        return;
+      }
+
+      const stmt = db.prepare(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
+
+      const deleteTransaction = db.transaction((batch: string[]) => {
+        for (const id of batch) {
+          stmt.run(id);
+        }
+      });
+
+      deleteTransaction(ids);
+
+      const elapsed = Date.now() - startTime;
+      this.updateMetric("delete", elapsed / ids.length);
+
+      logger.debug("Batch delete completed", {
+        table: this.getTableName(),
+        count: ids.length,
+        totalTimeMs: elapsed,
+      });
+    } catch (error) {
+      this.handleSqliteError(error, "deleteBatch", { count: ids.length });
+    }
+  }
+
+  /**
+   * Optimize database by running VACUUM and ANALYZE
+   * Should be called periodically to maintain performance
+   */
+  async optimize(): Promise<void> {
+    const db = this.getDb();
+
+    try {
+      logger.info("Starting database optimization", { table: this.getTableName() });
+      
+      // Reclaim unused space
+      db.exec('VACUUM');
+      logger.debug("VACUUM completed", { table: this.getTableName() });
+      
+      // Update query planner statistics
+      db.exec('ANALYZE');
+      logger.debug("ANALYZE completed", { table: this.getTableName() });
+      
+      // Checkpoint WAL to prevent unbounded growth
+      db.pragma('wal_checkpoint(PASSIVE)');
+      logger.debug("WAL checkpoint completed", { table: this.getTableName() });
+      
+      logger.info("Database optimization completed", { table: this.getTableName() });
+    } catch (error) {
+      this.handleSqliteError(error, "optimize", {});
+    }
+  }
+
+  /**
+   * Force WAL checkpoint (for maintenance windows)
+   * Uses RESTART mode which blocks writes until complete
+   * Use with caution in production environments
+   */
+  async forceWalCheckpoint(): Promise<void> {
+    const db = this.getDb();
+    
+    try {
+      logger.info("Forcing WAL checkpoint", { table: this.getTableName() });
+      
+      // RESTART checkpoint blocks writes until complete
+      db.pragma('wal_checkpoint(RESTART)');
+      
+      logger.info("WAL checkpoint forced successfully", { table: this.getTableName() });
+    } catch (error) {
+      this.handleSqliteError(error, "forceWalCheckpoint", {});
+    }
+  }
+
+  // ── Free space management & monitoring ─────────────────────────────────
+
+  /**
+   * Get current freelist count (number of free/reclaimable pages)
+   * High values indicate wasted space that can be reclaimed via VACUUM or incremental_vacuum
+   */
+  getFreelistCount(): number {
+    const db = this.getDb();
+    const row = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number } | undefined;
+    return row?.freelist_count ?? 0;
+  }
+
+  /**
+   * Get total page count (including freelist pages)
+   */
+  getPageCount(): number {
+    const db = this.getDb();
+    const row = db.prepare('PRAGMA page_count').get() as { page_count: number } | undefined;
+    return row?.page_count ?? 1;
+  }
+
+  /**
+   * Get fragmentation ratio (freelist / total pages)
+   * A ratio > 0.2 (20%) suggests it's time to run VACUUM or incremental_vacuum
+   */
+  getFragmentationRatio(): number {
+    const pageCount = this.getPageCount();
+    if (pageCount <= 0) return 0;
+    return this.getFreelistCount() / pageCount;
+  }
+
+  /**
+   * Incrementally reclaim free pages (requires auto_vacuum=INCREMENTAL)
+   * Less invasive than full VACUUM — can be called during low-load periods
+   * @param pages Number of pages to reclaim (default: all free pages)
+   */
+  incrementalVacuum(pages?: number): void {
+    const db = this.getDb();
+    if (pages !== undefined && pages > 0) {
+      db.pragma(`incremental_vacuum(${pages})`);
+    } else {
+      db.pragma('incremental_vacuum');
+    }
+    logger.debug("Incremental vacuum completed", {
+      table: this.getTableName(),
+      pages: pages ?? 'all',
+    });
+  }
+
+  /**
+   * Start periodic maintenance timer
+   * Monitors fragmentation ratio and runs optimize() when threshold exceeded
+   */
+  private startMaintenanceTimer(intervalMs: number): void {
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+    }
+
+    this.maintenanceTimer = setInterval(async () => {
+      try {
+        const ratio = this.getFragmentationRatio();
+        if (ratio > 0.2) {
+          logger.info('High fragmentation detected, running optimize', {
+            table: this.getTableName(),
+            fragmentationRatio: ratio,
+          });
+          await this.optimize();
+        }
+      } catch (error) {
+        logger.warn('Periodic maintenance task failed', {
+          table: this.getTableName(),
+          error: (error as Error).message,
+        });
+      }
+    }, intervalMs);
+
+    logger.debug('Periodic maintenance timer started', {
+      table: this.getTableName(),
+      intervalMs,
+    });
+  }
+
+  /**
+   * Close the storage connection
+   * If using connection pool, releases the connection instead of closing it
+   */
+  async close(): Promise<void> {
+    // Clear maintenance timer
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+      this.maintenanceTimer = null;
+    }
+
+    if (this.db) {
+      try {
+        // Clear statement cache before closing
+        this.clearStatementCache();
+        
+        if (this.usingPool && this.connectionPool) {
+          // Release connection back to pool
+          this.connectionPool.releaseConnection(this.config.dbPath);
+          logger.info("SQLite connection released to pool", { dbPath: this.config.dbPath });
+        } else {
+          // Close dedicated connection
+          this.db.close();
+          logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
+        }
+      } catch (error) {
+        logger.error("Error closing SQLite database", {
+          dbPath: this.config.dbPath,
+          error: (error as Error).message,
+        });
+      } finally {
+        this.db = null;
+        this.initialized = false;
+      }
+    }
+  }
+
+  /**
+   * Get storage metrics
+   * @returns Storage metrics including operation counts, timings, and sizes
+   */
+  async getMetrics(): Promise<StorageMetrics> {
+    try {
+      const db = this.getDb();
+      
+      // Query database for accurate size and count information
+      const tableName = this.getTableName();
+      const sizeInfo = db.prepare(
+        `SELECT COUNT(*) as count, COALESCE(SUM(blob_size), 0) as total_blob_size FROM ${tableName}`
+      ).get() as { count: number; total_blob_size: number };
+
+      return {
+        ...this.metrics,
+        totalCount: sizeInfo.count,
+        totalBlobSize: sizeInfo.total_blob_size || 0,
+      };
+    } catch (error) {
+      logger.error("Failed to get metrics", { error });
+      return { ...this.metrics };
+    }
+  }
+
+  // ── CRUD abstract methods (must be implemented by subclasses) ──────────
+  abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
+  abstract override load(id: string): Promise<Uint8Array | null>;
+  abstract override list(options?: TListOptions): Promise<string[]>;
+  abstract override getMetadata(id: string): Promise<TMetadata | null>;
+}

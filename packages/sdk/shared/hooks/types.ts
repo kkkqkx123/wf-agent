@@ -1,0 +1,101 @@
+/**
+ * General Hook Type Definition
+ *
+ * Provides a basic type of Hook that can be reused by both the Graph and Agent modules.
+ * Specific modules implement Hooks for specific scenarios by extending these types.
+ *
+ * Re-exports BaseHookConfig from @wf-agent/types as BaseHookDefinition for backward compatibility.
+ * New code should import BaseHookConfig directly from the types package.
+ */
+
+import type { BaseHookConfig } from "@wf-agent/types";
+
+/**
+ * General Hook Definition (Basic Interface)
+ *
+ * Alias for BaseHookConfig<string>.
+ * The Graph module uses NodeHook, and the Agent module uses AgentHook,
+ * both of which extend BaseHookConfig with their specific HookType unions.
+ */
+export type BaseHookDefinition = BaseHookConfig<string>;
+
+/**
+ * General Hook Execution Context (Basic Interface)
+ *
+ * Specific modules need to extend this interface to add context data specific to the scenario.
+ * For example:
+ * - Graph: Add execution, node, result, etc.
+ * - Agent: Add messageHistory, toolCall, iteration, etc.
+ */
+export interface BaseHookContext {
+  /** Execute the ID (for tracking purposes). */
+  executionId?: string;
+  /** Abort signal for interruption support (optional) */
+  abortSignal?: AbortSignal;
+  /** Custom Data (for extension use) */
+  [key: string]: unknown;
+}
+
+/**
+ * Results of the General Hook Execution
+ */
+export interface HookExecutionResult {
+  /** Whether it was successful */
+  success: boolean;
+  /** Event Name */
+  eventName: string;
+  /** Execution time (in milliseconds) */
+  executionTime: number;
+  /** Result data */
+  data?: Record<string, unknown>;
+  /** Error message */
+  error?: Error;
+}
+
+/**
+ * Hook Executor Configuration
+ */
+export interface HookExecutorConfig {
+  /** Whether to execute in parallel (default is true) */
+  parallel?: boolean;
+  /** Whether to continue executing subsequent Hooks in the event of an error (default is true) */
+  continueOnError?: boolean;
+  /** Whether to log a warning when the condition evaluation fails (default is true) */
+  warnOnConditionFailure?: boolean;
+  /** Abort signal for interruption support */
+  abortSignal?: AbortSignal;
+  /** Execution context for variable resolution in conditions and payloads */
+  executionContext?: Record<string, unknown>;
+  /** Conversation session for accessing messages (optional) */
+  conversationSession?: {
+    getMessages: () => any[];
+  };
+}
+
+/**
+ * Hook processor function types
+ *
+ * Used to handle specific logic during the execution of hooks, such as:
+ * - Creating checkpoints
+ * - Sending events
+ * - Executing custom processing functions
+ */
+export type HookHandler<TContext extends BaseHookContext = BaseHookContext> = (
+  context: TContext,
+  hook: BaseHookDefinition,
+  eventData?: Record<string, unknown>,
+) => Promise<void>;
+
+/**
+ * Event emission function type
+ */
+export type EventEmitter<TEvent = unknown> = (event: TEvent) => Promise<void>;
+
+/**
+ * Context Builder Function Type
+ *
+ * Used to convert the context of a specific scenario into a generic evaluation context
+ */
+export type ContextBuilder<TContext extends BaseHookContext = BaseHookContext> = (
+  context: TContext,
+) => Record<string, unknown>;

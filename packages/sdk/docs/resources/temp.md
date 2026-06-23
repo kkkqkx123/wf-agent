@@ -1,0 +1,1 @@
+分析sdk\resources\predefined\tools\stateless\interaction目录是否应该调整，明确区分用户交互、资源获取(mcp、skill)、记忆(todo实际上在逻辑上应该视为有状态的，只是由于工具设计的特定作为无状态。需要考虑是否应该效仿sdk\resources\predefined\tools\stateful\memory\session-note，以crud的形式操作todo列表[可以保留旧的])

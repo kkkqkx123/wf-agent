@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@sdk/core/*": ["./core/*"],
+      "@sdk/services/*": ["./services/*"],
+      "@sdk/shared/*": ["./shared/*"],
+      "@sdk/utils/*": ["./utils/*"],
+      "@sdk/workflow/*": ["./workflow/*"],
+      "@sdk/agent/*": ["./agent/*"],
+      "@sdk/api/*": ["./api/*"],
+      "@sdk/metrics/*": ["./metrics/*"],
+      "@sdk/di/*": ["./di/*"]
+    }
+  },
+  "include": ["index.ts", "core/**/*.ts", "shared/**/*.ts", "services/**/*.ts", "agent/**/*.ts", "workflow/**/*.ts", "api/**/*.ts", "utils/**/*.ts", "resources/**/*.ts", "metrics/**/*.ts", "di/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "**/test-d/**/*"]
+}

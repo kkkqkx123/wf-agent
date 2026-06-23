@@ -1,0 +1,74 @@
+/**
+ * Global utility functions for the SDK module
+ */
+
+// Token Encoding Tool
+export {
+  encodeText,
+  encodeObject,
+  StreamingTokenCounter,
+  countMessageTokens,
+} from "./token-encoder.js";
+
+// Token Estimator
+export { TokenEstimator, defaultEstimator, estimateTokens } from "./token-estimator.js";
+
+// Log tool
+export {
+  sdkLogger,
+  createSDKModuleLogger,
+  configureSDKLogger,
+  initializeSDKLogger,
+} from "./logger.js";
+export { ContextualLogger, createContextualLogger } from "./contextual-logger.js";
+
+// Metadata tools
+export { getMetadata, hasMetadata, mergeMetadata } from "./metadata-utils.js";
+
+// ID Tool
+export {
+  generateId,
+  isValidId,
+  validateId,
+  generateSubgraphNamespace,
+  generateNamespacedNodeId,
+  generateNamespacedEdgeId,
+  extractOriginalId,
+  isNamespacedId,
+} from "./id-utils.js";
+
+// Versioning Tools
+export {
+  initialVersion,
+  parseVersion,
+  nextMajorVersion,
+  nextMinorVersion,
+  nextPatchVersion,
+  compareVersion,
+  autoIncrementVersion,
+  parseFullVersion,
+} from "./version-utils.js";
+
+// Timestamp Utilities
+export {
+  now,
+  timestampFromDate,
+  timestampToDate,
+  timestampToISOString,
+  nowWithTimezone,
+  diffTimestamp,
+  formatDuration,
+} from "./timestamp-utils.js";
+
+// Circuit Breaker
+export { CircuitBreaker, circuitBreakerDecorator } from "./circuit-breaker.js";
+export type { CircuitBreakerConfig, CircuitMetrics, CircuitState } from "./circuit-breaker.js";
+
+// Tool Utilities
+export * from "./tool-utils.js";
+
+// Misc Utilities (file processing, binary detection, etc.)
+export * from "./misc/index.js";
+
+// File Utilities (path resolution, file size formatting, text file detection)
+export { resolveFilePath, formatFileSize, isLikelyTextFile } from "./file-utils.js";

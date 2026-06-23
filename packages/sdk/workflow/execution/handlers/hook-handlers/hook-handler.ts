@@ -1,0 +1,191 @@
+/**
+ * Graph Hook Processor Module
+ *
+ * Implements Graph-specific Hook execution logic based on the sdk/shared/hooks general framework.
+ * The timing of execution is managed by higher-level stateful modules (such as WorkflowExecutor).
+ */
+
+import type { StaticNode, NodeHook, NodeExecutionResult, NodeCustomEvent } from "@wf-agent/types";
+import { HookType } from "@wf-agent/types";
+import type { CheckpointDependencies } from "../../../checkpoint/checkpoint-coordinator.js";
+import { CheckpointCoordinator } from "../../../checkpoint/checkpoint-coordinator.js";
+import {
+  filterAndSortHooks,
+  executeHooks,
+  type BaseHookContext,
+  type HookHandler,
+} from "../../../../shared/hooks/index.js";
+import { getErrorOrNew } from "@wf-agent/common-utils";
+import { executeWithInterruptionHandling } from "../../../../shared/utils/interruption/index.js";
+import {
+  getWorkflowInterruptionDescription,
+  toWorkflowInterruptionResult,
+  type WorkflowInterruptionCheckResult,
+} from "../../utils/workflow-interruption-utils.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { buildHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
+import { emitHookEvent } from "./event-emitter.js";
+import type { WorkflowExecutionEntity } from "../../../entities/index.js";
+import type { ConversationSession } from "../../../../shared/messaging/conversation-session.js";
+
+const logger = createContextualLogger();
+
+/**
+ * Graph Hook Execution Context
+ *
+ * Extends BaseHookContext to add Graph-specific context data.
+ */
+export interface HookExecutionContext extends BaseHookContext {
+  /** WorkflowExecutionEntity instance */
+  workflowExecutionEntity: WorkflowExecutionEntity;
+  /** Node Definition */
+  node: StaticNode;
+  /** Node execution results (available at AFTER_EXECUTE) */
+  result?: NodeExecutionResult;
+  /** Checkpoint dependencies (optional) */
+  checkpointDependencies?: CheckpointDependencies;
+  /** Conversation session for message access (single data source) */
+  conversationManager: ConversationSession;
+}
+
+/**
+ * Constructing a Graph Hook to evaluate the context
+ */
+function buildGraphEvalContext(context: HookExecutionContext): Record<string, unknown> {
+  const hookEvalContext = buildHookEvaluationContext(context);
+  return convertToEvaluationContext(hookEvalContext);
+}
+
+/**
+ * Create a checkpoint handler
+ */
+function createCheckpointHandler(): HookHandler<HookExecutionContext> {
+  return async (context, hook) => {
+    // Convert the hook to a NodeHook to access specific Graph properties.
+    const nodeHook = hook as NodeHook;
+    if (!nodeHook.createCheckpoint || !context.checkpointDependencies) {
+      return;
+    }
+
+    try {
+      await CheckpointCoordinator.createNodeCheckpoint(
+        context.workflowExecutionEntity.id,
+        context.node.id,
+        context.checkpointDependencies,
+        {},
+      );
+    } catch (error) {
+      logger.warn(
+        "Failed to create checkpoint for hook",
+        {
+          eventName: hook.eventName,
+          nodeId: context.node.id,
+          executionId: context.workflowExecutionEntity.id,
+          workflowId: context.workflowExecutionEntity.getWorkflowId(),
+          operation: "checkpoint_creation",
+          suggestion: "Check checkpoint storage configuration and retry",
+        },
+        undefined,
+        getErrorOrNew(error),
+      );
+    }
+  };
+}
+
+/**
+ * Create an event emitter handler
+ */
+function createEventEmitterHandler(
+  emitEvent: (event: NodeCustomEvent) => Promise<void>,
+): HookHandler<HookExecutionContext> {
+  return async (context, hook, eventData) => {
+    await emitHookEvent(context, hook.eventName, eventData || {}, emitEvent);
+  };
+}
+
+/**
+ * Execute the specified type of Hook
+ *
+ * @param context Hook execution context
+ * @param hookType Hook type (BEFORE_EXECUTE or AFTER_EXECUTE)
+ * @param emitEvent Event emission function
+ */
+export async function executeHook(
+  context: HookExecutionContext,
+  hookType: HookType,
+  emitEvent: (event: NodeCustomEvent) => Promise<void>,
+): Promise<void> {
+  const { node, workflowExecutionEntity } = context;
+
+  // Check if the node has a Hook configuration.
+  if (!node.hooks || node.hooks.length === 0) {
+    return;
+  }
+
+  // Using a generic framework for filtering and sorting hooks
+  const hooks = filterAndSortHooks(node.hooks!, hookType);
+
+  if (hooks.length === 0) {
+    return;
+  }
+
+  // Create a processor chain
+  const handlers: HookHandler<HookExecutionContext>[] = [
+    createCheckpointHandler(),
+    createEventEmitterHandler(emitEvent),
+  ];
+
+  const abortSignal = workflowExecutionEntity.getAbortSignal();
+
+  // Execute Hook using unified interruption handling wrapper
+  const result = await executeWithInterruptionHandling(async signal => {
+    // Execute Hooks with signal
+    await executeHooks(
+      hooks,
+      context,
+      buildGraphEvalContext,
+      handlers,
+      async () => {
+        // The event has been processed by createEventEmitterHandler.
+      },
+      {
+        parallel: true,
+        continueOnError: true,
+        warnOnConditionFailure: true,
+        abortSignal: signal, // Pass signal to executeHooks
+      },
+    );
+  }, abortSignal);
+
+  // Handle interruption if needed
+  if (!result.success) {
+    const interruption = toWorkflowInterruptionResult(result.interruption, node.id);
+    logger.info("Hook execution interrupted", {
+      executionId: workflowExecutionEntity.id,
+      nodeId: node.id,
+      hookType,
+      interruptionType: interruption.type,
+    });
+
+    // Throw standard interruption error
+    const interruptionError = new Error(
+      `Hook execution interrupted: ${getWorkflowInterruptionDescription(interruption)}`,
+    ) as Error & { interruption?: WorkflowInterruptionCheckResult };
+    interruptionError.name = "InterruptionError";
+    interruptionError.interruption = interruption;
+    throw interruptionError;
+  }
+}
+
+// Export context builder functions and types
+export {
+  buildHookEvaluationContext,
+  convertToEvaluationContext,
+  type HookEvaluationContext,
+} from "./context-builder.js";
+
+// Export event emitter functions
+export { emitHookEvent } from "./event-emitter.js";
+
+// Export payload generator functions
+export { generateHookEventData, resolvePayloadTemplate } from "./payload-generator.js";

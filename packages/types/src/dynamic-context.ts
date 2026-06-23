@@ -1,0 +1,147 @@
+/**
+ * Dynamic Context Type Definition
+ *
+ * Defines type interfaces related to dynamic cues
+ * Used to dynamically generate context content at runtime
+ */
+
+import type { TodoItem } from "./todo.js";
+import type { PinnedFileItem } from "./user-config.js";
+import type { SkillConfigItem } from "./user-config.js";
+
+/**
+ * Dynamic Context Configuration
+ *
+ * Configure what dynamic content should be included in the cue word.
+ *
+ * **Note**: All dynamic context injection is **disabled by default**.
+ * Explicitly enable only the features your agent needs to avoid unnecessary
+ * prompt overhead and preserve KV cache efficiency.
+ */
+export interface DynamicContextConfig {
+  /**
+   * Whether to include the current time
+   * @default false
+   */
+  includeCurrentTime?: boolean;
+
+  /**
+   * Whether to include a TODO list
+   * @default false
+   */
+  includeTodoList?: boolean;
+
+  /**
+   * Whether to include the workspace file tree
+   * @default false
+   */
+  includeWorkspaceFiles?: boolean;
+
+  /**
+   * Maximum depth of file tree
+   */
+  maxFileDepth?: number;
+
+  /**
+   * Ignored file mode (glob mode)
+   */
+  ignorePatterns?: string[];
+
+  /**
+   * Whether or not it contains fixed files
+   * @default false
+   */
+  includePinnedFiles?: boolean;
+
+  /**
+   * Includes Skills
+   * @default false
+   */
+  includeSkills?: boolean;
+
+  /**
+   * Includes Workflows
+   * @default false
+   */
+  includeWorkflows?: boolean;
+
+  /**
+   * Does it contain environmental information
+   * @default false
+   */
+  includeEnvironmentInfo?: boolean;
+
+  /**
+   * Customized content snippets (optional)
+   */
+  customSections?: Record<string, string>;
+}
+
+/**
+ * Dynamic Runtime Context
+ *
+ * Dynamic data from session metadata or other sources
+ */
+export interface DynamicRuntimeContext {
+  /**
+   * TODO List
+   */
+  todoList?: TodoItem[];
+
+  /**
+   * Fixed documents
+   */
+  pinnedFiles?: PinnedFileItem[];
+
+  /**
+   * Skills
+   */
+  skills?: SkillConfigItem[];
+
+  /**
+   * Workflows (untyped array for runtime flexibility)
+   */
+  workflows?: unknown[];
+
+  /**
+   * Workspace file tree (optional pre-generation)
+   */
+  workspaceFileTree?: string;
+
+  /**
+   * current timestamp
+   */
+  currentTime?: number;
+
+  /**
+   * Customizing Runtime Data
+   */
+  customData?: Record<string, unknown>;
+}
+
+/**
+ * dynamic context message (computing)
+ *
+ * The format of the generated dynamic context message
+ */
+export interface DynamicContextMessage {
+  /**
+   * Role (fixed to user)
+   */
+  role: "user";
+
+  /**
+   * element
+   */
+  content: string;
+
+  /**
+   * Message type (optional)
+   */
+  type?: "context" | "system" | "info";
+
+  /**
+   * Metadata (optional)
+   */
+  metadata?: Record<string, unknown>;
+}

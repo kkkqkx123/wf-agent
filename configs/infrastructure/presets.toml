@@ -1,0 +1,40 @@
+# Presets Configuration
+#
+# Controls which predefined resources are enabled at startup.
+#
+# Processor: sdk/api/shared/config/processors/presets.ts → transformPresetsConfig()
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadPresetsConfig()
+
+[contextCompression]
+enabled = true
+timeout = 30000                       # Compression timeout in ms
+maxTriggers = 10                      # Max compression triggers per session
+
+[predefinedTools]
+enabled = true
+# allowList = []
+# blockList = []
+
+[predefinedTools.config.readFile]
+workspaceDir = "./"
+maxFileSize = 10485760                # 10MB
+
+[predefinedTools.config.writeFile]
+workspaceDir = "./"
+
+[predefinedTools.config.editFile]
+workspaceDir = "./"
+
+[predefinedTools.config.bash]
+defaultTimeout = 30000
+maxTimeout = 120000
+
+[predefinedTools.config.sessionNote]
+workspaceDir = "./"
+memoryFile = ".agent/session-memory.json"
+
+[predefinedTools.config.backgroundShell]
+workspaceDir = "./"
+
+[predefinedPrompts]
+enabled = true

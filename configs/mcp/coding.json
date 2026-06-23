@@ -1,0 +1,18 @@
+{
+  "id": "development",
+  "name": "Development MCP Servers",
+  "description": "MCP servers for development environment",
+  "tags": ["dev"],
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ],
+      "env": {
+        "DEFAULT_MINIMUM_TOKENS": "10000"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+[workflow]
+id = "duplicate-node-wf"
+name = "Duplicate Node Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "start"
+type = "END"

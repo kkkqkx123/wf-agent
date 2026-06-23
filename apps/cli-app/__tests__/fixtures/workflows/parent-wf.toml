@@ -1,0 +1,26 @@
+[workflow]
+id = "parent-wf"
+name = "Parent Workflow"
+type = "DEPENDENT"
+version = "1.0.0"
+
+[[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
+id = "subgraph"
+type = "SUBGRAPH"
+config = { subgraphId = "child-wf", async = false }
+
+[[nodes]]
+id = "end"
+type = "END"
+
+[[edges]]
+from = "start"
+to = "subgraph"
+
+[[edges]]
+from = "subgraph"
+to = "end"

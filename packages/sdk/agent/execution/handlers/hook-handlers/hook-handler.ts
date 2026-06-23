@@ -1,0 +1,161 @@
+/**
+ * Agent Hook Processor Module
+ *
+ * Implement Agent specific Hook execution logic based on sdk/shared/hooks generic framework.
+ * Refer to the Graph module's hook-handler.ts design.
+ *
+ * Supported Hook Types:
+ * - BEFORE_ITERATION: before iteration starts
+ * - AFTER_ITERATION: After iteration is finished
+ * - BEFORE_TOOL_CALL: before tool call starts
+ * - AFTER_TOOL_CALL: after tool call ends
+ * - BEFORE_LLM_CALL: before LLM call starts
+ * - AFTER_LLM_CALL: After LLM call ends
+ */
+
+import type { AgentLoopEntity } from "../../../entities/agent-loop-entity.js";
+import type { AgentHookType, AgentHookTriggeredEvent } from "@wf-agent/types";
+import {
+  filterAndSortHooks,
+  executeHooks,
+  type BaseHookContext,
+  type HookHandler,
+} from "../../../../shared/hooks/index.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import { buildAgentHookEvaluationContext, convertToEvaluationContext } from "./context-builder.js";
+import { emitAgentHookEvent } from "./event-emitter.js";
+import type { AgentStateCoordinator } from "../../../state-managers/agent-state-coordinator.js";
+
+// Logger is available for future use
+void createContextualLogger({ component: "AgentHookHandler" });
+
+/**
+ * Agent Hook Execution Context
+ *
+ * Extends BaseHookContext to add agent-specific context data
+ */
+export interface AgentHookExecutionContext extends BaseHookContext {
+  /** Agent Loop Entity */
+  entity: AgentLoopEntity;
+  /** Current tool call information (available BEFORE/AFTER_TOOL_CALL) */
+  toolCall?: {
+    id: string;
+    name: string;
+    arguments: unknown;
+    result?: unknown;
+    error?: string;
+  };
+  /** LLM response information (available when AFTER_LLM_CALL) */
+  llmResponse?: {
+    content: string;
+    toolCalls?: unknown[];
+  };
+}
+
+/**
+ * Build an Agent Hook to evaluate the context
+ */
+function buildAgentEvalContext(
+  context: AgentHookExecutionContext,
+  stateCoordinator: AgentStateCoordinator,
+): Record<string, unknown> {
+  const hookEvalContext = buildAgentHookEvaluationContext(
+    context.entity,
+    stateCoordinator,
+    context.toolCall,
+  );
+  return convertToEvaluationContext(hookEvalContext);
+}
+
+/**
+ * Create an event emitter handler
+ */
+function createEventEmitterHandler(
+  hookType: AgentHookType,
+  emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
+): HookHandler<AgentHookExecutionContext> {
+  return async (context, hook, eventData) => {
+    await emitAgentHookEvent(context.entity, hookType, hook.eventName, eventData, emitEvent);
+  };
+}
+
+/**
+ * Execute the specified type of Agent Hook
+ *
+ * @param entity: Agent Loop entity
+ * @param hookType: Hook type
+ * @param emitEvent: Event emission function
+ * @param stateCoordinator: Agent State Coordinator for message access
+ * @param toolCallInfo: Tool call information (optional)
+ * @param llmResponse: LLM response information (optional)
+ */
+export async function executeAgentHook(
+  entity: AgentLoopEntity,
+  hookType: AgentHookType,
+  emitEvent: (event: AgentHookTriggeredEvent) => Promise<void>,
+  stateCoordinator: AgentStateCoordinator,
+  toolCallInfo?: {
+    id: string;
+    name: string;
+    arguments: unknown;
+    result?: unknown;
+    error?: string;
+  },
+  llmResponse?: {
+    content: string;
+    toolCalls?: unknown[];
+  },
+): Promise<void> {
+  const config = entity.config;
+
+  // Check if the configuration contains any Hooks.
+  if (!config.hooks || config.hooks.length === 0) {
+    return;
+  }
+
+  // Use a generic framework for filtering and sorting hooks
+  const hooks = filterAndSortHooks(config.hooks, hookType);
+
+  if (hooks.length === 0) {
+    return;
+  }
+
+  // Constructing the execution context
+  const context: AgentHookExecutionContext = {
+    workflowExecutionId: entity.id,
+    entity,
+    toolCall: toolCallInfo,
+    llmResponse,
+  };
+
+  // Create a processor chain
+  const handlers: HookHandler<AgentHookExecutionContext>[] = [
+    createEventEmitterHandler(hookType, emitEvent),
+  ];
+
+  // Execute a Hook using a general framework.
+  await executeHooks(
+    hooks,
+    context,
+    (ctx) => buildAgentEvalContext(ctx, stateCoordinator),
+    handlers,
+    async () => {
+      // The event has been processed by createEventEmitterHandler.
+    },
+    {
+      parallel: true,
+      continueOnError: true,
+      warnOnConditionFailure: true,
+    },
+  );
+}
+
+// Export context builder functions
+export {
+  buildAgentHookEvaluationContext,
+  convertToEvaluationContext,
+  type AgentHookEvaluationContext,
+} from "./context-builder.js";
+
+// Export event emitter functions
+export { emitAgentHookEvent, type AgentHookEventData } from "./event-emitter.js";

@@ -1,0 +1,101 @@
+/**
+ * NodeTemplateBuilder - Node Template Builder
+ * Provides a fluent chain-of-command API for creating and registering node templates.
+ */
+
+import type { NodeTemplate, StaticNodeType, StaticNode } from "@wf-agent/types";
+import { TemplateBuilder } from "./template-builder.js";
+import type { GlobalContext } from "../../../shared/global-context.js";
+
+/**
+ * NodeTemplateBuilder - Node Template Builder
+ */
+export class NodeTemplateBuilder extends TemplateBuilder<NodeTemplate> {
+  private _name: string;
+  private _type: StaticNodeType;
+  private _config: Partial<StaticNode["config"]> = {};
+  private globalContext: GlobalContext;
+
+  private constructor(globalContext: GlobalContext, name: string, type: StaticNodeType) {
+    super();
+    this.globalContext = globalContext;
+    this._name = name;
+    this._type = type;
+  }
+
+  /**
+   * Create a new NodeTemplateBuilder instance
+   * @param globalContext The GlobalContext to access services
+   * @param name: Template name
+   * @param type: StaticNode type
+   * @returns: NodeTemplateBuilder instance
+   */
+  static create(
+    globalContext: GlobalContext,
+    name: string,
+    type: StaticNodeType,
+  ): NodeTemplateBuilder {
+    return new NodeTemplateBuilder(globalContext, name, type);
+  }
+
+  /**
+   * Set node configuration
+   * @param config Node configuration
+   * @returns this
+   */
+  config(config: StaticNode["config"]): this {
+    this._config = config;
+    this.updateTimestamp();
+    return this;
+  }
+
+  /**
+   * Merge configuration (partial update)
+   * @param partialConfig: A partial configuration object that will be merged shallowly into the existing configuration
+   * @returns: The updated configuration object
+   */
+  mergeConfig(partialConfig: Partial<StaticNode["config"]>): this {
+    if (!this._config) {
+      this._config = {} as StaticNode["config"];
+    }
+    this._config = { ...this._config, ...partialConfig };
+    this.updateTimestamp();
+    return this;
+  }
+
+  /**
+   * Register the template in the node template registry.
+   * @param template: StaticNode template
+   */
+  protected registerTemplate(template: NodeTemplate): void {
+    const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
+    nodeTemplateRegistry.register(template);
+  }
+
+  /**
+   * Build a node template
+   * @returns Node template
+   */
+  build(): NodeTemplate {
+    // Verify required fields
+    if (!this._name) {
+      throw new Error("The template name cannot be empty.");
+    }
+    if (!this._type) {
+      throw new Error("The node type cannot be empty.");
+    }
+    if (!this._config) {
+      throw new Error("Node configuration cannot be empty.");
+    }
+
+    return {
+      name: this._name,
+      type: this._type,
+      config: this._config as StaticNode["config"], // Type assertion: config has been validated
+      description: this._description,
+      metadata: this._metadata,
+      createdAt: this.getCreatedAt(),
+      updatedAt: this.getUpdatedAt(),
+    };
+  }
+}

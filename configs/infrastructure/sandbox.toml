@@ -1,0 +1,58 @@
+# Sandbox Global Configuration
+#
+# Defines sandbox profiles and auto-matching rules for script sandboxing.
+# Each profile specifies security policies, strategy priority, and VFS config.
+#
+# Processor: sdk/api/shared/config/processors/sandbox.ts
+# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadSandboxConfig()
+
+# Default sandbox mode for all scripts (overridden by profiles and execution-time config)
+# "disabled" | "lenient" | "strict" | "custom"
+mode = "lenient"
+
+# Default profile when no rules match
+defaultProfile = "default"
+
+# Named sandbox profiles
+[[profiles]]
+name = "default"
+description = "Default safe sandbox profile"
+mode = "strict"
+
+[profiles.shell]
+deniedCommands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
+
+[profiles.python]
+deniedModules = ["os", "subprocess", "ctypes", "socket", "pty"]
+
+[profiles.javascript]
+deniedModules = ["child_process", "cluster", "worker_threads", "vm"]
+
+[[profiles]]
+name = "permissive"
+description = "Permissive sandbox profile for trusted scripts"
+mode = "lenient"
+
+[profiles.shell]
+deniedCommands = ["sudo", "su", "chroot"]
+
+# Profile selection rules (evaluated in order, first match wins)
+[[rules]]
+language = "shell"
+riskLevel = "high"
+profile = "default"
+
+[[rules]]
+language = "python"
+riskLevel = "high"
+profile = "default"
+
+[[rules]]
+language = "javascript"
+riskLevel = "high"
+profile = "default"
+
+[[rules]]
+language = "lua"
+riskLevel = "high"
+profile = "default"

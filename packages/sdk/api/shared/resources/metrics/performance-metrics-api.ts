@@ -8,18 +8,18 @@
  * - Performance recommendations
  */
 
-import { QueryableResourceAPI } from "../generic-resource-api.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { ID } from "@wf-agent/types";
-import type { ResourceUsageRecord } from "../../../agent/resources/agent-loop-iteration-api.js";
+import type { IterationSystemMetrics, IterationLLMMetrics } from "../../../agent/resources/agent-loop-iteration-api.js";
 import type { PersistenceLayer } from "../../core/persistence-interfaces.js";
-import { NoOpPersistenceLayer } from "../../core/persistence-interfaces.js";
+import { NoOpPersistenceLayer } from "../../core/__tests__/no-op-persistence.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "PerformanceMetricsAPI" });
 
 /**
  * Complete performance timeline for an execution
+ * Aggregates both system and LLM metrics for comprehensive analysis
  */
 export interface PerformanceTimeline {
   /** Execution ID */
@@ -34,14 +34,17 @@ export interface PerformanceTimeline {
   /** Average time per iteration (ms) */
   averageIterationTime: number;
 
-  /** Peak memory usage in bytes */
+  /** Peak memory usage (megabytes) */
   peakMemoryUsage: number;
 
   /** Tool execution time breakdown by tool name */
   toolExecutionBreakdown: Record<string, number>;
 
-  /** Complete timeline of resource usage records */
-  timeline: ResourceUsageRecord[];
+  /** System metrics timeline */
+  systemMetrics: IterationSystemMetrics[];
+
+  /** LLM metrics timeline */
+  llmMetrics: IterationLLMMetrics[];
 
   /** Time range of execution */
   timeRange: { start: number; end: number };
@@ -80,34 +83,19 @@ export interface ExecutionComparison {
  * Performance Metrics API Implementation
  *
  * Provides performance tracking and analysis for agent loop executions.
- * Leverages the persistence layer for durable metrics storage.
+ * Uses separate system and LLM metrics for detailed performance insights.
  */
-export class PerformanceMetricsAPI extends QueryableResourceAPI<
-  ResourceUsageRecord,
-  string,
-  { executionId?: ID }
-> {
+export class PerformanceMetricsAPI {
   private persistence: PersistenceLayer;
 
   constructor(deps: APIDependencyManager) {
-    super();
     this.persistence = deps.getPersistenceLayer?.() || new NoOpPersistenceLayer();
-  }
-
-  protected async getResource(): Promise<ResourceUsageRecord | null> {
-    // Not applicable for performance metrics
-    return null;
-  }
-
-  protected async getAllResources(): Promise<ResourceUsageRecord[]> {
-    // Not applicable for performance metrics
-    return [];
   }
 
   /**
    * Get the complete performance timeline for an execution
    *
-   * Analyzes all resource usage records for an execution and generates
+   * Analyzes all system and LLM metrics for an execution and generates
    * a comprehensive performance report including costs, times, and memory.
    *
    * @param executionId The execution ID
@@ -115,15 +103,22 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
    */
   async getPerformanceTimeline(executionId: ID): Promise<PerformanceTimeline> {
     try {
-      const records = await this.persistence.getResourceUsageRecords(executionId);
+      const [systemMetrics, llmMetrics] = await Promise.all([
+        this.persistence.getSystemMetrics(executionId),
+        this.persistence.getLLMMetrics(executionId),
+      ]);
 
-      logger.debug("Retrieved resource usage records", {
+      const systemMetricsArray = systemMetrics || [];
+      const llmMetricsArray = llmMetrics || [];
+
+      logger.debug("Retrieved performance metrics", {
         executionId,
-        count: records.length,
+        systemMetrics: systemMetricsArray.length,
+        llmMetrics: llmMetricsArray.length,
       });
 
       // Empty execution case
-      if (records.length === 0) {
+      if (systemMetricsArray.length === 0 && llmMetricsArray.length === 0) {
         return {
           executionId,
           totalTokens: 0,
@@ -131,22 +126,24 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
           averageIterationTime: 0,
           peakMemoryUsage: 0,
           toolExecutionBreakdown: {},
-          timeline: [],
+          systemMetrics: [],
+          llmMetrics: [],
           timeRange: { start: 0, end: 0 },
         };
       }
 
       return {
         executionId,
-        totalTokens: this.sumTokens(records),
-        totalCost: this.sumCost(records),
-        averageIterationTime: this.calculateAvgIterationTime(records),
-        peakMemoryUsage: this.calculatePeakMemory(records),
-        toolExecutionBreakdown: this.breakdownToolExecution(records),
-        timeline: records,
+        totalTokens: this.sumTokens(llmMetricsArray),
+        totalCost: this.sumCost(llmMetricsArray),
+        averageIterationTime: this.calculateAvgIterationTime(systemMetricsArray),
+        peakMemoryUsage: this.calculatePeakMemory(systemMetricsArray),
+        toolExecutionBreakdown: this.breakdownToolExecution(llmMetricsArray),
+        systemMetrics: systemMetricsArray,
+        llmMetrics: llmMetricsArray,
         timeRange: {
-          start: 0,
-          end: records.length > 0 ? records.length * 1000 : 0, // Approximate based on record count
+          start: systemMetricsArray.length > 0 ? systemMetricsArray[0]!.timestamp : 0,
+          end: systemMetricsArray.length > 0 ? systemMetricsArray[systemMetricsArray.length - 1]!.timestamp : 0,
         },
       };
     } catch (error) {
@@ -239,7 +236,7 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
       totalCost: timeline.totalCost,
       peakMemory: timeline.peakMemoryUsage,
       duration,
-      iterationCount: timeline.timeline.length,
+      iterationCount: timeline.systemMetrics.length,
     };
   }
 
@@ -257,25 +254,25 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
   ): Promise<Array<{ name: string; percentage: number; time: number }>> {
     const timeline = await this.getPerformanceTimeline(executionId);
 
-    if (timeline.timeline.length === 0) {
+    if (timeline.systemMetrics.length === 0) {
       return [];
     }
 
-    // Calculate total time spent in tools
-    const totalToolTime = timeline.timeline.reduce((sum, record) => {
-      return sum + (record.timingBreakdown?.toolExecutionTime ?? 0);
+    // Calculate total execution time
+    const totalDuration = timeline.systemMetrics.reduce((sum, metric) => {
+      return sum + metric.durationMs;
     }, 0);
 
-    if (totalToolTime === 0) {
+    if (totalDuration === 0) {
       return [];
     }
 
-    // Rank tools by time spent
-    return Object.entries(timeline.toolExecutionBreakdown)
-      .map(([name, time]) => ({
-        name,
-        time: time as number,
-        percentage: ((time as number) / totalToolTime) * 100,
+    // Rank by duration (time spent in each metric)
+    return timeline.systemMetrics
+      .map(metric => ({
+        name: `iteration_${metric.iteration}`,
+        time: metric.durationMs,
+        percentage: (metric.durationMs / totalDuration) * 100,
       }))
       .sort((a, b) => b.percentage - a.percentage)
       .slice(0, 10); // Top 10 bottlenecks
@@ -285,50 +282,38 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
   // Helper Methods
   // ============================================================================
 
-  private sumTokens(records: ResourceUsageRecord[]): number {
-    return records.reduce((sum, r) => {
-      const input = r.llmInputTokens ?? 0;
-      const output = r.llmOutputTokens ?? 0;
-      return sum + input + output;
+  private sumTokens(llmMetrics: IterationLLMMetrics[]): number {
+    return llmMetrics.reduce((sum, m) => {
+      return sum + m.inputTokens + m.outputTokens;
     }, 0);
   }
 
-  private sumCost(records: ResourceUsageRecord[]): number {
-    return records.reduce((sum, r) => sum + (r.llmCost ?? 0), 0);
+  private sumCost(llmMetrics: IterationLLMMetrics[]): number {
+    return llmMetrics.reduce((sum, m) => sum + m.costUsd, 0);
   }
 
-  private calculateAvgIterationTime(records: ResourceUsageRecord[]): number {
-    if (records.length === 0) return 0;
+  private calculateAvgIterationTime(systemMetrics: IterationSystemMetrics[]): number {
+    if (systemMetrics.length === 0) return 0;
 
-    const totalTime = records.reduce((sum, r) => {
-      const toolTime = r.timingBreakdown?.toolExecutionTime ?? 0;
-      const processingTime = r.timingBreakdown?.resultProcessingTime ?? 0;
-      return sum + toolTime + processingTime;
+    const totalTime = systemMetrics.reduce((sum, m) => {
+      return sum + m.durationMs;
     }, 0);
 
-    return totalTime / records.length;
+    return totalTime / systemMetrics.length;
   }
 
-  private calculatePeakMemory(records: ResourceUsageRecord[]): number {
-    if (records.length === 0) return 0;
-    return Math.max(...records.map((r) => r.memoryPeak ?? 0));
+  private calculatePeakMemory(systemMetrics: IterationSystemMetrics[]): number {
+    if (systemMetrics.length === 0) return 0;
+    return Math.max(...systemMetrics.map((m) => m.memoryPeakMb));
   }
 
-  private breakdownToolExecution(records: ResourceUsageRecord[]): Record<string, number> {
+  private breakdownToolExecution(llmMetrics: IterationLLMMetrics[]): Record<string, number> {
     const breakdown: Record<string, number> = {};
 
-    // Aggregate tool execution times across all records
-    // Note: This requires tool information in ResourceUsageRecord
-    // Current implementation provides a placeholder that can be enhanced
-    // when tool-specific metrics are available in ResourceUsageRecord
-
-    records.forEach((record) => {
-      const toolTime = record.timingBreakdown?.toolExecutionTime ?? 0;
-      if (toolTime > 0) {
-        // Default key when specific tool info is not available
-        const toolKey = "unspecified_tools";
-        breakdown[toolKey] = (breakdown[toolKey] ?? 0) + toolTime;
-      }
+    // Aggregate metrics by model
+    llmMetrics.forEach((metric) => {
+      const modelKey = metric.model || "unknown";
+      breakdown[modelKey] = (breakdown[modelKey] ?? 0) + metric.durationMs;
     });
 
     return breakdown;
@@ -404,15 +389,15 @@ export class PerformanceMetricsAPI extends QueryableResourceAPI<
 
     // Detailed bottleneck analysis
     const targetTotalTime =
-      target.averageIterationTime * target.timeline.length ||
-      target.timeline.reduce(
-        (sum, r) => sum + (r.timingBreakdown?.toolExecutionTime ?? 0),
+      target.averageIterationTime * target.systemMetrics.length ||
+      target.systemMetrics.reduce(
+        (sum, m) => sum + m.durationMs,
         0,
       );
     const baselineTotalTime =
-      baseline.averageIterationTime * baseline.timeline.length ||
-      baseline.timeline.reduce(
-        (sum, r) => sum + (r.timingBreakdown?.toolExecutionTime ?? 0),
+      baseline.averageIterationTime * baseline.systemMetrics.length ||
+      baseline.systemMetrics.reduce(
+        (sum, m) => sum + m.durationMs,
         0,
       );
 

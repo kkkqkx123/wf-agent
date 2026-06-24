@@ -176,6 +176,19 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    */
   private _eventRecords: ExecutionEventRecord[] = [];
 
+  // ========== Variable History Tracking ==========
+
+  /**
+   * Variable snapshots captured at each iteration for debugging
+   * Stores the state of all variables at key points during execution
+   */
+  private _variableSnapshots: Array<{
+    iteration: number;
+    timestamp: number;
+    variables: Record<string, { value: unknown; type: string; size?: number; updated: boolean; source: 'user' | 'tool' | 'system' }>;
+    toolCallId?: string;
+  }> = [];
+
   /**
    * Get the current status
    */
@@ -485,6 +498,129 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   }
 
   /**
+   * Record a pause interruption with enriched context
+   * Captures the execution context at the time of pause for better debugging and recovery
+   *
+   * @param reason Reason for pausing
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the pause (user, system, timeout, error)
+   */
+  recordPauseInterruption(
+    reason: string,
+    userId?: string,
+    source: 'user' | 'system' | 'timeout' | 'error' = 'system',
+  ): void {
+    const record: ExecutionInterruptionRecord = {
+      id: `pause:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: 'PAUSE',
+      reason,
+      iteration: this._currentIteration,
+
+      // Trigger information
+      triggeredBy: {
+        source,
+        userId,
+        reason,
+      },
+
+      // Execution context snapshot
+      executionContext: {
+        iteration: this._currentIteration,
+        status: this._status,
+        lastSuccessfulToolCall: this._currentIterationRecord?.toolCalls[
+          this._currentIterationRecord.toolCalls.length - 1
+        ]?.id,
+      },
+
+      // Initial pause status
+      status: 'pending',
+    };
+
+    this.addInterruptionRecord(record);
+  }
+
+  /**
+   * Record a stop interruption with enriched context
+   * Captures the execution context at the time of stop for recovery purposes
+   *
+   * @param reason Reason for stopping
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the stop (user, system, timeout, error)
+   */
+  recordStopInterruption(
+    reason: string,
+    userId?: string,
+    source: 'user' | 'system' | 'timeout' | 'error' = 'system',
+  ): void {
+    const record: ExecutionInterruptionRecord = {
+      id: `stop:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: 'STOP',
+      reason,
+      iteration: this._currentIteration,
+
+      // Trigger information
+      triggeredBy: {
+        source,
+        userId,
+        reason,
+      },
+
+      // Execution context snapshot
+      executionContext: {
+        iteration: this._currentIteration,
+        status: this._status,
+        lastSuccessfulToolCall: this._currentIterationRecord?.toolCalls[
+          this._currentIterationRecord.toolCalls.length - 1
+        ]?.id,
+      },
+
+      // Stop is typically final
+      status: 'abandoned',
+    };
+
+    this.addInterruptionRecord(record);
+  }
+
+  /**
+   * Record resumption of a paused execution
+   * Updates the latest pause record with resume information
+   *
+   * @param reason Optional reason for resuming
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the resume (user, system, automatic)
+   * @param checkpointId Optional checkpoint ID used for resuming
+   */
+  recordResumeInterruption(
+    reason?: string,
+    userId?: string,
+    source: 'user' | 'system' | 'automatic' = 'system',
+    checkpointId?: string,
+  ): void {
+    // Find the latest PAUSE interruption record
+    let pauseRecord: ExecutionInterruptionRecord | undefined;
+    for (let i = this._interruptionRecords.length - 1; i >= 0; i--) {
+      if (this._interruptionRecords[i]?.type === 'PAUSE' && this._interruptionRecords[i]?.status === 'pending') {
+        pauseRecord = this._interruptionRecords[i];
+        break;
+      }
+    }
+
+    // If found, enrich it with resume information
+    if (pauseRecord) {
+      pauseRecord.resumedAt = now();
+      pauseRecord.resumedReason = reason;
+      pauseRecord.resumedBy = {
+        source,
+        userId,
+      };
+      pauseRecord.status = 'resumed';
+      pauseRecord.resumedFromCheckpointId = checkpointId;
+    }
+  }
+
+  /**
    * Add an event record
    * @param record Event record to add
    */
@@ -588,6 +724,90 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    */
   getEventRecords(): ExecutionEventRecord[] {
     return [...this._eventRecords];
+  }
+
+  // ========== Variable History Tracking ==========
+
+  /**
+   * Capture a variable snapshot at the current iteration
+   * Stores the state of all variables for debugging and analysis
+   *
+   * @param variables Object containing all variables to snapshot
+   * @param source Source of the variables (user, tool, system)
+   * @param toolCallId Optional tool call ID if snapshot is after tool execution
+   */
+  captureVariableSnapshot(
+    variables: Record<string, unknown>,
+    source: 'user' | 'tool' | 'system' = 'user',
+    toolCallId?: string,
+  ): void {
+    const snapshot = {
+      iteration: this._currentIteration,
+      timestamp: now(),
+      variables: {} as Record<string, { value: unknown; type: string; size?: number; updated: boolean; source: 'user' | 'tool' | 'system' }>,
+      toolCallId,
+    };
+
+    // Get previous snapshot variables for comparison
+    const previousSnapshot = this._variableSnapshots[this._variableSnapshots.length - 1];
+    const previousVars = previousSnapshot?.variables || {};
+
+    // Capture each variable
+    for (const [name, value] of Object.entries(variables)) {
+      const stringified = JSON.stringify(value);
+      snapshot.variables[name] = {
+        value,
+        type: Array.isArray(value) ? 'array' : typeof value,
+        size: stringified.length,
+        updated: previousVars[name]?.value !== value,
+        source,
+      };
+    }
+
+    this._variableSnapshots.push(snapshot);
+
+    // Keep reasonable history to prevent memory bloat
+    // Keep last 1000 snapshots per execution
+    if (this._variableSnapshots.length > 1000) {
+      this._variableSnapshots = this._variableSnapshots.slice(-1000);
+    }
+  }
+
+  /**
+   * Get all variable snapshots
+   */
+  getVariableSnapshots(): Array<{
+    iteration: number;
+    timestamp: number;
+    variables: Record<string, { value: unknown; type: string; size?: number; updated: boolean; source: 'user' | 'tool' | 'system' }>;
+    toolCallId?: string;
+  }> {
+    return [...this._variableSnapshots];
+  }
+
+  /**
+   * Get variable history for a specific variable
+   * @param variableName Name of the variable to track
+   * @returns Array of snapshots containing this variable
+   */
+  getVariableHistory(variableName: string): Array<{
+    iteration: number;
+    timestamp: number;
+    value: unknown;
+    type: string;
+    updated: boolean;
+    source: 'user' | 'tool' | 'system';
+  }> {
+    return this._variableSnapshots
+      .filter(snap => variableName in snap.variables)
+      .map(snap => ({
+        iteration: snap.iteration,
+        timestamp: snap.timestamp,
+        value: snap.variables[variableName]!.value,
+        type: snap.variables[variableName]!.type,
+        updated: snap.variables[variableName]!.updated,
+        source: snap.variables[variableName]!.source,
+      }));
   }
 
   // ========== Error Chain Tracking ==========
@@ -917,6 +1137,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._errorRecords = [];
     this._interruptionRecords = [];
     this._eventRecords = [];
+    this._variableSnapshots = [];
   }
 
   /**
@@ -979,6 +1200,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     cloned._errorRecords = [...this._errorRecords];
     cloned._interruptionRecords = [...this._interruptionRecords];
     cloned._eventRecords = [...this._eventRecords];
+    cloned._variableSnapshots = [...this._variableSnapshots];
     // Note: Runtime-only fields are not cloned (isStreaming, pendingToolCalls, streamMessage)
     return cloned;
   }
@@ -1028,6 +1250,8 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       errorRecords: this._errorRecords.length > 0 ? [...this._errorRecords] : undefined,
       interruptionRecords: this._interruptionRecords.length > 0 ? [...this._interruptionRecords] : undefined,
       eventRecords: this._eventRecords.length > 0 ? [...this._eventRecords] : undefined,
+      // Variable history tracking
+      variableSnapshots: this._variableSnapshots.length > 0 ? [...this._variableSnapshots] : undefined,
     };
   }
 
@@ -1084,6 +1308,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._errorRecords = snapshot.errorRecords ? [...snapshot.errorRecords] : [];
     this._interruptionRecords = snapshot.interruptionRecords ? [...snapshot.interruptionRecords] : [];
     this._eventRecords = snapshot.eventRecords ? [...snapshot.eventRecords] : [];
+
+    // Restore variable snapshots for debugging
+    this._variableSnapshots = snapshot.variableSnapshots ? [...snapshot.variableSnapshots] : [];
 
     // Reset runtime state that cannot be restored
     this._shouldPause = false;

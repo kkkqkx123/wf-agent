@@ -6,7 +6,7 @@
 export type { AgentLoopDelta, AgentLoopCheckpoint } from "./checkpoint.js";
 
 // Snapshot Type
-export type { AgentLoopStateSnapshot } from "./snapshot.js";
+export type { AgentLoopStateSnapshot, VariableSnapshot } from "./snapshot.js";
 
 // Configuration Type
 export type {

@@ -72,7 +72,6 @@ export {
   type ExecutionPathStep,
   type LLMNodeMetadata,
   type LLMReasoningRecord,
-  type ResourceUsageRecord,
   type QualityMetrics,
   type ExtendedNodeExecutionFilter,
   type NodeExecutionStats,

@@ -59,16 +59,16 @@ export {
 export {
   WorkflowIterationAnalysisAPI,
   type ExtendedNodeExecutionRecord,
-  type ToolDependency,
-  type ExecutionPath,
   type ExecutionPathStep,
   type LLMNodeMetadata,
-  type LLMReasoningRecord,
-  type ResourceUsageRecord,
   type QualityMetrics,
   type ExtendedNodeExecutionFilter,
   type NodeExecutionStats,
   type OptimizationOpportunity,
+  // Re-export types from Agent API for consistency
+  type ToolDependency,
+  type ExecutionPath,
+  type LLMReasoningRecord,
 } from "./workflow-iteration-analysis-api.js";
 
 export {

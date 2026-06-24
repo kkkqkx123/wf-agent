@@ -9,7 +9,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentExecutionState } from "../../../api/agent/resources/agent-execution-state-api.js";
-import type { ResourceUsageRecord, IterationSystemMetrics, IterationLLMMetrics } from "../../../api/agent/resources/agent-loop-iteration-api.js";
+import type { IterationSystemMetrics, IterationLLMMetrics } from "../../../api/agent/resources/agent-loop-iteration-api.js";
 import type { ExecutionEventRecord } from "@wf-agent/types";
 
 /**
@@ -73,20 +73,7 @@ export interface PersistenceLayer {
   // ============ Performance metrics ============
 
   /**
-   * Save resource usage record (legacy, for backward compatibility)
-   */
-  saveResourceUsageRecord(executionId: ID, record: ResourceUsageRecord): Promise<void>;
-
-  /**
-   * Get resource usage records with optional filter
-   */
-  getResourceUsageRecords(
-    executionId: ID,
-    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
-  ): Promise<ResourceUsageRecord[]>;
-
-  /**
-   * Save system metrics record (new method for Design Issue #4 fix)
+   * Save system metrics record
    */
   saveSystemMetrics(executionId: ID, iteration: number, metrics: IterationSystemMetrics): Promise<void>;
 
@@ -158,78 +145,4 @@ export interface PersistenceLayer {
    * Check health status
    */
   health(): Promise<PersistenceLayerHealth>;
-}
-
-/**
- * No-op persistence layer implementation
- * Used for testing and when persistence is disabled
- */
-export class NoOpPersistenceLayer implements PersistenceLayer {
-  async saveExecutionStateSnapshot(): Promise<void> {
-    // No-op
-  }
-
-  async getExecutionStateSnapshot(): Promise<null> {
-    return null;
-  }
-
-  async listExecutionStateSnapshots(): Promise<AgentExecutionState[]> {
-    return [];
-  }
-
-  async saveResourceUsageRecord(): Promise<void> {
-    // No-op
-  }
-
-  async getResourceUsageRecords(): Promise<ResourceUsageRecord[]> {
-    return [];
-  }
-
-  async saveSystemMetrics(): Promise<void> {
-    // No-op
-  }
-
-  async saveLLMMetrics(): Promise<void> {
-    // No-op
-  }
-
-  async getSystemMetrics(): Promise<IterationSystemMetrics[]> {
-    return [];
-  }
-
-  async getLLMMetrics(): Promise<IterationLLMMetrics[]> {
-    return [];
-  }
-
-  async saveEvent(_executionId: ID, _event: ExecutionEventRecord): Promise<void> {
-    // No-op
-  }
-
-  async queryEvents(_filter: EventQueryFilter): Promise<ExecutionEventRecord[]> {
-    return [];
-  }
-
-  async countEvents(_filter: EventQueryFilter): Promise<number> {
-    return 0;
-  }
-
-  async saveCheckpoint(_checkpointId: string, _metadata: Record<string, unknown>): Promise<void> {
-    // No-op
-  }
-
-  async getCheckpointHistory(_executionId: ID): Promise<Array<{ checkpointId: string; timestamp: number }>> {
-    return [];
-  }
-
-  async initialize(): Promise<void> {
-    // No-op
-  }
-
-  async shutdown(): Promise<void> {
-    // No-op
-  }
-
-  async health(): Promise<PersistenceLayerHealth> {
-    return { status: "healthy", storageHealth: "available" };
-  }
 }

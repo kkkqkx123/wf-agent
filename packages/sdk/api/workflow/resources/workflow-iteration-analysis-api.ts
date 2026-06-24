@@ -14,36 +14,30 @@
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 import type { ID } from "@wf-agent/types";
+import type {
+  IterationSystemMetrics,
+  IterationLLMMetrics,
+  ToolDependency,
+  ExecutionPath,
+  LLMReasoningRecord,
+} from "../../agent/resources/agent-loop-iteration-api.js";
+// Re-export types for external consumers
+export type {
+  ToolDependency,
+  ExecutionPath,
+  LLMReasoningRecord,
+} from "../../agent/resources/agent-loop-iteration-api.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "WorkflowIterationAnalysisAPI" });
-
-// ============================================================================
-// Type Definitions: Tool Dependency Tracking
-// ============================================================================
-
-/**
- * Tool Dependency relationship in workflow
- */
-export interface ToolDependency {
-  /** Tool call ID */
-  toolCallId: string;
-  /** Tool name */
-  toolName: string;
-  /** IDs of tools this call depends on */
-  dependsOn: string[];
-  /** Dependency type */
-  dependencyType: "sequential" | "parallel" | "conditional" | "result-dependent";
-  /** Why this dependency exists */
-  reason?: string;
-}
 
 // ============================================================================
 // Type Definitions: Execution Path Analysis
 // ============================================================================
 
 /**
- * Execution path step
+ * Execution path step (Workflow-specific)
+ * Enhanced version of ExecutionPath step with workflow-specific types
  */
 export interface ExecutionPathStep {
   stepId: string;
@@ -54,45 +48,9 @@ export interface ExecutionPathStep {
   duration?: number;
 }
 
-/**
- * Execution path record
- */
-export interface ExecutionPath {
-  /** Unique path identifier */
-  pathId: string;
-  /** Path description */
-  description: string;
-  /** Sequence of steps taken */
-  steps: ExecutionPathStep[];
-  /** Whether this path was optimal */
-  isOptimal?: boolean;
-  /** Alternative paths considered */
-  alternativePaths?: string[];
-  /** Path complexity score (0-1) */
-  complexityScore?: number;
-}
-
 // ============================================================================
 // Type Definitions: LLM Node Metadata
 // ============================================================================
-
-/**
- * LLM reasoning step
- */
-export interface LLMReasoningRecord {
-  /** Reasoning step identifier */
-  stepId: string;
-  /** Type of reasoning */
-  reasoningType: "thinking" | "planning" | "analyzing" | "evaluating" | "synthesizing";
-  /** Reasoning content */
-  content: string;
-  /** Confidence in this reasoning (0-1) */
-  confidence?: number;
-  /** Related entities */
-  relatedEntities?: string[];
-  /** Conclusions drawn */
-  conclusions?: string[];
-}
 
 /**
  * LLM node metadata
@@ -114,29 +72,8 @@ export interface LLMNodeMetadata {
 // Type Definitions: Resource Tracking
 // ============================================================================
 
-/**
- * Resource usage metrics
- */
-export interface ResourceUsageRecord {
-  /** LLM tokens used (input) */
-  llmInputTokens?: number;
-  /** LLM tokens used (output) */
-  llmOutputTokens?: number;
-  /** Total LLM cost */
-  llmCost?: number;
-  /** API calls made */
-  apiCalls?: number;
-  /** Data processed (bytes) */
-  dataProcessed?: number;
-  /** Memory peak usage (bytes) */
-  memoryPeak?: number;
-  /** Execution time breakdown */
-  timingBreakdown?: {
-    setupTime?: number;
-    executionTime?: number;
-    cleanupTime?: number;
-  };
-}
+// Note: ResourceUsageRecord is now re-exported from Agent API (see top of file)
+// Marked as @deprecated - use IterationSystemMetrics and IterationLLMMetrics instead
 
 // ============================================================================
 // Type Definitions: Quality Metrics
@@ -207,8 +144,11 @@ export interface ExtendedNodeExecutionRecord {
   /** LLM node metadata (for LLM nodes) */
   llmMetadata?: LLMNodeMetadata;
 
-  /** Resource usage metrics */
-  resourceUsage?: ResourceUsageRecord;
+  /** System metrics for this node execution */
+  systemMetrics?: IterationSystemMetrics;
+
+  /** LLM metrics for this node execution */
+  llmMetrics?: IterationLLMMetrics[];
 
   /** Quality metrics */
   qualityMetrics?: QualityMetrics;
@@ -438,13 +378,18 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
       return null;
     }
 
-    const steps: ExecutionPathStep[] = executions.map(exec => ({
+    const steps: Array<{
+      stepId: string;
+      type: "decision" | "action" | "tool_call" | "branch";
+      description: string;
+      result?: unknown;
+      timestamp: number;
+    }> = executions.map(exec => ({
       stepId: exec.nodeId,
-      type: "node_execution",
+      type: "action" as const, // Workflow nodes are actions
       description: `Execute ${exec.nodeName} (${exec.nodeType})`,
       result: exec.output,
       timestamp: exec.startTime,
-      duration: exec.duration,
     }));
 
     return {
@@ -578,19 +523,14 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
         stats.maxExecutionTime = Math.max(stats.maxExecutionTime, exec.duration);
       }
 
-      if (exec.resourceUsage) {
-        if (exec.resourceUsage.llmInputTokens) {
-          totalLLMTokens += exec.resourceUsage.llmInputTokens;
-        }
-        if (exec.resourceUsage.llmOutputTokens) {
-          totalLLMTokens += exec.resourceUsage.llmOutputTokens;
-        }
-        if (exec.resourceUsage.apiCalls) {
-          totalApiCalls += exec.resourceUsage.apiCalls;
-        }
-        if (exec.resourceUsage.memoryPeak) {
-          peakMemory = Math.max(peakMemory, exec.resourceUsage.memoryPeak);
-        }
+      // Migrate from legacy resourceUsage to new separated metrics
+      if (exec.llmMetrics) {
+        exec.llmMetrics.forEach(metric => {
+          totalLLMTokens += metric.inputTokens + metric.outputTokens;
+        });
+      }
+      if (exec.systemMetrics) {
+        peakMemory = Math.max(peakMemory, exec.systemMetrics.memoryPeakMb);
       }
     });
 

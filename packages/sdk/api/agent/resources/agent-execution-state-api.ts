@@ -17,7 +17,7 @@
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 import type { PersistenceLayer } from "../../shared/core/persistence-interfaces.js";
-import { NoOpPersistenceLayer } from "../../shared/core/persistence-interfaces.js";
+import { NoOpPersistenceLayer } from "../../shared/core/__tests__/no-op-persistence.js";
 import type { ID } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 

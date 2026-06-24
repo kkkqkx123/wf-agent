@@ -4,9 +4,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { BufferedPersistenceLayer } from "../buffered-persistence.js";
-import { NoOpPersistenceLayer } from "../persistence-interfaces.js";
+import { NoOpPersistenceLayer } from "./no-op-persistence.js";
 import type { AgentExecutionState } from "../../agent/resources/agent-execution-state-api.js";
-import type { ResourceUsageRecord } from "../../agent/resources/agent-loop-iteration-api.js";
 
 describe("BufferedPersistenceLayer", () => {
   let buffered: BufferedPersistenceLayer;
@@ -100,46 +99,6 @@ describe("BufferedPersistenceLayer", () => {
 
       const list = await buffered.listExecutionStateSnapshots("exec-001");
       expect(list.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe("resource usage records", () => {
-    it("should save and retrieve resource usage records", async () => {
-      const record: ResourceUsageRecord = {
-        llmInputTokens: 100,
-        llmOutputTokens: 50,
-        llmCost: 0.01,
-        apiCalls: 1,
-        dataProcessed: 1024,
-        memoryPeak: 2048,
-        timingBreakdown: {
-          llmThinkingTime: 100,
-          toolExecutionTime: 200,
-          resultProcessingTime: 50,
-        },
-      };
-
-      await buffered.saveResourceUsageRecord("exec-001", record);
-
-      const records = await buffered.getResourceUsageRecords("exec-001");
-      expect(records.length).toBeGreaterThan(0);
-      expect(records[0]?.llmInputTokens).toBe(100);
-    });
-
-    it("should return recent records from buffer", async () => {
-      const records: ResourceUsageRecord[] = Array.from({ length: 10 }, (_, i) => ({
-        llmInputTokens: 100 + i,
-        llmOutputTokens: 50,
-        llmCost: 0.01,
-        apiCalls: 1,
-      }));
-
-      for (const record of records) {
-        await buffered.saveResourceUsageRecord("exec-001", record);
-      }
-
-      const retrieved = await buffered.getResourceUsageRecords("exec-001");
-      expect(retrieved.length).toBeLessThanOrEqual(100);
     });
   });
 

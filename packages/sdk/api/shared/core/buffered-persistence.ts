@@ -12,11 +12,12 @@ import type {
   PersistenceLayer,
   EventQueryFilter,
   PersistenceLayerHealth,
+  TimeRange,
 } from "./persistence-interfaces.js";
-import { NoOpPersistenceLayer } from "./persistence-interfaces.js";
+import { NoOpPersistenceLayer } from "./__tests__/no-op-persistence.js";
 import type { ID } from "@wf-agent/types";
 import type { AgentExecutionState } from "../../agent/resources/agent-execution-state-api.js";
-import type { ResourceUsageRecord } from "../../agent/resources/agent-loop-iteration-api.js";
+import type { IterationSystemMetrics, IterationLLMMetrics } from "../../agent/resources/agent-loop-iteration-api.js";
 import type { ExecutionEventRecord } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
@@ -32,12 +33,10 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
 
   // Buffers
   private stateBuffer: Map<ID, AgentExecutionState[]> = new Map();
-  private metricsBuffer: Map<ID, ResourceUsageRecord[]> = new Map();
   private eventBuffer: Array<{ executionId: ID; event: ExecutionEventRecord }> = [];
 
   // Configuration
   private stateBufferSize: number = 50;
-  private metricsBufferSize: number = 200;
   private eventBufferSize: number = 1000;
   private flushIntervalMs: number = 30000; // 30 seconds
 
@@ -131,47 +130,23 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
 
   // ============ Performance metrics ============
 
-  async saveResourceUsageRecord(executionId: ID, record: ResourceUsageRecord): Promise<void> {
-    const buffer = this.getOrCreateMetricsBuffer(executionId);
-    buffer.push(record);
-
-    if (buffer.length >= this.metricsBufferSize) {
-      await this.flushMetricsBuffer(executionId);
-    }
-  }
-
-  async getResourceUsageRecords(
-    executionId: ID,
-    filter?: any,
-  ): Promise<ResourceUsageRecord[]> {
-    const buffer = this.metricsBuffer.get(executionId) ?? [];
-
-    if (filter?.timeRange) {
-      // Time range queries go to backend
-      return await this.backend.getResourceUsageRecords(executionId, filter);
-    }
-
-    // Return recent records from buffer
-    return buffer.slice(-100);
-  }
-
   async saveSystemMetrics(
     executionId: ID,
     iteration: number,
-    metrics: any,
+    metrics: IterationSystemMetrics,
   ): Promise<void> {
     await this.backend.saveSystemMetrics(executionId, iteration, metrics);
   }
 
-  async saveLLMMetrics(executionId: ID, metrics: any[]): Promise<void> {
+  async saveLLMMetrics(executionId: ID, metrics: IterationLLMMetrics[]): Promise<void> {
     await this.backend.saveLLMMetrics(executionId, metrics);
   }
 
-  async getSystemMetrics(executionId: ID, filter?: any): Promise<any[]> {
+  async getSystemMetrics(executionId: ID, filter?: { timeRange?: TimeRange; iterationRange?: [number, number] }): Promise<IterationSystemMetrics[]> {
     return await this.backend.getSystemMetrics(executionId, filter);
   }
 
-  async getLLMMetrics(executionId: ID, filter?: any): Promise<any[]> {
+  async getLLMMetrics(executionId: ID, filter?: { timeRange?: TimeRange; iterationRange?: [number, number] }): Promise<IterationLLMMetrics[]> {
     return await this.backend.getLLMMetrics(executionId, filter);
   }
 
@@ -200,8 +175,8 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
     // Apply severity filter
     if (filter.severity && filter.severity.length > 0) {
       bufferResults = bufferResults.filter((e) => {
-        const eventSeverity = (e.event as unknown as Record<string, unknown>)['severity'] as string | undefined;
-        return filter.severity!.includes(eventSeverity || 'info');
+        const eventSeverity = e.event.severity || 'info';
+        return filter.severity!.includes(eventSeverity);
       });
     }
 
@@ -260,7 +235,7 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
     return {
       ...backendHealth,
       pendingWrites:
-        this.stateBuffer.size + this.metricsBuffer.size + this.eventBuffer.length,
+        this.stateBuffer.size + this.eventBuffer.length,
     };
   }
 
@@ -283,18 +258,12 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
         await this.flushStateBuffer(id);
       }
 
-      const metricIds = Array.from(this.metricsBuffer.keys());
-      for (const id of metricIds) {
-        await this.flushMetricsBuffer(id);
-      }
-
       if (this.eventBuffer.length > 0) {
         await this.flushEventBuffer();
       }
 
       logger.debug("Flush completed", {
         states: stateIds.length,
-        metrics: metricIds.length,
         events: this.eventBuffer.length,
       });
     } catch (error) {
@@ -315,20 +284,6 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
       this.stateBuffer.delete(executionId);
     } catch (error) {
       logger.error("Failed to flush state buffer", { executionId, error });
-    }
-  }
-
-  private async flushMetricsBuffer(executionId: ID): Promise<void> {
-    const buffer = this.metricsBuffer.get(executionId);
-    if (!buffer || buffer.length === 0) return;
-
-    try {
-      for (const record of buffer) {
-        await this.backend.saveResourceUsageRecord(executionId, record);
-      }
-      this.metricsBuffer.delete(executionId);
-    } catch (error) {
-      logger.error("Failed to flush metrics buffer", { executionId, error });
     }
   }
 
@@ -353,12 +308,5 @@ export class BufferedPersistenceLayer implements PersistenceLayer {
       this.stateBuffer.set(executionId, []);
     }
     return this.stateBuffer.get(executionId)!;
-  }
-
-  private getOrCreateMetricsBuffer(executionId: ID): ResourceUsageRecord[] {
-    if (!this.metricsBuffer.has(executionId)) {
-      this.metricsBuffer.set(executionId, []);
-    }
-    return this.metricsBuffer.get(executionId)!;
   }
 }

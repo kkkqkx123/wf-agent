@@ -16,7 +16,6 @@
 import type { ID } from "@wf-agent/types";
 import type { ExecutionEventRecord } from "@wf-agent/types";
 import type { AgentExecutionState } from "../../../api/agent/resources/agent-execution-state-api.js";
-import type { ResourceUsageRecord } from "../../../api/agent/resources/agent-loop-iteration-api.js";
 import type {
   PersistenceLayer,
   PersistenceLayerHealth,
@@ -24,6 +23,12 @@ import type {
   TimeRange,
 } from "../core/persistence-interfaces.js";
 import type { IterationSystemMetrics, IterationLLMMetrics } from "../../agent/resources/agent-loop-iteration-api.js";
+import {
+  type SQLiteExecutionStateRow,
+  type SQLiteEventRow,
+  type SQLiteSystemMetricsRow,
+  type SQLiteLLMMetricsRow,
+} from "./sqlite-types.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -220,7 +225,8 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       }
 
       if (result && typeof result === 'object' && 'state_data' in result) {
-        return JSON.parse((result as Record<string, unknown>)['state_data'] as string);
+        const row = result as SQLiteExecutionStateRow;
+        return JSON.parse(row.state_data);
       }
 
       return null;
@@ -246,107 +252,18 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
         LIMIT ?
       `);
 
-      const results = stmt?.all(executionId, limit || 10) || [];
+      const results = stmt?.all(executionId, limit || 10) as SQLiteExecutionStateRow[] || [];
 
       return results
-        .map((result: any) => {
-          if (result !== null && typeof result === 'object' && 'state_data' in result) {
-            return JSON.parse((result as Record<string, unknown>)['state_data'] as string);
+        .map((result: SQLiteExecutionStateRow) => {
+          if (result && typeof result === 'object' && 'state_data' in result) {
+            return JSON.parse(result.state_data);
           }
           return null;
         })
-        .filter((s: any): s is AgentExecutionState => s !== null);
+        .filter((s): s is AgentExecutionState => s !== null);
     } catch (error) {
       logger.error("Failed to list execution state snapshots", { error });
-      return [];
-    }
-  }
-
-  /**
-   * Save resource usage record with iteration context
-   */
-  async saveResourceUsageRecord(
-    executionId: ID,
-    _record: ResourceUsageRecord,
-    context?: { iteration?: number; cpuTime?: number; memoryUsed?: number },
-  ): Promise<void> {
-    if (!this.isInitialized) {
-      return;
-    }
-
-    try {
-      const stmt = this.db?.prepare(`
-        INSERT INTO resource_usage (execution_id, iteration, cpu_time, memory_used, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-      `);
-
-      stmt?.run(
-        executionId,
-        context?.iteration ?? 0,
-        context?.cpuTime ?? 0,
-        context?.memoryUsed ?? 0,
-        Date.now(),
-      );
-    } catch (error) {
-      logger.error("Failed to save resource usage record", { error });
-    }
-  }
-
-  /**
-   * Get resource usage records
-   */
-  async getResourceUsageRecords(
-    executionId: ID,
-    filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
-  ): Promise<ResourceUsageRecord[]> {
-    if (!this.isInitialized) {
-      return [];
-    }
-
-    try {
-      let sql = `
-        SELECT iteration, cpu_time, memory_used, timestamp
-        FROM resource_usage
-        WHERE execution_id = ?
-      `;
-
-      const params: unknown[] = [executionId];
-
-      if (filter?.timeRange) {
-        sql += ` AND timestamp >= ? AND timestamp <= ?`;
-        params.push(filter.timeRange.start, filter.timeRange.end);
-      }
-
-      if (filter?.iterationRange) {
-        sql += ` AND iteration >= ? AND iteration <= ?`;
-        params.push(filter.iterationRange[0], filter.iterationRange[1]);
-      }
-
-      sql += ` ORDER BY iteration ASC`;
-
-      const stmt = this.db?.prepare(sql);
-      const results = stmt?.all(...params) || [];
-
-      return results
-        .map((r: any) => {
-          if (typeof r === 'object' && r !== null && 'iteration' in r) {
-            const record = r as Record<string, unknown>;
-            // Map persisted resource usage to ResourceUsageRecord
-            // Only include the fields that ResourceUsageRecord actually supports
-            const resourceRecord: ResourceUsageRecord = {};
-
-            // If we have memory peak data, include it
-            if (record['memory_used']) {
-              resourceRecord.memoryPeak = record['memory_used'] as number;
-            }
-
-            return resourceRecord;
-          }
-          return null;
-        })
-        .filter((r: any): r is ResourceUsageRecord => r !== null);
-    } catch (error) {
-      logger.error("Failed to get resource usage records", { error });
       return [];
     }
   }
@@ -450,23 +367,22 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       sql += ` ORDER BY iteration ASC`;
 
       const stmt = this.db?.prepare(sql);
-      const results = stmt?.all(...params) || [];
+      const results = stmt?.all(...params) as SQLiteSystemMetricsRow[] || [];
 
       return results
-        .map((r: any) => {
+        .map((r: SQLiteSystemMetricsRow) => {
           if (typeof r === 'object' && r !== null && 'iteration' in r) {
-            const record = r as Record<string, unknown>;
             return {
-              iteration: record['iteration'] as number,
-              cpuTimeMs: record['cpu_time_ms'] as number,
-              memoryPeakMb: record['memory_peak_mb'] as number,
-              durationMs: record['duration_ms'] as number,
-              timestamp: record['timestamp'] as number,
+              iteration: r.iteration,
+              cpuTimeMs: r.cpu_time_ms,
+              memoryPeakMb: r.memory_peak_mb,
+              durationMs: r.duration_ms,
+              timestamp: r.timestamp,
             };
           }
           return null;
         })
-        .filter((m: any): m is IterationSystemMetrics => m !== null);
+        .filter((m): m is IterationSystemMetrics => m !== null);
     } catch (error) {
       logger.error("Failed to get system metrics", { error });
       return [];
@@ -506,29 +422,28 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       sql += ` ORDER BY iteration ASC`;
 
       const stmt = this.db?.prepare(sql);
-      const results = stmt?.all(...params) || [];
+      const results = stmt?.all(...params) as SQLiteLLMMetricsRow[] || [];
 
       return results
-        .map((r: any) => {
+        .map((r: SQLiteLLMMetricsRow) => {
           if (typeof r === 'object' && r !== null && 'iteration' in r) {
-            const record = r as Record<string, unknown>;
             const metric: IterationLLMMetrics = {
-              iteration: record['iteration'] as number,
-              inputTokens: record['input_tokens'] as number,
-              outputTokens: record['output_tokens'] as number,
-              costUsd: record['cost_usd'] as number,
-              model: record['model'] as string,
-              durationMs: record['duration_ms'] as number,
-              timestamp: record['timestamp'] as number,
+              iteration: r.iteration,
+              inputTokens: r.input_tokens,
+              outputTokens: r.output_tokens,
+              costUsd: r.cost_usd,
+              model: r.model,
+              durationMs: r.duration_ms,
+              timestamp: r.timestamp,
             };
-            if (record['tool_call_id']) {
-              metric.toolCallId = record['tool_call_id'] as string;
+            if (r.tool_call_id) {
+              metric.toolCallId = r.tool_call_id;
             }
             return metric;
           }
           return null;
         })
-        .filter((m: any): m is IterationLLMMetrics => m !== null);
+        .filter((m): m is IterationLLMMetrics => m !== null);
     } catch (error) {
       logger.error("Failed to get LLM metrics", { error });
       return [];
@@ -599,16 +514,16 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
       }
 
       const stmt = this.db?.prepare(sql);
-      const results = stmt?.all(...params) || [];
+      const results = stmt?.all(...params) as SQLiteEventRow[] || [];
 
       return results
-        .map((r: any) => {
-          if (r !== null && typeof r === 'object' && 'event_data' in r) {
-            return JSON.parse((r as Record<string, unknown>)['event_data'] as string);
+        .map((r: SQLiteEventRow) => {
+          if (r && typeof r === 'object' && 'event_data' in r) {
+            return JSON.parse(r.event_data);
           }
           return null;
         })
-        .filter((e: any): e is ExecutionEventRecord => e !== null);
+        .filter((e): e is ExecutionEventRecord => e !== null);
     } catch (error) {
       logger.error("Failed to query events", { error });
       return [];

@@ -4,5 +4,5 @@
  */
 
 export type { PersistenceLayer, EventQueryFilter, TimeRange, PersistenceLayerHealth } from "./persistence-interfaces.js";
-export { NoOpPersistenceLayer } from "./persistence-interfaces.js";
+export { NoOpPersistenceLayer } from "./__tests__/no-op-persistence.js";
 export { BufferedPersistenceLayer } from "./buffered-persistence.js";

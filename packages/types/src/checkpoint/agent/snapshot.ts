@@ -94,6 +94,36 @@ export interface AgentLoopStateSnapshot {
     metadata?: Record<string, unknown>;
   }>;
 
+  // ========== Variable history tracking ==========
+
+  /** Variable snapshots captured at each iteration for debugging */
+  variableSnapshots?: Array<{
+    /** Iteration number when snapshot was taken */
+    iteration: number;
+    /** Timestamp when snapshot was taken */
+    timestamp: number;
+    /** Variables at this point in execution */
+    variables: Record<string, VariableSnapshot>;
+    /** Tool call ID if snapshot was taken after a tool call */
+    toolCallId?: string;
+  }>;
+
   /** Allow additional properties for extensibility */
   [key: string]: unknown;
+}
+
+/**
+ * Variable snapshot details
+ */
+export interface VariableSnapshot {
+  /** Variable value at this point */
+  value: unknown;
+  /** Type of the value */
+  type: string;
+  /** Size in bytes (for large objects) */
+  size?: number;
+  /** Whether this variable was updated in this iteration */
+  updated: boolean;
+  /** Source of the variable (user, tool, system) */
+  source: 'user' | 'tool' | 'system';
 }

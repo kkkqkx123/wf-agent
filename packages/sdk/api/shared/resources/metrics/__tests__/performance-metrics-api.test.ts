@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PerformanceMetricsAPI } from "../performance-metrics-api.js";
-import { NoOpPersistenceLayer } from "../../../core/persistence-interfaces.js";
+import { NoOpPersistenceLayer } from "../../../core/__tests__/no-op-persistence.js";
 import type { ResourceUsageRecord } from "../../../../agent/resources/agent-loop-iteration-api.js";
 import type { PersistenceLayer } from "../../../core/persistence-interfaces.js";
 

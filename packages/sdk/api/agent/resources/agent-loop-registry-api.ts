@@ -476,30 +476,44 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
   /**
    * Get variable history - track how a specific variable changed throughout execution
    * @param agentLoopId Agent loop ID
-   * @param _variableName Variable name to track
+   * @param variableName Variable name to track
    * @returns Variable snapshots in chronological order
    */
-  async getVariableHistory(agentLoopId: ID, _variableName: string): Promise<VariableHistoryEntry[]> {
+  async getVariableHistory(agentLoopId: ID, variableName: string): Promise<VariableHistoryEntry[]> {
     const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return [];
     }
 
     const history: VariableHistoryEntry[] = [];
+    const snapshots = entity.state.getVariableSnapshots();
 
-    // TODO: Design Issue #3 - Variable history tracking incomplete
-    // Current implementation is incomplete because:
-    // 1. IterationRecord lacks context/timestamp fields for variable state
-    // 2. ExecutionState.variableState is a point-in-time snapshot, not a history
-    // 3. Need to add variableSnapshots array to ExecutionState to store per-iteration state
-    //
-    // Expected implementation pattern:
-    // - Capture variable snapshots at end of each iteration
-    // - Store in ExecutionState.variableSnapshots[]
-    // - Query and correlate snapshots with iteration records
-    //
-    // For now, return empty array until architecture is completed
-    // See DESIGN_ISSUES.md#Issue-3 for full analysis and solution
+    for (let i = 0; i < snapshots.length; i++) {
+      const snapshot = snapshots[i];
+      if (!snapshot) {
+        continue;
+      }
+
+      // Check if this variable exists in this snapshot
+      if (!(variableName in snapshot.variables)) {
+        continue;
+      }
+
+      const varData = snapshot.variables[variableName]!;
+      const previousSnapshot = i > 0 ? snapshots[i - 1] : null;
+      const previousVarData = previousSnapshot?.variables[variableName];
+
+      history.push({
+        timestamp: snapshot.timestamp,
+        name: variableName,
+        value: varData.value,
+        iteration: snapshot.iteration,
+        change: {
+          from: previousVarData?.value,
+          to: varData.value,
+        },
+      });
+    }
 
     return history;
   }

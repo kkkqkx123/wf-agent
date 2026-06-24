@@ -168,34 +168,6 @@ export interface IterationLLMMetrics {
 }
 
 /**
- * Resource Usage Record
- * Tracks resource consumption during iteration
- * TODO: Design Issue #4 - This type conflates system and LLM metrics
- * Long-term: Use separate IterationSystemMetrics and IterationLLMMetrics
- * Current use: Backward compatibility wrapper
- */
-export interface ResourceUsageRecord {
-  /** LLM tokens used (input) */
-  llmInputTokens?: number;
-  /** LLM tokens used (output) */
-  llmOutputTokens?: number;
-  /** Total LLM cost (if available) */
-  llmCost?: number;
-  /** API calls made */
-  apiCalls?: number;
-  /** Data processed (bytes) */
-  dataProcessed?: number;
-  /** Memory peak usage (bytes) */
-  memoryPeak?: number;
-  /** Execution time breakdown */
-  timingBreakdown?: {
-    llmThinkingTime?: number;
-    toolExecutionTime?: number;
-    resultProcessingTime?: number;
-  };
-}
-
-/**
  * Extended Iteration Detail
  *
  * Enhances the base IterationRecord with comprehensive metadata
@@ -254,8 +226,11 @@ export interface ExtendedIterationDetail extends IterationRecord {
   // Resource Consumption
   // ============================================================================
 
-  /** Resource usage metrics */
-  resourceUsage?: ResourceUsageRecord;
+  /** System metrics for this iteration */
+  systemMetrics?: IterationSystemMetrics;
+
+  /** LLM metrics for this iteration */
+  llmMetrics?: IterationLLMMetrics[];
 
   // ============================================================================
   // Quality & Optimization Metrics
@@ -613,11 +588,14 @@ export class AgentLoopIterationAPI extends QueryableResourceAPI<
       if (record.errors) errorSum += record.errors.length;
       if (record.requiresRevision) summary.revisionsRequired!++;
       if (record.errors && record.errors.some(e => e.recoveryAction)) recoverySum++;
-      if (record.resourceUsage) {
-        if (record.resourceUsage.llmInputTokens) tokenSum += record.resourceUsage.llmInputTokens;
-        if (record.resourceUsage.llmOutputTokens) tokenSum += record.resourceUsage.llmOutputTokens;
-        if (record.resourceUsage.memoryPeak) maxMemory = Math.max(maxMemory, record.resourceUsage.memoryPeak);
-        if (record.resourceUsage.apiCalls) apiCallSum += record.resourceUsage.apiCalls;
+      // Migrate from legacy resourceUsage to new separated metrics
+      if (record.llmMetrics) {
+        record.llmMetrics.forEach(metric => {
+          tokenSum += metric.inputTokens + metric.outputTokens;
+        });
+      }
+      if (record.systemMetrics) {
+        maxMemory = Math.max(maxMemory, record.systemMetrics.memoryPeakMb);
       }
 
       // Track tool usage

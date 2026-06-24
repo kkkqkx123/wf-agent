@@ -27,7 +27,7 @@ import {
 } from "../config/processors/file-checkpoint.js";
 import { SqliteFileCheckpointStore } from "@wf-agent/storage";
 import * as ServiceIdentifiers from "../../../di/service-identifiers.js";
-import { registerAllPredefinedContent } from "../../../resources/predefined/registration.js";
+import { registerPredefinedContent } from "../../../resources/predefined/registration.js";
 import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
 import { initializeTomlParser } from "../config/parsers/toml-parser.js";
 import {
@@ -516,7 +516,7 @@ export class SDKInstance {
     // 2. Register all predefined content (skips if already in storage)
     if (presets) {
       try {
-        await registerAllPredefinedContent(
+        await registerPredefinedContent(
           this.globalContext.triggerTemplateRegistry,
           this.globalContext.workflowRegistry,
           this.globalContext.toolRegistry,

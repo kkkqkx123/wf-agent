@@ -31,7 +31,7 @@ import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/regi
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
 
 /**
- * Result type for registerAllPredefinedContent
+ * Result type for predefined content registration
  */
 export interface PredefinedRegistrationResult {
   triggers: {
@@ -65,7 +65,7 @@ function mapLlmSummaryConfig(cc?: {
 }
 
 /**
- * Register all predefined content
+ * Register predefined content
  *
  * Accepts raw PresetsConfig and internally maps to sub-module configurations.
  * sdk-instance should not need to know internal key names.
@@ -77,7 +77,7 @@ function mapLlmSummaryConfig(cc?: {
  * @param skipIfExists Whether to skip registration if already exists
  * @returns Registration results
  */
-export async function registerAllPredefinedContent(
+export async function registerPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,
@@ -174,9 +174,9 @@ export async function registerAllPredefinedContent(
 }
 
 /**
- * Unregister all predefined content.
+ * Unregister predefined content.
  */
-export async function unregisterAllPredefinedContent(
+export async function unregisterPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
   workflowRegistry: WorkflowRegistry,
   toolService: ToolRegistry,

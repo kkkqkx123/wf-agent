@@ -35,4 +35,4 @@ export * from "./presets-types.js";
 export * from "./prompts/index.js";
 
 // Export the registration tool function
-export { registerAllPredefinedContent, unregisterAllPredefinedContent } from "./registration.js";
+export { registerPredefinedContent, unregisterPredefinedContent } from "./registration.js";

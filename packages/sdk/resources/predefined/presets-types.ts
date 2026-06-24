@@ -16,6 +16,7 @@ import type {
   SessionNoteConfig,
   BackendShellConfig,
 } from "./tools/types.js";
+import type { CustomResourcesPresetConfig } from "../custom/types.js";
 
 /**
  * Context Compression Preset Configuration
@@ -62,6 +63,7 @@ export interface PresetsConfig {
   contextCompression?: ContextCompressionPresetConfig;
   predefinedTools?: PredefinedToolsPresetConfig;
   predefinedPrompts?: PredefinedPromptsPresetConfig;
+  customResources?: CustomResourcesPresetConfig;
 }
 
 /**
@@ -112,5 +114,12 @@ export interface PresetsConfigInput {
   };
   predefinedPrompts?: {
     enabled?: boolean;
+  };
+  customResources?: {
+    enabled?: boolean;
+    toolsPath?: string;
+    triggersPath?: string;
+    promptsPath?: string;
+    validationLevel?: "strict" | "lenient";
   };
 }

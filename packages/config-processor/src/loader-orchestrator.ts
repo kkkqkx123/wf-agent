@@ -46,7 +46,9 @@ import type {
   PresetsConfig,
   PresetsConfigInput,
   PredefinedToolsPresetConfig,
+  CustomResources,
 } from "@wf-agent/sdk/resources";
+import { loadCustomResourcesFromConfig } from "@wf-agent/sdk/resources";
 import type {
   MetricsConfig,
   TimeoutConfig,
@@ -744,4 +746,35 @@ export async function loadDefaultInfrastructureConfigs(
   projectRoot: string,
 ): Promise<InfrastructureConfigBundle> {
   return loadInfrastructureConfigs(projectRoot, DEFAULT_INFRA_PRESET);
+}
+
+// -----------------------------------------------------------------------
+// Custom Resources Configuration Loader
+// -----------------------------------------------------------------------
+
+/**
+ * Load custom resources configuration from preset config.
+ *
+ * This function extracts the custom resources configuration from presets
+ * and loads the actual custom resources (tools, triggers, prompts) from
+ * the paths specified in the configuration.
+ *
+ * @param presetsConfig - The presets configuration containing custom resources paths
+ * @param baseDir - Base directory for resolving relative paths in custom resource files
+ * @returns Loaded custom resources with any errors encountered during loading
+ */
+export async function loadCustomResourcesConfig(
+  presetsConfig: PresetsConfig,
+  baseDir: string,
+): Promise<CustomResources> {
+  if (!presetsConfig.customResources) {
+    return {
+      tools: [],
+      triggers: [],
+      prompts: [],
+      errors: [],
+    };
+  }
+
+  return loadCustomResourcesFromConfig(presetsConfig.customResources, baseDir);
 }

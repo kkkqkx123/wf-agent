@@ -8,7 +8,6 @@ export {
   buildAssistantSystemPromptWithTools,
   buildCoderSystemPromptWithTools,
   buildMinimalSystemPrompt,
-  initializeSystemPromptRegistries,
   getAvailableToolDescriptions,
   type SystemPromptType,
   type SystemPromptBuildOptions,

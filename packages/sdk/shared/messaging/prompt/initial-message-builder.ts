@@ -1,5 +1,5 @@
 import type { LLMMessage } from "@wf-agent/types";
-import { templateRegistry } from "../../../resources/predefined/template-registry.js";
+import type { PromptTemplateRegistry } from "../../registry/prompt-template-registry.js";
 import { resolveSystemPrompt, type SystemPromptConfig } from "./system-prompt-resolver.js";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 
@@ -11,14 +11,17 @@ export interface InitialMessagesConfig extends SystemPromptConfig {
   initialMessages?: LLMMessage[];
 }
 
-export function buildInitialMessages(config: InitialMessagesConfig): LLMMessage[] {
+export function buildInitialMessages(
+  config: InitialMessagesConfig,
+  registry?: PromptTemplateRegistry,
+): LLMMessage[] {
   if (config.initialMessages && config.initialMessages.length > 0) {
     return [...config.initialMessages];
   }
 
   const messages: LLMMessage[] = [];
 
-  const systemPrompt = resolveSystemPrompt(config);
+  const systemPrompt = resolveSystemPrompt(config, registry);
   if (systemPrompt) {
     messages.push({
       role: "system",
@@ -26,7 +29,7 @@ export function buildInitialMessages(config: InitialMessagesConfig): LLMMessage[
     });
   }
 
-  const userMessage = resolveInitialUserMessage(config);
+  const userMessage = resolveInitialUserMessage(config, registry);
   if (userMessage) {
     messages.push({
       role: "user",
@@ -42,9 +45,12 @@ export function buildInitialMessages(config: InitialMessagesConfig): LLMMessage[
   return messages;
 }
 
-function resolveInitialUserMessage(config: InitialMessagesConfig): string | null {
-  if (config.initialUserMessageTemplateId) {
-    const rendered = templateRegistry.render(
+function resolveInitialUserMessage(
+  config: InitialMessagesConfig,
+  registry?: PromptTemplateRegistry,
+): string | null {
+  if (config.initialUserMessageTemplateId && registry) {
+    const rendered = registry.render(
       config.initialUserMessageTemplateId,
       config.initialUserMessageTemplateVariables || {},
     );

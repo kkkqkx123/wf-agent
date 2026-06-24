@@ -27,8 +27,7 @@ import {
 } from "../config/processors/file-checkpoint.js";
 import { SqliteFileCheckpointStore } from "@wf-agent/storage";
 import * as ServiceIdentifiers from "../../../di/service-identifiers.js";
-import { registerPredefinedContent } from "../../../resources/predefined/registration.js";
-import { registerPredefinedPromptTemplates } from "../../../resources/predefined/prompts/index.js";
+import { registerAllResources } from "../../../resources/registration/orchestrator.js";
 import { initializeTomlParser } from "../config/parsers/toml-parser.js";
 import {
   createRotatingFileStream,
@@ -513,31 +512,26 @@ export class SDKInstance {
     await tryInitRegistry(this.globalContext.toolRegistry, "Tool");
     await tryInitRegistry(this.globalContext.scriptRegistry, "Script");
 
-    // 2. Register all predefined content (skips if already in storage)
-    if (presets) {
-      try {
-        await registerPredefinedContent(
-          this.globalContext.triggerTemplateRegistry,
-          this.globalContext.workflowRegistry,
-          this.globalContext.toolRegistry,
-          presets,
-          true,
-        );
+    // 2. Register all resources through unified orchestrator (skips if already in storage)
+    try {
+      await registerAllResources(
+        {
+          triggerRegistry: this.globalContext.triggerTemplateRegistry,
+          workflowRegistry: this.globalContext.workflowRegistry,
+          toolRegistry: this.globalContext.toolRegistry,
+          promptTemplateRegistry: this.globalContext.promptTemplateRegistry,
+          fragmentRegistry: this.globalContext.fragmentRegistry,
+          toolDescriptionRegistry: this.globalContext.toolDescriptionRegistry,
+        },
+        presets,
+        undefined,
+        undefined,
+        true,
+      );
 
-        logger.info("Predefined content registered successfully");
-      } catch (error) {
-        logger.error(`Failed to bootstrap predefined content: ${getErrorMessage(error)}`);
-      }
-    }
-
-    // The predefined prompt word templates are enabled by default, unless they are explicitly disabled.
-    if (presets?.predefinedPrompts?.enabled !== false) {
-      try {
-        registerPredefinedPromptTemplates();
-        logger.info("Predefined prompt templates registered successfully");
-      } catch (error) {
-        logger.error(`Failed to bootstrap predefined prompt templates: ${getErrorMessage(error)}`);
-      }
+      logger.info("All resources registered successfully");
+    } catch (error) {
+      logger.error(`Failed to bootstrap resources: ${getErrorMessage(error)}`);
     }
 
     // 3. Mark as bootstrapped

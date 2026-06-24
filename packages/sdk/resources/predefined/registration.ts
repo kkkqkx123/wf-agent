@@ -36,15 +36,15 @@ const logger = createContextualLogger({ component: "PredefinedRegistration" });
 export interface PredefinedRegistrationResult {
   triggers: {
     success: string[];
-    failures: Array<{ triggerName: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
   workflows: {
     success: string[];
-    failures: Array<{ workflowId: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
   tools: {
     success: string[];
-    failures: Array<{ toolId: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
 }
 
@@ -186,18 +186,18 @@ export async function unregisterPredefinedContent(
     toolIds?: string[];
   },
 ): Promise<PredefinedRegistrationResult> {
-  const results = {
+  const results: PredefinedRegistrationResult = {
     triggers: {
       success: [] as string[],
-      failures: [] as Array<{ triggerName: string; error: string }>,
+      failures: [] as Array<{ id: string; error: string }>,
     },
     workflows: {
       success: [] as string[],
-      failures: [] as Array<{ workflowId: string; error: string }>,
+      failures: [] as Array<{ id: string; error: string }>,
     },
     tools: {
       success: [] as string[],
-      failures: [] as Array<{ toolId: string; error: string }>,
+      failures: [] as Array<{ id: string; error: string }>,
     },
   };
 

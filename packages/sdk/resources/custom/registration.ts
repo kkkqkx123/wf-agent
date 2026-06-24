@@ -29,15 +29,15 @@ const logger = createContextualLogger({ component: "CustomResourcesRegistration"
 export interface CustomResourcesRegistrationResult {
   tools: {
     success: string[];
-    failures: Array<{ toolId: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
   triggers: {
     success: string[];
-    failures: Array<{ triggerName: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
   prompts: {
     success: string[];
-    failures: Array<{ promptId: string; error: string }>;
+    failures: Array<{ id: string; error: string }>;
   };
 }
 
@@ -57,17 +57,17 @@ export function registerCustomTools(
   tools: CustomToolDefinition[],
 ): {
   success: string[];
-  failures: Array<{ toolId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ toolId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   for (const toolDef of tools) {
     try {
       // Check for collision with existing resources (including predefined)
       if (toolRegistry.has(toolDef.id)) {
         const errorMsg = `Tool '${toolDef.id}' already exists (may be predefined). Custom resources cannot override existing tools.`;
-        failures.push({ toolId: toolDef.id, error: errorMsg });
+        failures.push({ id: toolDef.id, error: errorMsg });
         logger.warn(errorMsg);
         continue;
       }
@@ -89,7 +89,7 @@ export function registerCustomTools(
       logger.info(`Registered custom tool: ${toolDef.id}`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ toolId: toolDef.id, error: errorMsg });
+      failures.push({ id: toolDef.id, error: errorMsg });
       logger.error(`Failed to register custom tool: ${toolDef.id}`, { error: errorMsg });
     }
   }
@@ -113,17 +113,17 @@ export function registerCustomTriggers(
   triggers: CustomTriggerDefinition[],
 ): {
   success: string[];
-  failures: Array<{ triggerName: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ triggerName: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   for (const triggerDef of triggers) {
     try {
       // Check for collision with existing resources (including predefined)
       if (triggerRegistry.has(triggerDef.name)) {
         const errorMsg = `Trigger '${triggerDef.name}' already exists (may be predefined). Custom resources cannot override existing triggers.`;
-        failures.push({ triggerName: triggerDef.name, error: errorMsg });
+        failures.push({ id: triggerDef.name, error: errorMsg });
         logger.warn(errorMsg);
         continue;
       }
@@ -165,7 +165,7 @@ export function registerCustomTriggers(
       logger.info(`Registered custom trigger: ${triggerDef.name}`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ triggerName: triggerDef.name, error: errorMsg });
+      failures.push({ id: triggerDef.name, error: errorMsg });
       logger.error(`Failed to register custom trigger: ${triggerDef.name}`, { error: errorMsg });
     }
   }
@@ -186,10 +186,10 @@ export function registerCustomPrompts(
   prompts: CustomPromptDefinition[],
 ): {
   success: string[];
-  failures: Array<{ promptId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ promptId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   for (const promptDef of prompts) {
     try {
@@ -199,7 +199,7 @@ export function registerCustomPrompts(
       logger.info(`Registered custom prompt: ${promptDef.id}`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ promptId: promptDef.id, error: errorMsg });
+      failures.push({ id: promptDef.id, error: errorMsg });
       logger.error(`Failed to register custom prompt: ${promptDef.id}`, { error: errorMsg });
     }
   }

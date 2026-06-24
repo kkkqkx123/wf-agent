@@ -57,12 +57,20 @@ export interface PredefinedPromptsPresetConfig {
 }
 
 /**
+ * Predefined Tool Descriptions Preset Configuration
+ */
+export interface PredefinedToolDescriptionsPresetConfig {
+  enabled: boolean;
+}
+
+/**
  * Presets Configuration (resolved form, after defaults applied)
  */
 export interface PresetsConfig {
   contextCompression?: ContextCompressionPresetConfig;
   predefinedTools?: PredefinedToolsPresetConfig;
   predefinedPrompts?: PredefinedPromptsPresetConfig;
+  predefinedToolDescriptions?: PredefinedToolDescriptionsPresetConfig;
   customResources?: CustomResourcesPresetConfig;
 }
 
@@ -113,6 +121,9 @@ export interface PresetsConfigInput {
     };
   };
   predefinedPrompts?: {
+    enabled?: boolean;
+  };
+  predefinedToolDescriptions?: {
     enabled?: boolean;
   };
   customResources?: {

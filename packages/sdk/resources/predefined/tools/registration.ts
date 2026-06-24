@@ -47,10 +47,10 @@ export function registerPredefinedTools(
   skipIfExists: boolean = true,
 ): {
   success: string[];
-  failures: Array<{ toolId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ toolId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   try {
     // Create a predefined tool
@@ -72,7 +72,7 @@ export function registerPredefinedTools(
         logger.info(`Registered predefined tool: ${tool.id}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        failures.push({ toolId: tool.id, error: errorMsg });
+        failures.push({ id: tool.id, error: errorMsg });
         logger.error(`Failed to register predefined tool: ${tool.id}`, { error: errorMsg });
       }
     }
@@ -99,10 +99,10 @@ export async function unregisterPredefinedTools(
   toolIds?: string[],
 ): Promise<{
   success: string[];
-  failures: Array<{ toolId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 }> {
   const success: string[] = [];
-  const failures: Array<{ toolId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   // If no tool ID is specified, retrieve all predefined tool IDs.
   const predefinedToolIds = toolIds || [
@@ -124,7 +124,7 @@ export async function unregisterPredefinedTools(
       logger.info(`Unregistered predefined tool: ${toolId}`);
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ toolId, error: errorMsg });
+      failures.push({ id: toolId, error: errorMsg });
       logger.error(`Failed to unregister predefined tool: ${toolId}`, { error: errorMsg });
     }
   }

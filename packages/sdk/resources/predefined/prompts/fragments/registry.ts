@@ -1,16 +1,12 @@
 /**
- * Fragment Registry
+ * Fragment definitions for predefined system prompt fragments.
  *
- * Manages and retrieves all system prompt fragments
- * Reuses the FragmentRegistry infrastructure from @wf-agent/prompt-templates
+ * This module exports all predefined fragment definitions.
+ * Registration is handled by the unified registration module:
+ * - registration/prompts-registration.ts
  */
 
-// Reuse the FragmentRegistry class and types from the packages layer.
 import type { SystemPromptFragment } from "@wf-agent/types";
-import { FragmentRegistry } from "../../prompt-templates/fragment-registry.js";
-import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "FragmentRegistry" });
 
 // Import all fragments
 import {
@@ -71,32 +67,3 @@ export const ALL_PREDEFINED_FRAGMENTS: SystemPromptFragment[] = [
   CODE_REVIEW_FRAGMENT,
   DATA_ANALYSIS_FRAGMENT,
 ];
-
-/**
- * Global Fragment Registry Instance
- */
-export const fragmentRegistry = new FragmentRegistry();
-
-/**
- * Initialize the registry (register all predefined segments)
- * Uses skipIfExists to allow multiple initializations without errors
- */
-export function initializeFragmentRegistry(): void {
-  fragmentRegistry.registerAll(ALL_PREDEFINED_FRAGMENTS, { skipIfExists: true });
-
-  // Verify all predefined fragments were registered successfully
-  const missingIds = ALL_PREDEFINED_FRAGMENTS
-    .filter(f => !fragmentRegistry.has(f.id))
-    .map(f => f.id);
-
-  if (missingIds.length > 0) {
-    logger.error(`Failed to register fragments: ${missingIds.join(", ")}`);
-  }
-}
-
-/**
- * Check if the registry has been initialized.
- */
-export function isFragmentRegistryInitialized(): boolean {
-  return ALL_PREDEFINED_FRAGMENTS.every(f => fragmentRegistry.has(f.id));
-}

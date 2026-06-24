@@ -32,6 +32,8 @@ import type { TriggerTemplateRegistry } from "./registry/trigger-template-regist
 import type { HookTemplateRegistry } from "./registry/hook-template-registry.js";
 import type { PromptTemplateRegistry } from "./registry/prompt-template-registry.js";
 import type { FragmentRegistry } from "./registry/fragment-registry.js";
+import { toolDescriptionRegistry as globalToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
+import type { ToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
 import type { LLMExecutor } from "@sdk/services/executors/llm-executor.js";
 import type { ToolCallExecutor } from "@sdk/services/executors/tool-call-executor.js";
 import type { WorkflowExecutor } from "../workflow/execution/executors/workflow-executor.js";
@@ -163,6 +165,14 @@ export class GlobalContext {
       );
     }
     return this._fragmentRegistry;
+  }
+
+  /**
+   * Tool Description Registry - singleton instance
+   * Not in DI container because it's a simple data registry with no dependencies
+   */
+  get toolDescriptionRegistry(): ToolDescriptionRegistry {
+    return globalToolDescriptionRegistry;
   }
 
   // Lazy getters for executors

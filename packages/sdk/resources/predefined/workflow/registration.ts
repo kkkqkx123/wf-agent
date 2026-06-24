@@ -26,10 +26,10 @@ export function registerPredefinedWorkflows(
   skipIfExists: boolean = true,
 ): {
   success: string[];
-  failures: Array<{ workflowId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ workflowId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   try {
     // Create predefined workflows
@@ -50,7 +50,7 @@ export function registerPredefinedWorkflows(
         logger.info(`Registered predefined workflow: ${workflow.id}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        failures.push({ workflowId: workflow.id, error: errorMsg });
+        failures.push({ id: workflow.id, error: errorMsg });
         logger.error(`Failed to register predefined workflow: ${workflow.id}`, { error: errorMsg });
       }
     }
@@ -77,10 +77,10 @@ export async function unregisterPredefinedWorkflows(
   workflowIds?: string[],
 ): Promise<{
   success: string[];
-  failures: Array<{ workflowId: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 }> {
   const success: string[] = [];
-  const failures: Array<{ workflowId: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   // If no workflow ID is specified, retrieve all predefined workflow IDs.
   const predefinedWorkflowIds = workflowIds || [LLM_SUMMARY_WORKFLOW_ID];
@@ -94,7 +94,7 @@ export async function unregisterPredefinedWorkflows(
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ workflowId, error: errorMsg });
+      failures.push({ id: workflowId, error: errorMsg });
       logger.error(`Failed to unregister predefined workflow: ${workflowId}`, { error: errorMsg });
     }
   }

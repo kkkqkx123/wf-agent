@@ -7,7 +7,7 @@
 
 // Reuse basic types from the packages layer
 import type { FragmentCompositionConfig } from "@wf-agent/types";
-import { fragmentRegistry } from "./registry.js";
+import type { FragmentRegistry } from "../../../../shared/registry/fragment-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { renderTemplate } from "@sdk/shared/utils/template-renderer/index.js";
 
@@ -28,24 +28,30 @@ export interface CompleteSystemPromptConfig {
   fragmentVariables?: Map<string, Record<string, unknown>>;
   /** When true, throw an error if any fragment is not found (default: false) */
   strict?: boolean;
+  /** Fragment registry instance for resolving fragments */
+  fragmentRegistry?: FragmentRegistry;
 }
 
 /**
  * Combine the fragments into a complete system prompt word
  *
- * @param config Combination configuration
+ * @param config Fragment composition configuration
+ * @param fragmentVariables Variable map
+ * @param strict Whether to throw on missing fragments
+ * @param fragmentRegistry Fragment registry instance
  * @returns The combined system prompt word
  */
 export function composeSystemPrompt(
   config: FragmentCompositionConfig,
   fragmentVariables?: Map<string, Record<string, unknown>>,
   strict: boolean = false,
+  fragmentRegistry?: FragmentRegistry,
 ): string {
   const separator = config.separator ?? "\n\n";
   const contents: string[] = [];
 
   for (const fragmentId of config.fragmentIds) {
-    const fragment = fragmentRegistry.get(fragmentId);
+    const fragment = fragmentRegistry?.get(fragmentId);
     if (fragment) {
       // Use renderTemplate() for fragments with variables to support substitution
       if (fragment.variables && fragment.variables.length > 0) {
@@ -79,6 +85,7 @@ export function buildCompleteSystemPrompt(config: CompleteSystemPromptConfig): s
     { fragmentIds: config.fragmentIds, separator: config.separator },
     config.fragmentVariables,
     config.strict,
+    config.fragmentRegistry,
   );
 
   // If there are any instructions for the dynamic tool, add them after the tool-usage section.
@@ -93,10 +100,16 @@ export function buildCompleteSystemPrompt(config: CompleteSystemPromptConfig): s
  * Quick combination of fragments
  *
  * @param fragmentIds List of fragment IDs
+ * @param fragmentRegistry Fragment registry instance
+ * @param strict Whether to throw on missing fragments
  * @returns Combined system prompt words
  */
-export function composeFragments(fragmentIds: string[], strict: boolean = false): string {
-  return composeSystemPrompt({ fragmentIds }, undefined, strict);
+export function composeFragments(
+  fragmentIds: string[],
+  fragmentRegistry?: FragmentRegistry,
+  strict: boolean = false,
+): string {
+  return composeSystemPrompt({ fragmentIds }, undefined, strict, fragmentRegistry);
 }
 
 /**
@@ -126,9 +139,13 @@ export const CODER_SYSTEM_PROMPT_FRAGMENTS = [
  * Build Assistant System Prompt Words (with optional tool descriptions)
  *
  * @param toolListDescription Dynamic tool descriptions (optional)
+ * @param fragmentRegistry Fragment registry instance
  * @returns System prompt words
  */
-export function buildAssistantSystemPrompt(toolListDescription?: string): string {
+export function buildAssistantSystemPrompt(
+  toolListDescription?: string,
+  fragmentRegistry?: FragmentRegistry,
+): string {
   const fragments = [...ASSISTANT_SYSTEM_PROMPT_FRAGMENTS];
 
   if (toolListDescription) {
@@ -138,6 +155,7 @@ export function buildAssistantSystemPrompt(toolListDescription?: string): string
   return buildCompleteSystemPrompt({
     fragmentIds: fragments,
     toolListDescription,
+    fragmentRegistry,
   });
 }
 
@@ -145,9 +163,13 @@ export function buildAssistantSystemPrompt(toolListDescription?: string): string
  * Build a programmer assistant system prompt with optional tool descriptions
  *
  * @param toolListDescription Dynamic tool descriptions (optional)
+ * @param fragmentRegistry Fragment registry instance
  * @returns System prompts
  */
-export function buildCoderSystemPrompt(toolListDescription?: string): string {
+export function buildCoderSystemPrompt(
+  toolListDescription?: string,
+  fragmentRegistry?: FragmentRegistry,
+): string {
   const fragments = [...CODER_SYSTEM_PROMPT_FRAGMENTS];
 
   if (toolListDescription) {
@@ -157,5 +179,6 @@ export function buildCoderSystemPrompt(toolListDescription?: string): string {
   return buildCompleteSystemPrompt({
     fragmentIds: fragments,
     toolListDescription,
+    fragmentRegistry,
   });
 }

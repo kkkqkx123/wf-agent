@@ -1,4 +1,4 @@
-import { templateRegistry } from "../../../resources/predefined/template-registry.js";
+import type { PromptTemplateRegistry } from "../../registry/prompt-template-registry.js";
 import { sdkLogger as logger } from "../../../utils/logger.js";
 import { renderTemplate } from "../../utils/template-renderer/index.js";
 
@@ -14,14 +14,18 @@ export interface SystemPromptConfig {
  * Fragment composition is handled by the caller (e.g., Composer.renderSystemPrompt).
  *
  * @param config System prompt configuration
+ * @param registry Optional PromptTemplateRegistry instance
  * @returns Resolved system prompt string
  */
-export function resolveSystemPrompt(config: SystemPromptConfig): string {
+export function resolveSystemPrompt(
+  config: SystemPromptConfig,
+  registry?: PromptTemplateRegistry,
+): string {
   let prompt: string;
 
   // Phase 1: Resolve from template registry
-  if (config.systemPromptTemplateId) {
-    const template = templateRegistry.get(config.systemPromptTemplateId);
+  if (config.systemPromptTemplateId && registry) {
+    const template = registry.get(config.systemPromptTemplateId);
     if (template) {
       prompt = template.content;
     } else {

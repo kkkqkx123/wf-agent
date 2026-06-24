@@ -25,10 +25,10 @@ export function registerPredefinedTriggers(
   skipIfExists: boolean = true,
 ): {
   success: string[];
-  failures: Array<{ triggerName: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 } {
   const success: string[] = [];
-  const failures: Array<{ triggerName: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   try {
     // Create predefined triggers
@@ -49,7 +49,7 @@ export function registerPredefinedTriggers(
         logger.info(`Registered predefined trigger: ${trigger.name}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        failures.push({ triggerName: trigger.name, error: errorMsg });
+        failures.push({ id: trigger.name, error: errorMsg });
         logger.error(`Failed to register predefined trigger: ${trigger.name}`, { error: errorMsg });
       }
     }
@@ -76,10 +76,10 @@ export async function unregisterPredefinedTriggers(
   triggerNames?: string[],
 ): Promise<{
   success: string[];
-  failures: Array<{ triggerName: string; error: string }>;
+  failures: Array<{ id: string; error: string }>;
 }> {
   const success: string[] = [];
-  const failures: Array<{ triggerName: string; error: string }> = [];
+  const failures: Array<{ id: string; error: string }> = [];
 
   // If no trigger name is specified, retrieve all predefined trigger names.
   const predefinedTriggerNames = triggerNames || ["context_compression_trigger"];
@@ -93,7 +93,7 @@ export async function unregisterPredefinedTriggers(
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      failures.push({ triggerName, error: errorMsg });
+      failures.push({ id: triggerName, error: errorMsg });
       logger.error(`Failed to unregister predefined trigger: ${triggerName}`, { error: errorMsg });
     }
   }

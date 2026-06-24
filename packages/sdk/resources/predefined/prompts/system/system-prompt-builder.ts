@@ -6,36 +6,32 @@
  * This module combines:
  * - Fragment-based system prompt composition
  * - Tool description generation
- * - Predefined tool description registry integration
+ *
+ * Fragments and tool descriptions must be registered via the unified registration
+ * module (registration/orchestrator.ts) before using this builder.
  *
  * Usage:
  * ```ts
  * import { buildCoderSystemPromptWithTools } from "./system-prompt-builder.js";
- * import { initializeToolDescriptions } from "../../tools/index.js";
- *
- * // Initialize tool descriptions (call once at startup)
- * initializeToolDescriptions();
+ * import { GlobalContext } from "@sdk/shared/global-context.js";
  *
  * // Build system prompt with tool descriptions
- * const systemPrompt = buildCoderSystemPromptWithTools(availableTools);
+ * const systemPrompt = buildCoderSystemPromptWithTools(globalContext, availableTools);
  * ```
  */
 
 import type { Tool } from "@wf-agent/types";
 import type { ToolDescriptionFormat } from "@sdk/shared/utils/tools/tool-description-generator.js";
+import type { GlobalContext } from "../../../../shared/global-context.js";
 import {
   generateToolAvailabilitySection,
   toolDescriptionRegistry,
-} from "@sdk/shared/utils/tools/index.js";
+} from "../../../../shared/utils/tools/index.js";
 import {
   buildCompleteSystemPrompt,
   ASSISTANT_SYSTEM_PROMPT_FRAGMENTS,
   CODER_SYSTEM_PROMPT_FRAGMENTS,
 } from "../fragments/composer.js";
-import { initializeFragmentRegistry, fragmentRegistry } from "../fragments/registry.js";
-import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
-
-const logger = createContextualLogger({ component: "SystemPromptBuilder" });
 
 /**
  * System prompt type
@@ -46,6 +42,8 @@ export type SystemPromptType = "assistant" | "coder";
  * System prompt build options
  */
 export interface SystemPromptBuildOptions {
+  /** Global context for accessing registries */
+  globalContext?: GlobalContext;
   /** System prompt type */
   type: SystemPromptType;
   /** Available tools to include in the prompt */
@@ -65,31 +63,13 @@ export interface SystemPromptBuildOptions {
 }
 
 /**
- * Ensure fragment registry is initialized
- */
-function ensureFragmentRegistryInitialized(): void {
-  if (!fragmentRegistry.has("fragments.role.assistant")) {
-    initializeFragmentRegistry();
-  }
-}
-
-/**
  * Build system prompt with optional tool descriptions
  *
  * @param options Build options
  * @returns Complete system prompt string
  */
 export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
-  ensureFragmentRegistryInitialized();
-
-  const {
-    type,
-    tools,
-    toolFormat = "detailed",
-    additionalFragments = [],
-    excludeFragments = [],
-    fragmentVariables,
-  } = options;
+  const { globalContext, type, tools, toolFormat = "detailed", additionalFragments = [], excludeFragments = [], fragmentVariables } = options;
 
   // Get base fragment IDs
   const baseFragments =
@@ -115,21 +95,25 @@ export function buildSystemPrompt(options: SystemPromptBuildOptions): string {
     toolListDescription,
     separator: "\n\n",
     fragmentVariables,
+    fragmentRegistry: globalContext?.fragmentRegistry ?? undefined,
   });
 }
 
 /**
  * Build assistant system prompt with tools
  *
+ * @param globalContext Global context for accessing registries
  * @param tools Available tools (optional)
  * @param format Tool description format
  * @returns System prompt string
  */
 export function buildAssistantSystemPromptWithTools(
+  globalContext?: GlobalContext,
   tools?: Tool[],
   format: ToolDescriptionFormat = "detailed",
 ): string {
   return buildSystemPrompt({
+    globalContext,
     type: "assistant",
     tools,
     toolFormat: format,
@@ -139,15 +123,18 @@ export function buildAssistantSystemPromptWithTools(
 /**
  * Build coder system prompt with tools
  *
+ * @param globalContext Global context for accessing registries
  * @param tools Available tools (optional)
  * @param format Tool description format
  * @returns System prompt string
  */
 export function buildCoderSystemPromptWithTools(
+  globalContext?: GlobalContext,
   tools?: Tool[],
   format: ToolDescriptionFormat = "detailed",
 ): string {
   return buildSystemPrompt({
+    globalContext,
     type: "coder",
     tools,
     toolFormat: format,
@@ -158,15 +145,18 @@ export function buildCoderSystemPromptWithTools(
  * Build minimal system prompt (just role definition)
  *
  * @param type System prompt type
+ * @param globalContext Global context for accessing registries
  * @returns Minimal system prompt string
  */
-export function buildMinimalSystemPrompt(type: SystemPromptType = "assistant"): string {
-  ensureFragmentRegistryInitialized();
-
+export function buildMinimalSystemPrompt(
+  type: SystemPromptType = "assistant",
+  globalContext?: GlobalContext,
+): string {
   const roleFragmentId = type === "coder" ? "fragments.role.coder" : "fragments.role.assistant";
 
   return buildCompleteSystemPrompt({
     fragmentIds: [roleFragmentId],
+    fragmentRegistry: globalContext?.fragmentRegistry ?? undefined,
   });
 }
 
@@ -178,19 +168,4 @@ export function buildMinimalSystemPrompt(type: SystemPromptType = "assistant"): 
  */
 export function getAvailableToolDescriptions(toolIds: string[]): string[] {
   return toolIds.filter(id => toolDescriptionRegistry.has(id));
-}
-
-/**
- * Initialize all required registries
- *
- * Call this once at application startup before building system prompts.
- */
-export function initializeSystemPromptRegistries(): void {
-  ensureFragmentRegistryInitialized();
-
-  // Tool descriptions should be initialized separately
-  // import { initializeToolDescriptions } from "../../tools/index.js";
-  // initializeToolDescriptions();
-
-  logger.debug("System prompt registries initialized");
 }

@@ -53,7 +53,7 @@ pnpm --filter <package-name> test
 **Apps Layer** (`apps/`)
 
 - Contains application modules
-- Uses packages and SDK as dependencies
+- Uses packages as dependencies
 - Deployable applications
 
 **Packages Layer** (`packages/`)
@@ -61,31 +61,20 @@ pnpm --filter <package-name> test
 - Shared utility packages
 - Reusable components and libraries
 - Cross-project functionality
-
-**SDK Layer** (`sdk/`)
-
-- Core workflow execution engine
-- LLM integrations and tool systems
-- Detailed architecture in SDK documentation
+- Contains SDK packages (`sdk/`, `sdk-kit/`)
 
 ### Directory Structure
 
 ```
-modular-agent-framework/
+wf-agent/
 ├── apps/  # Application modules
-│   ├── web-app/  # Web application
-│   └── ...
 ├── packages/  # Shared packages
 │   ├── common-utils/  # Common utilities
-│   ├── types/  # Type Definition
-│   ├── prompt-templates/  # contain all basic prompt definition
-│   └── ...
-├── sdk/  # Core SDK module
-│   ├── core/  # Core execution logic(shared by agent and graph)
-│   ├── api/  # External API interfaces
-│   ├── agent/  # Agent-loop implemention
-│   ├── graph/  # Graph-workflow implemention
-│   └── utils/  # Utility functions
+│   ├── config-processor/  # Configuration processing
+│   ├── sdk/  # Core SDK package
+│   ├── sdk-kit/  # SDK toolkit package
+│   ├── storage/  # Storage utilities
+│   └── types/  # Type definitions
 ├── package.json  # Root workspace config
 ├── pnpm-workspace.yaml  # Workspace definitions
 └── turbo.json  # Build orchestration
@@ -116,7 +105,7 @@ modular-agent-framework/
 ### 2. App Development
 
 - Create new apps in `apps/` directory
-- Reference packages and SDK using `workspace:*`
+- Reference packages using `workspace:*`
 - Follow consistent build and test patterns
 
 ### 3. Testing Strategy
@@ -128,7 +117,7 @@ modular-agent-framework/
   (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)
   Focus: Cross-module functional collaboration.
 
-- **Public type tests (SDK-only)**: In `<sdk>/__tests__/test-d/`
+- **Public type tests (SDK-only)**: In `<package>/__tests__/test-d/`
   File: `<package>/__tests__/test-d/<domain>[optional]/<type>.test-d.ts` (run via `tsd`)
   Focus: Validate exported public APIs/interfaces/types from user perspective.
 
@@ -150,7 +139,7 @@ modular-agent-framework/
 
 ### 1. Modularity
 
-- Clear separation between apps, packages, and SDK
+- Clear separation between apps and packages
 - Independent deployability of components
 - Loose coupling with explicit contracts
 

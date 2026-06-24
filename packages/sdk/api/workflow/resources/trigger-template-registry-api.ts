@@ -10,6 +10,7 @@ import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js
 import type { Timestamp, UnregisterOptions } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { DeleteCheckResult } from "../../../shared/registry/types.js";
 
 const logger = createContextualLogger({ component: "TriggerTemplateRegistryAPI" });
 
@@ -107,20 +108,7 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * Delete trigger template
    * @param id Trigger template name
    */
-  protected async deleteResource(id: string): Promise<void> {
-    // Check if any workflow references this trigger template
-    const referencingWorkflows = await this.findReferencingWorkflows(id);
-
-    if (referencingWorkflows.length > 0) {
-      throw new ConfigurationValidationError(
-        `Cannot delete trigger template '${id}': it is referenced by workflows: ${referencingWorkflows.join(", ")}`,
-        {
-          configType: "trigger",
-          configPath: "template.delete.referenced",
-        },
-      );
-    }
-
+  protected override async deleteResource(id: string): Promise<void> {
     this.dependencies.getTriggerTemplateRegistry().unregister(id);
   }
 
@@ -129,15 +117,15 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Trigger template name
    * @param options Deletion options
    */
-  async deleteWithOptions(id: string, options?: UnregisterOptions): Promise<void> {
+  override async deleteWithOptions(id: string, options?: UnregisterOptions): Promise<void> {
     const shouldCheck = options?.checkReferences !== false;
 
     if (shouldCheck) {
-      const referencingWorkflows = await this.findReferencingWorkflows(id);
+      const check = await this.checkDeleteReferences(id);
 
-      if (referencingWorkflows.length > 0 && !options?.force) {
+      if (!check.canDelete && !options?.force) {
         throw new ConfigurationValidationError(
-          `Cannot delete trigger template '${id}': it is referenced by workflows: ${referencingWorkflows.join(", ")}`,
+          `Cannot delete trigger template '${id}': ${check.details}`,
           {
             configType: "trigger",
             configPath: "template.delete.referenced",
@@ -145,10 +133,10 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
         );
       }
 
-      if (options?.force && referencingWorkflows.length > 0) {
-        // Log warning but proceed with deletion
+      if (options?.force && !check.canDelete) {
+        const refNames = check.references.map(r => r.sourceId).join(", ");
         logger.warn(
-          `Force deleting trigger template '${id}' with ${referencingWorkflows.length} active references: ${referencingWorkflows.join(", ")}`,
+          `Force deleting trigger template '${id}' with ${check.references.length} active references: ${refNames}`,
         );
       }
     }
@@ -204,38 +192,54 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
   }
 
   /**
+   * Check references for safe deletion (unified implementation)
+   * @param id Trigger template name
+   * @returns Delete check result
+   */
+  protected override async checkDeleteReferences(id: string): Promise<DeleteCheckResult> {
+    const referencingWorkflows = await this.findReferencingWorkflows(id);
+
+    const references: DeleteCheckResult["references"] = referencingWorkflows.map(wfId => ({
+      type: "workflow_trigger",
+      sourceId: wfId,
+      details: "Workflow has trigger referencing this template",
+    }));
+
+    return {
+      canDelete: references.length === 0,
+      details:
+        references.length === 0
+          ? "No references found"
+          : `Referenced by ${references.length} workflow(s): ${referencingWorkflows.join(", ")}`,
+      references,
+    };
+  }
+
+  /**
    * Check if the trigger template can be safely deleted
    * @param templateName Trigger template name
    * @param options Deletion options
    * @returns Whether the template can be deleted and detailed information
    */
-  async canSafelyDelete(
+  override async canSafelyDelete(
     templateName: string,
     options?: UnregisterOptions,
-  ): Promise<{ canDelete: boolean; details: string; referencingWorkflows: string[] }> {
-    const referencingWorkflows = await this.findReferencingWorkflows(templateName);
+  ): Promise<DeleteCheckResult> {
+    const result = await this.checkDeleteReferences(templateName);
 
-    if (referencingWorkflows.length === 0) {
-      return {
-        canDelete: true,
-        details: "No references found",
-        referencingWorkflows: [],
-      };
+    if (result.canDelete) {
+      return result;
     }
 
     if (options?.force) {
       return {
         canDelete: true,
-        details: `Force deleting trigger template with ${referencingWorkflows.length} active references: ${referencingWorkflows.join(", ")}`,
-        referencingWorkflows,
+        details: `Force deleting trigger template with ${result.references.length} active references: ${result.references.map(r => r.sourceId).join(", ")}`,
+        references: result.references,
       };
     }
 
-    return {
-      canDelete: false,
-      details: `Cannot delete trigger template: it is referenced by ${referencingWorkflows.length} workflows: ${referencingWorkflows.join(", ")}. Use force=true to override, or check references first.`,
-      referencingWorkflows,
-    };
+    return result;
   }
 
   /**

@@ -19,6 +19,7 @@ import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { ExecutionResult } from "../../types/execution-result.js";
 import { success, failure } from "../../types/execution-result.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
+import type { DeleteCheckResult } from "../../../../shared/registry/types.js";
 
 /**
  * Skill Filter
@@ -407,5 +408,19 @@ export class SkillRegistryAPI extends QueryableResourceAPI<SkillMetadata, string
    */
   private getRegistry() {
     return this.dependencies.getSkillRegistry();
+  }
+
+  /**
+   * Check for workflow references to this skill before deletion.
+   * Note: Skills are not currently referenced by workflow nodes, so this always returns safe.
+   * @param _id Skill name
+   * @returns Delete check result
+   */
+  async checkDeleteReferences(_id: string): Promise<DeleteCheckResult> {
+    return {
+      canDelete: true,
+      details: "No references found",
+      references: [],
+    };
   }
 }

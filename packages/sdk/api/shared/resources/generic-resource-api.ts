@@ -16,8 +16,14 @@
 
 import type { ExecutionResult } from "../types/execution-result.js";
 import { success, failure } from "../types/execution-result.js";
-import { SDKError, ExecutionError as SDKExecutionError, ValidationError } from "@wf-agent/types";
+import {
+  SDKError,
+  ExecutionError as SDKExecutionError,
+  ValidationError,
+  ConfigurationValidationError,
+} from "@wf-agent/types";
 import { isError, diffTimestamp, now } from "@wf-agent/common-utils";
+import type { DeleteCheckResult } from "../../../shared/registry/types.js";
 
 /**
  * Migration Guide: Query/Command Semantic Separation
@@ -352,6 +358,43 @@ export abstract class SimplifiedCrudResourceAPI<T, ID extends string | number, F
    */
   protected abstract deleteResource(id: ID): Promise<void>;
 
+  /**
+   * Check references for safe deletion (subclasses can override this method)
+   * @param id Resource ID
+   * @returns Delete check result
+   */
+  protected checkDeleteReferences(id: ID): Promise<DeleteCheckResult> | DeleteCheckResult {
+    void id;
+    return { canDelete: true, details: "No reference check configured", references: [] };
+  }
+
+  /**
+   * Check if the resource can be safely deleted
+   * @param id Resource ID
+   * @returns Delete check result
+   */
+  async canSafelyDelete(id: ID): Promise<DeleteCheckResult> {
+    return this.checkDeleteReferences(id);
+  }
+
+  /**
+   * Delete with options (force flag to bypass reference check)
+   * @param id Resource ID
+   * @param options Delete options
+   */
+  async deleteWithOptions(id: ID, options?: { force?: boolean }): Promise<void> {
+    if (!options?.force) {
+      const check = await this.canSafelyDelete(id);
+      if (!check.canDelete) {
+        throw new ConfigurationValidationError(
+          `Cannot delete resource '${id}': ${check.details}`,
+          { configPath: "delete.referenced" },
+        );
+      }
+    }
+    await this.deleteResource(id);
+  }
+
   // ============================================================================
   // Protected methods - Subclasses can override for customization
   // ============================================================================
@@ -458,7 +501,7 @@ export abstract class SimplifiedCrudResourceAPI<T, ID extends string | number, F
   }
 
   /**
-   * Delete a resource
+   * Delete a resource (with reference check by default)
    * @param id Resource ID
    * @returns Execution result with comprehensive error handling
    */
@@ -466,7 +509,7 @@ export abstract class SimplifiedCrudResourceAPI<T, ID extends string | number, F
     const startTime = now();
 
     try {
-      await this.deleteResource(id);
+      await this.deleteWithOptions(id);
       return success(undefined, diffTimestamp(startTime, now()));
     } catch (error) {
       return this.handleError(error, "DELETE", startTime);

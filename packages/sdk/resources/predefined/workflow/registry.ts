@@ -11,25 +11,7 @@ import {
   createCustomLlmSummaryWorkflow,
   LLM_SUMMARY_WORKFLOW_ID,
 } from "./llm-summary.js";
-
-/**
- * Check if the workflow is disabled.
- */
-function isDisabled(workflowId: string, options?: PredefinedWorkflowsOptions): boolean {
-  if (!options) return false;
-
-  // If a whitelist is set, only the workflows listed in the whitelist will be enabled.
-  if (options.allowList && options.allowList.length > 0) {
-    return !options.allowList.includes(workflowId);
-  }
-
-  // If a blacklist is set, the workflows listed in the blacklist will be disabled.
-  if (options.blockList && options.blockList.length > 0) {
-    return options.blockList.includes(workflowId);
-  }
-
-  return false;
-}
+import { isResourceDisabled } from "../utils.js";
 
 /**
  * Create a list of predefined workflow templates
@@ -41,7 +23,7 @@ export function createPredefinedWorkflows(
   const config = options?.config;
 
   // llm_summary_workflow
-  if (!isDisabled(LLM_SUMMARY_WORKFLOW_ID, options)) {
+  if (!isResourceDisabled(LLM_SUMMARY_WORKFLOW_ID, options)) {
     const workflow = config?.llmSummary
       ? createCustomLlmSummaryWorkflow(config.llmSummary)
       : createLlmSummaryWorkflow();

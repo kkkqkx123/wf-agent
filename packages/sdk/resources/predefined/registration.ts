@@ -3,16 +3,16 @@
  *
  * This module provides a unified registration interface for predefined content,
  * responsible for coordinating registration operations across various modules.
- * Coordinator Layer Responsibilities:
- * - Provide unified registration entry API
- * - Coordinate registration sequence of submodules
- * - Aggregate results
- * - Contain no specific business logic
  *
  * Specific registration logic resides in respective module directories:
  * - trigger/: Trigger template registration
  * - workflow/: Workflow registration
  * - tools/: Tool registration
+ *
+ * Note: No rollback mechanism is needed because:
+ * 1. Each sub-registration is independent (single resource granularity)
+ * 2. skipIfExists=true ensures idempotency
+ * 3. Partial success is an acceptable state (no strong consistency constraints)
  */
 
 import type { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-template-registry.js";
@@ -20,19 +20,15 @@ import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js
 import type { ToolRegistry } from "@sdk/shared/registry/tool-registry.js";
 import type { PresetsConfig } from "@wf-agent/sdk/resources";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
+import { LLM_SUMMARY_WORKFLOW_ID } from "./workflow/llm-summary.js";
+import { CONTEXT_COMPRESSION_TRIGGER_NAME } from "./trigger/context-compression.js";
 
-// Import from submodules
 import { registerPredefinedTriggers, unregisterPredefinedTriggers } from "./trigger/index.js";
-
 import { registerPredefinedWorkflows, unregisterPredefinedWorkflows } from "./workflow/index.js";
-
 import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/registration.js";
 
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
 
-/**
- * Result type for predefined content registration
- */
 export interface PredefinedRegistrationResult {
   triggers: {
     success: string[];
@@ -49,26 +45,7 @@ export interface PredefinedRegistrationResult {
 }
 
 /**
- * Map context compression preset config to internal llmSummary config.
- */
-function mapLlmSummaryConfig(cc?: {
-  prompt?: string;
-  timeout?: number;
-  maxTriggers?: number;
-}): { compressionPrompt?: string; timeout?: number; maxTriggers?: number } | undefined {
-  if (!cc) return undefined;
-  return {
-    compressionPrompt: cc.prompt,
-    timeout: cc.timeout,
-    maxTriggers: cc.maxTriggers,
-  };
-}
-
-/**
- * Register predefined content
- *
- * Accepts raw PresetsConfig and internally maps to sub-module configurations.
- * sdk-instance should not need to know internal key names.
+ * Register predefined content.
  *
  * @param triggerRegistry Trigger template registry
  * @param workflowRegistry Workflow registry
@@ -90,45 +67,39 @@ export async function registerPredefinedContent(
     tools: { success: [], failures: [] },
   };
 
-  // Track successfully registered items for rollback on failure.
-  const rollbackState: { workflows: string[]; triggers: string[] } = {
-    workflows: [],
-    triggers: [],
-  };
-
-  // ====================================================================
-  // Registration order: workflows → triggers → tools
-  // Workflows must be registered first because triggers (e.g.
-  // execute_triggered_subworkflow) reference workflow IDs.
-  // ====================================================================
-
   // 1. Register predefined workflows (context compression)
   if (presets?.contextCompression?.enabled !== false) {
     try {
-      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
+      const cc = presets?.contextCompression;
       results.workflows = registerPredefinedWorkflows(
         workflowRegistry,
-        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
+        cc ? { config: { llmSummary: { compressionPrompt: cc.prompt, timeout: cc.timeout, maxTriggers: cc.maxTriggers } } } : undefined,
         skipIfExists,
       );
-      rollbackState.workflows = results.workflows.success;
-      logger.info("Predefined workflows registered");
+      logger.info("Predefined workflows registered", { count: results.workflows.success.length });
     } catch (error) {
       logger.error("Failed to register predefined workflows", { error });
     }
   }
 
   // 2. Register predefined triggers (context compression)
+  // Only register triggers if the referenced workflow is registered
   if (presets?.contextCompression?.enabled !== false) {
     try {
-      const llmConfig = mapLlmSummaryConfig(presets?.contextCompression);
-      results.triggers = registerPredefinedTriggers(
-        triggerRegistry,
-        llmConfig ? { config: { llmSummary: llmConfig } } : undefined,
-        skipIfExists,
-      );
-      rollbackState.triggers = results.triggers.success;
-      logger.info("Predefined triggers registered");
+      if (workflowRegistry.has(LLM_SUMMARY_WORKFLOW_ID)) {
+        const cc = presets?.contextCompression;
+        results.triggers = registerPredefinedTriggers(
+          triggerRegistry,
+          cc ? { config: { llmSummary: { compressionPrompt: cc.prompt, timeout: cc.timeout, maxTriggers: cc.maxTriggers } } } : undefined,
+          skipIfExists,
+        );
+        logger.info("Predefined triggers registered", { count: results.triggers.success.length });
+      } else {
+        logger.warn("Skipped trigger registration: referenced workflow not registered", {
+          workflowId: LLM_SUMMARY_WORKFLOW_ID,
+          triggerName: CONTEXT_COMPRESSION_TRIGGER_NAME,
+        });
+      }
     } catch (error) {
       logger.error("Failed to register predefined triggers", { error });
     }
@@ -146,27 +117,9 @@ export async function registerPredefinedContent(
         },
         skipIfExists,
       );
-      logger.info("Predefined tools registered");
+      logger.info("Predefined tools registered", { count: results.tools.success.length });
     } catch (error) {
       logger.error("Failed to register predefined tools", { error });
-      // Rollback: undo previously registered workflows and triggers
-      // to avoid leaving the system in a partially-registered state.
-      for (const id of rollbackState.workflows) {
-        try {
-          await workflowRegistry.unregister(id, { force: true });
-          logger.warn(`Rolled back workflow: ${id}`);
-        } catch (rollbackError) {
-          logger.error(`Failed to rollback workflow: ${id}`, { error: rollbackError });
-        }
-      }
-      for (const name of rollbackState.triggers) {
-        try {
-          await triggerRegistry.unregister(name);
-          logger.warn(`Rolled back trigger: ${name}`);
-        } catch (rollbackError) {
-          logger.error(`Failed to rollback trigger: ${name}`, { error: rollbackError });
-        }
-      }
     }
   }
 
@@ -175,6 +128,8 @@ export async function registerPredefinedContent(
 
 /**
  * Unregister predefined content.
+ *
+ * Note: Unregistration is best-effort. Partial failure is acceptable.
  */
 export async function unregisterPredefinedContent(
   triggerRegistry: TriggerTemplateRegistry,
@@ -201,7 +156,7 @@ export async function unregisterPredefinedContent(
     },
   };
 
-  // Unregister predefined triggers
+  // 1. Unregister predefined triggers first (they reference workflows)
   try {
     results.triggers = await unregisterPredefinedTriggers(triggerRegistry, options?.triggerNames);
     logger.info("Predefined triggers unregistered");
@@ -209,7 +164,7 @@ export async function unregisterPredefinedContent(
     logger.error("Failed to unregister predefined triggers", { error });
   }
 
-  // Unregister predefined workflows
+  // 2. Unregister predefined workflows
   try {
     results.workflows = await unregisterPredefinedWorkflows(workflowRegistry, options?.workflowIds);
     logger.info("Predefined workflows unregistered");
@@ -217,7 +172,7 @@ export async function unregisterPredefinedContent(
     logger.error("Failed to unregister predefined workflows", { error });
   }
 
-  // Unregister predefined tools (delegated to the tools module).
+  // 3. Unregister predefined tools
   try {
     results.tools = await unregisterPredefinedTools(toolService, options?.toolIds);
     logger.info("Predefined tools unregistered");

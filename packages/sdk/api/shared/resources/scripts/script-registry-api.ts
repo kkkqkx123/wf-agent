@@ -14,6 +14,7 @@ import { NotFoundError } from "@wf-agent/types";
 import { SimplifiedCrudResourceAPI } from "../generic-resource-api.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { ScriptFilter } from "../../types/code-types.js";
+import type { DeleteCheckResult } from "../../../../shared/registry/types.js";
 
 /**
  * ScriptRegistryAPI - Script Resource Management API
@@ -211,6 +212,81 @@ export class ScriptRegistryAPI extends SimplifiedCrudResourceAPI<Script, string,
    */
   getService() {
     return this.dependencies.getScriptService();
+  }
+
+  /**
+   * Check for workflow and flow blueprint references to this script before deletion
+   * @param id Script name
+   * @returns Delete check result
+   */
+  protected override async checkDeleteReferences(id: string): Promise<DeleteCheckResult> {
+    const workflowRegistry = this.dependencies.getWorkflowRegistry();
+    const scriptService = this.dependencies.getScriptService();
+    const references: DeleteCheckResult["references"] = [];
+
+    const summaries = await workflowRegistry.list();
+    for (const summary of summaries) {
+      const workflow = workflowRegistry.get(summary.id);
+      if (!workflow) continue;
+
+      const found: Array<{ type: string; details: string }> = [];
+
+      const hasScriptRef = workflow.nodes.some(node => {
+        if (node.type === "SCRIPT" && node.config.scriptName === id) return true;
+        if (node.type === "INTERACTIVE_SCRIPT" && node.config.scriptName === id) return true;
+        return false;
+      });
+      if (hasScriptRef) {
+        found.push({
+          type: "workflow_node",
+          details: "Script is used in workflow node",
+        });
+      }
+
+      const hasFlowRef = workflow.nodes.some(node => {
+        if (node.type !== "SCRIPT") return false;
+        return node.config.flowId && node.config.scriptName === id;
+      });
+      if (hasFlowRef) {
+        found.push({
+          type: "workflow_node",
+          details: "Script is referenced as flow blueprint in workflow node",
+        });
+      }
+
+      for (const ref of found) {
+        references.push({
+          type: ref.type,
+          sourceId: workflow.id,
+          sourceName: workflow.name,
+          details: ref.details,
+        });
+      }
+    }
+
+    const flows = scriptService.listFlows();
+    for (const flow of flows) {
+      const referencesScript = flow.branches.some(branch =>
+        branch.modules.some(module => module.key === id),
+      );
+      if (referencesScript) {
+        references.push({
+          type: "flow_blueprint",
+          sourceId: flow.name,
+          sourceName: flow.name,
+          details: "Script is referenced as a module in flow blueprint",
+        });
+      }
+    }
+
+    return {
+      canDelete: references.length === 0,
+      details:
+        references.length === 0
+          ? "No references found"
+          : `Referenced by ${references.length} workflow(s)/flow(s)`,
+      references,
+    };
   }
 
   /**

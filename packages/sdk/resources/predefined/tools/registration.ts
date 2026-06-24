@@ -11,6 +11,18 @@ import { toSdkTool } from "@sdk/services/tools/utils.js";
 
 const logger = createContextualLogger({ component: "PredefinedTools" });
 
+export const PREDEFINED_TOOL_IDS = [
+  "read_file",
+  "write_file",
+  "edit_file",
+  "run_shell",
+  "record_note",
+  "recall_notes",
+  "backend_shell",
+  "shell_output",
+  "shell_kill",
+];
+
 /**
  * Register a predefined tool
  *
@@ -105,17 +117,7 @@ export async function unregisterPredefinedTools(
   const failures: Array<{ id: string; error: string }> = [];
 
   // If no tool ID is specified, retrieve all predefined tool IDs.
-  const predefinedToolIds = toolIds || [
-    "read_file",
-    "write_file",
-    "edit_file",
-    "run_shell",
-    "record_note",
-    "recall_notes",
-    "backend_shell",
-    "shell_output",
-    "shell_kill",
-  ];
+  const predefinedToolIds = toolIds || PREDEFINED_TOOL_IDS;
 
   for (const toolId of predefinedToolIds) {
     try {

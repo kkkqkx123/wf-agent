@@ -98,24 +98,7 @@ import {
 import { createBuiltinTools } from "./builtin/index.js";
 import { DEFAULT_SHELL_POLICY } from "../../../services/sandbox/default-policy.js";
 
-/**
- * Check if the tool is disabled.
- */
-function isDisabled(toolId: string, options?: PredefinedToolsOptions): boolean {
-  if (!options) return false;
-
-  // If a whitelist is set, only the tools listed in the whitelist will be enabled.
-  if (options.allowList && options.allowList.length > 0) {
-    return !options.allowList.includes(toolId);
-  }
-
-  // If a blacklist is set, the tools listed in the blacklist will be disabled.
-  if (options.blockList && options.blockList.length > 0) {
-    return options.blockList.includes(toolId);
-  }
-
-  return false;
-}
+import { isResourceDisabled } from "../utils.js";
 
 /**
  * Create a list of predefined tool definitions
@@ -125,7 +108,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   const config = options?.config;
 
   // read_file
-  if (!isDisabled("read_file", options)) {
+  if (!isResourceDisabled("read_file", options)) {
     tools.push({
       id: "read_file",
       type: "STATELESS",
@@ -136,7 +119,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // write_file
-  if (!isDisabled("write_file", options)) {
+  if (!isResourceDisabled("write_file", options)) {
     tools.push({
       id: "write_file",
       type: "STATELESS",
@@ -147,7 +130,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // run_shell
-  if (!isDisabled("run_shell", options)) {
+  if (!isResourceDisabled("run_shell", options)) {
     tools.push({
       id: "run_shell",
       type: "STATELESS",
@@ -161,7 +144,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // record_note
-  if (!isDisabled("record_note", options)) {
+  if (!isResourceDisabled("record_note", options)) {
     tools.push({
       id: "record_note",
       type: "STATEFUL",
@@ -174,7 +157,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // recall_notes
-  if (!isDisabled("recall_notes", options)) {
+  if (!isResourceDisabled("recall_notes", options)) {
     tools.push({
       id: "recall_notes",
       type: "STATEFUL",
@@ -187,7 +170,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // backend_shell
-  if (!isDisabled("backend_shell", options)) {
+  if (!isResourceDisabled("backend_shell", options)) {
     tools.push({
       id: "backend_shell",
       type: "STATEFUL",
@@ -201,7 +184,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // shell_output
-  if (!isDisabled("shell_output", options)) {
+  if (!isResourceDisabled("shell_output", options)) {
     tools.push({
       id: "shell_output",
       type: "STATEFUL",
@@ -212,7 +195,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // shell_kill
-  if (!isDisabled("shell_kill", options)) {
+  if (!isResourceDisabled("shell_kill", options)) {
     tools.push({
       id: "shell_kill",
       type: "STATEFUL",
@@ -223,7 +206,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // apply_patch
-  if (!isDisabled("apply_patch", options)) {
+  if (!isResourceDisabled("apply_patch", options)) {
     tools.push({
       id: "apply_patch",
       type: "STATELESS",
@@ -234,7 +217,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // apply_diff
-  if (!isDisabled("apply_diff", options)) {
+  if (!isResourceDisabled("apply_diff", options)) {
     tools.push({
       id: "apply_diff",
       type: "STATELESS",
@@ -245,7 +228,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // edit
-  if (!isDisabled("edit", options)) {
+  if (!isResourceDisabled("edit", options)) {
     tools.push({
       id: "edit",
       type: "STATELESS",
@@ -256,7 +239,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // list_files
-  if (!isDisabled("list_files", options)) {
+  if (!isResourceDisabled("list_files", options)) {
     tools.push({
       id: "list_files",
       type: "STATELESS",
@@ -267,7 +250,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // grep
-  if (!isDisabled("grep", options)) {
+  if (!isResourceDisabled("grep", options)) {
     tools.push({
       id: "grep",
       type: "STATELESS",
@@ -278,7 +261,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // glob
-  if (!isDisabled("glob", options)) {
+  if (!isResourceDisabled("glob", options)) {
     tools.push({
       id: "glob",
       type: "STATELESS",
@@ -289,7 +272,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // skill
-  if (!isDisabled("skill", options)) {
+  if (!isResourceDisabled("skill", options)) {
     tools.push({
       id: "skill",
       type: "STATELESS",
@@ -300,7 +283,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // update_todo_list
-  if (!isDisabled("update_todo_list", options)) {
+  if (!isResourceDisabled("update_todo_list", options)) {
     tools.push({
       id: "update_todo_list",
       type: "STATELESS",
@@ -311,7 +294,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
   }
 
   // use_mcp
-  if (!isDisabled("use_mcp", options)) {
+  if (!isResourceDisabled("use_mcp", options)) {
     tools.push({
       id: "use_mcp",
       type: "STATELESS",

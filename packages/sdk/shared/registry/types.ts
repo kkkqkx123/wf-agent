@@ -126,3 +126,33 @@ export interface RegistryOperationResult<T> {
   item?: T;
   error?: Error;
 }
+
+/**
+ * Delete check result for safe-delete verification.
+ */
+export interface DeleteCheckResult {
+  /** Whether the resource can be safely deleted */
+  canDelete: boolean;
+  /** Human-readable details about the check result */
+  details: string;
+  /** List of references pointing to this resource */
+  references: Array<{
+    /** Reference type: workflow, trigger, node, template, etc. */
+    type: string;
+    /** Source resource ID */
+    sourceId: string;
+    /** Source resource name */
+    sourceName?: string;
+    /** Additional details */
+    details?: string;
+  }>;
+}
+
+/**
+ * Optional interface for registries that support reference checking.
+ * Registries can implement this to provide efficient local reference queries.
+ */
+export interface IReferenceCheckable {
+  /** Check if the resource has any references */
+  checkReferences(id: string): Promise<DeleteCheckResult> | DeleteCheckResult;
+}

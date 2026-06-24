@@ -15,6 +15,7 @@ import { ToolNotFoundError, NotFoundError } from "@wf-agent/types";
 import { SimplifiedCrudResourceAPI } from "../generic-resource-api.js";
 import type { APIDependencyManager } from "../../core/sdk-dependencies.js";
 import type { Timestamp } from "@wf-agent/types";
+import type { DeleteCheckResult } from "../../../../shared/registry/types.js";
 
 /**
  * Tool Filter
@@ -264,5 +265,84 @@ export class ToolRegistryAPI extends SimplifiedCrudResourceAPI<Tool, string, Too
    */
   getService() {
     return this.dependencies.getToolService();
+  }
+
+  /**
+   * Check for workflow and agent loop references to this tool before deletion
+   * @param id Tool ID
+   * @returns Delete check result
+   */
+  protected override async checkDeleteReferences(id: string): Promise<DeleteCheckResult> {
+    const workflowRegistry = this.dependencies.getWorkflowRegistry();
+    const agentLoopRegistry = this.dependencies.getAgentLoopRegistry();
+    const references: DeleteCheckResult["references"] = [];
+
+    const summaries = await workflowRegistry.list();
+    for (const summary of summaries) {
+      const workflow = workflowRegistry.get(summary.id);
+      if (!workflow) continue;
+
+      const found: Array<{ type: string; details: string }> = [];
+
+      if (workflow.availableTools?.available?.includes(id)) {
+        found.push({
+          type: "workflow",
+          details: "Tool is listed in workflow available tools",
+        });
+      }
+
+      const hasToolVisibility = workflow.nodes.some(
+        node => node.type === "TOOL_VISIBILITY" && node.config.toolIds.includes(id),
+      );
+      if (hasToolVisibility) {
+        found.push({
+          type: "workflow_node",
+          details: "Tool is used in TOOL_VISIBILITY node",
+        });
+      }
+
+      const hasAgentLoop = workflow.nodes.some(
+        node =>
+          node.type === "AGENT_LOOP" &&
+          node.config.inlineConfig?.availableTools?.tools?.includes(id),
+      );
+      if (hasAgentLoop) {
+        found.push({
+          type: "workflow_node",
+          details: "Tool is used in AGENT_LOOP node",
+        });
+      }
+
+      for (const ref of found) {
+        references.push({
+          type: ref.type,
+          sourceId: workflow.id,
+          sourceName: workflow.name,
+          details: ref.details,
+        });
+      }
+    }
+
+    const agentLoops = agentLoopRegistry.getAll();
+    for (const entity of agentLoops) {
+      const availableTools = entity.getAvailableTools();
+      if (availableTools.has(id)) {
+        references.push({
+          type: "agent_loop",
+          sourceId: entity.id,
+          sourceName: entity.config.agentConfigId || entity.id,
+          details: "Tool is used in agent loop available tools",
+        });
+      }
+    }
+
+    return {
+      canDelete: references.length === 0,
+      details:
+        references.length === 0
+          ? "No references found"
+          : `Referenced by ${references.length} workflow(s)/agent loop(s)`,
+      references,
+    };
   }
 }

@@ -65,6 +65,10 @@ export class JsonCheckpointStorage
           }
         }
 
+        if (options.type && metadata.checkpointType !== options.type) {
+          return false;
+        }
+
         return true;
       });
     }
@@ -115,6 +119,10 @@ export class JsonCheckpointStorage
           if (!metadata.tags || !options.tags.some(tag => metadata.tags!.includes(tag))) {
             return false;
           }
+        }
+
+        if (options.type && metadata.checkpointType !== options.type) {
+          return false;
         }
 
         return true;
@@ -187,6 +195,31 @@ export class JsonCheckpointStorage
     }
     
     return results;
+  }
+
+  /**
+   * Get entity-level metadata (e.g., cleanup watermark)
+   */
+  async getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null> {
+    this.ensureInitialized();
+    const key = `__entity_meta:${entityType}:${entityId}`;
+    const entry = this["metadataIndex"].get(key);
+    if (!entry) return null;
+    return entry.metadata.customFields as Record<string, unknown> ?? null;
+  }
+
+  /**
+   * Update entity-level metadata (e.g., cleanup watermark)
+   */
+  async setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void> {
+    this.ensureInitialized();
+    const key = `__entity_meta:${entityType}:${entityId}`;
+    await super.save(key, new TextEncoder().encode(JSON.stringify(metadata)), {
+      entityType: entityType as any,
+      entityId,
+      timestamp: Date.now(),
+      customFields: metadata,
+    });
   }
 
   /**

@@ -89,4 +89,22 @@ export interface CheckpointStorageAdapter extends BaseStorageAdapter<
       olderThan?: number;   // Only delete checkpoints older than this timestamp
     }
   ): Promise<number>;
+
+  /**
+   * Get entity-level metadata (e.g., cleanup watermark)
+   * 
+   * @param entityType Entity type
+   * @param entityId Entity ID
+   * @returns Entity metadata or null if not found
+   */
+  getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null>;
+
+  /**
+   * Update entity-level metadata (e.g., cleanup watermark)
+   * 
+   * @param entityType Entity type
+   * @param entityId Entity ID
+   * @param metadata Metadata key-value pairs to store
+   */
+  setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void>;
 }

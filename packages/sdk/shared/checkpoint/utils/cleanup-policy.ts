@@ -21,12 +21,98 @@ import type {
   TimeBasedCleanupPolicy,
   CountBasedCleanupPolicy,
   SizeBasedCleanupPolicy,
+  TieredCleanupPolicy,
   CheckpointCleanupStrategy,
 } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "CleanupPolicy" });
+
+/**
+ * Implementation of tiered retention strategy.
+ * Keeps checkpoints based on age-based tiers with different retention granularity.
+ * 
+ * Tiers are evaluated from youngest to oldest. Within each tier, the retentionIntervalDays
+ * determines how many checkpoints to keep: keep at most one checkpoint per interval window.
+ * A retentionIntervalDays of 0 means keep all checkpoints in that tier.
+ * 
+ * Example tiers:
+ *   [{ minAgeDays: 0, maxAgeDays: 7, retentionIntervalDays: 0 }]     → keep all <7 days
+ *   [{ minAgeDays: 7, maxAgeDays: 30, retentionIntervalDays: 1 }]    → keep daily for 7-30 days
+ *   [{ minAgeDays: 30, retentionIntervalDays: 7 }]                   → keep weekly for 30+ days
+ */
+export class TieredCleanupStrategy implements CheckpointCleanupStrategy {
+  constructor(private policy: TieredCleanupPolicy) {}
+
+  execute(checkpoints: CheckpointInfo[]): string[] {
+    const currentTime = Date.now();
+    const minRetention = this.policy.minRetention || 0;
+
+    const sorted = [...checkpoints]
+      .filter((cp): cp is CheckpointInfo => cp != null)
+      .sort((a, b) => a.metadata.timestamp - b.metadata.timestamp);
+
+    if (sorted.length <= minRetention) {
+      return [];
+    }
+
+    // Build tier boundaries (milliseconds)
+    const tiers = this.policy.tiers
+      .map(t => ({
+        minAge: t.minAgeDays * 24 * 60 * 60 * 1000,
+        maxAge: t.maxAgeDays !== undefined
+          ? t.maxAgeDays * 24 * 60 * 60 * 1000
+          : Infinity,
+        interval: t.retentionIntervalDays * 24 * 60 * 60 * 1000,
+      }))
+      .sort((a, b) => a.minAge - b.minAge);
+
+    const toDelete: string[] = [];
+
+    // Protect minRetention newest checkpoints
+    const protectedSet = new Set(
+      sorted.slice(-minRetention).map(cp => cp.checkpointId),
+    );
+
+    for (const checkpoint of sorted) {
+      if (protectedSet.has(checkpoint.checkpointId)) continue;
+
+      const age = currentTime - checkpoint.metadata.timestamp;
+
+      // Find the highest (oldest) applicable tier
+      const tier = [...tiers]
+        .reverse()
+        .find(t => age >= t.minAge && age < t.maxAge);
+
+      if (!tier) continue; // Too young for any tier, keep it
+
+      if (tier.interval === 0) continue; // Keep all in this tier
+
+      // Group checkpoints in this tier by their interval window
+      const windowKey = Math.floor(age / tier.interval);
+
+      // Check if there's already a newer checkpoint kept in the same window
+      const newerKept = sorted.some(cp => {
+        if (protectedSet.has(cp.checkpointId)) return false;
+        const cpAge = currentTime - cp.metadata.timestamp;
+        return (
+          cpAge >= tier.minAge &&
+          cpAge < tier.maxAge &&
+          Math.floor(cpAge / tier.interval) === windowKey &&
+          cp.metadata.timestamp > checkpoint.metadata.timestamp &&
+          !toDelete.includes(cp.checkpointId)
+        );
+      });
+
+      if (newerKept) {
+        toDelete.push(checkpoint.checkpointId);
+      }
+    }
+
+    return toDelete;
+  }
+}
 
 /**
  * Implementation of a time-based cleaning strategy
@@ -183,6 +269,8 @@ export function createCleanupStrategy(
         throw new Error("Size-based cleanup policy requires checkpointSizes parameter");
       }
       return new SizeBasedCleanupStrategy(policy, checkpointSizes);
+    case "tiered":
+      return new TieredCleanupStrategy(policy);
     default:
       throw new Error(`Unknown cleanup policy type: ${(policy as { type?: string }).type}`);
   }

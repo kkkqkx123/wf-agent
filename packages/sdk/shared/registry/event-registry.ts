@@ -78,6 +78,10 @@ export class ExecutionEventEmitter {
   private metrics: Map<string, Map<string, ListenerMetrics>> = new Map();
   private isDisposed: boolean = false;
 
+  // Event batching support
+  private batchDepth: number = 0;
+  private batchBuffer: Array<BaseEvent> = [];
+
   constructor(executionId: string) {
     if (!executionId) {
       throw new RuntimeValidationError("Execution ID is required", { field: "executionId" });
@@ -220,9 +224,9 @@ export class ExecutionEventEmitter {
   }
 
   /**
-   * Emit event to all registered listeners
+   * Internal: emit event directly to all registered listeners (bypasses batching)
    */
-  async emit<T extends BaseEvent>(event: T): Promise<void> {
+  private async emitNow<T extends BaseEvent>(event: T): Promise<void> {
     this.validateNotDisposed();
 
     if (!event) {
@@ -292,6 +296,18 @@ export class ExecutionEventEmitter {
       (aggregatedError as Error & { causes: Error[] }).causes = errors;
       throw aggregatedError;
     }
+  }
+
+  /**
+   * Emit event to all registered listeners.
+   * If batching is active, buffers the event and flushes on endBatch().
+   */
+  async emit<T extends BaseEvent>(event: T): Promise<void> {
+    if (this.batchDepth > 0) {
+      this.batchBuffer.push(event);
+      return;
+    }
+    await this.emitNow(event);
   }
 
   /**
@@ -375,6 +391,83 @@ export class ExecutionEventEmitter {
     }
 
     return result;
+  }
+
+  /**
+   * Register a listener for checkpoint events with entity type and checkpoint type filtering.
+   *
+   * @param entityType Optional entity type filter ('workflow', 'agent', etc.)
+   * @param checkpointType Optional checkpoint type filter ('FULL', 'DELTA')
+   * @param listener Event listener
+   * @param options Listener options (filter, timeout)
+   * @returns Unsubscribe function
+   */
+  onCheckpointEvent<T extends BaseEvent>(
+    eventType: EventType,
+    entityType: string | undefined,
+    checkpointType: string | undefined,
+    listener: EventListener<T>,
+    options?: EventEmitterOptions<T>,
+  ): () => void {
+    const combinedFilter = (event: T): boolean => {
+      if (options?.filter && !options.filter(event)) return false;
+      if (entityType && event.metadata && (event.metadata as Record<string, unknown>)['entityType'] !== entityType) return false;
+      if (checkpointType && event.metadata && (event.metadata as Record<string, unknown>)['checkpointType'] !== checkpointType) return false;
+      return true;
+    };
+
+    return this.on(eventType, listener, { ...options, filter: combinedFilter });
+  }
+
+  /**
+   * Begin a batch operation.
+   * While batching, emitted events are buffered and flushed on endBatch().
+   * Supports nested batch calls (reference counted).
+   */
+  beginBatch(): void {
+    this.validateNotDisposed();
+    this.batchDepth++;
+    logger.debug("Batch started", {
+      executionId: this.executionId,
+      depth: this.batchDepth,
+    });
+  }
+
+  /**
+   * End a batch operation.
+   * Flushes buffered events when the outermost batch ends.
+   */
+  async endBatch(): Promise<void> {
+    this.validateNotDisposed();
+
+    if (this.batchDepth <= 0) {
+      logger.warn("endBatch called without matching beginBatch", {
+        executionId: this.executionId,
+      });
+      return;
+    }
+
+    this.batchDepth--;
+
+    if (this.batchDepth === 0 && this.batchBuffer.length > 0) {
+      const buffer = this.batchBuffer;
+      this.batchBuffer = [];
+
+      logger.debug("Flushing batch buffer", {
+        executionId: this.executionId,
+        eventCount: buffer.length,
+      });
+
+      // Re-emit all buffered events individually
+      for (const event of buffer) {
+        await this.emitNow(event);
+      }
+    }
+
+    logger.debug("Batch ended", {
+      executionId: this.executionId,
+      depth: this.batchDepth,
+    });
   }
 
   /**

@@ -22,6 +22,7 @@ export class MemoryCheckpointStorage
   // Index structures for optimized queries
   private entityIndex: Map<string, Set<string>> = new Map();
   private tagIndex: Map<string, Set<string>> = new Map();
+  private typeIndex: Map<string, Set<string>> = new Map();
 
   constructor(config: MemoryStorageConfig = {}) {
     super(config);
@@ -38,6 +39,14 @@ export class MemoryCheckpointStorage
         this.entityIndex.set(key, new Set());
       }
       this.entityIndex.get(key)!.add(id);
+    }
+
+    // Index by checkpoint type (FULL/DELTA)
+    if (metadata.checkpointType) {
+      if (!this.typeIndex.has(metadata.checkpointType)) {
+        this.typeIndex.set(metadata.checkpointType, new Set());
+      }
+      this.typeIndex.get(metadata.checkpointType)!.add(id);
     }
 
     // Index by tags
@@ -63,6 +72,17 @@ export class MemoryCheckpointStorage
         entitySet.delete(id);
         if (entitySet.size === 0) {
           this.entityIndex.delete(key);
+        }
+      }
+    }
+
+    // Remove from type index
+    if (metadata.checkpointType) {
+      const typeSet = this.typeIndex.get(metadata.checkpointType);
+      if (typeSet) {
+        typeSet.delete(id);
+        if (typeSet.size === 0) {
+          this.typeIndex.delete(metadata.checkpointType);
         }
       }
     }
@@ -146,6 +166,7 @@ export class MemoryCheckpointStorage
     await super.clear();
     this.entityIndex.clear();
     this.tagIndex.clear();
+    this.typeIndex.clear();
   }
 
   /**
@@ -174,6 +195,8 @@ export class MemoryCheckpointStorage
           ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
         }
       }
+    } else if (options?.type) {
+      ids = new Set(this.typeIndex.get(options.type) || []);
     } else {
       // No filters, return all IDs
       ids = new Set(this.store.keys());
@@ -262,6 +285,8 @@ export class MemoryCheckpointStorage
           ids = new Set([...ids].filter(id => tagSets[i]!.has(id)));
         }
       }
+    } else if (options?.type) {
+      ids = new Set(this.typeIndex.get(options.type) || []);
     } else {
       // No filters, return all IDs
       ids = new Set(this.store.keys());
@@ -367,6 +392,33 @@ export class MemoryCheckpointStorage
     }
     
     return results;
+  }
+
+  /**
+   * Get entity-level metadata (e.g., cleanup watermark)
+   */
+  async getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null> {
+    this.ensureInitialized();
+    const key = `__entity_meta:${entityType}:${entityId}`;
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    const decoder = new TextDecoder();
+    try {
+      return JSON.parse(decoder.decode(entry.data)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Update entity-level metadata (e.g., cleanup watermark)
+   */
+  async setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void> {
+    this.ensureInitialized();
+    const key = `__entity_meta:${entityType}:${entityId}`;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(JSON.stringify(metadata));
+    this.store.set(key, { data, metadata: { entityType: entityType as any, entityId, timestamp: Date.now() } });
   }
 
   /**

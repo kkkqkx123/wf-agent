@@ -5,8 +5,18 @@
  * Supports optional compression for storage efficiency.
  */
 
-import { compressBlob, decompressBlob } from "../utils/compression/index.js";
+import {
+  compressBlob,
+  decompressBlob,
+  selectCompressionStrategy,
+  type CompressionConfig,
+} from "../utils/compression/index.js";
 import type { SerializedError } from "@wf-agent/types";
+
+/**
+ * Compression strategy mode
+ */
+export type CompressionStrategy = "simple" | "adaptive";
 
 /**
  * Serialization options
@@ -18,6 +28,18 @@ export interface SerializationOptions {
   compression?: boolean;
   /** Compression threshold in bytes (only compress if data is larger) */
   compressionThreshold?: number;
+  /**
+   * Compression strategy:
+   * - "simple": Always uses gzip (legacy behavior)
+   * - "adaptive": Uses selectCompressionStrategy for content-aware algorithm selection (brotli for large JSON, gzip otherwise)
+   * @default "adaptive"
+   */
+  compressionStrategy?: CompressionStrategy;
+  /**
+   * Optional custom compression config override.
+   * When set, takes precedence over adaptive selection.
+   */
+  compressionConfig?: CompressionConfig;
 }
 
 /**
@@ -31,10 +53,11 @@ export interface DeserializationOptions {
 /**
  * Default serialization options
  */
-const DEFAULT_OPTIONS: Required<SerializationOptions> = {
+const DEFAULT_OPTIONS: SerializationOptions & Required<Pick<SerializationOptions, 'prettyPrint' | 'compression' | 'compressionThreshold' | 'compressionStrategy'>> = {
   prettyPrint: false,
   compression: true,
   compressionThreshold: 512,
+  compressionStrategy: "adaptive",
 };
 
 /**
@@ -44,7 +67,7 @@ const DEFAULT_OPTIONS: Required<SerializationOptions> = {
  * Supports optional compression for storage efficiency.
  */
 export class StateCodec {
-  private readonly options: Required<SerializationOptions>;
+  private readonly options: SerializationOptions & Required<Pick<SerializationOptions, 'prettyPrint' | 'compression' | 'compressionThreshold' | 'compressionStrategy'>>;
 
   constructor(options?: SerializationOptions) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
@@ -64,21 +87,55 @@ export class StateCodec {
 
       const bytes = new TextEncoder().encode(json);
 
-      // Apply compression if enabled and data exceeds threshold
-      if (this.options.compression && bytes.length > this.options.compressionThreshold) {
-        const result = await compressBlob(bytes, {
-          enabled: true,
-          algorithm: "gzip",
-          threshold: 0, // Already checked threshold above
-        });
-        return result.compressed;
+      // Skip compression if disabled
+      if (!this.options.compression) {
+        return bytes;
       }
 
-      return bytes;
+      // Skip compression if data is too small
+      if (bytes.length <= this.options.compressionThreshold) {
+        return bytes;
+      }
+
+      // Determine compression config
+      let config: CompressionConfig;
+      if (this.options.compressionConfig) {
+        config = this.options.compressionConfig;
+      } else if (this.options.compressionStrategy === "adaptive") {
+        config = selectCompressionStrategy(bytes);
+      } else {
+        config = {
+          enabled: true,
+          algorithm: "gzip",
+          threshold: 0,
+        };
+      }
+
+      const result = await compressBlob(bytes, config);
+      return result.compressed;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to serialize data: ${errorMessage}`, { cause: error });
     }
+  }
+
+  /**
+   * Detect compression algorithm from magic bytes
+   */
+  private detectAlgorithm(data: Uint8Array): string | null {
+    if (data.length < 2) return null;
+
+    // Gzip magic number: 0x1f 0x8b
+    if (data[0] === 0x1f && data[1] === 0x8b) {
+      return "gzip";
+    }
+
+    // Brotli magic bytes: 0xce 0xb2 0xcf 0x81
+    if (data.length >= 4 && data[0] === 0xce && data[1] === 0xb2 && data[2] === 0xcf && data[3] === 0x81) {
+      return "brotli";
+    }
+
+    return null;
   }
 
   /**
@@ -92,10 +149,11 @@ export class StateCodec {
     try {
       let bytes = data;
 
-      // Try to detect and decompress if needed (gzip magic number: 0x1f 0x8b)
-      if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
+      // Detect and decompress if needed (supports gzip and brotli)
+      const algorithm = this.detectAlgorithm(data);
+      if (algorithm) {
         try {
-          bytes = await decompressBlob(data, "gzip");
+          bytes = await decompressBlob(data, algorithm);
         } catch {
           // If decompression fails, assume data is not compressed
         }

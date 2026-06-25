@@ -280,8 +280,9 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     // Step 4: Restore full state (handles delta chains)
     let workflowExecutionState: WorkflowExecutionStateSnapshot;
     if (checkpoint.type === "DELTA") {
-      const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(id =>
-        dependencies.checkpointStateManager.get(id),
+      const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
+        id => dependencies.checkpointStateManager.get(id),
+        ids => dependencies.checkpointStateManager.getCheckpoints(ids),
       );
       const restoreResult = await restorer.restore(checkpointId);
       workflowExecutionState = restoreResult.snapshot;
@@ -1044,6 +1045,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       getCheckpoint: id => deps.checkpointStateManager.get(id),
       listCheckpoints: parentId => deps.checkpointStateManager.list({ parentId }),
       deltaConfig: deps.deltaConfig,
+      getCheckpoints: ids => deps.checkpointStateManager.getCheckpoints(ids),
     };
   }
 

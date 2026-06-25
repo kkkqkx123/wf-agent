@@ -114,6 +114,18 @@ export class PostgresCheckpointStorage
       'CREATE INDEX IF NOT EXISTS idx_checkpoint_blob_hash ON checkpoint_metadata(blob_hash)'
     );
 
+    // Entity metadata table: stores per-entity key-value metadata (e.g., cleanup watermark)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS entity_metadata (
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        metadata_key TEXT NOT NULL,
+        metadata_value TEXT,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        PRIMARY KEY (entity_type, entity_id, metadata_key)
+      )
+    `);
+
     logger.debug('Created optimized indexes for entity-based queries', {
       table: this.getTableName()
     });
@@ -615,9 +627,67 @@ export class PostgresCheckpointStorage
     try {
       // Delete from metadata table (cascade will delete blob)
       await client.query('DELETE FROM checkpoint_metadata');
+      await client.query('DELETE FROM entity_metadata');
       logger.info('All checkpoints cleared');
     } catch (error) {
       this.handlePostgresError(error, 'clear', {});
+      throw error;
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Get entity-level metadata (e.g., cleanup watermark)
+   */
+  async getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null> {
+    const client = await this.getClient();
+
+    try {
+      const result = await client.query(
+        `SELECT metadata_key, metadata_value FROM entity_metadata
+         WHERE entity_type = $1 AND entity_id = $2`,
+        [entityType, entityId]
+      );
+
+      if (result.rows.length === 0) return null;
+
+      const metadata: Record<string, unknown> = {};
+      for (const row of result.rows) {
+        try {
+          metadata[row.metadata_key] = JSON.parse(row.metadata_value);
+        } catch {
+          metadata[row.metadata_key] = row.metadata_value;
+        }
+      }
+      return metadata;
+    } catch (error) {
+      this.handlePostgresError(error, 'getEntityMetadata', { entityType, entityId });
+      throw error;
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Update entity-level metadata (e.g., cleanup watermark)
+   */
+  async setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void> {
+    const client = await this.getClient();
+
+    try {
+      for (const [key, value] of Object.entries(metadata)) {
+        await client.query(
+          `INSERT INTO entity_metadata (entity_type, entity_id, metadata_key, metadata_value, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (entity_type, entity_id, metadata_key) DO UPDATE SET
+             metadata_value = EXCLUDED.metadata_value,
+             updated_at = NOW()`,
+          [entityType, entityId, key, JSON.stringify(value)]
+        );
+      }
+    } catch (error) {
+      this.handlePostgresError(error, 'setEntityMetadata', { entityType, entityId });
       throw error;
     } finally {
       this.releaseClient(client);
@@ -814,13 +884,13 @@ export class PostgresCheckpointStorage
           entityType: row.entity_type as CheckpointEntityType,
           entityId: row.entity_id,
           timestamp: parseInt(row.timestamp),
+          blobSize: row.blob_size ?? 0,
           customFields: {
             checkpointType: row.checkpoint_type,
             baseCheckpointId: row.base_checkpoint_id,
             previousCheckpointId: row.previous_checkpoint_id,
             messageCount: row.message_count,
             variableCount: row.variable_count,
-            blobSize: row.blob_size,
             blobHash: row.blob_hash,
           },
           tags: row.tags ? JSON.parse(row.tags) : undefined,
@@ -869,13 +939,13 @@ export class PostgresCheckpointStorage
             entityType: row.entity_type,
             entityId: row.entity_id,
             timestamp: parseInt(row.timestamp),
+            blobSize: row.blob_size ?? 0,
             customFields: {
               checkpointType: row.checkpoint_type,
               baseCheckpointId: row.base_checkpoint_id,
               previousCheckpointId: row.previous_checkpoint_id,
               messageCount: row.message_count,
               variableCount: row.variable_count,
-              blobSize: row.blob_size,
               blobHash: row.blob_hash,
             },
             tags: row.tags ? JSON.parse(row.tags) : undefined,

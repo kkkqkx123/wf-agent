@@ -77,9 +77,21 @@ export interface CheckpointInfo {
 }
 
 /**
+ * Tier definition for tiered retention policy
+ */
+export interface RetentionTier {
+  /** Minimum age in days for this tier to apply */
+  minAgeDays: number;
+  /** Maximum age in days for this tier (optional, unbounded if omitted) */
+  maxAgeDays?: number;
+  /** Retention interval: keep at least one checkpoint per N days */
+  retentionIntervalDays: number;
+}
+
+/**
  * Types of Clearance Strategies
  */
-export type CleanupStrategyType = "time" | "count" | "size";
+export type CleanupStrategyType = "time" | "count" | "size" | "tiered";
 
 /**
  * Time-based cleanup policy configuration
@@ -118,12 +130,26 @@ export interface SizeBasedCleanupPolicy {
 }
 
 /**
+ * Tiered retention policy configuration
+ * Keeps checkpoints based on age-based tiers with different retention granularity
+ */
+export interface TieredCleanupPolicy {
+  /** Type of strategy */
+  type: "tiered";
+  /** Retention tiers sorted by age ascending */
+  tiers: RetentionTier[];
+  /** Minimum number of reservations (to prevent deletion of all checkpoints) */
+  minRetention?: number;
+}
+
+/**
  * Cleanup policy configuration (federation type)
  */
 export type CleanupPolicy =
   | TimeBasedCleanupPolicy
   | CountBasedCleanupPolicy
-  | SizeBasedCleanupPolicy;
+  | SizeBasedCleanupPolicy
+  | TieredCleanupPolicy;
 
 /**
  * Liquidation results

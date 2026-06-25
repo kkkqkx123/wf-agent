@@ -142,7 +142,7 @@ export abstract class BaseCheckpointCoordinator<
     checkpointId: string,
     dependencies: CheckpointDependencies<TCheckpoint>,
   ): Promise<TEntity> {
-    const { getCheckpoint } = dependencies;
+    const { getCheckpoint, getCheckpoints } = dependencies;
 
     logger.debug("Restoring from checkpoint", { checkpointId });
 
@@ -159,7 +159,11 @@ export abstract class BaseCheckpointCoordinator<
     const parentId = this.extractParentId(checkpoint);
 
     // Step 4: Restore full state (handles delta chains automatically)
-    const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(getCheckpoint);
+    // Use batch loader for efficient chain reconstruction when available
+    const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(
+      getCheckpoint,
+      getCheckpoints,
+    );
     const restoreResult = await restorer.restore(checkpointId);
     const { snapshot } = restoreResult;
 

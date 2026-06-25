@@ -15,6 +15,8 @@ const logger = createContextualLogger({ component: "BaseDiffCalculator" });
  * Provides generic deep comparison and delta calculation algorithms.
  * Works with any state snapshot type through generic typing.
  */
+export type DeltaMap = Record<string, { from: unknown; to: unknown }>;
+
 export class BaseDiffCalculator {
   /**
    * Calculate delta between two state snapshots
@@ -82,6 +84,40 @@ export class BaseDiffCalculator {
     }
 
     return result;
+  }
+
+  /**
+   * Merge two consecutive deltas into a single delta
+   *
+   * Given delta1 representing state S0 → S1 and delta2 representing S1 → S2,
+   * returns a delta representing S0 → S2 directly.
+   *
+   * The `from` field is informational only (not used by applyDelta).
+   * For keys only in delta1, the value is preserved as-is.
+   * For keys in delta2, the value overwrites delta1's value for that key.
+   *
+   * @param first First delta (earlier in chain)
+   * @param second Second delta (later in chain, merged into first)
+   * @returns Merged delta
+   */
+  mergeDeltas(
+    first: DeltaMap,
+    second: DeltaMap,
+  ): DeltaMap {
+    if (Object.keys(first).length === 0) return { ...second };
+    if (Object.keys(second).length === 0) return { ...first };
+
+    const merged: DeltaMap = { ...first };
+
+    for (const [key, change] of Object.entries(second)) {
+      const firstFrom = (merged[key] as { from: unknown } | undefined)?.from;
+      merged[key] = {
+        from: firstFrom ?? undefined,
+        to: change.to,
+      };
+    }
+
+    return merged;
   }
 
   /**

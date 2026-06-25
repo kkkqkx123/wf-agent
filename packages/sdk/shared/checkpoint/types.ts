@@ -30,6 +30,11 @@ export interface CheckpointDependencies<TCheckpoint extends BaseCheckpoint<unkno
   getCheckpoint: (id: string) => Promise<TCheckpoint | null>;
   listCheckpoints: (parentId: string) => Promise<string[]>;
   deltaConfig?: DeltaStorageConfig;
+  /**
+   * Batch load checkpoints for efficient delta chain reconstruction
+   * Reduces N+1 queries to single batch query during restoration
+   */
+  getCheckpoints?: (ids: string[]) => Promise<Map<string, TCheckpoint | null>>;
 }
 
 /**

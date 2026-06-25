@@ -116,6 +116,18 @@ export class SqliteCheckpointStorage
        ON checkpoint_metadata(blob_hash)`
     );
 
+    // Entity metadata table: stores per-entity key-value metadata (e.g., cleanup watermark)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS entity_metadata (
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        metadata_key TEXT NOT NULL,
+        metadata_value TEXT,
+        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        PRIMARY KEY (entity_type, entity_id, metadata_key)
+      )
+    `);
+
     logger.debug('Created optimized indexes for entity-based queries', {
       table: this.getTableName()
     });
@@ -626,6 +638,7 @@ if (conditions.length > 0) {
     try {
       // Due to ON DELETE CASCADE, clearing metadata will also clear blob table
       db.exec(`DELETE FROM checkpoint_metadata`);
+      db.exec(`DELETE FROM entity_metadata`);
     } catch (error) {
       this.handleSqliteError(error, "clear", {});
       throw error;
@@ -667,6 +680,69 @@ if (conditions.length > 0) {
       };
     } catch (error) {
       this.handleSqliteError(error, "getStats", {});
+      throw error;
+    }
+  }
+
+  /**
+   * Get entity-level metadata (e.g., cleanup watermark)
+   * Uses the entity_metadata table for key-value storage per entity.
+   */
+  async getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null> {
+    const db = this.getDb();
+
+    try {
+      const stmt = db.prepare(`
+        SELECT metadata_key, metadata_value FROM entity_metadata
+        WHERE entity_type = ? AND entity_id = ?
+      `);
+      const rows = stmt.all(entityType, entityId) as Array<{ metadata_key: string; metadata_value: string | null }>;
+
+      if (rows.length === 0) return null;
+
+      const result: Record<string, unknown> = {};
+      for (const row of rows) {
+        if (row.metadata_value) {
+          try {
+            result[row.metadata_key] = JSON.parse(row.metadata_value);
+          } catch {
+            result[row.metadata_key] = row.metadata_value;
+          }
+        }
+      }
+      return result;
+    } catch (error) {
+      this.handleSqliteError(error, "getEntityMetadata", { entityType, entityId });
+      throw error;
+    }
+  }
+
+  /**
+   * Update entity-level metadata (e.g., cleanup watermark)
+   * Stores each key-value pair as a row in entity_metadata table with upsert semantics.
+   */
+  async setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void> {
+    const db = this.getDb();
+    const now = Date.now();
+
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO entity_metadata (entity_type, entity_id, metadata_key, metadata_value, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(entity_type, entity_id, metadata_key) DO UPDATE SET
+          metadata_value = excluded.metadata_value,
+          updated_at = excluded.updated_at
+      `);
+
+      const transaction = db.transaction(() => {
+        for (const [key, value] of Object.entries(metadata)) {
+          stmt.run(entityType, entityId, key, JSON.stringify(value), now);
+        }
+      });
+
+      transaction();
+    } catch (error) {
+      this.handleSqliteError(error, "setEntityMetadata", { entityType, entityId });
       throw error;
     }
   }
@@ -927,13 +1003,13 @@ if (conditions.length > 0) {
           entityType: row.entity_type as CheckpointEntityType,
           entityId: row.entity_id,
           timestamp: row.timestamp,
+          blobSize: row.blob_size ?? 0,
           customFields: {
             checkpointType: row.checkpoint_type,
             baseCheckpointId: row.base_checkpoint_id,
             previousCheckpointId: row.previous_checkpoint_id,
             messageCount: row.message_count,
             variableCount: row.variable_count,
-            blobSize: row.blob_size,
             blobHash: row.blob_hash,
           },
           tags: row.tags ? JSON.parse(row.tags) : undefined,
@@ -995,13 +1071,13 @@ if (conditions.length > 0) {
             entityType: row.entity_type as CheckpointEntityType,
             entityId: row.entity_id,
             timestamp: row.timestamp,
+            blobSize: row.blob_size ?? 0,
             customFields: {
               checkpointType: row.checkpoint_type,
               baseCheckpointId: row.base_checkpoint_id,
               previousCheckpointId: row.previous_checkpoint_id,
               messageCount: row.message_count,
               variableCount: row.variable_count,
-              blobSize: row.blob_size,
               blobHash: row.blob_hash,
             },
             tags: row.tags ? JSON.parse(row.tags) : undefined,

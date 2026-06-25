@@ -159,6 +159,108 @@ describe("BaseDiffCalculator", () => {
     });
   });
 
+  describe("mergeDeltas", () => {
+    it("should return empty delta when both deltas are empty", () => {
+      const result = calculator.mergeDeltas({}, {});
+      expect(result).toEqual({});
+    });
+
+    it("should return second delta when first is empty", () => {
+      const second = { a: { from: undefined, to: 1 } };
+      const result = calculator.mergeDeltas({}, second);
+      expect(result).toEqual(second);
+    });
+
+    it("should return first delta when second is empty", () => {
+      const first = { a: { from: undefined, to: 1 } };
+      const result = calculator.mergeDeltas(first, {});
+      expect(result).toEqual(first);
+    });
+
+    it("should merge two deltas with different keys", () => {
+      const first = { a: { from: undefined, to: 1 } };
+      const second = { b: { from: undefined, to: 2 } };
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({
+        a: { from: undefined, to: 1 },
+        b: { from: undefined, to: 2 },
+      });
+    });
+
+    it("should merge two deltas with overlapping keys (second overwrites)", () => {
+      const first = { key: { from: 1, to: 10 } };
+      const second = { key: { from: 10, to: 100 } };
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({ key: { from: 1, to: 100 } });
+    });
+
+    it("should handle key added in first delta then deleted in second", () => {
+      const first = { key: { from: undefined, to: "value" } };
+      const second = { key: { from: "value", to: undefined } };
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({ key: { from: undefined, to: undefined } });
+    });
+
+    it("should handle key deleted in first delta and absent from second", () => {
+      const first = { key: { from: "original", to: undefined } };
+      const second = {};
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({ key: { from: "original", to: undefined } });
+    });
+
+    it("should handle key unchanged in first delta but changed in second", () => {
+      const first = {};
+      const second = { key: { from: "s1_value", to: "s2_value" } };
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({ key: { from: "s1_value", to: "s2_value" } });
+    });
+
+    it("should merge deltas with mixed field modifications", () => {
+      const first = {
+        a: { from: 1, to: 10 },
+        b: { from: 2, to: 20 },
+        c: { from: 3, to: 30 },
+      };
+      const second = {
+        b: { from: 20, to: 200 },
+        c: { from: 30, to: undefined },
+        d: { from: undefined, to: 400 },
+      };
+      const result = calculator.mergeDeltas(first, second);
+      expect(result).toEqual({
+        a: { from: 1, to: 10 },     // unchanged from first
+        b: { from: 2, to: 200 },     // from from first, to from second
+        c: { from: 3, to: undefined }, // from from first, to=undefined from second
+        d: { from: undefined, to: 400 }, // from undefined (not in first), to from second
+      });
+    });
+
+    it("should not mutate input deltas", () => {
+      const first = { a: { from: 1, to: 2 } };
+      const second = { a: { from: 2, to: 3 } };
+      calculator.mergeDeltas(first, second);
+      expect(first.a).toEqual({ from: 1, to: 2 });
+      expect(second.a).toEqual({ from: 2, to: 3 });
+    });
+
+    it("merged delta should produce correct state when applied via applyDelta", () => {
+      // Verify end-to-end: applyDelta(applyDelta(base, delta1), delta2)
+      // should equal applyDelta(base, mergeDeltas(delta1, delta2))
+      const base = { x: 1, y: 2, z: 3 };
+      const delta1 = { x: { from: 1, to: 10 }, y: { from: 2, to: undefined } };
+      const delta2 = { x: { from: 10, to: 100 }, z: { from: 3, to: 30 } };
+
+      const step1 = calculator.applyDelta(base, delta1);
+      const step2 = calculator.applyDelta(step1, delta2);
+
+      const merged = calculator.mergeDeltas(delta1, delta2);
+      const direct = calculator.applyDelta(base, merged);
+
+      expect(direct).toEqual(step2);
+      expect(direct).toEqual({ x: 100, z: 30 });
+    });
+  });
+
   describe("Edge Cases", () => {
     it("should handle objects with symbol keys (ignored by Object.keys)", () => {
       const sym = Symbol("test");

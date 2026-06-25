@@ -789,10 +789,14 @@ export class FileCheckpointManager {
     const checkpoints = await this.storage.listByEntity(entityId);
     if (checkpoints.length === 0) return 0;
 
+    const sortedCheckpoints = checkpoints.sort((a, b) => b.metadata.timestamp - a.metadata.timestamp);
+
     let length = 0;
-    for (const cp of checkpoints) {
+    for (const cp of sortedCheckpoints) {
       if (cp.metadata.type === "incremental") {
         length++;
+      } else {
+        break;
       }
     }
 

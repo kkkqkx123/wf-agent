@@ -69,19 +69,73 @@ export class BaseDiffCalculator {
     base: T,
     delta: Record<string, { from: unknown; to: unknown }>,
   ): T {
-    const result = { ...base } as T;
+    const result = this.deepClone(base) as T;
 
     for (const [key, change] of Object.entries(delta)) {
       if (change.to === undefined) {
         // Delete field
         delete (result as Record<string, unknown>)[key];
       } else {
-        // Update field
-        (result as Record<string, unknown>)[key] = change.to;
+        // Update field with deep clone to preserve Map/Set types
+        (result as Record<string, unknown>)[key] = this.deepClone(change.to);
       }
     }
 
     return result;
+  }
+
+  /**
+   * Deep clone a value, preserving Map and Set types
+   * @param value Value to clone
+   * @returns Deep cloned value
+   */
+  private deepClone(value: unknown): unknown {
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+
+    if (value instanceof Date) {
+      return new Date(value.getTime());
+    }
+
+    if (value instanceof RegExp) {
+      return new RegExp(value.source, value.flags);
+    }
+
+    if (value instanceof Map) {
+      const cloned = new Map();
+      for (const [k, v] of value) {
+        cloned.set(k, this.deepClone(v));
+      }
+      return cloned;
+    }
+
+    if (value instanceof Set) {
+      const cloned = new Set();
+      for (const item of value) {
+        cloned.add(this.deepClone(item));
+      }
+      return cloned;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.deepClone(item));
+    }
+
+    if (ArrayBuffer.isView(value)) {
+      const view = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      return new Uint8Array(view);
+    }
+
+    if (value.constructor === Object) {
+      const cloned: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value)) {
+        cloned[k] = this.deepClone(v);
+      }
+      return cloned;
+    }
+
+    return value;
   }
 
   /**

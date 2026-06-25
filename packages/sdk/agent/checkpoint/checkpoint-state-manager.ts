@@ -15,7 +15,11 @@ import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../shared/registry/event-registry.js";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
 import { BaseCheckpointStateManager } from "../../shared/checkpoint/base-checkpoint-state-manager.js";
-import { generateId } from "../../utils/id-utils.js";
+import {
+  buildCheckpointCreatedEvent,
+  buildCheckpointDeletedEvent,
+  buildCheckpointFailedEvent,
+} from "../../shared/utils/event/builders/index.js";
 
 /**
  * Agent Loop Checkpoint State Manager
@@ -47,9 +51,9 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   async saveCheckpoint(checkpoint: AgentLoopCheckpoint): Promise<string> {
     const id = await super.create(checkpoint);
 
-    // Execute entity-specific cleanup after saving
+    // Execute entity-specific cleanup after saving, excluding the newly created checkpoint
     if (this.cleanupPolicy) {
-      await this.executeCleanupForEntity(this.agentLoopId, "agent");
+      await this.executeCleanupForEntity(this.agentLoopId, "agent", id);
     }
 
     return id;
@@ -93,13 +97,17 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
    *
    * Automatically clean up expired checkpoints based on the configured cleanup strategy
    *
+   * @param entityId The entity ID
+   * @param entityType The entity type ('workflow', 'agent', 'task')
+   * @param excludeCheckpointId Optional checkpoint ID to exclude from cleanup
    * @returns Cleanup results
    */
   override async executeCleanupForEntity(
     entityId: string,
     entityType: string,
+    excludeCheckpointId?: string,
   ): Promise<CleanupResult> {
-    return await super.executeCleanupForEntity(entityId, entityType);
+    return await super.executeCleanupForEntity(entityId, entityType, excludeCheckpointId);
   }
 
   /**
@@ -135,34 +143,21 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   }
 
   protected buildCreatedEvent(checkpoint: AgentLoopCheckpoint): unknown {
-    return {
-      id: generateId(),
-      type: "CHECKPOINT_CREATED",
-      timestamp: Date.now(),
+    return buildCheckpointCreatedEvent({
+      checkpointId: checkpoint.id,
       executionId: checkpoint.agentLoopId,
-      data: {
-        checkpointId: checkpoint.id,
-        agentLoopId: checkpoint.agentLoopId,
-        checkpointType: checkpoint.type,
-        description: checkpoint.metadata?.description,
-        tags: checkpoint.metadata?.tags,
-      },
-    };
+      description: checkpoint.metadata?.description,
+    });
   }
 
   protected buildDeletedEvent(
     checkpointId: string,
     reason?: "manual" | "cleanup" | "policy",
   ): unknown {
-    return {
-      id: generateId(),
-      type: "CHECKPOINT_DELETED",
-      timestamp: Date.now(),
-      data: {
-        checkpointId,
-        reason: reason || "cleanup",
-      },
-    };
+    return buildCheckpointDeletedEvent({
+      checkpointId,
+      reason: reason || "cleanup",
+    });
   }
 
   protected buildFailedEvent(
@@ -170,19 +165,11 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
     error: unknown,
     operation: "create" | "restore" | "delete" = "create",
   ): unknown {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
-
-    return {
-      id: generateId(),
-      type: "CHECKPOINT_FAILED",
-      timestamp: Date.now(),
-      data: {
-        checkpointId,
-        operation,
-        error: errorMessage,
-        stackTrace: errorStack,
-      },
-    };
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    return buildCheckpointFailedEvent({
+      checkpointId,
+      operation,
+      error: errorObj,
+    });
   }
 }

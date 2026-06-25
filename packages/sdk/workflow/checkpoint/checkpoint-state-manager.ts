@@ -62,9 +62,9 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
   override async create(checkpointData: Checkpoint): Promise<string> {
     const id = await super.create(checkpointData);
 
-    // Execute entity-specific cleanup after saving
+    // Execute entity-specific cleanup after saving, excluding the newly created checkpoint
     if (this.cleanupPolicy && checkpointData.executionId) {
-      await this.executeCleanupForEntity(checkpointData.executionId, "workflow");
+      await this.executeCleanupForEntity(checkpointData.executionId, "workflow", id);
     }
 
     return id;

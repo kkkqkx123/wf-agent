@@ -116,3 +116,21 @@ export interface WorkflowExecutionStateSnapshot {
   /** Recent execution events for timeline view (limited to prevent state bloat) */
   eventRecords?: ExecutionEventRecord[];
 }
+
+/**
+ * Workflow Execution State Snapshot for internal state manager use
+ * Mirrors WorkflowExecutionStateSnapshot but used by WorkflowExecutionState class
+ */
+export interface WorkflowExecutionStateManagerSnapshot {
+  status: WorkflowExecutionStatus;
+  shouldPause: boolean;
+  shouldStop: boolean;
+  startTime: number | null;
+  endTime: number | null;
+  error: unknown;
+  interrupted: boolean;
+  currentOperation: OperationState | null;
+  errorRecords: ExecutionErrorRecord[];
+  interruptionRecords: ExecutionInterruptionRecord[];
+  eventRecords: ExecutionEventRecord[];
+}

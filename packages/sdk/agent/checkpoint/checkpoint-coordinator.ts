@@ -6,6 +6,7 @@
  */
 
 import { AgentLoopEntity } from "../entities/agent-loop-entity.js";
+import type { ConversationSession } from "../../shared/messaging/conversation-session.js";
 import type {
   CheckpointMetadata,
   DeltaStorageConfig,
@@ -60,7 +61,7 @@ export interface CheckpointDependencies extends BaseCheckpointDependencies<Agent
   /** Incremental storage configuration (optional) */
   deltaConfig?: DeltaStorageConfig;
   /** Conversation manager for message persistence (optional) */
-  conversationManager?: any; // Allow for optional conversation manager injection
+  conversationManager?: ConversationSession;
   /** File checkpoint manager for persisting external file state (optional) */
   fileCheckpointManager?: FileCheckpointManager;
 }

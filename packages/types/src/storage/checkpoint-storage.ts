@@ -33,6 +33,8 @@ export interface CheckpointStorageMetadata {
   baseCheckpointId?: ID;
   /** Previous checkpoint ID (for delta checkpoints) */
   previousCheckpointId?: ID;
+  /** BLOB size in bytes (for size-based cleanup policies) */
+  blobSize?: number;
 }
 
 /**

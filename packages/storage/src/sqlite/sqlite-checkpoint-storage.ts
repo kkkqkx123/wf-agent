@@ -523,7 +523,8 @@ if (conditions.length > 0) {
           entity_id as "entityId",
           timestamp,
           tags,
-          custom_fields as "customFields"
+          custom_fields as "customFields",
+          blob_size as "blobSize"
         FROM checkpoint_metadata`;
       const params: unknown[] = [];
       const conditions: string[] = [];
@@ -593,6 +594,7 @@ if (conditions.length > 0) {
         timestamp: number;
         tags: string | null;
         customFields: string | null;
+        blobSize: number | null;
       }>;
 
       const elapsed = Date.now() - startTime;
@@ -606,6 +608,7 @@ if (conditions.length > 0) {
           timestamp: row.timestamp,
           tags: row.tags ? JSON.parse(row.tags) : undefined,
           customFields: row.customFields ? JSON.parse(row.customFields) : undefined,
+          blobSize: row.blobSize ?? 0,
         },
       }));
     } catch (error) {

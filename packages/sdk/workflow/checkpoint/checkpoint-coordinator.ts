@@ -486,12 +486,16 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       variables: Object.fromEntries(vmSnapshot.variables.entries()),
     };
 
-    // Plan C: Get execution records (if available from entity's execution state)
-    // Note: Workflow's ExecutionState currently doesn't have centralized execution records
-    // like AgentLoopState does. These fields will be populated progressively.
-    const errorRecords = undefined;
-    const interruptionRecords = undefined;
-    const eventRecords = undefined;
+    // Plan C: Get execution records from entity's state manager
+    const errorRecords = entity.state.getErrorRecords().length > 0
+      ? entity.state.getErrorRecords()
+      : undefined;
+    const interruptionRecords = entity.state.getInterruptionRecords().length > 0
+      ? entity.state.getInterruptionRecords()
+      : undefined;
+    const eventRecords = entity.state.getEventRecords().length > 0
+      ? entity.state.getEventRecords()
+      : undefined;
 
     return {
       status: entity.getStatus(),

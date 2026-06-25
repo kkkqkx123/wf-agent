@@ -78,9 +78,6 @@ export abstract class BaseCheckpointStateManager<
         dataSize: serializedData.length,
       });
 
-      // Note: Cleanup is now handled by subclasses using executeCleanupForEntity(entityId, entityType)
-      // This allows entity-specific cleanup instead of global cleanup
-
       return checkpoint.id;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -183,12 +180,14 @@ export abstract class BaseCheckpointStateManager<
    *
    * @param entityId The entity ID
    * @param entityType The entity type ('workflow', 'agent', 'task')
+   * @param excludeCheckpointId Optional checkpoint ID to exclude from cleanup (e.g., newly created)
    * @param policy Optional cleanup policy (overrides default if provided)
    * @returns Cleanup result
    */
   async executeCleanupForEntity(
     entityId: string,
     entityType: string,
+    excludeCheckpointId?: string,
     policy?: CleanupPolicy,
   ): Promise<CleanupResult> {
     const targetPolicy = policy || this.cleanupPolicy;
@@ -206,6 +205,7 @@ export abstract class BaseCheckpointStateManager<
       entityId,
       entityType,
       policy: targetPolicy.type,
+      excludeCheckpointId,
     });
 
     // Load only this entity's checkpoints metadata (optimized query using indexes)
@@ -224,11 +224,13 @@ export abstract class BaseCheckpointStateManager<
       }
     }
 
-    // Convert to CheckpointInfo format for strategy
-    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray.map(info => ({
-      checkpointId: info.id,
-      metadata: info.metadata as CheckpointStorageMetadata,
-    }));
+    // Convert to CheckpointInfo format for strategy, excluding the specified checkpoint
+    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray
+      .filter(info => info.id !== excludeCheckpointId)
+      .map(info => ({
+        checkpointId: info.id,
+        metadata: info.metadata as CheckpointStorageMetadata,
+      }));
 
     // Execute cleanup strategy
     const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
@@ -274,6 +276,30 @@ export abstract class BaseCheckpointStateManager<
   async initialize(): Promise<void> {
     logger.info("Initializing checkpoint state manager");
     await this.storageAdapter.initialize();
+    await this.loadCheckpointSizes();
+  }
+
+  /**
+   * Load checkpoint sizes from storage to rebuild the in-memory cache
+   * This ensures size-based cleanup policies work correctly after restart
+   */
+  private async loadCheckpointSizes(): Promise<void> {
+    try {
+      const checkpointsWithMetadata = await this.storageAdapter.listWithMetadata();
+      for (const { id, metadata } of checkpointsWithMetadata) {
+        const size = metadata.blobSize ?? 0;
+        if (size > 0) {
+          this.checkpointSizes.set(id, size);
+        }
+      }
+      logger.info("Loaded checkpoint sizes from storage", {
+        count: this.checkpointSizes.size,
+      });
+    } catch (error) {
+      logger.warn("Failed to load checkpoint sizes from storage", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

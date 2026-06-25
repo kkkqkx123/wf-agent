@@ -6,8 +6,18 @@
  */
 
 import { now } from "@wf-agent/common-utils";
-import type { WorkflowExecutionStatus, ExecutionErrorRecord } from "@wf-agent/types";
-import { RuntimeValidationError, EXECUTION_STATE_MAX_ERROR_RECORDS } from "@wf-agent/types";
+import type {
+  WorkflowExecutionStatus,
+  ExecutionErrorRecord,
+  ExecutionInterruptionRecord,
+  ExecutionEventRecord,
+} from "@wf-agent/types";
+import {
+  RuntimeValidationError,
+  EXECUTION_STATE_MAX_ERROR_RECORDS,
+  EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
+  EXECUTION_STATE_MAX_EVENTS,
+} from "@wf-agent/types";
 import type { StateManager } from "../../shared/types/state-manager.js";
 
 /**
@@ -58,6 +68,8 @@ export interface WorkflowExecutionStateSnapshot {
   interrupted: boolean;
   currentOperation: OperationState | null;
   errorRecords: ExecutionErrorRecord[];
+  interruptionRecords: ExecutionInterruptionRecord[];
+  eventRecords: ExecutionEventRecord[];
 }
 
 /**
@@ -99,6 +111,12 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
 
   /** Error records accumulated during execution */
   private _errorRecords: ExecutionErrorRecord[] = [];
+
+  /** Interruption records accumulated during execution */
+  private _interruptionRecords: ExecutionInterruptionRecord[] = [];
+
+  /** Event records accumulated during execution */
+  private _eventRecords: ExecutionEventRecord[] = [];
 
   /**
    * Get the current status
@@ -402,6 +420,44 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
+   * Record an interruption
+   * @param record Interruption record
+   */
+  recordInterruption(record: ExecutionInterruptionRecord): void {
+    const MAX_INTERRUPTIONS = EXECUTION_STATE_MAX_INTERRUPTION_RECORDS;
+    if (this._interruptionRecords.length >= MAX_INTERRUPTIONS) {
+      this._interruptionRecords.shift();
+    }
+    this._interruptionRecords.push(record);
+  }
+
+  /**
+   * Get all interruption records
+   */
+  getInterruptionRecords(): ExecutionInterruptionRecord[] {
+    return [...this._interruptionRecords];
+  }
+
+  /**
+   * Record an event
+   * @param record Event record
+   */
+  recordEvent(record: ExecutionEventRecord): void {
+    const MAX_EVENTS = EXECUTION_STATE_MAX_EVENTS;
+    if (this._eventRecords.length >= MAX_EVENTS) {
+      this._eventRecords.shift();
+    }
+    this._eventRecords.push(record);
+  }
+
+  /**
+   * Get all event records
+   */
+  getEventRecords(): ExecutionEventRecord[] {
+    return [...this._eventRecords];
+  }
+
+  /**
    * Get the complete error chain for a specific error
    *
    * Returns all errors in the chain starting from the root cause
@@ -483,6 +539,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
       interrupted: this._interrupted,
       currentOperation: this._currentOperation ? { ...this._currentOperation } : null,
       errorRecords: [...this._errorRecords],
+      interruptionRecords: [...this._interruptionRecords],
+      eventRecords: [...this._eventRecords],
     };
   }
 
@@ -500,6 +558,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._interrupted = snapshot.interrupted;
     this._currentOperation = snapshot.currentOperation ? { ...snapshot.currentOperation } : null;
     this._errorRecords = [...(snapshot.errorRecords ?? [])];
+    this._interruptionRecords = [...(snapshot.interruptionRecords ?? [])];
+    this._eventRecords = [...(snapshot.eventRecords ?? [])];
   }
 
   /**
@@ -531,6 +591,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._interrupted = false;
     this._currentOperation = null;
     this._errorRecords = [];
+    this._interruptionRecords = [];
+    this._eventRecords = [];
   }
 
   /**
@@ -547,6 +609,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     cloned._interrupted = this._interrupted;
     cloned._currentOperation = this._currentOperation ? { ...this._currentOperation } : null;
     cloned._errorRecords = [...this._errorRecords];
+    cloned._interruptionRecords = [...this._interruptionRecords];
+    cloned._eventRecords = [...this._eventRecords];
     return cloned;
   }
 }

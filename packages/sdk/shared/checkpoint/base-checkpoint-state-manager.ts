@@ -9,6 +9,7 @@ import type {
   BaseCheckpoint,
   CleanupPolicy,
   CleanupResult,
+  CheckpointStorageRecord,
   CheckpointStorageMetadata,
   CheckpointInfo,
   BaseEvent,
@@ -20,6 +21,8 @@ import type { DeltaMap } from "./base-diff-calculator.js";
 import { createCleanupStrategy } from "./utils/cleanup-policy.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { CheckpointStorageAdapter } from "./types.js";
+import { CheckpointMetricsCollector } from "./checkpoint-metrics-collector.js";
+import type { CheckpointMetricsConfig } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "BaseCheckpointStateManager" });
 
@@ -40,16 +43,21 @@ export abstract class BaseCheckpointStateManager<
   protected codec: StateCodec;
   protected checkpointSizes: Map<string, number> = new Map();
   private diffCalculator: BaseDiffCalculator = new BaseDiffCalculator();
+  private metricsCollector?: CheckpointMetricsCollector;
 
   constructor(
     storageAdapter: CheckpointStorageAdapter,
     eventManager?: EventRegistry,
     cleanupPolicy?: CleanupPolicy,
+    metricsConfig?: CheckpointMetricsConfig,
   ) {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
     this.cleanupPolicy = cleanupPolicy;
     this.codec = new StateCodec();
+    if (metricsConfig?.enabled) {
+      this.metricsCollector = new CheckpointMetricsCollector(metricsConfig, logger);
+    }
   }
 
   /**
@@ -58,6 +66,9 @@ export abstract class BaseCheckpointStateManager<
    * @returns The checkpoint ID
    */
   async create(checkpoint: TCheckpoint): Promise<string> {
+    const startTime = performance.now();
+    const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
+
     try {
       logger.debug("Creating checkpoint", {
         checkpointId: checkpoint.id,
@@ -87,9 +98,26 @@ export abstract class BaseCheckpointStateManager<
         }
       }
 
+      const duration = performance.now() - startTime;
+
+      // Record creation metrics
+      this.metricsCollector?.recordCreation({
+        checkpointId: checkpoint.id,
+        entityId,
+        type: checkpoint.type as "FULL" | "DELTA",
+        duration,
+        size: serializedData.length,
+        timestamp: Date.now(),
+        success: true,
+      });
+
+      // Record chain length metric
+      this.recordChainLength(entityId);
+
       logger.info("Checkpoint created", {
         checkpointId: checkpoint.id,
         dataSize: serializedData.length,
+        duration: `${duration.toFixed(2)}ms`,
       });
 
       return checkpoint.id;
@@ -97,6 +125,18 @@ export abstract class BaseCheckpointStateManager<
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Failed to create checkpoint", {
         checkpointId: checkpoint.id,
+        error: errorMessage,
+      });
+
+      // Record failed creation metrics
+      this.metricsCollector?.recordCreation({
+        checkpointId: checkpoint.id,
+        entityId,
+        type: checkpoint.type as "FULL" | "DELTA",
+        duration: performance.now() - startTime,
+        size: 0,
+        timestamp: Date.now(),
+        success: false,
         error: errorMessage,
       });
 
@@ -111,11 +151,36 @@ export abstract class BaseCheckpointStateManager<
   }
 
   /**
+   * Record chain length metric for an entity
+   */
+  private async recordChainLength(entityId: string): Promise<void> {
+    if (!this.metricsCollector) return;
+
+    try {
+      const checkpoints = await this.storageAdapter.listByEntityWithMetadata(entityId, "");
+      const fullCount = checkpoints.filter(c => c.metadata.checkpointType === "FULL").length;
+      const deltaCount = checkpoints.filter(c => c.metadata.checkpointType === "DELTA").length;
+
+      this.metricsCollector.recordChainLength({
+        entityId,
+        chainLength: checkpoints.length,
+        fullCount,
+        deltaCount,
+        timestamp: Date.now(),
+      });
+    } catch {
+      // Don't fail the main operation if metrics recording fails
+    }
+  }
+
+  /**
    * Get a checkpoint by ID
    * @param checkpointId Checkpoint ID
    * @returns The checkpoint or null if not found
    */
   async get(checkpointId: string): Promise<TCheckpoint | null> {
+    const startTime = performance.now();
+
     // Step 1: Load raw data from storage
     let data: Uint8Array | null;
     try {
@@ -125,6 +190,17 @@ export abstract class BaseCheckpointStateManager<
         checkpointId,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      // Record failed load metrics
+      this.metricsCollector?.recordLoad({
+        checkpointId,
+        entityId: "unknown",
+        duration: performance.now() - startTime,
+        timestamp: Date.now(),
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
       throw error; // Storage failure should propagate, not be swallowed
     }
 
@@ -137,6 +213,18 @@ export abstract class BaseCheckpointStateManager<
     try {
       const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
       this.checkpointSizes.set(checkpointId, data.length);
+
+      const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
+
+      // Record successful load metrics
+      this.metricsCollector?.recordLoad({
+        checkpointId,
+        entityId,
+        duration: performance.now() - startTime,
+        timestamp: Date.now(),
+        success: true,
+      });
+
       return checkpoint;
     } catch (error) {
       logger.error("Failed to deserialize checkpoint (data may be corrupted)", {
@@ -144,6 +232,17 @@ export abstract class BaseCheckpointStateManager<
         size: data.length,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      // Record failed load metrics
+      this.metricsCollector?.recordLoad({
+        checkpointId,
+        entityId: "unknown",
+        duration: performance.now() - startTime,
+        timestamp: Date.now(),
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
       throw new Error(`Checkpoint data corrupted: ${checkpointId} (${data.length} bytes)`, {
         cause: error,
       });
@@ -200,8 +299,11 @@ export abstract class BaseCheckpointStateManager<
       return new Map();
     }
 
+    const startTime = performance.now();
     const results = await this.storageAdapter.loadBatch(ids);
     const map = new Map<string, TCheckpoint | null>();
+    let successCount = 0;
+    let failCount = 0;
 
     for (const { id, data } of results) {
       if (data) {
@@ -209,13 +311,28 @@ export abstract class BaseCheckpointStateManager<
           const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
           this.checkpointSizes.set(id, data.length);
           map.set(id, checkpoint);
+          successCount++;
         } catch {
           logger.warn("Failed to deserialize checkpoint in batch load", { id });
           map.set(id, null);
+          failCount++;
         }
       } else {
         map.set(id, null);
       }
+    }
+
+    // Record batch load metrics
+    if (ids.length > 0) {
+      const entityId = "unknown";
+      this.metricsCollector?.recordLoad({
+        checkpointId: `batch_${ids.length}`,
+        entityId,
+        duration: performance.now() - startTime,
+        timestamp: Date.now(),
+        success: failCount === 0,
+        error: failCount > 0 ? `${failCount} failures` : undefined,
+      });
     }
 
     return map;
@@ -239,6 +356,7 @@ export abstract class BaseCheckpointStateManager<
     excludeCheckpointId?: string,
     policy?: CleanupPolicy,
   ): Promise<CleanupResult> {
+    const startTime = performance.now();
     const targetPolicy = policy || this.cleanupPolicy;
 
     if (!targetPolicy) {
@@ -344,6 +462,18 @@ export abstract class BaseCheckpointStateManager<
         cleanupRunCount: cleanupRunCount + 1,
       });
     }
+
+    const duration = performance.now() - startTime;
+
+    // Record cleanup metrics
+    this.metricsCollector?.recordCleanup({
+      entityId,
+      count: toDeleteIds.length,
+      sizeFreed: freedSpaceBytes,
+      duration,
+      timestamp: Date.now(),
+      success: true,
+    });
 
     return {
       deletedCheckpointIds: toDeleteIds,
@@ -464,6 +594,13 @@ export abstract class BaseCheckpointStateManager<
   }
 
   /**
+   * Get the metrics collector (if enabled)
+   */
+  getMetricsCollector(): CheckpointMetricsCollector | undefined {
+    return this.metricsCollector;
+  }
+
+  /**
    * Initialize the state manager
    */
   async initialize(): Promise<void> {
@@ -488,7 +625,7 @@ export abstract class BaseCheckpointStateManager<
    * @param checkpoint The checkpoint
    * @returns Storage metadata
    */
-  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageMetadata;
+  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageRecord;
 
   /**
    * Build checkpoint created event

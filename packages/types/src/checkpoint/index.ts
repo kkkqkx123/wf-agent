@@ -39,6 +39,8 @@ export {
 export type {
   CheckpointCreationMetrics,
   CheckpointCleanupMetrics,
+  CheckpointLoadMetrics,
+  CheckpointChainLengthMetric,
   CheckpointMetricsAggregate,
   CheckpointMetricsConfig,
   CheckpointMetricsEvent,

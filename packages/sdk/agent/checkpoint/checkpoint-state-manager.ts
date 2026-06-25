@@ -129,17 +129,22 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   // ============================================================================
 
   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
-    return {
+    const record: CheckpointStorageMetadata = {
       entityType: "agent",
       entityId: checkpoint.agentLoopId || this.agentLoopId,
       timestamp: checkpoint.timestamp,
-      customFields: {
-        version: 1,
-      },
       checkpointType: checkpoint.type,
       baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
       previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
     };
+
+    // Only store user-facing metadata for FULL checkpoints to avoid
+    // duplicating stable fields across delta chains
+    if (checkpoint.type === "FULL") {
+      record.customFields = { version: 1 };
+    }
+
+    return record;
   }
 
   protected buildCreatedEvent(checkpoint: AgentLoopCheckpoint): unknown {

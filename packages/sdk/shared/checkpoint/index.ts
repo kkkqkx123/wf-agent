@@ -11,6 +11,9 @@ export { BaseCheckpointStateManager } from "./base-checkpoint-state-manager.js";
 export { BaseDiffCalculator } from "./base-diff-calculator.js";
 export { BaseDeltaRestorer } from "./base-delta-restorer.js";
 
+// Metrics
+export { CheckpointMetricsCollector } from "./checkpoint-metrics-collector.js";
+
 // Types and interfaces
 export type {
   CheckpointStorageAdapter,

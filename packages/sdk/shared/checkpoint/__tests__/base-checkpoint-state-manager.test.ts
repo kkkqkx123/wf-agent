@@ -106,18 +106,23 @@ interface TestCheckpoint extends BaseCheckpoint<
 // ---- Concrete State Manager for Testing ----
 class TestCheckpointStateManager extends BaseCheckpointStateManager<TestCheckpoint> {
   extractStorageMetadata(checkpoint: TestCheckpoint): CheckpointStorageMetadata {
-    return {
+    const record: CheckpointStorageMetadata = {
       entityType: checkpoint.entityType as any,
       entityId: checkpoint.entityId,
       timestamp: checkpoint.timestamp || Date.now(),
       checkpointType: checkpoint.type,
       baseCheckpointId: checkpoint.baseCheckpointId,
       previousCheckpointId: checkpoint.previousCheckpointId,
-      tags: checkpoint.metadata?.tags || [],
-      customFields: {
-        blobSize: checkpoint.snapshot ? JSON.stringify(checkpoint.snapshot).length : 0,
-      },
     };
+
+    if (checkpoint.type === "FULL") {
+      record.tags = checkpoint.metadata?.tags || [];
+      record.customFields = {
+        blobSize: checkpoint.snapshot ? JSON.stringify(checkpoint.snapshot).length : 0,
+      };
+    }
+
+    return record;
   }
 
   buildCreatedEvent(checkpoint: TestCheckpoint): unknown {

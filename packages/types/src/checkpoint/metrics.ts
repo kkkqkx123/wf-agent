@@ -77,6 +77,18 @@ export interface CheckpointMetricsAggregate {
   periodStart: number;
   /** Metrics collection period end timestamp */
   periodEnd: number;
+  /** Average load time in milliseconds */
+  avgLoadTime?: number;
+  /** P50 load time in milliseconds */
+  p50LoadTime?: number;
+  /** P95 load time in milliseconds */
+  p95LoadTime?: number;
+  /** P99 load time in milliseconds */
+  p99LoadTime?: number;
+  /** Max delta chain length observed */
+  maxChainLength?: number;
+  /** Average delta chain length observed */
+  avgChainLength?: number;
 }
 
 /**
@@ -96,10 +108,44 @@ export interface CheckpointMetricsConfig {
  */
 export interface CheckpointMetricsEvent {
   /** Event type */
-  type: "creation" | "cleanup" | "aggregate";
+  type: "creation" | "cleanup" | "load" | "chainLength" | "aggregate";
   /** Associated metrics data */
-  data: CheckpointCreationMetrics | CheckpointCleanupMetrics | CheckpointMetricsAggregate;
+  data: CheckpointCreationMetrics | CheckpointCleanupMetrics | CheckpointLoadMetrics | CheckpointChainLengthMetric | CheckpointMetricsAggregate;
   /** Event timestamp */
+  timestamp: number;
+}
+
+/**
+ * Checkpoint load metrics
+ */
+export interface CheckpointLoadMetrics {
+  /** Checkpoint ID */
+  checkpointId: string;
+  /** Parent entity ID */
+  entityId: string;
+  /** Time taken to load checkpoint in milliseconds */
+  duration: number;
+  /** Timestamp when checkpoint was loaded */
+  timestamp: number;
+  /** Whether load was successful */
+  success: boolean;
+  /** Error message if load failed */
+  error?: string;
+}
+
+/**
+ * Checkpoint chain length metric for tracking delta chain depth
+ */
+export interface CheckpointChainLengthMetric {
+  /** Entity ID */
+  entityId: string;
+  /** Chain length (number of checkpoints in the chain) */
+  chainLength: number;
+  /** Number of FULL checkpoints */
+  fullCount: number;
+  /** Number of DELTA checkpoints */
+  deltaCount: number;
+  /** Timestamp when measured */
   timestamp: number;
 }
 
@@ -111,8 +157,16 @@ export interface ICheckpointMetricsStorage {
   recordCreation(metrics: CheckpointCreationMetrics): void;
   /** Record cleanup metrics */
   recordCleanup(metrics: CheckpointCleanupMetrics): void;
-  /** Get metrics for an entity */
+  /** Record load metrics */
+  recordLoad(metrics: CheckpointLoadMetrics): void;
+  /** Record chain length metric */
+  recordChainLength(metrics: CheckpointChainLengthMetric): void;
+  /** Get creation metrics for an entity */
   getMetrics(entityId: string): CheckpointCreationMetrics[];
+  /** Get load metrics for an entity */
+  getLoadMetrics(entityId: string): CheckpointLoadMetrics[];
+  /** Get chain length metrics for an entity */
+  getChainLengthMetrics(entityId: string): CheckpointChainLengthMetric[];
   /** Get aggregated metrics for an entity */
   getAggregate(entityId: string): CheckpointMetricsAggregate | null;
   /** Clear metrics for an entity */

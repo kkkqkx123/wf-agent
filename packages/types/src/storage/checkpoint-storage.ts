@@ -12,22 +12,23 @@ import type { ID, Timestamp } from "../common.js";
 export type CheckpointEntityType = 'workflow' | 'agent' | 'task';
 
 /**
- * Checkpoint storage metadata
- * Metadata information for indexing and querying
- * Entity-based design for efficient checkpoint management
+ * Checkpoint storage record — core fields stored as independent columns
+ *
+ * These fields are required for all checkpoint types (FULL and DELTA).
+ * They support entity-based querying, chain traversal, and cleanup policies.
+ *
+ * Storage layer (SQLite/Postgres) stores these as separate indexed columns:
+ *   entity_type, entity_id, timestamp, checkpoint_type,
+ *   base_checkpoint_id, previous_checkpoint_id, blob_size
  */
-export interface CheckpointStorageMetadata {
-  /** Entity type - identifies which entity this checkpoint belongs to (required) */
+export interface CheckpointStorageRecord {
+  /** Entity type - identifies which entity this checkpoint belongs to */
   entityType: CheckpointEntityType;
-  /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) (required) */
+  /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) */
   entityId: ID;
-  /** Creation timestamp (required) */
+  /** Creation timestamp */
   timestamp: Timestamp;
-  /** Tag array (for categorization and retrieval) */
-  tags?: string[];
-  /** Custom metadata fields */
-  customFields?: Record<string, unknown>;
-  /** Checkpoint type (FULL or DELTA) - extracted from checkpoint for querying */
+  /** Checkpoint type (FULL or DELTA) */
   checkpointType?: 'FULL' | 'DELTA';
   /** Base checkpoint ID (for delta checkpoints) */
   baseCheckpointId?: ID;
@@ -35,6 +36,23 @@ export interface CheckpointStorageMetadata {
   previousCheckpointId?: ID;
   /** BLOB size in bytes (for size-based cleanup policies) */
   blobSize?: number;
+}
+
+/**
+ * Checkpoint storage metadata — extends record with optional user-facing metadata
+ *
+ * These fields are stored as TEXT columns in the storage layer.
+ * They are only populated for FULL checkpoints to avoid duplication
+ * across the delta chain. DELTA checkpoints store the core record only.
+ *
+ * Storage layer stores these as separate columns:
+ *   tags (TEXT), custom_fields (TEXT)
+ */
+export interface CheckpointStorageMetadata extends CheckpointStorageRecord {
+  /** Tag array (for categorization and retrieval) */
+  tags?: string[];
+  /** Custom metadata fields */
+  customFields?: Record<string, unknown>;
 }
 
 /**

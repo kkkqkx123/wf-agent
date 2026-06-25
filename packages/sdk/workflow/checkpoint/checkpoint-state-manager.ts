@@ -119,16 +119,23 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       throw new Error("checkpoint.executionId is required for storage metadata");
     }
 
-    return {
+    const record: CheckpointStorageMetadata = {
       entityType: "workflow",
       entityId: checkpoint.executionId,
       timestamp: checkpoint.timestamp,
-      tags: checkpoint.metadata?.tags,
-      customFields: checkpoint.metadata?.customFields,
       checkpointType: checkpoint.type,
       baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
       previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
     };
+
+    // Only store user-facing metadata for FULL checkpoints to avoid
+    // duplicating stable fields across delta chains
+    if (checkpoint.type === "FULL") {
+      record.tags = checkpoint.metadata?.tags;
+      record.customFields = checkpoint.metadata?.customFields;
+    }
+
+    return record;
   }
 
   protected buildCreatedEvent(checkpoint: Checkpoint): unknown {

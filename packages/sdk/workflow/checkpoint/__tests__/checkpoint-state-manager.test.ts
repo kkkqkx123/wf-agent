@@ -301,10 +301,11 @@ describe("CheckpointState", () => {
     it("should extract metadata from checkpoint", () => {
       const metadata = (checkpointState as any).extractStorageMetadata(mockCheckpoint);
 
-      expect(metadata).toEqual({
+      expect(metadata).toMatchObject({
         entityType: "workflow",
         entityId: mockCheckpoint.executionId,
         timestamp: mockCheckpoint.timestamp,
+        checkpointType: "FULL",
         tags: mockCheckpoint.metadata?.tags,
         customFields: mockCheckpoint.metadata?.customFields,
       });

@@ -10,6 +10,8 @@
 import type {
   CheckpointCreationMetrics,
   CheckpointCleanupMetrics,
+  CheckpointLoadMetrics,
+  CheckpointChainLengthMetric,
   CheckpointMetricsAggregate,
   CheckpointMetricsConfig,
   ICheckpointMetricsStorage,
@@ -27,6 +29,8 @@ interface Logger {
 class CheckpointMetricsMemoryStorage implements ICheckpointMetricsStorage {
   private creationMetrics: Map<string, CheckpointCreationMetrics[]> = new Map();
   private cleanupMetrics: Map<string, CheckpointCleanupMetrics[]> = new Map();
+  private loadMetrics: Map<string, CheckpointLoadMetrics[]> = new Map();
+  private chainLengthMetrics: Map<string, CheckpointChainLengthMetric[]> = new Map();
   private maxMetrics: number;
 
   constructor(maxMetrics: number = 1000) {
@@ -55,13 +59,45 @@ class CheckpointMetricsMemoryStorage implements ICheckpointMetricsStorage {
     this.cleanupMetrics.set(metrics.entityId, entityMetrics);
   }
 
+  recordLoad(metrics: CheckpointLoadMetrics): void {
+    const entityMetrics = this.loadMetrics.get(metrics.entityId) || [];
+    entityMetrics.push(metrics);
+
+    if (entityMetrics.length > this.maxMetrics) {
+      entityMetrics.shift();
+    }
+
+    this.loadMetrics.set(metrics.entityId, entityMetrics);
+  }
+
+  recordChainLength(metrics: CheckpointChainLengthMetric): void {
+    const entityMetrics = this.chainLengthMetrics.get(metrics.entityId) || [];
+    entityMetrics.push(metrics);
+
+    if (entityMetrics.length > this.maxMetrics) {
+      entityMetrics.shift();
+    }
+
+    this.chainLengthMetrics.set(metrics.entityId, entityMetrics);
+  }
+
   getMetrics(entityId: string): CheckpointCreationMetrics[] {
     return this.creationMetrics.get(entityId) || [];
   }
 
+  getLoadMetrics(entityId: string): CheckpointLoadMetrics[] {
+    return this.loadMetrics.get(entityId) || [];
+  }
+
+  getChainLengthMetrics(entityId: string): CheckpointChainLengthMetric[] {
+    return this.chainLengthMetrics.get(entityId) || [];
+  }
+
   getAggregate(entityId: string): CheckpointMetricsAggregate | null {
     const metrics = this.getMetrics(entityId);
-    if (metrics.length === 0) {
+    const loadMetrics = this.getLoadMetrics(entityId);
+    const chainLengthMetrics = this.getChainLengthMetrics(entityId);
+    if (metrics.length === 0 && loadMetrics.length === 0) {
       return null;
     }
 
@@ -70,32 +106,53 @@ class CheckpointMetricsMemoryStorage implements ICheckpointMetricsStorage {
     const failureCount = metrics.filter((m) => !m.success).length;
 
     const durations = metrics.map((m) => m.duration);
-    const avgCreationTime = durations.reduce((a, b) => a + b, 0) / durations.length;
+    const avgCreationTime = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
 
     const sizes = metrics.filter((m) => m.success).map((m) => m.size);
     const totalSize = sizes.reduce((a, b) => a + b, 0);
     const avgSize = sizes.length > 0 ? totalSize / sizes.length : 0;
 
-    return {
+    const result: CheckpointMetricsAggregate = {
       entityId,
       totalCheckpoints: metrics.length,
       fullCheckpoints,
       deltaCheckpoints,
       avgCreationTime,
-      maxCreationTime: Math.max(...durations),
-      minCreationTime: Math.min(...durations),
+      maxCreationTime: durations.length > 0 ? Math.max(...durations) : 0,
+      minCreationTime: durations.length > 0 ? Math.min(...durations) : 0,
       totalSize,
       avgSize,
       failureCount,
-      successRate: ((metrics.length - failureCount) / metrics.length) * 100,
-      periodStart: metrics[0]!.timestamp,
-      periodEnd: metrics[metrics.length - 1]!.timestamp,
+      successRate: metrics.length > 0 ? ((metrics.length - failureCount) / metrics.length) * 100 : 100,
+      periodStart: metrics.length > 0 ? metrics[0]!.timestamp : 0,
+      periodEnd: metrics.length > 0 ? metrics[metrics.length - 1]!.timestamp : 0,
     };
+
+    if (loadMetrics.length > 0) {
+      const loadDurations = loadMetrics.filter((m) => m.success).map((m) => m.duration);
+      if (loadDurations.length > 0) {
+        const sorted = [...loadDurations].sort((a, b) => a - b);
+        result.avgLoadTime = loadDurations.reduce((a, b) => a + b, 0) / loadDurations.length;
+        result.p50LoadTime = sorted[Math.floor(sorted.length * 0.5)]!;
+        result.p95LoadTime = sorted[Math.floor(sorted.length * 0.95)]!;
+        result.p99LoadTime = sorted[Math.floor(sorted.length * 0.99)]!;
+      }
+    }
+
+    if (chainLengthMetrics.length > 0) {
+      const lengths = chainLengthMetrics.map((m) => m.chainLength);
+      result.maxChainLength = Math.max(...lengths);
+      result.avgChainLength = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    }
+
+    return result;
   }
 
   clearMetrics(entityId: string): void {
     this.creationMetrics.delete(entityId);
     this.cleanupMetrics.delete(entityId);
+    this.loadMetrics.delete(entityId);
+    this.chainLengthMetrics.delete(entityId);
   }
 
   getAllMetrics(): CheckpointCreationMetrics[] {
@@ -174,10 +231,71 @@ export class CheckpointMetricsCollector {
   }
 
   /**
+   * Record checkpoint load metrics
+   */
+  recordLoad(metrics: CheckpointLoadMetrics): void {
+    if (!this.config.enabled) {
+      return;
+    }
+
+    this.storage.recordLoad(metrics);
+
+    this.emit({
+      type: "creation",
+      data: metrics,
+      timestamp: Date.now(),
+    });
+
+    this.logger.debug("Checkpoint load metrics recorded", {
+      checkpointId: metrics.checkpointId,
+      duration: metrics.duration,
+      success: metrics.success,
+    });
+  }
+
+  /**
+   * Record checkpoint chain length metric
+   */
+  recordChainLength(metrics: CheckpointChainLengthMetric): void {
+    if (!this.config.enabled) {
+      return;
+    }
+
+    this.storage.recordChainLength(metrics);
+
+    this.emit({
+      type: "aggregate",
+      data: metrics,
+      timestamp: Date.now(),
+    });
+
+    this.logger.debug("Checkpoint chain length recorded", {
+      entityId: metrics.entityId,
+      chainLength: metrics.chainLength,
+      fullCount: metrics.fullCount,
+      deltaCount: metrics.deltaCount,
+    });
+  }
+
+  /**
    * Get metrics for an entity
    */
   getMetrics(entityId: string): CheckpointCreationMetrics[] {
     return this.storage.getMetrics(entityId);
+  }
+
+  /**
+   * Get load metrics for an entity
+   */
+  getLoadMetrics(entityId: string): CheckpointLoadMetrics[] {
+    return this.storage.getLoadMetrics(entityId);
+  }
+
+  /**
+   * Get chain length metrics for an entity
+   */
+  getChainLengthMetrics(entityId: string): CheckpointChainLengthMetric[] {
+    return this.storage.getChainLengthMetrics(entityId);
   }
 
   /**

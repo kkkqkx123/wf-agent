@@ -35,6 +35,7 @@ const DEFAULT_CONFIG: Partial<FileCheckpointManagerConfig> = {
   maxFileSize: 10 * 1024 * 1024,
   maxDeltaChainLength: 20,
   customIgnorePatterns: [],
+  failureBehavior: "warn",
 };
 
 const HARDCODED_IGNORE_PATTERNS = [".git", "node_modules"];
@@ -120,9 +121,14 @@ export class FileCheckpointManager {
           workspaceRoot: this.config.workspaceRoot,
         });
       } catch (err) {
-        logger.warn("Failed to start FileWatcher, falling back to scan mode", {
-          err,
-        });
+        const behavior = this.config.failureBehavior ?? "warn";
+        if (behavior === "error") {
+          throw err;
+        } else if (behavior === "warn") {
+          logger.warn("Failed to start FileWatcher, falling back to scan mode", {
+            err,
+          });
+        }
         this.fileWatcher = undefined;
       }
     }
@@ -234,10 +240,15 @@ export class FileCheckpointManager {
             absolutePath,
           });
         } catch (err) {
-          logger.warn("Failed to process changed file", {
-            err,
-            path: relativePath,
-          });
+          const behavior = this.config.failureBehavior ?? "warn";
+          if (behavior === "error") {
+            throw err;
+          } else if (behavior === "warn") {
+            logger.warn("Failed to process changed file", {
+              err,
+              path: relativePath,
+            });
+          }
         }
       }
     }
@@ -356,16 +367,22 @@ export class FileCheckpointManager {
 
     const fileContents = new Map<string, Buffer>();
 
+    const failureBehavior = this.config.failureBehavior ?? "warn";
+
     if (isFullBackup) {
       for (const filePath of files) {
         try {
           const content = await this.readFile(filePath);
           fileContents.set(filePath, content);
         } catch (err) {
-          logger.warn("Failed to read file for full backup, skipping", {
-            err,
-            filePath,
-          });
+          if (failureBehavior === "error") {
+            throw err;
+          } else if (failureBehavior === "warn") {
+            logger.warn("Failed to read file for full backup, skipping", {
+              err,
+              filePath,
+            });
+          }
         }
       }
     } else {
@@ -375,10 +392,14 @@ export class FileCheckpointManager {
             const content = await this.readFile(change.path);
             fileContents.set(change.path, content);
           } catch (err) {
-            logger.warn("Failed to read changed file, skipping", {
-              err,
-              path: change.path,
-            });
+            if (failureBehavior === "error") {
+              throw err;
+            } else if (failureBehavior === "warn") {
+              logger.warn("Failed to read changed file, skipping", {
+                err,
+                path: change.path,
+              });
+            }
           }
         }
       }
@@ -469,6 +490,8 @@ export class FileCheckpointManager {
       }
     }
 
+    const failureBehavior = this.config.failureBehavior ?? "warn";
+
     // Delete extra files
     for (const relativePath of filesToDelete) {
       try {
@@ -476,7 +499,11 @@ export class FileCheckpointManager {
         await fsp.unlink(absolutePath);
         logger.debug("Deleted extra file during restore", { path: relativePath });
       } catch (err) {
-        logger.warn("Failed to delete extra file", { err, path: relativePath });
+        if (failureBehavior === "error") {
+          throw err;
+        } else if (failureBehavior === "warn") {
+          logger.warn("Failed to delete extra file", { err, path: relativePath });
+        }
       }
     }
 
@@ -488,7 +515,11 @@ export class FileCheckpointManager {
         await fsp.writeFile(absolutePath, content);
         logger.debug("Restored file", { path: relativePath });
       } catch (err) {
-        logger.warn("Failed to restore file", { err, path: relativePath });
+        if (failureBehavior === "error") {
+          throw err;
+        } else if (failureBehavior === "warn") {
+          logger.warn("Failed to restore file", { err, path: relativePath });
+        }
       }
     }
 
@@ -498,7 +529,11 @@ export class FileCheckpointManager {
         const absolutePath = path.resolve(this.config.workspaceRoot, emptyDir);
         await fsp.mkdir(absolutePath, { recursive: true });
       } catch (err) {
-        logger.warn("Failed to restore empty directory", { err, emptyDir });
+        if (failureBehavior === "error") {
+          throw err;
+        } else if (failureBehavior === "warn") {
+          logger.warn("Failed to restore empty directory", { err, emptyDir });
+        }
       }
     }
 
@@ -724,13 +759,18 @@ export class FileCheckpointManager {
 
   private async computeFileHashes(files: string[]): Promise<Record<string, string>> {
     const result: Record<string, string> = {};
+    const failureBehavior = this.config.failureBehavior ?? "warn";
 
     for (const filePath of files) {
       try {
         const absolutePath = path.resolve(this.config.workspaceRoot, filePath);
         result[filePath] = await this.hashFile(absolutePath);
       } catch (err) {
-        logger.warn("Failed to hash file, skipping", { err, filePath });
+        if (failureBehavior === "error") {
+          throw err;
+        } else if (failureBehavior === "warn") {
+          logger.warn("Failed to hash file, skipping", { err, filePath });
+        }
       }
     }
 

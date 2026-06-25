@@ -37,4 +37,11 @@ export interface FileCheckpointConfig {
   customIgnorePatterns?: string[];
   /** Storage backend configuration */
   storage?: FileCheckpointStorageConfig;
+  /**
+   * Error handling behavior for file checkpoint operations.
+   * - "warn": Log warning and continue (default, backward compatible)
+   * - "error": Throw error, allowing caller to handle
+   * - "ignore": Silently ignore errors
+   */
+  failureBehavior?: "warn" | "error" | "ignore";
 }

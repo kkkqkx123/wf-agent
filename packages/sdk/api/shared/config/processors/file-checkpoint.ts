@@ -26,6 +26,7 @@ const DEFAULT_FILE_CHECKPOINT_CONFIG: Required<FileCheckpointConfig> = {
     type: "sqlite",
     dbPath: "",
   },
+  failureBehavior: "warn",
 };
 
 /**
@@ -54,6 +55,8 @@ export function mergeFileCheckpointConfig(
       type: userConfig.storage?.type ?? DEFAULT_FILE_CHECKPOINT_CONFIG.storage.type,
       dbPath,
     },
+    failureBehavior:
+      userConfig.failureBehavior ?? DEFAULT_FILE_CHECKPOINT_CONFIG.failureBehavior,
   };
 }
 
@@ -74,5 +77,6 @@ export function toFileCheckpointManagerConfig(
     workspaceRoot: config.workspaceRoot,
     maxDeltaChainLength: config.maxDeltaChainLength,
     customIgnorePatterns: config.customIgnorePatterns,
+    failureBehavior: config.failureBehavior,
   };
 }

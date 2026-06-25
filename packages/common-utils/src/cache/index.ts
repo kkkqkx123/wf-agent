@@ -8,7 +8,7 @@
  * - SHA256: Cryptographic hash (for integrity verification)
  */
 
-export { CacheManager, createCache } from './cache-manager.js';
+export { CacheManager, createCache, createCacheSync } from './cache-manager.js';
 export {
   XXHash32Algorithm,
   XXHash64Algorithm,

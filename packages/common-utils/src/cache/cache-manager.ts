@@ -16,8 +16,9 @@ export class CacheManager<K = string, V = unknown> {
   private hashAlgorithm: IHashAlgorithm;
   private config: Required<CacheConfig>;
   private stats: CacheStats;
+  private initialized: boolean;
 
-  constructor(config: CacheConfig, hashAlgorithm: IHashAlgorithm) {
+  constructor(config: CacheConfig, hashAlgorithm: IHashAlgorithm, autoInitialize = true) {
     this.config = this.normalizeConfig(config);
     this.hashAlgorithm = hashAlgorithm;
     this.cache = new LRUCache<string, CacheEntry<V>>({
@@ -33,6 +34,18 @@ export class CacheManager<K = string, V = unknown> {
       evictions: 0,
       averageAccessTime: 0,
     };
+
+    this.initialized = autoInitialize && !!hashAlgorithm.isInitialized?.();
+  }
+
+  /**
+   * Initialize hash algorithm manually (for sync creation)
+   */
+  async initialize(): Promise<void> {
+    if (!this.initialized && this.hashAlgorithm.initialize) {
+      await this.hashAlgorithm.initialize();
+      this.initialized = true;
+    }
   }
 
   /**
@@ -40,7 +53,7 @@ export class CacheManager<K = string, V = unknown> {
    * @private
    */
   private ensureInitialized(): void {
-    if (!this.hashAlgorithm.isInitialized?.()) {
+    if (!this.initialized) {
       throw new Error('CacheManager hash algorithm not initialized.');
     }
   }
@@ -219,4 +232,22 @@ export async function createCache<K = string, V = unknown>(
   await hashAlgorithm.initialize?.();
 
   return new CacheManager<K, V>(config, hashAlgorithm);
+}
+
+/**
+ * Synchronous factory for creating cache managers without initialization
+ * Call initialize() manually before using the cache
+ *
+ * @example
+ * const cache = createCacheSync({ maxSize: 1000 });
+ * await cache.initialize();
+ * cache.set('key', 'value');
+ */
+export function createCacheSync<K = string, V = unknown>(
+  config: CacheConfig
+): CacheManager<K, V> {
+  const hashType = config.hashBits === 32 ? 'xxhash32' : 'xxhash64';
+  const hashAlgorithm = createHashAlgorithm(hashType);
+
+  return new CacheManager<K, V>(config, hashAlgorithm, false);
 }

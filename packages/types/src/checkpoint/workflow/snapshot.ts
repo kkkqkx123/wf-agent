@@ -105,6 +105,17 @@ export interface WorkflowExecutionStateSnapshot {
   /** Current operation state (for mid-node resume) */
   currentOperation?: OperationState;
 
+  /** Child execution IDs (for FK/SUBWORKFLOW scene) */
+  childExecutionIds?: ID[];
+
+  /** Hook execution context for condition evaluation after restore */
+  hookExecutionContext?: {
+    workflowInput: Record<string, unknown>;
+    output: unknown;
+    variables: Record<string, unknown>;
+    messages: unknown[];
+  };
+
   // ========== Plan C: Execution Event Tracking ==========
 
   /** Errors that occurred during execution (atomic with state) */

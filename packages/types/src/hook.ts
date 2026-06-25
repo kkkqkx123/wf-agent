@@ -27,8 +27,12 @@ import type { Condition } from "./condition.js";
 export interface BaseHookConfig<THookType extends string = string> {
   /** Hook type identifier (specific to the module) */
   hookType: THookType;
-  /** Trigger condition expression (optional) */
-  condition?: Condition;
+  /**
+   * Trigger condition expression (optional)
+   * Supports both Condition object and string expression for flexibility.
+   * String expressions are automatically converted to ExpressionCondition.
+   */
+  condition?: Condition | string;
   /** Event name, used for identification, routing, and logging */
   eventName: string;
   /** Event payload template, supports variable substitution */

@@ -32,14 +32,24 @@ export interface BuildCheckpointMetadataOptions {
 export function buildCheckpointMetadata(
   options?: BuildCheckpointMetadataOptions,
 ): CheckpointMetadata | undefined {
-  if (!options || !options?.metadata) {
+  if (!options) {
     return undefined;
   }
 
-  const baseMetadata = options?.metadata ?? {};
+  const hasContent =
+    options.metadata ||
+    options.description !== undefined ||
+    options.tags !== undefined ||
+    options.customFields !== undefined;
+
+  if (!hasContent) {
+    return undefined;
+  }
+
+  const baseMetadata = options.metadata ?? {};
   const customFields = mergeMetadata(
     baseMetadata.customFields || {},
-    options?.customFields || {},
+    options.customFields || {},
     {
       formatVersion: CURRENT_CHECKPOINT_FORMAT_VERSION,
       createdAt: Date.now(),
@@ -48,8 +58,8 @@ export function buildCheckpointMetadata(
 
   return {
     ...baseMetadata,
-    description: options?.description ?? baseMetadata.description,
-    tags: options?.tags ?? baseMetadata.tags,
+    description: options.description ?? baseMetadata.description,
+    tags: options.tags ?? baseMetadata.tags,
     customFields,
   };
 }

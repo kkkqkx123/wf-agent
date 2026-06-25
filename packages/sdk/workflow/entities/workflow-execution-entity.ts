@@ -115,6 +115,13 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
 
   private _depManager?: DependencyManager;
 
+  private _hookExecutionContext?: {
+    workflowInput: Record<string, unknown>;
+    output: unknown;
+    variables: Record<string, unknown>;
+    messages: unknown[];
+  };
+
   /**
    * Constructor
    * @param workflowExecution: WorkflowExecution data object
@@ -937,6 +944,34 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
         executionId: this.id,
       });
     }
+  }
+
+  /**
+   * Set the hook execution context for condition evaluation after restore
+   * @param context Hook execution context
+   */
+  setHookExecutionContext(context: {
+    workflowInput: Record<string, unknown>;
+    output: unknown;
+    variables: Record<string, unknown>;
+    messages: unknown[];
+  }): void {
+    this._hookExecutionContext = context;
+  }
+
+  /**
+   * Get the hook execution context for condition evaluation
+   * @returns Hook execution context or undefined if not set
+   */
+  getHookExecutionContext():
+    | {
+        workflowInput: Record<string, unknown>;
+        output: unknown;
+        variables: Record<string, unknown>;
+        messages: unknown[];
+      }
+    | undefined {
+    return this._hookExecutionContext;
   }
 
   /**

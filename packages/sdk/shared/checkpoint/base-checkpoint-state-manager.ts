@@ -484,21 +484,24 @@ export abstract class BaseCheckpointStateManager<
   }
 
   /**
-   * Compact a delta chain by merging the two oldest consecutive deltas.
+   * Compact a delta chain by merging multiple consecutive deltas in batch.
    *
    * For a chain like [FULL: A] ← [DELTA: B] ← [DELTA: C] ← [DELTA: D],
-   * this merges C into B: B's delta becomes the combination of B and C,
-   * D's previousCheckpointId is updated to point to B, and C is deleted.
+   * this merges C and D into B in a single operation: B's delta becomes
+   * the combination of B, C, and D, the chain is shortened by 2.
    *
-   * This reduces chain length without losing state information.
+   * This is more efficient than merging only two deltas at a time,
+   * especially for long delta chains.
    *
    * @param entityId The entity ID
    * @param entityType The entity type
-   * @returns Number of merges performed (0 or 1)
+   * @param batchSize Number of deltas to merge per batch (default: merge all consecutive)
+   * @returns Number of checkpoints deleted
    */
   async compactDeltaChain(
     entityId: string,
     entityType: string,
+    batchSize?: number,
   ): Promise<number> {
     const checkpoints = await this.storageAdapter.listByEntityWithMetadata(entityId, entityType);
 
@@ -508,89 +511,131 @@ export abstract class BaseCheckpointStateManager<
 
     if (deltas.length < 2) return 0;
 
-    // Find the first two consecutive deltas in the same chain
-    let oldestIdx = -1;
-    for (let i = 0; i < deltas.length - 1; i++) {
-      if (deltas[i + 1]!.metadata.previousCheckpointId === deltas[i]!.id) {
-        oldestIdx = i;
-        break;
+    // Build chains: find all chains of consecutive deltas
+    const chains: Array<Array<{ idx: number; cp: typeof deltas[0] }>> = [];
+    const processed = new Set<string>();
+
+    for (let i = 0; i < deltas.length; i++) {
+      if (processed.has(deltas[i]!.id)) continue;
+
+      const chain: Array<{ idx: number; cp: typeof deltas[0] }> = [];
+      let currentIdx = i;
+
+      while (currentIdx < deltas.length && !processed.has(deltas[currentIdx]!.id)) {
+        const cp = deltas[currentIdx]!;
+        const prevId = cp.metadata.previousCheckpointId;
+
+        // Verify chain continuity: either first in chain or links to previous
+        if (chain.length === 0 || prevId === chain[chain.length - 1]!.cp.id) {
+          chain.push({ idx: currentIdx, cp });
+          processed.add(cp.id);
+          // Find next delta that references this one as previous
+          const nextIdx = deltas.findIndex(
+            (d, j) => j > currentIdx && d.metadata.previousCheckpointId === cp.id && !processed.has(d.id),
+          );
+          if (nextIdx === -1) break;
+          currentIdx = nextIdx;
+        } else {
+          break;
+        }
+      }
+
+      if (chain.length >= 2) {
+        chains.push(chain);
       }
     }
 
-    if (oldestIdx < 0) return 0;
+    if (chains.length === 0) return 0;
 
-    const oldest = deltas[oldestIdx]!;
-    const second = deltas[oldestIdx + 1]!;
+    let deletedCount = 0;
 
-    // Find successor of second (checkpoint that references second)
-    const successor = checkpoints.find(
-      cp => cp.metadata.previousCheckpointId === second.id && cp.id !== oldest.id,
-    );
+    // Process each chain
+    for (const chain of chains) {
+      const effectiveBatchSize = batchSize ?? chain.length - 1;
+      const mergeCount = Math.min(effectiveBatchSize, chain.length - 1);
 
-    // Load data for deltas to merge
-    const [oldestRaw, secondRaw] = await Promise.all([
-      this.storageAdapter.load(oldest.id),
-      this.storageAdapter.load(second.id),
-    ]);
+      if (mergeCount < 1) continue;
 
-    if (!oldestRaw || !secondRaw) {
-      logger.warn("Cannot compact delta chain: failed to load checkpoint data", {
-        oldestId: oldest.id,
-        secondId: second.id,
-      });
-      return 0;
-    }
+      const anchor = chain[0]!.cp;
+      const toMerge = chain.slice(1, mergeCount + 1);
+      const lastMerged = toMerge[toMerge.length - 1]!;
 
-    const oldestCp = await this.codec.deserialize<TCheckpoint>(oldestRaw);
-    const secondCp = await this.codec.deserialize<TCheckpoint>(secondRaw);
+      // Load all deltas to merge
+      const idsToLoad = [anchor.id, ...toMerge.map(c => c.cp.id)];
+      const rawDataList = await Promise.all(
+        idsToLoad.map(id => this.storageAdapter.load(id)),
+      );
 
-    if (!oldestCp.delta || !secondCp.delta) {
-      logger.warn("Cannot compact delta chain: checkpoint missing delta data", {
-        oldestId: oldest.id,
-        secondId: second.id,
-      });
-      return 0;
-    }
-
-    // Merge deltas
-    const mergedDelta = this.diffCalculator.mergeDeltas(
-      oldestCp.delta as unknown as DeltaMap,
-      secondCp.delta as unknown as DeltaMap,
-    );
-    oldestCp.delta = mergedDelta as unknown as TCheckpoint["delta"];
-
-    // Save updated oldest checkpoint
-    const updatedData = await this.codec.serialize(oldestCp);
-    const updatedMetadata = this.extractStorageMetadata(oldestCp);
-    updatedMetadata.blobSize = updatedData.length;
-    await this.storageAdapter.save(oldest.id, updatedData, updatedMetadata);
-    this.checkpointSizes.set(oldest.id, updatedData.length);
-
-    // Update successor's previousCheckpointId to point to oldest
-    if (successor) {
-      const successorRaw = await this.storageAdapter.load(successor.id);
-      if (successorRaw) {
-        const successorCp = await this.codec.deserialize<TCheckpoint>(successorRaw);
-        successorCp.previousCheckpointId = oldest.id;
-        const updatedSuccData = await this.codec.serialize(successorCp);
-        const updatedSuccMetadata = this.extractStorageMetadata(successorCp);
-        updatedSuccMetadata.blobSize = updatedSuccData.length;
-        await this.storageAdapter.save(successor.id, updatedSuccData, updatedSuccMetadata);
-        this.checkpointSizes.set(successor.id, updatedSuccData.length);
+      if (rawDataList.some(d => !d === null)) {
+        logger.warn("Cannot compact delta chain: failed to load checkpoint data", {
+          anchorId: anchor.id,
+          mergeIds: toMerge.map(c => c.cp.id),
+        });
+        continue;
       }
+
+      const cps = await Promise.all(
+        rawDataList.map(d => this.codec.deserialize<TCheckpoint>(d!)),
+      );
+
+      if (cps.some(cp => !cp.delta)) {
+        logger.warn("Cannot compact delta chain: checkpoint missing delta data", {
+          anchorId: anchor.id,
+        });
+        continue;
+      }
+
+      // Merge all deltas into anchor
+      let mergedDelta = cps[0]!.delta as unknown as DeltaMap;
+      for (let i = 1; i < cps.length; i++) {
+        mergedDelta = this.diffCalculator.mergeDeltas(
+          mergedDelta,
+          cps[i]!.delta as unknown as DeltaMap,
+        );
+      }
+      cps[0]!.delta = mergedDelta as unknown as TCheckpoint["delta"];
+
+      // Save updated anchor checkpoint
+      const updatedData = await this.codec.serialize(cps[0]!);
+      const updatedMetadata = this.extractStorageMetadata(cps[0]!);
+      updatedMetadata.blobSize = updatedData.length;
+      await this.storageAdapter.save(anchor.id, updatedData, updatedMetadata);
+      this.checkpointSizes.set(anchor.id, updatedData.length);
+
+      // Find and update successor of the last merged delta
+      const successor = checkpoints.find(
+        cp => cp.metadata.previousCheckpointId === lastMerged.cp.id && cp.id !== anchor.id,
+      );
+
+      if (successor) {
+        const successorRaw = await this.storageAdapter.load(successor.id);
+        if (successorRaw) {
+          const successorCp = await this.codec.deserialize<TCheckpoint>(successorRaw);
+          successorCp.previousCheckpointId = anchor.id;
+          const updatedSuccData = await this.codec.serialize(successorCp);
+          const updatedSuccMetadata = this.extractStorageMetadata(successorCp);
+          updatedSuccMetadata.blobSize = updatedSuccData.length;
+          await this.storageAdapter.save(successor.id, updatedSuccData, updatedSuccMetadata);
+          this.checkpointSizes.set(successor.id, updatedSuccData.length);
+        }
+      }
+
+      // Delete all merged checkpoints
+      for (const { cp } of toMerge) {
+        await this.storageAdapter.delete(cp.id);
+        this.checkpointSizes.delete(cp.id);
+        deletedCount++;
+      }
+
+      logger.info("Delta chain compacted", {
+        anchorId: anchor.id,
+        mergedCount: toMerge.length,
+        deletedIds: toMerge.map(c => c.cp.id),
+        successorId: successor?.id ?? null,
+      });
     }
 
-    // Delete merged checkpoint
-    await this.storageAdapter.delete(second.id);
-    this.checkpointSizes.delete(second.id);
-
-    logger.info("Delta chain compacted", {
-      oldestId: oldest.id,
-      mergedId: second.id,
-      successorId: successor?.id ?? null,
-    });
-
-    return 1;
+    return deletedCount;
   }
 
   /**

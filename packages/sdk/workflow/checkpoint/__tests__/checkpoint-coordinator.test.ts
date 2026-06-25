@@ -93,8 +93,12 @@ vi.mock("../../entities/workflow-execution-entity.js", () => ({
     };
     getTriggerStateSnapshot = vi.fn().mockReturnValue({ triggers: [] });
     restoreTriggerState = vi.fn();
+    getChildExecutionIds = vi.fn().mockReturnValue([]);
     state = {
       getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+      getErrorRecords: vi.fn().mockReturnValue([]),
+      getInterruptionRecords: vi.fn().mockReturnValue([]),
+      getEventRecords: vi.fn().mockReturnValue([]),
     };
   },
 }));
@@ -205,8 +209,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -251,8 +259,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -283,8 +295,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -354,8 +370,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -393,8 +413,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -429,8 +453,12 @@ describe("CheckpointCoordinator", () => {
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
+        getChildExecutionIds: vi.fn().mockReturnValue([]),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
+          getErrorRecords: vi.fn().mockReturnValue([]),
+          getInterruptionRecords: vi.fn().mockReturnValue([]),
+          getEventRecords: vi.fn().mockReturnValue([]),
         },
       } as unknown as WorkflowExecutionEntity;
 
@@ -685,7 +713,7 @@ describe("CheckpointCoordinator", () => {
     it("should return latest checkpoint ID", async () => {
       const coordinator = new CheckpointCoordinator();
       const mockCheckpointState = {
-        list: vi.fn().mockResolvedValue(["cp-latest", "cp-old"]),
+        list: vi.fn().mockResolvedValue(["cp-old", "cp-latest"]),
       } as unknown as CheckpointState;
 
       const result = await (coordinator as any)._findChildCheckpoint(

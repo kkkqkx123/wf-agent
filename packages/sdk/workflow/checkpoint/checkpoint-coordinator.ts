@@ -108,6 +108,7 @@ interface WorkflowRestoreContext {
   conversationManager: ConversationSession;
   stateCoordinator: WorkflowStateCoordinator;
   checkpoint: Checkpoint;
+  restoredSnapshot: WorkflowExecutionStateSnapshot;
 }
 
 /**
@@ -152,10 +153,18 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     options?: CheckpointOptions,
     conversationManager?: ConversationSession,
   ): Promise<string> {
+    this.ensureDeps(dependencies);
+
     const resolvedConversationManager =
       conversationManager ??
       dependencies.conversationManager ??
       dependencies.stateCoordinatorMap?.get(entity.id)?.getConversationManager();
+
+    if (!resolvedConversationManager) {
+      logger.warn("No conversationManager available, checkpoint will have empty messages", {
+        executionId: entity.id,
+      });
+    }
 
     const metadata = this.buildMetadata(options);
 
@@ -190,32 +199,12 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
           executionId: entity.id,
         });
       } catch (error) {
-        const err = error as Error;
-        // Apply error handling strategy for file checkpoint creation
-        if (this.checkpointErrorHandler) {
-          const errorContext: CheckpointErrorContext = {
-            checkpointId,
-            entityId: entity.id,
-            triggerEvent: "create_workflow",
-            operation: "create",
-            timestamp: Date.now(),
-          };
-
-          const result = await this.checkpointErrorHandler.handleError(
-            err,
-            errorContext,
-          );
-
-          if (result.shouldRethrow) {
-            throw err;
-          }
-        } else {
-          // Fallback to warn if error handler not configured
-          logger.warn("File checkpoint creation failed (non-fatal, execution checkpoint saved)", {
-            executionId: entity.id,
-            error: err.message,
-          });
-        }
+        await this.handleFileCheckpointError(
+          error as Error,
+          "create",
+          entity.id,
+          checkpointId,
+        );
       }
     }
 
@@ -246,6 +235,8 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     stateCoordinator: WorkflowStateCoordinator;
     conversationManager: ConversationSession;
   }> {
+    this.ensureDeps(dependencies);
+
     // Step 1: Load checkpoint
     const checkpoint = await dependencies.checkpointStateManager.get(checkpointId);
     if (!checkpoint) {
@@ -421,11 +412,21 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       });
     }
 
+    // Restore hook execution context for condition evaluation after restore
+    if (workflowExecutionState.hookExecutionContext) {
+      entity.setHookExecutionContext(workflowExecutionState.hookExecutionContext);
+      logger.debug("Restored hook execution context from checkpoint", {
+        executionId: entity.id,
+        hasMessages: workflowExecutionState.hookExecutionContext.messages.length > 0,
+      });
+    }
+
     return {
       entity,
       conversationManager,
       stateCoordinator,
       checkpoint,
+      restoredSnapshot: workflowExecutionState,
     };
   }
 
@@ -498,6 +499,16 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       ? entity.state.getEventRecords()
       : undefined;
 
+    // Collect child execution IDs
+    const childExecutionIds = entity.getChildExecutionIds();
+
+    // Capture hook execution context for condition evaluation after restore
+    const currentNodeId = typeof entity.getCurrentNodeId === "function"
+      ? entity.getCurrentNodeId()
+      : undefined;
+    const graph = typeof entity.getGraph === "function" ? entity.getGraph() : undefined;
+    const currentNode = currentNodeId && graph ? graph.getNode(currentNodeId) : undefined;
+
     return {
       status: entity.getStatus(),
       currentNodeId: workflowExecution.currentNodeId,
@@ -518,10 +529,19 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       forkJoinContext: workflowExecution.forkJoinContext,
       triggeredSubworkflowContext: workflowExecution.triggeredSubworkflowContext,
       currentOperation: operationState ?? undefined,
+      childExecutionIds: childExecutionIds.length > 0 ? childExecutionIds : undefined,
       // Plan C: Include execution records
       errorRecords,
       interruptionRecords,
       eventRecords,
+      hookExecutionContext: currentNode
+        ? {
+            workflowInput: entity.getInput(),
+            output: entity.getOutput(),
+            variables: entity.variableStateManager.getAllVariables(),
+            messages: convManager?.getMessages() || [],
+          }
+        : undefined,
     };
   }
 
@@ -689,6 +709,13 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     this.deps = deps;
   }
 
+  /**
+   * Ensure deps are set for operations that need file checkpoint handling
+   */
+  private ensureDeps(deps: WorkflowCheckpointDependencies): void {
+    this.deps = deps;
+  }
+
   // ============================================================================
   // Post-Restore Hook
   // ============================================================================
@@ -748,10 +775,9 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
     // Step 13: Restore child workflows, register with registry, and file checkpoint
     // Reestablish parent-child relationship for child workflows
-    const childExecutionIds = ((ctx.checkpoint.metadata?.customFields as Record<string, unknown>) ||
-      {})["childExecutionIds"];
-    if (childExecutionIds && Array.isArray(childExecutionIds)) {
-      for (const childWorkflowExecutionId of childExecutionIds as string[]) {
+    const childExecutionIds = ctx.restoredSnapshot.childExecutionIds;
+    if (childExecutionIds && childExecutionIds.length > 0) {
+      for (const childWorkflowExecutionId of childExecutionIds) {
         const childCheckpointId = await this._findChildCheckpoint(
           childWorkflowExecutionId,
           dependencies.checkpointStateManager,
@@ -773,6 +799,15 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
             childResult.stateCoordinator,
           );
 
+          entity.registerChild({
+            childType: "WORKFLOW",
+            childId: childWorkflowExecutionId,
+            createdAt: Date.now(),
+          });
+        } else {
+          logger.warn("Child execution checkpoint not found, skipping restore", {
+            childWorkflowExecutionId,
+          });
           entity.registerChild({
             childType: "WORKFLOW",
             childId: childWorkflowExecutionId,
@@ -808,32 +843,12 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
           });
         }
       } catch (error) {
-        const err = error as Error;
-        // Apply error handling strategy for file checkpoint restore
-        if (this.checkpointErrorHandler) {
-          const errorContext: CheckpointErrorContext = {
-            checkpointId: ctx.checkpoint.id,
-            entityId: ctx.checkpoint.executionId,
-            triggerEvent: "restore_workflow",
-            operation: "restore",
-            timestamp: Date.now(),
-          };
-
-          const result = await this.checkpointErrorHandler.handleError(
-            err,
-            errorContext,
-          );
-
-          if (result.shouldRethrow) {
-            throw err;
-          }
-        } else {
-          // Fallback to warn if error handler not configured
-          logger.warn("File checkpoint restore failed (non-fatal, execution state restored)", {
-            executionId: ctx.checkpoint.executionId,
-            error: err.message,
-          });
-        }
+        await this.handleFileCheckpointError(
+          error as Error,
+          "restore",
+          ctx.checkpoint.executionId,
+          ctx.checkpoint.id,
+        );
       }
     }
   }
@@ -844,6 +859,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create a checkpoint (static alias for backward compatibility)
+   * @deprecated Use instance method createWorkflowCheckpoint instead
    */
   static async createCheckpoint(
     workflowExecutionId: string,
@@ -865,6 +881,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   /**
    * Restore from checkpoint (static alias for backward compatibility)
    * Delegates to restoreWorkflowFromCheckpoint internally
+   * @deprecated Use instance method restoreWorkflowFromCheckpoint instead
    */
   static async restoreFromCheckpoint(
     checkpointId: string,
@@ -880,6 +897,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create node checkpoint (static alias)
+   * @deprecated Use instance method createWorkflowCheckpoint with nodeId option instead
    */
   static async createNodeCheckpoint(
     workflowExecutionId: string,
@@ -896,6 +914,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create tool checkpoint (static alias)
+   * @deprecated Use instance method createWorkflowCheckpoint with toolId option instead
    */
   static async createToolCheckpoint(
     workflowExecutionId: string,
@@ -912,6 +931,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create checkpoints in batches (static alias)
+   * @deprecated Use instance method createWorkflowCheckpoint in loop instead
    */
   static async createCheckpoints(
     optionsList: CreateCheckpointOptions[],
@@ -1050,6 +1070,34 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   }
 
   /**
+   * Handle file checkpoint error according to failureBehavior config
+   */
+  private async handleFileCheckpointError(
+    error: Error,
+    operation: "create" | "restore",
+    entityId: string,
+    _checkpointId?: string,
+  ): Promise<void> {
+    const manager = this.deps?.fileCheckpointManager;
+    if (!manager) return;
+
+    const behavior = (manager as unknown as { config?: { failureBehavior?: string } }).config?.failureBehavior ?? "warn";
+
+    if (behavior === "error") {
+      throw error;
+    } else if (behavior === "warn") {
+      const operationText = operation === "create" ? "creation" : "restore";
+      logger.warn(`File checkpoint ${operationText} failed (non-fatal, execution checkpoint saved)`, {
+        executionId: entityId,
+        error: error.message,
+      });
+    }
+    // "ignore" behavior: silently continue
+  }
+
+
+
+  /**
    * Infer FORK/JOIN completion status from JOIN node
    */
   private async _inferForkJoinState(
@@ -1126,7 +1174,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   }
 
   /**
-   * Find child checkpoint
+   * Find child checkpoint (latest)
    */
   private async _findChildCheckpoint(
     childWorkflowExecutionId: string,
@@ -1138,7 +1186,8 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     if (checkpointIds.length === 0) {
       return undefined;
     }
-    return checkpointIds[0];
+    // Return the latest checkpoint (last in creation order)
+    return checkpointIds[checkpointIds.length - 1];
   }
 
   /**

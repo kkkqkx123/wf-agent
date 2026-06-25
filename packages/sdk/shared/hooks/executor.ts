@@ -71,13 +71,20 @@ export function evaluateHookCondition(
   }
 
   try {
+    // Convert string condition to expression condition object
+    // Normalize === to == for DSL compatibility (DSL only supports ==, not ===)
+    const rawCondition = hook.condition;
+    const condition = typeof rawCondition === "string"
+      ? { type: "expression" as const, expression: rawCondition.replace(/===/g, "==").replace(/!==/g, "!=") }
+      : rawCondition;
+
     // "Convert the general context into EvaluationContext."
     const evaluationContext: EvaluationContext = {
       variables: (evalContext["variables"] || {}) as Record<string, unknown>,
       input: (evalContext["input"] || {}) as Record<string, unknown>,
       output: (evalContext["output"] || {}) as Record<string, unknown>,
     };
-    return conditionEvaluator.evaluate(hook.condition, evaluationContext);
+    return conditionEvaluator.evaluate(condition, evaluationContext);
   } catch (error) {
     if (warnOnFailure) {
       logger.warn(

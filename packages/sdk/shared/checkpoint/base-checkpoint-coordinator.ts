@@ -74,7 +74,7 @@ export abstract class BaseCheckpointCoordinator<
     metadata?: CheckpointMetadata,
     context?: Record<string, unknown>,
   ): Promise<string> {
-    const { saveCheckpoint, listCheckpoints, deltaConfig } = dependencies;
+    const { saveCheckpoint, listCheckpoints, deltaConfig, getCheckpoint } = dependencies;
     const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...deltaConfig };
 
     logger.debug("Creating checkpoint for entity", {
@@ -101,6 +101,32 @@ export abstract class BaseCheckpointCoordinator<
       previousCount: checkpointCount,
     });
 
+    // Get previous checkpoint for chain position calculation
+    let previousCheckpoint: TCheckpoint | null = null;
+    let chainPosition: number | undefined;
+    
+    if (checkpointCount > 0 && checkpointType === "DELTA") {
+      const prevId = previousCheckpointIds[checkpointCount - 1];
+      if (prevId) {
+        previousCheckpoint = await getCheckpoint(prevId);
+        // Calculate chain position: FULL=0, DELTA=prev+1
+        if (previousCheckpoint?.type === "FULL") {
+          chainPosition = 1;
+        } else if (previousCheckpoint) {
+          // For DELTA, need to get chainPosition from metadata
+          // This will be populated by the state manager's extractStorageMetadata
+          // For now, estimate based on checkpoint count since last FULL
+          const lastFullIndex = previousCheckpointIds.findIndex((_, idx) => {
+            const isFull = (idx + 1) % (config.baselineInterval ?? 10) === 0;
+            return isFull;
+          });
+          chainPosition = checkpointCount - (lastFullIndex >= 0 ? lastFullIndex + 1 : 0);
+        }
+      }
+    } else if (checkpointType === "FULL") {
+      chainPosition = 0;
+    }
+
     // Step 5: Build checkpoint (delegated to subclass)
     const checkpoint = await this.buildCheckpoint(
       entity,
@@ -111,6 +137,7 @@ export abstract class BaseCheckpointCoordinator<
       previousCheckpointIds,
       dependencies,
       metadata,
+      chainPosition,
     );
 
     // Step 6: Save checkpoint
@@ -277,6 +304,7 @@ export abstract class BaseCheckpointCoordinator<
    * @param previousCheckpointIds IDs of previous checkpoints
    * @param dependencies Checkpoint dependencies
    * @param metadata Optional metadata
+   * @param chainPosition Position in delta chain (0 for FULL, 1+ for DELTA)
    * @returns Complete checkpoint object
    */
   protected abstract buildCheckpoint(
@@ -288,6 +316,7 @@ export abstract class BaseCheckpointCoordinator<
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies<TCheckpoint>,
     metadata?: CheckpointMetadata,
+    chainPosition?: number,
   ): Promise<TCheckpoint>;
 
   /**

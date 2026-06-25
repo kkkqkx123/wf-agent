@@ -34,6 +34,10 @@ export interface CheckpointStorageRecord {
   baseCheckpointId?: ID;
   /** Previous checkpoint ID (for delta checkpoints) */
   previousCheckpointId?: ID;
+  /** Chain root ID - the FULL checkpoint that is the base of this delta chain (for DELTA checkpoints) */
+  chainRootId?: ID;
+  /** Position in the delta chain (0 for FULL, 1+ for DELTA) */
+  chainPosition?: number;
   /** BLOB size in bytes (for size-based cleanup policies) */
   blobSize?: number;
 }

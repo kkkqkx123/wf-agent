@@ -11,6 +11,8 @@ import type { MessageMarkMap } from "../../message/index.js";
 import type { CheckpointVariableState } from "../variable-state.js";
 import type { ExecutionErrorRecord, ExecutionInterruptionRecord, ExecutionEventRecord } from "../execution-events.js";
 
+import type { ExecutionHierarchyMetadata } from "../../execution/hierarchy.js";
+
 /**
  * Operation-level execution state
  * Tracks progress within individual node operations
@@ -105,8 +107,8 @@ export interface WorkflowExecutionStateSnapshot {
   /** Current operation state (for mid-node resume) */
   currentOperation?: OperationState;
 
-  /** Child execution IDs (for FK/SUBWORKFLOW scene) */
-  childExecutionIds?: ID[];
+  /** Execution hierarchy metadata (contains parent, children, depth, root info) */
+  hierarchy?: ExecutionHierarchyMetadata;
 
   /** Hook execution context for condition evaluation after restore */
   hookExecutionContext?: {
@@ -126,6 +128,24 @@ export interface WorkflowExecutionStateSnapshot {
 
   /** Recent execution events for timeline view (limited to prevent state bloat) */
   eventRecords?: ExecutionEventRecord[];
+
+  /** FORK/JOIN aggregation state for JOIN node result merging */
+  forkJoinAggregationState?: {
+    /** The FORK node ID that spawned the branches */
+    forkNodeId: ID;
+    /** The JOIN node ID that will aggregate results */
+    joinNodeId: ID;
+    /** Map of fork path ID to branch status ("PENDING" | "COMPLETED" | "FAILED") */
+    pathStatuses: Record<string, "PENDING" | "COMPLETED" | "FAILED">;
+    /** Aggregated results from completed branches (for early resume) */
+    aggregatedResults?: Record<string, unknown>;
+    /** Merged variables from all completed branches */
+    mergedVariables?: Record<string, unknown>;
+    /** Whether aggregation is complete */
+    isAggregationComplete: boolean;
+    /** Error messages from failed branches */
+    failedBranchErrors?: Array<{ pathId: string; error: string }>;
+  };
 }
 
 /**

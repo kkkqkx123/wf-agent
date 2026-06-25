@@ -119,6 +119,8 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       throw new Error("checkpoint.executionId is required for storage metadata");
     }
 
+    const chainPositionFromMetadata = checkpoint.metadata?.customFields?.["chainPosition"] as number | undefined;
+
     const record: CheckpointStorageMetadata = {
       entityType: "workflow",
       entityId: checkpoint.executionId,
@@ -126,6 +128,8 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       checkpointType: checkpoint.type,
       baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
       previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
+      chainRootId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : checkpoint.id,
+      chainPosition: checkpoint.type === "FULL" ? 0 : chainPositionFromMetadata,
     };
 
     // Only store user-facing metadata for FULL checkpoints to avoid

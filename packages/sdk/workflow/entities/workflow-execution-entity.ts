@@ -26,6 +26,7 @@ import type {
   ChildExecutionReference,
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
+import type { WorkflowExecutionStateSnapshot } from "@wf-agent/types";
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
@@ -1005,5 +1006,47 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   hasSyncBarrier(): boolean {
     return this.syncBarrier !== undefined;
+  }
+
+  /**
+   * FORK/JOIN aggregation state for JOIN node result merging
+   * Persisted in checkpoints to enable accurate state recovery
+   */
+  private forkJoinAggregationState?: WorkflowExecutionStateSnapshot["forkJoinAggregationState"];
+
+  /**
+   * Get FORK/JOIN aggregation state for checkpoint serialization
+   * Only populated when the current node is a JOIN node
+   *
+   * @returns Aggregation state or undefined
+   */
+  getForkJoinAggregationState(): WorkflowExecutionStateSnapshot["forkJoinAggregationState"] {
+    return this.forkJoinAggregationState;
+  }
+
+  /**
+   * Set FORK/JOIN aggregation state during JOIN node execution
+   * Called by SyncBarrier or JOIN execution handler to persist
+   * the current aggregation state for checkpoint serialization.
+   *
+   * @param state Aggregation state to set
+   */
+  setForkJoinAggregationState(
+    state: NonNullable<WorkflowExecutionStateSnapshot["forkJoinAggregationState"]>,
+  ): void {
+    this.forkJoinAggregationState = state;
+  }
+
+  /**
+   * Restore FORK/JOIN aggregation state from checkpoint
+   * Called during checkpoint restoration to restore the JOIN node's
+   * aggregation progress.
+   *
+   * @param state Aggregation state from checkpoint snapshot
+   */
+  restoreForkJoinAggregationState(
+    state: WorkflowExecutionStateSnapshot["forkJoinAggregationState"],
+  ): void {
+    this.forkJoinAggregationState = state;
   }
 }

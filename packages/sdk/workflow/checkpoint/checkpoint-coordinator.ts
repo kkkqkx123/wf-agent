@@ -271,11 +271,27 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     // Step 4: Restore full state (handles delta chains)
     let workflowExecutionState: WorkflowExecutionStateSnapshot;
     if (checkpoint.type === "DELTA") {
+      const metadataLoader = async (entityId: string, entityType: string) => {
+        const records = await dependencies.checkpointStateManager.listByEntityWithMetadata(
+          entityId,
+          entityType,
+        );
+        return records.map((r: { id: string; metadata: { previousCheckpointId?: string; checkpointType?: string; timestamp: number; chainRootId?: string; chainPosition?: number } }) => ({
+          id: r.id,
+          previousCheckpointId: r.metadata.previousCheckpointId,
+          checkpointType: r.metadata.checkpointType as "FULL" | "DELTA",
+          timestamp: r.metadata.timestamp,
+          chainRootId: r.metadata.chainRootId,
+          chainPosition: r.metadata.chainPosition,
+        }));
+      };
+      
       const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
         id => dependencies.checkpointStateManager.get(id),
         ids => dependencies.checkpointStateManager.getCheckpoints(ids),
+        metadataLoader,
       );
-      const restoreResult = await restorer.restore(checkpointId);
+      const restoreResult = await restorer.restore(checkpointId, checkpoint.executionId, "workflow");
       workflowExecutionState = restoreResult.snapshot;
     } else {
       const fullCp = checkpoint as FullCheckpoint<WorkflowExecutionStateSnapshot>;
@@ -421,6 +437,17 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       });
     }
 
+    // Restore FORK/JOIN aggregation state for JOIN nodes
+    if (workflowExecutionState.forkJoinAggregationState) {
+      entity.restoreForkJoinAggregationState(workflowExecutionState.forkJoinAggregationState);
+      logger.debug("Restored FORK/JOIN aggregation state from checkpoint", {
+        executionId: entity.id,
+        forkNodeId: workflowExecutionState.forkJoinAggregationState.forkNodeId,
+        joinNodeId: workflowExecutionState.forkJoinAggregationState.joinNodeId,
+        isComplete: workflowExecutionState.forkJoinAggregationState.isAggregationComplete,
+      });
+    }
+
     return {
       entity,
       conversationManager,
@@ -499,15 +526,27 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       ? entity.state.getEventRecords()
       : undefined;
 
-    // Collect child execution IDs
-    const childExecutionIds = entity.getChildExecutionIds();
+    // Collect complete hierarchy metadata (preferred method)
+    const hierarchyMetadata = entity.getHierarchyMetadata();
+
+    // Capture FORK/JOIN aggregation state for JOIN nodes
+    const graph = typeof entity.getGraph === "function" ? entity.getGraph() : undefined;
+    const currentNodeId = typeof entity.getCurrentNodeId === "function" ? entity.getCurrentNodeId() : undefined;
+    const currentNode = currentNodeId && graph ? graph.getNode(currentNodeId) : undefined;
+    const isJoinNode = currentNode && currentNode.type === "JOIN";
+    const forkJoinAggregationState = isJoinNode
+      ? entity.getForkJoinAggregationState()
+      : undefined;
 
     // Capture hook execution context for condition evaluation after restore
-    const currentNodeId = typeof entity.getCurrentNodeId === "function"
-      ? entity.getCurrentNodeId()
+    const hookExecutionContext = currentNode
+      ? {
+          workflowInput: entity.getInput(),
+          output: entity.getOutput(),
+          variables: entity.variableStateManager.getAllVariables(),
+          messages: convManager?.getMessages() || [],
+        }
       : undefined;
-    const graph = typeof entity.getGraph === "function" ? entity.getGraph() : undefined;
-    const currentNode = currentNodeId && graph ? graph.getNode(currentNodeId) : undefined;
 
     return {
       status: entity.getStatus(),
@@ -529,26 +568,22 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       forkJoinContext: workflowExecution.forkJoinContext,
       triggeredSubworkflowContext: workflowExecution.triggeredSubworkflowContext,
       currentOperation: operationState ?? undefined,
-      childExecutionIds: childExecutionIds.length > 0 ? childExecutionIds : undefined,
+      hierarchy: hierarchyMetadata && hierarchyMetadata.children.length > 0
+        ? hierarchyMetadata
+        : undefined,
       // Plan C: Include execution records
       errorRecords,
       interruptionRecords,
       eventRecords,
-      hookExecutionContext: currentNode
-        ? {
-            workflowInput: entity.getInput(),
-            output: entity.getOutput(),
-            variables: entity.variableStateManager.getAllVariables(),
-            messages: convManager?.getMessages() || [],
-          }
-        : undefined,
+      forkJoinAggregationState,
+      hookExecutionContext,
     };
   }
 
   /**
    * Build checkpoint object
    */
-  protected async buildCheckpoint(
+protected async buildCheckpoint(
     entity: WorkflowExecutionEntity,
     currentState: WorkflowExecutionStateSnapshot,
     checkpointType: "FULL" | "DELTA",
@@ -557,8 +592,10 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     previousCheckpointIds: string[],
     dependencies: BaseCheckpointDependencies<Checkpoint>,
     metadata?: CheckpointMetadata,
+    chainPosition?: number,
   ): Promise<Checkpoint> {
     const { getCheckpoint } = dependencies;
+    const workflowDeps = dependencies as unknown as WorkflowCheckpointDependencies;
 
     if (checkpointType === "FULL") {
       return {
@@ -568,16 +605,21 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
         timestamp,
         type: "FULL",
         snapshot: currentState,
-        metadata,
+        metadata: {
+          ...metadata,
+          customFields: {
+            ...(metadata?.customFields || {}),
+            chainPosition: 0,
+          },
+        },
       };
     }
 
     // Delta checkpoint
-    const previousCheckpointId = previousCheckpointIds[0]!;
+    const previousCheckpointId = previousCheckpointIds[previousCheckpointIds.length - 1]!;
     const previousCheckpoint = await getCheckpoint(previousCheckpointId);
 
     if (!previousCheckpoint) {
-      // Downgrade to full checkpoint
       return {
         id: checkpointId,
         executionId: entity.id,
@@ -585,17 +627,40 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
         timestamp,
         type: "FULL",
         snapshot: currentState,
-        metadata,
+        metadata: {
+          ...metadata,
+          customFields: {
+            ...(metadata?.customFields || {}),
+            chainPosition: 0,
+          },
+        },
       };
     }
 
     // Get previous state
     let previousState: WorkflowExecutionStateSnapshot;
     if (previousCheckpoint.type === "DELTA") {
+      const metadataLoader = async (entityId: string, entityType: string) => {
+        const records = await workflowDeps.checkpointStateManager.listByEntityWithMetadata(
+          entityId,
+          entityType,
+        );
+        return records.map((r: { id: string; metadata: { previousCheckpointId?: string; checkpointType?: string; timestamp: number; chainRootId?: string; chainPosition?: number } }) => ({
+          id: r.id,
+          previousCheckpointId: r.metadata.previousCheckpointId,
+          checkpointType: r.metadata.checkpointType as "FULL" | "DELTA",
+          timestamp: r.metadata.timestamp,
+          chainRootId: r.metadata.chainRootId,
+          chainPosition: r.metadata.chainPosition,
+        }));
+      };
+      
       const restorer = new BaseDeltaRestorer<Checkpoint, WorkflowExecutionStateSnapshot>(
         getCheckpoint,
+        ids => workflowDeps.checkpointStateManager.getCheckpoints(ids),
+        metadataLoader,
       );
-      const restoreResult = await restorer.restore(previousCheckpointId);
+      const restoreResult = await restorer.restore(previousCheckpointId, entity.id, "workflow");
       previousState = restoreResult.snapshot;
     } else {
       const fullCp = previousCheckpoint as FullCheckpoint<WorkflowExecutionStateSnapshot>;
@@ -626,7 +691,13 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       baseCheckpointId,
       previousCheckpointId,
       delta,
-      metadata,
+      metadata: {
+        ...metadata,
+        customFields: {
+          ...(metadata?.customFields || {}),
+          chainPosition: chainPosition ?? 1,
+        },
+      },
     };
   }
 
@@ -732,52 +803,21 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   ): Promise<void> {
     const ctx = restoreCtx;
 
-    // Step 12: Restore execution state and infer FORK/JOIN completion
-    // (Execution state is already handled in buildEntityFromSnapshot for basic case)
-    // Infer FORK/JOIN completion status if current node is JOIN
-    if (entity.getGraph()) {
-      const currentNode = entity.getGraph().getNode(entity.getCurrentNodeId());
-      if (currentNode && currentNode.type === "JOIN") {
-        const joinStatus = await this._inferForkJoinState(
-          entity.getCurrentNodeId(),
-          entity,
-          dependencies.workflowExecutionRegistry,
-        );
-
-        logger.info("Inferred JOIN completion status", {
-          executionId: entity.id,
-          joinNodeId: entity.getCurrentNodeId(),
-          completedPaths: Array.from(joinStatus.completedPaths),
-          pendingPaths: Array.from(joinStatus.pendingPaths),
-          failedPaths: Array.from(joinStatus.failedPaths),
-        });
-      }
-    }
-
     // Validate hierarchy integrity
+    // Moved AFTER child restoration to ensure all entities are registered first
     const { hierarchyRegistry } = dependencies;
-    if (hierarchyRegistry) {
-      const hierarchyMetadata = entity.getHierarchyMetadata();
-      if (hierarchyMetadata) {
-        const validation = HierarchyIntegrityService.validateIntegrity(
-          hierarchyMetadata,
-          hierarchyRegistry,
-        );
-
-        if (!validation.valid) {
-          logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
-            executionId: entity.id,
-            issues: validation.issues,
-          });
-        }
-      }
-    }
 
     // Step 13: Restore child workflows, register with registry, and file checkpoint
     // Reestablish parent-child relationship for child workflows
-    const childExecutionIds = ctx.restoredSnapshot.childExecutionIds;
-    if (childExecutionIds && childExecutionIds.length > 0) {
-      for (const childWorkflowExecutionId of childExecutionIds) {
+    // Use hierarchy metadata (preferred method)
+    const hierarchyFromSnapshot = ctx.restoredSnapshot.hierarchy;
+    const childRefs = hierarchyFromSnapshot?.children ?? [];
+    
+    if (childRefs.length > 0) {
+      for (const childRef of childRefs) {
+        if (childRef.childType !== "WORKFLOW") continue;
+        
+        const childWorkflowExecutionId = childRef.childId;
         const childCheckpointId = await this._findChildCheckpoint(
           childWorkflowExecutionId,
           dependencies.checkpointStateManager,
@@ -802,27 +842,66 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
           entity.registerChild({
             childType: "WORKFLOW",
             childId: childWorkflowExecutionId,
-            createdAt: Date.now(),
+            createdAt: childRef.createdAt,
+            forkPathId: childRef.forkPathId,
+            inheritsInterruption: childRef.inheritsInterruption,
           });
         } else {
-          logger.warn("Child execution checkpoint not found, skipping restore", {
+          logger.warn("Child execution checkpoint not found, skipping child reference", {
             childWorkflowExecutionId,
           });
-          entity.registerChild({
-            childType: "WORKFLOW",
-            childId: childWorkflowExecutionId,
-            createdAt: Date.now(),
-          });
+          // Do NOT register orphan child reference on parent entity to avoid
+          // hierarchy integrity validation failures
         }
       }
     }
 
-    // Register with registry
+    // Register with registry (after child restoration so all children are available)
     dependencies.workflowExecutionRegistry.register(entity);
     dependencies.workflowExecutionRegistry.registerStateCoordinator(
       entity.id,
       ctx.stateCoordinator,
     );
+
+    // Validate hierarchy integrity AFTER all entities are registered (including children)
+    if (hierarchyRegistry) {
+      const hierarchyMetadata = entity.getHierarchyMetadata();
+      if (hierarchyMetadata) {
+        const validation = HierarchyIntegrityService.validateIntegrity(
+          hierarchyMetadata,
+          hierarchyRegistry,
+        );
+
+        if (!validation.valid) {
+          logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+            executionId: entity.id,
+            issues: validation.issues,
+          });
+        }
+      }
+    }
+
+    // Step 12: Infer FORK/JOIN completion status after child restoration
+    // Moved here to ensure child executions are restored and registered first
+    if (entity.getGraph()) {
+      const currentNode = entity.getGraph().getNode(entity.getCurrentNodeId());
+      if (currentNode && currentNode.type === "JOIN") {
+        const joinStatus = await this._inferForkJoinState(
+          entity.getCurrentNodeId(),
+          entity,
+          dependencies.workflowExecutionRegistry,
+          hierarchyFromSnapshot,
+        );
+
+        logger.info("Inferred JOIN completion status after child restore", {
+          executionId: entity.id,
+          joinNodeId: entity.getCurrentNodeId(),
+          completedPaths: Array.from(joinStatus.completedPaths),
+          pendingPaths: Array.from(joinStatus.pendingPaths),
+          failedPaths: Array.from(joinStatus.failedPaths),
+        });
+      }
+    }
 
     // Restore file checkpoint
     if (dependencies.fileCheckpointManager) {
@@ -1070,14 +1149,29 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   }
 
   /**
-   * Handle file checkpoint error according to failureBehavior config
+   * Handle file checkpoint error using configured error handler or fallback behavior
    */
   private async handleFileCheckpointError(
     error: Error,
     operation: "create" | "restore",
     entityId: string,
-    _checkpointId?: string,
+    checkpointId?: string,
   ): Promise<void> {
+    if (this.checkpointErrorHandler) {
+      const result = await this.checkpointErrorHandler.handleError(error, {
+        operation: "create",
+        checkpointId: checkpointId || "unknown",
+        entityId,
+        triggerEvent: `file_checkpoint_${operation}`,
+        timestamp: Date.now(),
+      });
+      if (result.shouldRethrow) {
+        throw error;
+      }
+      return;
+    }
+
+    // Fallback: use fileCheckpointManager's failureBehavior config
     const manager = this.deps?.fileCheckpointManager;
     if (!manager) return;
 
@@ -1085,9 +1179,10 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
     if (behavior === "error") {
       throw error;
-    } else if (behavior === "warn") {
+    }
+    if (behavior === "warn") {
       const operationText = operation === "create" ? "creation" : "restore";
-      logger.warn(`File checkpoint ${operationText} failed (non-fatal, execution checkpoint saved)`, {
+      logger.warn(`File checkpoint ${operationText} failed (non-fatal)`, {
         executionId: entityId,
         error: error.message,
       });
@@ -1104,6 +1199,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     joinNodeId: string,
     entity: WorkflowExecutionEntity,
     registry: WorkflowExecutionRegistry,
+    hierarchyFromSnapshot?: import("@wf-agent/types").ExecutionHierarchyMetadata,
   ): Promise<{
     completedPaths: Set<string>;
     pendingPaths: Set<string>;
@@ -1156,7 +1252,23 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       );
 
       if (!childExecution) {
-        pendingPaths.add(pathId);
+        if (hierarchyFromSnapshot) {
+          const childRef = hierarchyFromSnapshot.children.find(
+            (ref): ref is Extract<typeof ref, { childType: "WORKFLOW" }> => 
+              ref.childType === "WORKFLOW" && ref.forkPathId === pathId,
+          );
+          if (childRef) {
+            pendingPaths.add(pathId);
+            logger.debug("FORK path found in snapshot hierarchy but not yet in registry", {
+              pathId,
+              childId: childRef.childId,
+            });
+          } else {
+            pendingPaths.add(pathId);
+          }
+        } else {
+          pendingPaths.add(pathId);
+        }
       } else {
         const status = childExecution.getStatus();
 

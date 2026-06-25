@@ -21,11 +21,31 @@ export type BatchLoader<TCheckpoint extends BaseCheckpoint<unknown, unknown>> = 
 ) => Promise<Map<string, TCheckpoint | null>>;
 
 /**
+ * Metadata loader function signature for efficient chain building
+ * Loads checkpoint metadata (without full data) to build the chain structure
+ */
+export type MetadataLoader = (
+  entityId: string,
+  entityType: string,
+) => Promise<Array<{
+  id: string;
+  previousCheckpointId?: string;
+  checkpointType: "FULL" | "DELTA";
+  timestamp: number;
+  chainRootId?: string;
+  chainPosition?: number;
+}>>;
+
+/**
  * Base Delta Restorer
  *
  * Handles restoration of full state from delta checkpoint chains.
  * Traverses the delta chain backward to find the base checkpoint,
  * then applies deltas forward to reconstruct the complete state.
+ *
+ * Optimizations:
+ * - Uses metadata loader to build chain structure without loading full data
+ * - Uses batch loader to load all chain checkpoints in a single query
  *
  * @template TCheckpoint - The checkpoint type
  * @template TState - The state snapshot type
@@ -34,22 +54,31 @@ export class BaseDeltaRestorer<TCheckpoint extends BaseCheckpoint<unknown, unkno
   private diffCalculator: BaseDiffCalculator;
   private loadCheckpoint: (id: string) => Promise<TCheckpoint | null>;
   private batchLoader?: BatchLoader<TCheckpoint>;
+  private metadataLoader?: MetadataLoader;
 
   constructor(
     loadCheckpoint: (id: string) => Promise<TCheckpoint | null>,
     batchLoader?: BatchLoader<TCheckpoint>,
+    metadataLoader?: MetadataLoader,
   ) {
     this.diffCalculator = new BaseDiffCalculator();
     this.loadCheckpoint = loadCheckpoint;
     this.batchLoader = batchLoader;
+    this.metadataLoader = metadataLoader;
   }
 
   /**
    * Restore full state from a checkpoint (handles both FULL and DELTA)
    * @param checkpointId The checkpoint ID to restore from
+   * @param entityId Optional entity ID for metadata-based chain building
+   * @param entityType Optional entity type for metadata-based chain building
    * @returns Restoration result with full snapshot
    */
-  async restore(checkpointId: string): Promise<DeltaRestoreResult<TState>> {
+  async restore(
+    checkpointId: string,
+    entityId?: string,
+    entityType?: string,
+  ): Promise<DeltaRestoreResult<TState>> {
     logger.debug("Starting checkpoint restoration", { checkpointId });
 
     // Load the target checkpoint
@@ -76,8 +105,11 @@ export class BaseDeltaRestorer<TCheckpoint extends BaseCheckpoint<unknown, unkno
       baseCheckpointId: targetCheckpoint.baseCheckpointId,
     });
 
-    // Build chain by tracing backward: target → base
-    const chain = await this.buildCheckpointChain(checkpointId);
+    // Build chain using metadata if available (more efficient)
+    const chain = entityId && entityType && this.metadataLoader
+      ? await this.buildCheckpointChainFromMetadata(checkpointId, entityId, entityType)
+      : await this.buildCheckpointChain(checkpointId);
+      
     const baseCheckpointId = chain[0];
 
     if (!baseCheckpointId) {
@@ -132,6 +164,125 @@ export class BaseDeltaRestorer<TCheckpoint extends BaseCheckpoint<unknown, unkno
         baseCheckpointId,
       },
     };
+  }
+
+  /**
+   * Build checkpoint chain from metadata (efficient - single metadata query)
+   *
+   * Uses the metadata loader to get all checkpoint metadata for the entity,
+   * then constructs the chain in memory by following previousCheckpointId links.
+   * This avoids N sequential checkpoint loads during chain building.
+   *
+   * @param targetCheckpointId Starting checkpoint ID (must be a DELTA checkpoint)
+   * @param entityId Entity ID for metadata lookup
+   * @param entityType Entity type for metadata lookup
+   * @returns Array of checkpoint IDs from base to target
+   */
+  private async buildCheckpointChainFromMetadata(
+    targetCheckpointId: string,
+    entityId: string,
+    entityType: string,
+  ): Promise<string[]> {
+    logger.debug("Building chain from metadata (optimized)", {
+      targetCheckpointId,
+      entityId,
+      entityType,
+    });
+
+    const metadataList = await this.metadataLoader!(entityId, entityType);
+
+    // Build a map of checkpoint ID to its metadata for efficient lookup
+    const metadataMap = new Map<string, {
+      previousCheckpointId?: string;
+      checkpointType: "FULL" | "DELTA";
+      chainRootId?: string;
+      chainPosition?: number;
+    }>();
+    for (const meta of metadataList) {
+      metadataMap.set(meta.id, {
+        previousCheckpointId: meta.previousCheckpointId,
+        checkpointType: meta.checkpointType,
+        chainRootId: meta.chainRootId,
+        chainPosition: meta.chainPosition,
+      });
+    }
+
+    const targetMeta = metadataMap.get(targetCheckpointId);
+    if (!targetMeta) {
+      throw new Error(`Checkpoint not found in metadata: ${targetCheckpointId}`);
+    }
+
+    // Optimization: Use chainRootId to directly locate the FULL checkpoint
+    // If chainRootId is available, we can skip backward traversal
+    if (targetMeta.chainRootId && targetMeta.checkpointType === "DELTA") {
+      const rootMeta = metadataMap.get(targetMeta.chainRootId);
+      if (rootMeta && rootMeta.checkpointType === "FULL") {
+        logger.debug("Using chainRootId for direct lookup optimization", {
+          chainRootId: targetMeta.chainRootId,
+          chainPosition: targetMeta.chainPosition,
+        });
+
+        // Build chain from root to target using chainPosition ordering
+        // Get all checkpoints in this chain (same chainRootId)
+        const chainMembers = metadataList
+          .filter(m => m.chainRootId === targetMeta.chainRootId || m.id === targetMeta.chainRootId)
+          .sort((a, b) => {
+            const posA = a.chainPosition ?? (a.checkpointType === "FULL" ? 0 : 999);
+            const posB = b.chainPosition ?? (b.checkpointType === "FULL" ? 0 : 999);
+            return posA - posB;
+          });
+
+        // Validate chain continuity
+        const chain: string[] = [];
+        for (const member of chainMembers) {
+          chain.push(member.id);
+          if (member.id === targetCheckpointId) {
+            break;
+          }
+        }
+
+        logger.debug("Checkpoint chain built using chainRootId optimization", {
+          chainLength: chain.length,
+          baseCheckpointId: chain[0],
+          targetCheckpointId: chain[chain.length - 1],
+        });
+
+        return chain;
+      }
+    }
+
+    // Fallback: Trace backward from target to base using metadata links
+    const chain: string[] = [];
+    let currentId: string | undefined = targetCheckpointId;
+    const visited = new Set<string>();
+
+    while (currentId) {
+      if (visited.has(currentId)) {
+        throw new Error(`Circular reference detected in checkpoint chain at: ${currentId}`);
+      }
+      visited.add(currentId);
+
+      const meta = metadataMap.get(currentId);
+      if (!meta) {
+        throw new Error(`Checkpoint not found in metadata: ${currentId}`);
+      }
+
+      chain.unshift(currentId);
+
+      if (meta.checkpointType === "FULL") {
+        break;
+      }
+
+      currentId = meta.previousCheckpointId;
+    }
+
+    logger.debug("Checkpoint chain built from metadata (fallback traversal)", {
+      chainLength: chain.length,
+      baseCheckpointId: chain[0],
+      targetCheckpointId: chain[chain.length - 1],
+    });
+
+    return chain;
   }
 
   /**

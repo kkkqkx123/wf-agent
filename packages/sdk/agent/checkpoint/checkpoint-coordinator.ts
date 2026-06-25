@@ -21,16 +21,20 @@ import type {
   CheckpointFormatVersion,
   CheckpointErrorStrategy,
   CheckpointErrorContext,
+  ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../shared/checkpoint/base-checkpoint-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
+import { BaseDeltaRestorer } from "../../shared/checkpoint/base-delta-restorer.js";
 import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
 import { CheckpointErrorHandler } from "../../shared/checkpoint/checkpoint-error-handler.js";
 import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-builder.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getExecutionEventBus } from "../../shared/events/index.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
+import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution-hierarchy-registry.js";
+import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-integrity-service.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -64,6 +68,14 @@ export interface CheckpointDependencies extends BaseCheckpointDependencies<Agent
   conversationManager?: ConversationSession;
   /** File checkpoint manager for persisting external file state (optional) */
   fileCheckpointManager?: FileCheckpointManager;
+  /** Hierarchy registry for child execution restoration (optional) */
+  hierarchyRegistry?: ExecutionHierarchyRegistry;
+}
+
+interface AgentRestoreContext {
+  entity: AgentLoopEntity;
+  checkpoint: AgentLoopCheckpoint;
+  restoredSnapshot: AgentLoopStateSnapshot;
 }
 
 /**
@@ -168,10 +180,12 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
           checkpointId,
         });
       } catch (error) {
-        logger.warn("File checkpoint creation failed (non-fatal, agent checkpoint saved)", {
-          agentLoopId: entity.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        await this.handleFileCheckpointError(
+          error instanceof Error ? error : new Error(String(error)),
+          "create",
+          entity.id,
+          checkpointId,
+        );
       }
     }
 
@@ -182,23 +196,24 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    * Restore Agent Loop entity from checkpoint
    * @param checkpointId checkpointId
    * @param dependencies dependencies
+   * @param runtimeConfig AgentLoopRuntimeConfig for restoration (REQUIRED)
    * @returns Recovered Agent Loop Entity
    */
   async restoreAgentLoopFromCheckpoint(
     checkpointId: string,
     dependencies: CheckpointDependencies,
+    runtimeConfig: AgentLoopRuntimeConfig,
   ): Promise<AgentLoopEntity> {
+    this.restoreConfig = runtimeConfig;
+
     try {
-      // Retrieve and validate checkpoint
       const checkpoint = await dependencies.getCheckpoint(checkpointId);
       if (!checkpoint) {
         throw new Error("Checkpoint not found");
       }
 
-      // Validate version metadata
       const formatVersion = (checkpoint.metadata?.customFields?.["formatVersion"] as CheckpointFormatVersion) || CURRENT_CHECKPOINT_FORMAT_VERSION;
 
-      // Check compatibility and migrate if needed
       const compatibility = this.versionManager.checkCompatibility(formatVersion);
       if (!compatibility.compatible) {
         throw new Error(`Checkpoint version not compatible: ${compatibility.reason}`);
@@ -215,10 +230,34 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         }
       }
 
-      // Use parent's restore logic to get the entity
-      const entity = await super.restoreFromCheckpoint(checkpointId, dependencies);
+      let agentLoopState: AgentLoopStateSnapshot;
+      if (checkpoint.type === "DELTA") {
+        const restorer = new BaseDeltaRestorer<AgentLoopCheckpoint, AgentLoopStateSnapshot>(
+          id => dependencies.getCheckpoint(id),
+          ids => dependencies.getCheckpoints?.(ids) ?? Promise.resolve(new Map()),
+        );
+        const restoreResult = await restorer.restore(checkpointId);
+        agentLoopState = restoreResult.snapshot;
+      } else {
+        const fullCp = checkpoint as FullCheckpoint<AgentLoopStateSnapshot>;
+        agentLoopState = fullCp.snapshot;
+      }
 
-      // Publish state change event for restoration (Plan C)
+      const entity = AgentLoopEntity.fromSnapshot(checkpoint.agentLoopId, agentLoopState, this.restoreConfig);
+
+      const hierarchyFromSnapshot = (agentLoopState as unknown as Record<string, unknown>)['hierarchy'] as ExecutionHierarchyMetadata | undefined;
+      if (hierarchyFromSnapshot) {
+        entity.restoreHierarchy(hierarchyFromSnapshot);
+      }
+
+      const restoreCtx: AgentRestoreContext = {
+        entity,
+        checkpoint,
+        restoredSnapshot: agentLoopState,
+      };
+
+      await this.postRestore(entity, dependencies, restoreCtx);
+
       const eventBus = getExecutionEventBus();
       await eventBus.publish({
         type: "state_changed",
@@ -231,33 +270,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         },
       });
 
-      // Restore file checkpoint if manager is available
-      if (dependencies.fileCheckpointManager) {
-        try {
-          const fileCheckpoints = await dependencies.fileCheckpointManager
-            .getStorage()
-            .listByEntity(entity.id, { limit: 1 });
-          if (fileCheckpoints.length > 0) {
-            const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
-              entity.id,
-              fileCheckpoints[0]!.id,
-            );
-            logger.info("File checkpoint restored alongside agent loop checkpoint", {
-              agentLoopId: entity.id,
-              checkpointId,
-              restoredCount: result.restoredCount,
-              deletedCount: result.deletedCount,
-              skippedCount: result.skippedCount,
-            });
-          }
-        } catch (error) {
-          logger.warn("File checkpoint restore failed (non-fatal, agent state restored)", {
-            agentLoopId: entity.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
       return entity;
     } catch (error) {
       if (error instanceof Error && error.message.includes("Checkpoint not found")) {
@@ -269,6 +281,119 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       }
       throw error;
     }
+  }
+
+  private async postRestore(
+    entity: AgentLoopEntity,
+    dependencies: CheckpointDependencies,
+    restoreCtx: AgentRestoreContext,
+  ): Promise<void> {
+    const { hierarchyRegistry } = dependencies;
+
+    if (hierarchyRegistry) {
+      hierarchyRegistry.register(entity);
+    }
+
+    const childReferences = entity.getChildReferences();
+    if (childReferences.length > 0) {
+      logger.info("Restoring child executions for agent loop", {
+        agentLoopId: entity.id,
+        childCount: childReferences.length,
+      });
+
+      for (const childRef of childReferences) {
+        const childCheckpointId = await this._findChildCheckpoint(
+          childRef.childId,
+          childRef.childType === "AGENT_LOOP" ? "agent" : "workflow",
+          dependencies,
+        );
+
+        if (childCheckpointId) {
+          if (childRef.childType === "AGENT_LOOP") {
+            const childEntity = await this.restoreAgentLoopFromCheckpoint(
+              childCheckpointId,
+              dependencies,
+              this.restoreConfig!,
+            );
+            childEntity.setParentContext({
+              parentType: "AGENT_LOOP",
+              parentId: entity.id,
+            });
+            if (hierarchyRegistry) {
+              hierarchyRegistry.register(childEntity);
+            }
+          } else {
+            logger.info("Child workflow execution requires separate restoration by application coordinator", {
+              childId: childRef.childId,
+              agentLoopId: entity.id,
+              checkpointId: childCheckpointId,
+            });
+          }
+        } else {
+          logger.warn("Child execution checkpoint not found, skipping restore", {
+            childId: childRef.childId,
+            childType: childRef.childType,
+          });
+        }
+      }
+    }
+
+    if (hierarchyRegistry) {
+      const hierarchyMetadata = entity.getHierarchyMetadata();
+      if (hierarchyMetadata) {
+        const validation = HierarchyIntegrityService.validateIntegrity(
+          hierarchyMetadata,
+          hierarchyRegistry,
+        );
+
+        if (!validation.valid) {
+          logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+            agentLoopId: entity.id,
+            issues: validation.issues,
+          });
+        }
+      }
+    }
+
+    if (dependencies.fileCheckpointManager) {
+      try {
+        const fileCheckpoints = await dependencies.fileCheckpointManager
+          .getStorage()
+          .listByEntity(entity.id, { limit: 1 });
+        if (fileCheckpoints.length > 0) {
+          const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
+            entity.id,
+            fileCheckpoints[0]!.id,
+          );
+          logger.info("File checkpoint restored alongside agent loop checkpoint", {
+            agentLoopId: entity.id,
+            checkpointId: restoreCtx.checkpoint.id,
+            restoredCount: result.restoredCount,
+            deletedCount: result.deletedCount,
+            skippedCount: result.skippedCount,
+          });
+        }
+      } catch (error) {
+        await this.handleFileCheckpointError(
+          error instanceof Error ? error : new Error(String(error)),
+          "restore",
+          entity.id,
+          restoreCtx.checkpoint.id,
+        );
+      }
+    }
+  }
+
+  private async _findChildCheckpoint(
+    childId: string,
+    _entityType: string,
+    dependencies: CheckpointDependencies,
+  ): Promise<string | undefined> {
+    const checkpointIds = await dependencies.listCheckpoints(childId);
+    if (checkpointIds.length === 0) {
+      return undefined;
+    }
+    return checkpointIds[checkpointIds.length - 1];
   }
 
   // ============================================================================
@@ -353,6 +478,11 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       snapshot['triggerState'] = entity.exportTriggerState();
     }
 
+    const hierarchyMetadata = entity.getHierarchyMetadata();
+    if (hierarchyMetadata && hierarchyMetadata.children.length > 0) {
+      snapshot['hierarchy'] = hierarchyMetadata;
+    }
+
     return snapshot as unknown as AgentLoopStateSnapshot;
   }
 
@@ -368,6 +498,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     previousCheckpointIds: string[],
     dependencies: CheckpointDependencies,
     metadata?: CheckpointMetadata,
+    chainPosition?: number,
   ): Promise<AgentLoopCheckpoint> {
     const { getCheckpoint } = dependencies;
 
@@ -378,7 +509,13 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         timestamp,
         type: "FULL",
         snapshot: currentState,
-        metadata,
+        metadata: {
+          ...metadata,
+          customFields: {
+            ...(metadata?.customFields || {}),
+            chainPosition: 0,
+          },
+        },
       };
     }
 
@@ -391,6 +528,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       previousCheckpointIds,
       getCheckpoint,
       metadata,
+      chainPosition,
     );
   }
 
@@ -437,19 +575,25 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     previousCheckpointIds: string[],
     getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>,
     metadata?: CheckpointMetadata,
+    chainPosition?: number,
   ): Promise<AgentLoopCheckpoint> {
-    const previousCheckpointId = previousCheckpointIds[0]!;
+    const previousCheckpointId = previousCheckpointIds[previousCheckpointIds.length - 1]!;
     const previousCheckpoint = await getCheckpoint(previousCheckpointId);
 
     if (!previousCheckpoint) {
-      // If the previous checkpoint cannot be obtained, downgrade to the full checkpoint
       return {
         id: checkpointId,
         agentLoopId: entity.id,
         timestamp,
         type: "FULL" as const,
         snapshot: currentState,
-        metadata,
+        metadata: {
+          ...metadata,
+          customFields: {
+            ...(metadata?.customFields || {}),
+            chainPosition: 0,
+          },
+        },
       };
     }
 
@@ -464,7 +608,13 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         timestamp,
         type: "FULL" as const,
         snapshot: currentState,
-        metadata,
+        metadata: {
+          ...metadata,
+          customFields: {
+            ...(metadata?.customFields || {}),
+            chainPosition: 0,
+          },
+        },
       };
     }
 
@@ -488,7 +638,13 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       baseCheckpointId,
       previousCheckpointId,
       delta,
-      metadata,
+      metadata: {
+        ...metadata,
+        customFields: {
+          ...(metadata?.customFields || {}),
+          chainPosition: chainPosition ?? 1,
+        },
+      },
     };
   }
 
@@ -638,5 +794,35 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    */
   getCheckpointErrorHandler(): CheckpointErrorHandler | undefined {
     return this.checkpointErrorHandler;
+  }
+
+  /**
+   * Handle file checkpoint error using configured error handler or fallback to warn
+   */
+  private async handleFileCheckpointError(
+    error: Error,
+    operation: "create" | "restore",
+    entityId: string,
+    checkpointId?: string,
+  ): Promise<void> {
+    if (this.checkpointErrorHandler) {
+      const result = await this.checkpointErrorHandler.handleError(error, {
+        operation: "create",
+        checkpointId: checkpointId || "unknown",
+        entityId,
+        triggerEvent: `file_checkpoint_${operation}`,
+        timestamp: Date.now(),
+      });
+      if (result.shouldRethrow) {
+        throw error;
+      }
+      return;
+    }
+
+    const operationText = operation === "create" ? "creation" : "restore";
+    logger.warn(`File checkpoint ${operationText} failed (non-fatal, agent checkpoint saved)`, {
+      agentLoopId: entityId,
+      error: error.message,
+    });
   }
 }

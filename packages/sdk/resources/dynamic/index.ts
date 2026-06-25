@@ -1,18 +1,18 @@
 /**
- * Dynamic Prompt Injection Module
+ * Dynamic Context Module
  *
  * Generates dynamic system context and user context at runtime
  * to enable KV cache optimization (Anthropic Prompt Caching).
  *
  * ## Architecture
  *
- * Two-layer injection design:
+ * Two-layer context design:
  *
  * 1. **System Context** (stable, cacheable)
  *    - Current time and timezone
  *    - Available tools documentation
  *    - Environment information
- *    - Injected into: system message (stays constant)
+ *    - Merged into: system message (stays constant)
  *
  * 2. **User Context** (variable, not cached)
  *    - TODO lists, task status
@@ -20,38 +20,23 @@
  *    - Real-time state changes
  *    - Appended to: last user message (changes frequently)
  *
- * ## Structure
+ * ## Usage
  *
- * ```
- * dynamic/
- * ├── system-context/     ← Stable context builders
- * │   ├── builder.ts
- * │   └── fragments/
- * ├── user-context/       ← Variable context builders
- * │   ├── builder.ts
- * │   └── fragments/
- * ├── injection.ts        ← Unified interface
- * └── index.ts           ← Public exports
- * ```
- *
- * ## Core API
- *
- * Applications should import only the main entry point:
+ * Applications combine context builders with messaging injection:
  *
  * ```typescript
- * import { buildDynamicPromptInjection } from "@wf-agent/sdk/resources";
+ * import { buildSystemContextPrompt } from "@wf-agent/sdk/resources";
+ * import { injectDynamicPrompts } from "@wf-agent/sdk/shared/messaging";
  *
- * const injection = await buildDynamicPromptInjection(context, config);
- * // injection.staticSystem → merge into system message
- * // injection.dynamicUserContext → append to last user message
+ * const staticSystem = await buildSystemContextPrompt(config);
+ * const messages = injectDynamicPrompts(messages, staticSystem, undefined);
  * ```
  */
 
-// Core public API - unified entry point
-export { buildDynamicPromptInjection } from "./injection.js";
-
-// Module-level APIs (for special cases, prefer buildDynamicPromptInjection)
+// System context builders (stable, for system message)
 export { buildSystemContextPrompt } from "./system-context/index.js";
+
+// User context builders (variable, for last user message)
 export { buildUserContextContent } from "./user-context/index.js";
 
 

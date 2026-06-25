@@ -28,6 +28,7 @@ import type {
 import type { LLMExecutionConfig } from "@wf-agent/types";
 import { MessageRole } from "@wf-agent/types";
 import { ConversationSession } from "../messaging/conversation-session.js";
+import { injectDynamicPrompts } from "../messaging/dynamic-injection.js";
 import { ExecutionError } from "@wf-agent/types";
 import {
   executeWithInterruptionHandling,
@@ -247,7 +248,7 @@ export class LLMExecutionCoordinator {
 
     // Apply dynamic prompts to messages
     if (systemPromptSuffix || userContextSuffix) {
-      messages = this.injectDynamicPrompts(messages, systemPromptSuffix, userContextSuffix);
+      messages = injectDynamicPrompts(messages, systemPromptSuffix, userContextSuffix).messages;
     }
 
     // Execute streaming LLM call
@@ -334,11 +335,11 @@ export class LLMExecutionCoordinator {
 
     // Apply dynamic prompts to messages
     if (systemPromptSuffix || userContextSuffix) {
-      llmMessages = this.injectDynamicPrompts(
+      llmMessages = injectDynamicPrompts(
         llmMessages,
         systemPromptSuffix,
         userContextSuffix,
-      );
+      ).messages;
     }
 
     return await this.llmExecutor.executeLLMCall(
@@ -351,90 +352,6 @@ export class LLMExecutionCoordinator {
       },
       { abortSignal, executionId, nodeId },
     );
-  }
-
-  /**
-   * Inject dynamic prompts into message array
-   *
-   * Two-layer injection strategy:
-   * 1. staticSystem: Prepended to system message (stable content, cached)
-   * 2. dynamicUserContext: Appended to last user message (variable content, not cached)
-   *
-   * @param messages Original message array
-   * @param staticSystem System-level dynamic content
-   * @param userContextSuffix User-level dynamic context
-   * @returns Messages with injected dynamic prompts
-   */
-  private injectDynamicPrompts(
-    messages: LLMMessage[],
-    staticSystem: string,
-    userContextSuffix: string,
-  ): LLMMessage[] {
-    const result: LLMMessage[] = [...messages];
-
-    // 1. Handle system message injection
-    if (staticSystem) {
-      // Find existing system message
-      const systemMsgIndex = result.findIndex((msg: LLMMessage) => {
-        const role = msg && typeof msg === "object" && "role" in msg ? msg.role : undefined;
-        return role === "system";
-      });
-
-      if (systemMsgIndex >= 0) {
-        // Append to existing system message
-        const msg = result[systemMsgIndex];
-        if (msg && typeof msg === "object" && "content" in msg) {
-          const currentContent = msg.content;
-          result[systemMsgIndex] = {
-            ...msg,
-            content: typeof currentContent === "string"
-              ? `${currentContent}\n\n${staticSystem}`
-              : currentContent,
-          };
-        }
-      } else {
-        // Insert new system message at the beginning
-        result.unshift({
-          role: "system",
-          content: staticSystem,
-        } as LLMMessage);
-      }
-    }
-
-    // 2. Handle user context injection (append to last user message)
-    if (userContextSuffix) {
-      // Find the last user message (use reverse loop for compatibility)
-      let lastUserMsgIndex = -1;
-      for (let i = result.length - 1; i >= 0; i--) {
-        const msg = result[i];
-        const role = msg && typeof msg === "object" && "role" in msg ? msg.role : undefined;
-        if (role === "user") {
-          lastUserMsgIndex = i;
-          break;
-        }
-      }
-
-      if (lastUserMsgIndex >= 0) {
-        const lastUserMsg = result[lastUserMsgIndex];
-        if (lastUserMsg && typeof lastUserMsg === "object" && "content" in lastUserMsg) {
-          const currentContent = lastUserMsg.content;
-          result[lastUserMsgIndex] = {
-            ...lastUserMsg,
-            content: typeof currentContent === "string"
-              ? `${currentContent}\n\n${userContextSuffix}`
-              : currentContent,
-          };
-        }
-      } else {
-        // No user message found, append as a new user message
-        result.push({
-          role: "user",
-          content: userContextSuffix,
-        } as LLMMessage);
-      }
-    }
-
-    return result;
   }
 
   /**
@@ -528,7 +445,7 @@ export class LLMExecutionCoordinator {
 
       // Apply dynamic prompts to messages
       if (systemPromptSuffix || userContextSuffix) {
-        llmMessages = this.injectDynamicPrompts(llmMessages, systemPromptSuffix, userContextSuffix);
+        llmMessages = injectDynamicPrompts(llmMessages, systemPromptSuffix, userContextSuffix).messages;
       }
 
       // Execute LLM call with signal

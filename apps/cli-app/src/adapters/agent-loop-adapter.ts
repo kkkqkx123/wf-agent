@@ -58,7 +58,9 @@ export class AgentLoopAdapter extends BaseAdapter {
     options?: Partial<DynamicContextConfig>,
   ): Promise<void> {
     try {
-      const { buildDynamicPromptInjection } = await import("@wf-agent/sdk/resources");
+      const { buildSystemContextPrompt, buildUserContextContent } = await import(
+        "@wf-agent/sdk/resources"
+      );
 
       // Merge configuration: agent config + CLI overrides
       const mergedConfig: DynamicContextConfig = {
@@ -70,7 +72,15 @@ export class AgentLoopAdapter extends BaseAdapter {
 
       // Create the transformContext function
       config.transformContext = async (context) => {
-        return buildDynamicPromptInjection(context, mergedConfig);
+        const staticSystem = await buildSystemContextPrompt(mergedConfig);
+        const dynamicUserContext = context.metadata
+          ? await buildUserContextContent(context.metadata as Record<string, unknown>)
+          : undefined;
+
+        return {
+          staticSystem: staticSystem || undefined,
+          dynamicUserContext: dynamicUserContext || undefined,
+        };
       };
 
       this.output.infoLog("Dynamic context injection enabled");

@@ -13,9 +13,9 @@
  * - Loaded from configuration files
  *
  * ## 3. Dynamic Resources (generated at runtime)
- * - System context injection (time, tools, environment)
- * - User context injection (TODOs, state)
- * - See DynamicPromptInjection for two-layer design
+ * - System context builders (time, tools, environment)
+ * - User context builders (TODOs, state)
+ * - Injection logic in shared/messaging/dynamic-injection.ts
  *
  * ## 4. Unified Registration
  * - Coordinates registration of all three resource types
@@ -33,8 +33,10 @@
  * // Unified registration
  * import { registerAllResources } from "@wf-agent/sdk/resources";
  *
- * // Dynamic prompt injection
- * import { buildDynamicPromptInjection } from "@wf-agent/sdk/resources";
+ * // Dynamic context builders
+ * import { buildSystemContextPrompt } from "@wf-agent/sdk/resources";
+ * // Dynamic injection logic
+ * import { injectDynamicPrompts } from "@wf-agent/sdk/shared/messaging";
  * ```
  */
 

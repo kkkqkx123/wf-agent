@@ -23,3 +23,6 @@ export type { NamedMessageContext, MessageContextRegistry } from "@wf-agent/type
 
 // Prompt submodule (template-based prompt assembly)
 export * from "./prompt/index.js";
+
+// Dynamic prompt injection (message-level context injection)
+export { injectDynamicPrompts, type DynamicPromptInjectionResult } from "./dynamic-injection.js";

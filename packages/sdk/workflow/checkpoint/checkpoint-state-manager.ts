@@ -125,6 +125,9 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
       timestamp: checkpoint.timestamp,
       tags: checkpoint.metadata?.tags,
       customFields: checkpoint.metadata?.customFields,
+      checkpointType: checkpoint.type,
+      baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
+      previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
     };
   }
 

@@ -68,7 +68,7 @@ export class QueryExecutor {
 
       return results.map((record) => this.convertRecord(record));
     } catch (error) {
-      throw this.errorConverter.convertError(error);
+      throw this.errorConverter.toKitError(error);
     }
   }
 

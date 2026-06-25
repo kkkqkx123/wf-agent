@@ -107,9 +107,6 @@ export interface AgentLoopStateSnapshot {
     /** Tool call ID if snapshot was taken after a tool call */
     toolCallId?: string;
   }>;
-
-  /** Allow additional properties for extensibility */
-  [key: string]: unknown;
 }
 
 /**

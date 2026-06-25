@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@wf-agent/types": "workspace:*",
-    "@wf-agent/sdk": "workspace:*"
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/common-utils": "workspace:*"
   },
   "devDependencies": {
     "tsd": "^0.33.0"

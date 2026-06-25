@@ -13,7 +13,7 @@ import { ErrorConverter, KitError, KitErrorCode } from '../converters/error.conv
 import type { ExecutionResult, ExecutionContext, ExecutionEvent, ExecutionOptions } from '../types/common.types.js';
 import type { ExecutionBuilder } from '../types/execution.types.js';
 import type { ExecuteWorkflowCommandConstructor } from '../types/sdk.types.js';
-import type { Result } from '@wf-agent/common-utils';
+import type { Result } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
 
 // Type-only import to avoid runtime dependency issues

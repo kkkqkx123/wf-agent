@@ -11,7 +11,7 @@
 import { ErrorConverter, KitError, KitErrorCode } from '../converters/error.converter.js';
 import type { WorkflowTemplate } from '../types/workflow.types.js';
 import type { ResourceFilter, WorkflowVersion, WorkflowMetadata } from '../types/resource.types.js';
-import type { Result } from '@wf-agent/common-utils';
+import type { Result } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
 
 type SDKInstance = any;
@@ -39,10 +39,8 @@ export class ResourceManager {
     if (validationResult.isErr()) {
       // Combine multiple validation errors into single error
       const errors = validationResult.unwrapOrElse(e => e);
-      return err(errors.length > 0 ? errors[0] : new KitError(
-        'Workflow validation failed',
-        KitErrorCode.VALIDATION_ERROR
-      ));
+      const error = errors[0] as KitError;
+      return err(error);
     }
 
     try {
@@ -231,9 +229,12 @@ export class ResourceManager {
   /**
    * Check if a workflow exists
    */
-  async workflowExists(id: string): Promise<boolean> {
+  async workflowExists(id: string): Promise<Result<boolean, KitError>> {
     const result = await this.readWorkflow(id);
-    return result.isOk();
+    if (result.isErr()) {
+      return err(result.error);
+    }
+    return ok(true);
   }
 
   /**

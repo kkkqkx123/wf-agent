@@ -123,6 +123,9 @@ export class SqliteCheckpointStorage
 
   /**
    * Extract metrics from checkpoint data for metadata storage
+   *
+   * Uses safe field access with fallback to avoid parsing errors on different checkpoint structures.
+   * Supports both workflow checkpoints (with executionState) and agent checkpoints (with snapshot).
    */
   private async extractMetrics(data: Uint8Array): Promise<{
     messageCount: number;
@@ -130,21 +133,31 @@ export class SqliteCheckpointStorage
     blobHash: string;
   }> {
     try {
-      // Parse the checkpoint data to extract metrics
       const decoder = new TextDecoder();
       const jsonStr = decoder.decode(data);
       const checkpoint = JSON.parse(jsonStr);
 
-      const executionState = checkpoint.executionState;
-      const messageCount = executionState?.conversationState?.messages?.length ?? 0;
-      const variableCount = executionState?.variables?.length ?? 0;
+      // Support multiple checkpoint structures
+      // Workflow: checkpoint.executionState.conversationState.messages
+      // Agent: checkpoint.snapshot.conversationState.messages (or similar)
+      const executionState = checkpoint.executionState ?? checkpoint.snapshot;
+      const conversationState = executionState?.conversationState;
 
-      // Simple hash for deduplication detection
+      let messageCount = 0;
+      let variableCount = 0;
+
+      if (conversationState?.messages) {
+        messageCount = Array.isArray(conversationState.messages) ? conversationState.messages.length : 0;
+      }
+
+      if (executionState?.variables) {
+        variableCount = Array.isArray(executionState.variables) ? executionState.variables.length : 0;
+      }
+
       const blobHash = await this.computeHash(data);
 
       return { messageCount, variableCount, blobHash };
     } catch (error) {
-      // If parsing fails, return default values and log warning
       logger.warn("Failed to extract checkpoint metrics", {
         error: (error as Error).message,
       });
@@ -217,49 +230,25 @@ export class SqliteCheckpointStorage
       `);
 
       db.transaction(() => {
-        try {
-          // Extract checkpoint type and IDs if available
-          let checkpointType: string | null = null;
-          let baseCheckpointId: string | null = null;
-          let previousCheckpointId: string | null = null;
+        insertMetadata.run(
+          id,
+          metadata.entityType,
+          metadata.entityId,
+          metadata.timestamp,
+          metadata.checkpointType ?? null,
+          metadata.baseCheckpointId ?? null,
+          metadata.previousCheckpointId ?? null,
+          metrics.messageCount,
+          metrics.variableCount,
+          compressed.length,
+          metrics.blobHash,
+          metadata.tags ? JSON.stringify(metadata.tags) : null,
+          metadata.customFields ? JSON.stringify(metadata.customFields) : null,
+          now,
+          now,
+        );
 
-          try {
-            const decoder = new TextDecoder();
-            const jsonStr = decoder.decode(data);
-            const checkpoint = JSON.parse(jsonStr);
-            checkpointType = checkpoint.type ?? null;
-            baseCheckpointId = checkpoint.baseCheckpointId ?? null;
-            previousCheckpointId = checkpoint.previousCheckpointId ?? null;
-          } catch {
-            // Ignore parsing errors
-          }
-
-          insertMetadata.run(
-            id,
-            metadata.entityType,
-            metadata.entityId,
-            metadata.timestamp,
-            checkpointType,
-            baseCheckpointId,
-            previousCheckpointId,
-            metrics.messageCount,
-            metrics.variableCount,
-            compressed.length,
-            metrics.blobHash,
-            metadata.tags ? JSON.stringify(metadata.tags) : null,
-            metadata.customFields ? JSON.stringify(metadata.customFields) : null,
-            now,
-            now,
-          );
-
-          insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
-        } catch (error) {
-          logger.error("Transaction failed during checkpoint save, rolling back", { 
-            id, 
-            error: (error as Error).message 
-          });
-          throw error; // Transaction will automatically rollback
-        }
+        insertBlob.run(id, compressed, algorithm ? 1 : 0, algorithm || null);
       })();
 
       // If sync mode is enabled, force WAL checkpoint to ensure data is flushed to disk
@@ -694,25 +683,6 @@ if (conditions.length > 0) {
       const preparedData = await Promise.all(
         items.map(async (item) => {
           const metrics = await this.extractMetrics(item.data);
-          
-          let checkpointType: string | null = null;
-          let baseCheckpointId: string | null = null;
-          let previousCheckpointId: string | null = null;
-
-          try {
-            const decoder = new TextDecoder();
-            const jsonStr = decoder.decode(item.data);
-            const checkpoint = JSON.parse(jsonStr);
-            checkpointType = checkpoint.type ?? null;
-            baseCheckpointId = checkpoint.baseCheckpointId ?? null;
-            previousCheckpointId = checkpoint.previousCheckpointId ?? null;
-          } catch (error) {
-            // Log parsing errors but continue with null values
-            logger.warn("Failed to parse checkpoint metadata", {
-              checkpointId: item.id,
-              error: (error as Error).message,
-            });
-          }
 
           // Get compression config and compress synchronously
           const config = selectCompressionStrategy(item.data);
@@ -721,9 +691,6 @@ if (conditions.length > 0) {
           return {
             item,
             metrics,
-            checkpointType,
-            baseCheckpointId,
-            previousCheckpointId,
             compressed,
             algorithm,
           };
@@ -733,8 +700,8 @@ if (conditions.length > 0) {
       // Phase 2: Execute all inserts in a single transaction
       const transaction = db.transaction(() => {
         for (const prepared of preparedData) {
-          const { item, metrics, checkpointType, baseCheckpointId, previousCheckpointId, compressed, algorithm } = prepared;
-          
+          const { item, metrics, compressed, algorithm } = prepared;
+
           db.prepare(`
             INSERT INTO checkpoint_metadata (
               id, entity_type, entity_id, timestamp, checkpoint_type,
@@ -761,9 +728,9 @@ if (conditions.length > 0) {
             item.metadata.entityType,
             item.metadata.entityId,
             item.metadata.timestamp,
-            checkpointType,
-            baseCheckpointId,
-            previousCheckpointId,
+            item.metadata.checkpointType ?? null,
+            item.metadata.baseCheckpointId ?? null,
+            item.metadata.previousCheckpointId ?? null,
             metrics.messageCount,
             metrics.variableCount,
             compressed.length,

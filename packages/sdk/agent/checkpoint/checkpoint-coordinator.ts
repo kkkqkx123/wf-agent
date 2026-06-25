@@ -136,56 +136,46 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       tags: options?.tags,
     });
 
-    // Store contentConfig for use in extractState
-    this.currentContentConfig = options?.contentConfig;
+    const checkpointId = await super.createCheckpoint(
+      entity,
+      dependencies,
+      mergedMetadata,
+      { contentConfig: options?.contentConfig },
+    );
 
-    try {
-      const checkpointId = await super.createCheckpoint(entity, dependencies, mergedMetadata);
+    // Publish checkpoint state change event (Plan C)
+    const eventBus = getExecutionEventBus();
+    await eventBus.publish({
+      type: "state_changed",
+      executionId: entity.id,
+      timestamp: Date.now(),
+      previousStatus: entity.state.status,
+      newStatus: entity.state.status,
+      changes: {
+        checkpointCreated: checkpointId,
+        description: options?.description,
+        tags: options?.tags,
+      },
+    });
 
-      // Publish checkpoint state change event (Plan C)
-      const eventBus = getExecutionEventBus();
-      await eventBus.publish({
-        type: "state_changed",
-        executionId: entity.id,
-        timestamp: Date.now(),
-        previousStatus: entity.state.status,
-        newStatus: entity.state.status,
-        changes: {
-          checkpointCreated: checkpointId,
-          description: options?.description,
-          tags: options?.tags,
-        },
-      });
-
-      // Create file checkpoint if manager is available
-      if (dependencies.fileCheckpointManager) {
-        try {
-          await dependencies.fileCheckpointManager.createCheckpoint(entity.id);
-          logger.info("File checkpoint created alongside agent loop checkpoint", {
-            agentLoopId: entity.id,
-            checkpointId,
-          });
-        } catch (error) {
-          logger.warn("File checkpoint creation failed (non-fatal, agent checkpoint saved)", {
-            agentLoopId: entity.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Don't rethrow - agent checkpoint is what matters, file checkpoint is optional
-        }
+    // Create file checkpoint if manager is available
+    if (dependencies.fileCheckpointManager) {
+      try {
+        await dependencies.fileCheckpointManager.createCheckpoint(entity.id);
+        logger.info("File checkpoint created alongside agent loop checkpoint", {
+          agentLoopId: entity.id,
+          checkpointId,
+        });
+      } catch (error) {
+        logger.warn("File checkpoint creation failed (non-fatal, agent checkpoint saved)", {
+          agentLoopId: entity.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-
-      return checkpointId;
-    } finally {
-      // Clear after checkpoint is created
-      this.currentContentConfig = undefined;
     }
-  }
 
-  /**
-   * Current content config being used during checkpoint creation
-   * @private
-   */
-  private currentContentConfig?: AgentCheckpointContentConfig;
+    return checkpointId;
+  }
 
   /**
    * Restore Agent Loop entity from checkpoint
@@ -193,12 +183,12 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    * @param dependencies dependencies
    * @returns Recovered Agent Loop Entity
    */
-  override async restoreFromCheckpoint(
+  async restoreAgentLoopFromCheckpoint(
     checkpointId: string,
     dependencies: CheckpointDependencies,
   ): Promise<AgentLoopEntity> {
     try {
-      // Retrieve checkpoint
+      // Retrieve and validate checkpoint
       const checkpoint = await dependencies.getCheckpoint(checkpointId);
       if (!checkpoint) {
         throw new Error("Checkpoint not found");
@@ -206,9 +196,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
       // Validate version metadata
       const formatVersion = (checkpoint.metadata?.customFields?.["formatVersion"] as CheckpointFormatVersion) || CURRENT_CHECKPOINT_FORMAT_VERSION;
-      if (!formatVersion) {
-        logger.warn("Checkpoint missing version metadata, treating as v1.0", { checkpointId });
-      }
 
       // Check compatibility and migrate if needed
       const compatibility = this.versionManager.checkCompatibility(formatVersion);
@@ -267,7 +254,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
             agentLoopId: entity.id,
             error: error instanceof Error ? error.message : String(error),
           });
-          // Don't rethrow - agent state is what matters, file checkpoint is optional
         }
       }
 
@@ -309,8 +295,11 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    * @param entity Agent Loop entity
    * @returns Status Snapshot
    */
-  protected extractState(entity: AgentLoopEntity): AgentLoopStateSnapshot {
-    const contentConfig = this.currentContentConfig;
+  protected extractState(
+    entity: AgentLoopEntity,
+    context?: { contentConfig?: AgentCheckpointContentConfig },
+  ): AgentLoopStateSnapshot {
+    const contentConfig = context?.contentConfig;
 
     // Get the full snapshot from AgentLoopState (includes all new Plan C fields)
     const fullSnapshot = entity.state.createSnapshot();
@@ -339,7 +328,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
     // Include tool calls by default, unless explicitly disabled
     if (contentConfig?.includeToolCalls !== false) {
-      // Include iteration history and current iteration record
       if (fullSnapshot.iterationHistory) {
         snapshot['iterationHistory'] = fullSnapshot.iterationHistory;
       }
@@ -364,7 +352,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       snapshot['triggerState'] = entity.exportTriggerState();
     }
 
-    return snapshot as AgentLoopStateSnapshot;
+    return snapshot as unknown as AgentLoopStateSnapshot;
   }
 
   /**
@@ -480,7 +468,10 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     }
 
     // Calculate the difference using inherited diffCalculator
-    const delta = this.diffCalculator.calculateDelta(baseCheckpoint.snapshot, currentState);
+    const delta = this.diffCalculator.calculateDelta(
+      baseCheckpoint.snapshot as unknown as Record<string, unknown>,
+      currentState as unknown as Record<string, unknown>,
+    );
 
     // Find the baseline checkpoint ID
     const baseCheckpointId =

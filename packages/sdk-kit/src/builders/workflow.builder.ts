@@ -10,7 +10,7 @@
 
 import { KitError, KitErrorCode } from '../converters/error.converter.js';
 import type { WorkflowTemplate, Node, Edge, NodeConfig, EdgeCondition } from '../types/workflow.types.js';
-import type { Result } from '@wf-agent/common-utils';
+import type { Result } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
 
 /**
@@ -25,7 +25,7 @@ export class WorkflowBuilder {
   private template: WorkflowTemplate;
   private nodes: Map<string, Node> = new Map();
   private edges: Edge[] = [];
-  private errors: KitError[] = [];
+
 
   constructor(id: string) {
     this.template = {

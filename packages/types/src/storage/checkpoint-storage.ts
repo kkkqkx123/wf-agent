@@ -21,12 +21,18 @@ export interface CheckpointStorageMetadata {
   entityType: CheckpointEntityType;
   /** Entity ID - the specific entity identifier (workflowId, agentLoopId, taskId, etc.) (required) */
   entityId: ID;
-  /** Creating timestamp (required) */
+  /** Creation timestamp (required) */
   timestamp: Timestamp;
-  /** Tagged arrays (for categorization and retrieval) */
+  /** Tag array (for categorization and retrieval) */
   tags?: string[];
-  /** Customizing metadata fields */
+  /** Custom metadata fields */
   customFields?: Record<string, unknown>;
+  /** Checkpoint type (FULL or DELTA) - extracted from checkpoint for querying */
+  checkpointType?: 'FULL' | 'DELTA';
+  /** Base checkpoint ID (for delta checkpoints) */
+  baseCheckpointId?: ID;
+  /** Previous checkpoint ID (for delta checkpoints) */
+  previousCheckpointId?: ID;
 }
 
 /**

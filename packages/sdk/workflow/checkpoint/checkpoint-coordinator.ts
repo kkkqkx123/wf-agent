@@ -104,7 +104,7 @@ export interface CreateCheckpointOptions extends CheckpointOptions {
 /**
  * Restore context for storing intermediate results during restoration
  */
-interface RestoreContext {
+interface WorkflowRestoreContext {
   conversationManager: ConversationSession;
   stateCoordinator: WorkflowStateCoordinator;
   checkpoint: Checkpoint;
@@ -122,9 +122,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   WorkflowExecutionEntity,
   WorkflowExecutionStateSnapshot
 > {
-  private currentDeps?: WorkflowCheckpointDependencies;
-  private currentConversationManager?: ConversationSession;
-  private restoreContext?: RestoreContext;
   private checkpointErrorHandler?: CheckpointErrorHandler;
   private checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
   /**
@@ -155,8 +152,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     options?: CheckpointOptions,
     conversationManager?: ConversationSession,
   ): Promise<string> {
-    this.currentDeps = dependencies;
-    this.currentConversationManager =
+    const resolvedConversationManager =
       conversationManager ??
       dependencies.conversationManager ??
       dependencies.stateCoordinatorMap?.get(entity.id)?.getConversationManager();
@@ -167,6 +163,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       entity,
       this.toBaseDeps(dependencies),
       metadata,
+      { conversationManager: resolvedConversationManager },
     );
 
     // Publish checkpoint state change event (Plan C)
@@ -249,8 +246,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     stateCoordinator: WorkflowStateCoordinator;
     conversationManager: ConversationSession;
   }> {
-    this.currentDeps = dependencies;
-
     // Step 1: Load checkpoint
     const checkpoint = await dependencies.checkpointStateManager.get(checkpointId);
     if (!checkpoint) {
@@ -302,6 +297,46 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     }
     const graph = processedWorkflow;
 
+    // Step 6-11: Build entity and restore state
+    const restoreContext = this.buildEntityAndRestoreState(
+      checkpoint,
+      workflowExecutionState,
+      graph,
+      dependencies,
+    );
+
+    // Step 12-13: Post-restore operations
+    await this.postRestore(restoreContext.entity, dependencies, restoreContext);
+
+    // Publish state change event for restoration (Plan C)
+    const eventBus = getExecutionEventBus();
+    await eventBus.publish({
+      type: "state_changed",
+      executionId: restoreContext.entity.id,
+      timestamp: Date.now(),
+      newStatus: restoreContext.entity.getStatus(),
+      changes: {
+        restored: true,
+        checkpointId,
+      },
+    });
+
+    return {
+      workflowExecutionEntity: restoreContext.entity,
+      stateCoordinator: restoreContext.stateCoordinator,
+      conversationManager: restoreContext.conversationManager,
+    };
+  }
+
+  /**
+   * Build entity and restore all state from snapshot
+   */
+  private buildEntityAndRestoreState(
+    checkpoint: Checkpoint,
+    workflowExecutionState: WorkflowExecutionStateSnapshot,
+    graph: ReturnType<WorkflowGraphRegistry["get"]>,
+    _dependencies: WorkflowCheckpointDependencies,
+  ): WorkflowRestoreContext & { entity: WorkflowExecutionEntity } {
     // Step 6: Create entity and restore initial state
     const nodeResultsArray = Object.values(workflowExecutionState.nodeResults || {});
     const workflowExecution: Partial<WorkflowExecution> = {
@@ -368,14 +403,12 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       conversationManager,
     });
 
-    // ✅ FIX: Step 11.5 - Restore trigger states from checkpoint
-    // Previously: Trigger states were saved but not restored, causing limits to reset
+    // Step 11.5: Restore trigger states from checkpoint
     if (
       workflowExecutionState.triggerStates &&
       workflowExecutionState.triggerStates instanceof Map &&
       workflowExecutionState.triggerStates.size > 0
     ) {
-      // Convert Map to object for restore
       const triggerStateObj: Record<string, unknown> = {};
       workflowExecutionState.triggerStates.forEach((value, key) => {
         triggerStateObj[key] = value;
@@ -387,33 +420,11 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       });
     }
 
-    // Store context for post-restore
-    this.restoreContext = {
+    return {
+      entity,
       conversationManager,
       stateCoordinator,
       checkpoint,
-    };
-
-    // Step 12-13: Post-restore operations
-    await this.postRestore(entity, dependencies);
-
-    // Publish state change event for restoration (Plan C)
-    const eventBus = getExecutionEventBus();
-    await eventBus.publish({
-      type: "state_changed",
-      executionId: entity.id,
-      timestamp: Date.now(),
-      newStatus: entity.getStatus(),
-      changes: {
-        restored: true,
-        checkpointId,
-      },
-    });
-
-    return {
-      workflowExecutionEntity: entity,
-      stateCoordinator,
-      conversationManager,
     };
   }
 
@@ -427,9 +438,12 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
    * Plan C: Now includes execution records (errors, interruptions, events)
    * that are persisted with state for disaster recovery.
    */
-  protected extractState(entity: WorkflowExecutionEntity): WorkflowExecutionStateSnapshot {
+  protected extractState(
+    entity: WorkflowExecutionEntity,
+    context?: { conversationManager?: ConversationSession },
+  ): WorkflowExecutionStateSnapshot {
     const workflowExecution = entity.getWorkflowExecutionData();
-    const convManager = this.currentConversationManager;
+    const convManager = context?.conversationManager;
 
     // Create variable snapshot
     const vmSnapshot = entity.variableStateManager.createSnapshot();
@@ -600,46 +614,31 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   /**
    * Create entity from restored state snapshot
-   * Note: Extra parameters (checkpoint, dependencies) are stored as instance variables
-   * before this method is called, and accessed via this.restoreContext/this.currentDeps.
+   * Called by the base class restoreFromCheckpoint template.
+   * Requires deps to be set via setDepsForRestore() before calling base class restore.
    */
   protected createEntityFromSnapshot(
-    _parentId: string,
+    parentId: string,
     snapshot: WorkflowExecutionStateSnapshot,
   ): WorkflowExecutionEntity {
-    // This method is called by the base class restoreFromCheckpoint template.
-    // However, for workflow-specific restoration, we use restoreWorkflowFromCheckpoint
-    // which handles the full 20-step process. This method is kept for interface compliance
-    // but delegates to the same logic when called via the base class.
-
-    const deps = this.currentDeps!;
-    if (!this.restoreContext) {
-      throw new Error("Restore context not available");
+    if (!this.deps) {
+      throw new Error("Dependencies not set. Call setDepsForRestore() before using base class restore.");
     }
-    const checkpoint = this.restoreContext.checkpoint;
 
-    return this.buildEntityFromSnapshot(_parentId, snapshot, checkpoint, deps);
-  }
+    const { workflowGraphRegistry } = this.deps;
 
-  /**
-   * Actual entity construction logic
-   */
-  private buildEntityFromSnapshot(
-    _parentId: string,
-    snapshot: WorkflowExecutionStateSnapshot,
-    checkpoint: Checkpoint,
-    dependencies: WorkflowCheckpointDependencies,
-  ): WorkflowExecutionEntity {
-    const processedWorkflow = dependencies.workflowGraphRegistry.get(checkpoint.workflowId);
+    const processedWorkflow = workflowGraphRegistry.get(
+      (snapshot as unknown as { workflowId?: string }).workflowId ?? "",
+    );
     if (!processedWorkflow) {
-      throw new WorkflowNotFoundError(`Processed workflow not found`, checkpoint.workflowId);
+      throw new WorkflowNotFoundError(`Processed workflow not found`, "");
     }
     const graph = processedWorkflow;
 
     const nodeResultsArray = Object.values(snapshot.nodeResults || {});
     const workflowExecution: Partial<WorkflowExecution> = {
-      id: checkpoint.executionId,
-      workflowId: checkpoint.workflowId,
+      id: parentId,
+      workflowId: (snapshot as unknown as { workflowId?: string }).workflowId ?? "",
       workflowVersion: "1.0.0",
       currentNodeId: snapshot.currentNodeId,
       input: snapshot.input,
@@ -670,9 +669,19 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     }
     entity.variableStateManager.restoreFromSnapshot({ variables: variablesMap });
 
-    // Conversation session and state coordinator are created in restoreWorkflowFromCheckpoint
-    // This method is only called when using the base class template (not the workflow-specific path)
     return entity;
+  }
+
+  /**
+   * Dependencies holder for createEntityFromSnapshot
+   */
+  private deps?: WorkflowCheckpointDependencies;
+
+  /**
+   * Set dependencies for base class template path
+   */
+  setDepsForRestore(deps: WorkflowCheckpointDependencies): void {
+    this.deps = deps;
   }
 
   // ============================================================================
@@ -687,8 +696,9 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   private async postRestore(
     entity: WorkflowExecutionEntity,
     dependencies: WorkflowCheckpointDependencies,
+    restoreCtx: WorkflowRestoreContext,
   ): Promise<void> {
-    const ctx = this.restoreContext!;
+    const ctx = restoreCtx;
 
     // Step 12: Restore execution state and infer FORK/JOIN completion
     // (Execution state is already handled in buildEntityFromSnapshot for basic case)
@@ -1031,48 +1041,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       listCheckpoints: parentId => deps.checkpointStateManager.list({ parentId }),
       deltaConfig: deps.deltaConfig,
     };
-  }
-
-  /**
-   * Determine checkpoint type (unified across Agent and Workflow)
-   *
-   * Uses the standard algorithm from BaseCheckpointCoordinator:
-   * - effective_interval = min(baselineInterval, maxDeltaChainLength)
-   * - FULL checkpoint at positions: 0, effective_interval, 2*effective_interval, ...
-   *
-   * This ensures:
-   * 1. Delta chains never exceed maxDeltaChainLength
-   * 2. FULL checkpoints appear at regular baselineInterval when it's the limiting factor
-   * 3. Consistent behavior between Agent Loop and Workflow
-   *
-   * @param checkpointCount The current number of checkpoints
-   * @param config Delta storage configuration
-   * @returns Checkpoint type (FULL or DELTA)
-   */
-  protected override determineCheckpointType(
-    checkpointCount: number,
-    config: DeltaStorageConfig,
-  ): "FULL" | "DELTA" {
-    // Disabled delta storage → always FULL
-    if (!config.enabled) {
-      return "FULL";
-    }
-
-    // First checkpoint is always FULL
-    if (checkpointCount === 0) {
-      return "FULL";
-    }
-
-    // Determine effective interval (minimum of baselineInterval and maxDeltaChainLength)
-    // This ensures delta chains never exceed the configured maximum length
-    const effectiveInterval = Math.min(config.baselineInterval, config.maxDeltaChainLength);
-
-    // Create FULL checkpoint at effective intervals
-    if (checkpointCount % effectiveInterval === 0) {
-      return "FULL";
-    }
-
-    return "DELTA";
   }
 
   /**

@@ -3,7 +3,7 @@
  */
 
 import type { ExecutionEvent, ExecutionResult } from './common.types.js';
-import type { Result } from '@wf-agent/common-utils';
+import type { Result } from '@wf-agent/types';
 import type { KitError } from '../converters/error.converter.js';
 
 /**

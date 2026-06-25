@@ -8,8 +8,8 @@
  * - Supports error collection for validation (multiple errors at once)
  */
 
-import { CommandError, CommandValidationError, CommandNotFoundError, CommandTimeoutError } from '@wf-agent/sdk/api';
-import type { Result } from '@wf-agent/common-utils';
+import { CommandError } from '@wf-agent/sdk/api';
+import type { Result } from '@wf-agent/types';
 import { ok, err } from '@wf-agent/common-utils';
 
 /**
@@ -53,14 +53,18 @@ export class KitError extends CommandError {
     cause?: Error
   ) {
     super(message, kitErrorCode, context, undefined);
-    this.name = 'KitError';
     this.kitErrorCode = kitErrorCode;
     Object.setPrototypeOf(this, KitError.prototype);
 
-    // Maintain error chain for debugging
-    if (cause instanceof Error) {
-      this.cause = cause;
-    }
+      // Use Object.defineProperty to set read-only cause property
+      if (cause instanceof Error) {
+        Object.defineProperty(this, 'cause', {
+          value: cause,
+          enumerable: true,
+          writable: false,
+          configurable: false
+        });
+      }
   }
 
   override toJSON() {

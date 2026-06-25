@@ -18,6 +18,16 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 const logger = createContextualLogger({ component: "BaseCheckpointCoordinator" });
 
 /**
+ * Context for checkpoint restoration operations.
+ * Passed through the restoration flow to avoid instance-level state.
+ */
+export interface RestoreContext<TEntity, TState> {
+  entity: TEntity;
+  snapshot: TState;
+  checkpoint: BaseCheckpoint<unknown, unknown>;
+}
+
+/**
  * Base Checkpoint Coordinator
  *
  * Coordinates the entire checkpoint lifecycle using template method pattern.
@@ -62,6 +72,7 @@ export abstract class BaseCheckpointCoordinator<
     entity: TEntity,
     dependencies: CheckpointDependencies<TCheckpoint>,
     metadata?: CheckpointMetadata,
+    context?: Record<string, unknown>,
   ): Promise<string> {
     const { saveCheckpoint, listCheckpoints, deltaConfig } = dependencies;
     const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...deltaConfig };
@@ -71,7 +82,7 @@ export abstract class BaseCheckpointCoordinator<
     });
 
     // Step 1: Extract current state (delegated to subclass)
-    const currentState = this.extractState(entity);
+    const currentState = this.extractState(entity, context);
 
     // Step 2: Retrieve previous checkpoints
     const previousCheckpointIds = await listCheckpoints(entity.id);
@@ -149,7 +160,7 @@ export abstract class BaseCheckpointCoordinator<
 
     // Step 4: Restore full state (handles delta chains automatically)
     const restorer = new BaseDeltaRestorer<TCheckpoint, TState>(getCheckpoint);
-    const restoreResult = await restorer.restore(checkpointId, parentId);
+    const restoreResult = await restorer.restore(checkpointId);
     const { snapshot } = restoreResult;
 
     logger.debug("State restored from checkpoint", {
@@ -247,9 +258,10 @@ export abstract class BaseCheckpointCoordinator<
   /**
    * Extract state from entity
    * @param entity The entity
+   * @param context Optional context passed from createCheckpoint (e.g., conversationManager)
    * @returns State snapshot
    */
-  protected abstract extractState(entity: TEntity): TState;
+  protected abstract extractState(entity: TEntity, context?: Record<string, unknown>): TState;
 
   /**
    * Build checkpoint object
@@ -287,5 +299,8 @@ export abstract class BaseCheckpointCoordinator<
    * @param snapshot Restored state snapshot
    * @returns Reconstructed entity
    */
-  protected abstract createEntityFromSnapshot(parentId: string, snapshot: TState): TEntity;
+  protected abstract createEntityFromSnapshot(
+    parentId: string,
+    snapshot: TState,
+  ): TEntity;
 }

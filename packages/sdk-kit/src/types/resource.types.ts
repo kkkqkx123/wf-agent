@@ -3,6 +3,8 @@
  */
 
 import type { WorkflowTemplate } from './workflow.types.js';
+import type { Result } from '@wf-agent/types';
+import type { KitError } from '../converters/error.converter.js';
 
 /**
  * Filter criteria for resource queries
@@ -47,60 +49,27 @@ export interface WorkflowMetadata {
  * Workflow resource interface - Core CRUD operations
  */
 export interface WorkflowResource {
-  /**
-   * Create a new workflow
-   */
-  create(template: WorkflowTemplate): Promise<string>;
+  create(template: WorkflowTemplate): Promise<Result<string, KitError>>;
 
-  /**
-   * Get a workflow by ID
-   */
-  read(id: string): Promise<WorkflowTemplate>;
+  read(id: string): Promise<Result<WorkflowTemplate, KitError>>;
 
-  /**
-   * Update an existing workflow
-   */
-  update(id: string, template: Partial<WorkflowTemplate>): Promise<void>;
+  update(id: string, template: Partial<WorkflowTemplate>): Promise<Result<void, KitError>>;
 
-  /**
-   * Delete a workflow
-   */
-  delete(id: string): Promise<void>;
+  delete(id: string): Promise<Result<void, KitError>>;
 
-  /**
-   * List all workflows with optional filtering
-   */
-  list(filter?: ResourceFilter): Promise<WorkflowTemplate[]>;
+  list(filter?: ResourceFilter): Promise<Result<WorkflowTemplate[], KitError>>;
 
-  /**
-   * Clone a workflow with a new ID
-   */
-  clone(sourceId: string, targetId: string): Promise<string>;
+  clone(sourceId: string, targetId: string): Promise<Result<string, KitError>>;
 
-  /**
-   * Check if a workflow exists
-   */
-  exists(id: string): Promise<boolean>;
+  exists(id: string): Promise<Result<boolean, KitError>>;
 
-  /**
-   * Get current version of a workflow
-   */
-  getVersion(id: string): Promise<string>;
+  getVersion(id: string): Promise<Result<string, KitError>>;
 
-  /**
-   * List all versions of a workflow
-   */
-  listVersions(id: string): Promise<WorkflowVersion[]>;
+  listVersions(id: string): Promise<Result<WorkflowVersion[], KitError>>;
 
-  /**
-   * Rollback to a specific version
-   */
-  rollback(id: string, version: string): Promise<void>;
+  rollback(id: string, version: string): Promise<Result<void, KitError>>;
 
-  /**
-   * Get workflow metadata
-   */
-  getMetadata(id: string): Promise<WorkflowMetadata>;
+  getMetadata(id: string): Promise<Result<WorkflowMetadata, KitError>>;
 }
 
 /**

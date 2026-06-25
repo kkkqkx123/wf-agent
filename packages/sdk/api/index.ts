@@ -384,7 +384,7 @@ export {
 // ============================================================================
 // Shared - Types
 // ============================================================================
-export type { CommandError } from "./shared/types/command-error.js";
+export { CommandError, CommandValidationError, CommandNotFoundError, CommandTimeoutError } from "./shared/types/command-error.js";
 
 // ============================================================================
 // Shared - Utilities

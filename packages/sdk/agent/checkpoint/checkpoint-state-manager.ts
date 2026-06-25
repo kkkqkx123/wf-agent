@@ -126,11 +126,11 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
       entityId: checkpoint.agentLoopId || this.agentLoopId,
       timestamp: checkpoint.timestamp,
       customFields: {
-        type: checkpoint.type,
         version: 1,
-        baseCheckpointId: checkpoint.baseCheckpointId,
-        previousCheckpointId: checkpoint.previousCheckpointId,
       },
+      checkpointType: checkpoint.type,
+      baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
+      previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
     };
   }
 

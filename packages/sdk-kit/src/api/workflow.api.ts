@@ -7,7 +7,7 @@
 
 import { WorkflowBuilder } from '../builders/workflow.builder.js';
 import type { WorkflowTemplate } from '../types/workflow.types.js';
-import type { Result } from '@wf-agent/common-utils';
+import type { Result } from '@wf-agent/types';
 import { KitError, KitErrorCode } from '../converters/error.converter.js';
 import { err, ok } from '@wf-agent/common-utils';
 
@@ -106,4 +106,4 @@ export class WorkflowAPIImpl implements WorkflowAPI {
   }
 }
 
-export type { WorkflowAPI };
+

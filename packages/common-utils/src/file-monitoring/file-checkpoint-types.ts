@@ -40,31 +40,6 @@ export interface FileCheckpointStorageAdapter {
 }
 
 /**
- * Optimized FileCheckpointManager configuration
- */
-export interface OptimizedFileCheckpointManagerConfig extends FileCheckpointManagerConfig {
-  /** Enable file watching for incremental change detection */
-  useFileWatcher?: boolean;
-  /** Enable hash baseline storage (reduces initial storage) */
-  useHashBaseline?: boolean;
-  /** Enable diff generation for changed files */
-  enableDiff?: boolean;
-}
-
-/**
- * File checkpoint error handling configuration
- */
-export interface FileCheckpointErrorConfig {
-  /**
-   * Error handling behavior for file checkpoint operations.
-   * - "warn": Log warning and continue (default, backward compatible)
-   * - "error": Throw error, allowing caller to handle
-   * - "ignore": Silently ignore errors
-   */
-  failureBehavior: "warn" | "error" | "ignore";
-}
-
-/**
  * File checkpoint create result
  */
 export interface FileCheckpointCreateResult {

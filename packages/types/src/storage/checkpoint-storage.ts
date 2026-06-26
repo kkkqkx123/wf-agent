@@ -197,7 +197,66 @@ export interface CheckpointCleanupStrategy {
    * Implementing a cleanup strategy
    *
    * @param checkpoints List of information about all checkpoints (with IDs and metadata)
+   * @param dependencyGraph Optional dependency graph for delta chain awareness
    * @returns List of checkpoint IDs to be deleted
    */
-  execute(checkpoints: CheckpointInfo[]): string[];
+  execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[];
+}
+
+/**
+ * Dependency graph for delta chain integrity protection
+ * Tracks FULL-DELTA reference relationships
+ */
+export interface CheckpointDependencyGraph {
+  /** Map of checkpoint ID to the checkpoints that reference it as previousCheckpointId */
+  referencedBy: Map<string, string[]>;
+  /** Map of checkpoint ID to its chain root ID (the FULL checkpoint at the base) */
+  chainRootMap: Map<string, string>;
+  /** Map of chain root ID to all checkpoint IDs in the chain */
+  chainGroups: Map<string, string[]>;
+}
+
+/**
+ * Recovery transaction status
+ */
+export type RecoveryTransactionStatus = "pending" | "in_progress" | "completed" | "failed" | "rolled_back" | "rolled_back_with_errors";
+
+/**
+ * Recovery operation record for transaction tracking
+ */
+export interface RecoveryOperation {
+  /** Unique operation ID */
+  operationId: string;
+  /** Entity being recovered */
+  entityId: string;
+  /** Entity type */
+  entityType: CheckpointEntityType;
+  /** Checkpoint ID used for recovery */
+  checkpointId: string;
+  /** Operation status */
+  status: RecoveryTransactionStatus;
+  /** Timestamp when operation started */
+  startedAt: number;
+  /** Timestamp when operation completed */
+  completedAt?: number;
+  /** Error message if failed */
+  error?: string;
+  /** Compensating actions for rollback */
+  compensatingActions: Array<() => Promise<void>>;
+}
+
+/**
+ * Recovery transaction coordinator status
+ */
+export interface RecoveryTransactionResult {
+  /** Transaction ID */
+  transactionId: string;
+  /** Overall status */
+  status: RecoveryTransactionStatus;
+  /** Operations performed */
+  operations: RecoveryOperation[];
+  /** Errors encountered */
+  errors: Array<{ entityId: string; error: string }>;
+  /** Entities successfully recovered */
+  recoveredEntities: Array<{ entityId: string; entityType: CheckpointEntityType }>;
 }

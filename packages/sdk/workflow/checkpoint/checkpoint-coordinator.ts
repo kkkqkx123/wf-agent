@@ -61,6 +61,7 @@ import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-che
 import type { AgentLoopCheckpointCoordinator, CheckpointDependencies as AgentCheckpointDependencies } from "../../agent/checkpoint/checkpoint-coordinator.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-checkpoint-resolver.js";
+import { RestoreStrategyRegistry } from "../../shared/checkpoint/restore-strategy.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 
@@ -935,59 +936,87 @@ protected async buildCheckpoint(
      }
    }
 
-    /**
+   /**
      * Build ChildRestoreDependencies for the current restore operation.
      * Supports both WORKFLOW and AGENT_LOOP child types via agentChildDeps.
      */
-    private async buildChildRestoreDependencies(
-      dependencies: WorkflowCheckpointDependencies,
-      hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
-    ): Promise<ChildRestoreDependencies> {
-      return {
-        findCheckpoint: async (childId, childType) => {
-          if (childType === "WORKFLOW") {
-            const checkpointIds = await dependencies.checkpointStateManager.list({
-              parentId: childId,
-            });
-            return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
-          }
-          // AGENT_LOOP: use agent checkpoint storage
-          const agentDeps = dependencies.agentChildDeps;
-          if (agentDeps) {
-            const checkpointIds = await agentDeps.agentDeps.listCheckpoints(childId);
-            return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
-          }
-          return undefined;
-        },
-        restoreEntity: async (checkpointId, childType) => {
-          if (childType === "WORKFLOW") {
-            const result = await this.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
+     private async buildChildRestoreDependencies(
+       dependencies: WorkflowCheckpointDependencies,
+       hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+     ): Promise<ChildRestoreDependencies> {
+       const strategyRegistry = new RestoreStrategyRegistry();
+
+       const self = this;
+       strategyRegistry.register({
+         executionType: "WORKFLOW",
+         findCheckpoint: async (childId) => {
+           const checkpointIds = await dependencies.checkpointStateManager.list({
+             parentId: childId,
+           });
+           return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
+         },
+          restoreEntity: async (checkpointId, _parentId) => {
+            const result = await self.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
             return result.workflowExecutionEntity as AnyExecutionEntity;
-          }
-          // AGENT_LOOP: delegate to agent coordinator
-          const agentChildDeps = dependencies.agentChildDeps;
-          if (agentChildDeps) {
-            const result = await agentChildDeps.agentCoordinator.restoreAgentLoopFromCheckpoint(
-              checkpointId,
-              agentChildDeps.agentDeps,
-              agentChildDeps.agentRuntimeConfig,
-            );
-            return result as AnyExecutionEntity;
-          }
-          throw new Error(
-            "AGENT_LOOP child restoration requires agentChildDeps in dependencies. " +
-            "Use ExecutionRestoreCoordinator for cross-type restoration."
-          );
-        },
-        registerChild: (parent, child, childRef) => {
-          parent.registerChild(childRef);
-          if (hierarchyRegistry) {
-            hierarchyRegistry.register(child as AnyExecutionEntity);
-          }
-        },
-        onChildRestored: undefined,
-      };
-    }
+          },
+         registerChild: (parent, child, childRef) => {
+           parent.registerChild(childRef);
+           if (hierarchyRegistry) {
+             hierarchyRegistry.register(child as AnyExecutionEntity);
+           }
+         },
+       });
+
+       if (dependencies.agentChildDeps) {
+         const agentDeps = dependencies.agentChildDeps;
+         strategyRegistry.register({
+           executionType: "AGENT_LOOP",
+           findCheckpoint: async (childId) => {
+             const checkpointIds = await agentDeps.agentDeps.listCheckpoints(childId);
+             return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
+           },
+            restoreEntity: async (checkpointId, _parentId) => {
+              const result = await agentDeps.agentCoordinator.restoreAgentLoopFromCheckpoint(
+                checkpointId,
+                agentDeps.agentDeps,
+                agentDeps.agentRuntimeConfig,
+              );
+              return result as AnyExecutionEntity;
+            },
+           registerChild: (parent, child, childRef) => {
+             parent.registerChild(childRef);
+             if (hierarchyRegistry) {
+               hierarchyRegistry.register(child as AnyExecutionEntity);
+             }
+           },
+         });
+       }
+
+       return {
+         findCheckpoint: async (childId, childType) => {
+           const strategy = strategyRegistry.get(childType);
+           if (strategy) {
+             return strategy.findCheckpoint(childId);
+           }
+           return undefined;
+         },
+         restoreEntity: async (checkpointId, childType, parentId) => {
+           const strategy = strategyRegistry.get(childType);
+           if (strategy) {
+             return strategy.restoreEntity(checkpointId, parentId);
+           }
+           throw new Error(`No strategy registered for type: ${childType}`);
+         },
+         registerChild: (parent, child, childRef) => {
+           const strategy = strategyRegistry.get(childRef.childType);
+           if (strategy) {
+             strategy.registerChild(parent, child, childRef);
+           }
+         },
+         strategyRegistry,
+         onChildRestored: undefined,
+       };
+     }
 
    // ============================================================================
    // Private Helpers

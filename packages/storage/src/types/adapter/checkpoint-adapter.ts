@@ -101,10 +101,28 @@ export interface CheckpointStorageAdapter extends BaseStorageAdapter<
 
   /**
    * Update entity-level metadata (e.g., cleanup watermark)
-   * 
+   *
    * @param entityType Entity type
    * @param entityId Entity ID
    * @param metadata Metadata key-value pairs to store
    */
   setEntityMetadata(entityType: string, entityId: string, metadata: Record<string, unknown>): Promise<void>;
+
+  /**
+   * Batch get latest checkpoints for multiple entities.
+   * More efficient than individual queries for multiple entities.
+   *
+   * @param entityIds Array of entity IDs
+   * @param entityType Entity type filter
+   * @param options Query options (limit per entity)
+   * @returns Array of entity ID to latest checkpoints mapping
+   */
+  listByEntitiesWithMetadata?(
+    entityIds: string[],
+    entityType: string,
+    options?: { limit?: number }
+  ): Promise<Array<{
+    entityId: string;
+    checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }>;
+  }>>;
 }

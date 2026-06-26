@@ -4,93 +4,124 @@
  * Generic resolver for finding the latest checkpoint of child execution instances.
  * Provides a consistent interface for resolving child checkpoints across
  * different execution types (WORKFLOW, AGENT_LOOP).
+ *
+ * Supports both individual and batch resolution for efficiency.
+ * Batch resolution uses storage adapter's batch capabilities when available.
  */
 
 import type { CheckpointStorageAdapter } from "./types.js";
 import type { CheckpointStorageMetadata, CheckpointEntityType } from "@wf-agent/types";
 import type { ChildExecutionReference } from "@wf-agent/types";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
 
-/**
- * Resolved checkpoint descriptor
- */
+const logger = createContextualLogger({ component: "ChildCheckpointResolver" });
+
 export interface ChildCheckpointDescriptor {
   checkpointId: string;
   metadata: CheckpointStorageMetadata;
 }
 
-/**
- * Resolve the latest checkpoint for a child execution instance.
- *
- * Implementations may use different strategies:
- * - Storage-backed: queries storage adapter with proper ORDER BY
- * - Cached: uses preloaded metadata for batch operations
- */
 export interface ChildCheckpointResolver {
-  /**
-   * Resolve the latest checkpoint for a child execution
-   * @param childRef Child execution reference
-   * @returns Latest checkpoint descriptor or null if not found
-   */
-  resolveLatestCheckpoint(
-    childRef: ChildExecutionReference,
-  ): Promise<ChildCheckpointDescriptor | null>;
-
-  /**
-   * Resolve latest checkpoints for multiple children in batch
-   * @param childRefs Array of child execution references
-   * @returns Map of child ID to checkpoint descriptor (or null)
-   */
-  resolveLatestCheckpoints(
-    childRefs: ChildExecutionReference[],
-  ): Promise<Map<string, ChildCheckpointDescriptor | null>>;
+  resolveLatestCheckpoint(childRef: ChildExecutionReference): Promise<ChildCheckpointDescriptor | null>;
+  resolveLatestCheckpoints(childRefs: ChildExecutionReference[]): Promise<Map<string, ChildCheckpointDescriptor | null>>;
 }
 
-/**
- * Storage-backed implementation of ChildCheckpointResolver.
- * Uses the CheckpointStorageAdapter's listByEntityWithMetadata for efficient queries.
- */
 export class StorageBackedChildResolver implements ChildCheckpointResolver {
   constructor(private storageAdapter: CheckpointStorageAdapter) {}
 
-  async resolveLatestCheckpoint(
-    childRef: ChildExecutionReference,
-  ): Promise<ChildCheckpointDescriptor | null> {
-    const results = await this.storageAdapter.listByEntityWithMetadata(
-      childRef.childId,
-      childRef.childType as CheckpointEntityType,
-      { limit: 1 }
-    );
+   async resolveLatestCheckpoint(childRef: ChildExecutionReference): Promise<ChildCheckpointDescriptor | null> {
+     const results = await this.storageAdapter.listByEntityWithMetadata(childRef.childId, childRef.childType as CheckpointEntityType, { limit: 10 });
+     if (results.length === 0) return null;
+     const sorted = [...results].sort(
+       (a, b) => b.metadata.timestamp - a.metadata.timestamp,
+     );
+     const latest = sorted[0]!;
+     return { checkpointId: latest.id, metadata: latest.metadata };
+   }
 
-    if (results.length === 0) {
-      return null;
+  async resolveLatestCheckpoints(childRefs: ChildExecutionReference[]): Promise<Map<string, ChildCheckpointDescriptor | null>> {
+    if (childRefs.length === 0) {
+      return new Map();
     }
 
-    const latest = results[0]!;
-    return {
-      checkpointId: latest.id,
-      metadata: latest.metadata,
-    };
-  }
-
-  async resolveLatestCheckpoints(
-    childRefs: ChildExecutionReference[],
-  ): Promise<Map<string, ChildCheckpointDescriptor | null>> {
-    const resultMap = new Map<string, ChildCheckpointDescriptor | null>();
-
-    if (childRefs.length === 0) {
+    if (childRefs.length === 1) {
+      const descriptor = await this.resolveLatestCheckpoint(childRefs[0]!);
+      const resultMap = new Map();
+      resultMap.set(childRefs[0]!.childId, descriptor);
       return resultMap;
     }
 
-    // Batch resolve each child individually
-    // Note: For large batches, consider parallel execution with concurrency limit
-    const promises = childRefs.map(async (childRef) => {
-      const descriptor = await this.resolveLatestCheckpoint(childRef);
-      return { childId: childRef.childId, descriptor };
-    });
+    if ('listByEntitiesWithMetadata' in this.storageAdapter) {
+      return this.resolveBatchViaAdapter(childRefs);
+    }
 
-    const results = await Promise.all(promises);
-    for (const { childId, descriptor } of results) {
-      resultMap.set(childId, descriptor);
+    return this.resolveBatchParallel(childRefs);
+  }
+
+  private async resolveBatchViaAdapter(childRefs: ChildExecutionReference[]): Promise<Map<string, ChildCheckpointDescriptor | null>> {
+    const adapter = this.storageAdapter as CheckpointStorageAdapter & {
+      listByEntitiesWithMetadata: (
+        entityIds: string[],
+        entityType: CheckpointEntityType,
+        options?: { limit?: number }
+      ) => Promise<Array<{ entityId: string; checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }> }>>;
+    };
+
+    const entityIds = childRefs.map(r => r.childId);
+    const entityTypes = new Set(childRefs.map(r => r.childType));
+
+    if (entityTypes.size > 1) {
+      return this.resolveBatchParallel(childRefs);
+    }
+
+    try {
+      const results = await adapter.listByEntitiesWithMetadata(
+        entityIds,
+        Array.from(entityTypes)[0] as CheckpointEntityType,
+        { limit: 1 },
+      );
+
+      const resultMap = new Map<string, ChildCheckpointDescriptor | null>();
+       for (const childRef of childRefs) {
+         const entityResult = results.find(r => r.entityId === childRef.childId);
+         const checkpoints = entityResult?.checkpoints ?? [];
+         const sorted = [...checkpoints].sort(
+           (a, b) => b.metadata.timestamp - a.metadata.timestamp,
+         );
+         const checkpoint = sorted[0];
+         if (checkpoint) {
+           resultMap.set(childRef.childId, {
+             checkpointId: checkpoint.id,
+             metadata: checkpoint.metadata,
+           });
+         } else {
+           resultMap.set(childRef.childId, null);
+         }
+       }
+
+      return resultMap;
+    } catch (error) {
+      logger.warn("Batch resolution via adapter failed, falling back to parallel", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.resolveBatchParallel(childRefs);
+    }
+  }
+
+  private async resolveBatchParallel(childRefs: ChildExecutionReference[]): Promise<Map<string, ChildCheckpointDescriptor | null>> {
+    const BATCH_SIZE = 10;
+    const resultMap = new Map();
+
+    for (let i = 0; i < childRefs.length; i += BATCH_SIZE) {
+      const batch = childRefs.slice(i, i + BATCH_SIZE);
+      const promises = batch.map(async (childRef) => {
+        const descriptor = await this.resolveLatestCheckpoint(childRef);
+        return { childId: childRef.childId, descriptor };
+      });
+      const results = await Promise.all(promises);
+      for (const { childId, descriptor } of results) {
+        resultMap.set(childId, descriptor);
+      }
     }
 
     return resultMap;

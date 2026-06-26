@@ -23,6 +23,7 @@ import type {
   SizeBasedCleanupPolicy,
   TieredCleanupPolicy,
   CheckpointCleanupStrategy,
+  CheckpointDependencyGraph,
 } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
@@ -45,7 +46,7 @@ const logger = createContextualLogger({ component: "CleanupPolicy" });
 export class TieredCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(private policy: TieredCleanupPolicy) {}
 
-  execute(checkpoints: CheckpointInfo[]): string[] {
+  execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
     const currentTime = Date.now();
     const minRetention = this.policy.minRetention || 0;
 
@@ -110,6 +111,46 @@ export class TieredCleanupStrategy implements CheckpointCleanupStrategy {
       }
     }
 
+    return this.applyDependencyProtection(toDelete, sorted, dependencyGraph);
+  }
+
+  /**
+   * Apply dependency protection to prevent breaking delta chains
+   */
+  private applyDependencyProtection(
+    toDelete: string[],
+    sorted: CheckpointInfo[],
+    dependencyGraph?: CheckpointDependencyGraph,
+  ): string[] {
+    if (!dependencyGraph || toDelete.length === 0) {
+      return toDelete;
+    }
+
+    const candidateSet = new Set(toDelete);
+    const allIds = new Set(sorted.map(cp => cp.checkpointId));
+
+    for (const candidateId of toDelete) {
+      const chainRoot = dependencyGraph.chainRootMap.get(candidateId);
+      if (!chainRoot) continue;
+
+      const chainMembers = dependencyGraph.chainGroups.get(chainRoot) || [];
+      const survivingMembers = chainMembers.filter(id => !candidateSet.has(id) || id === candidateId);
+
+      if (survivingMembers.length === 0) continue;
+
+      const latestSurviving = survivingMembers[survivingMembers.length - 1];
+      if (latestSurviving && latestSurviving !== candidateId) {
+        const referencedBy = dependencyGraph.referencedBy.get(candidateId) || [];
+        const hasDependent = referencedBy.some(ref => allIds.has(ref) && !candidateSet.has(ref));
+        if (hasDependent) {
+          const idx = toDelete.indexOf(candidateId);
+          if (idx > -1) {
+            toDelete.splice(idx, 1);
+          }
+        }
+      }
+    }
+
     return toDelete;
   }
 }
@@ -120,7 +161,7 @@ export class TieredCleanupStrategy implements CheckpointCleanupStrategy {
 export class TimeBasedCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(private policy: TimeBasedCleanupPolicy) {}
 
-  execute(checkpoints: CheckpointInfo[]): string[] {
+  execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
     const currentTime = now();
     const retentionMs = this.policy.retentionDays * 24 * 60 * 60 * 1000;
     const minRetention = this.policy.minRetention || 0;
@@ -144,6 +185,37 @@ export class TimeBasedCleanupStrategy implements CheckpointCleanupStrategy {
       }
     }
 
+    return this.applyDependencyProtection(toDelete, sorted, dependencyGraph);
+  }
+
+  /**
+   * Apply dependency protection to prevent breaking delta chains
+   */
+  private applyDependencyProtection(
+    toDelete: string[],
+    _sorted: CheckpointInfo[],
+    dependencyGraph?: CheckpointDependencyGraph,
+  ): string[] {
+    if (!dependencyGraph || toDelete.length === 0) {
+      return toDelete;
+    }
+
+    const candidateSet = new Set(toDelete);
+
+    for (const candidateId of toDelete) {
+      const chainRoot = dependencyGraph.chainRootMap.get(candidateId);
+      if (!chainRoot) continue;
+
+      const referencedBy = dependencyGraph.referencedBy.get(candidateId) || [];
+      const hasDependent = referencedBy.some(ref => !candidateSet.has(ref));
+      if (hasDependent) {
+        const idx = toDelete.indexOf(candidateId);
+        if (idx > -1) {
+          toDelete.splice(idx, 1);
+        }
+      }
+    }
+
     return toDelete;
   }
 }
@@ -154,7 +226,7 @@ export class TimeBasedCleanupStrategy implements CheckpointCleanupStrategy {
 export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(private policy: CountBasedCleanupPolicy) {}
 
-  execute(checkpoints: CheckpointInfo[]): string[] {
+  execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
     const maxCount = this.policy.maxCount;
     const minRetention = this.policy.minRetention || 0;
 
@@ -180,6 +252,34 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
       }
     }
 
+    return this.applyDependencyProtection(toDelete, sorted, dependencyGraph);
+  }
+
+  /**
+   * Apply dependency protection to prevent breaking delta chains
+   */
+  private applyDependencyProtection(
+    toDelete: string[],
+    _sorted: CheckpointInfo[],
+    dependencyGraph?: CheckpointDependencyGraph,
+  ): string[] {
+    if (!dependencyGraph || toDelete.length === 0) {
+      return toDelete;
+    }
+
+    const candidateSet = new Set(toDelete);
+
+    for (const candidateId of toDelete) {
+      const referencedBy = dependencyGraph.referencedBy.get(candidateId) || [];
+      const hasDependent = referencedBy.some(ref => !candidateSet.has(ref));
+      if (hasDependent) {
+        const idx = toDelete.indexOf(candidateId);
+        if (idx > -1) {
+          toDelete.splice(idx, 1);
+        }
+      }
+    }
+
     return toDelete;
   }
 }
@@ -193,7 +293,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     private checkpointSizes: Map<string, number>,
   ) {}
 
-  execute(checkpoints: CheckpointInfo[]): string[] {
+  execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
     const maxSize = this.policy.maxSizeBytes;
     const minRetention = this.policy.minRetention || 0;
 
@@ -241,6 +341,44 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
         }
       } else {
         break;
+      }
+    }
+
+    return this.applyDependencyProtection(toDelete, sorted, dependencyGraph);
+  }
+
+  /**
+   * Apply dependency protection to prevent breaking delta chains
+   */
+  private applyDependencyProtection(
+    toDelete: string[],
+    sorted: CheckpointInfo[],
+    dependencyGraph?: CheckpointDependencyGraph,
+  ): string[] {
+    if (!dependencyGraph || toDelete.length === 0) {
+      return toDelete;
+    }
+
+    const candidateSet = new Set(toDelete);
+    const allIds = new Set(sorted.map(cp => cp.checkpointId));
+
+    for (const candidateId of [...toDelete]) {
+      const referencedBy = dependencyGraph.referencedBy.get(candidateId) || [];
+      const hasDependent = referencedBy.some(ref => allIds.has(ref) && !candidateSet.has(ref));
+
+      if (hasDependent) {
+        const chainRoot = dependencyGraph.chainRootMap.get(candidateId);
+        const chainMembers = chainRoot ? dependencyGraph.chainGroups.get(chainRoot) || [] : [];
+        const fullInChain = chainMembers.some(
+          id => !candidateSet.has(id) && sorted.find(s => s.checkpointId === id)?.metadata.checkpointType === "FULL",
+        );
+
+        if (!fullInChain) {
+          const idx = toDelete.indexOf(candidateId);
+          if (idx > -1) {
+            toDelete.splice(idx, 1);
+          }
+        }
       }
     }
 

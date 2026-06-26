@@ -19,6 +19,7 @@ import { StateCodec } from "@wf-agent/common-utils";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import type { DeltaMap } from "./base-diff-calculator.js";
 import { createCleanupStrategy } from "./utils/cleanup-policy.js";
+import { buildDependencyGraph, computeProtectedCheckpoints } from "./checkpoint-graph.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { CheckpointStorageAdapter } from "./types.js";
 import { CheckpointMetricsCollector } from "./checkpoint-metrics-collector.js";
@@ -437,112 +438,71 @@ export abstract class BaseCheckpointStateManager<
         metadata: info.metadata as CheckpointStorageMetadata,
       }));
 
-    // Execute cleanup strategy
-    const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
-    const candidateDeleteIds = strategy.execute(checkpointInfo);
+     // Build dependency graph for delta chain protection
+     const dependencyGraph = buildDependencyGraph(checkpointInfoArray);
 
-    // Protect delta chain integrity with transitive closure:
-    // 1. Don't delete checkpoints that are referenced as previousCheckpointId
-    // 2. Protect all members of any delta chain via chainRootId grouping
-    // 3. Never delete the latest checkpoint per entity
-    const previousIdReferences = new Map<string, string[]>();
-    for (const info of checkpointInfoArray) {
-      const prevId = info.metadata.previousCheckpointId;
-      if (prevId && prevId !== info.id) {
-        const refs = previousIdReferences.get(prevId) || [];
-        refs.push(info.id);
-        previousIdReferences.set(prevId, refs);
-      }
-    }
+     // Execute cleanup strategy
+     const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
+     const candidateDeleteIds = strategy.execute(checkpointInfo, dependencyGraph);
 
-    // Group checkpoints by chainRootId for transitive chain protection
-    const chainRootGroups = new Map<string, string[]>();
-    for (const info of checkpointInfoArray) {
-      const chainRootId = info.metadata.chainRootId || info.id;
-      const group = chainRootGroups.get(chainRootId) || [];
-      group.push(info.id);
-      chainRootGroups.set(chainRootId, group);
-    }
+     // Apply dependency protection - remove candidates that would break delta chains
+     const candidateSet = new Set(candidateDeleteIds);
+     const protectedByDependency = computeProtectedCheckpoints(
+       candidateSet,
+       dependencyGraph,
+       new Set(checkpointInfoArray.map(c => c.id)),
+     );
 
-    // Identify the latest checkpoint (by timestamp) to protect it
-    const sortedByTimestamp = [...checkpointInfoArray].sort(
-      (a, b) => b.metadata.timestamp - a.metadata.timestamp,
-    );
-    const latestCheckpointId = sortedByTimestamp[0]?.id;
+     // Final deletion list after dependency protection
+     const filteredDeleteIds = candidateDeleteIds.filter(id => !protectedByDependency.has(id));
 
-    // Compute transitive protection: for each candidate, check if deleting it
-    // would orphan any part of the delta chain
-    const computeProtectedSet = (checkpointIdToRemove: string, refs: Map<string, string[]>): Set<string> => {
-      const protectedSet = new Set<string>();
-      const queue = [checkpointIdToRemove];
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (protectedSet.has(current)) continue;
-        protectedSet.add(current);
-        const referencingCheckpoints = refs.get(current);
-        if (referencingCheckpoints) {
-          for (const ref of referencingCheckpoints) {
-            queue.push(ref);
-          }
-        }
-      }
-      return protectedSet;
-    };
+     // Protect delta chain integrity:
+     // 1. Never delete the latest checkpoint (by timestamp)
+     const sortedByTimestamp = [...checkpointInfoArray].sort(
+       (a, b) => b.metadata.timestamp - a.metadata.timestamp,
+     );
+     const latestCheckpointId = sortedByTimestamp[0]?.id;
 
-    const toDeleteIds: string[] = [];
-    const protectedIds: string[] = [];
+     // Remove latest checkpoint from deletion candidates if present
+     let toDeleteIds = filteredDeleteIds;
+     if (latestCheckpointId && toDeleteIds.includes(latestCheckpointId)) {
+       toDeleteIds = toDeleteIds.filter(id => id !== latestCheckpointId);
+       logger.debug("Protected latest checkpoint from deletion", {
+         checkpointId: latestCheckpointId,
+       });
+     }
 
-    for (const checkpointId of candidateDeleteIds) {
-      // Rule 1: Never delete the latest checkpoint
-      if (checkpointId === latestCheckpointId) {
-        protectedIds.push(checkpointId);
-        logger.debug("Protecting latest checkpoint from deletion", {
-          checkpointId,
-        });
-        continue;
-      }
+     // Protect checkpoints that are still referenced by surviving deltas
+     const referencedBySurvivors = new Map<string, string[]>();
+     const toDeleteSet = new Set(toDeleteIds);
 
-      // Rule 2: Check direct references
-      const directRefs = previousIdReferences.get(checkpointId);
-      if (directRefs && directRefs.length > 0) {
-        protectedIds.push(checkpointId);
-        logger.debug("Protecting checkpoint referenced by delta chain", {
-          checkpointId,
-          referencedBy: directRefs,
-        });
-        continue;
-      }
+     for (const info of checkpointInfoArray) {
+       if (toDeleteSet.has(info.id)) continue;
+       const prevId = info.metadata.previousCheckpointId;
+       if (prevId && toDeleteSet.has(prevId)) {
+         const refs = referencedBySurvivors.get(prevId) || [];
+         refs.push(info.id);
+         referencedBySurvivors.set(prevId, refs);
+       }
+     }
 
-      // Rule 3: Transitive chain protection via chainRootId
-      const chainRootId = checkpointInfoArray.find(i => i.id === checkpointId)?.metadata.chainRootId;
-      if (chainRootId) {
-        const chainGroup = chainRootGroups.get(chainRootId);
-        if (chainGroup && chainGroup.length > 1) {
-          // Don't delete the root of an active chain (if any delta still references it transitively)
-          const affectedSet = computeProtectedSet(checkpointId, previousIdReferences);
-          if (affectedSet.size > 1) {
-            protectedIds.push(checkpointId);
-            logger.debug("Protecting checkpoint via transitive chain analysis", {
-              checkpointId,
-              chainRootId,
-              wouldOrphan: affectedSet.size - 1,
-            });
-            continue;
-          }
-        }
-      }
+     for (const candidateId of [...toDeleteIds]) {
+       if (referencedBySurvivors.has(candidateId)) {
+         toDeleteIds = toDeleteIds.filter(id => id !== candidateId);
+         logger.debug("Protected checkpoint referenced by surviving delta", {
+           checkpointId: candidateId,
+           referencedBy: referencedBySurvivors.get(candidateId),
+         });
+       }
+     }
 
-      toDeleteIds.push(checkpointId);
-    }
+     logger.info("Cleanup protection applied", {
+       originalCandidates: candidateDeleteIds.length,
+       finalDeletions: toDeleteIds.length,
+       protectedCount: candidateDeleteIds.length - toDeleteIds.length,
+     });
 
-    if (protectedIds.length > 0) {
-      logger.info("Protected checkpoints to preserve delta chain integrity", {
-        protectedCount: protectedIds.length,
-        protectedIds,
-      });
-    }
-
-    // Delete checkpoints
+     // Delete checkpoints
     let freedSpaceBytes = 0;
     for (const checkpointId of toDeleteIds) {
       try {

@@ -1183,4 +1183,123 @@ if (conditions.length > 0) {
       throw error;
     }
   }
+
+  /**
+   * Batch get latest checkpoints for multiple entities.
+   * Uses a single query with ROW_NUMBER() window function for efficiency.
+   *
+   * @param entityIds Array of entity IDs
+   * @param entityType Entity type filter
+   * @param options Query options (limit per entity)
+   * @returns Array of entity ID to latest checkpoints mapping
+   */
+  async listByEntitiesWithMetadata(
+    entityIds: string[],
+    entityType: string,
+    options?: { limit?: number }
+  ): Promise<Array<{
+    entityId: string;
+    checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }>;
+  }>> {
+    const db = this.getDb();
+    const limit = options?.limit ?? 1;
+
+    if (entityIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const placeholders = entityIds.map(() => '?').join(',');
+
+      const sql = `
+        WITH ranked_checkpoints AS (
+          SELECT
+            id,
+            entity_id,
+            entity_type,
+            timestamp,
+            checkpoint_type,
+            base_checkpoint_id,
+            previous_checkpoint_id,
+            message_count,
+            variable_count,
+            blob_size,
+            blob_hash,
+            tags,
+            custom_fields,
+            ROW_NUMBER() OVER (
+              PARTITION BY entity_id
+              ORDER BY timestamp DESC
+            ) as rn
+          FROM checkpoint_metadata
+          WHERE entity_id IN (${placeholders})
+            AND entity_type = ?
+        )
+        SELECT *
+        FROM ranked_checkpoints
+        WHERE rn <= ?
+        ORDER BY entity_id, timestamp DESC
+      `;
+
+      const params = [...entityIds, entityType, limit];
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as Array<{
+        id: string;
+        entity_id: string;
+        entity_type: string;
+        timestamp: number;
+        checkpoint_type: string | null;
+        base_checkpoint_id: string | null;
+        previous_checkpoint_id: string | null;
+        message_count: number | null;
+        variable_count: number | null;
+        blob_size: number | null;
+        blob_hash: string | null;
+        tags: string | null;
+        custom_fields: string | null;
+        rn: number;
+      }>;
+
+      const resultMap = new Map<string, Array<{ id: string; metadata: CheckpointStorageMetadata }>>();
+
+      for (const row of rows) {
+        const checkpoint: { id: string; metadata: CheckpointStorageMetadata } = {
+          id: row.id,
+          metadata: {
+            entityType: row.entity_type as CheckpointEntityType,
+            entityId: row.entity_id,
+            timestamp: row.timestamp,
+            blobSize: row.blob_size ?? 0,
+            customFields: {
+              checkpointType: row.checkpoint_type,
+              baseCheckpointId: row.base_checkpoint_id,
+              previousCheckpointId: row.previous_checkpoint_id,
+              messageCount: row.message_count,
+              variableCount: row.variable_count,
+              blobHash: row.blob_hash,
+            },
+            tags: row.tags ? JSON.parse(row.tags) : undefined,
+          },
+        };
+
+        const existing = resultMap.get(row.entity_id) || [];
+        existing.push(checkpoint);
+        resultMap.set(row.entity_id, existing);
+      }
+
+      const results: Array<{ entityId: string; checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }> }> = [];
+
+      for (const entityId of entityIds) {
+        results.push({
+          entityId,
+          checkpoints: resultMap.get(entityId) || [],
+        });
+      }
+
+      return results;
+    } catch (error) {
+      this.handleSqliteError(error, "listByEntitiesWithMetadata", { entityType, entityCount: entityIds.length });
+      throw error;
+    }
+  }
 }

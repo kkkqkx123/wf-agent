@@ -8,6 +8,8 @@
  * - Symmetric: identical restoration logic for both Workflow and Agent
  * - Composable: accepts restoration dependencies via interface
  * - Isolated: one child failure doesn't block others
+ * - Concurrent: supports parallel restoration with bounded concurrency
+ * - Transactional: tracks recovery progress for rollback support
  *
  * Restores children in order: WORKFLOW before AGENT_LOOP.
  */
@@ -19,6 +21,11 @@ import type {
 } from "@wf-agent/types";
 import type { IExecutionEntity } from "../../shared/types/execution-entity.js";
 import type { ChildCheckpointResolver } from "./child-checkpoint-resolver.js";
+import { RecoveryTransactionManager } from "./recovery-transaction.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { RestoreStrategyRegistry } from "./restore-strategy.js";
+
+const logger = createContextualLogger({ component: "ChildCheckpointRestorer" });
 
 /**
  * Restoration result for a single child
@@ -41,7 +48,15 @@ export interface ChildRestoreDependencies {
     * @param childType Child execution type
     * @returns Checkpoint ID or undefined if not found
     */
-   findCheckpoint: (childId: ID, childType: ExecutionType) => Promise<ID | undefined>;
+  findCheckpoint: (childId: ID, childType: ExecutionType) => Promise<ID | undefined>;
+
+  /**
+    * Batch find latest checkpoints for multiple child executions
+    * More efficient than individual findCheckpoint calls
+    * @param childRefs Array of child references
+    * @returns Map of child ID to checkpoint ID
+    */
+  findCheckpointsBatch?: (childRefs: ChildExecutionReference[]) => Promise<Map<string, string | undefined>>;
 
   /**
     * Restore a child execution entity from checkpoint
@@ -50,11 +65,11 @@ export interface ChildRestoreDependencies {
     * @param parentId Parent execution ID
     * @returns Restored entity
     */
-   restoreEntity: (
-     checkpointId: ID,
-     childType: ExecutionType,
-     parentId: ID,
-   ) => Promise<IExecutionEntity>;
+  restoreEntity: (
+    checkpointId: ID,
+    childType: ExecutionType,
+    parentId: ID,
+  ) => Promise<IExecutionEntity>;
 
   /**
     * Register a restored child with its parent
@@ -62,22 +77,45 @@ export interface ChildRestoreDependencies {
     * @param child Child entity
     * @param childRef Original child reference
     */
-   registerChild: (
-     parent: IExecutionEntity,
-     child: IExecutionEntity,
-     childRef: ChildExecutionReference,
-   ) => void;
+  registerChild: (
+    parent: IExecutionEntity,
+    child: IExecutionEntity,
+    childRef: ChildExecutionReference,
+  ) => void;
 
   /**
     * Optional: post-registration hook (e.g., file checkpoint restore)
     */
-   onChildRestored?: (child: IExecutionEntity) => Promise<void>;
+  onChildRestored?: (child: IExecutionEntity) => Promise<void>;
 
   /**
     * Optional: custom checkpoint resolver for finding latest checkpoints
     * If provided, overrides the default findCheckpoint behavior
     */
-   checkpointResolver?: ChildCheckpointResolver;
+  checkpointResolver?: ChildCheckpointResolver;
+
+  /**
+    * Optional: recovery transaction manager for tracking recovery progress
+    */
+  transactionManager?: RecoveryTransactionManager;
+
+  /**
+    * Maximum number of concurrent child restorations
+    * @default 5
+    */
+  maxConcurrency?: number;
+
+  /**
+    * Maximum depth for recursive restoration
+    * @default 100
+    */
+  maxDepth?: number;
+
+  /**
+    * Optional: strategy registry for type-specific restoration logic
+    * If provided, uses strategies instead of findCheckpoint/restoreEntity/registerChild
+    */
+  strategyRegistry?: RestoreStrategyRegistry;
 }
 
 /**
@@ -86,133 +124,279 @@ export interface ChildRestoreDependencies {
  * - Proper ordering: WORKFLOW children restored before AGENT_LOOP
  * - Error isolation: one child failure doesn't block others
  * - Cycle detection: prevents infinite loops in corrupted hierarchies
+ * - Concurrent restoration: bounded parallelism for performance
+ * - Transaction tracking: recovery progress for rollback support
  */
 export class ChildCheckpointRestorer {
+  private static readonly DEFAULT_MAX_CONCURRENCY = 5;
+  private static readonly DEFAULT_MAX_DEPTH = 100;
+
   /**
-    * Restore all children of an entity recursively.
-    * Restoration order: WORKFLOW children first, then AGENT_LOOP children.
+    * Restore all children of an entity iteratively.
+    * Uses an explicit stack to avoid stack overflow on deep hierarchies.
     *
     * @param parentEntity Parent entity whose children to restore
     * @param childRefs Child references from hierarchy metadata
     * @param deps Restoration dependencies
     * @param resolver Optional custom checkpoint resolver (overrides deps.findCheckpoint)
-    * @param visited Set of already-visited entity IDs (for cycle detection)
     * @returns Array of restoration results
     */
-    async restoreChildren(
-      parentEntity: IExecutionEntity,
-      childRefs: ChildExecutionReference[],
-      deps: ChildRestoreDependencies,
-      resolver?: ChildCheckpointResolver,
-      visited: Set<ID> = new Set([parentEntity.id]),
-    ): Promise<ChildRestoreResult[]> {
-     const results: ChildRestoreResult[] = [];
-
+   async restoreChildren(
+     parentEntity: IExecutionEntity,
+     childRefs: ChildExecutionReference[],
+     deps: ChildRestoreDependencies,
+     resolver?: ChildCheckpointResolver,
+   ): Promise<ChildRestoreResult[]> {
      if (childRefs.length === 0) {
-       return results;
+       return [];
      }
 
-     // Group by type and restore WORKFLOW first
-     const workflowChildren = childRefs.filter(c => c.childType === "WORKFLOW");
-     const agentChildren = childRefs.filter(c => c.childType === "AGENT_LOOP");
-     const orderedChildren = [...workflowChildren, ...agentChildren];
+     const maxConcurrency = deps.maxConcurrency ?? ChildCheckpointRestorer.DEFAULT_MAX_CONCURRENCY;
+     const maxDepth = deps.maxDepth ?? ChildCheckpointRestorer.DEFAULT_MAX_DEPTH;
 
-     // Build effective deps with custom resolver if provided
      const effectiveDeps = resolver
-      ? { ...deps, checkpointResolver: resolver }
-      : deps;
+       ? { ...deps, checkpointResolver: resolver }
+       : deps;
 
-     for (const childRef of orderedChildren) {
-       if (visited.has(childRef.childId)) {
-         results.push({
-           childId: childRef.childId,
-           childType: childRef.childType,
-           success: false,
-           error: "Cycle detected: already visited",
-         });
+      const allResults: ChildRestoreResult[] = [];
+     const visited = new Set<ID>([parentEntity.id]);
+     const restorationPath: ID[] = [];
+     let maxDepthReached = 0;
+     let totalChildrenRestored = 0;
+
+      if (effectiveDeps.findCheckpointsBatch) {
+       const checkpointMap = await effectiveDeps.findCheckpointsBatch(childRefs);
+       for (const [childId, checkpointId] of checkpointMap) {
+         const childRef = childRefs.find(r => r.childId === childId);
+         if (childRef && !checkpointId) {
+           allResults.push({
+             childId,
+             childType: childRef.childType,
+             success: false,
+             error: "No checkpoint found",
+           });
+         }
+       }
+     }
+
+     const rootStack: Array<{
+       parentEntity: IExecutionEntity;
+       childRefs: ChildExecutionReference[];
+       depth: number;
+     }> = [{
+       parentEntity,
+       childRefs,
+       depth: 0,
+     }];
+
+     const semaphore = new Semaphore(maxConcurrency);
+
+     while (rootStack.length > 0) {
+       const current = rootStack.pop()!;
+
+       if (current.depth >= maxDepth) {
+         for (const childRef of current.childRefs) {
+           allResults.push({
+             childId: childRef.childId,
+             childType: childRef.childType,
+             success: false,
+             error: `Max depth exceeded (${maxDepth})`,
+           });
+         }
          continue;
        }
 
-       visited.add(childRef.childId);
+       const workflowChildren = current.childRefs.filter(c => c.childType === "WORKFLOW");
+       const agentChildren = current.childRefs.filter(c => c.childType === "AGENT_LOOP");
+       const orderedChildren = [...workflowChildren, ...agentChildren];
 
-       const result = await this.restoreSingleChild(
-         parentEntity,
-         childRef,
-         effectiveDeps,
-         visited,
-       );
-       results.push(result);
-     }
+       const restoreTasks = orderedChildren.map(async (childRef) => {
+         if (visited.has(childRef.childId)) {
+           const cyclePath = [...restorationPath, childRef.childId].join(" -> ");
+           logger.warn("Cycle detected in hierarchy", {
+             childId: childRef.childId,
+             childType: childRef.childType,
+             cyclePath,
+           });
+           return {
+             childId: childRef.childId,
+             childType: childRef.childType,
+             success: false,
+             error: `Cycle detected: already visited at path [${cyclePath}]`,
+           } as ChildRestoreResult;
+         }
 
-    return results;
-  }
+         await semaphore.acquire();
+
+         try {
+           restorationPath.push(childRef.childId);
+           return await this.restoreSingleChildWithStack(
+             current.parentEntity,
+             childRef,
+             effectiveDeps,
+             visited,
+             rootStack,
+             current.depth + 1,
+             maxDepth,
+           );
+         } finally {
+           restorationPath.pop();
+           semaphore.release();
+         }
+       });
+
+       const results = await Promise.all(restoreTasks);
+       allResults.push(...results);
+
+       const succeeded = results.filter(r => r.success).length;
+       totalChildrenRestored += succeeded;
+       maxDepthReached = Math.max(maxDepthReached, current.depth + 1);
+
+       if (current.depth > 10) {
+         logger.warn("Deep hierarchy detected during restoration", {
+           currentDepth: current.depth,
+           maxDepthReached,
+           totalChildrenRestored,
+           parentId: current.parentEntity.id,
+         });
+       }
+      }
+
+     logger.info("Child restoration completed", {
+       parentId: parentEntity.id,
+       totalChildrenRestored,
+       maxDepthReached,
+       totalResults: allResults.length,
+       succeeded: allResults.filter(r => r.success).length,
+       failed: allResults.filter(r => !r.success).length,
+     });
+
+     return allResults;
+   }
 
   /**
-    * Restore a single child and its descendants.
+    * Restore a single child using iterative stack-based approach for grandchildren.
     */
-   private async restoreSingleChild(
+   private async restoreSingleChildWithStack(
      parentEntity: IExecutionEntity,
      childRef: ChildExecutionReference,
      deps: ChildRestoreDependencies,
      visited: Set<ID>,
+     rootStack: Array<{ parentEntity: IExecutionEntity; childRefs: ChildExecutionReference[]; depth: number }>,
+     depth: number,
+     maxDepth: number,
    ): Promise<ChildRestoreResult> {
      try {
-       // Use custom resolver if available, otherwise fall back to deps.findCheckpoint
+       const strategy = deps.strategyRegistry?.get(childRef.childType);
+
        let checkpointId: ID | undefined;
-       if (deps.checkpointResolver) {
-         const descriptor = await deps.checkpointResolver.resolveLatestCheckpoint(childRef);
-         checkpointId = descriptor?.checkpointId;
-       } else {
-         checkpointId = await deps.findCheckpoint(childRef.childId, childRef.childType);
+       let childEntity: IExecutionEntity;
+
+        if (strategy) {
+          checkpointId = await strategy.findCheckpoint(childRef.childId);
+          if (!checkpointId) {
+            return {
+              childId: childRef.childId,
+              childType: childRef.childType,
+              success: false,
+              error: "No checkpoint found",
+            };
+          }
+          childEntity = await strategy.restoreEntity(checkpointId);
+        } else {
+         if (deps.checkpointResolver) {
+           const descriptor = await deps.checkpointResolver.resolveLatestCheckpoint(childRef);
+           checkpointId = descriptor?.checkpointId;
+         } else {
+           checkpointId = await deps.findCheckpoint(childRef.childId, childRef.childType);
+         }
+
+         if (!checkpointId) {
+           return {
+             childId: childRef.childId,
+             childType: childRef.childType,
+             success: false,
+             error: "No checkpoint found",
+           };
+         }
+         childEntity = await deps.restoreEntity(
+           checkpointId,
+           childRef.childType,
+           parentEntity.id,
+         );
        }
 
-      if (!checkpointId) {
-        return {
-          childId: childRef.childId,
-          childType: childRef.childType,
-          success: false,
-          error: "No checkpoint found",
-        };
-      }
+       childEntity.setParentContext({
+         parentType: parentEntity.instanceType === "workflowExecution" ? "WORKFLOW" : "AGENT_LOOP",
+         parentId: parentEntity.id,
+       });
 
-      const childEntity = await deps.restoreEntity(
-        checkpointId,
-        childRef.childType,
-        parentEntity.id,
-      );
+       if (strategy) {
+         strategy.registerChild(parentEntity, childEntity, childRef);
+       } else {
+         deps.registerChild(parentEntity, childEntity, childRef);
+       }
 
-      childEntity.setParentContext({
-        parentType: parentEntity.instanceType === "workflowExecution" ? "WORKFLOW" : "AGENT_LOOP",
-        parentId: parentEntity.id,
-      });
+       deps.transactionManager?.registerOperation({
+         operationId: `restore_${childRef.childId}`,
+         entityId: childRef.childId,
+         entityType: childRef.childType === "WORKFLOW" ? "workflow" : "agent",
+         checkpointId,
+         status: "in_progress",
+         startedAt: Date.now(),
+         compensatingActions: [
+           async () => {
+             logger.info("Rolling back child registration", { childId: childRef.childId });
+           },
+         ],
+       });
 
-      deps.registerChild(parentEntity, childEntity, childRef);
+       if (strategy?.onChildRestored) {
+         await strategy.onChildRestored(childEntity);
+       } else if (deps.onChildRestored) {
+         await deps.onChildRestored(childEntity);
+       }
 
-      if (deps.onChildRestored) {
-        await deps.onChildRestored(childEntity);
-      }
+       deps.transactionManager?.completeOperation(childRef.childId);
 
-      // Recursively restore grandchildren
-      const grandChildRefs = childEntity.getChildReferences();
-      if (grandChildRefs.length > 0) {
-        await this.restoreChildren(childEntity, grandChildRefs, deps, undefined, visited);
-      }
+       visited.add(childRef.childId);
 
-      return {
-        childId: childRef.childId,
-        childType: childRef.childType,
-        success: true,
-        entity: childEntity,
-      };
-    } catch (error) {
-      return {
-        childId: childRef.childId,
-        childType: childRef.childType,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+       const grandChildRefs = childEntity.getChildReferences();
+       if (grandChildRefs.length > 0 && depth < maxDepth) {
+         rootStack.push({
+           parentEntity: childEntity,
+           childRefs: grandChildRefs,
+           depth,
+         });
+       } else if (grandChildRefs.length > 0) {
+         logger.warn("Max depth reached, skipping grandchildren", {
+           childId: childRef.childId,
+           grandChildCount: grandChildRefs.length,
+           maxDepth,
+         });
+       }
+
+       return {
+         childId: childRef.childId,
+         childType: childRef.childType,
+         success: true,
+         entity: childEntity,
+       };
+     } catch (error) {
+       visited.add(childRef.childId);
+
+       deps.transactionManager?.failOperation(
+         childRef.childId,
+         error instanceof Error ? error.message : String(error),
+       );
+       return {
+         childId: childRef.childId,
+         childType: childRef.childType,
+         success: false,
+         error: error instanceof Error ? error.message : String(error),
+       };
+     }
+   }
 
   /**
    * Create a summary of restoration results
@@ -237,5 +421,37 @@ export class ChildCheckpointRestorer {
       failed: failures.length,
       failures,
     };
+  }
+}
+
+/**
+ * Simple semaphore implementation for concurrency control.
+ */
+class Semaphore {
+  private permits: number;
+  private queue: Array<() => void> = [];
+
+  constructor(permits: number) {
+    this.permits = permits;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.permits > 0) {
+      this.permits--;
+      return;
+    }
+
+    return new Promise<void>(resolve => {
+      this.queue.push(resolve);
+    });
+  }
+
+  release(): void {
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      next();
+    } else {
+      this.permits++;
+    }
   }
 }

@@ -39,6 +39,7 @@ import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-chec
 import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
+import { RestoreStrategyRegistry } from "../../shared/checkpoint/restore-strategy.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -271,16 +272,41 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
 
       let agentLoopState: AgentLoopStateSnapshot;
       if (checkpoint.type === "DELTA") {
-        const restorer = new BaseDeltaRestorer<AgentLoopCheckpoint, AgentLoopStateSnapshot>(
-          id => dependencies.getCheckpoint(id),
-          ids => dependencies.getCheckpoints?.(ids) ?? Promise.resolve(new Map()),
-        );
-        const restoreResult = await restorer.restore(checkpointId);
-        agentLoopState = restoreResult.snapshot;
-      } else {
-        const fullCp = checkpoint as FullCheckpoint<AgentLoopStateSnapshot>;
-        agentLoopState = fullCp.snapshot;
-      }
+         const metadataLoader = async (entityId: string, _entityType: string) => {
+           const records = await dependencies.listCheckpoints(entityId);
+           const checkpoints: Array<{ id: string; metadata: { previousCheckpointId?: string; checkpointType?: string; timestamp: number; chainRootId?: string; chainPosition?: number } }> = [];
+           for (const id of records) {
+             const cp = await dependencies.getCheckpoint(id);
+             if (cp) {
+               checkpoints.push({
+                 id,
+                 metadata: cp.metadata as { previousCheckpointId?: string; checkpointType?: string; timestamp: number; chainRootId?: string; chainPosition?: number },
+               });
+             }
+           }
+           return checkpoints
+             .sort((a, b) => a.metadata.timestamp - b.metadata.timestamp)
+             .map(c => ({
+               id: c.id,
+               previousCheckpointId: c.metadata.previousCheckpointId,
+               checkpointType: c.metadata.checkpointType as "FULL" | "DELTA",
+               timestamp: c.metadata.timestamp,
+               chainRootId: c.metadata.chainRootId,
+               chainPosition: c.metadata.chainPosition,
+             }));
+         };
+
+         const restorer = new BaseDeltaRestorer<AgentLoopCheckpoint, AgentLoopStateSnapshot>(
+           id => dependencies.getCheckpoint(id),
+           ids => dependencies.getCheckpoints?.(ids) ?? Promise.resolve(new Map()),
+           metadataLoader,
+         );
+         const restoreResult = await restorer.restore(checkpointId);
+         agentLoopState = restoreResult.snapshot;
+       } else {
+         const fullCp = checkpoint as FullCheckpoint<AgentLoopStateSnapshot>;
+         agentLoopState = fullCp.snapshot;
+       }
 
       const entity = AgentLoopEntity.fromSnapshot(checkpoint.agentLoopId, agentLoopState, this.restoreConfig);
 
@@ -413,60 +439,90 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
      }
    }
 
-    /**
-     * Build ChildRestoreDependencies for the current restore operation.
-     * Supports both AGENT_LOOP and WORKFLOW child types via workflow coordinator.
-     */
-    private async buildChildRestoreDependencies(
-      dependencies: CheckpointDependencies,
-      hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
-    ): Promise<ChildRestoreDependencies> {
-      return {
-        findCheckpoint: async (childId, childType) => {
-          if (childType === "AGENT_LOOP") {
-            const ids = await dependencies.listCheckpoints(childId);
-            return ids.length > 0 ? ids[ids.length - 1] : undefined;
-          }
-          // WORKFLOW: use workflow coordinator's storage
-          if (dependencies.workflowDeps) {
-            const ids = await dependencies.workflowDeps.checkpointStateManager.list({
-              parentId: childId,
-            });
-            return ids.length > 0 ? ids[ids.length - 1] : undefined;
-          }
-          return undefined;
-        },
-        restoreEntity: async (checkpointId, childType) => {
-          if (childType === "AGENT_LOOP") {
-            const entity = await this.restoreAgentLoopFromCheckpoint(
+     /**
+      * Build ChildRestoreDependencies for the current restore operation.
+      * Supports both AGENT_LOOP and WORKFLOW child types via workflow coordinator.
+      */
+     private async buildChildRestoreDependencies(
+       dependencies: CheckpointDependencies,
+       hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+     ): Promise<ChildRestoreDependencies> {
+       const strategyRegistry = new RestoreStrategyRegistry();
+       const self = this;
+
+       strategyRegistry.register({
+         executionType: "AGENT_LOOP",
+         findCheckpoint: async (childId) => {
+           const ids = await dependencies.listCheckpoints(childId);
+           return ids.length > 0 ? ids[ids.length - 1] : undefined;
+         },
+          restoreEntity: async (checkpointId, _parentId) => {
+            const entity = await self.restoreAgentLoopFromCheckpoint(
               checkpointId,
               dependencies,
-              this.restoreConfig!,
+              self.restoreConfig!,
             );
             return entity as unknown as AnyExecutionEntity;
-          }
-          // WORKFLOW: delegate to workflow coordinator
-          if (dependencies.workflowCoordinator && dependencies.workflowDeps) {
-            const result = await dependencies.workflowCoordinator.restoreWorkflowFromCheckpoint(
-              checkpointId,
-              dependencies.workflowDeps,
-            );
-            return result.workflowExecutionEntity as AnyExecutionEntity;
-          }
-          throw new Error(
-            "WORKFLOW child restoration requires workflowCoordinator and workflowDeps in dependencies. " +
-            "Agent coordinator only supports AGENT_LOOP children natively."
-          );
-        },
-        registerChild: (parent, child, childRef) => {
-          parent.registerChild(childRef);
-          if (hierarchyRegistry) {
-            hierarchyRegistry.register(child as AnyExecutionEntity);
-          }
-        },
-        onChildRestored: undefined,
-      };
-    }
+          },
+         registerChild: (parent, child, childRef) => {
+           parent.registerChild(childRef);
+           if (hierarchyRegistry) {
+             hierarchyRegistry.register(child as AnyExecutionEntity);
+           }
+         },
+       });
+
+       if (dependencies.workflowCoordinator && dependencies.workflowDeps) {
+         const workflowDeps = dependencies.workflowDeps;
+         strategyRegistry.register({
+           executionType: "WORKFLOW",
+           findCheckpoint: async (childId) => {
+             const ids = await workflowDeps.checkpointStateManager.list({
+               parentId: childId,
+             });
+             return ids.length > 0 ? ids[ids.length - 1] : undefined;
+           },
+            restoreEntity: async (checkpointId, _parentId) => {
+              const result = await dependencies.workflowCoordinator!.restoreWorkflowFromCheckpoint(
+                checkpointId,
+                workflowDeps,
+              );
+              return result.workflowExecutionEntity as AnyExecutionEntity;
+            },
+           registerChild: (parent, child, childRef) => {
+             parent.registerChild(childRef);
+             if (hierarchyRegistry) {
+               hierarchyRegistry.register(child as AnyExecutionEntity);
+             }
+           },
+         });
+       }
+
+       return {
+         findCheckpoint: async (childId, childType) => {
+           const strategy = strategyRegistry.get(childType);
+           if (strategy) {
+             return strategy.findCheckpoint(childId);
+           }
+           return undefined;
+         },
+         restoreEntity: async (checkpointId, childType, parentId) => {
+           const strategy = strategyRegistry.get(childType);
+           if (strategy) {
+             return strategy.restoreEntity(checkpointId, parentId);
+           }
+           throw new Error(`No strategy registered for type: ${childType}`);
+         },
+         registerChild: (parent, child, childRef) => {
+           const strategy = strategyRegistry.get(childRef.childType);
+           if (strategy) {
+             strategy.registerChild(parent, child, childRef);
+           }
+         },
+         strategyRegistry,
+         onChildRestored: undefined,
+       };
+     }
 
   // ============================================================================
   // Abstract Methods Implementation

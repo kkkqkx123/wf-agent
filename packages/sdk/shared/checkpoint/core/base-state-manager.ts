@@ -531,7 +531,7 @@ export abstract class BaseCheckpointStateManager<
         idsToLoad.map(id => this.storageAdapter.load(id)),
       );
 
-      if (rawDataList.some(d => !d === null)) {
+      if (rawDataList.some(d => d === null)) {
         logger.warn("Cannot compact delta chain: failed to load checkpoint data", {
           anchorId: anchor.id,
           mergeIds: toMerge.map(c => c.cp.id),

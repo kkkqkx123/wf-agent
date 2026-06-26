@@ -33,8 +33,9 @@ export abstract class BaseCheckpointCoordinator<
     metadata?: CheckpointMetadata,
     context?: Record<string, unknown>,
   ): Promise<string> {
-    const { saveCheckpoint, listCheckpoints, deltaConfig, getCheckpoint } = dependencies;
-    const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...deltaConfig };
+    const { saveCheckpoint, listCheckpoints, deltaConfig: depsDeltaConfig, getCheckpoint } = dependencies;
+    const contextDeltaConfig = context?.deltaConfig as DeltaStorageConfig | undefined;
+    const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...depsDeltaConfig, ...contextDeltaConfig };
 
     logger.debug("Creating checkpoint for entity", {
       entityId: entity.id,
@@ -66,11 +67,17 @@ export abstract class BaseCheckpointCoordinator<
         if (previousCheckpoint?.type === "FULL") {
           chainPosition = 1;
         } else if (previousCheckpoint) {
-          const lastFullIndex = previousCheckpointIds.findIndex((_, idx) => {
-            const isFull = (idx + 1) % (config.baselineInterval ?? 10) === 0;
-            return isFull;
-          });
-          chainPosition = checkpointCount - (lastFullIndex >= 0 ? lastFullIndex + 1 : 0);
+          const effectiveInterval = Math.min(
+            config.baselineInterval ?? 10,
+            config.maxDeltaChainLength ?? 20,
+          );
+          let lastFullCount = 0;
+          for (let idx = 0; idx < checkpointCount; idx++) {
+            if (idx === 0 || idx % effectiveInterval === 0) {
+              lastFullCount = idx;
+            }
+          }
+          chainPosition = checkpointCount - lastFullCount;
         }
       }
     } else if (checkpointType === "FULL") {

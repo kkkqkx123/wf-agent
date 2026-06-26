@@ -27,22 +27,34 @@ export class CheckpointErrorHandler {
   async handleError(error: Error, context: CheckpointErrorContext): Promise<CheckpointErrorHandlingResult> {
     const checkpointError = this.wrapError(error, context);
 
+    let result: CheckpointErrorHandlingResult;
+
     switch (this.strategy) {
       case "silent":
-        return this.handleSilent(checkpointError, context);
+        result = this.handleSilent(checkpointError, context);
+        break;
 
       case "warn":
-        return this.handleWarn(checkpointError, context);
+        result = this.handleWarn(checkpointError, context);
+        break;
 
       case "strict":
-        return this.handleStrict(checkpointError, context);
+        result = this.handleStrict(checkpointError, context);
+        break;
 
       case "callback":
-        return this.handleCallback(checkpointError, context);
+        result = await this.handleCallback(checkpointError, context);
+        break;
 
       default:
-        return this.handleWarn(checkpointError, context);
+        result = this.handleWarn(checkpointError, context);
     }
+
+    if (result.shouldRethrow) {
+      throw checkpointError;
+    }
+
+    return result;
   }
 
   private handleSilent(error: CheckpointError, context: CheckpointErrorContext): CheckpointErrorHandlingResult {

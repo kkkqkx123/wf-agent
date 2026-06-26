@@ -47,17 +47,12 @@ export function computeProtectedCheckpoints(
 
   for (const survivingId of survivingIds) {
     let currentId: string | undefined = survivingId;
-    const chainRoot = graph.chainRootMap.get(survivingId);
 
-    while (currentId && currentId !== chainRoot) {
+    while (currentId) {
       if (candidateIds.has(currentId)) {
         protectedSet.add(currentId);
       }
       currentId = previousMap.get(currentId);
-    }
-
-    if (chainRoot && candidateIds.has(chainRoot)) {
-      protectedSet.add(chainRoot);
     }
   }
 

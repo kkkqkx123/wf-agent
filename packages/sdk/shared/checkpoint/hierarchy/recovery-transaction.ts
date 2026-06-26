@@ -131,7 +131,9 @@ export class RecoveryTransactionManager {
         transactionId: this.transactionId,
         errors,
       });
-      throw new Error(`Rollback completed with ${errors.length} compensation failures`);
+      if (this.rollbackStrategy === "all_or_nothing") {
+        throw new Error(`Rollback completed with ${errors.length} compensation failures`);
+      }
     }
 
     logger.info("Rollback completed successfully", {

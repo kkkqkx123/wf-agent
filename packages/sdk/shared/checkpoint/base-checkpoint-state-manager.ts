@@ -44,6 +44,7 @@ export abstract class BaseCheckpointStateManager<
   protected checkpointSizes: Map<string, number> = new Map();
   private diffCalculator: BaseDiffCalculator = new BaseDiffCalculator();
   private metricsCollector?: CheckpointMetricsCollector;
+  private cleanupLocks = new Map<string, Promise<void>>();
 
   constructor(
     storageAdapter: CheckpointStorageAdapter,
@@ -339,25 +340,42 @@ export abstract class BaseCheckpointStateManager<
   }
 
   /**
-   * Execute cleanup policy for a specific entity
-   * Optimized to only scan and clean checkpoints belonging to the specified entity
-   * Supports incremental cleanup via watermark tracking — only processes checkpoints
-   * created since the last cleanup run. Periodic full scan to correct drift.
-   *
-   * @param entityId The entity ID
-   * @param entityType The entity type ('workflow', 'agent', 'task')
-   * @param excludeCheckpointId Optional checkpoint ID to exclude from cleanup (e.g., newly created)
-   * @param policy Optional cleanup policy (overrides default if provided)
-   * @returns Cleanup result
-   */
+    * Execute cleanup policy for a specific entity
+    * Optimized to only scan and clean checkpoints belonging to the specified entity
+    * Supports incremental cleanup via watermark tracking — only processes checkpoints
+    * created since the last cleanup run. Periodic full scan to correct drift.
+    *
+    * Uses per-entity locking to prevent concurrent cleanup operations on the same entity,
+    * avoiding race conditions in watermark updates.
+    *
+    * @param entityId The entity ID
+    * @param entityType The entity type ('workflow', 'agent', 'task')
+    * @param excludeCheckpointId Optional checkpoint ID to exclude from cleanup (e.g., newly created)
+    * @param policy Optional cleanup policy (overrides default if provided)
+    * @returns Cleanup result
+    */
   async executeCleanupForEntity(
-    entityId: string,
-    entityType: string,
-    excludeCheckpointId?: string,
-    policy?: CleanupPolicy,
-  ): Promise<CleanupResult> {
-    const startTime = performance.now();
-    const targetPolicy = policy || this.cleanupPolicy;
+     entityId: string,
+     entityType: string,
+     excludeCheckpointId?: string,
+     policy?: CleanupPolicy,
+   ): Promise<CleanupResult> {
+     return this.withEntityLock(entityId, () =>
+       this._executeCleanupForEntityInternal(entityId, entityType, excludeCheckpointId, policy),
+     );
+   }
+
+  /**
+   * Internal cleanup implementation (without lock).
+   */
+  private async _executeCleanupForEntityInternal(
+     entityId: string,
+     entityType: string,
+     excludeCheckpointId?: string,
+     policy?: CleanupPolicy,
+   ): Promise<CleanupResult> {
+     const startTime = performance.now();
+     const targetPolicy = policy || this.cleanupPolicy;
 
     if (!targetPolicy) {
       return {
@@ -817,9 +835,54 @@ export abstract class BaseCheckpointStateManager<
    * @param operation The operation that failed (create, restore, delete)
    * @returns Event object
    */
-  protected abstract buildFailedEvent(
-    checkpointId: string,
-    error: unknown,
-    operation?: "create" | "restore" | "delete",
-  ): unknown;
+   protected abstract buildFailedEvent(
+     checkpointId: string,
+     error: unknown,
+     operation?: "create" | "restore" | "delete",
+   ): unknown;
+
+   /**
+    * Execute operation with per-entity lock to prevent concurrent modifications.
+    * Prevents race conditions during cleanup operations on the same entity.
+    *
+    * @param entityId Entity ID for lock key
+    * @param operation Operation to execute under lock
+    * @returns Operation result
+    */
+   private async withEntityLock<T>(
+     entityId: string,
+     operation: () => Promise<T>,
+   ): Promise<T> {
+     const previousLock = this.cleanupLocks.get(entityId) ?? Promise.resolve();
+
+     const currentLock = previousLock.then(
+       () => operation(),
+       () => operation(),
+     );
+
+     this.cleanupLocks.set(
+       entityId,
+       currentLock.then(
+         () => undefined,
+         () => undefined,
+       ),
+     );
+
+     try {
+       return await currentLock;
+     } finally {
+       const storedLock = this.cleanupLocks.get(entityId);
+       if (storedLock) {
+         storedLock.then(() => {
+           if (this.cleanupLocks.get(entityId) === storedLock) {
+             this.cleanupLocks.delete(entityId);
+           }
+         }).catch(() => {
+           if (this.cleanupLocks.get(entityId) === storedLock) {
+             this.cleanupLocks.delete(entityId);
+           }
+         });
+       }
+     }
+   }
 }

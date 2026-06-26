@@ -231,8 +231,9 @@ export class WorkflowLifecycleCoordinator {
 
       // Use CheckpointCoordinator to restore from checkpoint
       // This will create a new WorkflowExecutionEntity and register it in the registry
+      const coordinator = new CheckpointCoordinator();
       const { workflowExecutionEntity: restoredEntity } =
-        await CheckpointCoordinator.restoreFromCheckpoint(latestCheckpointId, checkpointDeps);
+        await coordinator.restoreWorkflowFromCheckpoint(latestCheckpointId, checkpointDeps);
 
       workflowExecutionEntity = restoredEntity;
 

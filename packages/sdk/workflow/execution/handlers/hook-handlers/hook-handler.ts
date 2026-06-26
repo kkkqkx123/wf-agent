@@ -68,11 +68,11 @@ function createCheckpointHandler(): HookHandler<HookExecutionContext> {
     }
 
     try {
-      await CheckpointCoordinator.createNodeCheckpoint(
-        context.workflowExecutionEntity.id,
-        context.node.id,
+      const coordinator = new CheckpointCoordinator();
+      await coordinator.createWorkflowCheckpoint(
+        context.workflowExecutionEntity,
         context.checkpointDependencies,
-        {},
+        { nodeId: context.node.id },
       );
     } catch (error) {
       logger.warn(

@@ -241,7 +241,13 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
       workflowGraphRegistry: graphRegistry,
     };
 
-    const checkpointId = await CheckpointCoordinator.createCheckpoint(executionId, dependencies, {
+    const entity = executionRegistry.get(executionId);
+    if (!entity) {
+      throw new Error(`WorkflowExecutionEntity not found: ${executionId}`);
+    }
+
+    const coordinator = new CheckpointCoordinator();
+    const checkpointId = await coordinator.createWorkflowCheckpoint(entity, dependencies, {
       metadata,
     });
     return checkpointId;
@@ -264,7 +270,8 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
       workflowGraphRegistry: graphRegistry,
     };
 
-    const { workflowExecutionEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
+    const coordinator = new CheckpointCoordinator();
+    const { workflowExecutionEntity } = await coordinator.restoreWorkflowFromCheckpoint(
       checkpointId,
       dependencies,
     );

@@ -179,8 +179,9 @@ export class GracefulShutdownManager {
     const results = await Promise.allSettled<ShutdownCheckpointResult>(
       activeExecutions.map(async (entity): Promise<ShutdownCheckpointResult> => {
         try {
-          await CheckpointCoordinator.createCheckpoint(
-            entity.id,
+          const coordinator = new CheckpointCoordinator();
+          await coordinator.createWorkflowCheckpoint(
+            entity,
             this.checkpointDependencies,
             {
               metadata: {
@@ -192,7 +193,6 @@ export class GracefulShutdownManager {
                 },
               },
             },
-            undefined, // conversationManager will be retrieved from stateCoordinatorMap
           );
 
           logger.debug(`Checkpoint created for execution ${entity.id}`);

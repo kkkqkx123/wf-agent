@@ -241,8 +241,9 @@ export class NodeExecutionCoordinator {
     let checkpointId: string | undefined;
     if (this.checkpointDependencies) {
       try {
-        checkpointId = await CheckpointCoordinator.createCheckpoint(
-          workflowExecutionId,
+        const coordinator = new CheckpointCoordinator();
+        checkpointId = await coordinator.createWorkflowCheckpoint(
+          workflowExecutionContext,
           this.checkpointDependencies,
           {
             metadata: {
@@ -399,11 +400,12 @@ export class NodeExecutionCoordinator {
           if (configResult.shouldCreate) {
             logger.debug("Creating checkpoint before node execution", { executionId, nodeId });
             try {
-              await CheckpointCoordinator.createNodeCheckpoint(
-                workflowExecutionEntity.id,
-                nodeId,
+              const coordinator = new CheckpointCoordinator();
+              await coordinator.createWorkflowCheckpoint(
+                workflowExecutionEntity,
                 this.checkpointDependencies!,
                 {
+                  nodeId,
                   metadata: {
                     description:
                       configResult.description ||
@@ -516,11 +518,12 @@ export class NodeExecutionCoordinator {
           if (configResult.shouldCreate) {
             logger.debug("Creating checkpoint after node execution", { executionId, nodeId });
             try {
-              await CheckpointCoordinator.createNodeCheckpoint(
-                workflowExecutionEntity.id,
-                nodeId,
+              const coordinator = new CheckpointCoordinator();
+              await coordinator.createWorkflowCheckpoint(
+                workflowExecutionEntity,
                 this.checkpointDependencies,
                 {
+                  nodeId,
                   metadata: {
                     description:
                       configResult.description ||

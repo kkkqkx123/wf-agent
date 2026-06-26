@@ -20,6 +20,9 @@ import {
   buildCheckpointDeletedEvent,
   buildCheckpointFailedEvent,
 } from "../../shared/utils/event/builders/index.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "AgentLoopCheckpointStateManager" });
 
 /**
  * Agent Loop Checkpoint State Manager
@@ -131,9 +134,19 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
     const chainPositionFromMetadata = checkpoint.metadata?.customFields?.["chainPosition"] as number | undefined;
 
+    // Validate agentLoopId matches expected entity binding
+    const checkpointAgentLoopId = checkpoint.agentLoopId;
+    if (checkpointAgentLoopId && checkpointAgentLoopId !== this.agentLoopId) {
+      logger.warn("Checkpoint agentLoopId differs from manager binding, using checkpoint value", {
+        expected: this.agentLoopId,
+        actual: checkpointAgentLoopId,
+        checkpointId: checkpoint.id,
+      });
+    }
+
     const record: CheckpointStorageMetadata = {
       entityType: "agent",
-      entityId: checkpoint.agentLoopId || this.agentLoopId,
+      entityId: checkpointAgentLoopId ?? this.agentLoopId,
       timestamp: checkpoint.timestamp,
       checkpointType: checkpoint.type,
       baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,

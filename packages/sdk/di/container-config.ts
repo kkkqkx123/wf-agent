@@ -489,13 +489,20 @@ export function configureContainerBindings(
           workflowGraphRegistry: c.get(Identifiers.WorkflowGraphRegistry) as WorkflowGraphRegistry,
         },
         eventBuilder,
-        createCheckpointFn: (options, deps) =>
-          CheckpointCoordinator.createCheckpoint(options.workflowExecutionId, deps, {
+        createCheckpointFn: (options, deps) => {
+          const executionRegistry = deps.workflowExecutionRegistry;
+          const entity = executionRegistry.get(options.workflowExecutionId);
+          if (!entity) {
+            throw new Error(`WorkflowExecutionEntity not found: ${options.workflowExecutionId}`);
+          }
+          const coordinator = new CheckpointCoordinator();
+          return coordinator.createWorkflowCheckpoint(entity, deps, {
             metadata: {
               description: options.description,
               ...(options.toolId ? { customFields: { toolId: options.toolId } } : {}),
             },
-          }),
+          });
+        },
         safeEmitFn: emit,
       });
     })
@@ -1042,12 +1049,18 @@ export function configureContainerBindings(
           fileCheckpointManager: getFileCheckpointManager(),
         },
         createCheckpoint: (workflowExecutionId: string, metadata?: Record<string, unknown>) => {
-          return CheckpointCoordinator.createCheckpoint(
-            workflowExecutionId,
+          const executionRegistry = c.get(
+            Identifiers.WorkflowExecutionRegistry,
+          ) as WorkflowExecutionRegistry;
+          const entity = executionRegistry.get(workflowExecutionId);
+          if (!entity) {
+            throw new Error(`WorkflowExecutionEntity not found: ${workflowExecutionId}`);
+          }
+          const coordinator = new CheckpointCoordinator();
+          return coordinator.createWorkflowCheckpoint(
+            entity,
             {
-              workflowExecutionRegistry: c.get(
-                Identifiers.WorkflowExecutionRegistry,
-              ) as WorkflowExecutionRegistry,
+              workflowExecutionRegistry: executionRegistry,
               checkpointStateManager: c.get(Identifiers.CheckpointState) as CheckpointState,
               workflowRegistry: c.get(Identifiers.WorkflowRegistry) as WorkflowRegistry,
               workflowGraphRegistry: c.get(
@@ -1059,7 +1072,8 @@ export function configureContainerBindings(
           );
         },
         restoreFromCheckpoint: (checkpointId: string) => {
-          return CheckpointCoordinator.restoreFromCheckpoint(checkpointId, {
+          const coordinator = new CheckpointCoordinator();
+          return coordinator.restoreWorkflowFromCheckpoint(checkpointId, {
             workflowExecutionRegistry: c.get(
               Identifiers.WorkflowExecutionRegistry,
             ) as WorkflowExecutionRegistry,

@@ -13,11 +13,10 @@
  */
 
 import {
-  WorkflowExecutionNotFoundError,
-  CheckpointNotFoundError,
-  WorkflowNotFoundError,
-  WorkflowCheckpointError,
-} from "@wf-agent/types";
+   CheckpointNotFoundError,
+   WorkflowNotFoundError,
+   WorkflowCheckpointError,
+ } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type {
   Checkpoint,
@@ -50,12 +49,15 @@ import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-
 import { BaseCheckpointCoordinator } from "../../shared/checkpoint/base-checkpoint-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
 import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution-hierarchy-registry.js";
+import type { AnyExecutionEntity } from "../../shared/registry/execution-hierarchy-registry.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-integrity-service.js";
 import { CheckpointErrorHandler } from "../../shared/checkpoint/checkpoint-error-handler.js";
 import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
 import { CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { getExecutionEventBus } from "../../shared/events/index.js";
+import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
+import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 
@@ -792,248 +794,162 @@ protected async buildCheckpoint(
   // ============================================================================
 
   /**
-   * Post-restore operations (steps 12-13 of the 13-step restore process)
-   * - Step 12: Restore execution state and infer FORK/JOIN completion
-   * - Step 13: Validate hierarchy, restore child workflows, register with registry, restore file checkpoint
-   */
-  private async postRestore(
-    entity: WorkflowExecutionEntity,
-    dependencies: WorkflowCheckpointDependencies,
-    restoreCtx: WorkflowRestoreContext,
-  ): Promise<void> {
-    const ctx = restoreCtx;
+    * Post-restore operations
+    * - Restore child executions (both WORKFLOW and AGENT_LOOP)
+    * - Register with registry
+    * - Validate hierarchy integrity
+    * - Infer FORK/JOIN completion status
+    * - Restore file checkpoint
+    */
+   private async postRestore(
+     entity: WorkflowExecutionEntity,
+     dependencies: WorkflowCheckpointDependencies,
+     restoreCtx: WorkflowRestoreContext,
+   ): Promise<void> {
+     const ctx = restoreCtx;
+     const { hierarchyRegistry } = dependencies;
+     const hierarchyFromSnapshot = ctx.restoredSnapshot.hierarchy;
+     const childRefs = hierarchyFromSnapshot?.children ?? [];
 
-    // Validate hierarchy integrity
-    // Moved AFTER child restoration to ensure all entities are registered first
-    const { hierarchyRegistry } = dependencies;
+      // Restore child executions using ChildCheckpointRestorer
+      if (childRefs.length > 0) {
+         logger.info("Restoring child executions for workflow", {
+           executionId: entity.id,
+           childCount: childRefs.length,
+         });
 
-    // Step 13: Restore child workflows, register with registry, and file checkpoint
-    // Reestablish parent-child relationship for child workflows
-    // Use hierarchy metadata (preferred method)
-    const hierarchyFromSnapshot = ctx.restoredSnapshot.hierarchy;
-    const childRefs = hierarchyFromSnapshot?.children ?? [];
-    
-    if (childRefs.length > 0) {
-      for (const childRef of childRefs) {
-        if (childRef.childType !== "WORKFLOW") continue;
-        
-        const childWorkflowExecutionId = childRef.childId;
-        const childCheckpointId = await this._findChildCheckpoint(
-          childWorkflowExecutionId,
-          dependencies.checkpointStateManager,
-        );
-        if (childCheckpointId) {
-          const childResult = await this.restoreWorkflowFromCheckpoint(
-            childCheckpointId,
-            dependencies,
-          );
+         const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
+         const restorer = new ChildCheckpointRestorer();
+         const results = await restorer.restoreChildren(entity as AnyExecutionEntity, childRefs, restoreDeps);
 
-          childResult.workflowExecutionEntity.setParentContext({
-            parentType: "WORKFLOW",
-            parentId: entity.id,
-          });
-
-          dependencies.workflowExecutionRegistry.register(childResult.workflowExecutionEntity);
-          dependencies.workflowExecutionRegistry.registerStateCoordinator(
-            childResult.workflowExecutionEntity.id,
-            childResult.stateCoordinator,
-          );
-
-          entity.registerChild({
-            childType: "WORKFLOW",
-            childId: childWorkflowExecutionId,
-            createdAt: childRef.createdAt,
-            forkPathId: childRef.forkPathId,
-            inheritsInterruption: childRef.inheritsInterruption,
-          });
-        } else {
-          logger.warn("Child execution checkpoint not found, skipping child reference", {
-            childWorkflowExecutionId,
-          });
-          // Do NOT register orphan child reference on parent entity to avoid
-          // hierarchy integrity validation failures
-        }
-      }
-    }
-
-    // Register with registry (after child restoration so all children are available)
-    dependencies.workflowExecutionRegistry.register(entity);
-    dependencies.workflowExecutionRegistry.registerStateCoordinator(
-      entity.id,
-      ctx.stateCoordinator,
-    );
-
-    // Validate hierarchy integrity AFTER all entities are registered (including children)
-    if (hierarchyRegistry) {
-      const hierarchyMetadata = entity.getHierarchyMetadata();
-      if (hierarchyMetadata) {
-        const validation = HierarchyIntegrityService.validateIntegrity(
-          hierarchyMetadata,
-          hierarchyRegistry,
-        );
-
-        if (!validation.valid) {
-          logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+         const summary = ChildCheckpointRestorer.summarizeResults(results);
+        if (summary.failed > 0) {
+          logger.warn("Some child executions failed to restore", {
             executionId: entity.id,
-            issues: validation.issues,
+            ...summary,
           });
         }
-      }
-    }
 
-    // Step 12: Infer FORK/JOIN completion status after child restoration
-    // Moved here to ensure child executions are restored and registered first
-    if (entity.getGraph()) {
-      const currentNode = entity.getGraph().getNode(entity.getCurrentNodeId());
-      if (currentNode && currentNode.type === "JOIN") {
-        const joinStatus = await this._inferForkJoinState(
-          entity.getCurrentNodeId(),
-          entity,
-          dependencies.workflowExecutionRegistry,
-          hierarchyFromSnapshot,
-        );
-
-        logger.info("Inferred JOIN completion status after child restore", {
-          executionId: entity.id,
-          joinNodeId: entity.getCurrentNodeId(),
-          completedPaths: Array.from(joinStatus.completedPaths),
-          pendingPaths: Array.from(joinStatus.pendingPaths),
-          failedPaths: Array.from(joinStatus.failedPaths),
-        });
-      }
-    }
-
-    // Restore file checkpoint
-    if (dependencies.fileCheckpointManager) {
-      try {
-        const fileCheckpoints = await dependencies.fileCheckpointManager
-          .getStorage()
-          .listByEntity(ctx.checkpoint.executionId, { limit: 1 });
-        if (fileCheckpoints.length > 0) {
-          const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
-            ctx.checkpoint.executionId,
-            fileCheckpoints[0]!.id,
-          );
-          logger.info("File checkpoint restored alongside execution checkpoint", {
-            executionId: ctx.checkpoint.executionId,
-            restoredCount: result.restoredCount,
-            deletedCount: result.deletedCount,
-            skippedCount: result.skippedCount,
-          });
+        // Register workflow children with workflowExecutionRegistry
+        for (const result of results) {
+          if (result.success && result.entity && result.childType === "WORKFLOW") {
+            dependencies.workflowExecutionRegistry.register(result.entity as WorkflowExecutionEntity);
+          }
         }
-      } catch (error) {
-        await this.handleFileCheckpointError(
-          error as Error,
-          "restore",
-          ctx.checkpoint.executionId,
-          ctx.checkpoint.id,
-        );
       }
-    }
-  }
 
-  // ============================================================================
-  // Static Aliases - Backward Compatibility
-  // ============================================================================
+     // Register with registry
+     dependencies.workflowExecutionRegistry.register(entity);
+     dependencies.workflowExecutionRegistry.registerStateCoordinator(
+       entity.id,
+       ctx.stateCoordinator,
+     );
 
-  /**
-   * Create a checkpoint (static alias for backward compatibility)
-   * @deprecated Use instance method createWorkflowCheckpoint instead
-   */
-  static async createCheckpoint(
-    workflowExecutionId: string,
-    dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
-    conversationManager?: ConversationSession,
-  ): Promise<string> {
-    const coordinator = new CheckpointCoordinator();
-    const entity = dependencies.workflowExecutionRegistry.get(workflowExecutionId);
-    if (!entity) {
-      throw new WorkflowExecutionNotFoundError(
-        `WorkflowExecutionEntity not found`,
-        workflowExecutionId,
-      );
-    }
-    return coordinator.createWorkflowCheckpoint(entity, dependencies, options, conversationManager);
-  }
+     // Validate hierarchy integrity
+     if (hierarchyRegistry) {
+       const hierarchyMetadata = entity.getHierarchyMetadata();
+       if (hierarchyMetadata) {
+         const validation = HierarchyIntegrityService.validateIntegrity(
+           hierarchyMetadata,
+           hierarchyRegistry,
+         );
 
-  /**
-   * Restore from checkpoint (static alias for backward compatibility)
-   * Delegates to restoreWorkflowFromCheckpoint internally
-   * @deprecated Use instance method restoreWorkflowFromCheckpoint instead
-   */
-  static async restoreFromCheckpoint(
-    checkpointId: string,
-    dependencies: CheckpointDependencies,
-  ): Promise<{
-    workflowExecutionEntity: WorkflowExecutionEntity;
-    stateCoordinator: WorkflowStateCoordinator;
-    conversationManager: ConversationSession;
-  }> {
-    const coordinator = new CheckpointCoordinator();
-    return coordinator.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
-  }
+         if (!validation.valid) {
+           logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+             executionId: entity.id,
+             issues: validation.issues,
+           });
+         }
+       }
+     }
 
-  /**
-   * Create node checkpoint (static alias)
-   * @deprecated Use instance method createWorkflowCheckpoint with nodeId option instead
-   */
-  static async createNodeCheckpoint(
-    workflowExecutionId: string,
-    nodeId: string,
-    dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
-  ): Promise<string> {
-    return this.createCheckpoint(workflowExecutionId, dependencies, {
-      ...options,
-      nodeId,
-      description: options?.description || `Node checkpoint for node ${nodeId}`,
-    });
-  }
+     // Infer FORK/JOIN completion status after child restoration
+     if (entity.getGraph()) {
+       const currentNode = entity.getGraph().getNode(entity.getCurrentNodeId());
+       if (currentNode && currentNode.type === "JOIN") {
+         const joinStatus = await this._inferForkJoinState(
+           entity.getCurrentNodeId(),
+           entity,
+           dependencies.workflowExecutionRegistry,
+           hierarchyFromSnapshot,
+         );
 
-  /**
-   * Create tool checkpoint (static alias)
-   * @deprecated Use instance method createWorkflowCheckpoint with toolId option instead
-   */
-  static async createToolCheckpoint(
-    workflowExecutionId: string,
-    toolId: string,
-    dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
-  ): Promise<string> {
-    return this.createCheckpoint(workflowExecutionId, dependencies, {
-      ...options,
-      toolId,
-      description: options?.description || `Tool checkpoint for tool ${toolId}`,
-    });
-  }
+         logger.info("Inferred JOIN completion status after child restore", {
+           executionId: entity.id,
+           joinNodeId: entity.getCurrentNodeId(),
+           completedPaths: Array.from(joinStatus.completedPaths),
+           pendingPaths: Array.from(joinStatus.pendingPaths),
+           failedPaths: Array.from(joinStatus.failedPaths),
+         });
+       }
+     }
 
-  /**
-   * Create checkpoints in batches (static alias)
-   * @deprecated Use instance method createWorkflowCheckpoint in loop instead
-   */
-  static async createCheckpoints(
-    optionsList: CreateCheckpointOptions[],
-    dependencies: CheckpointDependencies,
-  ): Promise<string[]> {
-    const promises = optionsList.map(options =>
-      this.createCheckpoint(options.workflowExecutionId, dependencies, {
-        metadata: options.metadata,
-        description:
-          options.description || `Checkpoint for execution ${options.workflowExecutionId}`,
-        nodeId: options.nodeId,
-        toolId: options.toolId,
-        tags: options.tags,
-        forceType: options.forceType,
-        skipIf: options.skipIf,
-      }),
-    );
-    return await Promise.all(promises);
-  }
+     // Restore file checkpoint
+     if (dependencies.fileCheckpointManager) {
+       try {
+         const fileCheckpoints = await dependencies.fileCheckpointManager
+           .getStorage()
+           .listByEntity(ctx.checkpoint.executionId, { limit: 1 });
+         if (fileCheckpoints.length > 0) {
+           const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
+             ctx.checkpoint.executionId,
+             fileCheckpoints[0]!.id,
+           );
+           logger.info("File checkpoint restored alongside execution checkpoint", {
+             executionId: ctx.checkpoint.executionId,
+             restoredCount: result.restoredCount,
+             deletedCount: result.deletedCount,
+             skippedCount: result.skippedCount,
+           });
+         }
+       } catch (error) {
+         await this.handleFileCheckpointError(
+           error as Error,
+           "restore",
+           ctx.checkpoint.executionId,
+           ctx.checkpoint.id,
+         );
+       }
+     }
+   }
 
-  // ============================================================================
-  // Private Helpers
-  // ============================================================================
+   /**
+    * Build ChildRestoreDependencies for the current restore operation.
+    */
+   private async buildChildRestoreDependencies(
+     dependencies: WorkflowCheckpointDependencies,
+     hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+   ): Promise<ChildRestoreDependencies> {
+     return {
+       findCheckpoint: async (childId) => {
+         const checkpointIds = await dependencies.checkpointStateManager.list({
+           parentId: childId,
+         });
+         return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
+       },
+       restoreEntity: async (checkpointId, childType) => {
+         if (childType === "WORKFLOW") {
+           const result = await this.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
+           return result.workflowExecutionEntity as AnyExecutionEntity;
+         }
+         throw new Error(
+           "AGENT_LOOP child restoration from workflow coordinator is not supported. " +
+           "Use ExecutionRestoreCoordinator for cross-type restoration."
+         );
+       },
+       registerChild: (parent, child, childRef) => {
+         parent.registerChild(childRef);
+         if (hierarchyRegistry) {
+           hierarchyRegistry.register(child as AnyExecutionEntity);
+         }
+       },
+       onChildRestored: undefined,
+     };
+   }
+
+   // ============================================================================
+   // Private Helpers
+   // ============================================================================
 
   /**
    * Set checkpoint error handling configuration
@@ -1285,26 +1201,9 @@ protected async buildCheckpoint(
     return { completedPaths, pendingPaths, failedPaths };
   }
 
-  /**
-   * Find child checkpoint (latest)
-   */
-  private async _findChildCheckpoint(
-    childWorkflowExecutionId: string,
-    checkpointStateManager: CheckpointState,
-  ): Promise<string | undefined> {
-    const checkpointIds = await checkpointStateManager.list({
-      parentId: childWorkflowExecutionId,
-    });
-    if (checkpointIds.length === 0) {
-      return undefined;
-    }
-    // Return the latest checkpoint (last in creation order)
-    return checkpointIds[checkpointIds.length - 1];
-  }
-
-  /**
-   * Validate checkpoint integrity
-   */
+   /**
+    * Validate checkpoint integrity
+    */
   protected override validateCheckpoint(checkpoint: Checkpoint): void {
     super.validateCheckpoint(checkpoint);
 

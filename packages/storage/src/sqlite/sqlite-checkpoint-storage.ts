@@ -162,8 +162,15 @@ export class SqliteCheckpointStorage
         messageCount = Array.isArray(conversationState.messages) ? conversationState.messages.length : 0;
       }
 
-      if (executionState?.variables) {
-        variableCount = Array.isArray(executionState.variables) ? executionState.variables.length : 0;
+      if (executionState?.variableState) {
+        const variables = executionState.variableState.variables;
+        if (variables) {
+          variableCount = typeof variables === 'object' ? Object.keys(variables).length : 0;
+        }
+      } else if (executionState?.variables) {
+        // Fallback for older checkpoint formats
+        const variables = executionState.variables;
+        variableCount = typeof variables === 'object' && variables !== null ? Object.keys(variables).length : 0;
       }
 
       const blobHash = await this.computeHash(data);

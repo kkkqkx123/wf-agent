@@ -33,8 +33,11 @@ import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getExecutionEventBus } from "../../shared/events/index.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
-import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution-hierarchy-registry.js";
+import type { ExecutionHierarchyRegistry, AnyExecutionEntity } from "../../shared/registry/execution-hierarchy-registry.js";
 import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-integrity-service.js";
+import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-checkpoint-resolver.js";
+import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
+import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -70,6 +73,8 @@ export interface CheckpointDependencies extends BaseCheckpointDependencies<Agent
   fileCheckpointManager?: FileCheckpointManager;
   /** Hierarchy registry for child execution restoration (optional) */
   hierarchyRegistry?: ExecutionHierarchyRegistry;
+  /** Child checkpoint resolver for finding latest child checkpoints (optional) */
+  childCheckpointResolver?: ChildCheckpointResolver;
 }
 
 interface AgentRestoreContext {
@@ -94,15 +99,21 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   AgentLoopStateSnapshot
 > {
   /**
-   * Config for restore operations.
-   * Required because AgentLoopRuntimeConfig contains callbacks that cannot be serialized.
-   * Must be set before calling restoreFromCheckpoint().
-   */
+    * Config for restore operations.
+    * Required because AgentLoopRuntimeConfig contains callbacks that cannot be serialized.
+    * Must be set before calling restoreFromCheckpoint().
+    */
   private restoreConfig?: AgentLoopRuntimeConfig;
 
+   /**
+    * Child restorer for cross-type restoration.
+    * Optional. If provided, enables automatic restoration of child executions.
+    */
+   private childRestoreComponent?: ChildCheckpointRestorer;
+
   /**
-   * Version manager for format compatibility and migration
-   */
+    * Version manager for format compatibility and migration
+    */
   private versionManager: CheckpointVersionManager;
 
   /**
@@ -125,23 +136,35 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   }
 
   /**
-   * Set config for restore operations
-   * @param config AgentLoopRuntimeConfig for restoration
-   */
-  setConfig(config: AgentLoopRuntimeConfig): void {
-    this.restoreConfig = config;
-  }
+    * Set config for restore operations
+    * @param config AgentLoopRuntimeConfig for restoration
+    */
+   setConfig(config: AgentLoopRuntimeConfig): void {
+     this.restoreConfig = config;
+   }
+
+   /**
+     * Set child restorer for cross-type restoration.
+     * When provided, enables automatic restoration of child executions
+     * during agent loop checkpoint restore.
+     * @param restorer ChildCheckpointRestorer instance
+     */
+    setChildRestoreComponent(restorer: ChildCheckpointRestorer): void {
+      this.childRestoreComponent = restorer;
+    }
   /**
-   * Create a checkpoint
-   * @param entity Agent Loop entity
-   * @param dependencies dependencies
-   * @param options checkpoint options
-   * @returns checkpoint ID
-   */
+    * Create a checkpoint
+    * @param entity Agent Loop entity
+    * @param dependencies dependencies
+    * @param options checkpoint options
+    * @param context optional context (e.g., contentConfig)
+    * @returns checkpoint ID
+    */
   override async createCheckpoint(
     entity: AgentLoopEntity,
     dependencies: CheckpointDependencies,
     options?: CheckpointOptions,
+    context?: { contentConfig?: AgentCheckpointContentConfig },
   ): Promise<string> {
     const mergedMetadata = buildCheckpointMetadata({
       metadata: options?.metadata,
@@ -149,11 +172,16 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       tags: options?.tags,
     });
 
+    const mergedContext = context ?? {};
+    if (options?.contentConfig && !mergedContext.contentConfig) {
+      mergedContext.contentConfig = options.contentConfig;
+    }
+
     const checkpointId = await super.createCheckpoint(
       entity,
       dependencies,
       mergedMetadata,
-      { contentConfig: options?.contentConfig },
+      mergedContext,
     );
 
     // Publish checkpoint state change event (Plan C)
@@ -283,118 +311,132 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     }
   }
 
-  private async postRestore(
-    entity: AgentLoopEntity,
-    dependencies: CheckpointDependencies,
-    restoreCtx: AgentRestoreContext,
-  ): Promise<void> {
-    const { hierarchyRegistry } = dependencies;
+   private async postRestore(
+     entity: AgentLoopEntity,
+     dependencies: CheckpointDependencies,
+     restoreCtx: AgentRestoreContext,
+   ): Promise<void> {
+     const { hierarchyRegistry } = dependencies;
 
-    if (hierarchyRegistry) {
-      hierarchyRegistry.register(entity);
-    }
+     if (hierarchyRegistry) {
+       hierarchyRegistry.register(entity);
+     }
 
-    const childReferences = entity.getChildReferences();
-    if (childReferences.length > 0) {
-      logger.info("Restoring child executions for agent loop", {
-        agentLoopId: entity.id,
-        childCount: childReferences.length,
-      });
-
-      for (const childRef of childReferences) {
-        const childCheckpointId = await this._findChildCheckpoint(
-          childRef.childId,
-          childRef.childType === "AGENT_LOOP" ? "agent" : "workflow",
-          dependencies,
-        );
-
-        if (childCheckpointId) {
-          if (childRef.childType === "AGENT_LOOP") {
-            const childEntity = await this.restoreAgentLoopFromCheckpoint(
-              childCheckpointId,
-              dependencies,
-              this.restoreConfig!,
-            );
-            childEntity.setParentContext({
-              parentType: "AGENT_LOOP",
-              parentId: entity.id,
-            });
-            if (hierarchyRegistry) {
-              hierarchyRegistry.register(childEntity);
-            }
-          } else {
-            logger.info("Child workflow execution requires separate restoration by application coordinator", {
-              childId: childRef.childId,
-              agentLoopId: entity.id,
-              checkpointId: childCheckpointId,
-            });
-          }
-        } else {
-          logger.warn("Child execution checkpoint not found, skipping restore", {
-            childId: childRef.childId,
-            childType: childRef.childType,
-          });
-        }
-      }
-    }
-
-    if (hierarchyRegistry) {
-      const hierarchyMetadata = entity.getHierarchyMetadata();
-      if (hierarchyMetadata) {
-        const validation = HierarchyIntegrityService.validateIntegrity(
-          hierarchyMetadata,
-          hierarchyRegistry,
-        );
-
-        if (!validation.valid) {
-          logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+      // Restore child executions using ChildCheckpointRestorer if available
+      if (this.childRestoreComponent) {
+        const childRefs = entity.getChildReferences();
+        if (childRefs.length > 0) {
+          logger.info("Restoring child executions for agent loop", {
             agentLoopId: entity.id,
-            issues: validation.issues,
+            childCount: childRefs.length,
           });
-        }
-      }
-    }
 
-    if (dependencies.fileCheckpointManager) {
-      try {
-        const fileCheckpoints = await dependencies.fileCheckpointManager
-          .getStorage()
-          .listByEntity(entity.id, { limit: 1 });
-        if (fileCheckpoints.length > 0) {
-          const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
-            entity.id,
-            fileCheckpoints[0]!.id,
+          const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
+          const results = await this.childRestoreComponent.restoreChildren(
+            entity as AnyExecutionEntity,
+            childRefs,
+            restoreDeps,
           );
-          logger.info("File checkpoint restored alongside agent loop checkpoint", {
-            agentLoopId: entity.id,
-            checkpointId: restoreCtx.checkpoint.id,
-            restoredCount: result.restoredCount,
-            deletedCount: result.deletedCount,
-            skippedCount: result.skippedCount,
-          });
-        }
-      } catch (error) {
-        await this.handleFileCheckpointError(
-          error instanceof Error ? error : new Error(String(error)),
-          "restore",
-          entity.id,
-          restoreCtx.checkpoint.id,
-        );
-      }
-    }
-  }
 
-  private async _findChildCheckpoint(
-    childId: string,
-    _entityType: string,
-    dependencies: CheckpointDependencies,
-  ): Promise<string | undefined> {
-    const checkpointIds = await dependencies.listCheckpoints(childId);
-    if (checkpointIds.length === 0) {
-      return undefined;
-    }
-    return checkpointIds[checkpointIds.length - 1];
-  }
+          const summary = ChildCheckpointRestorer.summarizeResults(results);
+         if (summary.failed > 0) {
+           logger.warn("Some child executions failed to restore", {
+             agentLoopId: entity.id,
+             ...summary,
+           });
+         }
+       }
+     } else {
+        logger.debug("ChildCheckpointRestorer not configured, skipping child restoration", {
+         agentLoopId: entity.id,
+         childCount: entity.getChildReferences().length,
+       });
+     }
+
+     // Validate hierarchy integrity
+     if (hierarchyRegistry) {
+       const hierarchyMetadata = entity.getHierarchyMetadata();
+       if (hierarchyMetadata) {
+         const validation = HierarchyIntegrityService.validateIntegrity(
+           hierarchyMetadata,
+           hierarchyRegistry,
+         );
+
+         if (!validation.valid) {
+           logger.warn("Hierarchy integrity issues detected after checkpoint restore", {
+             agentLoopId: entity.id,
+             issues: validation.issues,
+           });
+         }
+       }
+     }
+
+     // Restore file checkpoint
+     if (dependencies.fileCheckpointManager) {
+       try {
+         const fileCheckpoints = await dependencies.fileCheckpointManager
+           .getStorage()
+           .listByEntity(entity.id, { limit: 1 });
+         if (fileCheckpoints.length > 0) {
+           const result = await dependencies.fileCheckpointManager.restoreCheckpoint(
+             entity.id,
+             fileCheckpoints[0]!.id,
+           );
+           logger.info("File checkpoint restored alongside agent loop checkpoint", {
+             agentLoopId: entity.id,
+             checkpointId: restoreCtx.checkpoint.id,
+             restoredCount: result.restoredCount,
+             deletedCount: result.deletedCount,
+             skippedCount: result.skippedCount,
+           });
+         }
+       } catch (error) {
+         await this.handleFileCheckpointError(
+           error instanceof Error ? error : new Error(String(error)),
+           "restore",
+           entity.id,
+           restoreCtx.checkpoint.id,
+         );
+       }
+     }
+   }
+
+   /**
+    * Build ChildRestoreDependencies for the current restore operation.
+    */
+   private async buildChildRestoreDependencies(
+     dependencies: CheckpointDependencies,
+     hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+   ): Promise<ChildRestoreDependencies> {
+     return {
+       findCheckpoint: async (childId) => {
+         const ids = await dependencies.listCheckpoints(childId);
+         return ids.length > 0 ? ids[ids.length - 1] : undefined;
+       },
+       restoreEntity: async (checkpointId, childType) => {
+         if (childType === "AGENT_LOOP") {
+           const entity = await this.restoreAgentLoopFromCheckpoint(
+             checkpointId,
+             dependencies,
+             this.restoreConfig!,
+           );
+           return entity as unknown as AnyExecutionEntity;
+         }
+         // WORKFLOW children require application-level restoration
+         throw new Error(
+           "WORKFLOW child restoration requires application-level configuration. " +
+           "Agent coordinator only supports AGENT_LOOP children natively."
+         );
+       },
+       registerChild: (parent, child, childRef) => {
+         parent.registerChild(childRef);
+         if (hierarchyRegistry) {
+           hierarchyRegistry.register(child as AnyExecutionEntity);
+         }
+       },
+       onChildRestored: undefined,
+     };
+   }
 
   // ============================================================================
   // Abstract Methods Implementation

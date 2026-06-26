@@ -212,7 +212,16 @@ export class BaseDiffCalculator {
       if (a.size !== b.size) return false;
       // Set order is not significant, compare by content equality
       for (const item of a) {
-        if (!b.has(item) || !this.deepEqual(item, item)) return false;
+        if (b.has(item)) continue;
+        // Use referential equality first, then deep match for object elements
+        let found = false;
+        for (const bItem of b) {
+          if (this.deepEqual(item, bItem)) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) return false;
       }
       return true;
     }

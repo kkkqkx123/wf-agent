@@ -545,7 +545,12 @@ export class LLMExecutionCoordinator {
             workflowRegistry: approvalContext.workflowRegistry,
             workflowGraphRegistry: approvalContext.graphRegistry,
           };
-          checkpointId = await CheckpointCoordinator.createCheckpoint(executionId, dependencies, {
+          const entity = approvalContext.executionRegistry.get(executionId);
+          if (!entity) {
+            throw new Error(`WorkflowExecutionEntity not found: ${executionId}`);
+          }
+          const coordinator = new CheckpointCoordinator();
+          checkpointId = await coordinator.createWorkflowCheckpoint(entity, dependencies, {
             metadata: {
               description: "Waiting for tool approval",
               customFields: {

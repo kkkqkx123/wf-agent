@@ -355,7 +355,12 @@ export class TriggerCoordinator {
             workflowGraphRegistry: graphRegistry,
           };
 
-          await CheckpointCoordinator.createCheckpoint(trigger.executionId, dependencies, {
+          const entity = workflowExecutionRegistry!.get(trigger.executionId);
+          if (!entity) {
+            throw new Error(`WorkflowExecutionEntity not found: ${trigger.executionId}`);
+          }
+          const coordinator = new CheckpointCoordinator();
+          await coordinator.createWorkflowCheckpoint(entity, dependencies, {
             metadata: {
               description: trigger.checkpointDescription || `Trigger: ${trigger.name}`,
             },

@@ -71,11 +71,12 @@ export class CreateCheckpointCommand extends ManagementCommand<string> {
       workflowGraphRegistry: graphRegistry,
     };
 
-    const checkpointId = await CheckpointCoordinator.createCheckpoint(
-      this.params.executionId,
-      dependencies,
-      { metadata: this.params.metadata },
-    );
+     const coordinator = new CheckpointCoordinator();
+     const checkpointId = await coordinator.createWorkflowCheckpoint(
+       executionEntity,
+       dependencies,
+       { metadata: this.params.metadata },
+     );
 
     return checkpointId;
   }

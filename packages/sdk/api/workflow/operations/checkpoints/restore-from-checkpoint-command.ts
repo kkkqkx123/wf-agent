@@ -66,10 +66,11 @@ export class RestoreFromCheckpointCommand extends ManagementCommand<WorkflowExec
       workflowGraphRegistry: this.dependencies.getWorkflowGraphRegistry(),
     };
 
-    const { workflowExecutionEntity } = await CheckpointCoordinator.restoreFromCheckpoint(
-      this.params.checkpointId,
-      dependencies,
-    );
-    return workflowExecutionEntity.getWorkflowExecutionData();
+     const coordinator = new CheckpointCoordinator();
+     const { workflowExecutionEntity } = await coordinator.restoreWorkflowFromCheckpoint(
+       this.params.checkpointId,
+       dependencies,
+     );
+     return workflowExecutionEntity.getWorkflowExecutionData();
   }
 }

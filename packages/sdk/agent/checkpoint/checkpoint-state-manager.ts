@@ -131,29 +131,39 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
   // Abstract Methods Implementation
   // ============================================================================
 
-  protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
-    const chainPositionFromMetadata = checkpoint.metadata?.customFields?.["chainPosition"] as number | undefined;
+   protected extractStorageMetadata(checkpoint: AgentLoopCheckpoint): CheckpointStorageMetadata {
+     const chainPositionFromMetadata = checkpoint.metadata?.customFields?.["chainPosition"] as number | undefined;
 
-    // Validate agentLoopId matches expected entity binding
-    const checkpointAgentLoopId = checkpoint.agentLoopId;
-    if (checkpointAgentLoopId && checkpointAgentLoopId !== this.agentLoopId) {
-      logger.warn("Checkpoint agentLoopId differs from manager binding, using checkpoint value", {
-        expected: this.agentLoopId,
-        actual: checkpointAgentLoopId,
-        checkpointId: checkpoint.id,
-      });
-    }
+     // Validate agentLoopId matches expected entity binding
+     const checkpointAgentLoopId = checkpoint.agentLoopId;
+     if (checkpointAgentLoopId && checkpointAgentLoopId !== this.agentLoopId) {
+       // Throw error for strict validation - mismatched agentLoopId indicates a bug
+       throw new Error(
+         `Checkpoint agentLoopId mismatch: expected "${this.agentLoopId}", ` +
+         `but checkpoint has "${checkpointAgentLoopId}" (checkpoint: ${checkpoint.id})`
+       );
+     }
 
-    const record: CheckpointStorageMetadata = {
-      entityType: "agent",
-      entityId: checkpointAgentLoopId ?? this.agentLoopId,
-      timestamp: checkpoint.timestamp,
-      checkpointType: checkpoint.type,
-      baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
-      previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
-      chainRootId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : checkpoint.id,
-      chainPosition: checkpoint.type === "FULL" ? 0 : chainPositionFromMetadata,
-    };
+     // Use checkpoint's agentLoopId if present, otherwise fall back to manager's
+     // This is safe because we validated above that if present, they match
+     const effectiveAgentLoopId = checkpointAgentLoopId ?? this.agentLoopId;
+
+     const record: CheckpointStorageMetadata = {
+       entityType: "agent",
+       entityId: effectiveAgentLoopId,
+       timestamp: checkpoint.timestamp,
+       checkpointType: checkpoint.type,
+       baseCheckpointId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : undefined,
+       previousCheckpointId: checkpoint.type === "DELTA" ? checkpoint.previousCheckpointId : undefined,
+       chainRootId: checkpoint.type === "DELTA" ? checkpoint.baseCheckpointId : checkpoint.id,
+       chainPosition: checkpoint.type === "FULL" ? 0 : chainPositionFromMetadata,
+     };
+
+     logger.debug("Extracted storage metadata for agent checkpoint", {
+       checkpointId: checkpoint.id,
+       agentLoopId: effectiveAgentLoopId,
+       chainPosition: record.chainPosition,
+     });
 
     // Only store user-facing metadata for FULL checkpoints to avoid
     // duplicating stable fields across delta chains

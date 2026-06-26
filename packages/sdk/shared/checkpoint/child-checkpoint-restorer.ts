@@ -18,6 +18,7 @@ import type {
   ID,
 } from "@wf-agent/types";
 import type { IExecutionEntity } from "../../shared/types/execution-entity.js";
+import type { ChildCheckpointResolver } from "./child-checkpoint-resolver.js";
 
 /**
  * Restoration result for a single child
@@ -35,42 +36,48 @@ export interface ChildRestoreResult {
  */
 export interface ChildRestoreDependencies {
   /**
-   * Find the latest checkpoint ID for a child execution
-   * @param childId Child execution ID
-   * @param childType Child execution type
-   * @returns Checkpoint ID or undefined if not found
-   */
-  findCheckpoint: (childId: ID, childType: ExecutionType) => Promise<ID | undefined>;
+    * Find the latest checkpoint ID for a child execution
+    * @param childId Child execution ID
+    * @param childType Child execution type
+    * @returns Checkpoint ID or undefined if not found
+    */
+   findCheckpoint: (childId: ID, childType: ExecutionType) => Promise<ID | undefined>;
 
   /**
-   * Restore a child execution entity from checkpoint
-   * @param checkpointId Checkpoint ID
-   * @param childType Child execution type
-   * @param parentId Parent execution ID
-   * @returns Restored entity
-   */
-  restoreEntity: (
-    checkpointId: ID,
-    childType: ExecutionType,
-    parentId: ID,
-  ) => Promise<IExecutionEntity>;
+    * Restore a child execution entity from checkpoint
+    * @param checkpointId Checkpoint ID
+    * @param childType Child execution type
+    * @param parentId Parent execution ID
+    * @returns Restored entity
+    */
+   restoreEntity: (
+     checkpointId: ID,
+     childType: ExecutionType,
+     parentId: ID,
+   ) => Promise<IExecutionEntity>;
 
   /**
-   * Register a restored child with its parent
-   * @param parent Parent entity
-   * @param child Child entity
-   * @param childRef Original child reference
-   */
-  registerChild: (
-    parent: IExecutionEntity,
-    child: IExecutionEntity,
-    childRef: ChildExecutionReference,
-  ) => void;
+    * Register a restored child with its parent
+    * @param parent Parent entity
+    * @param child Child entity
+    * @param childRef Original child reference
+    */
+   registerChild: (
+     parent: IExecutionEntity,
+     child: IExecutionEntity,
+     childRef: ChildExecutionReference,
+   ) => void;
 
   /**
-   * Optional: post-registration hook (e.g., file checkpoint restore)
-   */
-  onChildRestored?: (child: IExecutionEntity) => Promise<void>;
+    * Optional: post-registration hook (e.g., file checkpoint restore)
+    */
+   onChildRestored?: (child: IExecutionEntity) => Promise<void>;
+
+  /**
+    * Optional: custom checkpoint resolver for finding latest checkpoints
+    * If provided, overrides the default findCheckpoint behavior
+    */
+   checkpointResolver?: ChildCheckpointResolver;
 }
 
 /**
@@ -82,68 +89,82 @@ export interface ChildRestoreDependencies {
  */
 export class ChildCheckpointRestorer {
   /**
-   * Restore all children of an entity recursively.
-   * Restoration order: WORKFLOW children first, then AGENT_LOOP children.
-   *
-   * @param parentEntity Parent entity whose children to restore
-   * @param childRefs Child references from hierarchy metadata
-   * @param deps Restoration dependencies
-   * @param visited Set of already-visited entity IDs (for cycle detection)
-   * @returns Array of restoration results
-   */
-  async restoreChildren(
-    parentEntity: IExecutionEntity,
-    childRefs: ChildExecutionReference[],
-    deps: ChildRestoreDependencies,
-    visited: Set<ID> = new Set([parentEntity.id]),
-  ): Promise<ChildRestoreResult[]> {
-    const results: ChildRestoreResult[] = [];
+    * Restore all children of an entity recursively.
+    * Restoration order: WORKFLOW children first, then AGENT_LOOP children.
+    *
+    * @param parentEntity Parent entity whose children to restore
+    * @param childRefs Child references from hierarchy metadata
+    * @param deps Restoration dependencies
+    * @param resolver Optional custom checkpoint resolver (overrides deps.findCheckpoint)
+    * @param visited Set of already-visited entity IDs (for cycle detection)
+    * @returns Array of restoration results
+    */
+    async restoreChildren(
+      parentEntity: IExecutionEntity,
+      childRefs: ChildExecutionReference[],
+      deps: ChildRestoreDependencies,
+      resolver?: ChildCheckpointResolver,
+      visited: Set<ID> = new Set([parentEntity.id]),
+    ): Promise<ChildRestoreResult[]> {
+     const results: ChildRestoreResult[] = [];
 
-    if (childRefs.length === 0) {
-      return results;
-    }
+     if (childRefs.length === 0) {
+       return results;
+     }
 
-    // Group by type and restore WORKFLOW first
-    const workflowChildren = childRefs.filter(c => c.childType === "WORKFLOW");
-    const agentChildren = childRefs.filter(c => c.childType === "AGENT_LOOP");
-    const orderedChildren = [...workflowChildren, ...agentChildren];
+     // Group by type and restore WORKFLOW first
+     const workflowChildren = childRefs.filter(c => c.childType === "WORKFLOW");
+     const agentChildren = childRefs.filter(c => c.childType === "AGENT_LOOP");
+     const orderedChildren = [...workflowChildren, ...agentChildren];
 
-    for (const childRef of orderedChildren) {
-      if (visited.has(childRef.childId)) {
-        results.push({
-          childId: childRef.childId,
-          childType: childRef.childType,
-          success: false,
-          error: "Cycle detected: already visited",
-        });
-        continue;
-      }
+     // Build effective deps with custom resolver if provided
+     const effectiveDeps = resolver
+      ? { ...deps, checkpointResolver: resolver }
+      : deps;
 
-      visited.add(childRef.childId);
+     for (const childRef of orderedChildren) {
+       if (visited.has(childRef.childId)) {
+         results.push({
+           childId: childRef.childId,
+           childType: childRef.childType,
+           success: false,
+           error: "Cycle detected: already visited",
+         });
+         continue;
+       }
 
-      const result = await this.restoreSingleChild(
-        parentEntity,
-        childRef,
-        deps,
-        visited,
-      );
-      results.push(result);
-    }
+       visited.add(childRef.childId);
+
+       const result = await this.restoreSingleChild(
+         parentEntity,
+         childRef,
+         effectiveDeps,
+         visited,
+       );
+       results.push(result);
+     }
 
     return results;
   }
 
   /**
-   * Restore a single child and its descendants.
-   */
-  private async restoreSingleChild(
-    parentEntity: IExecutionEntity,
-    childRef: ChildExecutionReference,
-    deps: ChildRestoreDependencies,
-    visited: Set<ID>,
-  ): Promise<ChildRestoreResult> {
-    try {
-      const checkpointId = await deps.findCheckpoint(childRef.childId, childRef.childType);
+    * Restore a single child and its descendants.
+    */
+   private async restoreSingleChild(
+     parentEntity: IExecutionEntity,
+     childRef: ChildExecutionReference,
+     deps: ChildRestoreDependencies,
+     visited: Set<ID>,
+   ): Promise<ChildRestoreResult> {
+     try {
+       // Use custom resolver if available, otherwise fall back to deps.findCheckpoint
+       let checkpointId: ID | undefined;
+       if (deps.checkpointResolver) {
+         const descriptor = await deps.checkpointResolver.resolveLatestCheckpoint(childRef);
+         checkpointId = descriptor?.checkpointId;
+       } else {
+         checkpointId = await deps.findCheckpoint(childRef.childId, childRef.childType);
+       }
 
       if (!checkpointId) {
         return {
@@ -174,7 +195,7 @@ export class ChildCheckpointRestorer {
       // Recursively restore grandchildren
       const grandChildRefs = childEntity.getChildReferences();
       if (grandChildRefs.length > 0) {
-        await this.restoreChildren(childEntity, grandChildRefs, deps, visited);
+        await this.restoreChildren(childEntity, grandChildRefs, deps, undefined, visited);
       }
 
       return {

@@ -207,24 +207,24 @@ export class BaseDiffCalculator {
       return true;
     }
 
-    // Set
-    if (a instanceof Set && b instanceof Set) {
-      if (a.size !== b.size) return false;
-      // Set order is not significant, compare by content equality
-      for (const item of a) {
-        if (b.has(item)) continue;
-        // Use referential equality first, then deep match for object elements
-        let found = false;
-        for (const bItem of b) {
-          if (this.deepEqual(item, bItem)) {
-            found = true;
-            break;
-          }
-        }
-        if (!found) return false;
-      }
-      return true;
-    }
+     // Set
+     if (a instanceof Set && b instanceof Set) {
+       if (a.size !== b.size) return false;
+       // Set order is not significant, compare by deep equality for each element
+       // Note: b.has(item) uses referential equality which is incorrect for objects,
+       // so we always use deep comparison for all elements
+       for (const item of a) {
+         let found = false;
+         for (const bItem of b) {
+           if (this.deepEqual(item, bItem)) {
+             found = true;
+             break;
+           }
+         }
+         if (!found) return false;
+       }
+       return true;
+     }
 
     // Typed arrays (Uint8Array, Int32Array, Float32Array, etc.)
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {

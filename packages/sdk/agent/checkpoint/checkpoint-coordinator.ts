@@ -38,6 +38,7 @@ import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-inte
 import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-checkpoint-resolver.js";
 import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
+import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -55,27 +56,33 @@ export interface CheckpointOptions {
   contentConfig?: AgentCheckpointContentConfig;
 }
 
-/**
- * Checkpoint dependencies (extends base with agent-specific fields)
- */
-export interface CheckpointDependencies extends BaseCheckpointDependencies<AgentLoopCheckpoint> {
-  /** Save checkpoints */
-  saveCheckpoint: (checkpoint: AgentLoopCheckpoint) => Promise<string>;
-  /** Get checkpoints */
-  getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>;
-  /** List the checkpoints */
-  listCheckpoints: (agentLoopId: string) => Promise<string[]>;
-  /** Incremental storage configuration (optional) */
-  deltaConfig?: DeltaStorageConfig;
-  /** Conversation manager for message persistence (optional) */
-  conversationManager?: ConversationSession;
-  /** File checkpoint manager for persisting external file state (optional) */
-  fileCheckpointManager?: FileCheckpointManager;
-  /** Hierarchy registry for child execution restoration (optional) */
-  hierarchyRegistry?: ExecutionHierarchyRegistry;
-  /** Child checkpoint resolver for finding latest child checkpoints (optional) */
-  childCheckpointResolver?: ChildCheckpointResolver;
-}
+   /**
+    * Checkpoint dependencies (extends base with agent-specific fields)
+    */
+   export interface CheckpointDependencies extends BaseCheckpointDependencies<AgentLoopCheckpoint> {
+     /** Save checkpoints */
+     saveCheckpoint: (checkpoint: AgentLoopCheckpoint) => Promise<string>;
+     /** Get checkpoints */
+     getCheckpoint: (id: string) => Promise<AgentLoopCheckpoint | null>;
+     /** List the checkpoints */
+     listCheckpoints: (agentLoopId: string) => Promise<string[]>;
+     /** Incremental storage configuration (optional) */
+     deltaConfig?: DeltaStorageConfig;
+     /** Conversation manager for message persistence (optional) */
+     conversationManager?: ConversationSession;
+     /** File checkpoint manager for persisting external file state (optional) */
+     fileCheckpointManager?: FileCheckpointManager;
+     /** Hierarchy registry for child execution restoration (optional) */
+     hierarchyRegistry?: ExecutionHierarchyRegistry;
+     /** Child checkpoint resolver for finding latest child checkpoints (optional) */
+     childCheckpointResolver?: ChildCheckpointResolver;
+     /** Workflow coordinator for restoring WORKFLOW children */
+     workflowCoordinator?: CheckpointCoordinator;
+     /** Workflow dependencies for restoring WORKFLOW children */
+     workflowDeps?: WorkflowCheckpointDependencies;
+     /** Custom checkpoint resolver for child restoration */
+     childCheckpointResolverForRestore?: ChildCheckpointResolver;
+   }
 
 interface AgentRestoreContext {
   entity: AgentLoopEntity;
@@ -152,37 +159,41 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     setChildRestoreComponent(restorer: ChildCheckpointRestorer): void {
       this.childRestoreComponent = restorer;
     }
-  /**
-    * Create a checkpoint
-    * @param entity Agent Loop entity
-    * @param dependencies dependencies
-    * @param options checkpoint options
-    * @param context optional context (e.g., contentConfig)
-    * @returns checkpoint ID
-    */
-  override async createCheckpoint(
-    entity: AgentLoopEntity,
-    dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
-    context?: { contentConfig?: AgentCheckpointContentConfig },
-  ): Promise<string> {
-    const mergedMetadata = buildCheckpointMetadata({
-      metadata: options?.metadata,
-      description: options?.description,
-      tags: options?.tags,
-    });
+   /**
+     * Create a checkpoint
+     * @param entity Agent Loop entity
+     * @param dependencies dependencies
+     * @param options checkpoint options
+     * @param context optional context (e.g., contentConfig)
+     *          Pass contentConfig via context to control what state to include in checkpoint
+     * @returns checkpoint ID
+     */
+   override async createCheckpoint(
+     entity: AgentLoopEntity,
+     dependencies: CheckpointDependencies,
+     options?: CheckpointOptions,
+     context?: Record<string, unknown>,
+   ): Promise<string> {
+     const mergedMetadata = buildCheckpointMetadata({
+       metadata: options?.metadata,
+       description: options?.description,
+       tags: options?.tags,
+     });
 
-    const mergedContext = context ?? {};
-    if (options?.contentConfig && !mergedContext.contentConfig) {
-      mergedContext.contentConfig = options.contentConfig;
-    }
+     // Build context with contentConfig from options or context parameter
+     const mergedContext: Record<string, unknown> = context ?? {};
+     const contentConfig = (context as { contentConfig?: AgentCheckpointContentConfig })?.contentConfig
+       ?? options?.contentConfig;
+     if (contentConfig) {
+       mergedContext['contentConfig'] = contentConfig;
+     }
 
-    const checkpointId = await super.createCheckpoint(
-      entity,
-      dependencies,
-      mergedMetadata,
-      mergedContext,
-    );
+     const checkpointId = await super.createCheckpoint(
+       entity,
+       dependencies,
+       mergedMetadata,
+       mergedContext,
+     );
 
     // Publish checkpoint state change event (Plan C)
     const eventBus = getExecutionEventBus();
@@ -331,12 +342,13 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
             childCount: childRefs.length,
           });
 
-          const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
-          const results = await this.childRestoreComponent.restoreChildren(
-            entity as AnyExecutionEntity,
-            childRefs,
-            restoreDeps,
-          );
+           const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
+           const results = await this.childRestoreComponent.restoreChildren(
+             entity as AnyExecutionEntity,
+             childRefs,
+             restoreDeps,
+             dependencies.childCheckpointResolverForRestore,
+           );
 
           const summary = ChildCheckpointRestorer.summarizeResults(results);
          if (summary.failed > 0) {
@@ -401,42 +413,60 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
      }
    }
 
-   /**
-    * Build ChildRestoreDependencies for the current restore operation.
-    */
-   private async buildChildRestoreDependencies(
-     dependencies: CheckpointDependencies,
-     hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
-   ): Promise<ChildRestoreDependencies> {
-     return {
-       findCheckpoint: async (childId) => {
-         const ids = await dependencies.listCheckpoints(childId);
-         return ids.length > 0 ? ids[ids.length - 1] : undefined;
-       },
-       restoreEntity: async (checkpointId, childType) => {
-         if (childType === "AGENT_LOOP") {
-           const entity = await this.restoreAgentLoopFromCheckpoint(
-             checkpointId,
-             dependencies,
-             this.restoreConfig!,
-           );
-           return entity as unknown as AnyExecutionEntity;
-         }
-         // WORKFLOW children require application-level restoration
-         throw new Error(
-           "WORKFLOW child restoration requires application-level configuration. " +
-           "Agent coordinator only supports AGENT_LOOP children natively."
-         );
-       },
-       registerChild: (parent, child, childRef) => {
-         parent.registerChild(childRef);
-         if (hierarchyRegistry) {
-           hierarchyRegistry.register(child as AnyExecutionEntity);
-         }
-       },
-       onChildRestored: undefined,
-     };
-   }
+    /**
+     * Build ChildRestoreDependencies for the current restore operation.
+     * Supports both AGENT_LOOP and WORKFLOW child types via workflow coordinator.
+     */
+    private async buildChildRestoreDependencies(
+      dependencies: CheckpointDependencies,
+      hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+    ): Promise<ChildRestoreDependencies> {
+      return {
+        findCheckpoint: async (childId, childType) => {
+          if (childType === "AGENT_LOOP") {
+            const ids = await dependencies.listCheckpoints(childId);
+            return ids.length > 0 ? ids[ids.length - 1] : undefined;
+          }
+          // WORKFLOW: use workflow coordinator's storage
+          if (dependencies.workflowDeps) {
+            const ids = await dependencies.workflowDeps.checkpointStateManager.list({
+              parentId: childId,
+            });
+            return ids.length > 0 ? ids[ids.length - 1] : undefined;
+          }
+          return undefined;
+        },
+        restoreEntity: async (checkpointId, childType) => {
+          if (childType === "AGENT_LOOP") {
+            const entity = await this.restoreAgentLoopFromCheckpoint(
+              checkpointId,
+              dependencies,
+              this.restoreConfig!,
+            );
+            return entity as unknown as AnyExecutionEntity;
+          }
+          // WORKFLOW: delegate to workflow coordinator
+          if (dependencies.workflowCoordinator && dependencies.workflowDeps) {
+            const result = await dependencies.workflowCoordinator.restoreWorkflowFromCheckpoint(
+              checkpointId,
+              dependencies.workflowDeps,
+            );
+            return result.workflowExecutionEntity as AnyExecutionEntity;
+          }
+          throw new Error(
+            "WORKFLOW child restoration requires workflowCoordinator and workflowDeps in dependencies. " +
+            "Agent coordinator only supports AGENT_LOOP children natively."
+          );
+        },
+        registerChild: (parent, child, childRef) => {
+          parent.registerChild(childRef);
+          if (hierarchyRegistry) {
+            hierarchyRegistry.register(child as AnyExecutionEntity);
+          }
+        },
+        onChildRestored: undefined,
+      };
+    }
 
   // ============================================================================
   // Abstract Methods Implementation

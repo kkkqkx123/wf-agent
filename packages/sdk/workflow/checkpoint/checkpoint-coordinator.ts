@@ -58,8 +58,21 @@ import { CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { getExecutionEventBus } from "../../shared/events/index.js";
 import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
 import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
+import type { AgentLoopCheckpointCoordinator, CheckpointDependencies as AgentCheckpointDependencies } from "../../agent/checkpoint/checkpoint-coordinator.js";
+import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
+import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-checkpoint-resolver.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
+
+/**
+ * Agent-specific dependencies for cross-type child restoration.
+ * Used by Workflow coordinator to restore AGENT_LOOP children.
+ */
+export interface AgentChildRestoreDeps {
+  agentCoordinator: AgentLoopCheckpointCoordinator;
+  agentDeps: AgentCheckpointDependencies;
+  agentRuntimeConfig: AgentLoopRuntimeConfig;
+}
 
 /**
  * Workflow-specific checkpoint dependencies
@@ -76,6 +89,10 @@ export interface WorkflowCheckpointDependencies {
   fileCheckpointManager?: FileCheckpointManager;
   /** Conversation manager for message persistence (optional - can be provided here or as parameter) */
   conversationManager?: ConversationSession;
+  /** Agent-specific dependencies for restoring AGENT_LOOP children */
+  agentChildDeps?: AgentChildRestoreDeps;
+  /** Custom checkpoint resolver for finding latest child checkpoints */
+  childCheckpointResolver?: ChildCheckpointResolver;
 }
 
 /**
@@ -818,9 +835,14 @@ protected async buildCheckpoint(
            childCount: childRefs.length,
          });
 
-         const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
-         const restorer = new ChildCheckpointRestorer();
-         const results = await restorer.restoreChildren(entity as AnyExecutionEntity, childRefs, restoreDeps);
+          const restoreDeps = await this.buildChildRestoreDependencies(dependencies, hierarchyRegistry);
+          const restorer = new ChildCheckpointRestorer();
+          const results = await restorer.restoreChildren(
+            entity as AnyExecutionEntity,
+            childRefs,
+            restoreDeps,
+            dependencies.childCheckpointResolver,
+          );
 
          const summary = ChildCheckpointRestorer.summarizeResults(results);
         if (summary.failed > 0) {
@@ -913,39 +935,59 @@ protected async buildCheckpoint(
      }
    }
 
-   /**
-    * Build ChildRestoreDependencies for the current restore operation.
-    */
-   private async buildChildRestoreDependencies(
-     dependencies: WorkflowCheckpointDependencies,
-     hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
-   ): Promise<ChildRestoreDependencies> {
-     return {
-       findCheckpoint: async (childId) => {
-         const checkpointIds = await dependencies.checkpointStateManager.list({
-           parentId: childId,
-         });
-         return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
-       },
-       restoreEntity: async (checkpointId, childType) => {
-         if (childType === "WORKFLOW") {
-           const result = await this.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
-           return result.workflowExecutionEntity as AnyExecutionEntity;
-         }
-         throw new Error(
-           "AGENT_LOOP child restoration from workflow coordinator is not supported. " +
-           "Use ExecutionRestoreCoordinator for cross-type restoration."
-         );
-       },
-       registerChild: (parent, child, childRef) => {
-         parent.registerChild(childRef);
-         if (hierarchyRegistry) {
-           hierarchyRegistry.register(child as AnyExecutionEntity);
-         }
-       },
-       onChildRestored: undefined,
-     };
-   }
+    /**
+     * Build ChildRestoreDependencies for the current restore operation.
+     * Supports both WORKFLOW and AGENT_LOOP child types via agentChildDeps.
+     */
+    private async buildChildRestoreDependencies(
+      dependencies: WorkflowCheckpointDependencies,
+      hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
+    ): Promise<ChildRestoreDependencies> {
+      return {
+        findCheckpoint: async (childId, childType) => {
+          if (childType === "WORKFLOW") {
+            const checkpointIds = await dependencies.checkpointStateManager.list({
+              parentId: childId,
+            });
+            return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
+          }
+          // AGENT_LOOP: use agent checkpoint storage
+          const agentDeps = dependencies.agentChildDeps;
+          if (agentDeps) {
+            const checkpointIds = await agentDeps.agentDeps.listCheckpoints(childId);
+            return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
+          }
+          return undefined;
+        },
+        restoreEntity: async (checkpointId, childType) => {
+          if (childType === "WORKFLOW") {
+            const result = await this.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
+            return result.workflowExecutionEntity as AnyExecutionEntity;
+          }
+          // AGENT_LOOP: delegate to agent coordinator
+          const agentChildDeps = dependencies.agentChildDeps;
+          if (agentChildDeps) {
+            const result = await agentChildDeps.agentCoordinator.restoreAgentLoopFromCheckpoint(
+              checkpointId,
+              agentChildDeps.agentDeps,
+              agentChildDeps.agentRuntimeConfig,
+            );
+            return result as AnyExecutionEntity;
+          }
+          throw new Error(
+            "AGENT_LOOP child restoration requires agentChildDeps in dependencies. " +
+            "Use ExecutionRestoreCoordinator for cross-type restoration."
+          );
+        },
+        registerChild: (parent, child, childRef) => {
+          parent.registerChild(childRef);
+          if (hierarchyRegistry) {
+            hierarchyRegistry.register(child as AnyExecutionEntity);
+          }
+        },
+        onChildRestored: undefined,
+      };
+    }
 
    // ============================================================================
    // Private Helpers

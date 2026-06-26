@@ -568,19 +568,22 @@ export abstract class BaseCheckpointStateManager<
       remainingCount,
     });
 
-    // Persist cleanup watermark for incremental cleanup
-    const remainingCheckpoints = checkpointInfoArray.filter(
-      cp => !toDeleteIds.includes(cp.id),
-    );
-    if (remainingCheckpoints.length > 0) {
-      const maxTimestamp = Math.max(
-        ...remainingCheckpoints.map(cp => cp.metadata.timestamp),
-      );
-      await this.storageAdapter.setEntityMetadata(entityType, entityId, {
-        cleanupWatermark: maxTimestamp,
-        cleanupRunCount: cleanupRunCount + 1,
-      });
-    }
+     // Persist cleanup watermark for incremental cleanup
+     // Note: The per-entity lock in executeCleanupForEntity ensures serialization,
+     // so the read-modify-write pattern here is safe. The lock prevents concurrent
+     // cleanup operations for the same entity from interleaving.
+     const remainingCheckpoints = checkpointInfoArray.filter(
+       cp => !toDeleteIds.includes(cp.id),
+     );
+     if (remainingCheckpoints.length > 0) {
+       const maxTimestamp = Math.max(
+         ...remainingCheckpoints.map(cp => cp.metadata.timestamp),
+       );
+       await this.storageAdapter.setEntityMetadata(entityType, entityId, {
+         cleanupWatermark: maxTimestamp,
+         cleanupRunCount: cleanupRunCount + 1,
+       });
+     }
 
     const duration = performance.now() - startTime;
 

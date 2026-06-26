@@ -1,22 +1,10 @@
-/**
- * Recovery Transaction Manager
- *
- * Provides transaction-like semantics for checkpoint recovery operations.
- * Ensures all-or-nothing recovery with compensation/rollback support.
- *
- * Design Principles:
- * - Atomicity: All sub-instances recover together or none do
- * - Consistency: Hierarchy metadata always reflects actual state
- * - Durability: Completed recovery persists even on failure
- */
-
 import type {
   RecoveryOperation,
   RecoveryTransactionResult,
   RecoveryTransactionStatus,
   CheckpointEntityType,
 } from "@wf-agent/types";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "RecoveryTransactionManager" });
 

@@ -1,36 +1,16 @@
-/**
- * Base Diff Calculator
- *
- * Provides generic deep comparison and delta calculation algorithms.
- * Works with any state snapshot type through generic typing.
- */
-
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "BaseDiffCalculator" });
 
-/**
- * Base Diff Calculator
- *
- * Provides generic deep comparison and delta calculation algorithms.
- * Works with any state snapshot type through generic typing.
- */
 export type DeltaMap = Record<string, { from: unknown; to: unknown }>;
 
 export class BaseDiffCalculator {
-  /**
-   * Calculate delta between two state snapshots
-   * @param previous Previous state
-   * @param current Current state
-   * @returns Delta object containing only changed fields
-   */
   calculateDelta<T extends Record<string, unknown>>(
     previous: T,
     current: T,
   ): Record<string, { from: unknown; to: unknown }> {
     const delta: Record<string, { from: unknown; to: unknown }> = {};
 
-    // Compare all keys in current state
     for (const key of Object.keys(current)) {
       const prevValue = previous[key];
       const currValue = current[key];
@@ -43,7 +23,6 @@ export class BaseDiffCalculator {
       }
     }
 
-    // Check for deleted keys
     for (const key of Object.keys(previous)) {
       if (!(key in current)) {
         delta[key] = {
@@ -61,12 +40,6 @@ export class BaseDiffCalculator {
     return delta;
   }
 
-  /**
-   * Apply delta to a state snapshot
-   * @param base Base state snapshot
-   * @param delta Delta to apply
-   * @returns New state snapshot with delta applied
-   */
   applyDelta<T extends Record<string, unknown>>(
     base: T,
     delta: Record<string, { from: unknown; to: unknown }>,
@@ -75,10 +48,8 @@ export class BaseDiffCalculator {
 
     for (const [key, change] of Object.entries(delta)) {
       if (change.to === undefined) {
-        // Delete field
         delete (result as Record<string, unknown>)[key];
       } else {
-        // Update field with deep clone to preserve Map/Set types
         (result as Record<string, unknown>)[key] = this.deepClone(change.to);
       }
     }
@@ -86,20 +57,6 @@ export class BaseDiffCalculator {
     return result;
   }
 
-  /**
-   * Merge two consecutive deltas into a single delta
-   *
-   * Given delta1 representing state S0 → S1 and delta2 representing S1 → S2,
-   * returns a delta representing S0 → S2 directly.
-   *
-   * The `from` field is informational only (not used by applyDelta).
-   * For keys only in delta1, the value is preserved as-is.
-   * For keys in delta2, the value overwrites delta1's value for that key.
-   *
-   * @param first First delta (earlier in chain)
-   * @param second Second delta (later in chain, merged into first)
-   * @returns Merged delta
-   */
   mergeDeltas(
     first: DeltaMap,
     second: DeltaMap,
@@ -112,7 +69,7 @@ export class BaseDiffCalculator {
     for (const [key, change] of Object.entries(second)) {
       const firstFrom = (merged[key] as { from: unknown } | undefined)?.from;
       merged[key] = {
-        from: firstFrom ?? undefined,
+        from: firstFrom ?? change.from,
         to: change.to,
       };
     }
@@ -120,11 +77,6 @@ export class BaseDiffCalculator {
     return merged;
   }
 
-  /**
-   * Deep clone a value, preserving Map and Set types
-   * @param value Value to clone
-   * @returns Deep cloned value
-   */
   private deepClone(value: unknown): unknown {
     if (value === null || typeof value !== "object") {
       return value;
@@ -174,31 +126,19 @@ export class BaseDiffCalculator {
     return value;
   }
 
-  /**
-   * Deep equality check
-   * @param a First value
-   * @param b Second value
-   * @returns True if values are deeply equal
-   */
   private deepEqual(a: unknown, b: unknown): boolean {
-    // Strict equality (handles NaN correctly via Object.is)
     if (Object.is(a, b)) return true;
-    // One is null/undefined but not the same value (already filtered by Object.is)
     if (a == null || b == null) return false;
-    // Different types
     if (typeof a !== typeof b) return false;
 
-    // Date
     if (a instanceof Date && b instanceof Date) {
       return a.getTime() === b.getTime();
     }
 
-    // RegExp
     if (a instanceof RegExp && b instanceof RegExp) {
       return a.source === b.source && a.flags === b.flags;
     }
 
-    // Map
     if (a instanceof Map && b instanceof Map) {
       if (a.size !== b.size) return false;
       for (const [key, val] of a) {
@@ -207,12 +147,8 @@ export class BaseDiffCalculator {
       return true;
     }
 
-     // Set
      if (a instanceof Set && b instanceof Set) {
        if (a.size !== b.size) return false;
-       // Set order is not significant, compare by deep equality for each element
-       // Note: b.has(item) uses referential equality which is incorrect for objects,
-       // so we always use deep comparison for all elements
        for (const item of a) {
          let found = false;
          for (const bItem of b) {
@@ -226,7 +162,6 @@ export class BaseDiffCalculator {
        return true;
      }
 
-    // Typed arrays (Uint8Array, Int32Array, Float32Array, etc.)
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
       if (a.byteLength !== b.byteLength) return false;
       const aView = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
@@ -234,13 +169,11 @@ export class BaseDiffCalculator {
       return aView.every((val, i) => val === bView[i]);
     }
 
-    // Arrays
     if (Array.isArray(a) && Array.isArray(b)) {
       if (a.length !== b.length) return false;
       return a.every((item, index) => this.deepEqual(item, b[index]));
     }
 
-    // Plain objects
     if (
       typeof a === "object" &&
       typeof b === "object" &&
@@ -259,7 +192,6 @@ export class BaseDiffCalculator {
       );
     }
 
-    // Other types (class instances, functions, symbols, etc.) — referential equality already checked
     return false;
   }
 }

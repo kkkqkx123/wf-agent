@@ -14,7 +14,7 @@ import type {
 import type { AgentLoopCheckpoint } from "@wf-agent/types";
 import type { EventRegistry } from "../../shared/registry/event-registry.js";
 import type { CheckpointStorageAdapter as StorageAdapter } from "@wf-agent/storage";
-import { BaseCheckpointStateManager } from "../../shared/checkpoint/base-checkpoint-state-manager.js";
+import { BaseCheckpointStateManager } from "../../shared/checkpoint/core/base-state-manager.js";
 import {
   buildCheckpointCreatedEvent,
   buildCheckpointDeletedEvent,

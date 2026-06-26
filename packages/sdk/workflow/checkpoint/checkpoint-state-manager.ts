@@ -6,7 +6,7 @@
 import type { Checkpoint, CheckpointStorageMetadata } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
 import type { EventRegistry } from "../../shared/registry/event-registry.js";
-import { BaseCheckpointStateManager } from "../../shared/checkpoint/base-checkpoint-state-manager.js";
+import { BaseCheckpointStateManager } from "../../shared/checkpoint/core/base-state-manager.js";
 import {
   buildCheckpointCreatedEvent,
   buildCheckpointDeletedEvent,

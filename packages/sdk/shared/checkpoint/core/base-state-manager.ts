@@ -1,10 +1,3 @@
-/**
- * Base Checkpoint State Manager
- *
- * Provides common CRUD operations and cleanup policy execution.
- * Subclasses only need to implement event building for their specific checkpoint types.
- */
-
 import type {
   BaseCheckpoint,
   CleanupPolicy,
@@ -14,27 +7,19 @@ import type {
   CheckpointInfo,
   BaseEvent,
 } from "@wf-agent/types";
-import type { EventRegistry } from "../registry/event-registry.js";
+import type { EventRegistry } from "../../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import type { DeltaMap } from "./base-diff-calculator.js";
-import { createCleanupStrategy } from "./utils/cleanup-policy.js";
-import { buildDependencyGraph, computeProtectedCheckpoints } from "./checkpoint-graph.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-import type { CheckpointStorageAdapter } from "./types.js";
-import { CheckpointMetricsCollector } from "./checkpoint-metrics-collector.js";
+import { createCleanupStrategy } from "../utils/cleanup-policy.js";
+import { buildDependencyGraph, computeProtectedCheckpoints } from "../checkpoint-graph.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { CheckpointStorageAdapter } from "../types.js";
+import { CheckpointMetricsCollector } from "./metrics-collector.js";
 import type { CheckpointMetricsConfig } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "BaseCheckpointStateManager" });
 
-/**
- * Base Checkpoint State Manager
- *
- * Provides common CRUD operations and cleanup policy execution.
- * Subclasses only need to implement event building for their specific checkpoint types.
- *
- * @template TCheckpoint - The specific checkpoint type (e.g., Workflow Checkpoint or Agent Loop Checkpoint)
- */
 export abstract class BaseCheckpointStateManager<
   TCheckpoint extends BaseCheckpoint<unknown, unknown>,
 > {
@@ -62,11 +47,6 @@ export abstract class BaseCheckpointStateManager<
     }
   }
 
-  /**
-   * Create a checkpoint
-   * @param checkpoint The checkpoint to save
-   * @returns The checkpoint ID
-   */
   async create(checkpoint: TCheckpoint): Promise<string> {
     const startTime = performance.now();
     const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
@@ -83,10 +63,8 @@ export abstract class BaseCheckpointStateManager<
 
       await this.storageAdapter.save(checkpoint.id, serializedData, metadata);
 
-      // Track size in memory for immediate cleanup decisions
       this.checkpointSizes.set(checkpoint.id, serializedData.length);
 
-      // Emit created event within a batch (implemented by subclass)
       if (this.eventManager) {
         const emitter = this.eventManager.getEmitter(
           (checkpoint as unknown as Record<string, string>)['executionId'] || "unknown",
@@ -102,7 +80,6 @@ export abstract class BaseCheckpointStateManager<
 
       const duration = performance.now() - startTime;
 
-      // Record creation metrics
       this.metricsCollector?.recordCreation({
         checkpointId: checkpoint.id,
         entityId,
@@ -113,7 +90,6 @@ export abstract class BaseCheckpointStateManager<
         success: true,
       });
 
-      // Record chain length metric
       this.recordChainLength(entityId);
 
       logger.info("Checkpoint created", {
@@ -130,7 +106,6 @@ export abstract class BaseCheckpointStateManager<
         error: errorMessage,
       });
 
-      // Record failed creation metrics
       this.metricsCollector?.recordCreation({
         checkpointId: checkpoint.id,
         entityId,
@@ -142,7 +117,6 @@ export abstract class BaseCheckpointStateManager<
         error: errorMessage,
       });
 
-      // Emit failed event (implemented by subclass)
       if (this.eventManager) {
         const failedEvent = this.buildFailedEvent(checkpoint.id, error, "create");
         await this.eventManager.emit(failedEvent as BaseEvent);
@@ -152,9 +126,6 @@ export abstract class BaseCheckpointStateManager<
     }
   }
 
-  /**
-   * Record chain length metric for an entity
-   */
   private async recordChainLength(entityId: string): Promise<void> {
     if (!this.metricsCollector) return;
 
@@ -171,19 +142,12 @@ export abstract class BaseCheckpointStateManager<
         timestamp: Date.now(),
       });
     } catch {
-      // Don't fail the main operation if metrics recording fails
     }
   }
 
-  /**
-   * Get a checkpoint by ID
-   * @param checkpointId Checkpoint ID
-   * @returns The checkpoint or null if not found
-   */
   async get(checkpointId: string): Promise<TCheckpoint | null> {
     const startTime = performance.now();
 
-    // Step 1: Load raw data from storage
     let data: Uint8Array | null;
     try {
       data = await this.storageAdapter.load(checkpointId);
@@ -193,7 +157,6 @@ export abstract class BaseCheckpointStateManager<
         error: error instanceof Error ? error.message : String(error),
       });
 
-      // Record failed load metrics
       this.metricsCollector?.recordLoad({
         checkpointId,
         entityId: "unknown",
@@ -203,22 +166,19 @@ export abstract class BaseCheckpointStateManager<
         error: error instanceof Error ? error.message : String(error),
       });
 
-      throw error; // Storage failure should propagate, not be swallowed
+      throw error;
     }
 
-    // Not found — return null (not an error)
     if (!data) {
       return null;
     }
 
-    // Deserialization (data corruption is a distinct error from not-found)
     try {
       const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
       this.checkpointSizes.set(checkpointId, data.length);
 
       const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
 
-      // Record successful load metrics
       this.metricsCollector?.recordLoad({
         checkpointId,
         entityId,
@@ -235,7 +195,6 @@ export abstract class BaseCheckpointStateManager<
         error: error instanceof Error ? error.message : String(error),
       });
 
-      // Record failed load metrics
       this.metricsCollector?.recordLoad({
         checkpointId,
         entityId: "unknown",
@@ -251,11 +210,6 @@ export abstract class BaseCheckpointStateManager<
     }
   }
 
-  /**
-   * Delete a checkpoint
-   * @param checkpointId Checkpoint ID
-   * @param reason Reason for deletion (manual, cleanup, or policy)
-   */
   async delete(
     checkpointId: string,
     reason: "manual" | "cleanup" | "policy" = "manual",
@@ -266,7 +220,6 @@ export abstract class BaseCheckpointStateManager<
 
       logger.info("Checkpoint deleted", { checkpointId, reason });
 
-      // Emit deleted event (implemented by subclass)
       if (this.eventManager) {
         const deletedEvent = await this.buildDeletedEvent(checkpointId, reason);
         await this.eventManager.emit(deletedEvent as BaseEvent);
@@ -280,22 +233,10 @@ export abstract class BaseCheckpointStateManager<
     }
   }
 
-  /**
-   * List checkpoints
-   * @param options List options (parentId, limit, etc.)
-   * @returns Array of checkpoint IDs
-   */
   async list(options?: { parentId?: string; limit?: number }): Promise<string[]> {
     return await this.storageAdapter.list(options);
   }
 
-  /**
-   * Batch load checkpoints for efficient delta chain reconstruction
-   * Uses the storage adapter's loadBatch for N+1 to single query reduction
-   *
-   * @param ids Array of checkpoint IDs to load
-   * @returns Map of checkpoint ID to checkpoint (null if not found)
-   */
   async getCheckpoints(ids: string[]): Promise<Map<string, TCheckpoint | null>> {
     if (ids.length === 0) {
       return new Map();
@@ -324,7 +265,6 @@ export abstract class BaseCheckpointStateManager<
       }
     }
 
-    // Record batch load metrics
     if (ids.length > 0) {
       const entityId = "unknown";
       this.metricsCollector?.recordLoad({
@@ -340,21 +280,6 @@ export abstract class BaseCheckpointStateManager<
     return map;
   }
 
-  /**
-    * Execute cleanup policy for a specific entity
-    * Optimized to only scan and clean checkpoints belonging to the specified entity
-    * Supports incremental cleanup via watermark tracking — only processes checkpoints
-    * created since the last cleanup run. Periodic full scan to correct drift.
-    *
-    * Uses per-entity locking to prevent concurrent cleanup operations on the same entity,
-    * avoiding race conditions in watermark updates.
-    *
-    * @param entityId The entity ID
-    * @param entityType The entity type ('workflow', 'agent', 'task')
-    * @param excludeCheckpointId Optional checkpoint ID to exclude from cleanup (e.g., newly created)
-    * @param policy Optional cleanup policy (overrides default if provided)
-    * @returns Cleanup result
-    */
   async executeCleanupForEntity(
      entityId: string,
      entityType: string,
@@ -366,9 +291,6 @@ export abstract class BaseCheckpointStateManager<
      );
    }
 
-  /**
-   * Internal cleanup implementation (without lock).
-   */
   private async _executeCleanupForEntityInternal(
      entityId: string,
      entityType: string,
@@ -394,14 +316,11 @@ export abstract class BaseCheckpointStateManager<
       excludeCheckpointId,
     });
 
-    // Load only this entity's checkpoints metadata (optimized query using indexes)
     let checkpointInfoArray = await this.storageAdapter.listByEntityWithMetadata(
       entityId,
       entityType,
     );
 
-    // Incremental cleanup: check watermark to skip already-evaluated checkpoints.
-    // Every 10th cleanup does a full scan to correct drift.
     const entityMeta = await this.storageAdapter.getEntityMetadata(entityType, entityId);
     const lastWatermark = entityMeta?.['cleanupWatermark'] as number | undefined;
     const cleanupRunCount = (entityMeta?.['cleanupRunCount'] as number) || 0;
@@ -421,7 +340,6 @@ export abstract class BaseCheckpointStateManager<
       });
     }
 
-    // Update checkpoint sizes from top-level metadata blobSize if available
     for (const info of checkpointInfoArray) {
       const metadata = info.metadata as CheckpointStorageMetadata;
       const size = metadata.blobSize ?? 0;
@@ -430,7 +348,6 @@ export abstract class BaseCheckpointStateManager<
       }
     }
 
-    // Convert to CheckpointInfo format for strategy, excluding the specified checkpoint
     const checkpointInfo: CheckpointInfo[] = checkpointInfoArray
       .filter(info => info.id !== excludeCheckpointId)
       .map(info => ({
@@ -438,14 +355,11 @@ export abstract class BaseCheckpointStateManager<
         metadata: info.metadata as CheckpointStorageMetadata,
       }));
 
-     // Build dependency graph for delta chain protection
      const dependencyGraph = buildDependencyGraph(checkpointInfoArray);
 
-     // Execute cleanup strategy
      const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
      const candidateDeleteIds = strategy.execute(checkpointInfo, dependencyGraph);
 
-     // Apply dependency protection - remove candidates that would break delta chains
      const candidateSet = new Set(candidateDeleteIds);
      const protectedByDependency = computeProtectedCheckpoints(
        candidateSet,
@@ -453,17 +367,13 @@ export abstract class BaseCheckpointStateManager<
        new Set(checkpointInfoArray.map(c => c.id)),
      );
 
-     // Final deletion list after dependency protection
      const filteredDeleteIds = candidateDeleteIds.filter(id => !protectedByDependency.has(id));
 
-     // Protect delta chain integrity:
-     // 1. Never delete the latest checkpoint (by timestamp)
      const sortedByTimestamp = [...checkpointInfoArray].sort(
        (a, b) => b.metadata.timestamp - a.metadata.timestamp,
      );
      const latestCheckpointId = sortedByTimestamp[0]?.id;
 
-     // Remove latest checkpoint from deletion candidates if present
      let toDeleteIds = filteredDeleteIds;
      if (latestCheckpointId && toDeleteIds.includes(latestCheckpointId)) {
        toDeleteIds = toDeleteIds.filter(id => id !== latestCheckpointId);
@@ -472,7 +382,6 @@ export abstract class BaseCheckpointStateManager<
        });
      }
 
-     // Protect checkpoints that are still referenced by surviving deltas
      const referencedBySurvivors = new Map<string, string[]>();
      const toDeleteSet = new Set(toDeleteIds);
 
@@ -502,7 +411,6 @@ export abstract class BaseCheckpointStateManager<
        protectedCount: candidateDeleteIds.length - toDeleteIds.length,
      });
 
-     // Delete checkpoints
     let freedSpaceBytes = 0;
     for (const checkpointId of toDeleteIds) {
       try {
@@ -528,10 +436,6 @@ export abstract class BaseCheckpointStateManager<
       remainingCount,
     });
 
-     // Persist cleanup watermark for incremental cleanup
-     // Note: The per-entity lock in executeCleanupForEntity ensures serialization,
-     // so the read-modify-write pattern here is safe. The lock prevents concurrent
-     // cleanup operations for the same entity from interleaving.
      const remainingCheckpoints = checkpointInfoArray.filter(
        cp => !toDeleteIds.includes(cp.id),
      );
@@ -547,7 +451,6 @@ export abstract class BaseCheckpointStateManager<
 
     const duration = performance.now() - startTime;
 
-    // Record cleanup metrics
     this.metricsCollector?.recordCleanup({
       entityId,
       count: toDeleteIds.length,
@@ -565,21 +468,6 @@ export abstract class BaseCheckpointStateManager<
     };
   }
 
-  /**
-   * Compact a delta chain by merging multiple consecutive deltas in batch.
-   *
-   * For a chain like [FULL: A] ← [DELTA: B] ← [DELTA: C] ← [DELTA: D],
-   * this merges C and D into B in a single operation: B's delta becomes
-   * the combination of B, C, and D, the chain is shortened by 2.
-   *
-   * This is more efficient than merging only two deltas at a time,
-   * especially for long delta chains.
-   *
-   * @param entityId The entity ID
-   * @param entityType The entity type
-   * @param batchSize Number of deltas to merge per batch (default: merge all consecutive)
-   * @returns Number of checkpoints deleted
-   */
   async compactDeltaChain(
     entityId: string,
     entityType: string,
@@ -593,7 +481,6 @@ export abstract class BaseCheckpointStateManager<
 
     if (deltas.length < 2) return 0;
 
-    // Build chains: find all chains of consecutive deltas
     const chains: Array<Array<{ idx: number; cp: typeof deltas[0] }>> = [];
     const processed = new Set<string>();
 
@@ -607,11 +494,9 @@ export abstract class BaseCheckpointStateManager<
         const cp = deltas[currentIdx]!;
         const prevId = cp.metadata.previousCheckpointId;
 
-        // Verify chain continuity: either first in chain or links to previous
         if (chain.length === 0 || prevId === chain[chain.length - 1]!.cp.id) {
           chain.push({ idx: currentIdx, cp });
           processed.add(cp.id);
-          // Find next delta that references this one as previous
           const nextIdx = deltas.findIndex(
             (d, j) => j > currentIdx && d.metadata.previousCheckpointId === cp.id && !processed.has(d.id),
           );
@@ -631,7 +516,6 @@ export abstract class BaseCheckpointStateManager<
 
     let deletedCount = 0;
 
-    // Process each chain
     for (const chain of chains) {
       const effectiveBatchSize = batchSize ?? chain.length - 1;
       const mergeCount = Math.min(effectiveBatchSize, chain.length - 1);
@@ -642,7 +526,6 @@ export abstract class BaseCheckpointStateManager<
       const toMerge = chain.slice(1, mergeCount + 1);
       const lastMerged = toMerge[toMerge.length - 1]!;
 
-      // Load all deltas to merge
       const idsToLoad = [anchor.id, ...toMerge.map(c => c.cp.id)];
       const rawDataList = await Promise.all(
         idsToLoad.map(id => this.storageAdapter.load(id)),
@@ -667,7 +550,6 @@ export abstract class BaseCheckpointStateManager<
         continue;
       }
 
-      // Merge all deltas into anchor
       let mergedDelta = cps[0]!.delta as unknown as DeltaMap;
       for (let i = 1; i < cps.length; i++) {
         mergedDelta = this.diffCalculator.mergeDeltas(
@@ -677,14 +559,12 @@ export abstract class BaseCheckpointStateManager<
       }
       cps[0]!.delta = mergedDelta as unknown as TCheckpoint["delta"];
 
-      // Save updated anchor checkpoint
       const updatedData = await this.codec.serialize(cps[0]!);
       const updatedMetadata = this.extractStorageMetadata(cps[0]!);
       updatedMetadata.blobSize = updatedData.length;
       await this.storageAdapter.save(anchor.id, updatedData, updatedMetadata);
       this.checkpointSizes.set(anchor.id, updatedData.length);
 
-      // Find and update successor of the last merged delta
       const successor = checkpoints.find(
         cp => cp.metadata.previousCheckpointId === lastMerged.cp.id && cp.id !== anchor.id,
       );
@@ -702,7 +582,6 @@ export abstract class BaseCheckpointStateManager<
         }
       }
 
-      // Delete all merged checkpoints
       for (const { cp } of toMerge) {
         await this.storageAdapter.delete(cp.id);
         this.checkpointSizes.delete(cp.id);
@@ -720,21 +599,10 @@ export abstract class BaseCheckpointStateManager<
     return deletedCount;
   }
 
-  /**
-   * Get the metrics collector (if enabled)
-   */
   getMetricsCollector(): CheckpointMetricsCollector | undefined {
     return this.metricsCollector;
   }
 
-  /**
-   * List checkpoints by entity with metadata
-   * Public wrapper around storage adapter for delta chain reconstruction
-   *
-   * @param entityId The entity ID
-   * @param entityType The entity type
-   * @returns Array of checkpoint info with metadata
-   */
   async listByEntityWithMetadata(
     entityId: string,
     entityType: string,
@@ -746,72 +614,31 @@ export abstract class BaseCheckpointStateManager<
     }));
   }
 
-  /**
-   * Initialize the state manager
-   */
   async initialize(): Promise<void> {
     logger.info("Initializing checkpoint state manager");
     await this.storageAdapter.initialize();
   }
 
-  /**
-   * Clean up resources
-   */
   async cleanup(): Promise<void> {
     logger.info("Cleaning up checkpoint state manager");
     await this.storageAdapter.close();
   }
 
-  // ============================================================================
-  // Abstract Methods - Must be implemented by subclasses
-  // ============================================================================
-
-  /**
-   * Extract storage metadata from checkpoint
-   * @param checkpoint The checkpoint
-   * @returns Storage metadata
-   */
   protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageRecord;
 
-  /**
-   * Build checkpoint created event
-   * @param checkpoint The created checkpoint
-   * @returns Event object
-   */
   protected abstract buildCreatedEvent(checkpoint: TCheckpoint): unknown;
 
-  /**
-   * Build checkpoint deleted event
-   * @param checkpointId The deleted checkpoint ID
-   * @param reason Reason for deletion
-   * @returns Event object (can be Promise for async implementations)
-   */
   protected abstract buildDeletedEvent(
     checkpointId: string,
     reason?: "manual" | "cleanup" | "policy",
   ): unknown | Promise<unknown>;
 
-  /**
-   * Build checkpoint failed event
-   * @param checkpointId The failed checkpoint ID
-   * @param error The error
-   * @param operation The operation that failed (create, restore, delete)
-   * @returns Event object
-   */
    protected abstract buildFailedEvent(
      checkpointId: string,
      error: unknown,
      operation?: "create" | "restore" | "delete",
    ): unknown;
 
-   /**
-    * Execute operation with per-entity lock to prevent concurrent modifications.
-    * Prevents race conditions during cleanup operations on the same entity.
-    *
-    * @param entityId Entity ID for lock key
-    * @param operation Operation to execute under lock
-    * @returns Operation result
-    */
    private async withEntityLock<T>(
      entityId: string,
      operation: () => Promise<T>,

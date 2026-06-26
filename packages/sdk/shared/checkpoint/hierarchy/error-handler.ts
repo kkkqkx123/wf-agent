@@ -1,14 +1,3 @@
-/**
- * Checkpoint Error Handler
- *
- * Manages checkpoint operation errors based on configured strategy.
- * Supports multiple error handling modes:
- * - silent: Log debug only
- * - warn: Log warning but continue
- * - strict: Throw exception
- * - callback: Call user-provided handler
- */
-
 import type {
   CheckpointErrorStrategy,
   CheckpointErrorContext,
@@ -24,10 +13,6 @@ interface Logger {
   error(msg: string, context?: Record<string, unknown>): void;
 }
 
-/**
- * Checkpoint Error Handler
- * Handles errors based on configured strategy
- */
 export class CheckpointErrorHandler {
   private strategy: CheckpointErrorStrategy;
   private onErrorCallback?: (error: CheckpointError, context: CheckpointErrorContext) => void | Promise<void>;
@@ -39,13 +24,6 @@ export class CheckpointErrorHandler {
     this.logger = logger;
   }
 
-  /**
-   * Handle checkpoint error based on strategy
-   *
-   * @param error The error that occurred
-   * @param context Error context information
-   * @returns Result indicating whether to rethrow and if handled
-   */
   async handleError(error: Error, context: CheckpointErrorContext): Promise<CheckpointErrorHandlingResult> {
     const checkpointError = this.wrapError(error, context);
 
@@ -63,14 +41,10 @@ export class CheckpointErrorHandler {
         return this.handleCallback(checkpointError, context);
 
       default:
-        // Default to warn if strategy is unknown
         return this.handleWarn(checkpointError, context);
     }
   }
 
-  /**
-   * Silent failure - only debug logs, no rethrow
-   */
   private handleSilent(error: CheckpointError, context: CheckpointErrorContext): CheckpointErrorHandlingResult {
     this.logger.debug("Checkpoint operation failed silently", {
       checkpointId: context.checkpointId,
@@ -83,9 +57,6 @@ export class CheckpointErrorHandler {
     return { shouldRethrow: false, handled: true };
   }
 
-  /**
-   * Warning level - log warning but don't interrupt
-   */
   private handleWarn(error: CheckpointError, context: CheckpointErrorContext): CheckpointErrorHandlingResult {
     this.logger.warn("Checkpoint operation failed", {
       checkpointId: context.checkpointId,
@@ -96,15 +67,11 @@ export class CheckpointErrorHandler {
       cause: error.cause?.message,
     });
 
-    // Emit warning event for monitoring
     this.emitWarningEvent(error, context);
 
     return { shouldRethrow: false, handled: true };
   }
 
-  /**
-   * Strict mode - throw exception and interrupt
-   */
   private handleStrict(error: CheckpointError, context: CheckpointErrorContext): CheckpointErrorHandlingResult {
     this.logger.error("Checkpoint operation failed (strict mode)", {
       checkpointId: context.checkpointId,
@@ -116,15 +83,11 @@ export class CheckpointErrorHandler {
       stack: error.stack,
     });
 
-    // Emit error event for monitoring
     this.emitErrorEvent(error, context);
 
     return { shouldRethrow: true, handled: true };
   }
 
-  /**
-   * Callback mode - call user-provided handler
-   */
   private async handleCallback(
     error: CheckpointError,
     context: CheckpointErrorContext,
@@ -153,9 +116,6 @@ export class CheckpointErrorHandler {
     return { shouldRethrow: false, handled: true };
   }
 
-  /**
-   * Wrap raw error in CheckpointError with context
-   */
   private wrapError(error: Error, context: CheckpointErrorContext): CheckpointError {
     if (error instanceof CheckpointError) {
       return error;
@@ -170,9 +130,6 @@ export class CheckpointErrorHandler {
     );
   }
 
-  /**
-   * Emit warning event for monitoring systems
-   */
   private emitWarningEvent(_error: CheckpointError, context: CheckpointErrorContext): void {
     this.logger.info("Checkpoint warning event emitted", {
       event: "checkpoint.warning",
@@ -182,9 +139,6 @@ export class CheckpointErrorHandler {
     });
   }
 
-  /**
-   * Emit error event for monitoring systems
-   */
   private emitErrorEvent(_error: CheckpointError, context: CheckpointErrorContext): void {
     this.logger.info("Checkpoint error event emitted", {
       event: "checkpoint.error",
@@ -194,16 +148,10 @@ export class CheckpointErrorHandler {
     });
   }
 
-  /**
-   * Get current error handling strategy
-   */
   getStrategy(): CheckpointErrorStrategy {
     return this.strategy;
   }
 
-  /**
-   * Change error handling strategy at runtime
-   */
   setStrategy(strategy: CheckpointErrorStrategy): void {
     this.strategy = strategy;
     this.logger.debug("Checkpoint error handling strategy changed", { newStrategy: strategy });

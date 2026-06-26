@@ -1,15 +1,9 @@
-/**
- * BaseCheckpointCoordinator Tests
- * Tests for the template method pattern coordinator
- */
-
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { BaseCheckpointCoordinator } from "../base-checkpoint-coordinator.js";
+import { BaseCheckpointCoordinator } from "../base-coordinator.js";
 import { BaseDiffCalculator } from "../base-diff-calculator.js";
 import type { BaseCheckpoint, CheckpointMetadata } from "@wf-agent/types";
-import type { CheckpointableEntity, CheckpointDependencies } from "../types.js";
+import type { CheckpointableEntity, CheckpointDependencies } from "../../types.js";
 
-// Concrete implementation for testing the abstract class
 interface TestState {
   name: string;
   value: number;
@@ -56,17 +50,14 @@ class TestCheckpointCoordinator extends BaseCheckpointCoordinator<
       checkpoint.snapshot = currentState;
       checkpoint.baseCheckpointId = checkpointId;
     } else {
-      // Calculate delta from previous checkpoint
       const previousCpId = previousCheckpointIds[previousCheckpointIds.length - 1];
       if (previousCpId) {
         const previousCp = await dependencies.getCheckpoint(previousCpId);
         if (previousCp) {
-          // Get snapshot from previous (full) or from delta chain's base
           let previousSnapshot: Record<string, unknown> | undefined;
           if (previousCp.snapshot) {
             previousSnapshot = previousCp.snapshot as unknown as Record<string, unknown>;
           } else if (previousCp.baseCheckpointId) {
-            // Load base checkpoint for snapshot
             const baseCp = await dependencies.getCheckpoint(previousCp.baseCheckpointId);
             previousSnapshot = baseCp?.snapshot as unknown as Record<string, unknown> | undefined;
           }
@@ -146,11 +137,9 @@ describe("BaseCheckpointCoordinator", () => {
     });
 
     it("should create a DELTA checkpoint when incremental storage is enabled", async () => {
-      // First: FULL checkpoint
       const entity = { id: "entity-1", name: "v1", value: 1 };
       await coordinator.createCheckpoint(entity, mockDependencies);
 
-      // Second: DELTA checkpoint
       const entity2 = { id: "entity-1", name: "v2", value: 2 };
       const cpId2 = await coordinator.createCheckpoint(entity2, mockDependencies);
 
@@ -164,14 +153,11 @@ describe("BaseCheckpointCoordinator", () => {
     it("should create FULL checkpoint on baseline interval", async () => {
       const entity = { id: "entity-1", name: "test", value: 0 };
 
-      // Create checkpoints to reach baseline interval (3)
       for (let i = 0; i < 4; i++) {
         entity.value = i;
         await coordinator.createCheckpoint(entity, mockDependencies);
       }
 
-      // The 4th checkpoint (index 3) should be FULL because baselineInterval=3 and checkpointCount (3) % 3 === 0
-      // After 3 checkpoints saved, the count is 3 → 3 % 3 === 0 → FULL
       const ids = Array.from(savedCheckpoints.keys());
       const fourthCp = savedCheckpoints.get(ids[3]!)!;
       expect(fourthCp.type).toBe("FULL");
@@ -215,7 +201,6 @@ describe("BaseCheckpointCoordinator", () => {
     it("should restore from DELTA checkpoint chain", async () => {
       const entity = { id: "entity-1", name: "v1", value: 1 };
 
-      // Create a chain of checkpoints
       await coordinator.createCheckpoint(entity, mockDependencies);
       entity.name = "v2";
       entity.value = 2;
@@ -224,7 +209,6 @@ describe("BaseCheckpointCoordinator", () => {
       entity.value = 3;
       const cpId3 = await coordinator.createCheckpoint(entity, mockDependencies);
 
-      // Restore from the last delta checkpoint
       const restored = await coordinator.restoreFromCheckpoint(cpId3, mockDependencies);
       expect(restored.id).toBe("entity-1");
       expect((restored as any).name).toBe("v3");
@@ -238,13 +222,11 @@ describe("BaseCheckpointCoordinator", () => {
     });
 
     it("should throw error for invalid checkpoint (missing required fields)", async () => {
-      // Save an invalid checkpoint manually
       const badCp: TestCheckpoint = {
         id: "bad-cp",
         type: "FULL" as any,
         entityId: "e1",
       };
-      // No snapshot for FULL type
       savedCheckpoints.set("bad-cp", badCp);
       mockDependencies.listCheckpoints = vi.fn().mockResolvedValue(["bad-cp"]);
       mockDependencies.getCheckpoint = vi.fn(async (id: string) => {
@@ -260,7 +242,6 @@ describe("BaseCheckpointCoordinator", () => {
   describe("determineCheckpointType", () => {
     it("should return FULL when delta storage is disabled", () => {
       const config = { enabled: false, baselineInterval: 5, maxDeltaChainLength: 10 };
-      // Access the protected method via any cast
       const type = (coordinator as any).determineCheckpointType(5, config);
       expect(type).toBe("FULL");
     });

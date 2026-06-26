@@ -32,8 +32,8 @@ import { AgentLoopCheckpointCoordinator, type CheckpointDependencies } from "../
 import type { AgentCheckpointPolicy, AgentCheckpointTrigger } from "../../../agent/checkpoint/agent-checkpoint-policy.js";
 import { DEFAULT_AGENT_CHECKPOINT_POLICY } from "../../../agent/checkpoint/agent-checkpoint-policy.js";
 import { buildAgentCheckpointLayers, resolveAgentCheckpointConfig, getAgentCheckpointContentConfig } from "../../checkpoint/utils/config-resolver.js";
-import { CheckpointErrorHandler } from "../../../shared/checkpoint/checkpoint-error-handler.js";
-import { CheckpointMetricsCollector } from "../../../shared/checkpoint/checkpoint-metrics-collector.js";
+import { CheckpointErrorHandler } from "../../../shared/checkpoint/hierarchy/error-handler.js";
+import { CheckpointMetricsCollector } from "../../../shared/checkpoint/core/metrics-collector.js";
 import type { CheckpointMetricsEvent, CheckpointErrorContext, CheckpointCreationMetrics } from "@wf-agent/types";
 import { getExecutionEventBus } from "../../../shared/events/execution-event-bus.js";
 import type { ExecutionErrorRecord } from "@wf-agent/types";

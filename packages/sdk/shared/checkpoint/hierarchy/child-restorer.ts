@@ -1,35 +1,16 @@
-/**
- * Child Checkpoint Restorer
- *
- * Generic restorer for recursively restoring child execution instances from checkpoints.
- * Provides symmetric restoration logic for both Workflow and Agent execution hierarchies.
- *
- * Design Principles:
- * - Symmetric: identical restoration logic for both Workflow and Agent
- * - Composable: accepts restoration dependencies via interface
- * - Isolated: one child failure doesn't block others
- * - Concurrent: supports parallel restoration with bounded concurrency
- * - Transactional: tracks recovery progress for rollback support
- *
- * Restores children in order: WORKFLOW before AGENT_LOOP.
- */
-
 import type {
   ChildExecutionReference,
   ExecutionType,
   ID,
 } from "@wf-agent/types";
-import type { IExecutionEntity } from "../../shared/types/execution-entity.js";
-import type { ChildCheckpointResolver } from "./child-checkpoint-resolver.js";
+import type { IExecutionEntity } from "../../types/execution-entity.js";
+import type { ChildCheckpointResolver } from "./child-resolver.js";
 import { RecoveryTransactionManager } from "./recovery-transaction.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { RestoreStrategyRegistry } from "./restore-strategy.js";
 
 const logger = createContextualLogger({ component: "ChildCheckpointRestorer" });
 
-/**
- * Restoration result for a single child
- */
 export interface ChildRestoreResult {
   childId: ID;
   childType: ExecutionType;
@@ -38,109 +19,40 @@ export interface ChildRestoreResult {
   error?: string;
 }
 
-/**
- * Dependencies for child checkpoint restoration
- */
 export interface ChildRestoreDependencies {
-  /**
-    * Find the latest checkpoint ID for a child execution
-    * @param childId Child execution ID
-    * @param childType Child execution type
-    * @returns Checkpoint ID or undefined if not found
-    */
   findCheckpoint: (childId: ID, childType: ExecutionType) => Promise<ID | undefined>;
 
-  /**
-    * Batch find latest checkpoints for multiple child executions
-    * More efficient than individual findCheckpoint calls
-    * @param childRefs Array of child references
-    * @returns Map of child ID to checkpoint ID
-    */
   findCheckpointsBatch?: (childRefs: ChildExecutionReference[]) => Promise<Map<string, string | undefined>>;
 
-  /**
-    * Restore a child execution entity from checkpoint
-    * @param checkpointId Checkpoint ID
-    * @param childType Child execution type
-    * @param parentId Parent execution ID
-    * @returns Restored entity
-    */
   restoreEntity: (
     checkpointId: ID,
     childType: ExecutionType,
     parentId: ID,
   ) => Promise<IExecutionEntity>;
 
-  /**
-    * Register a restored child with its parent
-    * @param parent Parent entity
-    * @param child Child entity
-    * @param childRef Original child reference
-    */
   registerChild: (
     parent: IExecutionEntity,
     child: IExecutionEntity,
     childRef: ChildExecutionReference,
   ) => void;
 
-  /**
-    * Optional: post-registration hook (e.g., file checkpoint restore)
-    */
   onChildRestored?: (child: IExecutionEntity) => Promise<void>;
 
-  /**
-    * Optional: custom checkpoint resolver for finding latest checkpoints
-    * If provided, overrides the default findCheckpoint behavior
-    */
   checkpointResolver?: ChildCheckpointResolver;
 
-  /**
-    * Optional: recovery transaction manager for tracking recovery progress
-    */
   transactionManager?: RecoveryTransactionManager;
 
-  /**
-    * Maximum number of concurrent child restorations
-    * @default 5
-    */
   maxConcurrency?: number;
 
-  /**
-    * Maximum depth for recursive restoration
-    * @default 100
-    */
   maxDepth?: number;
 
-  /**
-    * Optional: strategy registry for type-specific restoration logic
-    * If provided, uses strategies instead of findCheckpoint/restoreEntity/registerChild
-    */
   strategyRegistry?: RestoreStrategyRegistry;
 }
 
-/**
- * Restorer for child execution instances.
- * Manages the recursive restoration of child hierarchies with:
- * - Proper ordering: WORKFLOW children restored before AGENT_LOOP
- * - Error isolation: one child failure doesn't block others
- * - Cycle detection: prevents infinite loops in corrupted hierarchies
- * - Concurrent restoration: bounded parallelism for performance
- * - Transaction tracking: recovery progress for rollback support
- */
 export class ChildCheckpointRestorer {
   private static readonly DEFAULT_MAX_CONCURRENCY = 5;
   private static readonly DEFAULT_MAX_DEPTH = 100;
 
-  /**
-    * Restore all children of an entity iteratively.
-    * Uses an explicit stack to avoid stack overflow on deep hierarchies.
-    *
-    * @param parentEntity Parent entity whose children to restore
-    * @param childRefs Child references from hierarchy metadata
-    * @param deps Restoration dependencies
-    * @param resolver Optional custom checkpoint resolver (overrides deps.findCheckpoint)
-    * @returns Array of restoration results
-    */
    async restoreChildren(
      parentEntity: IExecutionEntity,
      childRefs: ChildExecutionReference[],
@@ -274,9 +186,6 @@ export class ChildCheckpointRestorer {
      return allResults;
    }
 
-  /**
-    * Restore a single child using iterative stack-based approach for grandchildren.
-    */
    private async restoreSingleChildWithStack(
      parentEntity: IExecutionEntity,
      childRef: ChildExecutionReference,
@@ -398,9 +307,6 @@ export class ChildCheckpointRestorer {
      }
    }
 
-  /**
-   * Create a summary of restoration results
-   */
   static summarizeResults(results: ChildRestoreResult[]): {
     total: number;
     succeeded: number;
@@ -424,9 +330,6 @@ export class ChildCheckpointRestorer {
   }
 }
 
-/**
- * Simple semaphore implementation for concurrency control.
- */
 class Semaphore {
   private permits: number;
   private queue: Array<() => void> = [];

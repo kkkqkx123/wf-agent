@@ -1,67 +1,31 @@
-/**
- * Execution Restore Coordinator
- *
- * Coordinates cross-type checkpoint restoration for hierarchical execution trees.
- * Ensures correct restore order: parent before children, workflow before agent.
- * Handles mixed hierarchy scenarios (Workflow->Agent->Workflow, etc.).
- */
-
 import type { ExecutionType, ExecutionHierarchyMetadata, ChildExecutionReference } from "@wf-agent/types";
 import type { ID, AgentLoopRuntimeConfig } from "@wf-agent/types";
-import type { AnyExecutionEntity, ExecutionHierarchyRegistry } from "../registry/execution-hierarchy-registry.js";
-import type { HierarchyValidationResult } from "../execution/hierarchy-integrity-service.js";
-import { HierarchyIntegrityService } from "../execution/hierarchy-integrity-service.js";
-import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
-import type { AgentLoopCheckpointCoordinator, CheckpointDependencies as AgentCheckpointDependencies } from "../../agent/checkpoint/checkpoint-coordinator.js";
+import type { AnyExecutionEntity, ExecutionHierarchyRegistry } from "../../registry/execution-hierarchy-registry.js";
+import type { HierarchyValidationResult } from "../../execution/hierarchy-integrity-service.js";
+import { HierarchyIntegrityService } from "../../execution/hierarchy-integrity-service.js";
+import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
+import type { AgentLoopCheckpointCoordinator, CheckpointDependencies as AgentCheckpointDependencies } from "../../../agent/checkpoint/checkpoint-coordinator.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 
 export interface RestoreDependencies {
-  /** Workflow checkpoint coordinator instance */
   workflowCoordinator: CheckpointCoordinator;
-  /** Workflow checkpoint dependencies */
   workflowDeps: WorkflowCheckpointDependencies;
-  /** Agent loop checkpoint coordinator instance */
   agentCoordinator: AgentLoopCheckpointCoordinator;
-  /** Agent checkpoint dependencies */
   agentDeps: AgentCheckpointDependencies;
-  /** Agent loop runtime config for restoration (required for agent restore) */
   agentRuntimeConfig: AgentLoopRuntimeConfig;
-  /** Hierarchy registry for cross-type registration */
   hierarchyRegistry: ExecutionHierarchyRegistry;
-  /** File checkpoint manager (optional) */
   fileCheckpointManager?: FileCheckpointManager;
 }
 
 export interface RootRestoreResult {
-  /** The restored root entity */
   rootEntity: AnyExecutionEntity;
-  /** Total number of entities restored */
   totalRestored: number;
-  /** Hierarchy validation result */
   validationResult: HierarchyValidationResult;
-  /** List of child entity IDs that failed to restore */
   failedChildren: Array<{ childId: ID; childType: ExecutionType; error: string }>;
-  /** Restoration timeline */
   restoredEntities: Array<{ entityId: ID; entityType: ExecutionType; checkpointId: string }>;
 }
 
 export class ExecutionRestoreCoordinator {
-  /**
-   * Restore the root execution entity from a checkpoint and recursively restore all children.
-   *
-   * Restore order:
-   * 1. Restore root entity
-   * 2. Collect child references from restored snapshot hierarchy
-   * 3. Group children by type (WORKFLOW first, then AGENT_LOOP)
-   * 4. Recursively restore each child in order
-   * 5. Register all entities in hierarchy registry
-   * 6. Validate hierarchy integrity
-   *
-   * @param checkpointId Root checkpoint ID
-   * @param rootType Root execution type
-   * @param deps Restoration dependencies
-   * @returns RootRestoreResult with full restoration details
-   */
   async restoreRoot(
     checkpointId: string,
     rootType: ExecutionType,
@@ -72,10 +36,8 @@ export class ExecutionRestoreCoordinator {
 
     const rootEntity = await this.restoreSingleEntity(checkpointId, rootType, deps, restoredEntities, failedChildren);
 
-    // Recursively restore children in the correct order
     await this.restoreChildrenRecursive(rootEntity, deps, restoredEntities, failedChildren, new Set<string>([rootEntity.id]));
 
-    // Validate hierarchy integrity for the root
     const rootHierarchy = this.getHierarchyMetadata(rootEntity);
     const validationResult = rootHierarchy
       ? HierarchyIntegrityService.validateIntegrity(rootHierarchy, deps.hierarchyRegistry)
@@ -90,12 +52,6 @@ export class ExecutionRestoreCoordinator {
     };
   }
 
-  /**
-   * Recursively restore children of an entity in the correct order.
-   * Restore order by type: WORKFLOW first, then AGENT_LOOP.
-   * This ensures workflow children are available before agent children
-   * that might depend on them.
-   */
   private async restoreChildrenRecursive(
     entity: AnyExecutionEntity,
     deps: RestoreDependencies,
@@ -107,7 +63,6 @@ export class ExecutionRestoreCoordinator {
 
     if (children.length === 0) return;
 
-    // Group children by type and restore WORKFLOW before AGENT_LOOP
     const workflowChildren = children.filter(c => c.childType === "WORKFLOW");
     const agentChildren = children.filter(c => c.childType === "AGENT_LOOP");
     const orderedChildren: ChildExecutionReference[] = [...workflowChildren, ...agentChildren];
@@ -155,9 +110,6 @@ export class ExecutionRestoreCoordinator {
     }
   }
 
-  /**
-   * Restore a single entity from checkpoint and register it in the hierarchy registry.
-   */
   private async restoreSingleEntity(
     checkpointId: string,
     entityType: ExecutionType,
@@ -200,9 +152,6 @@ export class ExecutionRestoreCoordinator {
     return result;
   }
 
-  /**
-   * Restore file checkpoint for an entity (non-fatal on failure).
-   */
   private async restoreFileCheckpoint(entityId: string, deps: RestoreDependencies): Promise<void> {
     if (!deps.fileCheckpointManager) return;
 
@@ -212,13 +161,9 @@ export class ExecutionRestoreCoordinator {
         await deps.fileCheckpointManager.restoreCheckpoint(entityId, fileCheckpoints[0]!.id);
       }
     } catch {
-      // Non-fatal: file checkpoint restore failure should not block execution restore
     }
   }
 
-  /**
-   * Find the latest checkpoint for a child execution.
-   */
   private async findChildCheckpoint(
     childRef: { childId: ID; childType: ExecutionType },
     deps: RestoreDependencies,
@@ -238,9 +183,6 @@ export class ExecutionRestoreCoordinator {
     }
   }
 
-  /**
-   * Get hierarchy metadata from an entity.
-   */
   private getHierarchyMetadata(entity: AnyExecutionEntity): ExecutionHierarchyMetadata | undefined {
     if ("getHierarchyMetadata" in entity) {
       return (entity as { getHierarchyMetadata(): ExecutionHierarchyMetadata | undefined }).getHierarchyMetadata();

@@ -24,22 +24,22 @@ import type {
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
-import { BaseCheckpointCoordinator } from "../../shared/checkpoint/base-checkpoint-coordinator.js";
+import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
-import { BaseDeltaRestorer } from "../../shared/checkpoint/base-delta-restorer.js";
+import { BaseDeltaRestorer } from "../../shared/checkpoint/core/base-delta-restorer.js";
 import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
-import { CheckpointErrorHandler } from "../../shared/checkpoint/checkpoint-error-handler.js";
+import { CheckpointErrorHandler } from "../../shared/checkpoint/hierarchy/error-handler.js";
 import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-builder.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getExecutionEventBus } from "../../shared/events/index.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import type { ExecutionHierarchyRegistry, AnyExecutionEntity } from "../../shared/registry/execution-hierarchy-registry.js";
 import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-integrity-service.js";
-import type { ChildCheckpointResolver } from "../../shared/checkpoint/child-checkpoint-resolver.js";
-import { ChildCheckpointRestorer } from "../../shared/checkpoint/child-checkpoint-restorer.js";
-import type { ChildRestoreDependencies } from "../../shared/checkpoint/child-checkpoint-restorer.js";
+import type { ChildCheckpointResolver } from "../../shared/checkpoint/hierarchy/child-resolver.js";
+import { ChildCheckpointRestorer } from "../../shared/checkpoint/hierarchy/child-restorer.js";
+import type { ChildRestoreDependencies } from "../../shared/checkpoint/hierarchy/child-restorer.js";
 import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
-import { RestoreStrategyRegistry } from "../../shared/checkpoint/restore-strategy.js";
+import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 

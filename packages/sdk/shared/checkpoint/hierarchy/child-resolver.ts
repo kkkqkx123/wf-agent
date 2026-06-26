@@ -1,18 +1,7 @@
-/**
- * Child Checkpoint Resolver
- *
- * Generic resolver for finding the latest checkpoint of child execution instances.
- * Provides a consistent interface for resolving child checkpoints across
- * different execution types (WORKFLOW, AGENT_LOOP).
- *
- * Supports both individual and batch resolution for efficiency.
- * Batch resolution uses storage adapter's batch capabilities when available.
- */
-
-import type { CheckpointStorageAdapter } from "./types.js";
+import type { CheckpointStorageAdapter } from "../types.js";
 import type { CheckpointStorageMetadata, CheckpointEntityType } from "@wf-agent/types";
 import type { ChildExecutionReference } from "@wf-agent/types";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "ChildCheckpointResolver" });
 
@@ -128,16 +117,9 @@ export class StorageBackedChildResolver implements ChildCheckpointResolver {
   }
 }
 
-/**
- * Cached resolver that uses preloaded metadata.
- * Useful when checkpoint metadata is already available in memory.
- */
 export class CachedChildResolver implements ChildCheckpointResolver {
   private cache = new Map<string, ChildCheckpointDescriptor[]>();
 
-  /**
-   * Preload checkpoints for an entity
-   */
   preload(
     entityId: string,
     checkpoints: ChildCheckpointDescriptor[],
@@ -148,9 +130,6 @@ export class CachedChildResolver implements ChildCheckpointResolver {
     this.cache.set(entityId, sorted);
   }
 
-  /**
-   * Clear cached checkpoints for an entity
-   */
   clearCache(entityId?: string): void {
     if (entityId) {
       this.cache.delete(entityId);

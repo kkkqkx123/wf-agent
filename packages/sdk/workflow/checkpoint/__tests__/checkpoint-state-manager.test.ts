@@ -63,6 +63,10 @@ describe("CheckpointState", () => {
 
     mockEventManager = {
       emit: vi.fn().mockResolvedValue(undefined),
+      getEmitter: vi.fn().mockReturnValue({
+        beginBatch: vi.fn(),
+        endBatch: vi.fn().mockResolvedValue(undefined),
+      }),
     } as unknown as EventRegistry;
 
     checkpointState = new CheckpointState(mockStorageAdapter, mockEventManager);
@@ -187,7 +191,7 @@ describe("CheckpointState", () => {
 
       await instance.create(mockCheckpoint);
 
-      expect(executeCleanupSpy).toHaveBeenCalledWith(mockCheckpoint.executionId, "workflow");
+      expect(executeCleanupSpy).toHaveBeenCalledWith(mockCheckpoint.executionId, "workflow", "cp-1");
     });
   });
 

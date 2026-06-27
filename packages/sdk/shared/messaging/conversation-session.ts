@@ -317,6 +317,23 @@ export class ConversationSession extends MessageHistory implements StateManager<
   }
 
   /**
+   * Add token usage to cumulative statistics
+   * @param usage: Token usage to add
+   */
+  addTokenUsage(usage: TokenUsageStats): void {
+    const current = this.tokenUsageTracker.getCumulativeUsage();
+    if (current) {
+      this.tokenUsageTracker.setState({
+        promptTokens: current.promptTokens + usage.promptTokens,
+        completionTokens: current.completionTokens + usage.completionTokens,
+        totalTokens: current.totalTokens + usage.totalTokens,
+      });
+    } else {
+      this.tokenUsageTracker.setState(usage);
+    }
+  }
+
+  /**
    * Set the Token usage statistics status
    * Used for restoring the state from a checkpoint
    * @param cumulativeUsage: Cumulative Token usage statistics

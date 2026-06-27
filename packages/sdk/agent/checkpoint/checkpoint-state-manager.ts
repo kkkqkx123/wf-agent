@@ -38,7 +38,8 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
     storageAdapter: StorageAdapter,
     eventManager?: EventRegistry,
   ) {
-    super(storageAdapter, eventManager);
+    // Extract entityId from AgentLoopCheckpoint using the 'agentLoopId' field
+    super(storageAdapter, eventManager, undefined, undefined, (checkpoint) => checkpoint.agentLoopId || "unknown");
     if (!agentLoopId) {
       throw new Error("agentLoopId is required for AgentLoopCheckpointStateManager");
     }

@@ -142,7 +142,7 @@ function createDeps(storage: MemoryCheckpointStorage): CheckpointDependencies<Te
       return JSON.parse(new TextDecoder().decode(data)) as TestCheckpoint;
     },
     listCheckpoints: async (parentId: string): Promise<string[]> => {
-      const items = await storage.list({ entityId: parentId as string });
+      const items = await storage.list({ entityId: parentId as string, entityType: "workflow" });
       return items;
     },
     getCheckpoints: async (ids: string[]): Promise<Map<string, TestCheckpoint | null>> => {

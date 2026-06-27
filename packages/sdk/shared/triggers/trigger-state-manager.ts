@@ -112,19 +112,25 @@ export class TriggerStateManager {
 
   /**
    * Export state to persistent format
+   * Returns deep copies to prevent reference sharing issues
    */
   toJSON(): Record<string, TriggerState> {
     const result: Record<string, TriggerState> = {};
     for (const [triggerId, state] of this.state.entries()) {
-      result[triggerId] = state;
+      result[triggerId] = { ...state };
     }
     return result;
   }
 
   /**
    * Import state from persistent format
+   * Creates deep copies to prevent reference sharing issues
    */
   static fromJSON(data: Record<string, TriggerState>): TriggerStateManager {
-    return new TriggerStateManager(data);
+    const copiedData: Record<string, TriggerState> = {};
+    for (const [triggerId, state] of Object.entries(data)) {
+      copiedData[triggerId] = { ...state };
+    }
+    return new TriggerStateManager(copiedData);
   }
 }

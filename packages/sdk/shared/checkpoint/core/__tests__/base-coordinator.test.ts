@@ -171,9 +171,12 @@ describe("BaseCheckpointCoordinator", () => {
         customFields: { source: "unit-test" },
       };
 
-      const cpId = await coordinator.createCheckpoint(entity, mockDependencies, metadata);
+      const cpId = await coordinator.createCheckpoint(entity, mockDependencies, { metadata });
       const saved = savedCheckpoints.get(cpId)!;
-      expect(saved.metadata).toEqual(metadata);
+      expect(saved.metadata).toMatchObject(metadata);
+      expect(saved.metadata).toHaveProperty("checkpointType", "FULL");
+      expect(saved.metadata).toHaveProperty("chainPosition", 0);
+      expect(saved.metadata).toHaveProperty("isBaseline", true);
     });
 
     it("should return the checkpoint ID from saveCheckpoint", async () => {

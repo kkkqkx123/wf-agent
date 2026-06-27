@@ -63,9 +63,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
       }
 
       // Update state to reflect iterations
-      agentState.currentIteration = 3;
-      agentState.toolCallCount = 1;
-      agentState.status = AgentLoopStatus.RUNNING;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.RUNNING,
+        currentIteration: 3,
+        toolCallCount: 1,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
 
       // Create checkpoint snapshot
       const stateSnapshot = agentState.createSnapshot();
@@ -104,7 +109,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.CREATED,
+        currentIteration: 2,
+        toolCallCount: 0,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
       const checkpoint = agentState.createSnapshot();
 
       // ISSUE: No metadata to validate message-state consistency
@@ -264,7 +276,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 1;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.CREATED,
+        currentIteration: 1,
+        toolCallCount: 0,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
       const checkpoint1 = agentState.createSnapshot();
 
       // Checkpoint 2: Add 3 more messages (total 8)
@@ -278,7 +297,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.CREATED,
+        currentIteration: 2,
+        toolCallCount: 0,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
       const checkpoint2 = agentState.createSnapshot();
 
       // DESIGN REQUIREMENT: Checkpoint2 should support delta compression
@@ -309,7 +335,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         allMessages.push(msg);
       }
 
-      agentState.currentIteration = 1;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.CREATED,
+        currentIteration: 1,
+        toolCallCount: 0,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
       const ckpt1 = agentState.createSnapshot();
 
       // Round 2: 2 more messages
@@ -322,7 +355,14 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         allMessages.push(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.restoreFromSnapshot({
+        status: AgentLoopStatus.CREATED,
+        currentIteration: 2,
+        toolCallCount: 0,
+        startTime: null,
+        endTime: null,
+        error: undefined,
+      });
       const ckpt2 = agentState.createSnapshot();
 
       // DESIGN REQUIREMENT: Build checkpointChain with message validation

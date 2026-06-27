@@ -24,7 +24,7 @@ import type {
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
-import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
+import { BaseCheckpointCoordinator, type CheckpointCreationOptions } from "../../shared/checkpoint/core/base-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
 import { BaseDeltaRestorer } from "../../shared/checkpoint/core/base-delta-restorer.js";
 import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
@@ -165,8 +165,8 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
      * @param entity Agent Loop entity
      * @param dependencies dependencies
      * @param options checkpoint options
-     * @param context optional context (e.g., contentConfig)
-     *          Pass contentConfig via context to control what state to include in checkpoint
+     * @param context optional context (deprecated, use options instead)
+     *          Pass contentConfig via options to control what state to include in checkpoint
      * @returns checkpoint ID
      */
    override async createCheckpoint(
@@ -181,19 +181,25 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
        tags: options?.tags,
      });
 
-     // Build context with contentConfig from options or context parameter
-     const mergedContext: Record<string, unknown> = context ?? {};
+     // Build customContext with contentConfig from options
+     // Priority: options.contentConfig > context.contentConfig
+     const mergedCustomContext: Record<string, unknown> = context ?? {};
      const contentConfig = (context as { contentConfig?: AgentCheckpointContentConfig })?.contentConfig
        ?? options?.contentConfig;
      if (contentConfig) {
-       mergedContext['contentConfig'] = contentConfig;
+       mergedCustomContext['contentConfig'] = contentConfig;
      }
+
+     // Use new CheckpointCreationOptions for clearer dependency injection
+     const creationOptions: CheckpointCreationOptions = {
+       metadata: mergedMetadata,
+       customContext: mergedCustomContext,
+     };
 
      const checkpointId = await super.createCheckpoint(
        entity,
        dependencies,
-       mergedMetadata,
-       mergedContext,
+       creationOptions,
      );
 
     // Publish checkpoint state change event (Plan C)

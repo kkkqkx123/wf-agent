@@ -26,7 +26,8 @@ export class CheckpointState extends BaseCheckpointStateManager<Checkpoint> {
     storageAdapter: CheckpointStorageAdapter,
     eventManager?: EventRegistry,
   ) {
-    super(storageAdapter, eventManager);
+    // Extract entityId from Checkpoint using the 'executionId' field
+    super(storageAdapter, eventManager, undefined, undefined, (checkpoint) => checkpoint.executionId || "unknown");
   }
 
   /**

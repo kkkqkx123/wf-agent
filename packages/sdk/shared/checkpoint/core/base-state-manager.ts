@@ -2,7 +2,6 @@ import type {
   BaseCheckpoint,
   CleanupPolicy,
   CleanupResult,
-  CheckpointStorageRecord,
   CheckpointStorageMetadata,
   CheckpointInfo,
   BaseEvent,
@@ -11,14 +10,106 @@ import type { EventRegistry } from "../../registry/event-registry.js";
 import { StateCodec } from "@wf-agent/common-utils";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import type { DeltaMap } from "./base-diff-calculator.js";
-import { createCleanupStrategy } from "../utils/cleanup-policy.js";
-import { buildDependencyGraph, computeProtectedCheckpoints } from "../checkpoint-graph.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { CheckpointStorageAdapter } from "../types.js";
 import { CheckpointMetricsCollector } from "./metrics-collector.js";
 import type { CheckpointMetricsConfig } from "@wf-agent/types";
+import { createCleanupStrategy } from "../utils/cleanup-policy.js";
+import { buildDependencyGraph, computeProtectedCheckpoints } from "../checkpoint-graph.js";
 
 const logger = createContextualLogger({ component: "BaseCheckpointStateManager" });
+
+/**
+ * Interface to extract entity ID from checkpoint in a type-safe way
+ * Replaces unsafe 'as unknown as Record<string, string>' pattern
+ */
+export interface ICheckpointWithEntity {
+  /**
+   * Extract the entity ID from checkpoint
+   * Returns the identifier of the entity that owns this checkpoint
+   */
+  getEntityId(): string;
+}
+
+/**
+ * Function type for extracting entity ID from a checkpoint
+ * Provides abstraction over field names that vary by checkpoint type
+ *
+ * Examples:
+ * - Workflow checkpoints: extract 'executionId'
+ * - Agent checkpoints: extract 'agentLoopId'
+ */
+export type EntityIdExtractor<TCheckpoint> = (checkpoint: TCheckpoint) => string;
+
+/**
+ * Retry policy configuration for checkpoint operations
+ * Implements exponential backoff strategy
+ */
+export interface RetryPolicy {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries: number;
+  /** Initial delay in milliseconds (default: 100) */
+  initialDelayMs: number;
+  /** Maximum delay in milliseconds (default: 5000) */
+  maxDelayMs: number;
+  /** Backoff multiplier for exponential increase (default: 2) */
+  backoffMultiplier: number;
+  /** Whether to add jitter to delays (default: true) */
+  useJitter: boolean;
+}
+
+/**
+ * Restore operation options with timeout and fallback support
+ */
+export interface RestoreOptions {
+  /** Timeout in milliseconds for restore operation (default: 30000 = 30s) */
+  timeoutMs?: number;
+  /** Whether to skip corrupted checkpoints in delta chain (default: true) */
+  skipCorrupted?: boolean;
+  /** Maximum depth for delta chain traversal (default: 1000) */
+  maxChainDepth?: number;
+  /** Whether to fallback to nearest FULL checkpoint on error (default: true) */
+  allowFallback?: boolean;
+}
+
+const DEFAULT_RETRY_POLICY: RetryPolicy = {
+  maxRetries: 3,
+  initialDelayMs: 100,
+  maxDelayMs: 5000,
+  backoffMultiplier: 2,
+  useJitter: true,
+};
+
+export const DEFAULT_RESTORE_OPTIONS: RestoreOptions = {
+  timeoutMs: 30000,
+  skipCorrupted: true,
+  maxChainDepth: 1000,
+  allowFallback: true,
+};
+
+/**
+ * Utility function for exponential backoff with jitter
+ */
+function calculateBackoffDelay(
+  attempt: number,
+  policy: RetryPolicy,
+): number {
+  const exponentialDelay = Math.min(
+    policy.initialDelayMs * Math.pow(policy.backoffMultiplier, attempt),
+    policy.maxDelayMs,
+  );
+
+  if (!policy.useJitter) {
+    return exponentialDelay;
+  }
+
+  // Add random jitter: ±20% of the calculated delay
+  const jitterAmount = exponentialDelay * 0.2;
+  const jitter = (Math.random() - 0.5) * 2 * jitterAmount;
+  return Math.max(1, exponentialDelay + jitter);
+}
+
+
 
 export abstract class BaseCheckpointStateManager<
   TCheckpoint extends BaseCheckpoint<unknown, unknown>,
@@ -28,28 +119,81 @@ export abstract class BaseCheckpointStateManager<
   protected cleanupPolicy?: CleanupPolicy;
   protected codec: StateCodec;
   protected checkpointSizes: Map<string, number> = new Map();
+  protected extractEntityId: EntityIdExtractor<TCheckpoint>;
   private diffCalculator: BaseDiffCalculator = new BaseDiffCalculator();
   private metricsCollector?: CheckpointMetricsCollector;
-  private cleanupLocks = new Map<string, Promise<void>>();
+  private cleanupLocks = new Map<string, Promise<unknown>>();
 
   constructor(
     storageAdapter: CheckpointStorageAdapter,
     eventManager?: EventRegistry,
     cleanupPolicy?: CleanupPolicy,
     metricsConfig?: CheckpointMetricsConfig,
+    extractEntityId?: EntityIdExtractor<TCheckpoint>,
   ) {
     this.storageAdapter = storageAdapter;
     this.eventManager = eventManager;
     this.cleanupPolicy = cleanupPolicy;
     this.codec = new StateCodec();
+    this.extractEntityId = extractEntityId ?? this.defaultExtractEntityId.bind(this);
     if (metricsConfig?.enabled) {
       this.metricsCollector = new CheckpointMetricsCollector(metricsConfig, logger);
     }
   }
 
-  async create(checkpoint: TCheckpoint): Promise<string> {
+  /**
+   * Default entity ID extractor - tries common field names
+   * Subclasses should override extractEntityId in constructor if needed
+   */
+  protected defaultExtractEntityId(checkpoint: TCheckpoint): string {
+    const record = checkpoint as unknown as Record<string, unknown>;
+    // Try common field names in priority order
+    if (typeof record['executionId'] === 'string') {
+      return record['executionId'];
+    }
+    if (typeof record['agentLoopId'] === 'string') {
+      return record['agentLoopId'];
+    }
+    return "unknown";
+  }
+
+  async create(checkpoint: TCheckpoint, retryPolicy?: Partial<RetryPolicy>): Promise<string> {
+    const policy = { ...DEFAULT_RETRY_POLICY, ...retryPolicy };
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt < policy.maxRetries; attempt++) {
+      try {
+        return await this._doCreate(checkpoint);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (attempt === policy.maxRetries - 1) {
+          // Last attempt failed, throw error
+          throw lastError;
+        }
+
+        // Calculate backoff and retry
+        const delayMs = calculateBackoffDelay(attempt, policy);
+        logger.warn("Checkpoint creation failed, retrying", {
+          checkpointId: checkpoint.id,
+          attempt: attempt + 1,
+          maxRetries: policy.maxRetries,
+          nextRetryInMs: delayMs,
+          error: lastError.message,
+        });
+
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+
+    // This should never be reached, but for type safety
+    throw lastError || new Error("Checkpoint creation failed");
+  }
+
+  private async _doCreate(checkpoint: TCheckpoint): Promise<string> {
     const startTime = performance.now();
-    const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
+    const entityId = this.extractEntityId(checkpoint);
 
     try {
       logger.debug("Creating checkpoint", {
@@ -65,18 +209,8 @@ export abstract class BaseCheckpointStateManager<
 
       this.checkpointSizes.set(checkpoint.id, serializedData.length);
 
-      if (this.eventManager) {
-        const emitter = this.eventManager.getEmitter(
-          (checkpoint as unknown as Record<string, string>)['executionId'] || "unknown",
-        );
-        emitter.beginBatch();
-        try {
-          const createdEvent = this.buildCreatedEvent(checkpoint);
-          await this.eventManager.emit(createdEvent as BaseEvent);
-        } finally {
-          await emitter.endBatch();
-        }
-      }
+      // Fire event asynchronously without blocking
+      this.emitEventAsync(checkpoint, 'created');
 
       const duration = performance.now() - startTime;
 
@@ -117,12 +251,58 @@ export abstract class BaseCheckpointStateManager<
         error: errorMessage,
       });
 
-      if (this.eventManager) {
-        const failedEvent = this.buildFailedEvent(checkpoint.id, error, "create");
-        await this.eventManager.emit(failedEvent as BaseEvent);
-      }
+      // Fire error event asynchronously
+      this.emitErrorEventAsync(checkpoint.id, error, 'create');
 
       throw error;
+    }
+  }
+
+  /**
+   * Emit event asynchronously without blocking the main flow
+   */
+  private async emitEventAsync(checkpoint: TCheckpoint, eventType: 'created' | 'deleted'): Promise<void> {
+    if (!this.eventManager) return;
+
+    try {
+      const entityId = this.extractEntityId(checkpoint);
+      const emitter = this.eventManager.getEmitter(entityId);
+
+      emitter.beginBatch();
+      try {
+        const event = eventType === 'created'
+          ? this.buildCreatedEvent(checkpoint)
+          : this.buildDeletedEvent(checkpoint.id as string, 'manual');
+        await this.eventManager.emit(event as BaseEvent);
+      } finally {
+        await emitter.endBatch();
+      }
+    } catch (error) {
+      logger.warn(`Failed to emit ${eventType} event (non-critical)`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      // Don't throw, this is non-critical
+    }
+  }
+
+  /**
+   * Emit error event asynchronously
+   */
+  private async emitErrorEventAsync(
+    checkpointId: string,
+    error: unknown,
+    operation: 'create' | 'restore' | 'delete',
+  ): Promise<void> {
+    if (!this.eventManager) return;
+
+    try {
+      const failedEvent = this.buildFailedEvent(checkpointId, error, operation);
+      await this.eventManager.emit(failedEvent as BaseEvent);
+    } catch {
+      logger.warn("Failed to emit error event (non-critical)", {
+        checkpointId,
+        operation,
+      });
     }
   }
 
@@ -177,7 +357,7 @@ export abstract class BaseCheckpointStateManager<
       const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
       this.checkpointSizes.set(checkpointId, data.length);
 
-      const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
+      const entityId = this.extractEntityId(checkpoint);
 
       this.metricsCollector?.recordLoad({
         checkpointId,
@@ -281,24 +461,12 @@ export abstract class BaseCheckpointStateManager<
   }
 
   async executeCleanupForEntity(
-     entityId: string,
-     entityType: string,
-     excludeCheckpointId?: string,
-     policy?: CleanupPolicy,
-   ): Promise<CleanupResult> {
-     return this.withEntityLock(entityId, () =>
-       this._executeCleanupForEntityInternal(entityId, entityType, excludeCheckpointId, policy),
-     );
-   }
-
-  private async _executeCleanupForEntityInternal(
-     entityId: string,
-     entityType: string,
-     excludeCheckpointId?: string,
-     policy?: CleanupPolicy,
-   ): Promise<CleanupResult> {
-     const startTime = performance.now();
-     const targetPolicy = policy || this.cleanupPolicy;
+    entityId: string,
+    entityType: string,
+    excludeCheckpointId?: string,
+    policy?: CleanupPolicy,
+  ): Promise<CleanupResult> {
+    const targetPolicy = policy || this.cleanupPolicy;
 
     if (!targetPolicy) {
       return {
@@ -309,163 +477,178 @@ export abstract class BaseCheckpointStateManager<
       };
     }
 
-    logger.info("Executing cleanup policy for entity", {
-      entityId,
-      entityType,
-      policy: targetPolicy.type,
-      excludeCheckpointId,
-    });
+    return this.withEntityLock(entityId, async () => {
+      const startTime = performance.now();
+      const checkpoints = await this.storageAdapter.listByEntityWithMetadata(entityId, entityType);
+      const entityMeta = await this.storageAdapter.getEntityMetadata(entityType, entityId);
+      const lastWatermark = entityMeta?.['cleanupWatermark'] as number | undefined;
+      const cleanupRunCount = (entityMeta?.['cleanupRunCount'] as number) || 0;
 
-    let checkpointInfoArray = await this.storageAdapter.listByEntityWithMetadata(
-      entityId,
-      entityType,
-    );
+      // Step 1: Apply watermark filtering for incremental cleanup
+      const isFullScan = cleanupRunCount % 10 === 0;
+      let filteredCheckpoints = checkpoints;
 
-    const entityMeta = await this.storageAdapter.getEntityMetadata(entityType, entityId);
-    const lastWatermark = entityMeta?.['cleanupWatermark'] as number | undefined;
-    const cleanupRunCount = (entityMeta?.['cleanupRunCount'] as number) || 0;
-    const isFullScan = cleanupRunCount % 10 === 0;
-
-    if (lastWatermark !== undefined && !isFullScan) {
-      const beforeCount = checkpointInfoArray.length;
-      checkpointInfoArray = checkpointInfoArray.filter(
-        cp => cp.metadata.timestamp > lastWatermark || cp.id === excludeCheckpointId,
-      );
-      logger.debug("Incremental cleanup: filtered by watermark", {
-        entityId,
-        entityType,
-        beforeCount,
-        afterCount: checkpointInfoArray.length,
-        lastWatermark,
-      });
-    }
-
-    for (const info of checkpointInfoArray) {
-      const metadata = info.metadata as CheckpointStorageMetadata;
-      const size = metadata.blobSize ?? 0;
-      if (size > 0) {
-        this.checkpointSizes.set(info.id, size);
+      if (lastWatermark !== undefined && !isFullScan) {
+        const beforeCount = checkpoints.length;
+        filteredCheckpoints = checkpoints.filter(
+          cp => cp.metadata.timestamp > lastWatermark || cp.id === excludeCheckpointId,
+        );
+        logger.debug("Incremental cleanup filtered by watermark", {
+          entityId,
+          beforeCount,
+          afterCount: filteredCheckpoints.length,
+          watermark: lastWatermark,
+        });
+      } else {
+        logger.debug("Full scan cleanup", { entityId, entityType });
       }
-    }
 
-    const checkpointInfo: CheckpointInfo[] = checkpointInfoArray
-      .filter(info => info.id !== excludeCheckpointId)
-      .map(info => ({
-        checkpointId: info.id,
-        metadata: info.metadata as CheckpointStorageMetadata,
-      }));
+      // Step 2: Get deletion candidates from strategy
+      for (const info of filteredCheckpoints) {
+        const size = info.metadata.blobSize ?? 0;
+        if (size > 0) {
+          this.checkpointSizes.set(info.id, size);
+        }
+      }
 
-     const dependencyGraph = buildDependencyGraph(checkpointInfoArray);
+      const checkpointInfo: CheckpointInfo[] = filteredCheckpoints
+        .filter(info => info.id !== excludeCheckpointId)
+        .map(info => ({
+          checkpointId: info.id,
+          metadata: info.metadata,
+        }));
 
-     const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
-     const candidateDeleteIds = strategy.execute(checkpointInfo, dependencyGraph);
+      const dependencyGraph = buildDependencyGraph(
+        filteredCheckpoints.map(cp => ({ id: cp.id, metadata: cp.metadata }))
+      );
+      const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
+      let candidateDeleteIds = strategy.execute(checkpointInfo, dependencyGraph);
 
-     const candidateSet = new Set(candidateDeleteIds);
-     const protectedByDependency = computeProtectedCheckpoints(
-       candidateSet,
-       dependencyGraph,
-       new Set(checkpointInfoArray.map(c => c.id)),
-     );
+      logger.info("Strategy execution completed", {
+        entityId,
+        policy: targetPolicy.type,
+        candidates: candidateDeleteIds.length,
+      });
 
-     const filteredDeleteIds = candidateDeleteIds.filter(id => !protectedByDependency.has(id));
+      // Step 3: Apply dependency protection
+      if (candidateDeleteIds.length > 0) {
+        const candidateSet = new Set(candidateDeleteIds);
+        const protectedIds = computeProtectedCheckpoints(
+          candidateSet,
+          dependencyGraph,
+          new Set(filteredCheckpoints.map(c => c.id)),
+        );
+        candidateDeleteIds = candidateDeleteIds.filter(id => !protectedIds.has(id));
 
-     const sortedByTimestamp = [...checkpointInfoArray].sort(
-       (a, b) => b.metadata.timestamp - a.metadata.timestamp,
-     );
-     const latestCheckpointId = sortedByTimestamp[0]?.id;
-
-     let toDeleteIds = filteredDeleteIds;
-     if (latestCheckpointId && toDeleteIds.includes(latestCheckpointId)) {
-       toDeleteIds = toDeleteIds.filter(id => id !== latestCheckpointId);
-       logger.debug("Protected latest checkpoint from deletion", {
-         checkpointId: latestCheckpointId,
-       });
-     }
-
-     const referencedBySurvivors = new Map<string, string[]>();
-     const toDeleteSet = new Set(toDeleteIds);
-
-     for (const info of checkpointInfoArray) {
-       if (toDeleteSet.has(info.id)) continue;
-       const prevId = info.metadata.previousCheckpointId;
-       if (prevId && toDeleteSet.has(prevId)) {
-         const refs = referencedBySurvivors.get(prevId) || [];
-         refs.push(info.id);
-         referencedBySurvivors.set(prevId, refs);
-       }
-     }
-
-     for (const candidateId of [...toDeleteIds]) {
-       if (referencedBySurvivors.has(candidateId)) {
-         toDeleteIds = toDeleteIds.filter(id => id !== candidateId);
-         logger.debug("Protected checkpoint referenced by surviving delta", {
-           checkpointId: candidateId,
-           referencedBy: referencedBySurvivors.get(candidateId),
-         });
-       }
-     }
-
-     logger.info("Cleanup protection applied", {
-       originalCandidates: candidateDeleteIds.length,
-       finalDeletions: toDeleteIds.length,
-       protectedCount: candidateDeleteIds.length - toDeleteIds.length,
-     });
-
-    let freedSpaceBytes = 0;
-    for (const checkpointId of toDeleteIds) {
-      try {
-        const size = this.checkpointSizes.get(checkpointId) || 0;
-        await this.storageAdapter.delete(checkpointId);
-        this.checkpointSizes.delete(checkpointId);
-        freedSpaceBytes += size;
-      } catch (error) {
-        logger.warn("Failed to delete checkpoint during cleanup", {
-          checkpointId,
-          error: error instanceof Error ? error.message : String(error),
+        logger.debug("Dependency protection applied", {
+          entityId,
+          original: candidateSet.size,
+          protected: protectedIds.size,
+          remaining: candidateDeleteIds.length,
         });
       }
-    }
 
-    const remainingCount = checkpointInfoArray.length - toDeleteIds.length;
+      // Step 4: Protect latest checkpoint
+      if (candidateDeleteIds.length > 0) {
+        const sortedByTimestamp = [...filteredCheckpoints].sort(
+          (a, b) => b.metadata.timestamp - a.metadata.timestamp,
+        );
+        const latestCheckpointId = sortedByTimestamp[0]?.id;
 
-    logger.info("Entity cleanup completed", {
-      entityId,
-      entityType,
-      deletedCount: toDeleteIds.length,
-      freedSpaceBytes,
-      remainingCount,
+        if (latestCheckpointId && candidateDeleteIds.includes(latestCheckpointId)) {
+          candidateDeleteIds = candidateDeleteIds.filter(id => id !== latestCheckpointId);
+          logger.debug("Latest checkpoint protected", { entityId, checkpointId: latestCheckpointId });
+        }
+      }
+
+      // Step 5: Protect checkpoints referenced by survivors
+      if (candidateDeleteIds.length > 0) {
+        const toDeleteSet = new Set(candidateDeleteIds);
+        const referencedBySurvivors = new Map<string, string[]>();
+
+        for (const info of filteredCheckpoints) {
+          if (toDeleteSet.has(info.id)) continue;
+          const prevId = info.metadata.previousCheckpointId;
+          if (prevId && toDeleteSet.has(prevId)) {
+            const refs = referencedBySurvivors.get(prevId) || [];
+            refs.push(info.id);
+            referencedBySurvivors.set(prevId, refs);
+          }
+        }
+
+        const finalDeleteIds = candidateDeleteIds.filter(id => !referencedBySurvivors.has(id));
+
+        if (referencedBySurvivors.size > 0) {
+          logger.debug("Survivor reference protection applied", {
+            entityId,
+            protectedCount: candidateDeleteIds.length - finalDeleteIds.length,
+            protectedIds: [...referencedBySurvivors.keys()],
+          });
+        }
+
+        candidateDeleteIds = finalDeleteIds;
+      }
+
+      logger.info("Cleanup protection complete", {
+        entityId,
+        finalDeletions: candidateDeleteIds.length,
+      });
+
+      // Step 6: Execute deletions
+      if (candidateDeleteIds.length === 0) {
+        return {
+          deletedCheckpointIds: [],
+          deletedCount: 0,
+          freedSpaceBytes: 0,
+          remainingCount: checkpoints.length,
+        };
+      }
+
+      let freedSpaceBytes = 0;
+      const deletedIds: string[] = [];
+
+      for (const checkpointId of candidateDeleteIds) {
+        try {
+          const size = this.checkpointSizes.get(checkpointId) || 0;
+          await this.storageAdapter.delete(checkpointId);
+          this.checkpointSizes.delete(checkpointId);
+          freedSpaceBytes += size;
+          deletedIds.push(checkpointId);
+        } catch (error) {
+          logger.warn("Failed to delete checkpoint", {
+            checkpointId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      // Update watermark
+      const remainingCheckpoints = checkpoints.filter(cp => !deletedIds.includes(cp.id));
+      if (remainingCheckpoints.length > 0) {
+        const maxTimestamp = Math.max(...remainingCheckpoints.map(cp => cp.metadata.timestamp));
+        await this.storageAdapter.setEntityMetadata(entityType, entityId, {
+          cleanupWatermark: maxTimestamp,
+          cleanupRunCount: cleanupRunCount + 1,
+        });
+      }
+
+      const duration = performance.now() - startTime;
+      logger.info("Entity cleanup completed", {
+        entityId,
+        entityType,
+        deletedCount: deletedIds.length,
+        freedSpaceBytes,
+        remainingCount: remainingCheckpoints.length,
+        duration: `${duration.toFixed(2)}ms`,
+      });
+
+      return {
+        deletedCheckpointIds: deletedIds,
+        deletedCount: deletedIds.length,
+        freedSpaceBytes,
+        remainingCount: remainingCheckpoints.length,
+      };
     });
-
-     const remainingCheckpoints = checkpointInfoArray.filter(
-       cp => !toDeleteIds.includes(cp.id),
-     );
-     if (remainingCheckpoints.length > 0) {
-       const maxTimestamp = Math.max(
-         ...remainingCheckpoints.map(cp => cp.metadata.timestamp),
-       );
-       await this.storageAdapter.setEntityMetadata(entityType, entityId, {
-         cleanupWatermark: maxTimestamp,
-         cleanupRunCount: cleanupRunCount + 1,
-       });
-     }
-
-    const duration = performance.now() - startTime;
-
-    this.metricsCollector?.recordCleanup({
-      entityId,
-      count: toDeleteIds.length,
-      sizeFreed: freedSpaceBytes,
-      duration,
-      timestamp: Date.now(),
-      success: true,
-    });
-
-    return {
-      deletedCheckpointIds: toDeleteIds,
-      deletedCount: toDeleteIds.length,
-      freedSpaceBytes,
-      remainingCount,
-    };
   }
 
   async compactDeltaChain(
@@ -624,7 +807,7 @@ export abstract class BaseCheckpointStateManager<
     await this.storageAdapter.close();
   }
 
-  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageRecord;
+  protected abstract extractStorageMetadata(checkpoint: TCheckpoint): CheckpointStorageMetadata;
 
   protected abstract buildCreatedEvent(checkpoint: TCheckpoint): unknown;
 
@@ -645,33 +828,50 @@ export abstract class BaseCheckpointStateManager<
    ): Promise<T> {
      const previousLock = this.cleanupLocks.get(entityId) ?? Promise.resolve();
 
-     const currentLock = previousLock.then(
-       () => operation(),
-       () => operation(),
-     );
+     /**
+      * Sequential locking: ensure operations execute one by one.
+      * CRITICAL FIX: Preserve rejection state from previous lock.
+      *
+      * Original buggy code:
+      *   const currentLock = previousLock.then(
+      *     () => operation(),
+      *     () => operation(),  // ← BUG: executes even if previous failed!
+      *   );
+      *   cleanupLocks.set(entityId, currentLock.then(
+      *     () => undefined,
+      *     () => undefined,    // ← BUG: converts rejection to success!
+      *   ));
+      *
+      * This allowed operations to execute in parallel and convert failures to success.
+      * Proper sequential lock should:
+      * 1. Execute operation only after previous completes (fail or success)
+      * 2. Stop execution chain if previous failed
+      * 3. Preserve rejection state for next operation
+      */
+     const currentLock = previousLock.then(() => operation());
 
-     this.cleanupLocks.set(
-       entityId,
-       currentLock.then(
-         () => undefined,
-         () => undefined,
-       ),
-     );
+     // CRITICAL: Store the actual currentLock, not a converted version
+     // This preserves the rejection state for sequential execution
+     this.cleanupLocks.set(entityId, currentLock);
 
      try {
        return await currentLock;
      } finally {
        const storedLock = this.cleanupLocks.get(entityId);
        if (storedLock) {
-         storedLock.then(() => {
-           if (this.cleanupLocks.get(entityId) === storedLock) {
-             this.cleanupLocks.delete(entityId);
+         // Clean up the lock after this operation completes (regardless of success/failure)
+         storedLock.then(
+           () => {
+             if (this.cleanupLocks.get(entityId) === storedLock) {
+               this.cleanupLocks.delete(entityId);
+             }
+           },
+           () => {
+             if (this.cleanupLocks.get(entityId) === storedLock) {
+               this.cleanupLocks.delete(entityId);
+             }
            }
-         }).catch(() => {
-           if (this.cleanupLocks.get(entityId) === storedLock) {
-             this.cleanupLocks.delete(entityId);
-           }
-         });
+         );
        }
      }
    }

@@ -46,7 +46,7 @@ import { ExecutionState } from "../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
 import { BaseDeltaRestorer } from "../../shared/checkpoint/core/base-delta-restorer.js";
 import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-builder.js";
-import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
+import { BaseCheckpointCoordinator, type CheckpointCreationOptions } from "../../shared/checkpoint/core/base-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
 import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution-hierarchy-registry.js";
 import type { AnyExecutionEntity } from "../../shared/registry/execution-hierarchy-registry.js";
@@ -188,11 +188,16 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
     const metadata = this.buildMetadata(options);
 
+    // Use new CheckpointCreationOptions for clearer dependency injection
+    const creationOptions: CheckpointCreationOptions = {
+      metadata,
+      customContext: { conversationManager: resolvedConversationManager },
+    };
+
     const checkpointId = await super.createCheckpoint(
       entity,
       this.toBaseDeps(dependencies),
-      metadata,
-      { conversationManager: resolvedConversationManager },
+      creationOptions,
     );
 
     // Publish checkpoint state change event (Plan C)

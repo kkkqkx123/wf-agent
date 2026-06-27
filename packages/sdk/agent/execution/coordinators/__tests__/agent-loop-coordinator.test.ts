@@ -81,6 +81,15 @@ describe("AgentLoopCoordinator", () => {
         cancel: vi.fn(),
         recordToolCallStart: vi.fn(),
         recordToolCallEnd: vi.fn(),
+        addErrorRecord: vi.fn(),
+        createSnapshot: vi.fn().mockReturnValue({
+          status: AgentLoopStatus.CREATED,
+          currentIteration: 0,
+          toolCallCount: 0,
+          startTime: Date.now(),
+          endTime: null,
+          error: undefined,
+        }),
       },
       conversationManager: {
         getMessageCount: vi.fn().mockReturnValue(0),
@@ -96,6 +105,8 @@ describe("AgentLoopCoordinator", () => {
       interrupt: vi.fn(),
       resetInterrupt: vi.fn(),
       cleanup: vi.fn(),
+      exportTriggerState: vi.fn().mockReturnValue({}),
+      getHierarchyMetadata: vi.fn().mockReturnValue(null),
     };
 
     const mockStateCoordinator = {
@@ -159,6 +170,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const result = await coordinator.execute(defaultConfig);
@@ -186,6 +198,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await coordinator.execute(defaultConfig);
@@ -252,7 +265,7 @@ describe("AgentLoopCoordinator", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
-      expect(mockMetricsCollector.recordError).toHaveBeenCalled();
+      expect(mockMetricsCollector.recordExecutionComplete).toHaveBeenCalled();
     });
 
     it("should establish interruption cascade when parentExecutionId is provided", async () => {
@@ -267,6 +280,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const interruptionManager = {
@@ -298,6 +312,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await coordinator.execute(defaultConfig);
@@ -331,6 +346,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const events: AgentLoopStreamEvent[] = [];
@@ -363,6 +379,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const events: AgentLoopStreamEvent[] = [];
@@ -394,6 +411,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const events: AgentLoopStreamEvent[] = [];
@@ -420,6 +438,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(async () => {
@@ -444,6 +463,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const id = await coordinator.start(defaultConfig);
@@ -463,6 +483,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await coordinator.pause("agent-loop-1");
@@ -478,6 +499,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.pause("nonexistent")).rejects.toThrow("AgentLoop not found");
@@ -491,6 +513,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.pause("agent-loop-1")).rejects.toThrow("AgentLoop is not running");
@@ -530,6 +553,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.resume("nonexistent")).rejects.toThrow("AgentLoop not found");
@@ -543,6 +567,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.resume("agent-loop-1")).rejects.toThrow("AgentLoop is not paused");
@@ -569,6 +594,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const result = await coordinator.continue("agent-loop-1");
@@ -585,6 +611,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.continue("agent-loop-1")).rejects.toThrow(
@@ -609,6 +636,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.continue("agent-loop-1")).rejects.toThrow(
@@ -631,6 +659,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.continue("agent-loop-1")).rejects.toThrow(
@@ -646,6 +675,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.continue("nonexistent")).rejects.toThrow("AgentLoop not found");
@@ -659,6 +689,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await coordinator.stop("agent-loop-1");
@@ -677,6 +708,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       await expect(coordinator.stop("nonexistent")).rejects.toThrow("AgentLoop not found");
@@ -690,6 +722,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const result = await coordinator.get("agent-loop-1");
@@ -703,6 +736,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const status = await coordinator.getStatus("agent-loop-1");
@@ -718,6 +752,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const status = await coordinator.getStatus("nonexistent");
@@ -733,6 +768,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const result = coordinator.getRunning();
@@ -748,6 +784,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const result = coordinator.getPaused();
@@ -764,6 +801,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       const count = coordinator.cleanup();
@@ -778,6 +816,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       coordinator.destroy();
@@ -792,6 +831,7 @@ describe("AgentLoopCoordinator", () => {
         mockExecutor,
         mockGlobalContext,
         mockEventManager,
+        mockMetricsCollector,
       );
 
       // Access private method via any cast

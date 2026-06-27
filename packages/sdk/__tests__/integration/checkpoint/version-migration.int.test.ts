@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { CheckpointVersionManager } from "@sdk/shared/checkpoint/checkpoint-version-manager.js";
+import { CheckpointVersionManager } from "@sdk/shared/checkpoint/checkpoint-version-manager";
 import type {
   CheckpointFormatVersion,
   VersionCompatibility,

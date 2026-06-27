@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { CheckpointMetricsCollector } from "@sdk/shared/checkpoint/core/metrics-collector.js";
+import { CheckpointMetricsCollector } from "@sdk/shared/checkpoint/core/metrics-collector";
 import type {
   CheckpointMetricsConfig,
   CheckpointMetricsEvent,

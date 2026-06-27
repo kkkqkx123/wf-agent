@@ -33,6 +33,7 @@ export default defineConfig({
       },
     },
   },
+  // 解析配置
   resolve: {
     alias: {
       "@": resolve(__dirname, "."),
@@ -53,14 +54,40 @@ export default defineConfig({
       "@sdk/agent/(.*)": resolve(__dirname, "agent/$1"),
       "@sdk/api": resolve(__dirname, "api"),
       "@sdk/api/(.*)": resolve(__dirname, "api/$1"),
+      "@sdk/metrics": resolve(__dirname, "metrics"),
+      "@sdk/metrics/(.*)": resolve(__dirname, "metrics/$1"),
+      "@sdk/di": resolve(__dirname, "di"),
+      "@sdk/di/(.*)": resolve(__dirname, "di/$1"),
+      "@sdk/resources": resolve(__dirname, "resources"),
+      "@sdk/resources/(.*)": resolve(__dirname, "resources/$1"),
       "@wf-agent/types": resolve(__dirname, "../types/src"),
       "@wf-agent/types/(.*)": resolve(__dirname, "../types/src/$1"),
-      "@wf-agent/storage": resolve(__dirname, "../storage/src"),
-      "@wf-agent/storage/(.*)": resolve(__dirname, "../storage/src/$1"),
       "@wf-agent/common-utils": resolve(__dirname, "../common-utils/src"),
+      "@wf-agent/common-utils/id-utils": resolve(
+        __dirname,
+        "../common-utils/src/utils/id-utils",
+      ),
+      "@wf-agent/common-utils/timestamp-utils": resolve(
+        __dirname,
+        "../common-utils/src/utils/timestamp-utils",
+      ),
+      "@wf-agent/common-utils/result-utils": resolve(
+        __dirname,
+        "../common-utils/src/utils/result-utils",
+      ),
+      "@wf-agent/common-utils/token-encoder": resolve(
+        __dirname,
+        "../common-utils/src/utils/token-encoder",
+      ),
+      "@wf-agent/common-utils/cache": resolve(
+        __dirname,
+        "../common-utils/src/utils/cache",
+      ),
       "@wf-agent/common-utils/(.*)": resolve(__dirname, "../common-utils/src/$1"),
       "@wf-agent/tool-executors": resolve(__dirname, "../tool-executors/src"),
       "@wf-agent/tool-executors/(.*)": resolve(__dirname, "../tool-executors/src/$1"),
+      "@wf-agent/storage": resolve(__dirname, "../storage/src"),
+      "@wf-agent/storage/(.*)": resolve(__dirname, "../storage/src/$1"),
     },
   },
 });

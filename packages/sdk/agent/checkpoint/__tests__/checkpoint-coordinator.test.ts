@@ -30,19 +30,36 @@ describe("AgentLoopCheckpointCoordinator", () => {
   });
 
   const createMockEntity = (overrides?: Partial<AgentLoopEntity>): AgentLoopEntity => {
+    const defaultState = {
+      status: AgentLoopStatus.RUNNING,
+      currentIteration: 1,
+      toolCallCount: 0,
+      startTime: Date.now(),
+      endTime: null,
+      error: undefined,
+    };
+
+    const { state: overrideState, ...otherOverrides } = overrides || {};
+    const mergedState = { ...defaultState, ...(overrideState || {}) };
+
+    mergedState.createSnapshot = vi.fn().mockReturnValue({
+      status: mergedState.status,
+      currentIteration: mergedState.currentIteration,
+      toolCallCount: mergedState.toolCallCount,
+      startTime: mergedState.startTime,
+      endTime: mergedState.endTime,
+      error: mergedState.error,
+    });
+    mergedState.addErrorRecord = vi.fn();
+
     const entity = {
       id: "agent-1",
-      state: {
-        status: AgentLoopStatus.RUNNING,
-        currentIteration: 1,
-        toolCallCount: 0,
-        startTime: Date.now(),
-        endTime: null,
-        error: undefined,
-      },
+      state: mergedState,
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
-      ...overrides,
+      exportTriggerState: vi.fn().mockReturnValue({}),
+      getHierarchyMetadata: vi.fn().mockReturnValue(null),
+      ...otherOverrides,
     } as unknown as AgentLoopEntity;
     return entity;
   };

@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createSDK } from "@/api/index.js";
-import type { SDKInstance } from "@/api/index.js";
+import { createSDK } from "@/api/index";
+import type { SDKInstance } from "@/api/index";
 import {
   MemoryCheckpointStorage,
   MemoryWorkflowStorage,

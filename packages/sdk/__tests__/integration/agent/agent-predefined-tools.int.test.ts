@@ -18,8 +18,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createPredefinedToolsFixture,
   createAgentConfigWithTools,
-} from "./__shared/predefined-tools-fixtures.js";
-import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
+} from "./__shared/predefined-tools-fixtures";
+import type { FullAgentLoopTestFixture } from "./__shared/fixtures";
 import type { AgentLoopResult, ToolCallRecord } from "@wf-agent/types";
 
 // =============================================================================

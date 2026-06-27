@@ -21,8 +21,8 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import type { BaseTriggerDefinition } from "@sdk/shared/triggers/types.js";
-import { TriggerStateManager } from "@sdk/shared/triggers/trigger-state-manager.js";
+import type { BaseTriggerDefinition } from "@sdk/shared/triggers/types";
+import { TriggerStateManager } from "@sdk/shared/triggers/trigger-state-manager";
 
 describe("Integration: Trigger State Persistence Across Checkpoint", () => {
   let triggerStateManager: TriggerStateManager;

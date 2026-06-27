@@ -7,9 +7,9 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { MemoryCheckpointStorage } from "@wf-agent/storage";
-import { BaseCheckpointCoordinator } from "@sdk/shared/checkpoint/core/base-coordinator.js";
-import { BaseDiffCalculator } from "@sdk/shared/checkpoint/core/base-diff-calculator.js";
-import type { CheckpointableEntity, CheckpointDependencies } from "@sdk/shared/checkpoint/types.js";
+import { BaseCheckpointCoordinator } from "@sdk/shared/checkpoint/core/base-coordinator";
+import { BaseDiffCalculator } from "@sdk/shared/checkpoint/core/base-diff-calculator";
+import type { CheckpointableEntity, CheckpointDependencies } from "@sdk/shared/checkpoint/types";
 
 import type {
   BaseCheckpoint,

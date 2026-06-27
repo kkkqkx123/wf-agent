@@ -7,8 +7,8 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { MemoryCheckpointStorage } from "@wf-agent/storage";
-import { BaseCheckpointStateManager } from "@sdk/shared/checkpoint/core/base-state-manager.js";
-import type { CheckpointStorageAdapter } from "@sdk/shared/checkpoint/types.js";
+import { BaseCheckpointStateManager } from "@sdk/shared/checkpoint/core/base-state-manager";
+import type { CheckpointStorageAdapter } from "@sdk/shared/checkpoint/types";
 import type {
   BaseCheckpoint,
   CheckpointStorageMetadata,

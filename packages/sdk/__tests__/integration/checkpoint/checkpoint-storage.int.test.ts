@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createCheckpointFixture } from "./__shared/fixtures.js";
-import type { CheckpointTestFixture } from "./__shared/fixtures.js";
+import { createCheckpointFixture } from "./__shared/fixtures";
+import type { CheckpointTestFixture } from "./__shared/fixtures";
 
 describe("Checkpoint Storage Integration", () => {
   let fixture: CheckpointTestFixture;

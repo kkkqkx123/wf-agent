@@ -10,10 +10,10 @@
  * the actual tool handler executes against the real filesystem.
  */
 
-import { createPredefinedTools } from "@/resources/predefined/tools/registry.js";
-import { toSdkTool } from "@sdk/services/tools/utils.js";
+import { createPredefinedTools } from "@/resources/predefined/tools/registry";
+import { toSdkTool } from "@sdk/services/tools/utils";
 import type { Tool } from "@wf-agent/types";
-import type { PredefinedToolsOptions } from "@/resources/predefined/tools/types.js";
+import type { PredefinedToolsOptions } from "@/resources/predefined/tools/types";
 import {
   createFullAgentLoopFixture,
   createBasicAgentConfig,

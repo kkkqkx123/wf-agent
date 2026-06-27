@@ -13,8 +13,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures.js";
-import type { FullAgentLoopTestFixture } from "./__shared/fixtures.js";
+import { createFullAgentLoopFixture, createBasicAgentConfig } from "./__shared/fixtures";
+import type { FullAgentLoopTestFixture } from "./__shared/fixtures";
 
 describe("Agent Loop Storage Integration", () => {
   let fixture: FullAgentLoopTestFixture;

@@ -23,8 +23,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { LLMMessage, AgentLoopStateSnapshot } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
-import { ConversationSession } from "@sdk/shared/messaging/conversation-session.js";
-import { AgentLoopState } from "@sdk/agent/state-managers/agent-loop-state.js";
+import { ConversationSession } from "@sdk/shared/messaging/conversation-session";
+import { AgentLoopState } from "@sdk/agent/state-managers/agent-loop-state";
 
 describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
   let conversationSession: ConversationSession;

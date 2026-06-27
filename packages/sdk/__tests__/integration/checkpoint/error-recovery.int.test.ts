@@ -17,9 +17,9 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { MemoryCheckpointStorage } from "@wf-agent/storage";
-import { BaseCheckpointCoordinator } from "@sdk/shared/checkpoint/core/base-coordinator.js";
-import { BaseCheckpointStateManager } from "@sdk/shared/checkpoint/core/base-state-manager.js";
-import type { CheckpointableEntity, CheckpointDependencies, RetryPolicy } from "@sdk/shared/checkpoint/types.js";
+import { BaseCheckpointCoordinator } from "@sdk/shared/checkpoint/core/base-coordinator";
+import { BaseCheckpointStateManager } from "@sdk/shared/checkpoint/core/base-state-manager";
+import type { CheckpointableEntity, CheckpointDependencies, RetryPolicy } from "@sdk/shared/checkpoint/types";
 import type { BaseCheckpoint, CheckpointStorageMetadata } from "@wf-agent/types";
 
 interface TestState {

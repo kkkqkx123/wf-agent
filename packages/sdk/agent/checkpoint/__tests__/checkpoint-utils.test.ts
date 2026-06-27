@@ -30,9 +30,20 @@ describe("AgentLoopCheckpointCoordinator", () => {
         startTime: Date.now(),
         endTime: null,
         error: undefined,
+        createSnapshot: vi.fn().mockReturnValue({
+          status: AgentLoopStatus.RUNNING,
+          currentIteration: 1,
+          toolCallCount: 0,
+          startTime: Date.now(),
+          endTime: null,
+          error: undefined,
+        }),
+        addErrorRecord: vi.fn(),
       },
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
+      exportTriggerState: vi.fn().mockReturnValue({}),
+      getHierarchyMetadata: vi.fn().mockReturnValue(null),
     } as unknown as AgentLoopEntity;
   });
 
@@ -92,7 +103,10 @@ describe("AgentLoopCheckpointCoordinator", () => {
       await coordinator.createCheckpoint(mockEntity, dependencies);
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
-      expect(savedCheckpoint.metadata).toBeUndefined();
+      // Metadata is always present with checkpoint type, chain position, and config
+      expect(savedCheckpoint.metadata).toBeDefined();
+      expect(savedCheckpoint.metadata?.checkpointType).toBe("FULL");
+      expect(savedCheckpoint.metadata?.isBaseline).toBe(true);
     });
   });
 

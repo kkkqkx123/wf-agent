@@ -19,7 +19,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { MemoryCheckpointStorage } from "@wf-agent/storage";
-import { BaseCheckpointStateManager, type EntityIdExtractor } from "@sdk/shared/checkpoint/core/base-state-manager.js";
+import { BaseCheckpointStateManager, type EntityIdExtractor } from "@sdk/shared/checkpoint/core/base-state-manager";
 import type { CheckpointStorageMetadata } from "@wf-agent/types";
 import type { BaseCheckpoint } from "@wf-agent/types";
 

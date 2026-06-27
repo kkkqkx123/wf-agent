@@ -643,13 +643,15 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
         timestamp,
         type: "FULL",
         snapshot: currentState,
-        metadata: {
-          ...metadata,
-          customFields: {
-            ...(metadata?.customFields || {}),
-            chainPosition: 0,
-          },
-        },
+        metadata: metadata
+          ? {
+              ...metadata,
+              customFields: {
+                ...(metadata?.customFields || {}),
+                chainPosition: 0,
+              },
+            }
+          : undefined,
       };
     }
 

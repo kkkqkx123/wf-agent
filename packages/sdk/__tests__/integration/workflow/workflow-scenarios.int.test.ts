@@ -17,8 +17,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createSDK, ExecutionBuilder, WorkflowValidatorAPI } from "@/api/index.js";
-import type { SDKInstance } from "@/api/index.js";
+import { createSDK, ExecutionBuilder, WorkflowValidatorAPI } from "@/api/index";
+import type { SDKInstance } from "@/api/index";
 import type { WorkflowTemplate, StaticNode } from "@wf-agent/types";
 import {
   MemoryCheckpointStorage,

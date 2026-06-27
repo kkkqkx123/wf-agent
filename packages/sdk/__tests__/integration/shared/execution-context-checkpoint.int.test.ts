@@ -21,8 +21,8 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import type { BaseHookContext, BaseHookDefinition } from "@sdk/shared/hooks/types.js";
-import { evaluateHookCondition } from "@sdk/shared/hooks/executor.js";
+import type { BaseHookContext, BaseHookDefinition } from "@sdk/shared/hooks/types";
+import { evaluateHookCondition } from "@sdk/shared/hooks/executor";
 
 describe("Integration: ExecutionContext Persistence in Checkpoint", () => {
   beforeEach(() => {

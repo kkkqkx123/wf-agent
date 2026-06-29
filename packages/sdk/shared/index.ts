@@ -1,41 +1,21 @@
 /**
  * Shared Module Exports
- * Contains execution instance shared utilities and types
+ *
+ * ARCHITECTURE NOTE: This module exports only components defined directly in the shared directory.
+ * Submodules (persistence, checkpoint, etc.) are NOT re-exported here to maintain clear dependency graphs.
+ *
+ * Import directly from submodules:
+ *   - import { Component } from "@wf-agent/sdk/shared/persistence/core"
+ *   - import { Component } from "@wf-agent/sdk/shared/checkpoint"
+ *   - import { Component } from "@wf-agent/sdk/shared/coordinators"
+ *
+ * This approach:
+ * ✓ Makes dependencies explicit
+ * ✓ Enables better tree-shaking
+ * ✓ Prevents circular dependency issues
+ * ✓ Clarifies what is public API vs internal
  */
 
-// Global context
+// Only export components defined directly in this directory
 export * from "./global-context.js";
 
-// Checkpoint - Universal state persistence
-export * from "./checkpoint/index.js";
-
-// Coordinators - Execution instance coordination
-export * from "./coordinators/index.js";
-
-// Execution - Execution management
-export * from "./execution/index.js";
-
-// Hooks - Hook execution system
-export * from "./hooks/index.js";
-
-// Messaging - Message and conversation management
-export * from "./messaging/index.js";
-export * from "./messaging/prompt/index.js";
-
-// Registry - Entity registration and discovery
-export * from "./registry/index.js";
-
-// State Managers - State management
-export * from "./state-managers/index.js";
-
-// Triggers - Trigger processing
-export * from "./triggers/index.js";
-
-// Types - Type definitions
-export * from "./types/index.js";
-
-// Utils - Shared utilities
-export * from "./utils/index.js";
-
-// Validation - Schema and runtime validation
-export * from "./validation/index.js";

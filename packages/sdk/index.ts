@@ -1,28 +1,21 @@
 /**
  * Modular Agent SDK - Main Entry Point
  *
- * This is the main entry point for the SDK.
+ * This is the main entry point for the SDK. Only exports the core SDK instance.
+ * All other components must be imported directly from their respective modules.
  *
- * Usage patterns:
+ * Usage:
  *
- * 1. Import from specific submodules (recommended):
- *    import { EventRegistry } from "@wf-agent/sdk/shared";
- *    import { AgentLoopExecutor } from "@wf-agent/sdk/agent";
- *    import { GracefulShutdownManager } from "@wf-agent/sdk/services";
- *
- * 2. Import from main entry (limited exports to avoid conflicts):
+ * Core SDK:
  *    import { SDKInstance, createSDK } from "@wf-agent/sdk";
+ *
+ * Import from specific modules (do NOT go through this entry point):
+ *    import { BasePersistentRegistry } from "@wf-agent/sdk/shared/persistence/core";
+ *    import { WorkflowExecutionRegistry } from "@wf-agent/sdk/workflow/stores";
+ *    import { AgentLoopExecutor } from "@wf-agent/sdk/agent";
  */
 
 // Main SDK instance and factory (primary exports)
 export { SDKInstance } from "./api/index.js";
 export { createSDK } from "./api/shared/core/sdk.js";
 
-// Re-export module namespaces for organized access
-export * as api from "./api/index.js";
-export * as core from "./shared/index.js";
-export * as services from "./services/index.js";
-export * as agent from "./agent/index.js";
-export * as workflow from "./workflow/index.js";
-export * as utils from "./utils/index.js";
-export * as resources from "./resources/index.js";

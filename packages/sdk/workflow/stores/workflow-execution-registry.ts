@@ -1,63 +1,52 @@
 /**
- * WorkflowExecutionRegistry - WorkflowExecutionEntity Registry
- * Responsible for the memory storage and basic querying of WorkflowExecutionEntity objects.
- * It does not handle state transitions, persistence, or serialization.
+ * WorkflowExecutionRegistry - Workflow Execution Entity Registry
  *
- * This module only exports class definitions; no instances are exported.
- * Instances are managed uniformly through the SingletonRegistry.
+ * Manages active WorkflowExecutionEntity instances using unified persistence framework.
+ *
+ * Responsibilities:
+ * - Manage active WorkflowExecutionEntity instances
+ * - Manage WorkflowStateCoordinator instances
+ * - Provide CRUD operations and queries
+ * - Support persistence with BLOCKING/ASYNC strategies
+ * - Track consistency between memory and storage
+ *
+ * This implementation uses BasePersistentRegistry for unified persistence support,
+ * providing:
+ * - Event notifications for all persistence operations
+ * - Configurable persistence strategies (BLOCKING/ASYNC)
+ * - Data consistency verification
+ * - Automatic failure tracking
  */
 
 import { WorkflowExecutionEntity } from "../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionStatus } from "@wf-agent/types";
 import type { WorkflowExecutionStorageAdapter } from "@wf-agent/storage";
 import type { WorkflowExecutionStorageMetadata } from "@wf-agent/types";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { getErrorMessage } from "@wf-agent/common-utils";
 import type { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
-
-const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" });
+import { BasePersistentRegistry, type IdExtractor } from "../../shared/persistence/index.js";
 
 /**
  * WorkflowExecutionRegistry - Workflow Execution Entity Registry
  *
- * Core Responsibilities:
- * - Manage active WorkflowExecutionEntity instances.
- * - Manage WorkflowStateCoordinator instances (for message access).
- * - Provide registration, query and deletion of instances.
- * - Support filtering by status.
- * - Support resource cleanup.
- *
- * Design Principles:
- * - Simple memory storage.
- * - Workflow-execution-safe (Map operations).
- * - Support for cleaning up expired instances.
+ * Extends BasePersistentRegistry to inherit unified persistence capabilities.
+ * Adds workflow-specific query methods and state coordinator management.
  */
-export class WorkflowExecutionRegistry {
-  private workflowExecutionEntities: Map<string, WorkflowExecutionEntity> = new Map();
+export class WorkflowExecutionRegistry extends BasePersistentRegistry<WorkflowExecutionEntity> {
+  /** State coordinator storage */
   private stateCoordinatorMap: Map<string, WorkflowStateCoordinator> = new Map();
-  private storageAdapter?: WorkflowExecutionStorageAdapter;
 
   /**
    * Constructor
    * @param options Configuration options
    */
-  constructor(options?: { storageAdapter?: WorkflowExecutionStorageAdapter }) {
-    this.storageAdapter = options?.storageAdapter;
-  }
-
-  /**
-   * Register WorkflowExecutionEntity
-   * @param workflowExecutionEntity An instance of WorkflowExecutionEntity
-   */
-  register(workflowExecutionEntity: WorkflowExecutionEntity): void {
-    this.workflowExecutionEntities.set(workflowExecutionEntity.id, workflowExecutionEntity);
-
-    // Persist to storage (async, non-blocking)
-    this.persistToStorage(workflowExecutionEntity).catch(error => {
-      logger.error("Failed to persist workflow execution to storage during register", {
-        executionId: workflowExecutionEntity.id,
-        error: getErrorMessage(error),
-      });
+  constructor(options?: {
+    storageAdapter?: WorkflowExecutionStorageAdapter;
+    persistenceConfig?: any;
+  }) {
+    super({
+      storageAdapter: options?.storageAdapter,
+      persistenceConfig: options?.persistenceConfig,
+      registryName: "WorkflowExecutionRegistry",
     });
   }
 
@@ -80,86 +69,12 @@ export class WorkflowExecutionRegistry {
   }
 
   /**
-   * Get WorkflowExecutionEntity
-   * @param workflowExecutionId: Workflow Execution ID
-   * @returns: An instance of WorkflowExecutionEntity or null
-   */
-  get(executionId: string): WorkflowExecutionEntity | null {
-    return this.workflowExecutionEntities.get(executionId) || null;
-  }
-
-  /**
-   * Delete WorkflowExecutionEntity
+   * Delete WorkflowExecutionEntity and associated state coordinator
    * @param executionId Workflow Execution ID
    */
   delete(executionId: string): void {
-    this.workflowExecutionEntities.delete(executionId);
+    this.unregister(executionId);
     this.stateCoordinatorMap.delete(executionId);
-
-    // Remove from storage (async, non-blocking)
-    this.removeFromStorage(executionId).catch(error => {
-      logger.error("Failed to remove workflow execution from storage during delete", {
-        executionId,
-        error: getErrorMessage(error),
-      });
-    });
-  }
-
-  /**
-   * Get all WorkflowExecutionEntities
-   * @returns Array of WorkflowExecutionEntity
-   */
-  getAll(): WorkflowExecutionEntity[] {
-    return Array.from(this.workflowExecutionEntities.values());
-  }
-
-  /**
-   * Get all execution IDs
-   * @returns Array of execution IDs
-   */
-  getAllIds(): string[] {
-    return Array.from(this.workflowExecutionEntities.keys());
-  }
-
-  /**
-   * Get the number of instances
-   */
-  size(): number {
-    return this.workflowExecutionEntities.size;
-  }
-
-  /**
-   * Clear all WorkflowExecutionEntities
-   * Calls the cleanup method of each entity before clearing.
-   */
-  clear(): void {
-    for (const entity of this.workflowExecutionEntities.values()) {
-      if (typeof entity.cleanup === "function") {
-        entity.cleanup();
-      }
-    }
-    for (const stateCoordinator of this.stateCoordinatorMap.values()) {
-      stateCoordinator.cleanup();
-    }
-    this.workflowExecutionEntities.clear();
-    this.stateCoordinatorMap.clear();
-  }
-
-  /**
-   * Enable await using pattern support
-   * Delegates to clear() for resource release
-   */
-  async [Symbol.asyncDispose](): Promise<void> {
-    this.clear();
-  }
-
-  /**
-   * Check if WorkflowExecutionEntity exists
-   * @param workflowExecutionId: Workflow Execution ID
-   * @returns: Whether it exists or not
-   */
-  has(executionId: string): boolean {
-    return this.workflowExecutionEntities.has(executionId);
   }
 
   /**
@@ -243,12 +158,32 @@ export class WorkflowExecutionRegistry {
     ];
     for (const entity of terminatedEntities) {
       entity.cleanup();
-      this.workflowExecutionEntities.delete(entity.id);
+      this.unregister(entity.id);
     }
     return terminatedEntities.length;
   }
 
-  // ========== Hierarchy-Aware Methods ==========
+  /**
+   * Query workflow executions with optional filters
+   * @param filter Optional filter criteria
+   * @returns Array of matching executions
+   */
+  query(filter?: {
+    status?: WorkflowExecutionStatus;
+    workflowId?: string;
+  }): WorkflowExecutionEntity[] {
+    let results = this.getAll();
+
+    if (filter?.status) {
+      results = results.filter(entity => entity.getStatus() === filter.status);
+    }
+
+    if (filter?.workflowId) {
+      results = results.filter(entity => entity.getWorkflowId() === filter.workflowId);
+    }
+
+    return results;
+  }
 
   /**
    * Get child WorkflowExecutionEntities by parent execution ID
@@ -274,115 +209,94 @@ export class WorkflowExecutionRegistry {
     return this.getChildrenByParentExecutionId(parentExecutionId).map(entity => entity.id);
   }
 
-  // ============================================================
-  // Storage Persistence Methods
-  // ============================================================
-
   /**
-   * Persist workflow execution to storage (if adapter is available)
-   * @param entity Workflow execution entity to persist
+   * Clear all WorkflowExecutionEntities
+   * Calls the cleanup method of each entity before clearing.
    */
-  private async persistToStorage(entity: WorkflowExecutionEntity): Promise<void> {
-    if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping workflow execution persistence");
-      return;
+  override clear(): void {
+    for (const entity of this.getAll()) {
+      if (typeof entity.cleanup === "function") {
+        entity.cleanup();
+      }
     }
-
-    try {
-      // Serialize execution state to bytes
-      const encoder = new TextEncoder();
-      const executionData = {
-        id: entity.id,
-        workflowId: entity.getWorkflowId(),
-        status: entity.getStatus(),
-        executionType: entity.getExecutionType(),
-        currentNodeId: entity.getCurrentNodeId(),
-        input: entity.getInput(),
-        output: entity.getOutput(),
-        startTime: entity.state.startTime,
-        endTime: entity.state.endTime,
-        error: entity.state.error,
-        hierarchy: entity.getHierarchyMetadata(),
-      };
-      const data = encoder.encode(JSON.stringify(executionData));
-
-      // Create metadata matching WorkflowExecutionStorageMetadata interface
-      const metadata: WorkflowExecutionStorageMetadata = {
-        executionId: entity.id,
-        workflowId: entity.getWorkflowId(),
-        workflowVersion: "1.0", // TODO: Get from workflow definition
-        status: entity.getStatus(),
-        executionType: entity.getExecutionType(),
-        currentNodeId: entity.getCurrentNodeId(),
-        parentExecutionId: entity.getParentContext()?.parentId,
-        startTime: entity.state.startTime || Date.now(),
-        endTime: entity.state.endTime || undefined,
-        tags: [],
-        customFields: {
-          nodeResultsCount: entity.getNodeResults().length,
-        },
-      };
-
-      await this.storageAdapter.save(entity.id, data, metadata);
-      logger.debug("Workflow execution persisted to storage", {
-        executionId: entity.id,
-        status: entity.getStatus(),
-      });
-    } catch (error) {
-      // Log error but don't throw - storage failure should not affect core functionality
-      logger.error("Failed to persist workflow execution to storage", {
-        executionId: entity.id,
-        error: getErrorMessage(error),
-      });
+    for (const stateCoordinator of this.stateCoordinatorMap.values()) {
+      stateCoordinator.cleanup();
     }
+    super.clear();
+    this.stateCoordinatorMap.clear();
   }
 
   /**
-   * Remove workflow execution from storage (if adapter is available)
-   * @param executionId Execution ID to remove
+   * Enable await using pattern support
+   * Delegates to clear() for resource release
    */
-  private async removeFromStorage(executionId: string): Promise<void> {
-    if (!this.storageAdapter) {
-      logger.debug(
-        "No storage adapter configured, skipping workflow execution removal from storage",
-      );
-      return;
-    }
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clear();
+  }
 
-    try {
-      await this.storageAdapter.delete(executionId);
-      logger.debug("Workflow execution removed from storage", { executionId });
-    } catch (error) {
-      // Log error but don't throw - storage failure should not affect core functionality
-      logger.error("Failed to remove workflow execution from storage", {
-        executionId,
-        error: getErrorMessage(error),
-      });
-    }
+  // ============================================================
+  // Protected methods - implement abstract methods
+  // ============================================================
+
+  /**
+   * Get ID extractor for workflow execution entities
+   * @protected
+   */
+  protected getIdExtractor(): IdExtractor<WorkflowExecutionEntity> {
+    return {
+      extractId: (entity: WorkflowExecutionEntity) => entity.id,
+    };
   }
 
   /**
-   * Initialize registry from storage (preload all executions)
-   * Note: This is typically not used for executions as they are created dynamically.
-   * This method is provided for completeness and potential future use cases.
+   * Serialize workflow execution entity to bytes
+   * @protected
    */
-  async initializeFromStorage(): Promise<void> {
-    if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping initialization from storage");
-      return;
-    }
+  protected async serializeEntity(entity: WorkflowExecutionEntity): Promise<Uint8Array> {
+    const encoder = new TextEncoder();
+    const executionData = {
+      id: entity.id,
+      workflowId: entity.getWorkflowId(),
+      status: entity.getStatus(),
+      executionType: entity.getExecutionType(),
+      currentNodeId: entity.getCurrentNodeId(),
+      input: entity.getInput(),
+      output: entity.getOutput(),
+      startTime: entity.state.startTime,
+      endTime: entity.state.endTime,
+      error: entity.state.error,
+      hierarchy: entity.getHierarchyMetadata(),
+    };
+    return encoder.encode(JSON.stringify(executionData));
+  }
 
-    try {
-      const executionIds = await this.storageAdapter.list();
-      logger.info("Found workflow executions in storage", { count: executionIds.length });
+  /**
+   * Build metadata for workflow execution entity
+   * @protected
+   */
+  protected async buildMetadata(entity: WorkflowExecutionEntity): Promise<WorkflowExecutionStorageMetadata> {
+    return {
+      executionId: entity.id,
+      workflowId: entity.getWorkflowId(),
+      workflowVersion: "1.0", // TODO: Get from workflow definition
+      status: entity.getStatus(),
+      executionType: entity.getExecutionType(),
+      currentNodeId: entity.getCurrentNodeId(),
+      parentExecutionId: entity.getParentContext()?.parentId,
+      startTime: entity.state.startTime || Date.now(),
+      endTime: entity.state.endTime || undefined,
+      tags: [],
+      customFields: {
+        nodeResultsCount: entity.getNodeResults().length,
+      },
+    };
+  }
 
-      // Note: We don't automatically load all executions into memory
-      // Executions are typically loaded on-demand when needed
-      // This method can be extended to implement caching strategies if needed
-    } catch (error) {
-      logger.error("Failed to initialize workflow execution registry from storage", {
-        error: getErrorMessage(error),
-      });
-    }
+  /**
+   * Get registry name for logging and diagnostics
+   * @protected
+   */
+  protected getRegistryName(): string {
+    return "WorkflowExecutionRegistry";
   }
 }

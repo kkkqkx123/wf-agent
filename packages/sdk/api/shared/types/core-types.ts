@@ -19,6 +19,7 @@ import type {
   HookTemplateStorageAdapter,
   AgentProfileStorageAdapter,
 } from "@wf-agent/storage";
+import type { RegistriesConfig } from "../../../di/registry-configuration.ts";
 
 /**
  * SDK Lifecycle Hooks
@@ -165,28 +166,26 @@ export interface SDKOptions {
   defaultTimeout?: number;
   /** Whether to enable checkpoints */
   enableCheckpoints?: boolean;
-  /** Checkpoint storage adapter interface (implemented by the application layer) */
+
+  /**
+   * STORAGE ADAPTERS - User-provided implementations
+   * These adapters handle persistence of SDK data to external storage systems.
+   * Alternatives: Configure via SDKOptions.registries.* for unified management.
+   *
+   * @deprecated Use registries configuration for centralized management
+   */
   checkpointStorageAdapter?: CheckpointStorageAdapter;
-  /** Workflow storage adapter interface (implemented by the application layer) */
   workflowStorageAdapter?: WorkflowStorageAdapter;
-  /** Task storage adapter interface (implemented by the application layer) */
   taskStorageAdapter?: TaskStorageAdapter;
-  /** Workflow execution storage adapter interface (implemented by the application layer) */
   workflowExecutionStorageAdapter?: WorkflowExecutionStorageAdapter;
-  /** Agent loop checkpoint storage adapter interface (implemented by the application layer) */
   agentLoopCheckpointStorageAdapter?: AgentLoopStorageAdapter;
-  /** Trigger template storage adapter interface (implemented by the application layer) */
   triggerStorageAdapter?: TriggerStorageAdapter;
-  /** Tool storage adapter interface (implemented by the application layer) */
   toolStorageAdapter?: ToolStorageAdapter;
-  /** Script storage adapter interface (implemented by the application layer) */
   scriptStorageAdapter?: ScriptStorageAdapter;
-  /** Node template storage adapter interface (implemented by the application layer) */
   nodeTemplateStorageAdapter?: NodeTemplateStorageAdapter;
-  /** Hook template storage adapter interface (implemented by the application layer) */
   hookTemplateStorageAdapter?: HookTemplateStorageAdapter;
-  /** Agent profile storage adapter interface (implemented by the application layer) */
   agentProfileStorageAdapter?: AgentProfileStorageAdapter;
+
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Detailed validation configuration */
@@ -213,6 +212,17 @@ export interface SDKOptions {
   timeout?: TimeoutConfig;
   /** File checkpoint configuration */
   fileCheckpoint?: FileCheckpointConfig;
+
+  /**
+   * UNIFIED REGISTRY CONFIGURATION (Phase 2+)
+   * Centralized configuration for all registries.
+   * Provides:
+   * - Unified interface for all registry configuration
+   * - Registry-specific adapter and feature settings
+   * - Global persistence strategy with registry-level overrides
+   * - Explicit initialization order management
+   */
+  registries?: RegistriesConfig;
 }
 
 export type { WorkflowExecutionOptions };

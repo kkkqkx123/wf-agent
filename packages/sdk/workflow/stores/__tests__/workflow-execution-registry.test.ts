@@ -119,13 +119,16 @@ describe("WorkflowExecutionRegistry", () => {
       expect(registry.get("exec-1")?.getStatus()).toBe("COMPLETED");
     });
 
-    it("should persist to storage when adapter is configured", () => {
+    it("should persist to storage when adapter is configured", async () => {
       const registryWithStorage = new WorkflowExecutionRegistry({
         storageAdapter: mockStorageAdapter,
       });
       const entity = createMockEntity("exec-1", { status: "RUNNING" });
 
       registryWithStorage.register(entity);
+
+      // Wait for async persistence to complete
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       expect(mockStorageAdapter.save).toHaveBeenCalledWith(
         "exec-1",

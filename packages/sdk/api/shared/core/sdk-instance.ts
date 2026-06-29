@@ -30,6 +30,10 @@ import * as ServiceIdentifiers from "../../../di/service-identifiers.js";
 import { registerAllResources } from "../../../resources/registration/orchestrator.js";
 import { initializeTomlParser } from "../config/parsers/toml-parser.js";
 import {
+  validateAdapterRequirements,
+  getOptionalAdapterWarnings,
+} from "../../../di/adapter-requirements.js";
+import {
   createRotatingFileStream,
   createConsoleStream,
   createMultistream,
@@ -86,8 +90,9 @@ export class SDKInstance {
         })
       : undefined;
 
-    // Create isolated DI container with storage adapters
-    const { container, containerId } = createIsolatedContainer({
+    // [P0] Validate adapter requirements BEFORE creating the container
+    // This ensures users understand which adapters are required vs optional
+    const adapterConfig = {
       checkpoint: options?.checkpointStorageAdapter,
       task: options?.taskStorageAdapter,
       workflow: options?.workflowStorageAdapter,
@@ -99,9 +104,25 @@ export class SDKInstance {
       nodeTemplate: options?.nodeTemplateStorageAdapter,
       hookTemplate: options?.hookTemplateStorageAdapter,
       agentProfile: options?.agentProfileStorageAdapter,
+      metrics: undefined as any,
       fileCheckpointStorageAdapter: fcStorageAdapter,
       fileCheckpointManagerConfig: fcManagerConfig,
-    });
+    };
+
+    try {
+      // [P0] Validate required adapters - will throw if any are missing
+      validateAdapterRequirements(adapterConfig);
+
+      // Log warnings for missing optional adapters
+      const optionalWarnings = getOptionalAdapterWarnings(adapterConfig);
+      optionalWarnings.forEach(warning => logger.warn(warning));
+    } catch (error) {
+      logger.error("Adapter requirements validation failed", { error: getErrorMessage(error) });
+      throw error;
+    }
+
+    // Create isolated DI container with storage adapters
+    const { container, containerId } = createIsolatedContainer(adapterConfig);
     this.containerId = containerId;
 
     // Create GlobalContext - now safe because it uses lazy getters
@@ -126,13 +147,17 @@ export class SDKInstance {
   }
 
   /**
-   * Validate SDK configuration
+   * Validate SDK configuration (non-adapter validations)
+   *
+   * Adapter validation is handled separately in the constructor via validateAdapterRequirements().
+   * This method validates other SDK options like logging, skills, and profiles.
+   *
    * @param options SDK configuration options
    */
   private validateConfig(options: SDKOptions): void {
     const warnings: string[] = [];
 
-    // Warn if file output is configured but no filePath provided
+    // Validate logging configuration
     if (
       (options?.logging?.output === "file" || options?.logging?.output === "both") &&
       !options?.logging?.filePath
@@ -140,44 +165,6 @@ export class SDKInstance {
       warnings.push(
         `File output is enabled but no filePath specified. Using default: logs/sdk.log`,
       );
-    }
-
-    // Warn if no storage adapters are provided
-    if (!options?.checkpointStorageAdapter) {
-      warnings.push("No checkpoint storage adapter provided. Checkpoints will be disabled.");
-    }
-
-    if (!options?.workflowStorageAdapter) {
-      warnings.push("No workflow storage adapter provided. Workflows will not be persisted.");
-    }
-
-    if (!options?.taskStorageAdapter) {
-      warnings.push("No task storage adapter provided. Tasks will not be persisted.");
-    }
-
-    if (!options?.workflowExecutionStorageAdapter) {
-      warnings.push(
-        "No workflow execution storage adapter provided. Execution history will not be persisted.",
-      );
-    }
-
-    if (!options?.triggerStorageAdapter) {
-      warnings.push(
-        "No trigger storage adapter provided. Trigger templates will not be persisted.",
-      );
-    }
-
-    if (!options?.toolStorageAdapter) {
-      warnings.push("No tool storage adapter provided. Tools will not be persisted.");
-    }
-
-    if (!options?.scriptStorageAdapter) {
-      warnings.push("No script storage adapter provided. Scripts will not be persisted.");
-    }
-
-    // Log warnings
-    if (warnings.length > 0) {
-      warnings.forEach(warning => logger.warn(warning));
     }
 
     // Validate skill paths if provided
@@ -197,6 +184,11 @@ export class SDKInstance {
       if (hasInvalidProfiles) {
         logger.warn('Some LLM profiles may be missing required "id" field.');
       }
+    }
+
+    // Log non-adapter warnings
+    if (warnings.length > 0) {
+      warnings.forEach(warning => logger.warn(warning));
     }
   }
 

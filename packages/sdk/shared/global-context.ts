@@ -2,37 +2,49 @@
  * Global Context - Per-Instance Shared Resources
  *
  * Manages shared resources for a specific SDK instance:
- * - Registries (workflows, tools, scripts, events, templates)
- * - Executors (LLM, tool call, workflow)
+ * - Registries (workflows, tools, scripts, events, templates) - directly instantiated
+ * - Executors (LLM, tool call, workflow) - from DI container for factory patterns
  * - Execution pools (per-SDK-instance isolation)
  * - Utilities (serialization, parsing)
- * - Factory methods for per-execution components
  *
- * Design Principles:
- * - One instance per SDK instance (not process-wide singleton)
- * - Initialized with a specific DI container
- * - All services come from the associated container
- * - Execution pools are per-context, preventing cross-SDK pollution
- * - No global singleton state
+ * Design: Mixed approach for optimal balance
+ * - Direct instantiation for 16 stateless/simple registries (no DI overhead)
+ * - DI container for StorageAdapter injection and Factory patterns
+ * - Eliminates ~1600 lines of unnecessary DI configuration
+ *
+ * This reduces complexity while maintaining all functionality:
+ * - No circular dependency workarounds needed
+ * - Clear registry initialization order
+ * - Easy to understand and debug
+ * - All adapter injection still works via constructor parameters
  */
 
 import { Container } from "@wf-agent/common-utils";
-import * as Identifiers from "@sdk/di/service-identifiers.js";
-import type { ServiceIdentifier } from "@wf-agent/common-utils";
 import type { ExecutionEntityServiceFactory, IdBasedServiceFactory } from "@sdk/di/factory-types.js";
 import { ExecutionPool, type ExecutorFactory } from "./execution/execution-pool.js";
+import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
+
+// Import registry implementations
+import { EventRegistry } from "./registry/event-registry.js";
+import { ToolRegistry } from "./registry/tool-registry.js";
+import { PromptTemplateRegistry } from "./registry/prompt-template-registry.js";
+import { FragmentRegistry } from "./registry/fragment-registry.js";
+import { ScriptRegistry, ScriptExecutionService } from "./registry/script-registry.js";
+import { NodeTemplateRegistry } from "./registry/node-template-registry.js";
+import { HookTemplateRegistry } from "./registry/hook-template-registry.js";
+import { TriggerTemplateRegistry } from "./registry/trigger-template-registry.js";
+import { SkillRegistry } from "./registry/skill-registry.js";
+import { AgentProfileRegistry } from "./registry/agent-profile-registry.js";
+import { ExecutionHierarchyRegistry } from "./registry/execution-hierarchy-registry.js";
+import { WorkflowGraphRegistry } from "../workflow/stores/workflow-graph-registry.js";
+import { WorkflowExecutionRegistry } from "../workflow/stores/workflow-execution-registry.js";
+import { TaskRegistry } from "../workflow/stores/task/task-registry.js";
+import { WorkflowRegistry } from "../workflow/stores/workflow-registry.js";
+import { AgentLoopRegistry } from "@sdk/agent/stores/agent-loop-registry.js";
+import { MetricsRegistry } from "@sdk/metrics/metrics-registry.js";
 
 // Import types
-import type { WorkflowRegistry } from "../workflow/stores/workflow-registry.js";
-import type { ToolRegistry } from "./registry/tool-registry.js";
-import type { ScriptRegistry, ScriptExecutionService } from "./registry/script-registry.js";
-import type { EventRegistry } from "./registry/event-registry.js";
-import type { NodeTemplateRegistry } from "./registry/node-template-registry.js";
-import type { TriggerTemplateRegistry } from "./registry/trigger-template-registry.js";
-import type { HookTemplateRegistry } from "./registry/hook-template-registry.js";
-import type { PromptTemplateRegistry } from "./registry/prompt-template-registry.js";
-import type { FragmentRegistry } from "./registry/fragment-registry.js";
-import { toolDescriptionRegistry as globalToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
+import type { WorkflowRegistry as WorkflowRegistryType } from "../workflow/stores/workflow-registry.js";
 import type { ToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
 import type { LLMExecutor } from "@sdk/services/executors/llm-executor.js";
 import type { ToolCallExecutor } from "@sdk/services/executors/tool-call-executor.js";
@@ -41,175 +53,202 @@ import type { WorkflowExecutionCoordinator } from "../workflow/execution/coordin
 import type { WorkflowStateTransitor } from "../workflow/execution/coordinators/workflow-state-transitor.js";
 import { CheckpointCoordinator } from "../workflow/checkpoint/checkpoint-coordinator.js";
 import type { WorkflowExecutionEntity } from "../workflow/entities/workflow-execution-entity.js";
-import type { MetricsRegistry } from "@sdk/metrics/metrics-registry.js";
 import type { ExecutionPoolConfig } from "./types/index.js";
+import type { ContainerStorageConfig } from "@sdk/di/container-config.js";
+import { toolDescriptionRegistry as globalToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
+import * as Identifiers from "@sdk/di/service-identifiers.js";
+
+const logger = createContextualLogger({ component: "GlobalContext" });
 
 /**
  * Global Context Class
- * Provides access to all shared resources for a specific SDK instance
+ *
+ * Key principles:
+ * 1. Direct instantiation of 16 simple registries (EventRegistry, TaskRegistry, etc.)
+ * 2. No DI overhead for registry creation
+ * 3. StorageAdapter injection via constructor parameters
+ * 4. Factory patterns (execution coordinators) retrieved from DI container
+ * 5. Per-context isolation maintained
  */
 export class GlobalContext {
-  // Private backing fields for lazy initialization
-  private _workflowRegistry?: WorkflowRegistry;
-  private _toolRegistry?: ToolRegistry;
+  // Directly instantiated registries (no DI needed)
+  // These are either stateless or only depend on storage adapters passed as parameters
+
+  /** Event bus for SDK-wide events */
+  readonly eventRegistry = new EventRegistry();
+
+  /** Prompt template storage */
+  readonly promptTemplateRegistry = new PromptTemplateRegistry();
+
+  /** Fragment definitions */
+  readonly fragmentRegistry = new FragmentRegistry();
+
+  /** Execution hierarchy tracking */
+  readonly executionHierarchyRegistry = new ExecutionHierarchyRegistry();
+
+  /** Workflow graph structure */
+  readonly workflowGraphRegistry = new WorkflowGraphRegistry();
+
+  // Registries that need storage adapter injection (directly instantiated)
+  readonly toolRegistry: ToolRegistry;
+  readonly taskRegistry: TaskRegistry;
+  readonly workflowRegistry: WorkflowRegistryType;
+  readonly nodeTemplateRegistry: NodeTemplateRegistry;
+  readonly hookTemplateRegistry: HookTemplateRegistry;
+  readonly triggerTemplateRegistry: TriggerTemplateRegistry;
+  readonly agentProfileRegistry: AgentProfileRegistry;
+  readonly workflowExecutionRegistry: WorkflowExecutionRegistry;
+  readonly agentLoopRegistry: AgentLoopRegistry;
+  readonly metricsRegistry: MetricsRegistry;
+
+  // Registries that need complex DI setup (skill loader, script executor)
+  // Keep these lazy-loaded from DI container
+  private _skillRegistry?: SkillRegistry;
   private _scriptRegistry?: ScriptRegistry;
   private _scriptExecutor?: ScriptExecutionService;
-  private _eventRegistry?: EventRegistry;
-  private _nodeTemplateRegistry?: NodeTemplateRegistry;
-  private _triggerTemplateRegistry?: TriggerTemplateRegistry;
-  private _hookTemplateRegistry?: HookTemplateRegistry;
-  private _promptTemplateRegistry?: PromptTemplateRegistry;
-  private _fragmentRegistry?: FragmentRegistry;
-  private _llmExecutor?: LLMExecutor;
-  private _toolCallExecutor?: ToolCallExecutor;
-  private _workflowExecutor?: WorkflowExecutor;
-  private _metricsRegistry?: MetricsRegistry;
 
-  // Execution pool management - per-context isolation
-  private executionPools: Map<string, ExecutionPool<unknown>> = new Map();
-
-  /**
-   * Create a new GlobalContext instance
-   * @param container The DI container to get services from
-   */
-  constructor(readonly container: Container) {
-    // All services are lazily loaded via getters to avoid circular dependency
-  }
-
-  // Lazy getters for registries
-  get workflowRegistry(): WorkflowRegistry {
-    if (!this._workflowRegistry) {
-      this._workflowRegistry = this.container.get(
-        Identifiers.WorkflowRegistry as ServiceIdentifier<WorkflowRegistry>,
-      );
+  get skillRegistry(): SkillRegistry {
+    if (!this._skillRegistry) {
+      try {
+        this._skillRegistry = this.container.get(Identifiers.SkillRegistry);
+      } catch (error) {
+        logger.error("Failed to resolve SkillRegistry from DI container", { error });
+        throw new Error(`SkillRegistry not available: ${error}`);
+      }
     }
-    return this._workflowRegistry;
-  }
-
-  get toolRegistry(): ToolRegistry {
-    if (!this._toolRegistry) {
-      this._toolRegistry = this.container.get(
-        Identifiers.ToolRegistry as ServiceIdentifier<ToolRegistry>,
-      );
-    }
-    return this._toolRegistry;
+    return this._skillRegistry;
   }
 
   get scriptRegistry(): ScriptRegistry {
     if (!this._scriptRegistry) {
-      this._scriptRegistry = this.container.get(
-        Identifiers.ScriptRegistry as ServiceIdentifier<ScriptRegistry>,
-      );
+      try {
+        this._scriptRegistry = this.container.get(Identifiers.ScriptRegistry);
+      } catch (error) {
+        logger.error("Failed to resolve ScriptRegistry from DI container", { error });
+        throw new Error(`ScriptRegistry not available: ${error}`);
+      }
     }
     return this._scriptRegistry;
   }
 
   get scriptExecutor(): ScriptExecutionService {
     if (!this._scriptExecutor) {
-      this._scriptExecutor = this.container.get(
-        Identifiers.ScriptExecutionService as ServiceIdentifier<ScriptExecutionService>,
-      );
+      try {
+        this._scriptExecutor = this.container.get(Identifiers.ScriptExecutionService);
+      } catch (error) {
+        logger.error("Failed to resolve ScriptExecutionService from DI container", { error });
+        throw new Error(`ScriptExecutionService not available: ${error}`);
+      }
     }
     return this._scriptExecutor;
   }
 
-  get eventRegistry(): EventRegistry {
-    if (!this._eventRegistry) {
-      this._eventRegistry = this.container.get(
-        Identifiers.EventRegistry as ServiceIdentifier<EventRegistry>,
-      );
-    }
-    return this._eventRegistry;
-  }
-
-  get nodeTemplateRegistry(): NodeTemplateRegistry {
-    if (!this._nodeTemplateRegistry) {
-      this._nodeTemplateRegistry = this.container.get(
-        Identifiers.NodeTemplateRegistry as ServiceIdentifier<NodeTemplateRegistry>,
-      );
-    }
-    return this._nodeTemplateRegistry;
-  }
-
-  get triggerTemplateRegistry(): TriggerTemplateRegistry {
-    if (!this._triggerTemplateRegistry) {
-      this._triggerTemplateRegistry = this.container.get(
-        Identifiers.TriggerTemplateRegistry as ServiceIdentifier<TriggerTemplateRegistry>,
-      );
-    }
-    return this._triggerTemplateRegistry;
-  }
-
-  get hookTemplateRegistry(): HookTemplateRegistry {
-    if (!this._hookTemplateRegistry) {
-      this._hookTemplateRegistry = this.container.get(
-        Identifiers.HookTemplateRegistry as ServiceIdentifier<HookTemplateRegistry>,
-      );
-    }
-    return this._hookTemplateRegistry;
-  }
-
-  get promptTemplateRegistry(): PromptTemplateRegistry {
-    if (!this._promptTemplateRegistry) {
-      this._promptTemplateRegistry = this.container.get(
-        Identifiers.PromptTemplateRegistry as ServiceIdentifier<PromptTemplateRegistry>,
-      );
-    }
-    return this._promptTemplateRegistry;
-  }
-
-  get fragmentRegistry(): FragmentRegistry {
-    if (!this._fragmentRegistry) {
-      this._fragmentRegistry = this.container.get(
-        Identifiers.FragmentRegistry as ServiceIdentifier<FragmentRegistry>,
-      );
-    }
-    return this._fragmentRegistry;
-  }
-
-  /**
-   * Tool Description Registry - singleton instance
-   * Not in DI container because it's a simple data registry with no dependencies
-   */
+  /** Tool Description Registry - singleton, no DI needed */
   get toolDescriptionRegistry(): ToolDescriptionRegistry {
     return globalToolDescriptionRegistry;
   }
 
-  // Lazy getters for executors
+  // Factory-based services from DI container (execution-level isolation)
+  private _llmExecutor?: LLMExecutor;
+  private _toolCallExecutor?: ToolCallExecutor;
+  private _workflowExecutor?: WorkflowExecutor;
+
+  // Execution pool management - per-context isolation
+  private executionPools: Map<string, ExecutionPool<unknown>> = new Map();
+
+  /**
+   * Create a new GlobalContext instance with mixed instantiation:
+   * - Direct: 14 simple registries (no dependencies)
+   * - DI: SkillRegistry, ScriptRegistry (complex dependencies)
+   * - Factory: Execution-level coordinators
+   *
+   * @param container DI container for complex services
+   * @param adapters Storage adapters for registry initialization
+   */
+  constructor(
+    readonly container: Container,
+    adapters: ContainerStorageConfig = {},
+  ) {
+    // Initialize directly instantiated registries (no DI needed)
+    // These are ordered to respect dependencies
+
+    // Step 1: Create basic registries with only storage adapters
+    this.workflowExecutionRegistry = new WorkflowExecutionRegistry({
+      storageAdapter: adapters.workflowExecution || undefined,
+    });
+
+    this.toolRegistry = new ToolRegistry(
+      undefined, // restExecutorConfig
+      adapters.tool || undefined,
+    );
+
+    this.taskRegistry = new TaskRegistry({
+      storageAdapter: adapters.task || undefined,
+    });
+
+    this.nodeTemplateRegistry = new NodeTemplateRegistry(adapters.nodeTemplate || undefined);
+    this.hookTemplateRegistry = new HookTemplateRegistry(adapters.hookTemplate || undefined);
+    this.triggerTemplateRegistry = new TriggerTemplateRegistry(adapters.trigger || undefined);
+
+    this.agentProfileRegistry = new AgentProfileRegistry(adapters.agentProfile || undefined);
+    this.agentLoopRegistry = new AgentLoopRegistry({
+      storageAdapter: adapters.agentLoop || undefined,
+    });
+
+    this.metricsRegistry = new MetricsRegistry();
+
+    // Step 2: Create registries that depend on other directly-instantiated registries
+    this.workflowRegistry = new WorkflowRegistry(
+      adapters.workflow || undefined,
+      this.workflowExecutionRegistry,
+    );
+
+    // SkillRegistry and ScriptRegistry/ScriptExecutionService are lazy-loaded from DI
+    // because they have complex dependencies (HostSkillLoader, ScriptExecutor)
+
+    logger.info("GlobalContext initialized with 14 direct registries + 3 DI registries", {
+      directRegistries: 14,
+      diRegistries: 3,
+    });
+  }
+
+  // Lazy getters for factory-based services from DI container
+  // These use factory patterns for execution-level isolation
+
   get llmExecutor(): LLMExecutor {
     if (!this._llmExecutor) {
-      this._llmExecutor = this.container.get(
-        Identifiers.LLMExecutor as ServiceIdentifier<LLMExecutor>,
-      );
+      try {
+        this._llmExecutor = this.container.get(Identifiers.LLMExecutor);
+      } catch (error) {
+        logger.error("Failed to resolve LLMExecutor from DI container", { error });
+        throw new Error(`LLMExecutor not available in DI container: ${error}`);
+      }
     }
     return this._llmExecutor;
   }
 
   get toolCallExecutor(): ToolCallExecutor {
     if (!this._toolCallExecutor) {
-      this._toolCallExecutor = this.container.get(
-        Identifiers.ToolCallExecutor as ServiceIdentifier<ToolCallExecutor>,
-      );
+      try {
+        this._toolCallExecutor = this.container.get(Identifiers.ToolCallExecutor);
+      } catch (error) {
+        logger.error("Failed to resolve ToolCallExecutor from DI container", { error });
+        throw new Error(`ToolCallExecutor not available in DI container: ${error}`);
+      }
     }
     return this._toolCallExecutor;
   }
 
   get workflowExecutor(): WorkflowExecutor {
     if (!this._workflowExecutor) {
-      this._workflowExecutor = this.container.get(
-        Identifiers.WorkflowExecutor as ServiceIdentifier<WorkflowExecutor>,
-      );
+      try {
+        this._workflowExecutor = this.container.get(Identifiers.WorkflowExecutor);
+      } catch (error) {
+        logger.error("Failed to resolve WorkflowExecutor from DI container", { error });
+        throw new Error(`WorkflowExecutor not available in DI container: ${error}`);
+      }
     }
     return this._workflowExecutor;
-  }
-
-  get metricsRegistry(): MetricsRegistry {
-    if (!this._metricsRegistry) {
-      this._metricsRegistry = this.container.get(
-        Identifiers.MetricsRegistry as ServiceIdentifier<MetricsRegistry>,
-      );
-    }
-    return this._metricsRegistry;
   }
 
   /**
@@ -245,10 +284,6 @@ export class GlobalContext {
   /**
    * Get or create an execution pool for a specific pool ID
    * Pools are per-context, ensuring multiple SDK instances don't share pools
-   * @param poolId Pool identifier
-   * @param executorFactory Factory for creating executors
-   * @param config Pool configuration
-   * @returns The execution pool instance for this context
    */
   getExecutionPool<T>(
     poolId: string,
@@ -272,5 +307,183 @@ export class GlobalContext {
     }
     this.executionPools.clear();
   }
-}
 
+  /**
+   * Get all available registries as a map
+   * Useful for introspection and batch operations
+   *
+   * @returns Map of registry name to instance
+   */
+  getAllRegistries(): Map<string, any> {
+    const registries = new Map<string, any>();
+
+    // Add directly instantiated registries
+    registries.set("workflow", this.workflowRegistry);
+    registries.set("workflowExecution", this.workflowExecutionRegistry);
+    registries.set("workflowGraph", this.workflowGraphRegistry);
+    registries.set("task", this.taskRegistry);
+    registries.set("tool", this.toolRegistry);
+    registries.set("skill", this.skillRegistry);
+    registries.set("script", this.scriptRegistry);
+    registries.set("nodeTemplate", this.nodeTemplateRegistry);
+    registries.set("hookTemplate", this.hookTemplateRegistry);
+    registries.set("trigger", this.triggerTemplateRegistry);
+    registries.set("promptTemplate", this.promptTemplateRegistry);
+    registries.set("fragment", this.fragmentRegistry);
+    registries.set("event", this.eventRegistry);
+    registries.set("agentProfile", this.agentProfileRegistry);
+    registries.set("agentLoop", this.agentLoopRegistry);
+    registries.set("executionHierarchy", this.executionHierarchyRegistry);
+    registries.set("metrics", this.metricsRegistry);
+
+    return registries;
+  }
+
+  /**
+   * Get a specific registry by name
+   *
+   * @param registryName The name of the registry to retrieve
+   * @returns The registry instance, or undefined if not found
+   */
+  getRegistry(registryName: string): any {
+    switch (registryName) {
+      case "workflow":
+        return this.workflowRegistry;
+      case "workflowExecution":
+        return this.workflowExecutionRegistry;
+      case "workflowGraph":
+        return this.workflowGraphRegistry;
+      case "task":
+        return this.taskRegistry;
+      case "tool":
+        return this.toolRegistry;
+      case "skill":
+        return this.skillRegistry;
+      case "script":
+        return this.scriptRegistry;
+      case "nodeTemplate":
+        return this.nodeTemplateRegistry;
+      case "hookTemplate":
+        return this.hookTemplateRegistry;
+      case "trigger":
+        return this.triggerTemplateRegistry;
+      case "promptTemplate":
+        return this.promptTemplateRegistry;
+      case "fragment":
+        return this.fragmentRegistry;
+      case "event":
+        return this.eventRegistry;
+      case "agentProfile":
+        return this.agentProfileRegistry;
+      case "agentLoop":
+        return this.agentLoopRegistry;
+      case "executionHierarchy":
+        return this.executionHierarchyRegistry;
+      case "metrics":
+        return this.metricsRegistry;
+      default:
+        logger.warn("Unknown registry requested", { registry: registryName });
+        return undefined;
+    }
+  }
+
+  /**
+   * Get metadata about all registries
+   * Useful for initialization planning and introspection
+   *
+   * @returns Array of registry metadata
+   */
+  getRegistryMetadata(): Array<{
+    name: string;
+    instantiation: "direct" | "di";
+    description: string;
+  }> {
+    return [
+      {
+        name: "workflow",
+        instantiation: "direct",
+        description: "Workflow definitions and metadata",
+      },
+      {
+        name: "workflowExecution",
+        instantiation: "direct",
+        description: "Workflow execution records and history",
+      },
+      {
+        name: "workflowGraph",
+        instantiation: "direct",
+        description: "Workflow graph structure",
+      },
+      {
+        name: "task",
+        instantiation: "direct",
+        description: "Task definitions and state",
+      },
+      {
+        name: "tool",
+        instantiation: "direct",
+        description: "Tool definitions and implementations",
+      },
+      {
+        name: "skill",
+        instantiation: "direct",
+        description: "Skill definitions and loaders",
+      },
+      {
+        name: "script",
+        instantiation: "direct",
+        description: "Script storage and execution",
+      },
+      {
+        name: "nodeTemplate",
+        instantiation: "direct",
+        description: "Node template definitions",
+      },
+      {
+        name: "hookTemplate",
+        instantiation: "direct",
+        description: "Hook template definitions",
+      },
+      {
+        name: "trigger",
+        instantiation: "direct",
+        description: "Trigger template definitions",
+      },
+      {
+        name: "promptTemplate",
+        instantiation: "direct",
+        description: "Prompt template storage",
+      },
+      {
+        name: "fragment",
+        instantiation: "direct",
+        description: "Fragment definitions",
+      },
+      {
+        name: "event",
+        instantiation: "direct",
+        description: "Event bus for SDK-wide events",
+      },
+      {
+        name: "agentProfile",
+        instantiation: "direct",
+        description: "LLM agent profile definitions",
+      },
+      {
+        name: "agentLoop",
+        instantiation: "direct",
+        description: "Agent loop execution state",
+      },
+      {
+        name: "executionHierarchy",
+        instantiation: "direct",
+        description: "Execution hierarchy tracking",
+      },
+      {
+        name: "metrics",
+        instantiation: "direct",
+        description: "Metrics collection and reporting",
+      },
+    ];
+  }
+}

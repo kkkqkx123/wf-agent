@@ -71,14 +71,15 @@ export interface TaskRegistryConfig {
 /**
  * TaskRegistry - Task Registry (managed by DI container)
  *
- * Supports both in-memory and persistent storage modes:
- * - Without storageAdapter: Pure in-memory mode (default)
- * - With storageAdapter: Persistent mode with automatic sync
+ * Lifecycle states:
+ * - 'uninitialized': Created but not yet initialized
+ * - 'initializing': Currently initializing storage
+ * - 'initialized': Ready to use
+ * - 'error': Initialization failed
  *
- * Lifecycle:
- * - Created and initialized by DI container during SDK initialization
- * - One instance per SDK instance (container-scoped singleton)
- * - Automatically initializes storage if configured
+ * Supports both in-memory and persistent storage modes:
+ * - Without storageAdapter: Pure in-memory mode (automatic initialization)
+ * - With storageAdapter: Persistent mode (requires async initialize() call)
  */
 export class TaskRegistry {
   /**
@@ -93,16 +94,6 @@ export class TaskRegistry {
   private taskManagers: Map<string, TaskManager> = new Map();
 
   /**
-   * Statistics counter
-   */
-  private stats = {
-    completed: 0,
-    failed: 0,
-    cancelled: 0,
-    timeout: 0,
-  };
-
-  /**
    * Storage adapter for persistence (optional)
    */
   private storageAdapter?: TaskStorageAdapter;
@@ -113,67 +104,94 @@ export class TaskRegistry {
   private autoPersist: boolean = false;
 
   /**
-   * Initialization flag
+   * Lifecycle state: 'uninitialized' | 'initializing' | 'initialized' | 'error'
    */
-  private _initialized: boolean = false;
+  private state: 'uninitialized' | 'initializing' | 'initialized' | 'error' = 'uninitialized';
 
   /**
-   * Constructor - creates and initializes TaskRegistry
-   * @param config Configuration options
+   * Task statistics
+   */
+  private stats: {
+    completed: number;
+    failed: number;
+    cancelled: number;
+    timeout: number;
+  } = {
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    timeout: 0,
+  };
+
+  /**
+   * Constructor - synchronous setup only
+   * If no storageAdapter is provided, registry is immediately ready for use (in-memory mode)
+   * If storageAdapter is provided, must call initialize() before use
    *
-   * Note: This constructor performs synchronous setup only.
-   * Async initialization (loading from storage) should be done
-   * by calling initialize() after construction, typically handled
-   * by the DI container factory.
+   * @param config Configuration options
    */
   constructor(config?: TaskRegistryConfig) {
     if (config?.storageAdapter) {
       this.storageAdapter = config.storageAdapter;
       this.autoPersist = config.autoPersist ?? true;
-    }
-    // Mark as initialized for in-memory mode (no async init needed)
-    if (!config?.storageAdapter) {
-      this._initialized = true;
+      // Leave state as 'uninitialized', requires explicit initialize() call
+    } else {
+      // No storage adapter, immediately ready for in-memory use
+      this.state = 'initialized';
     }
   }
 
   /**
-   * Initialize the registry with optional persistence
-   * @param config Configuration options
-   * @throws Error if called on an already initialized registry
+   * Initialize the registry with storage persistence
+   * Must be called if storageAdapter was provided in constructor
+   *
+   * @throws Error if registry is already initialized or in error state
    */
-  async initialize(config?: TaskRegistryConfig): Promise<void> {
-    // Prevent re-initialization
-    if (this._initialized) {
-      logger.warn("TaskRegistry already initialized, skipping");
+  async initialize(): Promise<void> {
+    // Check current state
+    if (this.state === 'initialized') {
+      logger.warn("TaskRegistry already initialized");
       return;
     }
 
-    if (config?.storageAdapter) {
-      this.storageAdapter = config.storageAdapter;
-      this.autoPersist = config.autoPersist ?? true;
-
-      // Initialize storage if not already initialized
-      try {
-        await this.storageAdapter.initialize();
-
-        // Load existing tasks from storage
-        await this.loadFromStorage();
-
-        this._initialized = true;
-        logger.info("TaskRegistry initialized with persistence enabled");
-      } catch (error) {
-        // If storage initialization fails, fall back to in-memory mode
-        logger.warn("Failed to initialize task storage, falling back to in-memory mode", { error });
-        this.storageAdapter = undefined;
-        this.autoPersist = false;
-        this._initialized = true; // Still mark as initialized (in-memory mode)
-      }
-    } else {
-      // No storage adapter, just mark as initialized
-      this._initialized = true;
-      logger.info("TaskRegistry initialized in in-memory mode");
+    if (this.state === 'initializing') {
+      throw new Error("TaskRegistry initialization already in progress");
     }
+
+    if (this.state === 'error') {
+      throw new Error("TaskRegistry is in error state, cannot reinitialize");
+    }
+
+    // No storage adapter, no async init needed
+    if (!this.storageAdapter) {
+      this.state = 'initialized';
+      return;
+    }
+
+    this.state = 'initializing';
+
+    try {
+      // Initialize storage adapter
+      await this.storageAdapter.initialize();
+      logger.debug("TaskRegistry storage adapter initialized");
+
+      // Load existing tasks from storage
+      await this.loadFromStorage();
+
+      this.state = 'initialized';
+      logger.info("TaskRegistry initialized with persistence enabled");
+    } catch (error) {
+      this.state = 'error';
+      logger.error("TaskRegistry initialization failed", { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if registry is initialized and ready for use
+   */
+  isInitialized(): boolean {
+    return this.state === 'initialized';
   }
 
   /**
@@ -713,15 +731,7 @@ export class TaskRegistry {
         logger.warn("Failed to close task storage", { error });
       }
     }
-    this._initialized = false;
-  }
-
-  /**
-   * Check if the registry has been initialized
-   * @returns Whether initialization is complete
-   */
-  isInitialized(): boolean {
-    return this._initialized;
+    this.state = 'uninitialized';
   }
 
   /**

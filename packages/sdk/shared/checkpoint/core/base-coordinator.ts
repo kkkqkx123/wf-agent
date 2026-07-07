@@ -34,7 +34,7 @@ export abstract class BaseCheckpointCoordinator<
     context?: Record<string, unknown>,
   ): Promise<string> {
     const { saveCheckpoint, listCheckpoints, deltaConfig: depsDeltaConfig, getCheckpoint } = dependencies;
-    const contextDeltaConfig = context?.deltaConfig as DeltaStorageConfig | undefined;
+    const contextDeltaConfig = context?.['deltaConfig'] as DeltaStorageConfig | undefined;
     const config = { ...DEFAULT_DELTA_STORAGE_CONFIG, ...depsDeltaConfig, ...contextDeltaConfig };
 
     logger.debug("Creating checkpoint for entity", {

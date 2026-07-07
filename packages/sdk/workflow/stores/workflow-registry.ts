@@ -66,6 +66,15 @@ export interface WorkflowVersion {
 export class WorkflowRegistry {
   private workflows: Map<string, WorkflowTemplate> = new Map();
   private activeWorkflows: Set<string> = new Set();
+
+  // Performance indexes for query optimization
+  private tagIndex: Map<string, Set<string>> = new Map();
+  private categoryIndex: Map<string, Set<string>> = new Map();
+  private authorIndex: Map<string, Set<string>> = new Map();
+
+  // Tracks whether all workflows from storage have been loaded
+  private isFullyLoaded: boolean = false;
+
   constructor(
     private readonly storageAdapter: WorkflowStorageAdapter | null = null,
     private readonly workflowExecutionRegistry?: WorkflowExecutionRegistry,
@@ -115,22 +124,20 @@ export class WorkflowRegistry {
   // ============================================================
 
   /**
-   * Register workflow definition (synchronous, memory-only).
+   * Register workflow definition asynchronously with full preprocessing and storage persistence.
    *
-   * Writes to the in-memory cache but does NOT persist to storage or
-   * perform async preprocessing (graph resolution, relationship tracking).
-   * Use for internal operations (e.g. predefined content registration,
-   * batch registration) where the workflow is rebuilt on every bootstrap.
+   * This is the unified registration method that handles:
+   * - Validation
+   * - Storage persistence (if adapter configured)
+   * - Graph preprocessing
+   * - Automatic rollback on failure
    *
-   * For durable registration that persists to storage and performs full
-   * preprocessing, use registerAsync() instead.
-   *
-   * @param workflow - The workflow definition
-   * @param options - Registration options
-   * @throws ValidationError - If the workflow definition is invalid or the ID already exists
+   * @param workflow The workflow definition
+   * @param options Registration options
+   * @throws ValidationError If the workflow definition is invalid or the ID already exists
    */
-  register(workflow: WorkflowTemplate, options?: RegisterOptions): void {
-    // Verify the workflow definition.
+  async register(workflow: WorkflowTemplate, options?: RegisterOptions): Promise<void> {
+    // Step 1: Validate workflow definition
     const validationResult = this.validate(workflow);
     if (!validationResult.valid) {
       throw new ConfigurationValidationError(
@@ -142,10 +149,9 @@ export class WorkflowRegistry {
       );
     }
 
-    // Check if the ID already exists.
+    // Step 2: Check if ID already exists
     if (this.workflows.has(workflow.id)) {
       if (options?.skipIfExists) {
-        // Idempotent operation: Skip existing items.
         return;
       }
       throw new ConfigurationValidationError(
@@ -157,56 +163,16 @@ export class WorkflowRegistry {
       );
     }
 
-    // Save the workflow definition.
-    this.workflows.set(workflow.id, workflow);
-
-    // Note: Preprocessing is NOT performed in synchronous register().
-    // Use registerAsync() for full validation and preprocessing.
-  }
-
-  /**
-   * Register workflow definition asynchronously (with async preprocessing)
-   * @param workflow: The workflow definition
-   * @param options: Registration options
-   * @throws ValidationError: If the workflow definition is invalid or the ID already exists
-   */
-  async registerAsync(workflow: WorkflowTemplate, options?: RegisterOptions): Promise<void> {
-    // Verify the workflow definition.
-    const validationResult = this.validate(workflow);
-    if (!validationResult.valid) {
-      throw new ConfigurationValidationError(
-        `Workflow validation failed: ${validationResult.errors.join(", ")}`,
-        {
-          configType: "workflow",
-          configPath: "workflow",
-        },
-      );
-    }
-
-    // Check if the ID already exists.
-    if (this.workflows.has(workflow.id)) {
-      if (options?.skipIfExists) {
-        // Idempotent operation: Skip existing items.
-        return;
-      }
-      throw new ConfigurationValidationError(
-        `Workflow with ID '${workflow.id}' already exists. Use update() to modify or upsert() to create or update.`,
-        {
-          configType: "workflow",
-          configPath: "workflow.id",
-        },
-      );
-    }
-
-    // Persist to storage first (write-through: DB is source of truth)
+    // Step 3: Persist to storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
       await persistWorkflow(workflow, this.storageAdapter);
     }
 
-    // Save the workflow definition to memory cache after successful persistence.
+    // Step 4: Add to memory cache after successful persistence
     this.workflows.set(workflow.id, workflow);
+    this.updateIndexes(workflow);
 
-    // Preprocess workflow asynchronously (delegated to preprocessWorkflow)
+    // Step 5: Preprocess workflow asynchronously
     try {
       await preprocessWorkflow(workflow, {
         workflowRegistry: this,
@@ -214,8 +180,9 @@ export class WorkflowRegistry {
         relationshipRegistry: this.relationshipRegistry!,
       });
     } catch (error) {
-      // Remove the workflow from both memory and storage if preprocessing fails
+      // Rollback: Remove from both memory and storage
       this.workflows.delete(workflow.id);
+      this.removeFromIndexes(workflow);
       if (this.storageAdapter) {
         try {
           await removeWorkflow(workflow.id, this.storageAdapter);
@@ -241,16 +208,54 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Batch registration workflow definitions
-   * @param workflows: An array of workflow definitions
-   * @param options: Batch registration options
+   * Deprecated: Use register() instead. Maintained for backward compatibility.
+   * @deprecated Use async register() instead
    */
-  registerBatch(workflows: WorkflowTemplate[], options?: BatchRegisterOptions): void {
+  registerSync(workflow: WorkflowTemplate, options?: RegisterOptions): void {
+    // Synchronous registration without preprocessing
+    const validationResult = this.validate(workflow);
+    if (!validationResult.valid) {
+      throw new ConfigurationValidationError(
+        `Workflow validation failed: ${validationResult.errors.join(", ")}`,
+        {
+          configType: "workflow",
+          configPath: "workflow.definition",
+        },
+      );
+    }
+
+    if (this.workflows.has(workflow.id)) {
+      if (options?.skipIfExists) {
+        return;
+      }
+      throw new ConfigurationValidationError(
+        `Workflow with ID '${workflow.id}' already exists.`,
+        {
+          configType: "workflow",
+          configPath: "workflow.id",
+        },
+      );
+    }
+
+    this.workflows.set(workflow.id, workflow);
+    this.updateIndexes(workflow);
+  }
+
+  /**
+   * Batch registration workflow definitions asynchronously
+   * @param workflows An array of workflow definitions
+   * @param options Batch registration options
+   */
+  async registerBatch(workflows: WorkflowTemplate[], options?: BatchRegisterOptions): Promise<void> {
     for (const workflow of workflows) {
       try {
-        this.register(workflow, options);
+        await this.register(workflow, options);
       } catch (error) {
         if (options?.skipErrors) {
+          logger.warn("Skipping workflow registration due to error", {
+            workflowId: workflow.id,
+            error: getErrorMessage(error),
+          });
           continue;
         }
         throw error;
@@ -259,7 +264,7 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Update workflow definition (only modifications)
+   * Update workflow definition with full preprocessing support
    * @param workflowId Workflow ID
    * @param updates Update content
    * @param options Update options
@@ -276,7 +281,7 @@ export class WorkflowRegistry {
       if (options?.createIfNotExists && updates.id === workflowId) {
         // Allow automatic creation
         const newWorkflow = { ...updates, id: workflowId } as WorkflowTemplate;
-        this.register(newWorkflow);
+        await this.register(newWorkflow);
         return;
       }
       throw new WorkflowNotFoundError(
@@ -285,15 +290,15 @@ export class WorkflowRegistry {
       );
     }
 
-    // Create an updated workflow
+    // Create updated workflow
     const updatedWorkflow: WorkflowTemplate = {
       ...workflow,
       ...updates,
-      id: workflow.id, // The ID cannot be changed.
+      id: workflow.id, // ID cannot be changed
       updatedAt: Date.now(),
     };
 
-    // Verify the updated workflow.
+    // Validate updated workflow
     const validationResult = this.validate(updatedWorkflow);
     if (!validationResult.valid) {
       throw new ConfigurationValidationError(
@@ -305,24 +310,59 @@ export class WorkflowRegistry {
       );
     }
 
-    // Persist to storage first (write-through: DB is source of truth)
+    // Persist to storage first
     if (this.storageAdapter) {
       await persistWorkflow(updatedWorkflow, this.storageAdapter);
     }
 
-    // Update the workflow in memory after successful persistence.
+    // Update memory cache
     this.workflows.set(workflowId, updatedWorkflow);
+    this.updateIndexes(updatedWorkflow);
+
+    // Execute preprocessing on updated workflow
+    try {
+      await preprocessWorkflow(updatedWorkflow, {
+        workflowRegistry: this,
+        graphRegistry: this.graphRegistry!,
+        relationshipRegistry: this.relationshipRegistry!,
+      });
+    } catch (error) {
+      // Rollback: Restore original workflow
+      this.workflows.set(workflowId, workflow);
+      this.updateIndexes(workflow);
+      if (this.storageAdapter) {
+        try {
+          await persistWorkflow(workflow, this.storageAdapter);
+        } catch (rollbackError) {
+          logger.error("Failed to rollback workflow update", {
+            workflowId,
+            error: getErrorMessage(rollbackError),
+          });
+        }
+      }
+      throw new ConfigurationValidationError(
+        `Workflow preprocessing failed: ${getErrorMessage(error)}`,
+        {
+          configType: "workflow",
+          configPath: "workflow.definition",
+          context: {
+            workflowId,
+            operation: "workflow_update_preprocessing",
+          },
+        },
+      );
+    }
   }
 
   /**
-   * Register or update the workflow definition (update if it exists, create if it doesn't).
+   * Register or update the workflow definition (update if exists, create if doesn't)
    * @param workflow The workflow definition
    */
   async upsert(workflow: WorkflowTemplate): Promise<void> {
     if (this.workflows.has(workflow.id)) {
       await this.update(workflow.id, workflow);
     } else {
-      this.register(workflow);
+      await this.register(workflow);
     }
   }
 
@@ -361,94 +401,105 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Get a list of workflow definitions by tag
+   * Get a list of workflow definitions by tags (using index for O(m) performance)
    * @param tags An array of tags
    * @returns A list of workflow definitions that match the provided tags
    */
   getByTags(tags: string[]): WorkflowTemplate[] {
+    if (tags.length === 0) return [];
+
     const result: WorkflowTemplate[] = [];
-    for (const workflow of this.workflows.values()) {
-      const workflowTags = workflow.metadata?.tags || [];
-      if (tags.every(tag => workflowTags.includes(tag))) {
-        result.push(workflow);
+
+    // Use index to find workflows with first tag
+    const firstTag = tags[0];
+    if (!firstTag) return result;
+
+    const candidates = this.tagIndex.get(firstTag);
+    if (!candidates) return result;
+
+    // Filter workflows that have all tags
+    for (const id of candidates) {
+      const wf = this.workflows.get(id);
+      if (wf) {
+        const wfTags = wf.metadata?.tags || [];
+        if (tags.every(tag => wfTags.includes(tag))) {
+          result.push(wf);
+        }
       }
     }
     return result;
   }
 
   /**
-   * Get a list of workflow definitions by category
-   * @param category: The category
-   * @returns: A list of workflow definitions that match the specified category
+   * Get a list of workflow definitions by category (using index for O(m) performance)
+   * @param category The category
+   * @returns A list of workflow definitions that match the specified category
    */
   getByCategory(category: string): WorkflowTemplate[] {
-    const result: WorkflowTemplate[] = [];
-    for (const workflow of this.workflows.values()) {
-      if (workflow.metadata?.category === category) {
-        result.push(workflow);
-      }
-    }
-    return result;
+    const ids = this.categoryIndex.get(category);
+    if (!ids) return [];
+
+    return Array.from(ids)
+      .map(id => this.workflows.get(id))
+      .filter((wf): wf is WorkflowTemplate => wf !== undefined);
   }
 
   /**
-   * Get a list of workflow definitions by author
+   * Get a list of workflow definitions by author (using index for O(m) performance)
    * @param author Author
    * @returns List of matching workflow definitions
    */
   getByAuthor(author: string): WorkflowTemplate[] {
-    const result: WorkflowTemplate[] = [];
-    for (const workflow of this.workflows.values()) {
-      if (workflow.metadata?.author === author) {
-        result.push(workflow);
-      }
-    }
-    return result;
+    const ids = this.authorIndex.get(author);
+    if (!ids) return [];
+
+    return Array.from(ids)
+      .map(id => this.workflows.get(id))
+      .filter((wf): wf is WorkflowTemplate => wf !== undefined);
   }
 
   /**
-   * List all summary information for the workflows
+   * List all workflow summaries
+   * Loads from storage only once on first call, then uses cached data
    * @returns List of workflow summary information
    */
   async list(): Promise<WorkflowSummary[]> {
-    const allWorkflows = new Map(this.workflows);
-
-    // If storage adapter is available, fetch workflows not yet in memory
-    if (this.storageAdapter) {
+    // Load all workflows from storage only on first call
+    if (!this.isFullyLoaded && this.storageAdapter) {
       try {
         const storageIds = await this.storageAdapter.list();
-        const missingIds = storageIds.filter(id => !allWorkflows.has(id));
+        const missingIds = storageIds.filter(id => !this.workflows.has(id));
 
         if (missingIds.length > 0) {
-          logger.debug("Loading missing workflows from storage during list", {
+          logger.debug("Loading missing workflows from storage", {
             count: missingIds.length,
           });
 
+          // Batch load for better performance
           for (const id of missingIds) {
             try {
               const workflow = await loadWorkflow(id, this.storageAdapter);
               if (workflow) {
-                // Populate both the local result and the memory cache for consistency
-                allWorkflows.set(id, workflow);
                 this.workflows.set(id, workflow);
+                this.updateIndexes(workflow);
               }
             } catch (loadError) {
-              logger.error("Failed to load workflow from storage during list", {
+              logger.error("Failed to load workflow from storage", {
                 workflowId: id,
                 error: getErrorMessage(loadError),
               });
             }
           }
         }
+        this.isFullyLoaded = true;
       } catch (error) {
         logger.error("Failed to list workflows from storage adapter", {
           error: getErrorMessage(error),
         });
-        // Fall through to return in-memory workflows only
       }
     }
 
-    return this.buildWorkflowSummaries(Array.from(allWorkflows.values()));
+    return this.buildWorkflowSummaries(Array.from(this.workflows.values()));
   }
 
   /**
@@ -460,7 +511,7 @@ export class WorkflowRegistry {
     return workflows.map(workflow => ({
       id: workflow.id,
       name: workflow.name,
-      description: workflow.description,
+      description: workflow.description || undefined,
       type: workflow.type,
       version: workflow.version,
       nodeCount: workflow.nodes.length,
@@ -600,12 +651,18 @@ export class WorkflowRegistry {
       }
     }
 
+    // Get workflow before deletion for index cleanup
+    const workflow = this.workflows.get(workflowId);
+
     // Remove from storage first (write-through: DB is source of truth)
     if (this.storageAdapter) {
       await removeWorkflow(workflowId, this.storageAdapter);
     }
 
     this.workflows.delete(workflowId);
+    if (workflow) {
+      this.removeFromIndexes(workflow);
+    }
 
     // Clean up reference relationships (delegated to WorkflowRelationshipRegistry)
     this.relationshipRegistry!.cleanupWorkflowReferences(workflowId);
@@ -630,15 +687,89 @@ export class WorkflowRegistry {
   }
 
   // ============================================================
+  // Index Management for Query Optimization
+  // ============================================================
+
+  /**
+   * Update search indexes for a workflow
+   * @param workflow The workflow to index
+   */
+  private updateIndexes(workflow: WorkflowTemplate): void {
+    // Update tag index
+    const tags = workflow.metadata?.tags || [];
+    for (const tag of tags) {
+      if (!this.tagIndex.has(tag)) {
+        this.tagIndex.set(tag, new Set());
+      }
+      this.tagIndex.get(tag)!.add(workflow.id);
+    }
+
+    // Update category index
+    const category = workflow.metadata?.category;
+    if (category) {
+      if (!this.categoryIndex.has(category)) {
+        this.categoryIndex.set(category, new Set());
+      }
+      this.categoryIndex.get(category)!.add(workflow.id);
+    }
+
+    // Update author index
+    const author = workflow.metadata?.author;
+    if (author) {
+      if (!this.authorIndex.has(author)) {
+        this.authorIndex.set(author, new Set());
+      }
+      this.authorIndex.get(author)!.add(workflow.id);
+    }
+  }
+
+  /**
+   * Remove a workflow from all search indexes
+   * @param workflow The workflow to remove from indexes
+   */
+  private removeFromIndexes(workflow: WorkflowTemplate): void {
+    // Remove from tag index
+    const tags = workflow.metadata?.tags || [];
+    for (const tag of tags) {
+      this.tagIndex.get(tag)?.delete(workflow.id);
+      if (this.tagIndex.get(tag)?.size === 0) {
+        this.tagIndex.delete(tag);
+      }
+    }
+
+    // Remove from category index
+    const category = workflow.metadata?.category;
+    if (category) {
+      this.categoryIndex.get(category)?.delete(workflow.id);
+      if (this.categoryIndex.get(category)?.size === 0) {
+        this.categoryIndex.delete(category);
+      }
+    }
+
+    // Remove from author index
+    const author = workflow.metadata?.author;
+    if (author) {
+      this.authorIndex.get(author)?.delete(workflow.id);
+      if (this.authorIndex.get(author)?.size === 0) {
+        this.authorIndex.delete(author);
+      }
+    }
+  }
+
+  // ============================================================
   // Clear
   // ============================================================
 
   /**
-   * Clear all workflow definitions.
+   * Clear all workflow definitions and indexes
    */
   clear(): void {
     this.workflows.clear();
     this.activeWorkflows.clear();
+    this.tagIndex.clear();
+    this.categoryIndex.clear();
+    this.authorIndex.clear();
+    this.isFullyLoaded = false;
     this.relationshipRegistry!.clear();
   }
 
@@ -732,10 +863,10 @@ export class WorkflowRegistry {
    * @returns Imported workflow ID
    * @throws ValidationError If the JSON is invalid or the workflow definition is invalid
    */
-  import(json: string, options?: RegisterOptions): string {
+  async import(json: string, options?: RegisterOptions): Promise<string> {
     try {
       const workflow = JSON.parse(json) as WorkflowTemplate;
-      this.register(workflow, options);
+      await this.register(workflow, options);
       return workflow.id;
     } catch (error) {
       throw new ConfigurationValidationError(

@@ -110,7 +110,7 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    */
   protected async createResource(workflow: WorkflowTemplate): Promise<void> {
     try {
-      await this.dependencies.getWorkflowRegistry().registerAsync(workflow);
+      await this.dependencies.getWorkflowRegistry().register(workflow);
     } catch (error) {
       this.throwCommandError(error, "CREATE_WORKFLOW");
     }
@@ -466,7 +466,7 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    * @returns Workflow ID
    */
   async importWorkflow(json: string): Promise<string> {
-    const workflowId = this.dependencies.getWorkflowRegistry().import(json);
+    const workflowId = await this.dependencies.getWorkflowRegistry().import(json);
     // Update the cache
     const workflow = this.dependencies.getWorkflowRegistry().get(workflowId);
     if (workflow) {
@@ -491,8 +491,8 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    * @returns: Processed workflow definition
    */
   async preprocessAndStoreWorkflow(workflow: WorkflowTemplate): Promise<unknown> {
-    // Use registerAsync for full validation and preprocessing
-    await this.dependencies.getWorkflowRegistry().registerAsync(workflow);
+    // Use register for full validation and preprocessing
+    await this.dependencies.getWorkflowRegistry().register(workflow);
     // Return the preprocessed image.
     return this.dependencies.getWorkflowGraphRegistry().get(workflow.id);
   }

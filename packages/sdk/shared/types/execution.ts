@@ -88,6 +88,9 @@ export { TaskStatus } from "@wf-agent/types";
 /**
  * Instance reference state
  * Used to track whether the instance is loaded or needs to be restored
+ *
+ * Note: When loading from storage, instances are only available as references (ID).
+ * The actual instance must be reconstructed from the execution repository by the caller.
  */
 export type InstanceRef =
   | { type: "loaded"; instance: ExecutionInstance }
@@ -135,6 +138,10 @@ export interface TaskInfo {
 /**
  * Stored Task Information Interface
  * Used when loading tasks from storage where the instance may not be immediately available
+ *
+ * Note: This structure contains task metadata only. The actual ExecutionInstance
+ * must be reconstructed separately from the execution repository if needed.
+ * The instanceRef contains only the reference ID, not the full instance.
  */
 export interface StoredTaskInfo {
   /** Task ID */

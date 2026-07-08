@@ -87,8 +87,11 @@ class HookTemplateRegistry
   }
 
   /** Clear all hook templates */
-  clear(): void {
+  async clear(): Promise<void> {
     this.items.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
   }
 
   // ============================================================

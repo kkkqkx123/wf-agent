@@ -9,6 +9,11 @@ export * from "./base-storage-adapter.js";
 // Export unified abstract base class
 export * from "./storage-adapter-base.js";
 
+// Export key-value storage base classes (for simple storage implementations)
+export * from "./key-value-storage-base.js";
+export * from "./sqlite-key-value-storage-base.js";
+export * from "./postgres-key-value-storage-base.js";
+
 // Export specific adapters
 export * from "./checkpoint-adapter.js";
 export * from "./task-adapter.js";

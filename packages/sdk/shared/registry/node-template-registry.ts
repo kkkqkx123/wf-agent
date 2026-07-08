@@ -90,8 +90,11 @@ class NodeTemplateRegistry
   }
 
   /** Clear all node templates */
-  clear(): void {
+  async clear(): Promise<void> {
     this.items.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
   }
 
   // ============================================================

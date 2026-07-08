@@ -10,4 +10,9 @@ export {
   HierarchyIntegrityService,
   type HierarchyValidationResult,
 } from "./hierarchy-integrity-service.js";
+
+// Scheduler exports
+export { UnifiedTaskScheduler, TaskPriorityLevel, type TaskPriority, type TaskSchedulerConfig } from "./task-scheduler.js";
+
 // Note: ConversationSession has been moved to ../messaging/index.js
+

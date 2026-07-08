@@ -129,8 +129,11 @@ export class AgentProfileRegistry {
   /**
    * Clear all registered agent profiles
    */
-  clear(): void {
+  async clear(): Promise<void> {
     this.items.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
   }
 
   /**

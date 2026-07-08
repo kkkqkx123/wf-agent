@@ -11,6 +11,12 @@ export { SqliteTaskStorage } from "./sqlite-task-storage.js";
 export { SqliteAgentLoopStorage } from "./sqlite-agent-loop-storage.js";
 export { SqliteMetricsStorage, type SqliteMetricsStorageConfig } from "./sqlite-metrics-storage.js";
 export { SqliteFileCheckpointStore, type SqliteFileCheckpointStoreConfig } from "./sqlite-file-checkpoint-store.js";
+export { SqliteScriptStorage } from "./sqlite-script-storage.js";
+export { SqliteToolStorage } from "./sqlite-tool-storage.js";
+export { SqliteTriggerStorage } from "./sqlite-trigger-storage.js";
+export { SqliteNodeTemplateStorage } from "./sqlite-node-template-storage.js";
+export { SqliteHookTemplateStorage } from "./sqlite-hook-template-storage.js";
+export { SqliteAgentProfileStorage } from "./sqlite-agent-profile-storage.js";
 // Re-export compression utilities for backward compatibility
 export {
   compressBlob,

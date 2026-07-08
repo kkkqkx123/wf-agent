@@ -115,11 +115,17 @@ class ScriptRegistry
     return this.scripts.size;
   }
 
-  /** Clear all scripts */
-  clear(): void {
+  /** Clear all scripts from memory and storage */
+  async clear(): Promise<void> {
     const count = this.scripts.size;
     this.scripts.clear();
-    logger.info("All scripts cleared", { count });
+
+    // Also clear storage to maintain consistency
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
+
+    logger.info("All scripts cleared (memory and storage)", { count });
   }
 
   // ============================================================

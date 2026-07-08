@@ -269,8 +269,11 @@ class TriggerTemplateRegistry {
   /**
    * Clear all trigger templates.
    */
-  clear(): void {
+  async clear(): Promise<void> {
     this.items.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
   }
 
   /**

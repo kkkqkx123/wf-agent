@@ -141,9 +141,12 @@ class ToolRegistry
   }
 
   /** Clear all tools */
-  clear(): void {
+  async clear(): Promise<void> {
     const count = this.items.size;
     this.items.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
     logger.info("All tools cleared", { count });
   }
 

@@ -52,6 +52,11 @@ export interface ExecutorFactory<T> {
  */
 export class ExecutionPool<T> {
   /**
+   * Static pool instances - for testing and isolated pool management
+   */
+  private static instances: Map<string, ExecutionPool<any>> = new Map();
+
+  /**
    * All executors
    */
   private allExecutors: Map<string, ExecutorWrapper> = new Map();
@@ -115,6 +120,9 @@ export class ExecutionPool<T> {
       idleTimeout: config?.idleTimeout || 30000,
       defaultTimeout: config?.defaultTimeout || 30000,
     };
+
+    // Register this instance
+    ExecutionPool.instances.set(poolId, this);
 
     // Initialize the minimum number of executors.
     this.initializeMinExecutors();
@@ -386,5 +394,31 @@ export class ExecutionPool<T> {
    */
   isShutdownFlag(): boolean {
     return this.isShutdown;
+  }
+
+  /**
+   * Static method to get or create a pool instance
+   * @param poolId Pool identifier
+   * @param executorFactory Executor factory
+   * @param config Pool configuration
+   * @returns ExecutionPool instance
+   */
+  static getInstance<T>(
+    poolId: string,
+    executorFactory: ExecutorFactory<T>,
+    config?: ExecutionPoolConfig,
+  ): ExecutionPool<T> {
+    if (ExecutionPool.instances.has(poolId)) {
+      return ExecutionPool.instances.get(poolId) as ExecutionPool<T>;
+    }
+
+    return new ExecutionPool(poolId, executorFactory, config) as ExecutionPool<T>;
+  }
+
+  /**
+   * Static method to reset all instances (for testing)
+   */
+  static resetAllInstances(): void {
+    ExecutionPool.instances.clear();
   }
 }

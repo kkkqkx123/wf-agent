@@ -367,7 +367,7 @@ export function configureContainerBindings(
       const storageAdapter = c.get(Identifiers.TaskStorageAdapter) as TaskStorageAdapter | null;
       return new TaskRegistry({
         storageAdapter: storageAdapter || undefined,
-        persistenceMode: storageAdapter ? 'auto' : 'none',
+        persistenceMode: storageAdapter ? 'auto-batch' : 'none',
       });
     })
     .inSingletonScope();

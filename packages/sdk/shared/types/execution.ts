@@ -94,6 +94,15 @@ export type InstanceRef =
   | { type: "reference"; instanceId: string };
 
 /**
+ * Task timeout policy for recovery after system restart
+ * @example
+ * - 'cancel': automatically cancel task at deadline
+ * - 'escalate': escalate to manual review
+ * - 'manual': require explicit intervention
+ */
+export type TimeoutPolicy = 'cancel' | 'escalate' | 'manual';
+
+/**
  * Task Information Interface
  */
 export interface TaskInfo {
@@ -117,6 +126,10 @@ export interface TaskInfo {
   error?: Error;
   /** Timeout period (in milliseconds) */
   timeout?: number;
+  /** Absolute deadline timestamp (computed from submitTime + timeout) - used for recovery */
+  deadlineTime?: number;
+  /** Timeout policy for recovery after system restart (default: 'cancel') */
+  timeoutPolicy?: TimeoutPolicy;
 }
 
 /**
@@ -144,6 +157,10 @@ export interface StoredTaskInfo {
   error?: Error;
   /** Timeout period (in milliseconds) */
   timeout?: number;
+  /** Absolute deadline timestamp (computed from submitTime + timeout) - used for recovery */
+  deadlineTime?: number;
+  /** Timeout policy for recovery after system restart (default: 'cancel') */
+  timeoutPolicy?: TimeoutPolicy;
 }
 
 /**

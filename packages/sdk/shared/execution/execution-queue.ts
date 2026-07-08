@@ -51,6 +51,8 @@ export interface QueueTask {
   submitTime: number;
   /** Timeout (optional) */
   timeout?: number;
+  /** AbortSignal for cancellation */
+  abortSignal: AbortSignal;
 }
 
 /**
@@ -98,6 +100,16 @@ export class ExecutionQueue<T extends ExecutionInstance> {
   private runningTasks: Map<string, QueueTask> = new Map();
 
   /**
+   * AbortController mapping for active tasks - supports cancellation
+   */
+  private abortControllers: Map<string, AbortController> = new Map();
+
+  /**
+   * Timeout guard mapping - for timeout detection
+   */
+  private timeoutGuards: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
    * Task registration registry
    */
   private taskRegistry: TaskRegistry;
@@ -115,7 +127,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
   /**
    * Execute function - how to execute the instance
    */
-  private executeFn: (executor: Executor<T>, instance: T) => Promise<unknown>;
+  private executeFn: (executor: Executor<T>, instance: T, signal?: AbortSignal) => Promise<unknown>;
 
   /**
    * Is the queue being processed?
@@ -127,13 +139,13 @@ export class ExecutionQueue<T extends ExecutionInstance> {
    * @param taskRegistry Task Registry
    * @param poolService Execution Pool Service
    * @param eventManager Event Manager
-   * @param executeFn Function to execute the instance
+   * @param executeFn Function to execute the instance (receives AbortSignal for cancellation)
    */
   constructor(
     taskRegistry: TaskRegistry,
     poolService: ExecutionPool<T>,
     eventManager: EventRegistry,
-    executeFn: (executor: Executor<T>, instance: T) => Promise<unknown>,
+    executeFn: (executor: Executor<T>, instance: T, signal?: AbortSignal) => Promise<unknown>,
   ) {
     this.taskRegistry = taskRegistry;
     this.poolService = poolService;
@@ -156,17 +168,26 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     timeout?: number,
   ): Promise<ExecutionResult> {
     return new Promise((resolve, reject) => {
+      const abortController = new AbortController();
+      const submitTime = now();
+      const deadlineTime = timeout ? submitTime + timeout : undefined;
+
       const queueTask: QueueTask = {
         taskId,
         instance,
         instanceType,
         resolve,
         reject,
-        submitTime: now(),
+        submitTime,
         timeout,
+        abortSignal: abortController.signal,
       };
 
+      // Store deadline for timeout recovery
+      (queueTask as any).deadlineTime = deadlineTime;
+
       this.pendingQueue.push(queueTask);
+      this.abortControllers.set(taskId, abortController);
 
       // Trigger queue processing
       this.processQueue();
@@ -187,17 +208,26 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     instanceType: ExecutionInstanceType,
     timeout?: number,
   ): TaskSubmissionResult {
+    const abortController = new AbortController();
+    const submitTime = now();
+    const deadlineTime = timeout ? submitTime + timeout : undefined;
+
     const queueTask: QueueTask = {
       taskId,
       instance,
       instanceType,
       resolve: () => {}, // Asynchronous tasks do not require resolve
       reject: () => {}, // Asynchronous tasks do not require reject
-      submitTime: now(),
+      submitTime,
       timeout,
+      abortSignal: abortController.signal,
     };
 
+    // Store deadline for timeout recovery
+    (queueTask as any).deadlineTime = deadlineTime;
+
     this.pendingQueue.push(queueTask);
+    this.abortControllers.set(taskId, abortController);
 
     // Trigger queue processing
     this.processQueue();
@@ -250,16 +280,29 @@ export class ExecutionQueue<T extends ExecutionInstance> {
   }
 
   /**
-   * Execute the task.
+   * Execute the task with timeout guard and cancellation support.
    * @param executor: The executor
    * @param queueTask: The queue task
    */
   private async executeTask(executor: Executor<T>, queueTask: QueueTask): Promise<void> {
     const startTime = now();
+    let timeoutGuard: NodeJS.Timeout | undefined;
 
     try {
-      // Execute the instance
-      const result = await this.executeFn(executor, queueTask.instance as T);
+      // Set up timeout guard if timeout is specified
+      if (queueTask.timeout && queueTask.timeout > 0) {
+        timeoutGuard = setTimeout(() => {
+          this.taskRegistry.updateStatus(queueTask.taskId, "TIMEOUT");
+          const abortCtrl = this.abortControllers.get(queueTask.taskId);
+          if (abortCtrl) {
+            abortCtrl.abort();
+          }
+        }, queueTask.timeout);
+        this.timeoutGuards.set(queueTask.taskId, timeoutGuard);
+      }
+
+      // Execute the instance with AbortSignal for cancellation
+      const result = await this.executeFn(executor, queueTask.instance as T, queueTask.abortSignal);
 
       const executionTime = diffTimestamp(startTime, now());
 
@@ -268,9 +311,22 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     } catch (error) {
       const executionTime = diffTimestamp(startTime, now());
 
-      // Task processing failed.
-      await this.handleTaskFailed(queueTask, error as Error, executionTime);
+      // Handle abort (cancellation) explicitly
+      if (error instanceof Error && error.name === "AbortError") {
+        // Task was cancelled
+        this.taskRegistry.updateStatus(queueTask.taskId, "CANCELLED");
+        this.runningTasks.delete(queueTask.taskId);
+      } else {
+        // Task processing failed.
+        await this.handleTaskFailed(queueTask, error as Error, executionTime);
+      }
     } finally {
+      // Clean up timeout guard
+      if (timeoutGuard) {
+        clearTimeout(timeoutGuard);
+        this.timeoutGuards.delete(queueTask.taskId);
+      }
+
       // Release the executor
       await this.poolService.releaseExecutor(executor);
 
@@ -359,7 +415,8 @@ export class ExecutionQueue<T extends ExecutionInstance> {
   }
 
   /**
-   * Cancel Task
+   * Cancel Task - supports both queued and running tasks
+   * For running tasks, sends an abort signal to allow graceful cancellation
    * @param taskId Task ID
    * @returns Whether the cancellation was successful
    */
@@ -373,6 +430,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
       }
 
       this.taskRegistry.updateStatus(taskId, "CANCELLED");
+      this.abortControllers.delete(taskId);
 
       // Trigger the cancellation event (for workflow execution instances)
       if (isWorkflowExecutionInstance(queueTask.instance)) {
@@ -389,10 +447,13 @@ export class ExecutionQueue<T extends ExecutionInstance> {
       return true;
     }
 
-    // Check if the task is running.
+    // Check if the task is running - abort it
     if (this.runningTasks.has(taskId)) {
-      // The running task cannot be canceled.
-      return false;
+      const abortCtrl = this.abortControllers.get(taskId);
+      if (abortCtrl) {
+        abortCtrl.abort();  // Send abort signal
+        return true;
+      }
     }
 
     return false;
@@ -428,7 +489,14 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     // Cancel all pending tasks.
     for (const queueTask of this.pendingQueue) {
       this.taskRegistry.updateStatus(queueTask.taskId, "CANCELLED");
+      this.abortControllers.delete(queueTask.taskId);
     }
+
+    // Clean up timeout guards
+    for (const guard of this.timeoutGuards.values()) {
+      clearTimeout(guard);
+    }
+    this.timeoutGuards.clear();
 
     this.pendingQueue = [];
   }

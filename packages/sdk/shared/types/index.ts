@@ -15,6 +15,7 @@ export {
   type InstanceRef,
   type TaskInfo,
   type StoredTaskInfo,
+  type TimeoutPolicy,
   isAgentInstance,
   isWorkflowExecutionInstance,
   getExecutionInstanceType,

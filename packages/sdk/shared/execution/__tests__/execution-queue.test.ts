@@ -335,7 +335,7 @@ describe("ExecutionQueue", () => {
       expect(cancelled).toBe(false);
     });
 
-    it("should return false for running task", async () => {
+    it("should cancel a running task with AbortSignal", async () => {
       // Make executeFn hang so the task stays running
       executeFn.mockImplementation(() => new Promise(() => {}));
 
@@ -353,8 +353,9 @@ describe("ExecutionQueue", () => {
       // Let the event loop pick up the processing
       await new Promise(resolve => setTimeout(resolve, 10));
 
+      // Now we can cancel running tasks via AbortSignal
       const cancelled = queue.cancelTask("running-task");
-      expect(cancelled).toBe(false);
+      expect(cancelled).toBe(true);
     });
   });
 

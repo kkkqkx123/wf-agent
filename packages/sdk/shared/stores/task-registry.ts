@@ -28,7 +28,6 @@ import {
   type ExecutionInstanceType,
   isWorkflowExecutionInstance,
   hasLoadedInstance,
-  isStoredTaskInfo,
 } from "../types/index.js";
 import type { TaskStorageAdapter } from "@wf-agent/storage";
 import { ErrorCodec, StateCodec } from "@wf-agent/common-utils";
@@ -78,10 +77,20 @@ export interface TaskRegistryConfig {
   /**
    * Persistence mode:
    * - 'none': No persistence (in-memory only)
-   * - 'auto': Automatically persist on status changes (default with adapter)
-   * - 'manual': Explicit persistence via persistNow()
+   * - 'auto-batch': Asynchronously batch persist on status changes (non-blocking)
+   * - 'manual': Explicit persistence via persistNow() or flush()
+   * @default 'auto-batch' if storageAdapter provided, 'none' otherwise
    */
-  persistenceMode?: 'none' | 'auto' | 'manual';
+  persistenceMode?: 'none' | 'auto-batch' | 'manual';
+  /**
+   * Batch persistence configuration
+   */
+  persistenceBatchConfig?: {
+    /** Number of tasks to batch before flushing (default: 100) */
+    batchSize?: number;
+    /** Max wait time before flushing (default: 5000ms) */
+    maxWaitTime?: number;
+  };
 }
 
 /**
@@ -99,10 +108,16 @@ export interface TaskRegistryConfig {
  */
 export class TaskRegistry {
   /**
-   * Task Mapping
-   * Stores both active (with loaded instance) and stored (with reference) tasks
+   * Active Task Pool
+   * Stores tasks that are actively tracked in memory
    */
-  private tasks: Map<string, TaskInfo | StoredTaskInfo> = new Map();
+  private activePool: Map<string, TaskInfo> = new Map();
+
+  /**
+   * Archived Task References
+   * Stores minimal references to tasks loaded from persistence
+   */
+  private archivedRefs: Map<string, StoredTaskInfo> = new Map();
 
   /**
    * Task ID to Manager Mapping
@@ -115,9 +130,27 @@ export class TaskRegistry {
   private storageAdapter?: TaskStorageAdapter;
 
   /**
-   * Persistence mode: 'none' | 'auto' | 'manual'
+   * Persistence mode: 'none' | 'auto-batch' | 'manual'
    */
-  private persistenceMode: 'none' | 'auto' | 'manual' = 'none';
+  private persistenceMode: 'none' | 'auto-batch' | 'manual' = 'none';
+
+  /**
+   * Batch persistence configuration
+   */
+  private batchConfig: Required<Exclude<TaskRegistryConfig['persistenceBatchConfig'], undefined>> = {
+    batchSize: 100,
+    maxWaitTime: 5000,
+  };
+
+  /**
+   * Tasks pending batch persistence (tracks which tasks need flushing)
+   */
+  private pendingPersistence: Set<string> = new Set();
+
+  /**
+   * Batch persistence timer
+   */
+  private batchPersistenceTimer?: NodeJS.Timeout;
 
   /**
    * Lifecycle state: 'uninitialized' | 'initializing' | 'initialized' | 'error'
@@ -125,7 +158,7 @@ export class TaskRegistry {
   private state: 'uninitialized' | 'initializing' | 'initialized' | 'error' = 'uninitialized';
 
   /**
-   * Task statistics
+   * Task statistics - atomic operation ready
    */
   private stats: {
     completed: number;
@@ -149,7 +182,14 @@ export class TaskRegistry {
   constructor(config?: TaskRegistryConfig) {
     if (config?.storageAdapter) {
       this.storageAdapter = config.storageAdapter;
-      this.persistenceMode = config.persistenceMode ?? 'auto';
+      this.persistenceMode = config.persistenceMode ?? 'auto-batch';
+      // Merge batch config
+      if (config.persistenceBatchConfig) {
+        this.batchConfig = {
+          batchSize: config.persistenceBatchConfig.batchSize ?? 100,
+          maxWaitTime: config.persistenceBatchConfig.maxWaitTime ?? 5000,
+        };
+      }
       // Leave state as 'uninitialized', requires explicit initialize() call
     } else {
       // No storage adapter, immediately ready for in-memory use
@@ -212,7 +252,7 @@ export class TaskRegistry {
   }
 
   /**
-   * Load tasks from storage
+   * Load tasks from storage into archived references
    */
   private async loadFromStorage(): Promise<void> {
     if (!this.storageAdapter) return;
@@ -234,6 +274,8 @@ export class TaskRegistry {
             startTime: snapshot.startTime,
             completeTime: snapshot.completeTime,
             timeout: snapshot.timeout,
+            deadlineTime: (snapshot as any).deadlineTime,
+            timeoutPolicy: (snapshot as any).timeoutPolicy ?? 'cancel',
           };
 
           if (snapshot.result) {
@@ -244,7 +286,8 @@ export class TaskRegistry {
             storedTask.error = ErrorCodec.deserialize(snapshot.error);
           }
 
-          this.tasks.set(taskId, storedTask);
+          // Store in archived refs, not active pool
+          this.archivedRefs.set(taskId, storedTask);
         }
       }
     } catch (error) {
@@ -255,22 +298,29 @@ export class TaskRegistry {
   /**
    * Persist a single task to storage
    * @param taskId Task ID
-   * @internal Internal method, called by updateStatus() when persistenceMode='auto'
+   * @internal Internal method, called by updateStatus() when persistenceMode='auto-batch'
    */
   private async persistTask(taskId: string): Promise<void> {
     if (this.persistenceMode === 'none' || !this.storageAdapter) return;
 
-    const taskInfo = this.tasks.get(taskId);
-    if (!taskInfo) return;
+    // Get task from active pool or archived refs
+    const taskInfo = this.activePool.get(taskId);
+    const archivedInfo = this.archivedRefs.get(taskId);
+    const task = taskInfo || archivedInfo;
+
+    if (!task) return;
 
     try {
       const codec = new StateCodec();
       let snapshot: TaskSnapshot;
 
-      if (hasLoadedInstance(taskInfo)) {
+      if (taskInfo && hasLoadedInstance(taskInfo)) {
         snapshot = TaskSerializationUtils.createTaskSnapshotFromTaskInfo(taskInfo);
-      } else {
-        const storedTask = taskInfo as StoredTaskInfo;
+        // Preserve deadline and timeout policy
+        (snapshot as any).deadlineTime = taskInfo.deadlineTime;
+        (snapshot as any).timeoutPolicy = taskInfo.timeoutPolicy ?? 'cancel';
+      } else if (archivedInfo) {
+        const storedTask = archivedInfo;
         const instanceId =
           storedTask.instanceRef.type === "reference"
             ? storedTask.instanceRef.instanceId
@@ -289,7 +339,11 @@ export class TaskRegistry {
           startTime: storedTask.startTime,
           completeTime: storedTask.completeTime,
           timeout: storedTask.timeout,
-        };
+        } as any;
+
+        // Preserve deadline and timeout policy
+        (snapshot as any).deadlineTime = storedTask.deadlineTime;
+        (snapshot as any).timeoutPolicy = storedTask.timeoutPolicy ?? 'cancel';
 
         if (
           storedTask.instanceRef.type === "loaded" &&
@@ -306,6 +360,8 @@ export class TaskRegistry {
         if (storedTask.error) {
           snapshot.error = ErrorCodec.serialize(storedTask.error);
         }
+      } else {
+        return;
       }
 
       const data = await codec.serialize(snapshot);
@@ -330,6 +386,63 @@ export class TaskRegistry {
   }
 
   /**
+   * Queue a task for batch persistence (non-blocking)
+   * The actual persistence happens asynchronously in batches
+   * @internal
+   */
+  private queueForBatchPersistence(taskId: string): void {
+    if (this.persistenceMode !== 'auto-batch' || !this.storageAdapter) return;
+
+    this.pendingPersistence.add(taskId);
+
+    // If batch is full, flush immediately
+    if (this.pendingPersistence.size >= this.batchConfig.batchSize) {
+      this.flushBatchPersistence().catch(error => {
+        logger.warn("Failed to flush batch persistence", { error });
+      });
+      return;
+    }
+
+    // If timer not set, schedule one
+    if (!this.batchPersistenceTimer) {
+      this.batchPersistenceTimer = setTimeout(() => {
+        this.flushBatchPersistence().catch(error => {
+          logger.warn("Failed to flush batch persistence", { error });
+        });
+      }, this.batchConfig.maxWaitTime);
+    }
+  }
+
+  /**
+   * Flush all pending tasks to storage
+   * Non-blocking, runs asynchronously
+   */
+  async flushBatchPersistence(): Promise<void> {
+    if (this.pendingPersistence.size === 0) return;
+
+    // Clear timer
+    if (this.batchPersistenceTimer) {
+      clearTimeout(this.batchPersistenceTimer);
+      this.batchPersistenceTimer = undefined;
+    }
+
+    const taskIds = Array.from(this.pendingPersistence);
+    this.pendingPersistence.clear();
+
+    logger.debug("Flushing batch persistence", { count: taskIds.length });
+
+    // Persist each task in batch (fire-and-forget to avoid blocking)
+    const promises = taskIds.map(taskId =>
+      this.persistTask(taskId).catch(error => {
+        logger.warn(`Failed to persist task ${taskId}`, { error });
+      })
+    );
+
+    // Wait for all to complete
+    await Promise.all(promises);
+  }
+
+  /**
    * Delete a task from storage
    * @param taskId Task ID
    */
@@ -345,10 +458,12 @@ export class TaskRegistry {
 
   /**
    * Register a task (unified method for both Agent and WorkflowExecution)
+   * Tasks are created in the active pool
    * @param instance Execution instance (AgentLoopEntity or WorkflowExecutionEntity)
    * @param instanceType Execution instance type
    * @param manager Task manager
    * @param timeout Timeout period (in milliseconds)
+   * @param timeoutPolicy Timeout policy for recovery (default: 'cancel')
    * @returns Task ID
    */
   register(
@@ -356,23 +471,29 @@ export class TaskRegistry {
     instanceType: ExecutionInstanceType,
     manager: TaskManager,
     timeout?: number,
+    timeoutPolicy?: string,
   ): string {
     const taskId = generateId();
+    const submitTime = now();
+    const deadlineTime = timeout ? submitTime + timeout : undefined;
 
     const taskInfo: TaskInfo = {
       id: taskId,
       instanceType,
       instance,
       status: "QUEUED",
-      submitTime: now(),
+      submitTime,
       timeout,
+      deadlineTime,
+      timeoutPolicy: (timeoutPolicy as any) ?? 'cancel',
     };
 
-    this.tasks.set(taskId, taskInfo);
+    // Store in active pool, not archived refs
+    this.activePool.set(taskId, taskInfo);
     this.taskManagers.set(taskId, manager);
 
-    // Persist to storage (async, non-blocking)
-    this.persistTask(taskId).catch(() => {});
+    // Queue for batch persistence (non-blocking)
+    this.queueForBatchPersistence(taskId);
 
     return taskId;
   }
@@ -383,14 +504,14 @@ export class TaskRegistry {
    * Unified method for all status transitions. Automatically:
    * - Records timestamps (startTime for RUNNING, completeTime for terminal states)
    * - Updates statistics counters (completed, failed, cancelled, timeout)
-   * - Persists to storage (if persistenceMode='auto')
+   * - Queues for batch persistence (if persistenceMode='auto-batch')
    *
    * @param taskId Task ID
    * @param status New task status
    * @param metadata Optional metadata (result, error, duration)
    */
   updateStatus(taskId: string, status: TaskStatus, metadata?: TaskStatusUpdateMetadata): void {
-    const taskInfo = this.tasks.get(taskId);
+    const taskInfo = this.activePool.get(taskId);
     if (!taskInfo) return;
 
     // Update status
@@ -413,7 +534,7 @@ export class TaskRegistry {
         taskInfo.error = metadata.error;
       }
 
-      // Update statistics
+      // Update statistics (atomic operation)
       switch (status) {
         case "COMPLETED":
           this.stats.completed++;
@@ -430,54 +551,64 @@ export class TaskRegistry {
       }
     }
 
-    // Persist if in auto mode
-    if (this.persistenceMode === "auto") {
-      this.persistTask(taskId).catch(() => {});
-    }
+    // Queue for batch persistence (non-blocking)
+    this.queueForBatchPersistence(taskId);
   }
 
   /**
    * Explicitly persist a task to storage
-   * Only applicable when persistenceMode='manual'
+   * - In 'auto-batch' mode: adds to batch queue (still non-blocking)
+   * - In 'manual' mode: persists immediately
    *
    * @param taskId Task ID
    */
   async persistNow(taskId: string): Promise<void> {
-    if (this.persistenceMode === "manual" || this.persistenceMode === "auto") {
+    if (this.persistenceMode === "manual") {
       await this.persistTask(taskId);
+    } else if (this.persistenceMode === "auto-batch") {
+      this.queueForBatchPersistence(taskId);
     }
   }
 
   /**
-   * Update the instance for a stored task (restore from reference)
+   * Flush all pending batch persistence operations
+   * Ensures all queued tasks are persisted to storage
+   * Only applicable when persistenceMode='auto-batch' or 'manual'
+   *
+   * @returns Promise that resolves when all pending tasks are persisted
+   */
+  async flush(): Promise<void> {
+    if (this.persistenceMode === 'auto-batch') {
+      await this.flushBatchPersistence();
+    }
+  }
+
+  /**
+   * Update the instance for a stored task (restore from reference into active pool)
    * @param taskId Task ID
    * @param instance Execution instance
    * @returns True if the instance was updated
    */
   updateInstance(taskId: string, instance: ExecutionInstance): boolean {
-    const taskInfo = this.tasks.get(taskId);
-    if (!taskInfo) return false;
+    const archivedInfo = this.archivedRefs.get(taskId);
+    if (!archivedInfo) return false;
 
-    if (isStoredTaskInfo(taskInfo)) {
-      // Convert StoredTaskInfo to TaskInfo
-      const taskInfoWithInstance: TaskInfo = {
-        id: taskInfo.id,
-        instanceType: taskInfo.instanceType,
-        instance,
-        status: taskInfo.status,
-        submitTime: taskInfo.submitTime,
-        startTime: taskInfo.startTime,
-        completeTime: taskInfo.completeTime,
-        result: taskInfo.result,
-        error: taskInfo.error,
-        timeout: taskInfo.timeout,
-      };
-      this.tasks.set(taskId, taskInfoWithInstance);
-      return true;
-    }
-
-    // Already has loaded instance
-    return false;
+    // Convert StoredTaskInfo to TaskInfo and move to active pool
+    const taskInfoWithInstance: TaskInfo = {
+      id: archivedInfo.id,
+      instanceType: archivedInfo.instanceType,
+      instance,
+      status: archivedInfo.status,
+      submitTime: archivedInfo.submitTime,
+      startTime: archivedInfo.startTime,
+      completeTime: archivedInfo.completeTime,
+      result: archivedInfo.result,
+      error: archivedInfo.error,
+      timeout: archivedInfo.timeout,
+    };
+    this.activePool.set(taskId, taskInfoWithInstance);
+    this.archivedRefs.delete(taskId);
+    return true;
   }
 
   /**
@@ -502,78 +633,69 @@ export class TaskRegistry {
   }
 
   /**
-   * Get task information
+   * Get task information (only from active pool with loaded instances)
    * @param taskId Task ID
-   * @returns Task information (null if not found or if instance is not loaded)
+   * @returns Task information (null if not found or not in active pool)
    */
   get(taskId: string): TaskInfo | null {
-    const task = this.tasks.get(taskId);
-    if (!task) return null;
-
-    // Return only if the instance is loaded
-    if (hasLoadedInstance(task)) {
-      return task;
-    }
-
-    // Task exists but instance is not loaded (StoredTaskInfo)
-    return null;
+    return this.activePool.get(taskId) || null;
   }
 
   /**
-   * Get stored task information (including tasks with unloaded instances)
+   * Get stored task information (including tasks with unloaded instances from archived refs)
    * @param taskId Task ID
    * @returns Stored task information
    */
   getStored(taskId: string): StoredTaskInfo | null {
-    const task = this.tasks.get(taskId);
-    if (!task) return null;
+    const activeTask = this.activePool.get(taskId);
+    const archivedTask = this.archivedRefs.get(taskId);
 
-    if (isStoredTaskInfo(task)) {
-      return task;
+    if (activeTask) {
+      // Convert active TaskInfo to StoredTaskInfo
+      return {
+        id: activeTask.id,
+        instanceType: activeTask.instanceType,
+        instanceRef: { type: "loaded", instance: activeTask.instance },
+        status: activeTask.status,
+        submitTime: activeTask.submitTime,
+        startTime: activeTask.startTime,
+        completeTime: activeTask.completeTime,
+        result: activeTask.result,
+        error: activeTask.error,
+        timeout: activeTask.timeout,
+      };
     }
 
-    // Convert TaskInfo to StoredTaskInfo
-    return {
-      id: task.id,
-      instanceType: task.instanceType,
-      instanceRef: { type: "loaded", instance: task.instance },
-      status: task.status,
-      submitTime: task.submitTime,
-      startTime: task.startTime,
-      completeTime: task.completeTime,
-      result: task.result,
-      error: task.error,
-      timeout: task.timeout,
-    };
+    return archivedTask || null;
   }
 
   /**
-   * Check if the task exists
+   * Check if the task exists (in active pool or archived refs)
    * @param taskId Task ID
    * @returns Whether it exists
    */
   has(taskId: string): boolean {
-    return this.tasks.has(taskId);
+    return this.activePool.has(taskId) || this.archivedRefs.has(taskId);
   }
 
   /**
-   * Get all tasks with loaded instances
+   * Get all tasks with loaded instances (active pool only)
    * @returns Array of all task information with loaded instances
    */
   getAll(): TaskInfo[] {
-    return Array.from(this.tasks.values()).filter(hasLoadedInstance);
+    return Array.from(this.activePool.values());
   }
 
   /**
-   * Get all stored tasks (including those with unloaded instances)
+   * Get all stored tasks (active pool + archived refs)
    * @returns Array of all stored task information
    */
   getAllStored(): StoredTaskInfo[] {
-    return Array.from(this.tasks.values()).map(task => {
-      if (isStoredTaskInfo(task)) {
-        return task;
-      }
-      return {
+    const result: StoredTaskInfo[] = [];
+
+    // Add all active tasks converted to StoredTaskInfo
+    for (const task of this.activePool.values()) {
+      result.push({
         id: task.id,
         instanceType: task.instanceType,
         instanceRef: { type: "loaded", instance: task.instance },
@@ -584,23 +706,28 @@ export class TaskRegistry {
         result: task.result,
         error: task.error,
         timeout: task.timeout,
-      };
-    });
+      });
+    }
+
+    // Add all archived tasks
+    for (const task of this.archivedRefs.values()) {
+      result.push(task);
+    }
+
+    return result;
   }
 
   /**
-   * Get tasks based on the status (only with loaded instances)
+   * Get tasks based on the status (only with loaded instances in active pool)
    * @param status Task status
    * @returns Array of tasks in the specified status
    */
   getByStatus(status: TaskStatus): TaskInfo[] {
-    return Array.from(this.tasks.values())
-      .filter(hasLoadedInstance)
-      .filter(task => task.status === status);
+    return Array.from(this.activePool.values()).filter(task => task.status === status);
   }
 
   /**
-   * Get a task by execution ID
+   * Get a task by execution ID (searches active pool)
    * @param executionId Execution ID
    * @returns Task information
    */
@@ -623,7 +750,7 @@ export class TaskRegistry {
   }
 
   /**
-   * Get a task by instance ID (works for both Agent and WorkflowExecution)
+   * Get a task by instance ID (searches active pool, works for both Agent and WorkflowExecution)
    * @param instanceId Instance ID
    * @returns Task information
    */
@@ -632,23 +759,25 @@ export class TaskRegistry {
   }
 
   /**
-   * Delete Task
+   * Delete a task (from both active pool and archived refs)
    * @param taskId Task ID
    * @returns Whether the deletion was successful
    */
   async delete(taskId: string): Promise<boolean> {
     this.taskManagers.delete(taskId);
-    const result = this.tasks.delete(taskId);
+    const activeDeleted = this.activePool.delete(taskId);
+    const archivedDeleted = this.archivedRefs.delete(taskId);
 
-    if (result) {
+    if (activeDeleted || archivedDeleted) {
       await this.unpersistTask(taskId);
+      return true;
     }
 
-    return result;
+    return false;
   }
 
   /**
-   * Clean up expired tasks
+   * Clean up expired tasks (only from active pool - completed, failed, cancelled, timeout)
    * @param retentionTime Retention time in milliseconds, default is 1 hour
    * @returns Number of tasks that were cleaned up
    */
@@ -656,8 +785,8 @@ export class TaskRegistry {
     const currentTime = now();
     let cleanedCount = 0;
 
-    for (const [taskId, taskInfo] of this.tasks.entries()) {
-      // Only clean up tasks that have been completed, failed, canceled, or timed out.
+    // Clean up from active pool
+    for (const [taskId, taskInfo] of this.activePool.entries()) {
       if (
         (taskInfo.status === "COMPLETED" ||
           taskInfo.status === "FAILED" ||
@@ -666,8 +795,24 @@ export class TaskRegistry {
         taskInfo.completeTime &&
         currentTime - taskInfo.completeTime > retentionTime
       ) {
-        this.tasks.delete(taskId);
+        this.activePool.delete(taskId);
         this.taskManagers.delete(taskId);
+        await this.unpersistTask(taskId);
+        cleanedCount++;
+      }
+    }
+
+    // Clean up from archived refs
+    for (const [taskId, taskInfo] of this.archivedRefs.entries()) {
+      if (
+        (taskInfo.status === "COMPLETED" ||
+          taskInfo.status === "FAILED" ||
+          taskInfo.status === "CANCELLED" ||
+          taskInfo.status === "TIMEOUT") &&
+        taskInfo.completeTime &&
+        currentTime - taskInfo.completeTime > retentionTime
+      ) {
+        this.archivedRefs.delete(taskId);
         await this.unpersistTask(taskId);
         cleanedCount++;
       }
@@ -677,11 +822,43 @@ export class TaskRegistry {
   }
 
   /**
-   * Get statistical information
+   * Clear all tasks (active pool, archived refs, and storage)
+   */
+  async clear(): Promise<void> {
+    // Clear from storage if persistence is enabled
+    if (this.storageAdapter) {
+      try {
+        await this.storageAdapter.clear();
+      } catch (error) {
+        logger.warn("Failed to clear task storage", { error });
+      }
+    }
+
+    this.activePool.clear();
+    this.archivedRefs.clear();
+    this.taskManagers.clear();
+    this.stats = {
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      timeout: 0,
+    };
+  }
+
+  /**
+   * Get the number of tasks (active pool + archived refs)
+   * @returns The number of tasks
+   */
+  size(): number {
+    return this.activePool.size + this.archivedRefs.size;
+  }
+
+  /**
+   * Get statistical information (only from active pool)
    * @returns Statistical information
    */
   getStats() {
-    const tasks = Array.from(this.tasks.values());
+    const tasks = Array.from(this.activePool.values());
 
     return {
       total: tasks.length,
@@ -695,40 +872,20 @@ export class TaskRegistry {
   }
 
   /**
-   * Clear all tasks
-   */
-  async clear(): Promise<void> {
-    // Clear from storage if persistence is enabled
-    if (this.storageAdapter) {
-      try {
-        await this.storageAdapter.clear();
-      } catch (error) {
-        logger.warn("Failed to clear task storage", { error });
-      }
-    }
-
-    this.tasks.clear();
-    this.taskManagers.clear();
-    this.stats = {
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-      timeout: 0,
-    };
-  }
-
-  /**
-   * Get the number of tasks
-   * @returns The number of tasks
-   */
-  size(): number {
-    return this.tasks.size;
-  }
-
-  /**
    * Close the registry and release resources
    */
   async close(): Promise<void> {
+    // Flush any pending persistence
+    if (this.persistenceMode === 'auto-batch') {
+      await this.flushBatchPersistence();
+    }
+
+    // Clear timer
+    if (this.batchPersistenceTimer) {
+      clearTimeout(this.batchPersistenceTimer);
+      this.batchPersistenceTimer = undefined;
+    }
+
     if (this.storageAdapter) {
       try {
         await this.storageAdapter.close();

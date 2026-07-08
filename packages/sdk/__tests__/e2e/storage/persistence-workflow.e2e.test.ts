@@ -32,7 +32,6 @@ const createMetadata = (
 async function createStorage(): Promise<WorkflowStorageAdapter> {
   const storage = new SqliteWorkflowStorage({
     dbPath,
-    useConnectionPool: false,
   }) as unknown as WorkflowStorageAdapter;
   await storage.initialize();
   return storage;

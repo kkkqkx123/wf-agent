@@ -27,9 +27,8 @@ import type {
   ChildExecutionConfig,
 } from "../factories/workflow-execution-builder.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
-import { TaskRegistry, type TaskManager } from "../../stores/task/task-registry.js";
+import { TaskRegistry, type TaskManager } from "../../../shared/stores/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
-import { TaskQueue } from "../../stores/task/task-queue.js";
 import { AsyncCompletionManager } from "../../state-managers/async-completion-manager.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
@@ -73,9 +72,9 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   private workflowExecutionPool: WorkflowExecutionPool;
 
   /**
-   * Task Queue Manager
+   * Task Queue Manager (deprecated, kept for backward compatibility)
    */
-  private taskQueueManager: TaskQueue;
+  private taskQueueManager?: any;
 
   /**
    * Event Manager
@@ -157,7 +156,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         options: { type: ChildExecutionType; config: ChildExecutionConfig },
       ) => Promise<WorkflowExecutionBuildResultSimple>;
     },
-    taskQueueManager: TaskQueue,
+    taskQueueManager: any,
     eventManager: EventRegistry,
     workflowExecutionPool: WorkflowExecutionPool,
     agentExecutionRegistry: IAgentExecutionRegistry,

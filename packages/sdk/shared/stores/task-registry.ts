@@ -10,17 +10,16 @@
  *
  * Design Principles:
  * - Managed by DI container (one instance per SDK instance)
- * - Workflow-execution-safe management of task information
+ * - Unified task management for Agent and Workflow executions
  * - Supports regular cleaning of expired tasks
  * - Provides manager routing functionality
  * - Optional persistence layer for task data
  * - Initialized automatically by DI container with proper async initialization
  */
 
-import { generateId } from "../../../utils/index.js";
+import { generateId } from "../../utils/index.js";
 import { now } from "@wf-agent/common-utils";
-import type { WorkflowExecutionEntity } from "../../entities/index.js";
-import type { WorkflowExecutionResult, TaskStorageMetadata } from "@wf-agent/types";
+import type { TaskStorageMetadata } from "@wf-agent/types";
 import {
   TaskStatus,
   type TaskInfo,
@@ -30,11 +29,11 @@ import {
   isWorkflowExecutionInstance,
   hasLoadedInstance,
   isStoredTaskInfo,
-} from "../../../shared/types/index.js";
+} from "../types/index.js";
 import type { TaskStorageAdapter } from "@wf-agent/storage";
 import { ErrorCodec, StateCodec } from "@wf-agent/common-utils";
-import { type TaskSnapshot, TaskSerializationUtils } from "../../../shared/types/index.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { type TaskSnapshot, TaskSerializationUtils } from "../types/index.js";
+import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TaskRegistry" });
 
@@ -59,13 +58,30 @@ export interface TaskManager {
 }
 
 /**
+ * Task status update metadata
+ */
+export interface TaskStatusUpdateMetadata {
+  /** Execution result (for COMPLETED status) */
+  result?: unknown;
+  /** Error object (for FAILED status) */
+  error?: Error;
+  /** Execution duration in milliseconds */
+  duration?: number;
+}
+
+/**
  * TaskRegistry Configuration
  */
 export interface TaskRegistryConfig {
   /** Optional storage adapter for persistence */
   storageAdapter?: TaskStorageAdapter;
-  /** Enable auto-persist on status changes */
-  autoPersist?: boolean;
+  /**
+   * Persistence mode:
+   * - 'none': No persistence (in-memory only)
+   * - 'auto': Automatically persist on status changes (default with adapter)
+   * - 'manual': Explicit persistence via persistNow()
+   */
+  persistenceMode?: 'none' | 'auto' | 'manual';
 }
 
 /**
@@ -99,9 +115,9 @@ export class TaskRegistry {
   private storageAdapter?: TaskStorageAdapter;
 
   /**
-   * Auto-persist flag
+   * Persistence mode: 'none' | 'auto' | 'manual'
    */
-  private autoPersist: boolean = false;
+  private persistenceMode: 'none' | 'auto' | 'manual' = 'none';
 
   /**
    * Lifecycle state: 'uninitialized' | 'initializing' | 'initialized' | 'error'
@@ -133,10 +149,11 @@ export class TaskRegistry {
   constructor(config?: TaskRegistryConfig) {
     if (config?.storageAdapter) {
       this.storageAdapter = config.storageAdapter;
-      this.autoPersist = config.autoPersist ?? true;
+      this.persistenceMode = config.persistenceMode ?? 'auto';
       // Leave state as 'uninitialized', requires explicit initialize() call
     } else {
       // No storage adapter, immediately ready for in-memory use
+      this.persistenceMode = 'none';
       this.state = 'initialized';
     }
   }
@@ -238,9 +255,10 @@ export class TaskRegistry {
   /**
    * Persist a single task to storage
    * @param taskId Task ID
+   * @internal Internal method, called by updateStatus() when persistenceMode='auto'
    */
   private async persistTask(taskId: string): Promise<void> {
-    if (!this.storageAdapter || !this.autoPersist) return;
+    if (this.persistenceMode === 'none' || !this.storageAdapter) return;
 
     const taskInfo = this.tasks.get(taskId);
     if (!taskInfo) return;
@@ -360,90 +378,73 @@ export class TaskRegistry {
   }
 
   /**
-   * Register a WorkflowExecution task (convenience method for backward compatibility)
-   * @param executionEntity WorkflowExecution entity
-   * @param manager Task manager
-   * @param timeout Timeout period (in milliseconds)
-   * @returns Task ID
-   */
-  registerWorkflowExecution(
-    executionEntity: WorkflowExecutionEntity,
-    manager: TaskManager,
-    timeout?: number,
-  ): string {
-    return this.register(executionEntity, "workflowExecution", manager, timeout);
-  }
-
-  /**
-   * Update the task status to Running.
+   * Update task status with optional metadata
+   *
+   * Unified method for all status transitions. Automatically:
+   * - Records timestamps (startTime for RUNNING, completeTime for terminal states)
+   * - Updates statistics counters (completed, failed, cancelled, timeout)
+   * - Persists to storage (if persistenceMode='auto')
+   *
    * @param taskId Task ID
+   * @param status New task status
+   * @param metadata Optional metadata (result, error, duration)
    */
-  updateStatusToRunning(taskId: string): void {
+  updateStatus(taskId: string, status: TaskStatus, metadata?: TaskStatusUpdateMetadata): void {
     const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "RUNNING";
+    if (!taskInfo) return;
+
+    // Update status
+    taskInfo.status = status;
+
+    // Record start time for RUNNING state
+    if (status === "RUNNING") {
       taskInfo.startTime = now();
+    }
+
+    // Record completion time and metadata for terminal states
+    if (status === "COMPLETED" || status === "FAILED" || status === "CANCELLED" || status === "TIMEOUT") {
+      taskInfo.completeTime = now();
+
+      // Apply metadata
+      if (metadata?.result !== undefined) {
+        taskInfo.result = metadata.result;
+      }
+      if (metadata?.error !== undefined) {
+        taskInfo.error = metadata.error;
+      }
+
+      // Update statistics
+      switch (status) {
+        case "COMPLETED":
+          this.stats.completed++;
+          break;
+        case "FAILED":
+          this.stats.failed++;
+          break;
+        case "CANCELLED":
+          this.stats.cancelled++;
+          break;
+        case "TIMEOUT":
+          this.stats.timeout++;
+          break;
+      }
+    }
+
+    // Persist if in auto mode
+    if (this.persistenceMode === "auto") {
       this.persistTask(taskId).catch(() => {});
     }
   }
 
   /**
-   * Update the task status to Completed
-   * @param taskId Task ID
-   * @param result Execution result
-   */
-  updateStatusToCompleted(taskId: string, result: WorkflowExecutionResult): void {
-    const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "COMPLETED";
-      taskInfo.completeTime = now();
-      taskInfo.result = result;
-      this.stats.completed++;
-      this.persistTask(taskId).catch(() => {});
-    }
-  }
-
-  /**
-   * Update the task status to Failed.
-   * @param taskId Task ID
-   * @param error Error message
-   */
-  updateStatusToFailed(taskId: string, error: Error): void {
-    const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "FAILED";
-      taskInfo.completeTime = now();
-      taskInfo.error = error;
-      this.stats.failed++;
-      this.persistTask(taskId).catch(() => {});
-    }
-  }
-
-  /**
-   * Update the task status to Canceled
+   * Explicitly persist a task to storage
+   * Only applicable when persistenceMode='manual'
+   *
    * @param taskId Task ID
    */
-  updateStatusToCancelled(taskId: string): void {
-    const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "CANCELLED";
-      taskInfo.completeTime = now();
-      this.stats.cancelled++;
-      this.persistTask(taskId).catch(() => {});
-    }
-  }
-
-  /**
-   * Update the task status to Timeout
-   * @param taskId Task ID
-   */
-  updateStatusToTimeout(taskId: string): void {
-    const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "TIMEOUT";
-      taskInfo.completeTime = now();
-      this.stats.timeout++;
-      this.persistTask(taskId).catch(() => {});
+  async persistNow(taskId: string): Promise<void> {
+    if (this.persistenceMode === "manual" || this.persistenceMode === "auto") {
+      await this.persistTask(taskId);
     }
   }
 
@@ -493,7 +494,7 @@ export class TaskRegistry {
     const success = await manager.cancelTask(taskId);
 
     if (success) {
-      this.updateStatusToCancelled(taskId);
+      this.updateStatus(taskId, "CANCELLED");
       this.taskManagers.delete(taskId);
     }
 
@@ -610,6 +611,10 @@ export class TaskRegistry {
           task.instanceType === "workflowExecution" &&
           isWorkflowExecutionInstance(task.instance)
         ) {
+          return task.instance.id === executionId;
+        }
+        // Support agent type as well
+        if (task.instanceType === "agent") {
           return task.instance.id === executionId;
         }
         return false;

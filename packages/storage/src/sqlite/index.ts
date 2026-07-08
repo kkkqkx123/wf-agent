@@ -11,12 +11,6 @@ export { SqliteTaskStorage } from "./sqlite-task-storage.js";
 export { SqliteAgentLoopStorage } from "./sqlite-agent-loop-storage.js";
 export { SqliteMetricsStorage, type SqliteMetricsStorageConfig } from "./sqlite-metrics-storage.js";
 export { SqliteFileCheckpointStore, type SqliteFileCheckpointStoreConfig } from "./sqlite-file-checkpoint-store.js";
-export {
-  SqliteConnectionPool,
-  type ConnectionPoolConfig,
-  getGlobalConnectionPool,
-  resetGlobalConnectionPool,
-} from "./connection-pool.js";
 // Re-export compression utilities for backward compatibility
 export {
   compressBlob,

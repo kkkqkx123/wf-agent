@@ -3,4 +3,4 @@
  * Provides agent loop registry for instance management.
  */
 
-export { AgentLoopRegistry } from "./agent-loop-registry.js";
+export { AgentLoopRegistry, type AgentTaskManager, type AgentTaskInfo, type AgentTaskStats } from "./agent-loop-registry.js";

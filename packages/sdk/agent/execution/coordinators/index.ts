@@ -22,3 +22,8 @@ export {
   ToolExecutionCoordinator,
   type ToolExecutionCoordinatorDependencies,
 } from "./tool-execution-coordinator.js";
+export {
+  TriggeredAgentExecutionManager,
+  type TriggeredAgentExecutionConfig,
+  type AgentExecutorCallback,
+} from "./triggered-agent-execution-manager.js";

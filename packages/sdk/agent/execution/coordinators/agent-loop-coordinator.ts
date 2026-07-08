@@ -2,6 +2,8 @@
  * AgentLoopCoordinator - Agent Loop Lifecycle Coordinator
  *
  * Coordinates the full lifecycle management of AgentLoopEntities.
+ * Implements AgentTaskManager to support task-level management (for async execution).
+ *
  * Refer to the design pattern of WorkflowLifecycleCoordinator.
  */
 
@@ -17,7 +19,7 @@ import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
-import { AgentLoopRegistry } from "../../stores/agent-loop-registry.js";
+import { AgentLoopRegistry, type AgentTaskManager } from "../../stores/agent-loop-registry.js";
 import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent-loop-executor.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
@@ -65,7 +67,7 @@ export interface AgentLoopExecuteOptions extends AgentLoopEntityOptions {
  * - Dependency injection: Receives dependencies through the constructor.
  * - Process orchestration: Handles complex multi-step operations.
  */
-export class AgentLoopCoordinator {
+export class AgentLoopCoordinator implements AgentTaskManager {
   private readonly stateTransitor: AgentLoopStateTransitor;
   private checkpointCoordinator?: AgentLoopCheckpointCoordinator;
   private checkpointDependencies?: CheckpointDependencies;
@@ -435,6 +437,11 @@ export class AgentLoopCoordinator {
 
   /**
    * Execute Agent Loop
+   *
+   * Unified execution path supporting both root and triggered executions:
+   * - Root: Direct synchronous execution via executeRootAgent()
+   * - Triggered: Queue-based execution via TriggeredAgentExecutionManager
+   *
    * @param config: Loop configuration
    * @param options: Execution options
    * @returns: Execution result
@@ -452,6 +459,62 @@ export class AgentLoopCoordinator {
       toolsCount: getAvailableTools(config.availableTools).length,
     });
 
+    // 1.5: Check if this is a triggered execution
+    const parentContext = entity.getParentContext();
+    if (parentContext) {
+      logger.info("Routing triggered agent loop execution to TriggeredAgentExecutionManager", {
+        agentLoopId: entity.id,
+        parentId: parentContext.parentId,
+        parentType: parentContext.parentType,
+      });
+
+      // Triggered execution: route to TriggeredAgentExecutionManager
+      const triggeredAgentManager = this.globalContext.container.get(
+        Identifiers.TriggeredAgentExecutionManager,
+      );
+      return await (triggeredAgentManager as any).submitTriggeredExecution(
+        {
+          executionId: entity.id,
+          parentEntity: entity,
+          parentType: "AGENT_LOOP",
+          waitForCompletion: true,
+        },
+        entity,
+        config,
+      );
+    }
+
+    // Root execution: proceed with standard execution path
+    return await this.executeRootAgent(config, entity, stateCoordinator);
+  }
+
+  /**
+   * Execute triggered agent (internal method for TriggeredAgentExecutionManager)
+   * @internal
+   */
+  async executeTriggeredAgent(
+    entity: AgentLoopEntity,
+    config: AgentLoopRuntimeConfig,
+  ): Promise<AgentLoopResult> {
+    // Get state coordinator that was registered during manager setup
+    const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+    if (!stateCoordinator) {
+      throw new Error(`State coordinator not found for agent loop: ${entity.id}`);
+    }
+
+    // Execute via unified root path
+    return await this.executeRootAgent(config, entity, stateCoordinator);
+  }
+
+  /**
+   * Execute root agent (synchronous path with optional task tracking)
+   * @private
+   */
+  private async executeRootAgent(
+    _config: AgentLoopRuntimeConfig,
+    entity: AgentLoopEntity,
+    stateCoordinator: AgentStateCoordinator,
+  ): Promise<AgentLoopResult> {
     // Record execution start metrics
     if (this.metricsCollector) {
       this.metricsCollector.recordExecutionStart(entity.id, entity.id);
@@ -495,12 +558,24 @@ export class AgentLoopCoordinator {
           // Create checkpoint before completion
           await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_complete");
           await this.stateTransitor.completeAgentLoop(entity, result);
+
+          // Update task status if tracking
+          const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+          if (taskId) {
+            this.registry.updateTaskStatusToCompleted(taskId, result);
+          }
         }
       } else {
         if (entity.getStatus() === AgentLoopStatus.RUNNING) {
           // Create checkpoint before failure
           await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
           await this.stateTransitor.failAgentLoop(entity, result.error);
+
+          // Update task status if tracking
+          const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+          if (taskId) {
+            this.registry.updateTaskStatusToFailed(taskId, result.error as Error);
+          }
         }
       }
 
@@ -555,6 +630,12 @@ export class AgentLoopCoordinator {
         // Create checkpoint before failure
         await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
         await this.stateTransitor.failAgentLoop(entity, error);
+
+        // Update task status if tracking
+        const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+        if (taskId) {
+          this.registry.updateTaskStatusToFailed(taskId, error as Error);
+        }
       } catch (stateError) {
         logger.warn("Failed to transition agent loop to FAILED state", {
           agentLoopId: entity.id,
@@ -577,6 +658,78 @@ export class AgentLoopCoordinator {
         });
       }
     }
+  }
+
+  /**
+   * Submit Agent Loop for asynchronous execution (for triggered execution from Workflow)
+   *
+   * This method supports async execution where the caller does not wait for completion.
+   * Instead, a task ID is returned and callbacks can be registered for completion/error handling.
+   *
+   * @param config Loop configuration
+   * @param options Execution options (may include parentContext)
+   * @param timeout Optional timeout in milliseconds
+   * @returns Task submission result with task ID
+   *
+   * @deprecated Use TriggeredAgentExecutionManager for triggered execution
+   */
+  async submitAsync(
+    config: AgentLoopRuntimeConfig,
+    options: AgentLoopExecuteOptions = {},
+    timeout?: number,
+  ): Promise<{ taskId: string; status: string; submitTime: number }> {
+    // Delegate to triggered manager for async execution
+    const triggeredAgentManager = this.globalContext.container.get(
+      Identifiers.TriggeredAgentExecutionManager,
+    );
+
+    const { entity, stateCoordinator } = await this.buildEntity(config, options);
+    this.registry.register(entity);
+    this.registry.registerStateCoordinator(entity.id, stateCoordinator);
+
+    return await (triggeredAgentManager as any).submitTriggeredExecution(
+      {
+        executionId: entity.id,
+        parentEntity: entity,
+        parentType: "AGENT_LOOP",
+        timeout,
+        waitForCompletion: false,
+      },
+      entity,
+      config,
+    );
+  }
+
+  /**
+   * Cancel a task (implements AgentTaskManager interface)
+   * @param taskId Task ID
+   * @returns Whether cancellation was successful
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    const taskInfo = this.registry.getTaskInfo(taskId);
+    if (!taskInfo) {
+      return false;
+    }
+
+    // Find and pause the agent loop
+    const entity = await this.registry.get(taskInfo.agentLoopId);
+    if (entity) {
+      entity.stop();
+      await this.stateTransitor.cancelAgentLoop(entity, "Task cancelled");
+      this.registry.updateTaskStatusToCancelled(taskId);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get task status (implements AgentTaskManager interface)
+   * @param taskId Task ID
+   * @returns Task information or null
+   */
+  getTaskStatus(taskId: string) {
+    return this.registry.getTaskInfo(taskId);
   }
 
   /**

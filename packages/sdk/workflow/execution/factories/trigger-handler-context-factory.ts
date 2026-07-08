@@ -18,7 +18,6 @@ import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { TriggerState } from "../../state-managers/trigger-state.js";
 import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.js";
 import type { WorkflowExecutionBuilder } from "./workflow-execution-builder.js";
-import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowStateTransitor } from "../coordinators/workflow-state-transitor.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
 import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
@@ -57,7 +56,6 @@ export interface ExecuteSubgraphTriggerContext {
   workflowExecutionRegistry: WorkflowExecutionRegistry;
   eventManager: EventRegistry;
   executionBuilder: WorkflowExecutionBuilder;
-  taskQueueManager: TaskQueue;
   parentExecutionId: string;
 }
 
@@ -84,8 +82,6 @@ export interface TriggerHandlerContextFactoryConfig {
   eventManager?: EventRegistry;
   /** Workflow Execution Builder */
   executionBuilder?: WorkflowExecutionBuilder;
-  /** Task Queue Manager */
-  taskQueueManager?: TaskQueue;
   /** Workflow State Transitor */
   workflowLifecycleCoordinator?: WorkflowStateTransitor;
   /** Workflow State Coordinator Map (optional, for message operation actions) */
@@ -232,22 +228,10 @@ export class TriggerHandlerContextFactory {
       );
     }
 
-    if (!this.config.taskQueueManager) {
-      throw new DependencyInjectionError(
-        "TaskQueue is required for execute_triggered_subworkflow trigger action",
-        "TaskQueue",
-        "TriggerHandlerContextFactory.createSubgraphContext",
-        undefined,
-        undefined,
-        { triggerId, actionType },
-      );
-    }
-
     return {
       workflowExecutionRegistry: this.config.workflowExecutionRegistry,
       eventManager: this.config.eventManager,
       executionBuilder: this.config.executionBuilder,
-      taskQueueManager: this.config.taskQueueManager,
       parentExecutionId: parentExecutionId || "",
     };
   }

@@ -13,7 +13,7 @@
  * - Automatically handles coordination between the queue and the execution pool
  */
 
-import { TaskRegistry } from "../../workflow/stores/task/task-registry.js";
+import { TaskRegistry } from "../stores/task-registry.js";
 import { ExecutionPool, type Executor } from "./execution-pool.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import {
@@ -229,7 +229,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
         const executor = await this.poolService.allocateExecutor();
 
         // Update task status
-        this.taskRegistry.updateStatusToRunning(queueTask.taskId);
+        this.taskRegistry.updateStatus(queueTask.taskId, "RUNNING");
         this.runningTasks.set(queueTask.taskId, queueTask);
 
         // Execute the task.
@@ -291,7 +291,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     executionTime: number,
   ): Promise<void> {
     // Update task registry
-    this.taskRegistry.updateStatusToCompleted(queueTask.taskId, result as WorkflowExecutionResult);
+    this.taskRegistry.updateStatus(queueTask.taskId, "COMPLETED", { result: result as WorkflowExecutionResult });
 
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
@@ -335,7 +335,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     _executionTime: number,
   ): Promise<void> {
     // Update task registry
-    this.taskRegistry.updateStatusToFailed(queueTask.taskId, error);
+    this.taskRegistry.updateStatus(queueTask.taskId, "FAILED", { error });
 
     // Remove from the running tasks.
     this.runningTasks.delete(queueTask.taskId);
@@ -372,7 +372,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
         return false;
       }
 
-      this.taskRegistry.updateStatusToCancelled(taskId);
+      this.taskRegistry.updateStatus(taskId, "CANCELLED");
 
       // Trigger the cancellation event (for workflow execution instances)
       if (isWorkflowExecutionInstance(queueTask.instance)) {
@@ -427,7 +427,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
   clear(): void {
     // Cancel all pending tasks.
     for (const queueTask of this.pendingQueue) {
-      this.taskRegistry.updateStatusToCancelled(queueTask.taskId);
+      this.taskRegistry.updateStatus(queueTask.taskId, "CANCELLED");
     }
 
     this.pendingQueue = [];

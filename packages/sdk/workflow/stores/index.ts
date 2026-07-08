@@ -18,5 +18,4 @@ export {
   initializeWorkflowsFromStorage,
 } from "./utils/workflow-storage-utils.js";
 
-export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task/task-registry.js";
-export { TaskQueue } from "./task/task-queue.js";
+export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "../../shared/stores/task-registry.js";

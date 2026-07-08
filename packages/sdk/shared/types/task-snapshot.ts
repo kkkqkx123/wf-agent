@@ -14,7 +14,6 @@ import type {
   SnapshotBase,
   SerializedError,
   TaskStatus,
-  WorkflowExecutionResult,
 } from "@wf-agent/types";
 import { ErrorCodec } from "@wf-agent/common-utils";
 
@@ -42,8 +41,8 @@ export interface TaskSnapshot extends SnapshotBase {
   startTime?: number;
   /** Completion time */
   completeTime?: number;
-  /** Execution result (upon success) - WorkflowExecutionResult is a pure data structure */
-  result?: WorkflowExecutionResult;
+  /** Execution result (upon success) - supports WorkflowExecutionResult, AgentLoopResult, or other execution results */
+  result?: unknown;
   /** Error message (in case of failure) */
   error?: SerializedError;
   /** Timeout period (in milliseconds) */
@@ -69,7 +68,7 @@ export const TaskSerializationUtils = {
     submitTime: number;
     startTime?: number;
     completeTime?: number;
-    result?: WorkflowExecutionResult;
+    result?: unknown;
     error?: Error;
     timeout?: number;
   }): TaskSnapshot {

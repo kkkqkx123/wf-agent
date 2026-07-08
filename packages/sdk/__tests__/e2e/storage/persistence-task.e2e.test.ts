@@ -30,7 +30,6 @@ const createMetadata = (
 async function createStorage(): Promise<TaskStorageAdapter> {
   const storage = new SqliteTaskStorage({
     dbPath,
-    useConnectionPool: false,
   }) as unknown as TaskStorageAdapter;
   await storage.initialize();
   return storage;

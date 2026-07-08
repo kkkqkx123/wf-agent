@@ -29,7 +29,6 @@ async function createStorage(verifyIntegrity = false): Promise<CheckpointStorage
   const storage = new SqliteCheckpointStorage({
     dbPath,
     verifyIntegrity,
-    useConnectionPool: false,
   }) as unknown as CheckpointStorageAdapter;
   await storage.initialize();
   return storage;

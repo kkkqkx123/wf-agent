@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ExecutionQueue } from "../execution-queue.js";
 import { ExecutionPool, type Executor, type ExecutorFactory } from "../execution-pool.js";
 import type { ExecutionInstance } from "../../types/index.js";
-import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
+import type { TaskRegistry } from "../../../shared/stores/task-registry.js";
 import type { EventRegistry } from "../../registry/event-registry.js";
 
 // ---------------------------------------------------------------------------
@@ -24,10 +24,7 @@ import type { EventRegistry } from "../../registry/event-registry.js";
 
 function createMockTaskRegistry(): TaskRegistry {
   return {
-    updateStatusToRunning: vi.fn(),
-    updateStatusToCompleted: vi.fn(),
-    updateStatusToFailed: vi.fn(),
-    updateStatusToCancelled: vi.fn(),
+    updateStatus: vi.fn(),
     getStats: vi.fn().mockReturnValue({
       completed: 0,
       failed: 0,
@@ -150,7 +147,7 @@ describe("ExecutionQueue", () => {
       const instance = createWFInstance("task-run-1");
       await queue.submitSync("task-run-1", instance, "workflowExecution");
 
-      expect(taskRegistry.updateStatusToRunning).toHaveBeenCalledWith("task-run-1");
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith("task-run-1", "RUNNING");
     });
 
     it("should call taskRegistry.updateStatusToCompleted on success", async () => {
@@ -165,8 +162,9 @@ describe("ExecutionQueue", () => {
       const instance = createWFInstance("task-complete");
       await queue.submitSync("task-complete", instance, "workflowExecution");
 
-      expect(taskRegistry.updateStatusToCompleted).toHaveBeenCalledWith(
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith(
         "task-complete",
+        "COMPLETED",
         expect.anything(),
       );
     });
@@ -187,9 +185,10 @@ describe("ExecutionQueue", () => {
         "Execution failure",
       );
 
-      expect(taskRegistry.updateStatusToFailed).toHaveBeenCalledWith(
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith(
         "task-fail",
-        expect.any(Error),
+        "FAILED",
+        expect.any(Object),
       );
     });
 
@@ -268,8 +267,8 @@ describe("ExecutionQueue", () => {
       // Yield to the event loop so the async processing runs
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      expect(taskRegistry.updateStatusToRunning).toHaveBeenCalledWith("async-exec");
-      expect(taskRegistry.updateStatusToCompleted).toHaveBeenCalled();
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith("async-exec", "RUNNING");
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith("async-exec", "COMPLETED", expect.anything());
     });
 
     it("should handle async task failure without throwing", async () => {
@@ -288,7 +287,7 @@ describe("ExecutionQueue", () => {
 
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      expect(taskRegistry.updateStatusToFailed).toHaveBeenCalled();
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith("async-fail", "FAILED", expect.anything());
     });
   });
 
@@ -320,7 +319,7 @@ describe("ExecutionQueue", () => {
       const cancelled = queue.cancelTask("cancel-me");
 
       expect(cancelled).toBe(true);
-      expect(taskRegistry.updateStatusToCancelled).toHaveBeenCalledWith("cancel-me");
+      expect(taskRegistry.updateStatus).toHaveBeenCalledWith("cancel-me", "CANCELLED");
     });
 
     it("should return false for non-existent task", () => {

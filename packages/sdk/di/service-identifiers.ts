@@ -21,7 +21,7 @@ import type { WorkflowRelationshipRegistry as WorkflowRelationshipRegistryType }
 import type { NodeTemplateRegistry as NodeTemplateRegistryType } from "@sdk/shared/registry/node-template-registry.js";
 import type { TriggerTemplateRegistry as TriggerTemplateRegistryType } from "@sdk/shared/registry/trigger-template-registry.js";
 import type { HookTemplateRegistry as HookTemplateRegistryType } from "@sdk/shared/registry/hook-template-registry.js";
-import type { TaskRegistry as TaskRegistryType } from "@sdk/workflow/stores/task/task-registry.js";
+import type { TaskRegistry as TaskRegistryType } from "@sdk/shared/stores/task-registry.js";
 import type { GlobalContext as GlobalContextType } from "@sdk/shared/global-context.js";
 import type { WorkflowExecutionBuilder as WorkflowExecutionBuilderType } from "@sdk/workflow/execution/factories/workflow-execution-builder.js";
 import type { WorkflowExecutor as WorkflowExecutorType } from "@sdk/workflow/execution/executors/workflow-executor.js";
@@ -46,6 +46,8 @@ import type { SDKInstance as SDKInstanceType } from "@sdk/api/shared/core/sdk-in
 import type { SDKOptions as SDKOptionsType } from "@sdk/api/shared/types/core-types.js";
 import type { TriggeredSubworkflowHandler as TriggeredSubworkflowHandlerType } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
 import type { WorkflowExecutionPool as WorkflowExecutionPoolType } from "@sdk/workflow/execution/workflow-execution-pool.js";
+import type { TriggeredWorkflowExecutionManager as TriggeredWorkflowExecutionManagerType } from "@sdk/workflow/execution/coordinators/triggered-workflow-execution-manager.js";
+import type { TriggeredAgentExecutionManager as TriggeredAgentExecutionManagerType } from "@sdk/agent/execution/coordinators/triggered-agent-execution-manager.js";
 import type { LLMWrapper as LLMWrapperType } from "@sdk/services/llm/wrapper.js";
 import type { AgentLoopRegistry as AgentLoopRegistryType } from "@sdk/agent/stores/agent-loop-registry.js";
 import type { IAgentExecutionRegistry as AgentExecutionRegistryType } from "@sdk/agent/stores/agent-execution-registry.js";
@@ -354,6 +356,26 @@ export const TriggeredSubworkflowHandler: ServiceIdentifier<TriggeredSubworkflow
  */
 export const WorkflowExecutionPool: ServiceIdentifier<WorkflowExecutionPoolType> =
   Symbol("WorkflowExecutionPool");
+
+/**
+ * TriggeredWorkflowExecutionManager - Triggered Workflow Execution Manager
+ * Manages the queue and execution of triggered (subworkflow) executions.
+ * Workflow-specific component for handling queueing, resource pooling, and task lifecycle
+ * of triggered workflow executions launched from parent workflows.
+ */
+export const TriggeredWorkflowExecutionManager: ServiceIdentifier<TriggeredWorkflowExecutionManagerType> = Symbol(
+  "TriggeredWorkflowExecutionManager",
+);
+
+/**
+ * TriggeredAgentExecutionManager - Triggered Agent Execution Manager
+ * Manages the queue and execution of triggered (nested) agent loop executions.
+ * Agent-specific component for handling queueing and task lifecycle
+ * of triggered agent executions launched from parent workflows.
+ */
+export const TriggeredAgentExecutionManager: ServiceIdentifier<TriggeredAgentExecutionManagerType> = Symbol(
+  "TriggeredAgentExecutionManager",
+);
 
 // ============================================================
 // Core Layer Services

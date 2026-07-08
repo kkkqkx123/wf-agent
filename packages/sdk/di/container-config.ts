@@ -69,8 +69,7 @@ import { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-template-r
 import { PromptTemplateRegistry } from "@sdk/shared/registry/prompt-template-registry.js";
 import { FragmentRegistry } from "@sdk/shared/registry/fragment-registry.js";
 
-import { TaskRegistry } from "@sdk/workflow/stores/task/task-registry.js";
-import { TaskQueue } from "@sdk/workflow/stores/task/task-queue.js";
+import { TaskRegistry } from "@sdk/shared/stores/task-registry.js";
 import { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
 import { WorkflowRelationshipRegistry } from "@sdk/workflow/stores/workflow-relationship-registry.js";
 import { WorkflowExecutionPool } from "@sdk/workflow/execution/workflow-execution-pool.js";
@@ -104,6 +103,9 @@ import { VariableCoordinator } from "@sdk/workflow/execution/coordinators/variab
 import { TriggerCoordinator } from "@sdk/workflow/execution/coordinators/trigger-coordinator.js";
 import { NodeExecutionCoordinator } from "@sdk/workflow/execution/coordinators/node-execution-coordinator.js";
 import { TriggeredSubworkflowHandler } from "@sdk/workflow/execution/handlers/triggered-subworkflow-handler.js";
+import { TriggeredWorkflowExecutionManager } from "@sdk/workflow/execution/coordinators/triggered-workflow-execution-manager.js";
+import { TriggeredAgentExecutionManager } from "@sdk/agent/execution/coordinators/triggered-agent-execution-manager.js";
+import type { AgentExecutorCallback } from "@sdk/agent/execution/coordinators/triggered-agent-execution-manager.js";
 import { LLMExecutionCoordinator } from "@sdk/workflow/execution/coordinators/llm-execution-coordinator.js";
 import { WorkflowNavigator } from "@sdk/workflow/builder/workflow-navigator.js";
 import { WorkflowLifecycleCoordinator } from "@sdk/workflow/execution/coordinators/workflow-lifecycle-coordinator.js";
@@ -365,7 +367,7 @@ export function configureContainerBindings(
       const storageAdapter = c.get(Identifiers.TaskStorageAdapter) as TaskStorageAdapter | null;
       return new TaskRegistry({
         storageAdapter: storageAdapter || undefined,
-        autoPersist: true,
+        persistenceMode: storageAdapter ? 'auto' : 'none',
       });
     })
     .inSingletonScope();
@@ -827,10 +829,6 @@ export function configureContainerBindings(
       const workflowExecutionBuilder = c.get(
         Identifiers.WorkflowExecutionBuilder,
       ) as WorkflowExecutionBuilder;
-      const taskRegistry = c.get(Identifiers.TaskRegistry) as TaskRegistry;
-      const workflowExecutionPool = c.get(
-        Identifiers.WorkflowExecutionPool,
-      ) as WorkflowExecutionPool;
       const stateManagerFactory = c.get(Identifiers.TriggerState);
       const checkpointStateManager = c.get(Identifiers.CheckpointState) as CheckpointState;
       const stateTransitorFactory = c.get(Identifiers.WorkflowStateTransitor);
@@ -843,7 +841,6 @@ export function configureContainerBindings(
           const workflowStateTransitor = (
             stateTransitorFactory as unknown as IdBasedServiceFactory<WorkflowStateTransitor>
           ).create(executionId);
-          const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
           return new TriggerCoordinator({
             workflowExecutionRegistry: workflowExecutionRegistry,
             workflowRegistry,
@@ -852,7 +849,6 @@ export function configureContainerBindings(
             graphRegistry: workflowGraphRegistry,
             eventManager,
             executionBuilder: workflowExecutionBuilder,
-            taskQueueManager,
             workflowLifecycleCoordinator: workflowStateTransitor,
             globalContext: c.get(Identifiers.GlobalContext) as GlobalContext,
           });
@@ -873,7 +869,6 @@ export function configureContainerBindings(
       const workflowExecutionPool = c.get(
         Identifiers.WorkflowExecutionPool,
       ) as WorkflowExecutionPool;
-      const taskQueueManager = new TaskQueue(taskRegistry, workflowExecutionPool, eventManager);
       const workflowExecutionRegistry = c.get(
         Identifiers.WorkflowExecutionRegistry,
       ) as WorkflowExecutionRegistry;
@@ -890,7 +885,7 @@ export function configureContainerBindings(
         taskRegistry,
         workflowExecutionRegistryAdapter,
         c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder,
-        taskQueueManager,
+        undefined, // taskQueueManager is no longer used
         eventManager,
         workflowExecutionPool,
         c.get(Identifiers.AgentExecutionRegistry) as IAgentExecutionRegistry,
@@ -1250,6 +1245,42 @@ export function configureContainerBindings(
       return new WorkflowExecutionPool(
         () => c.get(Identifiers.WorkflowExecutor) as WorkflowExecutor,
         config,
+      );
+    })
+    .inSingletonScope();
+
+  // TriggeredWorkflowExecutionManager - Triggered Workflow Execution Manager
+  // Simplified manager that combines queue and pool coordination
+  // Singleton service, all triggered workflows share the same manager instance
+  container
+    .bind(Identifiers.TriggeredWorkflowExecutionManager)
+    .toDynamicValue((c: IContainer): TriggeredWorkflowExecutionManager => {
+      return new TriggeredWorkflowExecutionManager(
+        c.get(Identifiers.TaskRegistry) as TaskRegistry,
+        c.get(Identifiers.WorkflowExecutionPool) as WorkflowExecutionPool,
+        c.get(Identifiers.EventRegistry) as EventRegistry,
+      );
+    })
+    .inSingletonScope();
+
+  // TriggeredAgentExecutionManager - Triggered Agent Execution Manager
+  // Mirrors WorkflowExecutionManager for symmetry
+  // Singleton service, all triggered agent loops share the same manager instance
+  container
+    .bind(Identifiers.TriggeredAgentExecutionManager)
+    .toDynamicValue((c: IContainer): TriggeredAgentExecutionManager => {
+      const agentCoordinator = c.get(Identifiers.AgentLoopCoordinator) as any;
+
+      // Create executor callback that delegates to coordinator
+      const executorCallback: AgentExecutorCallback = async (entity, config) => {
+        // Call coordinator's executeTriggeredAgent method
+        // This allows TriggeredAgentExecutionManager to reuse existing execution logic
+        return await agentCoordinator.executeTriggeredAgent(entity, config);
+      };
+
+      return new TriggeredAgentExecutionManager(
+        c.get(Identifiers.TaskRegistry) as TaskRegistry,
+        executorCallback,
       );
     })
     .inSingletonScope();

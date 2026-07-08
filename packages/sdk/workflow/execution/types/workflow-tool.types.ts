@@ -11,7 +11,6 @@ import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-
 import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
-import type { TaskQueue } from "../../stores/task/task-queue.js";
 import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
@@ -58,8 +57,8 @@ export interface WorkflowToolExecutionContext {
   eventManager?: EventRegistry;
   /** Workflow execution builder */
   workflowExecutionBuilder?: WorkflowExecutionBuilder;
-  /** Task queue manager */
-  taskQueueManager?: TaskQueue;
+  /** Task queue manager (deprecated) */
+  taskQueueManager?: any;
   /** Workflow registry */
   workflowRegistry?: WorkflowRegistry;
   /** Graph registry */

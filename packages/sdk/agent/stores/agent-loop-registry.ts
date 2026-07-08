@@ -13,9 +13,47 @@ import type { AgentEntityMetadata } from "@wf-agent/types";
 import type { IAgentExecutionRegistry, AgentExecutionFilter } from "./agent-execution-registry.js";
 import type { AgentStateCoordinator } from "../state-managers/agent-state-coordinator.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { getErrorMessage } from "@wf-agent/common-utils";
+import { getErrorMessage, now } from "@wf-agent/common-utils";
+import { generateId } from "../../utils/index.js";
+import type { TaskStatus } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "AgentLoopRegistry" });
+
+/**
+ * Task Manager Interface for Agent Task Routing
+ */
+export interface AgentTaskManager {
+  cancelTask(taskId: string): Promise<boolean>;
+  getTaskStatus(taskId: string): AgentTaskInfo | null;
+}
+
+/**
+ * Agent Task Info - Tracks task lifecycle (for async execution)
+ */
+export interface AgentTaskInfo {
+  id: string;
+  agentLoopId: ID;
+  status: TaskStatus;
+  submitTime: number;
+  startTime?: number;
+  completeTime?: number;
+  result?: unknown;
+  error?: Error;
+  timeout?: number;
+}
+
+/**
+ * Agent Task Statistics
+ */
+export interface AgentTaskStats {
+  total: number;
+  queued: number;
+  running: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  timeout: number;
+}
 
 /**
  * AgentLoopRegistry - Agent Loop Registry
@@ -35,6 +73,24 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   private entities: Map<ID, AgentLoopEntity> = new Map();
   /** State Coordinator Storage */
   private stateCoordinatorMap: Map<ID, AgentStateCoordinator> = new Map();
+
+  /** Task Storage (for async execution) - NEW */
+  private tasks: Map<string, AgentTaskInfo> = new Map();
+  /** Task Manager Routing (for async execution) - NEW */
+  private taskManagers: Map<string, AgentTaskManager> = new Map();
+  /** Task Statistics - NEW */
+  private taskStats: {
+    completed: number;
+    failed: number;
+    cancelled: number;
+    timeout: number;
+  } = {
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+    timeout: 0,
+  };
+
   private storageAdapter?: AgentLoopStorageAdapter;
 
   /**
@@ -410,5 +466,221 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
         error: getErrorMessage(error),
       });
     }
+  }
+
+  // ============================================================
+  // Task Management Methods (for async execution) - NEW
+  // ============================================================
+
+  /**
+   * Register an agent loop as a task (for async execution)
+   * @param entity Agent loop entity
+   * @param manager Task manager for this task
+   * @param timeout Optional timeout in milliseconds
+   * @returns Task ID
+   */
+  registerAsTask(entity: AgentLoopEntity, manager: AgentTaskManager, timeout?: number): string {
+    const taskId = generateId();
+
+    const taskInfo: AgentTaskInfo = {
+      id: taskId,
+      agentLoopId: entity.id,
+      status: "QUEUED",
+      submitTime: now(),
+      timeout,
+    };
+
+    this.tasks.set(taskId, taskInfo);
+    this.taskManagers.set(taskId, manager);
+
+    logger.debug("Agent loop registered as task", { taskId, agentLoopId: entity.id });
+
+    return taskId;
+  }
+
+  /**
+   * Update task status to RUNNING
+   * @param taskId Task ID
+   */
+  updateTaskStatusToRunning(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "RUNNING";
+      taskInfo.startTime = now();
+      logger.debug("Task status updated to RUNNING", { taskId });
+    }
+  }
+
+  /**
+   * Update task status to COMPLETED
+   * @param taskId Task ID
+   * @param result Execution result
+   */
+  updateTaskStatusToCompleted(taskId: string, result?: unknown): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "COMPLETED";
+      taskInfo.completeTime = now();
+      taskInfo.result = result;
+      this.taskStats.completed++;
+      logger.debug("Task status updated to COMPLETED", { taskId });
+    }
+  }
+
+  /**
+   * Update task status to FAILED
+   * @param taskId Task ID
+   * @param error Error details
+   */
+  updateTaskStatusToFailed(taskId: string, error: Error): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "FAILED";
+      taskInfo.completeTime = now();
+      taskInfo.error = error;
+      this.taskStats.failed++;
+      logger.debug("Task status updated to FAILED", { taskId });
+    }
+  }
+
+  /**
+   * Update task status to CANCELLED
+   * @param taskId Task ID
+   */
+  updateTaskStatusToCancelled(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "CANCELLED";
+      taskInfo.completeTime = now();
+      this.taskStats.cancelled++;
+      logger.debug("Task status updated to CANCELLED", { taskId });
+    }
+  }
+
+  /**
+   * Update task status to TIMEOUT
+   * @param taskId Task ID
+   */
+  updateTaskStatusToTimeout(taskId: string): void {
+    const taskInfo = this.tasks.get(taskId);
+    if (taskInfo) {
+      taskInfo.status = "TIMEOUT";
+      taskInfo.completeTime = now();
+      this.taskStats.timeout++;
+      logger.debug("Task status updated to TIMEOUT", { taskId });
+    }
+  }
+
+  /**
+   * Get task information
+   * @param taskId Task ID
+   * @returns Task information or null
+   */
+  getTaskInfo(taskId: string): AgentTaskInfo | null {
+    return this.tasks.get(taskId) || null;
+  }
+
+  /**
+   * Get tasks by status
+   * @param status Task status
+   * @returns Array of task IDs
+   */
+  getTasksByStatus(status: TaskStatus): string[] {
+    return Array.from(this.tasks.entries())
+      .filter(([_, task]) => task.status === status)
+      .map(([taskId]) => taskId);
+  }
+
+  /**
+   * Get task statistics
+   * @returns Task statistics
+   */
+  getTaskStats(): AgentTaskStats {
+    const tasks = Array.from(this.tasks.values());
+    return {
+      total: tasks.length,
+      queued: tasks.filter(t => t.status === "QUEUED").length,
+      running: tasks.filter(t => t.status === "RUNNING").length,
+      completed: this.taskStats.completed,
+      failed: this.taskStats.failed,
+      cancelled: this.taskStats.cancelled,
+      timeout: this.taskStats.timeout,
+    };
+  }
+
+  /**
+   * Cancel a task
+   * @param taskId Task ID
+   * @returns Whether cancellation was successful
+   */
+  async cancelTask(taskId: string): Promise<boolean> {
+    const manager = this.taskManagers.get(taskId);
+    if (!manager) {
+      return false;
+    }
+
+    const success = await manager.cancelTask(taskId);
+    if (success) {
+      this.updateTaskStatusToCancelled(taskId);
+      this.taskManagers.delete(taskId);
+    }
+
+    return success;
+  }
+
+  /**
+   * Delete a task
+   * @param taskId Task ID
+   * @returns Whether deletion was successful
+   */
+  async deleteTask(taskId: string): Promise<boolean> {
+    this.taskManagers.delete(taskId);
+    return this.tasks.delete(taskId);
+  }
+
+  /**
+   * Cleanup expired tasks (for async execution)
+   * @param retentionTime Retention time in milliseconds
+   * @returns Number of tasks cleaned up
+   */
+  async cleanupExpiredTasks(retentionTime: number = 60 * 60 * 1000): Promise<number> {
+    const currentTime = now();
+    let cleanedCount = 0;
+
+    for (const [taskId, taskInfo] of this.tasks.entries()) {
+      // Only clean up completed tasks
+      if (
+        (taskInfo.status === "COMPLETED" ||
+          taskInfo.status === "FAILED" ||
+          taskInfo.status === "CANCELLED" ||
+          taskInfo.status === "TIMEOUT") &&
+        taskInfo.completeTime &&
+        currentTime - taskInfo.completeTime > retentionTime
+      ) {
+        this.tasks.delete(taskId);
+        this.taskManagers.delete(taskId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.debug("Cleaned up expired tasks", { cleanedCount });
+    }
+
+    return cleanedCount;
+  }
+
+  /**
+   * Find task ID by agent loop ID
+   * @param agentLoopId Agent loop ID
+   * @returns Task ID or null
+   */
+  findTaskIdByAgentLoopId(agentLoopId: ID): string | null {
+    for (const [taskId, taskInfo] of this.tasks.entries()) {
+      if (taskInfo.agentLoopId === agentLoopId) {
+        return taskId;
+      }
+    }
+    return null;
   }
 }

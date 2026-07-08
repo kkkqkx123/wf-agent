@@ -39,7 +39,6 @@ describe("SqliteAgentLoopStorage", () => {
     
     storage = new SqliteAgentLoopStorage({
       dbPath,
-      useConnectionPool: false, // Use dedicated connection for tests
     });
     
     await storage.initialize();

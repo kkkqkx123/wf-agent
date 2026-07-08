@@ -78,6 +78,10 @@ export class WorkflowLifecycleCoordinator {
   /**
    * Execute Workflow
    *
+   * Unified execution path supporting both root and triggered executions:
+   * - Root: Direct execution via executeRootWorkflow()
+   * - Triggered: Queue-based execution via ExecutionQueueManager
+   *
    * @param workflowId: Workflow ID
    * @param options: Execution options
    * @returns: Execution result
@@ -91,6 +95,45 @@ export class WorkflowLifecycleCoordinator {
       workflowId,
       options,
     );
+    const executionId = workflowExecutionEntity.id;
+
+    // Step 1.5: Check if this is a triggered execution
+    const parentContext = workflowExecutionEntity.getParentContext();
+    if (parentContext) {
+      logger.info("Routing triggered workflow execution to TriggeredWorkflowExecutionManager", {
+        executionId,
+        parentId: parentContext.parentId,
+        parentType: parentContext.parentType,
+      });
+
+      // Triggered execution: route to TriggeredWorkflowExecutionManager
+      const triggeredWorkflowManager = this.globalContext.container.get(
+        Identifiers.TriggeredWorkflowExecutionManager,
+      );
+      return await (triggeredWorkflowManager as any).submitTriggeredExecution(
+        {
+          executionId,
+          parentEntity: workflowExecutionEntity,
+          parentType: "WORKFLOW",
+          waitForCompletion: true,
+        },
+        workflowExecutionEntity,
+      );
+    }
+
+    // Root execution: proceed with standard execution path
+    return await this.executeRootWorkflow(workflowExecutionEntity, stateCoordinator, workflowId);
+  }
+
+  /**
+   * Execute root workflow (synchronous path)
+   * @private
+   */
+  private async executeRootWorkflow(
+    workflowExecutionEntity: import("../../entities/workflow-execution-entity.js").WorkflowExecutionEntity,
+    stateCoordinator: import("../../state-managers/workflow-state-coordinator.js").WorkflowStateCoordinator,
+    workflowId: string,
+  ): Promise<WorkflowExecutionResult> {
     const executionId = workflowExecutionEntity.id;
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
 

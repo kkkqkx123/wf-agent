@@ -10,7 +10,7 @@
  * - Type safety with discriminated unions
  */
 
-import type { WorkflowExecutionResult, TaskStatus } from "@wf-agent/types";
+import type { TaskStatus } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../workflow/entities/workflow-execution-entity.js";
 import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
 
@@ -111,8 +111,8 @@ export interface TaskInfo {
   startTime?: number;
   /** Completion time */
   completeTime?: number;
-  /** Execution result (upon success) */
-  result?: WorkflowExecutionResult;
+  /** Execution result (upon success) - supports WorkflowExecutionResult or AgentLoopResult */
+  result?: unknown;
   /** Error message (in case of failure) */
   error?: Error;
   /** Timeout period (in milliseconds) */
@@ -138,8 +138,8 @@ export interface StoredTaskInfo {
   startTime?: number;
   /** Completion time */
   completeTime?: number;
-  /** Execution result (upon success) */
-  result?: WorkflowExecutionResult;
+  /** Execution result (upon success) - supports WorkflowExecutionResult or AgentLoopResult */
+  result?: unknown;
   /** Error message (in case of failure) */
   error?: Error;
   /** Timeout period (in milliseconds) */

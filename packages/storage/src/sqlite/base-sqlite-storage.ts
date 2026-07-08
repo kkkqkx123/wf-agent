@@ -8,10 +8,6 @@ import { StorageError, StorageInitializationError } from "../types/storage-error
 import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import { createModuleLogger } from "../logger.js";
 import { configurePragmas, type PragmaConfig } from "./sqlite-pragma.js";
-import {
-  SqliteConnectionPool,
-  getGlobalConnectionPool,
-} from "./connection-pool.js";
 import type { StorageMetrics } from "../types/metrics.js";
 
 const logger = createModuleLogger("sqlite-storage");
@@ -30,10 +26,6 @@ export interface BaseSqliteStorageConfig {
   fileMustExist?: boolean;
   /** Timeout in milliseconds for database locks */
   timeout?: number;
-  /** Use shared connection pool (default: true) */
-  useConnectionPool?: boolean;
-  /** Custom connection pool instance (optional, uses global pool if not provided) */
-  connectionPool?: SqliteConnectionPool;
   /** Enable data integrity verification on load (default: false for performance) */
   verifyIntegrity?: boolean;
   /** Verify integrity every Nth load operation (default: 100, only used when verifyIntegrity is true) */
@@ -64,8 +56,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   extends StorageAdapterBase<TMetadata, TListOptions>
 {
   protected db: Database.Database | null = null;
-  protected usingPool: boolean = false;
-  private connectionPool: SqliteConnectionPool | null = null;
   protected loadCounter: number = 0; // Counter for integrity check frequency
   private statementCache: Map<string, Database.Statement> = new Map();
   private readonly MAX_CACHE_SIZE = 100;
@@ -101,47 +91,32 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
     logger.debug("Initializing SQLite storage", {
       dbPath: this.config.dbPath,
       readonly: this.config.readonly,
-      usePool: this.config.useConnectionPool ?? true,
     });
 
     try {
-      const usePool = this.config.useConnectionPool ?? true;
+      // Create database connection
+      const options: Database.Options = {
+        readonly: this.config.readonly ?? false,
+        fileMustExist: this.config.fileMustExist ?? false,
+        timeout: this.config.timeout ?? 5000,
+      };
 
-      // Disable connection pool when fileMustExist is true to ensure proper error handling
-      const shouldUsePool = usePool && !this.config.readonly && !(this.config.fileMustExist ?? false);
+      this.db = new Database(this.config.dbPath, options);
 
-      if (shouldUsePool) {
-        // Use connection pool
-        this.connectionPool = this.config.connectionPool ?? getGlobalConnectionPool();
-        this.db = this.connectionPool.getConnection(this.config.dbPath);
-        this.usingPool = true;
-        logger.debug("Using pooled SQLite connection", { dbPath: this.config.dbPath });
-      } else {
-        // Create dedicated connection (for readonly, fileMustExist, or when pool is disabled)
-        const options: Database.Options = {
-          readonly: this.config.readonly ?? false,
-          fileMustExist: this.config.fileMustExist ?? false,
-          timeout: this.config.timeout ?? 5000,
-        };
+      // Apply standard PRAGMA configuration
+      configurePragmas(this.db, {
+        autoVacuum: this.config.autoVacuum,
+        journalSizeLimit: this.config.journalSizeLimit,
+        synchronous: 'NORMAL',
+        walAutocheckpoint: 1000,
+      } as PragmaConfig);
 
-        this.db = new Database(this.config.dbPath, options);
-        this.usingPool = false;
-
-        // Apply standard PRAGMA configuration
-        configurePragmas(this.db, {
-          autoVacuum: this.config.autoVacuum,
-          journalSizeLimit: this.config.journalSizeLimit,
-          synchronous: 'NORMAL',
-          walAutocheckpoint: 1000,
-        } as PragmaConfig);
-
-        // Page size: must be set before any tables are created (not covered by configurePragmas)
-        if (this.config.pageSize) {
-          this.db.pragma(`page_size = ${this.config.pageSize}`);
-        }
-
-        logger.debug("Created dedicated SQLite connection", { dbPath: this.config.dbPath });
+      // Page size: must be set before any tables are created (not covered by configurePragmas)
+      if (this.config.pageSize) {
+        this.db.pragma(`page_size = ${this.config.pageSize}`);
       }
+
+      logger.debug("Created SQLite connection", { dbPath: this.config.dbPath });
 
       // is marked as initialized so that createTableSchema can use the getDb
       this.initialized = true;
@@ -151,7 +126,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
         await this.initializeSchema();
       }
 
-      // Start periodic maintenance if enabled (non-readonly, non-pooled connections)
+      // Start periodic maintenance if enabled (non-readonly)
       if (!this.config.readonly && this.config.maintenanceIntervalMs && this.config.maintenanceIntervalMs > 0) {
         this.startMaintenanceTimer(this.config.maintenanceIntervalMs);
       }
@@ -159,21 +134,16 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
       logger.info("SQLite storage initialized", {
         dbPath: this.config.dbPath,
         tableName: this.getTableName(),
-        usingPool: this.usingPool,
       });
     } catch (error) {
       this.initialized = false;
-      
+
       // Clean up connection on failure to prevent resource leaks
       if (this.db) {
         try {
-          if (this.usingPool && this.connectionPool) {
-            this.connectionPool.releaseConnection(this.config.dbPath);
-          } else {
-            this.db.close();
-          }
+          this.db.close();
         } catch (cleanupError) {
-          logger.error("Error cleaning up connection after initialization failure", {
+          logger.error("Error closing connection after initialization failure", {
             dbPath: this.config.dbPath,
             error: (cleanupError as Error).message,
           });
@@ -181,7 +151,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
           this.db = null;
         }
       }
-      
+
       logger.error("Failed to initialize SQLite storage", {
         dbPath: this.config.dbPath,
         error: (error as Error).message,
@@ -599,7 +569,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
 
   /**
    * Close the storage connection
-   * If using connection pool, releases the connection instead of closing it
    */
   async close(): Promise<void> {
     // Clear maintenance timer
@@ -612,16 +581,10 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
       try {
         // Clear statement cache before closing
         this.clearStatementCache();
-        
-        if (this.usingPool && this.connectionPool) {
-          // Release connection back to pool
-          this.connectionPool.releaseConnection(this.config.dbPath);
-          logger.info("SQLite connection released to pool", { dbPath: this.config.dbPath });
-        } else {
-          // Close dedicated connection
-          this.db.close();
-          logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
-        }
+
+        // Close connection
+        this.db.close();
+        logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
       } catch (error) {
         logger.error("Error closing SQLite database", {
           dbPath: this.config.dbPath,

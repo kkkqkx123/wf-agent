@@ -27,7 +27,7 @@ import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
 import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
-import type { TaskRegistry } from "../../../workflow/stores/task/task-registry.js";
+import type { TaskRegistry } from "../../../shared/stores/task-registry.js";
 import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,

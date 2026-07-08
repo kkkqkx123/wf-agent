@@ -313,7 +313,6 @@ describe("BaseSqliteStorage", () => {
       const autoVacuumStorage = new TestSqliteStorage({
         dbPath,
         autoVacuum: "INCREMENTAL",
-        useConnectionPool: false,
       });
       await autoVacuumStorage.initialize();
       expect(() => autoVacuumStorage.getFragmentationRatio()).not.toThrow();
@@ -324,7 +323,6 @@ describe("BaseSqliteStorage", () => {
       const limitedStorage = new TestSqliteStorage({
         dbPath,
         journalSizeLimit: 32 * 1024 * 1024,
-        useConnectionPool: false,
       });
       await limitedStorage.initialize();
       expect(() => limitedStorage.getFreelistCount()).not.toThrow();
@@ -335,7 +333,6 @@ describe("BaseSqliteStorage", () => {
       const maintenanceStorage = new TestSqliteStorage({
         dbPath,
         maintenanceIntervalMs: 60000,
-        useConnectionPool: false,
       });
       await maintenanceStorage.initialize();
       await maintenanceStorage.close();

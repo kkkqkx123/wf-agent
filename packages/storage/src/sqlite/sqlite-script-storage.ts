@@ -7,7 +7,7 @@
  */
 
 import type { ScriptStorageMetadata } from "@wf-agent/types";
-import type { ScriptStorageAdapter } from "../types/adapter/script-adapter.js";
+import type { ScriptStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";

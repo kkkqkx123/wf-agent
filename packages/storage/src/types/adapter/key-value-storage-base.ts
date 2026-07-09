@@ -4,6 +4,9 @@
  * Template method pattern to eliminate code duplication across
  * SQLite, PostgreSQL, JSON and other simple key-value stores.
  *
+ * Inherits from StorageAdapterBase to reuse metrics, initialization checks,
+ * and batch operation templates.
+ *
  * Subclasses define only what's unique:
  * - Table schema
  * - Metadata column definitions
@@ -13,9 +16,8 @@
  * Base class provides all standard CRUD operations.
  */
 
-import type { BaseStorageAdapter } from "./base-storage-adapter.js";
+import { StorageAdapterBase } from "./storage-adapter-base.js";
 import type { StorageMetrics } from "../metrics.js";
-import { DEFAULT_STORAGE_METRICS } from "../metrics.js";
 import { StorageError } from "../storage-errors.js";
 import { createModuleLogger } from "../../logger.js";
 
@@ -52,17 +54,17 @@ export interface QueryResult<T = any> {
  * Base class for simple key-value storage implementations
  * Implements all standard CRUD operations using template methods.
  *
+ * Extends StorageAdapterBase to inherit metrics tracking and initialization management.
+ *
  * Subclasses must implement:
  * 1. getConfig() - Define table and metadata schema
  * 2. createSchema() - Create database tables
  * 3. executeQuery() - Execute SQL with their DB library
- * 4. executeBatch() - Execute multiple queries (optional)
+ * 4. executeTransaction() - Execute multiple queries in a transaction
  */
 export abstract class KeyValueStorageBase<TMetadata, TListOptions = void>
-  implements BaseStorageAdapter<TMetadata, TListOptions>
+  extends StorageAdapterBase<TMetadata, TListOptions>
 {
-  protected initialized: boolean = false;
-  protected metrics: StorageMetrics = { ...DEFAULT_STORAGE_METRICS };
 
   /**
    * Get storage configuration
@@ -310,62 +312,9 @@ export abstract class KeyValueStorageBase<TMetadata, TListOptions = void>
     return { ...this.metrics };
   }
 
-  /**
-   * Reset storage metrics
-   */
-  resetMetrics(): void {
-    this.metrics = { ...DEFAULT_STORAGE_METRICS };
-  }
-
-  /**
-   * Batch save operations (can override for optimization)
-   */
-  async saveBatch(items: Array<{ id: string; data: Uint8Array; metadata: TMetadata }>): Promise<void> {
-    for (const item of items) {
-      await this.save(item.id, item.data, item.metadata);
-    }
-  }
-
-  /**
-   * Batch load operations (can override for optimization)
-   */
-  async loadBatch(ids: string[]): Promise<Array<{ id: string; data: Uint8Array | null }>> {
-    return Promise.all(ids.map(async (id) => ({ id, data: await this.load(id) })));
-  }
-
-  /**
-   * Batch delete operations (can override for optimization)
-   */
-  async deleteBatch(ids: string[]): Promise<void> {
-    for (const id of ids) {
-      await this.delete(id);
-    }
-  }
-
   // ────────────────────────────────────────────────────────────────
   // Protected helpers
   // ────────────────────────────────────────────────────────────────
-
-  protected ensureInitialized(): void {
-    if (!this.initialized) {
-      throw new StorageError("Storage not initialized. Call initialize() first.", "initialize");
-    }
-  }
-
-  protected updateMetric(operation: string, timeMs: number, dataSize?: number): void {
-    const countKey = `${operation}Count` as keyof StorageMetrics;
-    const timeKey = `avg${operation.charAt(0).toUpperCase()}${operation.slice(1)}Time` as keyof StorageMetrics;
-
-    this.metrics[countKey] = (this.metrics[countKey] as number) + 1;
-
-    const currentAvg = this.metrics[timeKey] as number;
-    const count = this.metrics[countKey] as number;
-    this.metrics[timeKey] = currentAvg + (timeMs - currentAvg) / count;
-
-    if (dataSize !== undefined) {
-      this.metrics.totalBlobSize += dataSize;
-    }
-  }
 
   protected handleError(error: any, operation: string, context?: Record<string, any>): void {
     logger.error(`Storage ${operation} failed`, {

@@ -122,3 +122,52 @@ export interface BaseStorageAdapter<TMetadata, TListOptions, TSaveOptions = void
    */
   deleteBatch(ids: string[]): Promise<void>;
 }
+
+// ── Built-in Type Aliases ──
+// These simple adapters require no custom logic beyond BaseStorageAdapter
+// They are instantiated with different metadata types for different entity types
+
+import type {
+  AgentProfileStorageMetadata,
+  ScriptStorageMetadata,
+  ToolStorageMetadata,
+  HookTemplateStorageMetadata,
+  NodeTemplateStorageMetadata,
+  TriggerStorageMetadata,
+} from "@wf-agent/types";
+
+/**
+ * Agent Profile Storage Adapter
+ * Standard adapter for agent profile persistence
+ */
+export type AgentProfileStorageAdapter = BaseStorageAdapter<AgentProfileStorageMetadata, void>;
+
+/**
+ * Script Storage Adapter
+ * Standard adapter for script persistence
+ */
+export type ScriptStorageAdapter = BaseStorageAdapter<ScriptStorageMetadata, void>;
+
+/**
+ * Tool Storage Adapter
+ * Standard adapter for tool persistence
+ */
+export type ToolStorageAdapter = BaseStorageAdapter<ToolStorageMetadata, void>;
+
+/**
+ * Hook Template Storage Adapter
+ * Standard adapter for hook template persistence
+ */
+export type HookTemplateStorageAdapter = BaseStorageAdapter<HookTemplateStorageMetadata, void>;
+
+/**
+ * Node Template Storage Adapter
+ * Standard adapter for node template persistence
+ */
+export type NodeTemplateStorageAdapter = BaseStorageAdapter<NodeTemplateStorageMetadata, void>;
+
+/**
+ * Trigger Storage Adapter
+ * Standard adapter for trigger persistence
+ */
+export type TriggerStorageAdapter = BaseStorageAdapter<TriggerStorageMetadata, void>;

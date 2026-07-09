@@ -3,7 +3,7 @@
  */
 
 import type { AgentProfileStorageMetadata } from "@wf-agent/types";
-import type { AgentProfileStorageAdapter } from "../types/adapter/agent-profile-adapter.js";
+import type { AgentProfileStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";

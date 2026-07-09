@@ -3,7 +3,7 @@
  */
 
 import type { NodeTemplateStorageMetadata } from "@wf-agent/types";
-import type { NodeTemplateStorageAdapter } from "../types/adapter/node-template-adapter.js";
+import type { NodeTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";

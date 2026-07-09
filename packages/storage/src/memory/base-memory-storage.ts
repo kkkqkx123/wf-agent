@@ -338,3 +338,51 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
     }
   }
 }
+
+// ── Built-in Memory Storage Type Aliases ──
+// Simple memory storage implementations that don't need custom logic
+
+import type {
+  AgentProfileStorageMetadata,
+  ScriptStorageMetadata,
+  ToolStorageMetadata,
+  HookTemplateStorageMetadata,
+  NodeTemplateStorageMetadata,
+  TriggerStorageMetadata,
+} from "@wf-agent/types";
+
+/**
+ * In-Memory Agent Profile Storage
+ * Fast, isolated agent profile storage for testing
+ */
+export type MemoryAgentProfileStorage = BaseMemoryStorage<AgentProfileStorageMetadata, void>;
+
+/**
+ * In-Memory Script Storage
+ * Fast, isolated script storage for testing
+ */
+export type MemoryScriptStorage = BaseMemoryStorage<ScriptStorageMetadata, void>;
+
+/**
+ * In-Memory Tool Storage
+ * Fast, isolated tool storage for testing
+ */
+export type MemoryToolStorage = BaseMemoryStorage<ToolStorageMetadata, void>;
+
+/**
+ * In-Memory Hook Template Storage
+ * Fast, isolated hook template storage for testing
+ */
+export type MemoryHookTemplateStorage = BaseMemoryStorage<HookTemplateStorageMetadata, void>;
+
+/**
+ * In-Memory Node Template Storage
+ * Fast, isolated node template storage for testing
+ */
+export type MemoryNodeTemplateStorage = BaseMemoryStorage<NodeTemplateStorageMetadata, void>;
+
+/**
+ * In-Memory Trigger Storage
+ * Fast, isolated trigger storage for testing
+ */
+export type MemoryTriggerStorage = BaseMemoryStorage<TriggerStorageMetadata, void>;

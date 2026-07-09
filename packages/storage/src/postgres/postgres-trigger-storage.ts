@@ -3,7 +3,7 @@
  */
 
 import type { TriggerStorageMetadata } from "@wf-agent/types";
-import type { TriggerStorageAdapter } from "../types/adapter/trigger-adapter.js";
+import type { TriggerStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";

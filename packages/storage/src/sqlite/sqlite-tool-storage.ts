@@ -2,14 +2,14 @@
  * SQLite Tool Storage - REFACTORED
  */
 
-import type { ToolStorageMetadata } from "@wf-agent/types";
+import type { ToolStorageMetadata, ToolListOptions } from "@wf-agent/types";
 import type { ToolStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteToolStorage
-  extends SqliteKeyValueStorageBase<ToolStorageMetadata>
+  extends SqliteKeyValueStorageBase<ToolStorageMetadata, ToolListOptions>
   implements ToolStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

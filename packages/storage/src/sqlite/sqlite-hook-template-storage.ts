@@ -2,14 +2,14 @@
  * SQLite Hook Template Storage - REFACTORED
  */
 
-import type { HookTemplateStorageMetadata } from "@wf-agent/types";
+import type { HookTemplateStorageMetadata, HookTemplateListOptions } from "@wf-agent/types";
 import type { HookTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteHookTemplateStorage
-  extends SqliteKeyValueStorageBase<HookTemplateStorageMetadata>
+  extends SqliteKeyValueStorageBase<HookTemplateStorageMetadata, HookTemplateListOptions>
   implements HookTemplateStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

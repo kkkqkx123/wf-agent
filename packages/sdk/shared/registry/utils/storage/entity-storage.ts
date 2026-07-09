@@ -59,7 +59,7 @@ export interface StorageEntityInfo<T, TMetadata> {
  */
 export async function persistItem<T, TMetadata>(
   item: T,
-  adapter: BaseStorageAdapter<TMetadata, void> | null | undefined,
+  adapter: BaseStorageAdapter<TMetadata, any> | null | undefined,
   info: StorageEntityInfo<T, TMetadata>,
 ): Promise<void> {
   if (!adapter) {
@@ -92,7 +92,7 @@ export async function persistItem<T, TMetadata>(
  */
 export async function removeItem<TMetadata>(
   id: string,
-  adapter: BaseStorageAdapter<TMetadata, void> | null | undefined,
+  adapter: BaseStorageAdapter<TMetadata, any> | null | undefined,
   entityName: string,
 ): Promise<void> {
   if (!adapter) {
@@ -118,7 +118,7 @@ export async function removeItem<TMetadata>(
  */
 export async function loadItem<T, TMetadata>(
   id: string,
-  adapter: BaseStorageAdapter<TMetadata, void> | null | undefined,
+  adapter: BaseStorageAdapter<TMetadata, any> | null | undefined,
   entityName: string,
 ): Promise<T | null> {
   if (!adapter) {
@@ -150,7 +150,7 @@ export async function loadItem<T, TMetadata>(
  * Loads all persisted items into the provided collection.
  */
 export async function initializeFromStorage<T, TMetadata>(
-  adapter: BaseStorageAdapter<TMetadata, void> | null,
+  adapter: BaseStorageAdapter<TMetadata, any> | null,
   items: { set: (key: string, value: T) => void; has: (key: string) => boolean; size: number },
   info: StorageEntityInfo<T, TMetadata>,
 ): Promise<void> {

@@ -130,7 +130,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * Initialize storage
    * Create directory structure and load metadata index (or initialize lazy mode)
    */
-  async initialize(): Promise<void> {
+  override async initialize(): Promise<void> {
     logger.debug("Initializing JSON storage", {
       baseDir: this.config.baseDir,
       lazyMode: this.lazyMode,
@@ -353,7 +353,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * @param metadata Metadata
    * @param options Save options (e.g., sync mode)
    */
-  async save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void> {
+  override async save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -453,7 +453,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * Load data from storage
    * Reads binary data file and decompresses if needed
    */
-  async load(id: string): Promise<Uint8Array | null> {
+  override async load(id: string): Promise<Uint8Array | null> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -510,7 +510,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * Delete data from storage
    * Deletes both metadata and data files
    */
-  async delete(id: string): Promise<void> {
+  override async delete(id: string): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
 
@@ -575,7 +575,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * Check if data exists
    * In lazy mode, checks if file exists; in eager mode, checks index
    */
-  async exists(id: string): Promise<boolean> {
+  override async exists(id: string): Promise<boolean> {
     this.ensureInitialized();
 
     if (this.lazyMode) {
@@ -597,7 +597,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
    * Get metadata only (no data loading)
    * Supports both eager and lazy loading modes
    */
-  async getMetadata(id: string): Promise<TMetadata | null> {
+  override async getMetadata(id: string): Promise<TMetadata | null> {
     this.ensureInitialized();
 
     if (this.lazyMode) {
@@ -630,7 +630,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
   /**
    * Clear all data
    */
-  async clear(): Promise<void> {
+  override async clear(): Promise<void> {
     this.ensureInitialized();
 
     logger.debug("Clearing all JSON storage data", { count: this.metadataIndex.size });
@@ -659,7 +659,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
   /**
    * Close storage
    */
-  async close(): Promise<void> {
+  override async close(): Promise<void> {
     logger.debug("Closing JSON storage", { lazyMode: this.lazyMode });
     this.metadataIndex.clear();
     this.metadataCache?.clear();
@@ -670,7 +670,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
   /**
    * Get storage metrics
    */
-  async getMetrics(): Promise<StorageMetrics> {
+  override async getMetrics(): Promise<StorageMetrics> {
     let totalSize = 0;
     for (const entry of this.metadataIndex.values()) {
       totalSize += entry.dataRef.size;
@@ -686,7 +686,7 @@ export abstract class BaseJsonStorage<TMetadata extends object, TListOptions = R
   /**
    * List all IDs
    */
-  async list(_options?: TListOptions): Promise<string[]> {
+  override async list(_options?: TListOptions): Promise<string[]> {
     this.ensureInitialized();
     return this.getAllIds();
   }

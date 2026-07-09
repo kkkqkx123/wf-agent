@@ -2,14 +2,14 @@
  * SQLite Trigger Storage - REFACTORED
  */
 
-import type { TriggerStorageMetadata } from "@wf-agent/types";
+import type { TriggerStorageMetadata, TriggerListOptions } from "@wf-agent/types";
 import type { TriggerStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteTriggerStorage
-  extends SqliteKeyValueStorageBase<TriggerStorageMetadata>
+  extends SqliteKeyValueStorageBase<TriggerStorageMetadata, TriggerListOptions>
   implements TriggerStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

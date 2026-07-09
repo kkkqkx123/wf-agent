@@ -2,14 +2,14 @@
  * PostgreSQL Agent Profile Storage - REFACTORED
  */
 
-import type { AgentProfileStorageMetadata } from "@wf-agent/types";
+import type { AgentProfileStorageMetadata, AgentProfileListOptions } from "@wf-agent/types";
 import type { AgentProfileStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";
 
 export class PostgresAgentProfileStorage
-  extends PostgresKeyValueStorageBase<AgentProfileStorageMetadata>
+  extends PostgresKeyValueStorageBase<AgentProfileStorageMetadata, AgentProfileListOptions>
   implements AgentProfileStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

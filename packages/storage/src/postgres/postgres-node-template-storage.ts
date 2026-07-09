@@ -2,14 +2,14 @@
  * PostgreSQL Node Template Storage - REFACTORED
  */
 
-import type { NodeTemplateStorageMetadata } from "@wf-agent/types";
+import type { NodeTemplateStorageMetadata, NodeTemplateListOptions } from "@wf-agent/types";
 import type { NodeTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";
 
 export class PostgresNodeTemplateStorage
-  extends PostgresKeyValueStorageBase<NodeTemplateStorageMetadata>
+  extends PostgresKeyValueStorageBase<NodeTemplateStorageMetadata, NodeTemplateListOptions>
   implements NodeTemplateStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

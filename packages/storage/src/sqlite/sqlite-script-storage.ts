@@ -6,14 +6,14 @@
  * Code reduction: 75%
  */
 
-import type { ScriptStorageMetadata } from "@wf-agent/types";
+import type { ScriptStorageMetadata, ScriptListOptions } from "@wf-agent/types";
 import type { ScriptStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteScriptStorage
-  extends SqliteKeyValueStorageBase<ScriptStorageMetadata>
+  extends SqliteKeyValueStorageBase<ScriptStorageMetadata, ScriptListOptions>
   implements ScriptStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

@@ -2,14 +2,14 @@
  * PostgreSQL Trigger Storage - REFACTORED
  */
 
-import type { TriggerStorageMetadata } from "@wf-agent/types";
+import type { TriggerStorageMetadata, TriggerListOptions } from "@wf-agent/types";
 import type { TriggerStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";
 
 export class PostgresTriggerStorage
-  extends PostgresKeyValueStorageBase<TriggerStorageMetadata>
+  extends PostgresKeyValueStorageBase<TriggerStorageMetadata, TriggerListOptions>
   implements TriggerStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

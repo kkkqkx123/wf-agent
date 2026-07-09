@@ -97,7 +97,7 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
    * Initializing Storage
    * Creating database connections and table structures
    */
-  async initialize(): Promise<void> {
+  override async initialize(): Promise<void> {
     logger.debug('Initializing PostgreSQL storage', {
       connectionString: this.config.connectionString,
       usePool: this.config.useConnectionPool ?? true,
@@ -360,7 +360,7 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
    * Close the storage connection
    * If using connection pool, releases the pool instead of closing it
    */
-  async close(): Promise<void> {
+  override async close(): Promise<void> {
     // Clear maintenance timer
     if (this.maintenanceTimer) {
       clearInterval(this.maintenanceTimer);
@@ -397,7 +397,7 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
   /**
    * Get storage metrics
    */
-  async getMetrics(): Promise<StorageMetrics> {
+  override async getMetrics(): Promise<StorageMetrics> {
     try {
       const client = await this.getClient();
       

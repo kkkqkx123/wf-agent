@@ -19,3 +19,27 @@ export interface ToolStorageMetadata {
   /** tagged array */
   tags?: string[];
 }
+
+/**
+ * Tool list query options
+ */
+export interface ToolListOptions {
+  /** Exact toolId match */
+  toolId?: string;
+  /** Tool type filter (single or multiple) */
+  type?: string | string[];
+  /** Category filter (single or multiple) */
+  category?: string | string[];
+  /** Tag filter (any match) */
+  tags?: string[];
+  /** Description fuzzy search */
+  descriptionContains?: string;
+  /** Sort field */
+  sortBy?: 'toolId' | 'type' | 'category';
+  /** Sort order */
+  sortOrder?: 'asc' | 'desc';
+  /** Pagination offset */
+  offset?: number;
+  /** Pagination limit */
+  limit?: number;
+}

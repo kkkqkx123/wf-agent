@@ -87,10 +87,10 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
    * Initializing Storage
    * Creating database connections and table structures
    */
-  async initialize(): Promise<void> {
+  override async initialize(): Promise<void> {
     logger.debug("Initializing SQLite storage", {
       dbPath: this.config.dbPath,
-      readonly: this.config.readonly,
+      readonly: this.config.readonly ?? false,
     });
 
     try {
@@ -347,7 +347,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   /**
    * Delete data
    */
-  async delete(id: string): Promise<void> {
+  override async delete(id: string): Promise<void> {
     try {
       const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
       stmt.run(id);
@@ -360,7 +360,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   /**
    * Check if data exists
    */
-  async exists(id: string): Promise<boolean> {
+  override async exists(id: string): Promise<boolean> {
     try {
       const stmt = this.getPreparedStatement(`SELECT 1 FROM ${this.getTableName()} WHERE id = ?`);
       const row = stmt.get(id);
@@ -373,7 +373,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   /**
    * Clear all data
    */
-  async clear(): Promise<void> {
+  override async clear(): Promise<void> {
     try {
       const db = this.getDb();
       const blobTableName = this.getBlobTableName();
@@ -570,7 +570,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   /**
    * Close the storage connection
    */
-  async close(): Promise<void> {
+  override async close(): Promise<void> {
     // Clear maintenance timer
     if (this.maintenanceTimer) {
       clearInterval(this.maintenanceTimer);
@@ -601,7 +601,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
    * Get storage metrics
    * @returns Storage metrics including operation counts, timings, and sizes
    */
-  async getMetrics(): Promise<StorageMetrics> {
+  override async getMetrics(): Promise<StorageMetrics> {
     try {
       const db = this.getDb();
       

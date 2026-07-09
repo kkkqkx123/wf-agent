@@ -2,14 +2,14 @@
  * SQLite Agent Profile Storage - REFACTORED
  */
 
-import type { AgentProfileStorageMetadata } from "@wf-agent/types";
+import type { AgentProfileStorageMetadata, AgentProfileListOptions } from "@wf-agent/types";
 import type { AgentProfileStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteAgentProfileStorage
-  extends SqliteKeyValueStorageBase<AgentProfileStorageMetadata>
+  extends SqliteKeyValueStorageBase<AgentProfileStorageMetadata, AgentProfileListOptions>
   implements AgentProfileStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

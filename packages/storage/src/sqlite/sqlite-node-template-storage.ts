@@ -2,14 +2,14 @@
  * SQLite Node Template Storage - REFACTORED
  */
 
-import type { NodeTemplateStorageMetadata } from "@wf-agent/types";
+import type { NodeTemplateStorageMetadata, NodeTemplateListOptions } from "@wf-agent/types";
 import type { NodeTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { SqliteKeyValueStorageBase } from "../types/adapter/sqlite-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 
 export class SqliteNodeTemplateStorage
-  extends SqliteKeyValueStorageBase<NodeTemplateStorageMetadata>
+  extends SqliteKeyValueStorageBase<NodeTemplateStorageMetadata, NodeTemplateListOptions>
   implements NodeTemplateStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

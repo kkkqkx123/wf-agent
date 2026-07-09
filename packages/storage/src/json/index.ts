@@ -14,3 +14,11 @@ export { JsonNoteStorage, type NoteEntry, type NoteMetadata } from "./json-note-
 export { JsonAgentLoopStorage } from "./json-agent-loop-storage.js";
 export { JsonMetricsStorage, type JsonMetricsStorageConfig } from "./json-metrics-storage.js";
 export { JsonFileCheckpointStore, type JsonFileCheckpointStoreConfig } from "./json-file-checkpoint-store.js";
+
+// Template Storage Implementations
+export { JsonTriggerStorage } from "./json-trigger-storage.js";
+export { JsonToolStorage } from "./json-tool-storage.js";
+export { JsonScriptStorage } from "./json-script-storage.js";
+export { JsonNodeTemplateStorage } from "./json-node-template-storage.js";
+export { JsonHookTemplateStorage } from "./json-hook-template-storage.js";
+export { JsonAgentProfileStorage } from "./json-agent-profile-storage.js";

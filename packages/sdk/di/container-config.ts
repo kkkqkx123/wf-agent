@@ -157,6 +157,47 @@ export interface ContainerStorageConfig {
 }
 
 /**
+ * Validate critical storage adapters on initialization
+ * Logs warnings/info for missing adapters that affect core functionality
+ */
+function validateStorageAdapters(adapters: ContainerStorageConfig): void {
+  // WorkflowStorageAdapter is critical for workflow persistence
+  if (!adapters.workflow) {
+    logger.warn(
+      "WorkflowStorageAdapter not provided: workflow definitions will not be persisted. " +
+      "Workflow registry will operate in memory-only mode.",
+    );
+  }
+
+  // CheckpointStorageAdapter affects execution resumption capability
+  if (!adapters.checkpoint) {
+    logger.info(
+      "CheckpointStorageAdapter not provided: checkpoint functionality will be disabled. " +
+      "Workflow execution cannot be resumed from checkpoints.",
+    );
+  }
+
+  // Task and workflow execution adapters affect task tracking
+  if (!adapters.task) {
+    logger.debug("TaskStorageAdapter not provided: task registry will operate in memory-only mode");
+  }
+
+  if (!adapters.workflowExecution) {
+    logger.debug(
+      "WorkflowExecutionStorageAdapter not provided: " +
+      "workflow execution history will not be persisted",
+    );
+  }
+
+  // Agent loop adapter affects agent loop persistence
+  if (!adapters.agentLoop) {
+    logger.debug(
+      "AgentLoopStorageAdapter not provided: agent loop state will not be persisted",
+    );
+  }
+}
+
+/**
  * Configure container bindings with storage adapters
  * This function configures all service bindings for a given container
  *
@@ -167,6 +208,9 @@ export function configureContainerBindings(
   container: Container,
   adapters: ContainerStorageConfig = {},
 ): void {
+  // Validate storage adapters early in initialization
+  validateStorageAdapters(adapters);
+
   // ============================================================
   // Bind Storage Adapters in DI Container
   // ============================================================

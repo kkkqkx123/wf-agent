@@ -2,14 +2,14 @@
  * PostgreSQL Script Storage - REFACTORED
  */
 
-import type { ScriptStorageMetadata } from "@wf-agent/types";
+import type { ScriptStorageMetadata, ScriptListOptions } from "@wf-agent/types";
 import type { ScriptStorageAdapter } from "../types/adapter/base-storage-adapter.js";
 import { PostgresKeyValueStorageBase } from "../types/adapter/postgres-key-value-storage-base.js";
 import type { KeyValueStorageConfig } from "../types/adapter/key-value-storage-base.js";
 import type { BasePostgresStorageConfig } from "./base-postgres-storage.js";
 
 export class PostgresScriptStorage
-  extends PostgresKeyValueStorageBase<ScriptStorageMetadata>
+  extends PostgresKeyValueStorageBase<ScriptStorageMetadata, ScriptListOptions>
   implements ScriptStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

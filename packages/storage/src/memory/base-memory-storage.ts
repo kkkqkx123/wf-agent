@@ -49,7 +49,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Initialize memory storage
    */
-  async initialize(): Promise<void> {
+  override async initialize(): Promise<void> {
     logger.debug("Initializing memory storage");
     this.initialized = true;
   }
@@ -57,7 +57,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Save data to memory storage
    */
-  async save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void> {
+  override async save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();
@@ -74,7 +74,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Load data from memory storage
    */
-  async load(id: string): Promise<Uint8Array | null> {
+  override async load(id: string): Promise<Uint8Array | null> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();
@@ -96,7 +96,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Delete data from memory storage
    */
-  async delete(id: string): Promise<void> {
+  override async delete(id: string): Promise<void> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();
@@ -112,7 +112,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Check if data exists in memory storage
    */
-  async exists(id: string): Promise<boolean> {
+  override async exists(id: string): Promise<boolean> {
     this.ensureInitialized();
     await this.simulateLatency();
     return this.store.has(id);
@@ -121,7 +121,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * List all IDs in memory storage
    */
-  async list(_options?: TListOptions): Promise<string[]> {
+  override async list(_options?: TListOptions): Promise<string[]> {
     const startTime = Date.now();
     this.ensureInitialized();
     await this.simulateLatency();
@@ -136,7 +136,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Clear all data from memory storage
    */
-  async clear(): Promise<void> {
+  override async clear(): Promise<void> {
     this.ensureInitialized();
     await this.simulateLatency();
 
@@ -148,7 +148,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Close memory storage (clears all data)
    */
-  async close(): Promise<void> {
+  override async close(): Promise<void> {
     logger.debug("Closing memory storage");
     this.store.clear();
     this.initialized = false;
@@ -157,7 +157,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Get metadata without loading data
    */
-  async getMetadata(id: string): Promise<TMetadata | null> {
+  override async getMetadata(id: string): Promise<TMetadata | null> {
     this.ensureInitialized();
     const entry = this.store.get(id);
     return entry?.metadata ?? null;
@@ -166,7 +166,7 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   /**
    * Get storage metrics
    */
-  async getMetrics(): Promise<StorageMetrics> {
+  override async getMetrics(): Promise<StorageMetrics> {
     let totalSize = 0;
     for (const entry of this.store.values()) {
       totalSize += entry.data.length;

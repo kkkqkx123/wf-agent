@@ -129,45 +129,51 @@ export interface BaseStorageAdapter<TMetadata, TListOptions, TSaveOptions = void
 
 import type {
   AgentProfileStorageMetadata,
+  AgentProfileListOptions,
   ScriptStorageMetadata,
+  ScriptListOptions,
   ToolStorageMetadata,
+  ToolListOptions,
   HookTemplateStorageMetadata,
+  HookTemplateListOptions,
   NodeTemplateStorageMetadata,
+  NodeTemplateListOptions,
   TriggerStorageMetadata,
+  TriggerListOptions,
 } from "@wf-agent/types";
 
 /**
  * Agent Profile Storage Adapter
  * Standard adapter for agent profile persistence
  */
-export type AgentProfileStorageAdapter = BaseStorageAdapter<AgentProfileStorageMetadata, void>;
+export type AgentProfileStorageAdapter = BaseStorageAdapter<AgentProfileStorageMetadata, AgentProfileListOptions>;
 
 /**
  * Script Storage Adapter
  * Standard adapter for script persistence
  */
-export type ScriptStorageAdapter = BaseStorageAdapter<ScriptStorageMetadata, void>;
+export type ScriptStorageAdapter = BaseStorageAdapter<ScriptStorageMetadata, ScriptListOptions>;
 
 /**
  * Tool Storage Adapter
  * Standard adapter for tool persistence
  */
-export type ToolStorageAdapter = BaseStorageAdapter<ToolStorageMetadata, void>;
+export type ToolStorageAdapter = BaseStorageAdapter<ToolStorageMetadata, ToolListOptions>;
 
 /**
  * Hook Template Storage Adapter
  * Standard adapter for hook template persistence
  */
-export type HookTemplateStorageAdapter = BaseStorageAdapter<HookTemplateStorageMetadata, void>;
+export type HookTemplateStorageAdapter = BaseStorageAdapter<HookTemplateStorageMetadata, HookTemplateListOptions>;
 
 /**
  * Node Template Storage Adapter
  * Standard adapter for node template persistence
  */
-export type NodeTemplateStorageAdapter = BaseStorageAdapter<NodeTemplateStorageMetadata, void>;
+export type NodeTemplateStorageAdapter = BaseStorageAdapter<NodeTemplateStorageMetadata, NodeTemplateListOptions>;
 
 /**
  * Trigger Storage Adapter
  * Standard adapter for trigger persistence
  */
-export type TriggerStorageAdapter = BaseStorageAdapter<TriggerStorageMetadata, void>;
+export type TriggerStorageAdapter = BaseStorageAdapter<TriggerStorageMetadata, TriggerListOptions>;

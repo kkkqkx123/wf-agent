@@ -12,8 +12,8 @@ export { MemoryAgentLoopStorage } from "./memory-agent-loop-storage.js";
 export { MemoryMetricsStorage } from "./memory-metrics-storage.js";
 export { MemoryFileCheckpointStore } from "./memory-file-checkpoint-store.js";
 
-// Export simple memory storage type aliases
-export type {
+// Export simple memory storage classes (ready-to-use, no custom logic needed)
+export {
   MemoryAgentProfileStorage,
   MemoryScriptStorage,
   MemoryToolStorage,

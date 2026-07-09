@@ -3,35 +3,25 @@
  * Hook template persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { HookTemplateStorageMetadata, HookTemplateListOptions } from "@wf-agent/types";
 import type { HookTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Hook Template Storage
  * Implements the HookTemplateStorageAdapter interface
  */
 export class JsonHookTemplateStorage
-  extends BaseJsonStorage<HookTemplateStorageMetadata, HookTemplateListOptions>
+  extends JsonEntityStorageBase<HookTemplateStorageMetadata, HookTemplateListOptions>
   implements HookTemplateStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for hook templates
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "hookTemplate");
-  }
-
-  /**
-   * Get data directory path for hook templates
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "hookTemplate");
+  protected getEntityName(): string {
+    return "hookTemplate";
   }
 
   override async list(options?: HookTemplateListOptions): Promise<string[]> {

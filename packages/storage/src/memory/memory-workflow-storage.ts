@@ -10,6 +10,7 @@ import type {
   WorkflowVersionListOptions,
 } from "@wf-agent/types";
 import type { WorkflowStorageAdapter } from "../types/adapter/workflow-adapter.js";
+import { StorageError } from "../types/storage-errors.js";
 import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-storage.js";
 
 interface VersionEntry {
@@ -45,7 +46,7 @@ export class MemoryWorkflowStorage
 
     const entry = this.store.get(workflowId);
     if (!entry) {
-      throw new Error(`Workflow not found: ${workflowId}`);
+      throw new StorageError(`Workflow not found: ${workflowId}`, "updateWorkflowMetadata", { workflowId });
     }
 
     // Merge metadata

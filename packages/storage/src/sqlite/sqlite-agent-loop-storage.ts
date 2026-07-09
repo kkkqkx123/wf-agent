@@ -17,13 +17,14 @@ import type { AgentLoopStorageAdapter } from "../types/adapter/index.js";
 import { BaseSqliteStorage, BaseSqliteStorageConfig } from "./base-sqlite-storage.js";
 import { selectCompressionStrategy } from "@wf-agent/common-utils";
 import { compressBlob, decompressBlob } from "@wf-agent/common-utils";
+import { StorageError } from "../types/storage-errors.js";
 
 /**
  * SQLite Agent Loop Storage
  * Implementing the AgentLoopStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteAgentLoopStorage
-  extends BaseSqliteStorage<AgentEntityMetadata>
+  extends BaseSqliteStorage<AgentEntityMetadata, AgentEntityListOptions>
   implements AgentLoopStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -247,8 +248,8 @@ export class SqliteAgentLoopStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        conditions.push(`tags LIKE ?`);
-        params.push(`%${options.tags[0]}%`);
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
       if (options?.createdAfter) {
@@ -265,7 +266,21 @@ export class SqliteAgentLoopStorage
         sql += " WHERE " + conditions.join(" AND ");
       }
 
-      sql += ` ORDER BY created_at DESC`;
+      // Sort
+      const sortBy = options?.sortBy ?? "createdAt";
+      const sortOrder = options?.sortOrder ?? "desc";
+      const sortColumnMap: Record<string, string> = {
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+        completedAt: "completed_at",
+        status: "status",
+      };
+      const sortColumn = sortColumnMap[sortBy];
+      if (!sortColumn) {
+        throw new StorageError(`Invalid sort column: ${sortBy}`, "list", { sortBy });
+      }
+      const orderDirection = sortOrder.toLowerCase() === "asc" ? "ASC" : "DESC";
+      sql += ` ORDER BY ${sortColumn} ${orderDirection}`;
 
       if (options?.limit !== undefined) {
         sql += " LIMIT ?";

@@ -28,7 +28,7 @@ const logger = createModuleLogger("postgres-checkpoint-storage");
  * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
 export class PostgresCheckpointStorage
-  extends BasePostgresStorage<CheckpointStorageMetadata>
+  extends BasePostgresStorage<CheckpointStorageMetadata, CheckpointStorageListOptions>
   implements CheckpointStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {
@@ -153,8 +153,8 @@ export class PostgresCheckpointStorage
         // If sync mode is enabled, ensure data is flushed to disk
         if (options?.sync) {
           await client.query('COMMIT');
-          // PostgreSQL automatically flushes on COMMIT, but we can force a sync point
-          await client.query('SELECT pg_sync()');
+          // Force a synchronous commit by using PREPARE COMMIT pattern
+          await client.query('SELECT pg_current_wal_lsn()');
           logger.debug('Synchronous checkpoint saved with explicit sync', { 
             checkpointId, 
             size: data.length 
@@ -516,7 +516,7 @@ export class PostgresCheckpointStorage
 
       // Build dynamic query based on filters
       const conditions: string[] = [];
-      const params: Array<string | number> = [];
+      const params: Array<string | number | string[]> = [];
       let paramIndex = 1;
 
       if (options?.entityType) {
@@ -532,6 +532,11 @@ export class PostgresCheckpointStorage
       if (options?.type) {
         conditions.push(`checkpoint_type = $${paramIndex++}`);
         params.push(options.type);
+      }
+
+      if (options?.tags && options.tags.length > 0) {
+        conditions.push(`tags::jsonb ?| $${paramIndex++}::text[]`);
+        params.push(options.tags);
       }
 
       if (options?.timestampFrom) {
@@ -1040,6 +1045,106 @@ export class PostgresCheckpointStorage
       return deletedCount;
     } catch (error) {
       this.handlePostgresError(error, 'deleteByEntity', { entityId, entityType });
+      throw error;
+    } finally {
+      this.releaseClient(client);
+    }
+  }
+
+  /**
+   * Batch get latest checkpoints for multiple entities.
+   * Uses a single query with ROW_NUMBER() window function for efficiency.
+   */
+  async listByEntitiesWithMetadata(
+    entityIds: string[],
+    entityType: string,
+    options?: { limit?: number }
+  ): Promise<Array<{
+    entityId: string;
+    checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }>;
+  }>> {
+    const client = await this.getClient();
+    const limit = options?.limit ?? 1;
+
+    if (entityIds.length === 0) {
+      return [];
+    }
+
+    try {
+      const placeholders = entityIds.map((_, i) => `$${i + 1}`).join(',');
+
+      const sql = `
+        WITH ranked_checkpoints AS (
+          SELECT
+            id,
+            entity_id,
+            entity_type,
+            timestamp,
+            checkpoint_type,
+            base_checkpoint_id,
+            previous_checkpoint_id,
+            message_count,
+            variable_count,
+            blob_size,
+            blob_hash,
+            tags,
+            custom_fields,
+            ROW_NUMBER() OVER (
+              PARTITION BY entity_id
+              ORDER BY timestamp DESC
+            ) as rn
+          FROM checkpoint_metadata
+          WHERE entity_id IN (${placeholders})
+            AND entity_type = $${entityIds.length + 1}
+        )
+        SELECT *
+        FROM ranked_checkpoints
+        WHERE rn <= $${entityIds.length + 2}
+        ORDER BY entity_id, timestamp DESC
+      `;
+
+      const params = [...entityIds, entityType, limit];
+      const result = await client.query(sql, params);
+
+      const resultMap = new Map<string, Array<{ id: string; metadata: CheckpointStorageMetadata }>>();
+
+      for (const row of result.rows) {
+        const checkpoint: { id: string; metadata: CheckpointStorageMetadata } = {
+          id: row.id,
+          metadata: {
+            entityType: row.entity_type as CheckpointEntityType,
+            entityId: row.entity_id,
+            timestamp: parseInt(row.timestamp),
+            blobSize: row.blob_size ?? 0,
+            customFields: {
+              checkpointType: row.checkpoint_type,
+              baseCheckpointId: row.base_checkpoint_id,
+              previousCheckpointId: row.previous_checkpoint_id,
+              messageCount: row.message_count,
+              variableCount: row.variable_count,
+              blobHash: row.blob_hash,
+            },
+            tags: row.tags ? JSON.parse(row.tags) : undefined,
+          },
+        };
+
+        const existing = resultMap.get(row.entity_id) || [];
+        existing.push(checkpoint);
+        resultMap.set(row.entity_id, existing);
+      }
+
+      const results: Array<{ entityId: string; checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }> }> = [];
+
+      for (const entityId of entityIds) {
+        results.push({
+          entityId,
+          checkpoints: resultMap.get(entityId) || [],
+        });
+      }
+
+      return results;
+    } catch (error) {
+      this.handlePostgresError(error, 'listByEntitiesWithMetadata', { entityType, entityCount: entityIds.length });
       throw error;
     } finally {
       this.releaseClient(client);

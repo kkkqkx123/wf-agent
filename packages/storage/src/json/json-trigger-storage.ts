@@ -3,35 +3,25 @@
  * Trigger persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { TriggerStorageMetadata, TriggerListOptions } from "@wf-agent/types";
 import type { TriggerStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Trigger Storage
  * Implements the TriggerStorageAdapter interface
  */
 export class JsonTriggerStorage
-  extends BaseJsonStorage<TriggerStorageMetadata, TriggerListOptions>
+  extends JsonEntityStorageBase<TriggerStorageMetadata, TriggerListOptions>
   implements TriggerStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for triggers
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "trigger");
-  }
-
-  /**
-   * Get data directory path for triggers
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "trigger");
+  protected getEntityName(): string {
+    return "trigger";
   }
 
   override async list(options?: TriggerListOptions): Promise<string[]> {

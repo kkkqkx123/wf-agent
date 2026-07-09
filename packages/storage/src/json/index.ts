@@ -1,5 +1,14 @@
 /**
  * JSON storage implementation export
+ *
+ * JSON backend is designed for persistent demos and prototyping.
+ * It is NOT suitable for production use due to:
+ * - No atomic write guarantees (file corruption risk under concurrent access)
+ * - No built-in optimize/vacuum (accumulates orphaned files over time)
+ * - No WAL or transaction isolation
+ * - High I/O overhead for large datasets
+ *
+ * For production use, prefer SQLite or PostgreSQL backends.
  */
 
 export { BaseJsonStorage, type BaseJsonStorageConfig } from "./base-json-storage.js";

@@ -3,35 +3,25 @@
  * Script persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { ScriptStorageMetadata, ScriptListOptions } from "@wf-agent/types";
 import type { ScriptStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Script Storage
  * Implements the ScriptStorageAdapter interface
  */
 export class JsonScriptStorage
-  extends BaseJsonStorage<ScriptStorageMetadata, ScriptListOptions>
+  extends JsonEntityStorageBase<ScriptStorageMetadata, ScriptListOptions>
   implements ScriptStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for scripts
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "script");
-  }
-
-  /**
-   * Get data directory path for scripts
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "script");
+  protected getEntityName(): string {
+    return "script";
   }
 
   override async list(options?: ScriptListOptions): Promise<string[]> {

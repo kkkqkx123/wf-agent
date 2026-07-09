@@ -25,7 +25,7 @@ import { StorageError } from "../types/storage-errors.js";
  * Implementing the WorkflowStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteWorkflowStorage
-  extends BaseSqliteStorage<WorkflowStorageMetadata>
+  extends BaseSqliteStorage<WorkflowStorageMetadata, WorkflowListOptions>
   implements WorkflowStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -346,10 +346,8 @@ export class SqliteWorkflowStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        // Use parameterized query for tags to prevent SQL injection
-        const tagPattern = `%${options.tags[0]}%`;
-        conditions.push("tags LIKE ?");
-        params.push(tagPattern);
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
       if (conditions.length > 0) {

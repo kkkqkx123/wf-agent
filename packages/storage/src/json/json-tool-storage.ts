@@ -3,35 +3,25 @@
  * Tool persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { ToolStorageMetadata, ToolListOptions } from "@wf-agent/types";
 import type { ToolStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Tool Storage
  * Implements the ToolStorageAdapter interface
  */
 export class JsonToolStorage
-  extends BaseJsonStorage<ToolStorageMetadata, ToolListOptions>
+  extends JsonEntityStorageBase<ToolStorageMetadata, ToolListOptions>
   implements ToolStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for tools
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "tool");
-  }
-
-  /**
-   * Get data directory path for tools
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "tool");
+  protected getEntityName(): string {
+    return "tool";
   }
 
   override async list(options?: ToolListOptions): Promise<string[]> {

@@ -9,6 +9,7 @@ import type {
 } from "@wf-agent/types";
 import type { AgentLoopStorageAdapter } from "../types/adapter/agent-loop-adapter.js";
 import { AgentLoopStatus } from "@wf-agent/types";
+import { StorageError } from "../types/storage-errors.js";
 import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-storage.js";
 
 /**
@@ -32,7 +33,7 @@ export class MemoryAgentLoopStorage
 
     const entry = this.store.get(agentLoopId);
     if (!entry) {
-      throw new Error(`Agent loop ${agentLoopId} not found`);
+      throw new StorageError(`Agent loop ${agentLoopId} not found`, "updateAgentLoopStatus", { agentLoopId });
     }
 
     // Update metadata with new status
@@ -141,6 +142,33 @@ export class MemoryAgentLoopStorage
         ids = ids.filter(id => {
           const entry = this.store.get(id);
           return (entry?.metadata.createdAt ?? 0) <= options.createdBefore!;
+        });
+      }
+
+      // Apply sorting
+      if (options.sortBy) {
+        ids.sort((a, b) => {
+          const entryA = this.store.get(a);
+          const entryB = this.store.get(b);
+          if (!entryA || !entryB) return 0;
+
+          let comparison = 0;
+          switch (options.sortBy) {
+            case "createdAt":
+              comparison = entryA.metadata.createdAt - entryB.metadata.createdAt;
+              break;
+            case "updatedAt":
+              comparison = (entryA.metadata.updatedAt ?? 0) - (entryB.metadata.updatedAt ?? 0);
+              break;
+            case "completedAt":
+              comparison = (entryA.metadata.completedAt ?? 0) - (entryB.metadata.completedAt ?? 0);
+              break;
+            case "status":
+              comparison = entryA.metadata.status.localeCompare(entryB.metadata.status);
+              break;
+          }
+
+          return options.sortOrder === "desc" ? -comparison : comparison;
         });
       }
     }

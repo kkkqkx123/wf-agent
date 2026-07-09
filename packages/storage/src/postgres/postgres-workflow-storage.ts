@@ -25,7 +25,7 @@ import { createModuleLogger } from "../logger.js";
 const logger = createModuleLogger("postgres-workflow-storage");
 
 export class PostgresWorkflowStorage
-  extends BasePostgresStorage<WorkflowStorageMetadata>
+  extends BasePostgresStorage<WorkflowStorageMetadata, WorkflowListOptions>
   implements WorkflowStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

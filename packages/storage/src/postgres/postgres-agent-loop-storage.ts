@@ -23,7 +23,7 @@ import { AgentLoopStatus } from "@wf-agent/types";
 const logger = createModuleLogger("postgres-agent-loop-storage");
 
 export class PostgresAgentLoopStorage
-  extends BasePostgresStorage<AgentEntityMetadata>
+  extends BasePostgresStorage<AgentEntityMetadata, AgentEntityListOptions>
   implements AgentLoopStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

@@ -198,6 +198,34 @@ export class JsonCheckpointStorage
   }
 
   /**
+   * Batch get latest checkpoints for multiple entities.
+   * Filters in-memory for each entity ID, maintaining result order.
+   */
+  async listByEntitiesWithMetadata(
+    entityIds: string[],
+    entityType: string,
+    options?: { limit?: number }
+  ): Promise<Array<{
+    entityId: string;
+    checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }>;
+  }>> {
+    this.ensureInitialized();
+
+    const limit = options?.limit ?? 1;
+    const results: Array<{
+      entityId: string;
+      checkpoints: Array<{ id: string; metadata: CheckpointStorageMetadata }>;
+    }> = [];
+
+    for (const entityId of entityIds) {
+      const checkpoints = await this.listByEntityWithMetadata(entityId, entityType, { limit });
+      results.push({ entityId, checkpoints });
+    }
+
+    return results;
+  }
+
+  /**
    * Get entity-level metadata (e.g., cleanup watermark)
    */
   async getEntityMetadata(entityType: string, entityId: string): Promise<Record<string, unknown> | null> {

@@ -117,7 +117,7 @@ export interface CheckpointStorageAdapter extends BaseStorageAdapter<
    * @param options Query options (limit per entity)
    * @returns Array of entity ID to latest checkpoints mapping
    */
-  listByEntitiesWithMetadata?(
+  listByEntitiesWithMetadata(
     entityIds: string[],
     entityType: string,
     options?: { limit?: number }

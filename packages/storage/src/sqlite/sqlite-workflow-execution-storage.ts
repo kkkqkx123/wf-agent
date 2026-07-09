@@ -28,7 +28,7 @@ const logger = createModuleLogger("sqlite-workflow-execution-storage");
  * Implementing the WorkflowExecutionStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteWorkflowExecutionStorage
-  extends BaseSqliteStorage<WorkflowExecutionStorageMetadata>
+  extends BaseSqliteStorage<WorkflowExecutionStorageMetadata, WorkflowExecutionListOptions>
   implements WorkflowExecutionStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -340,8 +340,8 @@ export class SqliteWorkflowExecutionStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        conditions.push(`tags LIKE ?`);
-        params.push(`%${options.tags[0]}%`);
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
       if (conditions.length > 0) {

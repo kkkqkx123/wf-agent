@@ -23,7 +23,7 @@ const logger = createModuleLogger("sqlite-checkpoint-storage");
  * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteCheckpointStorage
-  extends BaseSqliteStorage<CheckpointStorageMetadata>
+  extends BaseSqliteStorage<CheckpointStorageMetadata, CheckpointStorageListOptions>
   implements CheckpointStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -67,8 +67,8 @@ export class SqliteCheckpointStorage
         blob_hash TEXT,
         tags TEXT CHECK(length(tags) <= 4096),
         custom_fields TEXT CHECK(length(custom_fields) <= 8192),
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        created_at INTEGER NOT NULL DEFAULT ((strftime('%s', 'now') * 1000)),
+        updated_at INTEGER NOT NULL DEFAULT ((strftime('%s', 'now') * 1000))
       )
     `);
 
@@ -123,7 +123,7 @@ export class SqliteCheckpointStorage
         entity_id TEXT NOT NULL,
         metadata_key TEXT NOT NULL,
         metadata_value TEXT,
-        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+        updated_at INTEGER NOT NULL DEFAULT ((strftime('%s', 'now') * 1000)),
         PRIMARY KEY (entity_type, entity_id, metadata_key)
       )
     `);
@@ -410,10 +410,8 @@ export class SqliteCheckpointStorage
       }
 
       if (options?.tags && options.tags.length > 0) {
-        for (const tag of options.tags) {
-          conditions.push("instr(tags, ?) > 0");
-          params.push(`"${tag}"`);
-        }
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
       if (options?.type) {
@@ -563,10 +561,8 @@ if (conditions.length > 0) {
       }
 
       if (options?.tags && options.tags.length > 0) {
-        for (const tag of options.tags) {
-          conditions.push("instr(tags, ?) > 0");
-          params.push(`"${tag}"`);
-        }
+        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
+        params.push(...options.tags);
       }
 
 if (conditions.length > 0) {

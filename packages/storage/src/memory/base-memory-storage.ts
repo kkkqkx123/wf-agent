@@ -339,8 +339,9 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
   }
 }
 
-// ── Built-in Memory Storage Type Aliases ──
-// Simple memory storage implementations that don't need custom logic
+// ── Built-in Memory Storage Classes ──
+// Simple memory storage implementations for testing, matching the class-based
+// pattern used by JSON/SQLite/Postgres backends.
 
 import type {
   AgentProfileStorageMetadata,
@@ -355,34 +356,46 @@ import type {
  * In-Memory Agent Profile Storage
  * Fast, isolated agent profile storage for testing
  */
-export type MemoryAgentProfileStorage = BaseMemoryStorage<AgentProfileStorageMetadata, void>;
+export class MemoryAgentProfileStorage extends BaseMemoryStorage<AgentProfileStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}
 
 /**
  * In-Memory Script Storage
  * Fast, isolated script storage for testing
  */
-export type MemoryScriptStorage = BaseMemoryStorage<ScriptStorageMetadata, void>;
+export class MemoryScriptStorage extends BaseMemoryStorage<ScriptStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}
 
 /**
  * In-Memory Tool Storage
  * Fast, isolated tool storage for testing
  */
-export type MemoryToolStorage = BaseMemoryStorage<ToolStorageMetadata, void>;
+export class MemoryToolStorage extends BaseMemoryStorage<ToolStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}
 
 /**
  * In-Memory Hook Template Storage
  * Fast, isolated hook template storage for testing
  */
-export type MemoryHookTemplateStorage = BaseMemoryStorage<HookTemplateStorageMetadata, void>;
+export class MemoryHookTemplateStorage extends BaseMemoryStorage<HookTemplateStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}
 
 /**
  * In-Memory Node Template Storage
  * Fast, isolated node template storage for testing
  */
-export type MemoryNodeTemplateStorage = BaseMemoryStorage<NodeTemplateStorageMetadata, void>;
+export class MemoryNodeTemplateStorage extends BaseMemoryStorage<NodeTemplateStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}
 
 /**
  * In-Memory Trigger Storage
  * Fast, isolated trigger storage for testing
  */
-export type MemoryTriggerStorage = BaseMemoryStorage<TriggerStorageMetadata, void>;
+export class MemoryTriggerStorage extends BaseMemoryStorage<TriggerStorageMetadata, void> {
+  constructor(config?: MemoryStorageConfig) { super(config); }
+}

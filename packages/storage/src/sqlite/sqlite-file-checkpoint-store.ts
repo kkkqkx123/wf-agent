@@ -239,7 +239,14 @@ export class SqliteFileCheckpointStore implements FileCheckpointStorageAdapter {
     const rows = this.listByEntity(entityId, { limit: 1 });
     const list = await rows;
     if (list.length === 0) return null;
-    return list[0] ?? null;
+    const item = list[0];
+    if (!item) return null;
+    const loaded = await this.load(item.id);
+    return {
+      id: item.id,
+      metadata: item.metadata,
+      files: loaded?.files,
+    };
   }
 
   async deleteByEntity(entityId: string, keepLatest?: number): Promise<number> {

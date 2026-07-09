@@ -3,35 +3,25 @@
  * Node template persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { NodeTemplateStorageMetadata, NodeTemplateListOptions } from "@wf-agent/types";
 import type { NodeTemplateStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Node Template Storage
  * Implements the NodeTemplateStorageAdapter interface
  */
 export class JsonNodeTemplateStorage
-  extends BaseJsonStorage<NodeTemplateStorageMetadata, NodeTemplateListOptions>
+  extends JsonEntityStorageBase<NodeTemplateStorageMetadata, NodeTemplateListOptions>
   implements NodeTemplateStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for node templates
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "nodeTemplate");
-  }
-
-  /**
-   * Get data directory path for node templates
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "nodeTemplate");
+  protected getEntityName(): string {
+    return "nodeTemplate";
   }
 
   override async list(options?: NodeTemplateListOptions): Promise<string[]> {

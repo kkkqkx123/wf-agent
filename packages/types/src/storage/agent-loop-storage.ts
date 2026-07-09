@@ -80,6 +80,10 @@ export interface AgentEntityListOptions {
   createdAfter?: Timestamp;
   /** Created before timestamp */
   createdBefore?: Timestamp;
+  /** Sort field */
+  sortBy?: "createdAt" | "updatedAt" | "completedAt" | "status";
+  /** Sort order */
+  sortOrder?: "asc" | "desc";
   /** Maximum number of returns */
   limit?: number;
   /** Offset */

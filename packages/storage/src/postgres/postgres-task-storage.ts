@@ -25,7 +25,7 @@ import { createModuleLogger } from "../logger.js";
 const logger = createModuleLogger("postgres-task-storage");
 
 export class PostgresTaskStorage
-  extends BasePostgresStorage<TaskStorageMetadata>
+  extends BasePostgresStorage<TaskStorageMetadata, TaskListOptions>
   implements TaskStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {

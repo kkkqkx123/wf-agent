@@ -10,6 +10,7 @@ import type {
   WorkflowExecutionStatus,
 } from "@wf-agent/types";
 import type { WorkflowExecutionStorageAdapter } from "../types/adapter/workflow-execution-adapter.js";
+import { StorageError } from "../types/storage-errors.js";
 import { BaseMemoryStorage, type MemoryStorageConfig } from "./base-memory-storage.js";
 
 /**
@@ -152,7 +153,7 @@ export class MemoryWorkflowExecutionStorage
 
     const entry = this.store.get(executionId);
     if (!entry) {
-      throw new Error(`Workflow execution not found: ${executionId}`);
+      throw new StorageError(`Workflow execution not found: ${executionId}`, "updateExecutionStatus", { executionId });
     }
 
     // Update status

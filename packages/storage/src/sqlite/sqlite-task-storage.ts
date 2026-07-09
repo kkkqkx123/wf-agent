@@ -29,7 +29,7 @@ const logger = createModuleLogger("sqlite-task-storage");
  * Implementing the TaskStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteTaskStorage
-  extends BaseSqliteStorage<TaskStorageMetadata>
+  extends BaseSqliteStorage<TaskStorageMetadata, TaskListOptions>
   implements TaskStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {

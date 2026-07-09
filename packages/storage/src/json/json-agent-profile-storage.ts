@@ -3,35 +3,25 @@
  * Agent profile persistent storage based on JSON file system with metadata-data separation
  */
 
-import * as path from "path";
 import type { AgentProfileStorageMetadata, AgentProfileListOptions } from "@wf-agent/types";
 import type { AgentProfileStorageAdapter } from "../types/adapter/base-storage-adapter.js";
-import { BaseJsonStorage, BaseJsonStorageConfig } from "./base-json-storage.js";
+import { BaseJsonStorageConfig } from "./base-json-storage.js";
+import { JsonEntityStorageBase } from "./json-entity-storage-base.js";
 
 /**
  * JSON File Agent Profile Storage
  * Implements the AgentProfileStorageAdapter interface
  */
 export class JsonAgentProfileStorage
-  extends BaseJsonStorage<AgentProfileStorageMetadata, AgentProfileListOptions>
+  extends JsonEntityStorageBase<AgentProfileStorageMetadata, AgentProfileListOptions>
   implements AgentProfileStorageAdapter
 {
   constructor(config: BaseJsonStorageConfig) {
     super(config);
   }
 
-  /**
-   * Get metadata directory path for agent profiles
-   */
-  protected override getMetadataDir(): string {
-    return path.join(this.config.baseDir, "metadata", "agentProfile");
-  }
-
-  /**
-   * Get data directory path for agent profiles
-   */
-  protected override getDataDir(): string {
-    return path.join(this.config.baseDir, "data", "agentProfile");
+  protected getEntityName(): string {
+    return "agentProfile";
   }
 
   override async list(options?: AgentProfileListOptions): Promise<string[]> {

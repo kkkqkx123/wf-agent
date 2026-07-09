@@ -107,3 +107,18 @@ export type {
   SDKFactory,
   SDKResult,
 } from './types/index.js';
+
+// Starter module
+export { StarterRegistry } from './starter/starter-registry.js';
+export { BaseStarter } from './starter/base-starter.js';
+export type {
+  StarterConfigField,
+  StarterMetadata,
+  WorkflowBundle,
+  WorkflowStarter,
+  StarterRegistries,
+} from './starter/types.js';
+
+// Built-in starters
+export { GoalReviewStarter } from './starter/starters/goal-review-starter.js';
+export type { GoalReviewConfig } from './starter/starters/goal-review-starter.js';

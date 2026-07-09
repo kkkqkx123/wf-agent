@@ -45,6 +45,7 @@ import {
   buildAgentToolExecutionStartedEvent,
   buildAgentToolExecutionCompletedEvent,
   buildMessageAddedEvent,
+  buildAttemptCompletionEvent,
 } from "../../../shared/utils/event/builders/index.js";
 import { ToolExecutionCoordinator } from "./tool-execution-coordinator.js";
 import { executeAgentTriggers } from "../handlers/trigger-handlers/index.js";
@@ -110,6 +111,7 @@ export class AgentIterationCoordinator {
     shouldContinue: boolean;
     content?: string;
     interruption?: string;
+    completionData?: { data?: Record<string, unknown>; variables?: Record<string, unknown> };
   }> {
     const agentLoopId = entity.id;
 
@@ -216,7 +218,10 @@ export class AgentIterationCoordinator {
       return { success: true, shouldContinue: false, content: response.content };
     }
 
-    await this.toolExecutionCoordinator.executeToolCalls(
+    const toolCallNames = response.toolCalls.map(tc => tc.name);
+    const hasCompletionTool = toolCallNames.includes("attempt_completion");
+
+    const toolResults = await this.toolExecutionCoordinator.executeToolCalls(
       entity,
       conversationManager,
       response.toolCalls.map(tc => ({
@@ -225,11 +230,48 @@ export class AgentIterationCoordinator {
         arguments: tc.arguments,
       })),
     );
+
+    let completionData: { data?: Record<string, unknown>; variables?: Record<string, unknown> } | undefined;
+
+    if (hasCompletionTool) {
+      const completionResult = toolResults.find(r => {
+        const output = r.result as { metadata?: Record<string, unknown> } | undefined;
+        return output?.metadata?.["type"] === "completion";
+      });
+      if (completionResult?.result) {
+        const output = completionResult.result as {
+          metadata?: { type: string; data?: Record<string, unknown>; variables?: Record<string, unknown> };
+        };
+        const meta = output.metadata;
+        if (meta?.type === "completion") {
+          completionData = {
+            data: meta.data ?? undefined,
+            variables: meta.variables ?? undefined,
+          };
+        }
+      }
+
+      const attemptEvent = buildAttemptCompletionEvent({
+        executionId: entity.id,
+        agentLoopId: entity.id,
+        nodeId: entity.nodeId,
+        content: response.content,
+        data: completionData?.data,
+        variables: completionData?.variables,
+      });
+      await this.emitToRegistry(attemptEvent as unknown as AgentLoopStreamEvent, entity);
+    }
+
     entity.state.endIteration(response.content);
     await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
     await this.executeIterationCompletionTriggers(entity, true);
 
-    return { success: true, shouldContinue: true, content: response.content };
+    return {
+      success: true,
+      shouldContinue: !hasCompletionTool,
+      content: response.content,
+      completionData,
+    };
   }
 
   /**
@@ -348,6 +390,19 @@ export class AgentIterationCoordinator {
       finalResult.toolCalls,
     );
 
+    const streamToolNames = finalResult.toolCalls.map(tc => tc.function.name);
+    const hasStreamCompletion = streamToolNames.includes("attempt_completion");
+
+    if (hasStreamCompletion) {
+      const attemptEvent = buildAttemptCompletionEvent({
+        executionId: entity.id,
+        agentLoopId: entity.id,
+        nodeId: entity.nodeId,
+        content: finalResult.content,
+      });
+      await this.emitToRegistry(attemptEvent as unknown as AgentLoopStreamEvent, entity);
+    }
+
     yield this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true);
     await this.emitToRegistry(
       this.createIterationCompleteEvent(agentLoopId, entity.state.currentIteration, true),
@@ -363,7 +418,7 @@ export class AgentIterationCoordinator {
     await executeAgentHook(entity, "AFTER_ITERATION", this.emitAgentEvent, this.stateCoordinator);
     await this.executeIterationCompletionTriggers(entity, true);
 
-    return true;
+    return !hasStreamCompletion;
   }
 
   /**

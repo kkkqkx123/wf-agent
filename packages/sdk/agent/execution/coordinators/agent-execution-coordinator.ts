@@ -114,6 +114,7 @@ export class AgentExecutionCoordinator {
               content: iterationResult.content,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
+              completionData: iterationResult.completionData,
             };
           }
 

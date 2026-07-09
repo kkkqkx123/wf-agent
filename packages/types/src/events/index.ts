@@ -39,6 +39,9 @@ export * from "./skill-events.js";
 // Export Async Completion related events
 export * from "./async-completion-events.js";
 
+// Export Attempt Completion related events
+export * from "./attempt-completion-events.js";
+
 // Re-export the EventType for backward compatibility.
 export { EventType } from "./base.js";
 
@@ -158,6 +161,8 @@ import type {
   AsyncCompletionCleanedUpEvent,
 } from "./async-completion-events.js";
 
+import type { AttemptCompletionEvent } from "./attempt-completion-events.js";
+
 /**
  * Union type for all event types
  */
@@ -244,4 +249,5 @@ export type Event =
   | ToolApprovalFailedEvent
   | FollowupQuestionRequestedEvent
   | FollowupQuestionRespondedEvent
-  | FollowupQuestionFailedEvent;
+  | FollowupQuestionFailedEvent
+  | AttemptCompletionEvent;

@@ -103,4 +103,9 @@ export interface AgentLoopResult {
   error?: unknown;
   /** Agent Loop ID */
   agentLoopId?: string;
+  /** Completion data from attempt_completion tool (if called) */
+  completionData?: {
+    data?: Record<string, unknown>;
+    variables?: Record<string, unknown>;
+  };
 }

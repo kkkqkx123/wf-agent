@@ -137,6 +137,42 @@ function collectInitialMessages(
 }
 
 /**
+ * Sync completion data/variables from attempt_completion to workflow VariableManager
+ *
+ * The attempt_completion tool emits an ATTEMPT_COMPLETION event and its
+ * data/variables are returned via AgentLoopResult.completionData.
+ * This function applies those changes to the workflow VariableManager.
+ */
+function syncCompletionData(
+  completionData: { data?: Record<string, unknown>; variables?: Record<string, unknown> } | undefined,
+  variableStateManager?: { setVariable: (name: string, value: unknown) => void; getVariable: (name: string) => unknown },
+): void {
+  if (!completionData || !variableStateManager) return;
+
+  if (completionData.data) {
+    for (const [key, value] of Object.entries(completionData.data)) {
+      const existing = (variableStateManager.getVariable(key) as unknown[]) || [];
+      if (Array.isArray(value)) {
+        variableStateManager.setVariable(key, [...existing, ...value]);
+      } else {
+        variableStateManager.setVariable(key, [...existing, value]);
+      }
+    }
+  }
+
+  if (completionData.variables) {
+    for (const [key, value] of Object.entries(completionData.variables)) {
+      variableStateManager.setVariable(key, value);
+    }
+  }
+
+  logger.debug("Synced completion data to workflow variables", {
+    dataKeys: completionData.data ? Object.keys(completionData.data) : [],
+    variableKeys: completionData.variables ? Object.keys(completionData.variables) : [],
+  });
+}
+
+/**
  * Sync agent loop messages back to the workflow MessageContextRegistry
  *
  * After the agent loop completes, this function maps the agent's accumulated
@@ -432,6 +468,9 @@ export async function agentLoopHandler(
     // Sync agent loop messages back to workflow MessageContextRegistry
     syncMessageOutputs(config, execution, context.conversationManager);
 
+    // Sync completion data/variables from attempt_completion result to workflow VariableManager
+    syncCompletionData(result.completionData, context.workflowExecutionEntity?.variableStateManager);
+
     // 4. Update the variable using VariableManager API
     const updateVarManager = context.workflowExecutionEntity?.variableStateManager;
     if (updateVarManager) {
@@ -558,6 +597,9 @@ export async function* agentLoopStreamHandler(
 
     // Sync agent loop messages back to workflow MessageContextRegistry
     syncMessageOutputs(config, execution, context.conversationManager);
+
+    // Sync completion data/variables from attempt_completion result to workflow VariableManager
+    syncCompletionData(undefined, context.workflowExecutionEntity?.variableStateManager);
 
     return {
       status: entity?.isPaused() ? "PAUSED" : "COMPLETED",

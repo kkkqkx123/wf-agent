@@ -43,6 +43,13 @@ import {
   createAskFollowupQuestionHandler,
 } from "./ask-followup-question/index.js";
 
+// Import attempt-completion tool
+import {
+  attemptCompletionSchema,
+  ATTEMPT_COMPLETION_TOOL_DESCRIPTION,
+  createAttemptCompletionHandler,
+} from "./attempt-completion/index.js";
+
 /**
  * Check if the tool is disabled
  */
@@ -152,6 +159,19 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
         category: "interaction",
         requiresUserInteraction: true,
         interactionType: "ASK_FOLLOWUP_QUESTION",
+      },
+    });
+  }
+
+  // attempt_completion
+  if (!isDisabled("attempt_completion", options)) {
+    tools.push({
+      id: "attempt_completion",
+      type: "BUILTIN",
+      description: renderToolDescription(ATTEMPT_COMPLETION_TOOL_DESCRIPTION),
+      parameters: attemptCompletionSchema,
+      config: {
+        execute: createAttemptCompletionHandler(),
       },
     });
   }

@@ -55,6 +55,7 @@ const eventTypeSchema = z.custom<EventType>((val): val is EventType =>
     "USER_INTERACTION_FAILED",
     "LLM_STREAM_ABORTED",
     "LLM_STREAM_ERROR",
+    "ATTEMPT_COMPLETION",
   ].includes(val as EventType),
 );
 

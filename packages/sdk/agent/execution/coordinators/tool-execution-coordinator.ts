@@ -25,7 +25,7 @@ import type {
 } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
-import type { ToolCallExecutor } from "../../../services/executors/tool-call-executor.js";
+import type { ToolCallExecutor, ToolExecutionResult } from "../../../services/executors/tool-call-executor.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import { ToolApprovalCoordinator } from "../../../shared/coordinators/tool-approval-coordinator.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
@@ -78,12 +78,13 @@ export class ToolExecutionCoordinator {
    * @param entity Agent loop entity
    * @param conversationManager Conversation manager
    * @param toolCalls Array of tool calls to execute
+   * @returns Array of tool execution results with toolCallId, success, result, error
    */
   async executeToolCalls(
     entity: AgentLoopEntity,
     conversationManager: ConversationSession,
     toolCalls: Array<{ id: string; name: string; arguments: string }>,
-  ): Promise<void> {
+  ): Promise<ToolExecutionResult[]> {
     const agentLoopId = entity.id;
     const iteration = entity.state.currentIteration;
 
@@ -93,6 +94,8 @@ export class ToolExecutionCoordinator {
       toolCallCount: toolCalls.length,
     });
 
+    const results: ToolExecutionResult[] = [];
+
     // When no tool approval handler is configured, execute all tools directly
     // without going through the approval coordinator. This enables agent loops
     // with tool calls to work in testing/dev scenarios without requiring a
@@ -100,12 +103,13 @@ export class ToolExecutionCoordinator {
     if (!this.toolApprovalHandler) {
       for (const toolCall of toolCalls) {
         entity.state.recordToolCallStart(toolCall.id, toolCall.name, toolCall.arguments);
-        await this.executeSingleApprovedTool(entity, conversationManager, toolCall, {
+        const result = await this.executeSingleApprovedTool(entity, conversationManager, toolCall, {
           success: true,
           result: {},
         });
+        results.push(result);
       }
-      return;
+      return results;
     }
 
     // Convert to LLMToolCall format for batch processing
@@ -146,12 +150,13 @@ export class ToolExecutionCoordinator {
           originalToolCall.name,
           originalToolCall.arguments,
         );
-        await this.executeSingleApprovedTool(
+        const result = await this.executeSingleApprovedTool(
           entity,
           conversationManager,
           originalToolCall,
           autoResult,
         );
+        results.push(result);
       }
     }
 
@@ -189,12 +194,13 @@ export class ToolExecutionCoordinator {
           confirmedToolCall.name,
           confirmedToolCall.arguments,
         );
-        await this.executeSingleApprovedTool(
+        const result = await this.executeSingleApprovedTool(
           entity,
           conversationManager,
           confirmedToolCall,
           placeholderResult,
         );
+        results.push(result);
       }
 
       // Continue with remaining queue if flag is set
@@ -208,8 +214,9 @@ export class ToolExecutionCoordinator {
           arguments: tc.function?.arguments || "{}",
         }));
 
-        // Recursively process remaining tools
-        await this.executeToolCalls(entity, conversationManager, remainingToolCalls);
+        // Recursively process remaining tools with results from nested calls
+        const remainingResults = await this.executeToolCalls(entity, conversationManager, remainingToolCalls);
+        results.push(...remainingResults);
       }
     }
 
@@ -219,6 +226,8 @@ export class ToolExecutionCoordinator {
       autoExecutedCount: batchResult.autoExecuted.length,
       hasConfirmation: !!batchResult.confirmationRequired,
     });
+
+    return results;
   }
 
   /**
@@ -345,7 +354,7 @@ export class ToolExecutionCoordinator {
     conversationManager: ConversationSession,
     toolCall: { id: string; name: string; arguments: string },
     executionResult: { success: boolean; result?: unknown; error?: string },
-  ): Promise<void> {
+  ): Promise<ToolExecutionResult> {
     const agentLoopId = entity.id;
 
     const toolCallInfo = {
@@ -378,7 +387,7 @@ export class ToolExecutionCoordinator {
         { abortSignal: entity.getAbortSignal() },
       );
 
-      const result = toolResults[0];
+      const result = toolResults[0]!;
       if (result?.success) {
         entity.state.recordToolCallEnd(toolCall.id, result.result);
         await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
@@ -396,6 +405,8 @@ export class ToolExecutionCoordinator {
           error: result?.error,
         });
       }
+
+      return result;
     } else {
       logger.warn("Tool call rejected or failed", {
         agentLoopId,
@@ -412,6 +423,14 @@ export class ToolExecutionCoordinator {
         ...toolCallInfo,
         error: executionResult.error,
       });
+
+      return {
+        toolCallId: toolCall.id,
+        toolId: "",
+        success: false,
+        error: executionResult.error || "Rejected by user",
+        executionTime: 0,
+      };
     }
   }
 

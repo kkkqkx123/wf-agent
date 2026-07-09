@@ -57,5 +57,8 @@ export * from "./hook-events.js";
 // Async Completion events
 export * from "./async-completion-events.js";
 
+// Attempt Completion events
+export * from "./attempt-completion-events.js";
+
 // Custom events
 export * from "./custom-events.js";

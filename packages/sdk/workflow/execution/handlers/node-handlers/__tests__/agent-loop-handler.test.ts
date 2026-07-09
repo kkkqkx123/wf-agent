@@ -17,6 +17,8 @@ const mockEventManager = { emit: vi.fn() };
 const mockConversationManager = {
   addMessage: vi.fn(),
   getMessages: vi.fn().mockReturnValue([]),
+  getAllMessages: vi.fn().mockReturnValue([]),
+  getMessageCount: vi.fn().mockReturnValue(0),
 };
 
 const mockRegistry = {

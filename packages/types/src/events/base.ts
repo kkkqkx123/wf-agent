@@ -189,7 +189,9 @@ export type EventType =
   /** SYNC node completed */
   | "NODE_SYNC_COMPLETED"
   /** SYNC node failed */
-  | "NODE_SYNC_FAILED";
+  | "NODE_SYNC_FAILED"
+  /** Attempt completion tool called */
+  | "ATTEMPT_COMPLETION";
 
 /**
  * Basic Event Types

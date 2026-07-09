@@ -70,4 +70,6 @@ export interface ToolOutput {
   content: unknown;
   /** error message */
   error?: string;
+  /** Optional metadata for internal propagation (not sent to LLM) */
+  metadata?: Record<string, unknown>;
 }

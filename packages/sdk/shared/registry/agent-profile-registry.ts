@@ -15,7 +15,11 @@
  */
 
 import type { AgentProfileStorageAdapter } from "@wf-agent/storage";
-import { persistAgentProfile, removeAgentProfile } from "./utils/storage/index.js";
+import {
+  persistAgentProfile,
+  removeAgentProfile,
+  initializeAgentProfilesFromStorage,
+} from "./utils/storage/index.js";
 import { createRegistry } from "./utils/index.js";
 import { validateRequiredString } from "./utils/index.js";
 
@@ -134,6 +138,22 @@ export class AgentProfileRegistry {
     if (this.storageAdapter) {
       await this.storageAdapter.clear();
     }
+  }
+
+  // ============================================================
+  // Storage Operations
+  // ============================================================
+
+  /**
+   * Initialize agent profiles from storage.
+   * Loads all persisted profiles into memory cache.
+   */
+  async initializeFromStorage(): Promise<void> {
+    if (!this.storageAdapter) {
+      return;
+    }
+
+    await initializeAgentProfilesFromStorage(this.storageAdapter, this.items);
   }
 
   /**

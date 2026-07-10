@@ -99,6 +99,8 @@ export class SDKInstance {
       nodeTemplate: options?.nodeTemplateStorageAdapter,
       hookTemplate: options?.hookTemplateStorageAdapter,
       agentProfile: options?.agentProfileStorageAdapter,
+      metricsStorageAdapter: options?.metricsStorageAdapter,
+      strictStorage: options?.strictStorage,
       fileCheckpointStorageAdapter: fcStorageAdapter,
       fileCheckpointManagerConfig: fcManagerConfig,
     });
@@ -487,6 +489,7 @@ export class SDKInstance {
     await tryInitAdapter(this.config?.nodeTemplateStorageAdapter, "nodeTemplate");
     await tryInitAdapter(this.config?.hookTemplateStorageAdapter, "hookTemplate");
     await tryInitAdapter(this.config?.agentProfileStorageAdapter, "agentProfile");
+    await tryInitAdapter(this.config?.metricsStorageAdapter, "metrics");
 
     // Helper to initialize a registry from storage if it has initializeFromStorage()
     // Each registry already guards against missing storageAdapter internally,
@@ -511,6 +514,20 @@ export class SDKInstance {
     await tryInitRegistry(this.globalContext.triggerTemplateRegistry, "Trigger template");
     await tryInitRegistry(this.globalContext.toolRegistry, "Tool");
     await tryInitRegistry(this.globalContext.scriptRegistry, "Script");
+    await tryInitRegistry(this.globalContext.nodeTemplateRegistry, "Node template");
+    await tryInitRegistry(this.globalContext.hookTemplateRegistry, "Hook template");
+    await tryInitRegistry(
+      this.globalContext.container.get(ServiceIdentifiers.AgentProfileRegistry) as {
+        initializeFromStorage?: () => Promise<void>;
+      },
+      "Agent profile",
+    );
+    await tryInitRegistry(
+      this.globalContext.container.get(ServiceIdentifiers.AgentLoopRegistry) as {
+        initializeFromStorage?: () => Promise<void>;
+      },
+      "Agent loop",
+    );
 
     // 2. Register all resources through unified orchestrator (skips if already in storage)
     try {

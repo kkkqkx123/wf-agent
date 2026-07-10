@@ -152,48 +152,89 @@ export interface ContainerStorageConfig {
   nodeTemplate?: NodeTemplateStorageAdapter;
   hookTemplate?: HookTemplateStorageAdapter;
   agentProfile?: AgentProfileStorageAdapter;
+  metricsStorageAdapter?: MetricsStorageAdapter;
+  /** When true, throw on missing storage adapters instead of logging warnings */
+  strictStorage?: boolean;
   fileCheckpointStorageAdapter?: FileCheckpointStorageAdapterType;
   fileCheckpointManagerConfig?: FileCheckpointManagerConfig;
 }
 
 /**
  * Validate critical storage adapters on initialization
- * Logs warnings/info for missing adapters that affect core functionality
+ * In strict mode, throws a single error listing all missing adapters.
+ * In non-strict mode, logs warnings/info for missing adapters.
  */
 function validateStorageAdapters(adapters: ContainerStorageConfig): void {
-  // WorkflowStorageAdapter is critical for workflow persistence
-  if (!adapters.workflow) {
-    logger.warn(
-      "WorkflowStorageAdapter not provided: workflow definitions will not be persisted. " +
-      "Workflow registry will operate in memory-only mode.",
-    );
+  const allAdapterChecks: Array<{ key: keyof ContainerStorageConfig; name: string; severity: "warn" | "info" | "debug" }> = [
+    { key: "workflow", name: "WorkflowStorageAdapter", severity: "warn" },
+    { key: "checkpoint", name: "CheckpointStorageAdapter", severity: "info" },
+    { key: "task", name: "TaskStorageAdapter", severity: "debug" },
+    { key: "workflowExecution", name: "WorkflowExecutionStorageAdapter", severity: "debug" },
+    { key: "agentLoop", name: "AgentLoopStorageAdapter", severity: "debug" },
+    { key: "trigger", name: "TriggerStorageAdapter", severity: "debug" },
+    { key: "tool", name: "ToolStorageAdapter", severity: "debug" },
+    { key: "script", name: "ScriptStorageAdapter", severity: "debug" },
+    { key: "nodeTemplate", name: "NodeTemplateStorageAdapter", severity: "debug" },
+    { key: "hookTemplate", name: "HookTemplateStorageAdapter", severity: "debug" },
+    { key: "agentProfile", name: "AgentProfileStorageAdapter", severity: "debug" },
+    { key: "metricsStorageAdapter", name: "MetricsStorageAdapter", severity: "debug" },
+  ];
+
+  if (adapters.strictStorage) {
+    const missing = allAdapterChecks
+      .filter(check => !adapters[check.key])
+      .map(check => check.name);
+
+    if (missing.length > 0) {
+      throw new Error(
+        `strictStorage is enabled but ${missing.length} storage adapter(s) are missing:\n` +
+        `  ${missing.join("\n  ")}\n\n` +
+        `Provide all required storage adapters via SDKOptions or disable strictStorage for memory-only mode.`,
+      );
+    }
+    return;
   }
 
-  // CheckpointStorageAdapter affects execution resumption capability
-  if (!adapters.checkpoint) {
-    logger.info(
-      "CheckpointStorageAdapter not provided: checkpoint functionality will be disabled. " +
-      "Workflow execution cannot be resumed from checkpoints.",
-    );
-  }
+  for (const check of allAdapterChecks) {
+    if (adapters[check.key]) continue;
 
-  // Task and workflow execution adapters affect task tracking
-  if (!adapters.task) {
-    logger.debug("TaskStorageAdapter not provided: task registry will operate in memory-only mode");
-  }
+    const messages: Record<string, string> = {
+      workflow:
+        "WorkflowStorageAdapter not provided: workflow definitions will not be persisted. " +
+        "Workflow registry will operate in memory-only mode.",
+      checkpoint:
+        "CheckpointStorageAdapter not provided: checkpoint functionality will be disabled. " +
+        "Workflow execution cannot be resumed from checkpoints.",
+      task: "TaskStorageAdapter not provided: task registry will operate in memory-only mode",
+      workflowExecution:
+        "WorkflowExecutionStorageAdapter not provided: " +
+        "workflow execution history will not be persisted",
+      agentLoop:
+        "AgentLoopStorageAdapter not provided: agent loop state will not be persisted",
+      trigger:
+        "TriggerStorageAdapter not provided: trigger template registry will operate in memory-only mode",
+      tool:
+        "ToolStorageAdapter not provided: tool registry will operate in memory-only mode",
+      script:
+        "ScriptStorageAdapter not provided: script registry will operate in memory-only mode",
+      nodeTemplate:
+        "NodeTemplateStorageAdapter not provided: node template registry will operate in memory-only mode",
+      hookTemplate:
+        "HookTemplateStorageAdapter not provided: hook template registry will operate in memory-only mode",
+      agentProfile:
+        "AgentProfileStorageAdapter not provided: agent profile registry will operate in memory-only mode",
+      metricsStorageAdapter:
+        "MetricsStorageAdapter not provided: metrics collectors will use in-memory store",
+    };
 
-  if (!adapters.workflowExecution) {
-    logger.debug(
-      "WorkflowExecutionStorageAdapter not provided: " +
-      "workflow execution history will not be persisted",
-    );
-  }
-
-  // Agent loop adapter affects agent loop persistence
-  if (!adapters.agentLoop) {
-    logger.debug(
-      "AgentLoopStorageAdapter not provided: agent loop state will not be persisted",
-    );
+    const message = messages[check.key];
+    if (message) {
+      switch (check.severity) {
+        case "warn": logger.warn(message); break;
+        case "info": logger.info(message); break;
+        case "debug": logger.debug(message); break;
+      }
+    }
   }
 }
 
@@ -1132,22 +1173,10 @@ export function configureContainerBindings(
   // Layer 12.5: Metrics Services (before WorkflowExecutionPool)
   // ============================================================
 
-  // MetricsStorageAdapter - SQLite implementation for metrics persistence
+  // MetricsStorageAdapter - configurable metrics persistence
   container
     .bind(Identifiers.MetricsStorageAdapter)
-    .toDynamicValue(async (): Promise<MetricsStorageAdapter> => {
-      const { SqliteMetricsStorage } = await import("@wf-agent/storage");
-      const { join } = await import("path");
-
-      const storage = new SqliteMetricsStorage({
-        dbPath: join(process.cwd(), "data", "metrics.db"),
-        enableWAL: true,
-        vacuumInterval: 60 * 60 * 1000, // 1 hour
-      });
-
-      await storage.initialize();
-      return storage;
-    })
+    .toDynamicValue((): MetricsStorageAdapter | null => adapters.metricsStorageAdapter || null)
     .inSingletonScope();
 
   // ============================================================

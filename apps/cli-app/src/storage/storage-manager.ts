@@ -16,6 +16,7 @@ import type {
   HookTemplateStorageAdapter,
   AgentProfileStorageAdapter,
 } from "@wf-agent/storage";
+import type { SDKOptions } from "@wf-agent/sdk/api";
 import {
   JsonCheckpointStorage,
   JsonWorkflowStorage,
@@ -230,6 +231,39 @@ export class StorageManager {
 
   getAgentProfileStorage(): AgentProfileStorageAdapter | null {
     return this.agentProfileStorage;
+  }
+
+  /**
+   * Get all storage adapters as an SDKOptions-compatible object.
+   * Convenience method to simplify createSDK() call in index.ts.
+   */
+  getAllAdapters(): Pick<
+    SDKOptions,
+    | "checkpointStorageAdapter"
+    | "workflowStorageAdapter"
+    | "workflowExecutionStorageAdapter"
+    | "taskStorageAdapter"
+    | "agentLoopCheckpointStorageAdapter"
+    | "triggerStorageAdapter"
+    | "toolStorageAdapter"
+    | "scriptStorageAdapter"
+    | "nodeTemplateStorageAdapter"
+    | "hookTemplateStorageAdapter"
+    | "agentProfileStorageAdapter"
+  > {
+    return {
+      checkpointStorageAdapter: this.checkpointStorage ?? undefined,
+      workflowStorageAdapter: this.workflowStorage ?? undefined,
+      workflowExecutionStorageAdapter: this.workflowExecutionStorage ?? undefined,
+      taskStorageAdapter: this.taskStorage ?? undefined,
+      agentLoopCheckpointStorageAdapter: this.agentLoopStorage ?? undefined,
+      triggerStorageAdapter: this.triggerStorage ?? undefined,
+      toolStorageAdapter: this.toolStorage ?? undefined,
+      scriptStorageAdapter: this.scriptStorage ?? undefined,
+      nodeTemplateStorageAdapter: this.nodeTemplateStorage ?? undefined,
+      hookTemplateStorageAdapter: this.hookTemplateStorage ?? undefined,
+      agentProfileStorageAdapter: this.agentProfileStorage ?? undefined,
+    };
   }
 
   async close(): Promise<void> {

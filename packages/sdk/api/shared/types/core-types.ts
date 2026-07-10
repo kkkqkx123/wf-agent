@@ -18,6 +18,7 @@ import type {
   NodeTemplateStorageAdapter,
   HookTemplateStorageAdapter,
   AgentProfileStorageAdapter,
+  MetricsStorageAdapter,
 } from "@wf-agent/storage";
 
 /**
@@ -187,6 +188,10 @@ export interface SDKOptions {
   hookTemplateStorageAdapter?: HookTemplateStorageAdapter;
   /** Agent profile storage adapter interface (implemented by the application layer) */
   agentProfileStorageAdapter?: AgentProfileStorageAdapter;
+  /** Metrics storage adapter interface (implemented by the application layer) */
+  metricsStorageAdapter?: MetricsStorageAdapter;
+  /** When true, require all storage adapters at bootstrap. Fails fast with a single error listing all missing adapters. */
+  strictStorage?: boolean;
   /** Whether to enable verification */
   enableValidation?: boolean;
   /** Detailed validation configuration */

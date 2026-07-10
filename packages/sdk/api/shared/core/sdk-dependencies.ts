@@ -33,6 +33,8 @@ import type {
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
+  AgentLoopStorageAdapter,
+  MetricsStorageAdapter,
 } from "@wf-agent/storage";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
@@ -281,6 +283,32 @@ export class APIDependencyManager {
       return this.getFromContainer(
         Identifiers.TaskStorageAdapter as ServiceIdentifier<TaskStorageAdapter>,
       ) as TaskStorageAdapter | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the Agent Loop Storage Adapter (may be null if not configured)
+   */
+  getAgentLoopStorageAdapter(): AgentLoopStorageAdapter | null {
+    try {
+      return this.getFromContainer(
+        Identifiers.AgentLoopStorageAdapter as ServiceIdentifier<AgentLoopStorageAdapter>,
+      ) as AgentLoopStorageAdapter | null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get the Metrics Storage Adapter (may be null if not configured)
+   */
+  getMetricsStorageAdapter(): MetricsStorageAdapter | null {
+    try {
+      return this.getFromContainer(
+        Identifiers.MetricsStorageAdapter as ServiceIdentifier<MetricsStorageAdapter>,
+      ) as MetricsStorageAdapter | null;
     } catch {
       return null;
     }

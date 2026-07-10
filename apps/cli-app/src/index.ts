@@ -130,6 +130,13 @@ program
       workflowStorageAdapter: storageManager.getWorkflowStorage() ?? undefined,
       taskStorageAdapter: storageManager.getTaskStorage() ?? undefined,
       workflowExecutionStorageAdapter: storageManager.getWorkflowExecutionStorage() ?? undefined,
+      agentLoopCheckpointStorageAdapter: storageManager.getAgentLoopStorage() ?? undefined,
+      triggerStorageAdapter: storageManager.getTriggerStorage() ?? undefined,
+      toolStorageAdapter: storageManager.getToolStorage() ?? undefined,
+      scriptStorageAdapter: storageManager.getScriptStorage() ?? undefined,
+      nodeTemplateStorageAdapter: storageManager.getNodeTemplateStorage() ?? undefined,
+      hookTemplateStorageAdapter: storageManager.getHookTemplateStorage() ?? undefined,
+      agentProfileStorageAdapter: storageManager.getAgentProfileStorage() ?? undefined,
       defaultTimeout: config.defaultTimeout,
       workflowExecution: {
         maxConcurrentExecutions: config.maxConcurrentExecutions,
@@ -167,6 +174,20 @@ program
     const container = initializeContainer(sdkInstance, config);
     container.registerInteractionHandler(interactionHandler);
   });
+
+// Ensure headless-mode exit after command completion
+// MUST be before any command registration so .action() is wrapped for all commands
+const originalAction = Command.prototype.action;
+Command.prototype.action = function (fn: (...args: unknown[]) => unknown) {
+  const wrappedFn = async (...args: unknown[]) => {
+    try {
+      await fn(...args);
+    } finally {
+      process.exit(0);
+    }
+  };
+  return originalAction.call(this, wrappedFn);
+};
 
 // Add workflow command groups
 program.addCommand(createWorkflowCommands());
@@ -212,21 +233,6 @@ program.addCommand(createAgentProfileCommands());
 
 // Add the Metrics command group
 program.addCommand(createMetricsCommands());
-
-// Global Error Handling
-program.hook("postAction", async thisCommand => {
-  const options = thisCommand.opts() as { verbose?: boolean; debug?: boolean };
-  const output = getOutput();
-
-  if (options.verbose || options.debug) {
-    output.infoLog("Detailed mode is enabled.");
-  }
-
-  // In headless mode, safely exit after the command execution is complete.
-  if (isHeadless()) {
-    await ExitManager.exit(0);
-  }
-});
 
 // Parse command-line arguments
 program.parse(process.argv);

@@ -1,0 +1,24 @@
+{
+  "id": "parent-wf",
+  "metadata": {
+    "workflowId": "parent-wf",
+    "name": "Parent Workflow",
+    "type": "DEPENDENT",
+    "version": "1.0.0",
+    "createdAt": 1783664833541,
+    "updatedAt": 1783664833541,
+    "description": "",
+    "tags": [],
+    "category": "",
+    "author": "",
+    "nodeCount": 3,
+    "edgeCount": 2
+  },
+  "dataRef": {
+    "filePath": "data\\workflow\\parent-wf.bin",
+    "size": 561,
+    "hash": "51bb5a10047f9e22",
+    "compressed": true,
+    "compressionAlgorithm": "gzip"
+  }
+}

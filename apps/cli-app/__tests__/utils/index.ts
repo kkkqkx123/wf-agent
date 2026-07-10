@@ -9,3 +9,5 @@ export {
   type TestStatus,
   type CommandLog,
 } from "./test-logger.js";
+
+export { saveStorageSnapshot } from "./storage-snapshot.js";

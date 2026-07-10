@@ -1,0 +1,26 @@
+[workflow]
+id = "standalone-wf"
+name = "Standalone Workflow"
+type = "STANDALONE"
+version = "1.0.0"
+
+[[nodes]]
+id = "standalone-start"
+type = "START"
+
+[[nodes]]
+id = "standalone-process"
+type = "LLM"
+config = { profileId = "gpt-4o" }
+
+[[nodes]]
+id = "standalone-end"
+type = "END"
+
+[[edges]]
+from = "standalone-start"
+to = "standalone-process"
+
+[[edges]]
+from = "standalone-process"
+to = "standalone-end"

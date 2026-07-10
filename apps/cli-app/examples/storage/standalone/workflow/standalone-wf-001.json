@@ -1,0 +1,24 @@
+{
+  "id": "standalone-wf-001",
+  "metadata": {
+    "workflowId": "standalone-wf-001",
+    "name": "Standalone Workflow",
+    "type": "STANDALONE",
+    "version": "1.0.0",
+    "createdAt": 1783664824742,
+    "updatedAt": 1783664824742,
+    "description": "",
+    "tags": [],
+    "category": "",
+    "author": "",
+    "nodeCount": 3,
+    "edgeCount": 2
+  },
+  "dataRef": {
+    "filePath": "data\\workflow\\standalone-wf-001.bin",
+    "size": 532,
+    "hash": "81804971b0991000",
+    "compressed": true,
+    "compressionAlgorithm": "gzip"
+  }
+}

@@ -8,10 +8,10 @@
 import { loadConfigFile } from "@wf-agent/config-processor";
 import {
   parseJson,
-  parseToml,
   applyEnvOverrides,
   EnvMappingEntry,
 } from "@wf-agent/sdk/api";
+import { parse as parseToml } from "@iarna/toml";
 import type { CLIConfig } from "./types.js";
 import type { LogLevel, OutputFormat } from "@wf-agent/types";
 import { CLIConfigSchema } from "./schema.js";

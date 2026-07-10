@@ -1,0 +1,31 @@
+{
+  "id": "llm_summary_workflow",
+  "metadata": {
+    "workflowId": "llm_summary_workflow",
+    "name": "LLM Summary Workflow",
+    "type": "TRIGGERED_SUBWORKFLOW",
+    "version": "1.0.0",
+    "createdAt": 1783664837062,
+    "updatedAt": 1783664837062,
+    "description": "LLM-based conversation summarization workflow: summarize → replace original context with summary",
+    "tags": [
+      "context",
+      "compression",
+      "summary",
+      "token",
+      "memory",
+      "predefined"
+    ],
+    "category": "system",
+    "author": "system",
+    "nodeCount": 4,
+    "edgeCount": 3
+  },
+  "dataRef": {
+    "filePath": "data\\workflow\\llm_summary_workflow.bin",
+    "size": 2800,
+    "hash": "3bfb6f2a2d4dfaab",
+    "compressed": true,
+    "compressionAlgorithm": "gzip"
+  }
+}

@@ -8,44 +8,64 @@ import type {
   WorkflowStorageAdapter,
   WorkflowExecutionStorageAdapter,
   TaskStorageAdapter,
+  AgentLoopStorageAdapter,
+  TriggerStorageAdapter,
+  ToolStorageAdapter,
+  ScriptStorageAdapter,
+  NodeTemplateStorageAdapter,
+  HookTemplateStorageAdapter,
+  AgentProfileStorageAdapter,
 } from "@wf-agent/storage";
 import {
   JsonCheckpointStorage,
   JsonWorkflowStorage,
   JsonWorkflowExecutionStorage,
   JsonTaskStorage,
+  JsonAgentLoopStorage,
+  JsonTriggerStorage,
+  JsonToolStorage,
+  JsonScriptStorage,
+  JsonNodeTemplateStorage,
+  JsonHookTemplateStorage,
+  JsonAgentProfileStorage,
   type BaseJsonStorageConfig,
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
   SqliteWorkflowExecutionStorage,
   SqliteTaskStorage,
+  SqliteAgentLoopStorage,
+  SqliteTriggerStorage,
+  SqliteToolStorage,
+  SqliteScriptStorage,
+  SqliteNodeTemplateStorage,
+  SqliteHookTemplateStorage,
+  SqliteAgentProfileStorage,
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
 import type { CLIConfig } from "../config/index.js";
 import { createPackageLogger, registerLogger, createLazyLogger } from "@wf-agent/common-utils";
 
-// Use lazy logger to allow configuration before initialization
 const logger = createLazyLogger("cli-app:storage-manager", () =>
   createPackageLogger("cli-app").child("storage-manager")
 );
 registerLogger("cli-app.storage-manager", logger);
 
-/**
- * Storage Manager
- * Unified management of all storage instances
- */
 export class StorageManager {
   private workflowStorage: WorkflowStorageAdapter | null = null;
   private workflowExecutionStorage: WorkflowExecutionStorageAdapter | null = null;
   private checkpointStorage: CheckpointStorageAdapter | null = null;
   private taskStorage: TaskStorageAdapter | null = null;
+  private agentLoopStorage: AgentLoopStorageAdapter | null = null;
+  private triggerStorage: TriggerStorageAdapter | null = null;
+  private toolStorage: ToolStorageAdapter | null = null;
+  private scriptStorage: ScriptStorageAdapter | null = null;
+  private nodeTemplateStorage: NodeTemplateStorageAdapter | null = null;
+  private hookTemplateStorage: HookTemplateStorageAdapter | null = null;
+  private agentProfileStorage: AgentProfileStorageAdapter | null = null;
   private initialized: boolean = false;
 
   constructor(private config: CLIConfig) {}
 
-  /**
-   * Initialize all storage instances
-   */
   async initialize(): Promise<void> {
     if (this.initialized) {
       logger.warn("StorageManager already initialized");
@@ -71,12 +91,7 @@ export class StorageManager {
     logger.info("StorageManager initialized successfully");
   }
 
-  /**
-   * Initialize JSON storage
-   */
-  private async initializeJsonStorage(
-    config?: CLIConfig["storage"] extends { json?: infer T } | undefined ? T : never,
-  ): Promise<void> {
+  private async initializeJsonStorage(config?: BaseJsonStorageConfig): Promise<void> {
     const baseDir = config?.baseDir ?? "./storage";
     const enableFileLock = config?.enableFileLock ?? false;
     const compression = config?.compression;
@@ -95,152 +110,183 @@ export class StorageManager {
 
     this.workflowStorage = new JsonWorkflowStorage(baseConfig);
     await this.workflowStorage.initialize();
-    logger.info("WorkflowStorage initialized", { baseDir });
 
     this.workflowExecutionStorage = new JsonWorkflowExecutionStorage(baseConfig);
     await this.workflowExecutionStorage.initialize();
-    logger.info("WorkflowExecutionStorage initialized", { baseDir });
 
     this.checkpointStorage = new JsonCheckpointStorage(baseConfig);
     await this.checkpointStorage.initialize();
-    logger.info("CheckpointStorage initialized", { baseDir });
 
     this.taskStorage = new JsonTaskStorage(baseConfig);
     await this.taskStorage.initialize();
-    logger.info("TaskStorage initialized", { baseDir });
+
+    this.agentLoopStorage = new JsonAgentLoopStorage(baseConfig);
+    await this.agentLoopStorage.initialize();
+
+    this.triggerStorage = new JsonTriggerStorage(baseConfig);
+    await this.triggerStorage.initialize();
+
+    this.toolStorage = new JsonToolStorage(baseConfig);
+    await this.toolStorage.initialize();
+
+    this.scriptStorage = new JsonScriptStorage(baseConfig);
+    await this.scriptStorage.initialize();
+
+    this.nodeTemplateStorage = new JsonNodeTemplateStorage(baseConfig);
+    await this.nodeTemplateStorage.initialize();
+
+    this.hookTemplateStorage = new JsonHookTemplateStorage(baseConfig);
+    await this.hookTemplateStorage.initialize();
+
+    this.agentProfileStorage = new JsonAgentProfileStorage(baseConfig);
+    await this.agentProfileStorage.initialize();
+
+    logger.info("JSON storage initialized", { baseDir });
   }
 
-  /**
-   * Initialize SQLite storage
-   */
-  private async initializeSQLiteStorage(config?: {
-    dbPath?: string;
-    enableWAL?: boolean;
-    enableLogging?: boolean;
-    readonly?: boolean;
-    fileMustExist?: boolean;
-    timeout?: number;
-    autoVacuum?: 'NONE' | 'FULL' | 'INCREMENTAL';
-    journalSizeLimit?: number;
-    pageSize?: number;
-    maintenanceIntervalMs?: number;
-  }): Promise<void> {
+  private async initializeSQLiteStorage(config?: BaseSqliteStorageConfig): Promise<void> {
     const dbPath = config?.dbPath ?? "./storage/cli-app.db";
-    const enableWAL = config?.enableWAL ?? true;
-    const enableLogging = config?.enableLogging ?? false;
-    const readonly = config?.readonly ?? false;
-    const fileMustExist = config?.fileMustExist ?? false;
-    const timeout = config?.timeout ?? 5000;
 
     const baseConfig: BaseSqliteStorageConfig = {
+      ...config,
       dbPath,
-      enableLogging,
-      readonly,
-      fileMustExist,
-      timeout,
-      autoVacuum: config?.autoVacuum,
-      journalSizeLimit: config?.journalSizeLimit,
-      pageSize: config?.pageSize,
-      maintenanceIntervalMs: config?.maintenanceIntervalMs,
     };
 
     this.workflowStorage = new SqliteWorkflowStorage(baseConfig);
     await this.workflowStorage.initialize();
-    logger.info("WorkflowStorage initialized", { dbPath, enableWAL });
 
     this.workflowExecutionStorage = new SqliteWorkflowExecutionStorage(baseConfig);
     await this.workflowExecutionStorage.initialize();
-    logger.info("WorkflowExecutionStorage initialized", { dbPath, enableWAL });
 
     this.checkpointStorage = new SqliteCheckpointStorage(baseConfig);
     await this.checkpointStorage.initialize();
-    logger.info("CheckpointStorage initialized", { dbPath, enableWAL });
 
     this.taskStorage = new SqliteTaskStorage(baseConfig);
     await this.taskStorage.initialize();
-    logger.info("TaskStorage initialized", { dbPath, enableWAL });
+
+    this.agentLoopStorage = new SqliteAgentLoopStorage(baseConfig);
+    await this.agentLoopStorage.initialize();
+
+    this.triggerStorage = new SqliteTriggerStorage(baseConfig);
+    await this.triggerStorage.initialize();
+
+    this.toolStorage = new SqliteToolStorage(baseConfig);
+    await this.toolStorage.initialize();
+
+    this.scriptStorage = new SqliteScriptStorage(baseConfig);
+    await this.scriptStorage.initialize();
+
+    this.nodeTemplateStorage = new SqliteNodeTemplateStorage(baseConfig);
+    await this.nodeTemplateStorage.initialize();
+
+    this.hookTemplateStorage = new SqliteHookTemplateStorage(baseConfig);
+    await this.hookTemplateStorage.initialize();
+
+    this.agentProfileStorage = new SqliteAgentProfileStorage(baseConfig);
+    await this.agentProfileStorage.initialize();
+
+    logger.info("SQLite storage initialized", { dbPath });
   }
 
-  /**
-   * Get workflow storage
-   */
   getWorkflowStorage(): WorkflowStorageAdapter | null {
     return this.workflowStorage;
   }
 
-  /**
-   * Get workflow execution storage
-   */
   getWorkflowExecutionStorage(): WorkflowExecutionStorageAdapter | null {
     return this.workflowExecutionStorage;
   }
 
-  /**
-   * Get checkpoint storage
-   */
   getCheckpointStorage(): CheckpointStorageAdapter | null {
     return this.checkpointStorage;
   }
 
-  /**
-   * Get task storage
-   */
   getTaskStorage(): TaskStorageAdapter | null {
     return this.taskStorage;
   }
 
-  /**
-   * Close all storage instances
-   */
+  getAgentLoopStorage(): AgentLoopStorageAdapter | null {
+    return this.agentLoopStorage;
+  }
+
+  getTriggerStorage(): TriggerStorageAdapter | null {
+    return this.triggerStorage;
+  }
+
+  getToolStorage(): ToolStorageAdapter | null {
+    return this.toolStorage;
+  }
+
+  getScriptStorage(): ScriptStorageAdapter | null {
+    return this.scriptStorage;
+  }
+
+  getNodeTemplateStorage(): NodeTemplateStorageAdapter | null {
+    return this.nodeTemplateStorage;
+  }
+
+  getHookTemplateStorage(): HookTemplateStorageAdapter | null {
+    return this.hookTemplateStorage;
+  }
+
+  getAgentProfileStorage(): AgentProfileStorageAdapter | null {
+    return this.agentProfileStorage;
+  }
+
   async close(): Promise<void> {
     if (!this.initialized) {
       return;
     }
 
-    const promises: Promise<void>[] = [];
+    const results = await Promise.allSettled([
+      this.workflowStorage?.close(),
+      this.workflowExecutionStorage?.close(),
+      this.checkpointStorage?.close(),
+      this.taskStorage?.close(),
+      this.agentLoopStorage?.close(),
+      this.triggerStorage?.close(),
+      this.toolStorage?.close(),
+      this.scriptStorage?.close(),
+      this.nodeTemplateStorage?.close(),
+      this.hookTemplateStorage?.close(),
+      this.agentProfileStorage?.close(),
+    ]);
 
-    if (this.workflowStorage) {
-      promises.push(this.workflowStorage.close());
-    }
-    if (this.workflowExecutionStorage) {
-      promises.push(this.workflowExecutionStorage.close());
-    }
-    if (this.checkpointStorage) {
-      promises.push(this.checkpointStorage.close());
-    }
-    if (this.taskStorage) {
-      promises.push(this.taskStorage.close());
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.error("Storage close error", { error: result.reason });
+      }
     }
 
-    await Promise.all(promises);
     this.initialized = false;
     logger.info("StorageManager closed");
   }
 
-  /**
-   * Clear all storage data
-   */
   async clear(): Promise<void> {
     if (!this.initialized) {
       return;
     }
 
-    const promises: Promise<void>[] = [];
+    const results = await Promise.allSettled([
+      this.workflowStorage?.clear(),
+      this.workflowExecutionStorage?.clear(),
+      this.checkpointStorage?.clear(),
+      this.taskStorage?.clear(),
+      this.agentLoopStorage?.clear(),
+      this.triggerStorage?.clear(),
+      this.toolStorage?.clear(),
+      this.scriptStorage?.clear(),
+      this.nodeTemplateStorage?.clear(),
+      this.hookTemplateStorage?.clear(),
+      this.agentProfileStorage?.clear(),
+    ]);
 
-    if (this.workflowStorage) {
-      promises.push(this.workflowStorage.clear());
-    }
-    if (this.workflowExecutionStorage) {
-      promises.push(this.workflowExecutionStorage.clear());
-    }
-    if (this.checkpointStorage) {
-      promises.push(this.checkpointStorage.clear());
-    }
-    if (this.taskStorage) {
-      promises.push(this.taskStorage.clear());
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.error("Storage clear error", { error: result.reason });
+      }
     }
 
-    await Promise.all(promises);
     logger.info("StorageManager cleared");
   }
 }
+

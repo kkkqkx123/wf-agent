@@ -34,10 +34,27 @@ export async function parseWorkflow(
   parameters?: Record<string, unknown>,
 ): Promise<WorkflowTemplate> {
   const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  // Flatten TOML format before validation (TOML has nested workflow section)
+  const flatConfig = flattenWorkflowConfig(raw as WorkflowConfigFile);
+  // Apply default timestamps before validation
+  const now = Date.now();
+  const pendingWorkflow = {
+    ...flatConfig,
+    createdAt: flatConfig.createdAt ?? now,
+    updatedAt: flatConfig.updatedAt ?? now,
+  } as WorkflowTemplate;
+  // Transform nodes/edges before deep validation
+  // (WorkflowValidator expects transformed data with name, id, sourceNodeId, type)
+  const transformedNodes = transformNodes(pendingWorkflow.nodes || []);
+  const transformedEdges = transformEdges(pendingWorkflow.edges || []);
   const config: ParsedConfig<"workflow"> = {
     configType: "workflow",
     format,
-    config: raw as WorkflowTemplate,
+    config: {
+      ...pendingWorkflow,
+      nodes: transformedNodes,
+      edges: transformedEdges,
+    } as WorkflowTemplate,
     rawContent: content,
   };
   const validated = validateWorkflow(config);

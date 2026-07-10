@@ -1,0 +1,24 @@
+{
+  "id": "child-wf",
+  "metadata": {
+    "workflowId": "child-wf",
+    "name": "Child Workflow",
+    "type": "STANDALONE",
+    "version": "1.0.0",
+    "createdAt": 1783664831844,
+    "updatedAt": 1783664831844,
+    "description": "",
+    "tags": [],
+    "category": "",
+    "author": "",
+    "nodeCount": 3,
+    "edgeCount": 2
+  },
+  "dataRef": {
+    "filePath": "data\\workflow\\child-wf.bin",
+    "size": 594,
+    "hash": "56e74a2d5d40e21c",
+    "compressed": true,
+    "compressionAlgorithm": "gzip"
+  }
+}

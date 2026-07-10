@@ -122,3 +122,6 @@ export type {
 // Built-in starters
 export { GoalReviewStarter } from './starter/starters/goal-review-starter.js';
 export type { GoalReviewConfig } from './starter/starters/goal-review-starter.js';
+
+// Predefined resources
+export { executorTemplate, reviewerTemplate } from './resources/predefined/agent-templates/index.js';

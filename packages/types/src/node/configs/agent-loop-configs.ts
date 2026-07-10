@@ -76,7 +76,7 @@ export interface AgentLoopNodeConfig {
    * Note: This is a declarative subset. For advanced features (hooks, transforms),
    * use agentLoopId to reference a full AgentLoopDefinition.
    */
-  inlineConfig?: {
+   inlineConfig?: {
     /**
      * LLM Profile ID
      *
@@ -85,6 +85,14 @@ export interface AgentLoopNodeConfig {
      * profileId is used as the base and this field overrides it.
      */
     profileId?: string;
+
+    /**
+     * System prompt for the agent loop
+     *
+     * When agentLoopId is provided, this overrides the template's default system prompt.
+     * When used standalone (no agentLoopId), this is required.
+     */
+    systemPrompt?: string;
 
     /**
      * Maximum number of iterations

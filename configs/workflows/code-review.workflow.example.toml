@@ -33,6 +33,10 @@ filter = "repoPath != ''"
 
 # --- Nodes — individual execution steps ---
 [[nodes]]
+id = "start"
+type = "START"
+
+[[nodes]]
 id = "fetch-changes"
 type = "CUSTOM"
 
@@ -44,6 +48,7 @@ timeout = 30000
 [[nodes]]
 id = "analyze"
 type = "LLM"
+
 [nodes.config]
 providerId = "llm-default"
 promptTemplateId = "code-review-system"
@@ -54,27 +59,32 @@ maxTokens = 4096
 [[nodes]]
 id = "post-comment"
 type = "CUSTOM"
+
 [nodes.config]
 category = "github"
 action = "createReviewComment"
 inputs = { review = "$ref:analyze.output", pr = "$var:prNumber" }
 
+[[nodes]]
+id = "end"
+type = "END"
+
 # --- Edges — define node execution order ---
 [[edges]]
-sourceId = "__start__"
-targetId = "fetch-changes"
+sourceNodeId = "start"
+targetNodeId = "fetch-changes"
 
 [[edges]]
-sourceId = "fetch-changes"
-targetId = "analyze"
+sourceNodeId = "fetch-changes"
+targetNodeId = "analyze"
 
 [[edges]]
-sourceId = "analyze"
-targetId = "post-comment"
+sourceNodeId = "analyze"
+targetNodeId = "post-comment"
 
 [[edges]]
-sourceId = "post-comment"
-targetId = "__end__"
+sourceNodeId = "post-comment"
+targetNodeId = "end"
 
 # --- Config — workflow execution behavior ---
 [config]

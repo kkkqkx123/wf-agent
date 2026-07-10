@@ -1,6 +1,5 @@
 import type {
   WorkflowTemplate,
-  AgentLoopDefinition,
   PromptTemplate,
   VariableDefinition,
   Condition,
@@ -10,52 +9,28 @@ import type {
 } from "@wf-agent/types";
 import type { StarterMetadata, WorkflowBundle } from "../types.js";
 import { BaseStarter } from "../base-starter.js";
+import { executorTemplate, reviewerTemplate } from "../../resources/predefined/agent-templates/index.js";
 
 export interface GoalReviewConfig extends Record<string, unknown> {
   rootRequirement: string;
   targetPath?: string;
   maxIterations: number;
   plannerProfileId: string;
-  executorProfileId: string;
-  reviewerProfileId: string;
+  executorProfileId?: string;
+  reviewerProfileId?: string;
   plannerSystemPrompt?: string;
   executorSystemPrompt?: string;
   reviewerSystemPrompt?: string;
   executorTools?: string[];
   reviewerTools?: string[];
+  executorMaxIterations?: number;
+  reviewerMaxIterations?: number;
   initialMessages?: LLMMessage[];
 }
 
 const defaultPlannerPrompt = `You are a task planner for a goal-driven review loop.
 Read the root requirement, the conversation history, and the unresolved review defects.
 Output a single clear task description for the executor to work on next.`;
-
-const defaultExecutorPrompt = `You are an executor working toward a goal.
-You have full file access. Make changes, run tests, and call attempt_completion when the task is done.`;
-
-const defaultReviewerPrompt = `You are a strict code reviewer.
-Review all changes against the root goal. For each file, assign a score (1-10) and actionable feedback.
-Call attempt_completion with:
-  data: { judges: [{ file, score, comment, resolved }] }
-  variables: { complete: boolean, status: "completed"|"reviewing"|... }
-Set status to "completed" only if ALL criteria are met.`;
-
-const defaultExecutorTools = [
-  "readFile",
-  "writeFile",
-  "editFile",
-  "glob",
-  "grep",
-  "bash",
-  "attempt_completion",
-];
-
-const defaultReviewerTools = [
-  "readFile",
-  "glob",
-  "grep",
-  "attempt_completion",
-];
 
 const defaultInitialMessages: LLMMessage[] = [
   { role: "system", content: defaultPlannerPrompt },
@@ -82,13 +57,11 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
       },
       executorProfileId: {
         type: "string",
-        default: "gpt-4o",
-        description: "LLM profile for code execution",
+        description: "LLM profile for executor (default from template)",
       },
       reviewerProfileId: {
         type: "string",
-        default: "o3-mini",
-        description: "LLM profile for code review (stronger model recommended)",
+        description: "LLM profile for reviewer (default from template)",
       },
       plannerSystemPrompt: {
         type: "string",
@@ -96,19 +69,19 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
       },
       executorSystemPrompt: {
         type: "string",
-        description: "Custom system prompt for the executor agent",
+        description: "Override system prompt for the executor agent",
       },
       reviewerSystemPrompt: {
         type: "string",
-        description: "Custom system prompt for the reviewer agent",
+        description: "Override system prompt for the reviewer agent",
       },
       executorTools: {
         type: "array",
-        description: "Tools available to the executor agent",
+        description: "Override tools for the executor agent",
       },
       reviewerTools: {
         type: "array",
-        description: "Tools available to the reviewer agent (read-only recommended)",
+        description: "Override tools for the reviewer agent (read-only recommended)",
       },
     },
   };
@@ -116,10 +89,6 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
   assemble(config: GoalReviewConfig): WorkflowBundle {
     return {
       workflow: this.buildWorkflow(config),
-      agentLoops: [
-        this.buildExecutorAgent(config),
-        this.buildReviewerAgent(config),
-      ],
       promptTemplates: [
         this.buildPlannerPrompt(config),
       ],
@@ -164,6 +133,9 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
         metadata: { description: "Current iteration counter" },
       },
     ];
+
+    const executorInline = this.buildExecutorInlineConfig(config);
+    const reviewerInline = this.buildReviewerInlineConfig(config);
 
     const nodes: StaticNode[] = [
       {
@@ -223,8 +195,9 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
         type: "AGENT_LOOP",
         name: "Executor Agent",
         config: {
-          agentLoopId: "@standard/goal-review-executor",
+          agentLoopId: executorTemplate.id,
           inlineConfig: {
+            ...executorInline,
             messageInputs: [
               { externalName: "default", internalName: "system-context" },
             ],
@@ -239,8 +212,9 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
         type: "AGENT_LOOP",
         name: "Reviewer Agent",
         config: {
-          agentLoopId: "@standard/goal-review-reviewer",
+          agentLoopId: reviewerTemplate.id,
           inlineConfig: {
+            ...reviewerInline,
             dataInputs: [
               { parentField: "judges", internalName: "previous_judges" },
             ],
@@ -281,57 +255,15 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
     ];
 
     const edges: Edge[] = [
+      { id: "e0", sourceNodeId: "start", targetNodeId: "loop_start", type: "DEFAULT" },
+      { id: "e2", sourceNodeId: "loop_start", targetNodeId: "task_planner", type: "DEFAULT" },
+      { id: "e3", sourceNodeId: "task_planner", targetNodeId: "executor_agent", type: "DEFAULT" },
+      { id: "e4", sourceNodeId: "executor_agent", targetNodeId: "reviewer_agent", type: "DEFAULT" },
+      { id: "e5", sourceNodeId: "reviewer_agent", targetNodeId: "loop_end", type: "DEFAULT" },
+      { id: "e6", sourceNodeId: "loop_end", targetNodeId: "end", type: "DEFAULT" },
       {
-        id: "e0",
-        sourceNodeId: "__start__",
-        targetNodeId: "start",
-        type: "DEFAULT",
-      },
-      {
-        id: "e1",
-        sourceNodeId: "start",
-        targetNodeId: "loop_start",
-        type: "DEFAULT",
-      },
-      {
-        id: "e2",
-        sourceNodeId: "loop_start",
-        targetNodeId: "task_planner",
-        type: "DEFAULT",
-      },
-      {
-        id: "e3",
-        sourceNodeId: "task_planner",
-        targetNodeId: "executor_agent",
-        type: "DEFAULT",
-      },
-      {
-        id: "e4",
-        sourceNodeId: "executor_agent",
-        targetNodeId: "reviewer_agent",
-        type: "DEFAULT",
-      },
-      {
-        id: "e5",
-        sourceNodeId: "reviewer_agent",
-        targetNodeId: "loop_end",
-        type: "DEFAULT",
-      },
-      {
-        id: "e6",
-        sourceNodeId: "loop_end",
-        targetNodeId: "end",
-        type: "DEFAULT",
-      },
-      {
-        id: "e7",
-        sourceNodeId: "loop_end",
-        targetNodeId: "task_planner",
-        type: "CONDITIONAL",
-        condition: {
-          type: "expression",
-          expression: "nextIteration === true",
-        } satisfies Condition,
+        id: "e7", sourceNodeId: "loop_end", targetNodeId: "task_planner", type: "CONDITIONAL",
+        condition: { type: "expression", expression: "nextIteration === true" } satisfies Condition,
       },
     ];
 
@@ -353,28 +285,24 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
     };
   }
 
-  private buildExecutorAgent(config: GoalReviewConfig): AgentLoopDefinition {
+  private buildExecutorInlineConfig(config: GoalReviewConfig) {
     return {
-      id: "@standard/goal-review-executor",
-      name: "Goal Review Executor",
-      profileId: config.executorProfileId,
-      systemPrompt: config.executorSystemPrompt ?? defaultExecutorPrompt,
-      maxIterations: 30,
+      profileId: config.executorProfileId ?? executorTemplate.profileId,
+      systemPrompt: config.executorSystemPrompt ?? executorTemplate.systemPrompt,
+      maxIterations: config.executorMaxIterations ?? executorTemplate.maxIterations,
       availableTools: {
-        tools: config.executorTools ?? defaultExecutorTools,
+        tools: config.executorTools ?? executorTemplate.availableTools?.tools ?? [],
       },
     };
   }
 
-  private buildReviewerAgent(config: GoalReviewConfig): AgentLoopDefinition {
+  private buildReviewerInlineConfig(config: GoalReviewConfig) {
     return {
-      id: "@standard/goal-review-reviewer",
-      name: "Goal Review Reviewer",
-      profileId: config.reviewerProfileId,
-      systemPrompt: config.reviewerSystemPrompt ?? defaultReviewerPrompt,
-      maxIterations: 10,
+      profileId: config.reviewerProfileId ?? reviewerTemplate.profileId,
+      systemPrompt: config.reviewerSystemPrompt ?? reviewerTemplate.systemPrompt,
+      maxIterations: config.reviewerMaxIterations ?? reviewerTemplate.maxIterations,
       availableTools: {
-        tools: config.reviewerTools ?? defaultReviewerTools,
+        tools: config.reviewerTools ?? reviewerTemplate.availableTools?.tools ?? [],
       },
     };
   }

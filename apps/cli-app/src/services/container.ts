@@ -6,9 +6,11 @@
  */
 
 import type { SDKInstance } from "@wf-agent/sdk/api";
+import type { CLIConfig } from "../config/index.js";
 import { TerminalManager } from "../services/terminal/terminal-manager.js";
 import { ExecutionService } from "../services/execution/execution-service.js";
 import { WorkflowExecutionAdapter } from "../adapters/workflow-execution-adapter.js";
+import { StorageManager } from "../storage/storage-manager.js";
 import type { CLIUserInteractionManager } from "../handlers/user-interaction/index.js";
 
 /**
@@ -17,13 +19,15 @@ import type { CLIUserInteractionManager } from "../handlers/user-interaction/ind
  */
 export class CLIDependencyContainer {
   private sdk: SDKInstance;
+  private storageManager: StorageManager;
   private terminalManager: TerminalManager;
   private executionService: ExecutionService;
   private workflowExecutionAdapter: WorkflowExecutionAdapter;
   private interactionHandler: CLIUserInteractionManager | null = null;
 
-  constructor(sdk: SDKInstance) {
+  constructor(sdk: SDKInstance, config: CLIConfig) {
     this.sdk = sdk;
+    this.storageManager = new StorageManager(config);
     this.terminalManager = new TerminalManager();
     this.executionService = new ExecutionService(this.sdk, this.terminalManager);
     this.workflowExecutionAdapter = new WorkflowExecutionAdapter();
@@ -51,6 +55,13 @@ export class CLIDependencyContainer {
   }
 
   /**
+   * Get the Storage Manager
+   */
+  getStorageManager(): StorageManager {
+    return this.storageManager;
+  }
+
+  /**
    * Get the Terminal Manager
    */
   getTerminalManager(): TerminalManager {
@@ -75,6 +86,7 @@ export class CLIDependencyContainer {
    * Cleanup all resources
    */
   async cleanup(): Promise<void> {
+    await this.storageManager.close();
     await this.executionService.cleanup();
     if (this.interactionHandler) {
       this.interactionHandler.cleanup();
@@ -91,8 +103,8 @@ let globalContainer: CLIDependencyContainer | null = null;
 /**
  * Initialize the global container
  */
-export function initializeContainer(sdk: SDKInstance): CLIDependencyContainer {
-  globalContainer = new CLIDependencyContainer(sdk);
+export function initializeContainer(sdk: SDKInstance, config: CLIConfig): CLIDependencyContainer {
+  globalContainer = new CLIDependencyContainer(sdk, config);
   return globalContainer;
 }
 

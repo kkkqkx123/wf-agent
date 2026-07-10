@@ -244,35 +244,3 @@ export class StorageManager {
     logger.info("StorageManager cleared");
   }
 }
-
-let globalStorageManager: StorageManager | null = null;
-
-/**
- * Get the global storage manager instance
- */
-export function getStorageManager(): StorageManager | null {
-  return globalStorageManager;
-}
-
-/**
- * Initialize the global storage manager
- */
-export async function initializeStorageManager(config: CLIConfig): Promise<StorageManager> {
-  if (globalStorageManager) {
-    return globalStorageManager;
-  }
-
-  globalStorageManager = new StorageManager(config);
-  await globalStorageManager.initialize();
-  return globalStorageManager;
-}
-
-/**
- * Close the global storage manager
- */
-export async function closeStorageManager(): Promise<void> {
-  if (globalStorageManager) {
-    await globalStorageManager.close();
-    globalStorageManager = null;
-  }
-}

@@ -61,7 +61,8 @@ export class CLIRunner {
     } = options;
 
     // Automatically add test config if not already present
-    const finalArgs = args.includes("--config") ? args : [...args, "--config", this.testConfigPath];
+    const hasConfigFlag = args.some(arg => arg === "--config" || arg === "-c");
+    const finalArgs = hasConfigFlag ? args : [...args, "--config", this.testConfigPath];
 
     const startTime = Date.now();
     const result = await this.executeCommand(finalArgs, {

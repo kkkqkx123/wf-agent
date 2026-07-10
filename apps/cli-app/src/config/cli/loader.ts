@@ -90,8 +90,16 @@ export async function loadConfigWithEnvOverride(configPath?: string): Promise<CL
   if (process.env["LOG_DIR"] && result.output) {
     result.output = { ...result.output, dir: process.env["LOG_DIR"] };
   }
-  if (process.env["STORAGE_DIR"] && result.storage?.json) {
-    result.storage.json = { ...result.storage.json, baseDir: process.env["STORAGE_DIR"] };
+  if (process.env["STORAGE_DIR"]) {
+    if (result.storage?.json) {
+      result.storage.json = { ...result.storage.json, baseDir: process.env["STORAGE_DIR"] };
+    }
+    if (result.storage?.sqlite) {
+      const sqlitePath = result.storage.sqlite.dbPath;
+      const dirName = sqlitePath.substring(0, sqlitePath.lastIndexOf("/") + 1) || "./";
+      const newDbPath = process.env["STORAGE_DIR"] + sqlitePath.substring(dirName.length);
+      result.storage.sqlite = { ...result.storage.sqlite, dbPath: newDbPath };
+    }
   }
 
   const envFormat = process.env[ExecutionModeEnvVars.OUTPUT_FORMAT];

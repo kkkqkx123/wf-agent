@@ -279,7 +279,7 @@ function resolveAgentRuntimeConfig(config: AgentLoopNodeConfig): ResolvedAgentRu
   const resolved: ResolvedAgentRuntimeConfig = {
     profileId: inlineConfig.profileId || "",
     maxIterations: inlineConfig.maxIterations,
-    systemPrompt: "",
+    systemPrompt: inlineConfig.systemPrompt || "",
     availableTools: inlineConfig.availableTools,
     dataInputs: inlineConfig.dataInputs,
     messageInputs: inlineConfig.messageInputs,

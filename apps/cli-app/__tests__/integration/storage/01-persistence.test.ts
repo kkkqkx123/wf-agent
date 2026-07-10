@@ -11,7 +11,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import path from "path";
 import fs from "fs";
 import { CLIRunner } from "../../utils/cli-runner.js";
 import { TestHelper } from "../../utils/test-helpers.js";
@@ -51,45 +50,11 @@ describe("Storage Persistence", () => {
       expect(registerResult.exitCode).toBe(0);
       expect(registerResult.stdout).toContain("Workflow is registered");
 
-      // Step 2: Verify storage directory structure exists
-      const storageFiles = fs.readdirSync(storageDir);
-      console.log(`[TEST] Storage files: ${JSON.stringify(storageFiles)}`);
+      // Step 2: Verify storage directory exists (storage-agnostic check)
+      console.log(`[TEST] Storage directory exists: ${storageDir}`);
+      expect(fs.existsSync(storageDir)).toBe(true);
 
-      // Check if data and metadata directories exist (JSON storage uses directory structure)
-      const hasDataDir = storageFiles.includes("data");
-      expect(hasDataDir).toBe(true);
-
-      // Inspect the data directory structure
-      if (hasDataDir) {
-        const dataDir = path.join(storageDir, "data");
-        const dataFiles = fs.readdirSync(dataDir);
-        console.log(`[TEST] Data directory contents: ${JSON.stringify(dataFiles)}`);
-        
-        // Check for workflow-related files
-        for (const file of dataFiles) {
-          const filePath = path.join(dataDir, file);
-          const stats = fs.statSync(filePath);
-          if (stats.isDirectory()) {
-            const subFiles = fs.readdirSync(filePath);
-            console.log(`[TEST]   ${file}/: ${JSON.stringify(subFiles)}`);
-          }
-        }
-      }
-
-      // Step 3: Verify data file exists and is readable
-      const workflowDataPath = path.join(storageDir, "data", "workflow", "child-wf.bin");
-      const workflowMetaPath = path.join(storageDir, "metadata", "workflow", "child-wf.json");
-      
-      console.log(`[TEST] Checking data file: ${workflowDataPath}`);
-      console.log(`[TEST] Data file exists: ${fs.existsSync(workflowDataPath)}`);
-      console.log(`[TEST] Metadata file exists: ${fs.existsSync(workflowMetaPath)}`);
-      
-      if (fs.existsSync(workflowMetaPath)) {
-        const metaContent = fs.readFileSync(workflowMetaPath, "utf-8");
-        console.log(`[TEST] Metadata content:`, metaContent.substring(0, 200));
-      }
-
-      // Step 4: Query the workflow in a NEW CLI invocation
+      // Step 3: Query the workflow in a NEW CLI invocation
       const showResult = await runner.run(["workflow", "show", "child-wf"], {
         outputSubdir: "storage-persistence",
       });
@@ -166,39 +131,6 @@ describe("Storage Persistence", () => {
 
       // Should fail because child-wf is not registered in dir2
       expect(result2.exitCode).not.toBe(0);
-    });
-  });
-
-  describe("Storage File Structure", () => {
-    it("should create proper storage file structure", async () => {
-      const workflowFile = helper.getFixturePath("workflows", "child-wf.toml");
-
-      await runner.run(["workflow", "register", workflowFile], {
-        outputSubdir: "storage-persistence",
-      });
-
-      // Check storage directory structure
-      expect(fs.existsSync(storageDir)).toBe(true);
-
-      const files = fs.readdirSync(storageDir);
-      console.log(`[TEST] Storage structure: ${JSON.stringify(files)}`);
-
-      // Should have at least data and metadata directories
-      expect(files.includes("data")).toBe(true);
-      expect(files.includes("metadata")).toBe(true);
-
-      // Read and validate workflow metadata file
-      const workflowMetaPath = path.join(storageDir, "metadata", "workflow", "child-wf.json");
-      if (fs.existsSync(workflowMetaPath)) {
-        const content = fs.readFileSync(workflowMetaPath, "utf-8");
-        const data = JSON.parse(content);
-
-        console.log(`[TEST] Workflow metadata structure:`, Object.keys(data));
-
-        // Should be a valid JSON object
-        expect(typeof data).toBe("object");
-        expect(data.id).toBe("child-wf");
-      }
     });
   });
 });

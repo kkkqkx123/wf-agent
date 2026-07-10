@@ -25,6 +25,7 @@ const AgentToolConfigSchema = z.object({
  */
 const InlineConfigSchema = z.object({
   profileId: z.string().min(1, "profileId must not be empty").optional(),
+  systemPrompt: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
   availableTools: AgentToolConfigSchema,
   workingContext: z.string().optional(),

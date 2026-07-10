@@ -14,11 +14,7 @@ import { createSDK } from "@wf-agent/sdk/api";
 import { registerAllIndexResolvers } from "@wf-agent/config-processor";
 import { ExitManager } from "./utils/exit-manager.js";
 import { isHeadless, getMode, getOutputFormat } from "./utils/mode-detector.js";
-import {
-  initializeStorageManager,
-  closeStorageManager,
-  getStorageManager,
-} from "./storage/index.js";
+import { StorageManager } from "./storage/index.js";
 import { createWorkflowCommands } from "./commands/workflow/index.js";
 import { createWorkflowExecutionCommands } from "./commands/workflow-execution/index.js";
 import { createCheckpointCommands } from "./commands/checkpoint/index.js";
@@ -118,30 +114,26 @@ program
       sdkLogLevel: config.output?.sdkLogLevel,
     });
 
-    // 6. Initialize storage manager
-    await initializeStorageManager(config);
-    const storageManager = getStorageManager();
+    // 6. Initialize storage manager (will be managed by container)
+    const storageManager = new StorageManager(config);
+    await storageManager.initialize();
 
     // 7. Initialize the SDK with storage adapters and lifecycle hooks
     sdkInstance = createSDK({
       debug: options.debug,
       logging: {
-        // P2 修复: 优先使用配置文件中的 logLevel，其次使用命令行参数
         level: config.logLevel ||
                (options.debug ? "debug" : options.verbose ? "info" : "warn"),
       },
       presets: config.presets,
-      checkpointStorageAdapter: storageManager?.getCheckpointStorage() ?? undefined,
-      workflowStorageAdapter: storageManager?.getWorkflowStorage() ?? undefined,
-      taskStorageAdapter: storageManager?.getTaskStorage() ?? undefined,
-      workflowExecutionStorageAdapter: storageManager?.getWorkflowExecutionStorage() ?? undefined,
-      // P1 修复: 传递默认超时配置
+      checkpointStorageAdapter: storageManager.getCheckpointStorage() ?? undefined,
+      workflowStorageAdapter: storageManager.getWorkflowStorage() ?? undefined,
+      taskStorageAdapter: storageManager.getTaskStorage() ?? undefined,
+      workflowExecutionStorageAdapter: storageManager.getWorkflowExecutionStorage() ?? undefined,
       defaultTimeout: config.defaultTimeout,
-      // P1 修复: 传递工作流执行配置
       workflowExecution: {
         maxConcurrentExecutions: config.maxConcurrentExecutions,
       },
-      // Enable graceful shutdown (default is true, but explicit for clarity)
       gracefulShutdown: {
         enabled: true,
         timeoutMs: 15000,
@@ -158,33 +150,21 @@ program
         },
         onDestroy: async () => {
           output.infoLog("Shutting down SDK and storage...");
-          await closeStorageManager();
+          await storageManager.close();
         },
       },
     });
 
-    // Wait for SDK bootstrap to complete
-    try {
-      await sdkInstance.waitForReady();
-    } catch (error) {
-      output.errorLog(
-        `SDK initialization failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      await ExitManager.exit(1);
-    }
+    await sdkInstance.waitForReady();
 
-    // Register all configuration index resolvers
     registerAllIndexResolvers();
 
     // 8. Initialize User Interaction Handler for interactive tools
     const interactionHandler = new CLIUserInteractionManager();
-    // The eventAPI has access to the event manager internally
-    // We'll use a different approach: pass the SDK instance and let handler access events
     interactionHandler.initialize(sdkInstance);
 
-    // 9. Register interaction handler in container for lifecycle management
-    const container = initializeContainer(sdkInstance);
-    // Store the interaction handler reference in container for proper cleanup
+    // 9. Initialize container with SDK and config (includes StorageManager)
+    const container = initializeContainer(sdkInstance, config);
     container.registerInteractionHandler(interactionHandler);
   });
 
@@ -311,7 +291,7 @@ async function startTUI() {
           sdkInstance = null;
         }
 
-        // Use container to cleanup services
+        // Use container to cleanup services (including StorageManager)
         try {
           const container = getContainer();
           await container.cleanup();
@@ -374,7 +354,7 @@ const shutdown = async () => {
       sdkInstance = null;
     }
 
-    // Use container to cleanup services
+    // Use container to cleanup services (including StorageManager)
     try {
       const container = getContainer();
       await container.cleanup();

@@ -97,14 +97,14 @@ export class NodeHandlerContextFactory {
     string,
     (node: RuntimeNode, executionEntity: WorkflowExecutionEntity) => Record<string, unknown>
   > = new Map([
-    ["USER_INTERACTION", (node, entity) => this.createUserInteractionContext(node, entity)],
-    ["CONTEXT_PROCESSOR", (_node, entity) => this.createContextProcessorContext(entity)],
-    ["LLM", (node, entity) => this.createLLMContext(node, entity)],
-    ["AGENT_LOOP", (node, entity) => this.createAgentLoopContext(node, entity)],
-    ["TOOL_VISIBILITY", (node, entity) => this.createToolVisibilityContext(node, entity)],
-    ["FORK", (node, entity) => this.createForkContext(node, entity)],
-    ["SUBGRAPH", (node, entity) => this.createSubgraphContext(node, entity)],
-    ["START_FROM_TRIGGER", (_node, entity) => this.createStartFromTriggerContext(entity)],
+    ["USER_INTERACTION", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createUserInteractionContext(node, entity)],
+    ["CONTEXT_PROCESSOR", (_node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createContextProcessorContext(entity)],
+    ["LLM", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createLLMContext(node, entity)],
+    ["AGENT_LOOP", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createAgentLoopContext(node, entity)],
+    ["TOOL_VISIBILITY", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createToolVisibilityContext(node, entity)],
+    ["FORK", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createForkContext(node, entity)],
+    ["SUBGRAPH", (node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createSubgraphContext(node, entity)],
+    ["START_FROM_TRIGGER", (_node: RuntimeNode, entity: WorkflowExecutionEntity) => this.createStartFromTriggerContext(entity)],
     ["INTERACTIVE_SCRIPT", () => this.createInteractiveScriptContext()],
   ]);
 

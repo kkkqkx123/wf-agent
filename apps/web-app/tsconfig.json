@@ -5,8 +5,7 @@
     "rootDir": ".",
     "paths": {
       "@wf-agent/*": [
-        "../../packages/*/src",
-        "../../sdk/*/src"
+        "../../packages/*/src"
       ]
     }
   },

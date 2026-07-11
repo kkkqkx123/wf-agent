@@ -31,10 +31,9 @@
     // Module resolution
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./packages/sdk/*"],
-      "@wf-agent/*": ["packages/*/src"]
+      "@wf-agent/*": ["./packages/*/src"]
     }
   },
   "include": ["apps/**/*", "packages/**/*"],

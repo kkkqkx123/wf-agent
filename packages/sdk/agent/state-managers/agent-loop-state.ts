@@ -130,6 +130,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   /** Error message */
   private _error: unknown = null;
 
+  /** Pause start timestamp (ms) - set when execution is paused */
+  private _pauseStartTime: number | null = null;
+
   /** Pause icon */
   private _shouldPause: boolean = false;
 
@@ -229,6 +232,13 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    */
   get endTime(): number | null {
     return this._endTime;
+  }
+
+  /**
+   * Get pause start timestamp
+   */
+  get pauseStartTime(): number | null {
+    return this._pauseStartTime;
   }
 
   /**
@@ -1022,6 +1032,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
     this._status = AgentLoopStatus.PAUSED;
     this._shouldPause = false;
+    this._pauseStartTime = Date.now();
   }
 
   /**
@@ -1038,6 +1049,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
     this._status = AgentLoopStatus.RUNNING;
     this._shouldPause = false;
+    this._pauseStartTime = null;
   }
 
   /**
@@ -1169,6 +1181,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._startTime = null;
     this._endTime = null;
     this._error = null;
+    this._pauseStartTime = null;
     this._shouldPause = false;
     this._shouldStop = false;
     this._streamMessage = null;
@@ -1191,6 +1204,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     cloned._startTime = this._startTime;
     cloned._endTime = this._endTime;
     cloned._error = this._error;
+    cloned._pauseStartTime = this._pauseStartTime;
     cloned._shouldPause = this._shouldPause;
     cloned._shouldStop = this._shouldStop;
     cloned._iterationHistory = this._iterationHistory.map(record => ({
@@ -1230,6 +1244,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       startTime: this._startTime,
       endTime: this._endTime,
       error: this._error,
+      pauseStartTime: this._pauseStartTime,
       // Extended fields for complete state capture
       iterationHistory: this._iterationHistory.map(record => ({
         ...record,
@@ -1265,6 +1280,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._startTime = snapshot.startTime;
     this._endTime = snapshot.endTime;
     this._error = snapshot.error;
+    this._pauseStartTime = snapshot.pauseStartTime ?? null;
 
     // Restore extended fields if present
     if (snapshot.iterationHistory) {

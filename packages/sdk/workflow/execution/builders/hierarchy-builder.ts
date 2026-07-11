@@ -239,21 +239,8 @@ export function validateHierarchy(entity: WorkflowExecutionEntity): {
 function getHierarchyRegistry(
   entity: WorkflowExecutionEntity,
 ): ExecutionHierarchyRegistry | undefined {
-  // Access the registry through the entity's hierarchy manager
-  // This assumes the entity stores a reference to the registry
-  // We need to expose this via a method or property
-
-  // For now, we'll try to get it from global context if available
-  // TODO: Consider adding a getRegistry() method to WorkflowExecutionEntity
-  try {
-    // This is a workaround - ideally the entity should expose its registry
-    const anyEntity = entity as unknown as {
-      hierarchyManager?: { registry?: ExecutionHierarchyRegistry };
-    };
-    return anyEntity.hierarchyManager?.registry;
-  } catch {
-    return undefined;
-  }
+  // Use the entity's public getRegistry() API
+  return entity.getRegistry();
 }
 
 /**

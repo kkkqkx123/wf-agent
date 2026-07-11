@@ -923,11 +923,12 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       throw new Error(`AgentLoop is not paused: ${id}`);
     }
 
-    // Record resume metrics (pause duration tracking would require storing pause start time in entity)
+    // Record resume metrics with pause duration
     if (this.metricsCollector) {
-      // For now, record resume without pause duration
-      // TODO: Store pauseStartTime in entity state to calculate accurate pause duration
-      this.metricsCollector.recordResume(id, 0);
+      const pauseDuration = entity.state.pauseStartTime
+        ? Date.now() - entity.state.pauseStartTime
+        : 0;
+      this.metricsCollector.recordResume(id, pauseDuration);
     }
 
     // Reset the interrupt flag

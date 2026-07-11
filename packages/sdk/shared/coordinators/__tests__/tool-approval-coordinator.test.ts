@@ -48,165 +48,6 @@ describe("ToolApprovalCoordinator", () => {
     vi.clearAllMocks();
   });
 
-  describe("Usage Limits - P0 Implementation", () => {
-    it("should track consecutive auto-approved requests", async () => {
-      const options: ToolApprovalOptions = {
-        autoApprovalEnabled: true,
-        categories: {
-          alwaysAllowReadOnly: true,
-        },
-        maxAutoApprovedRequests: 3,
-      };
-
-      // First 3 requests should be auto-approved
-      for (let i = 0; i < 3; i++) {
-        const result = await coordinator.processToolApproval({
-          toolCall: mockToolCall,
-          tool: mockTool,
-          options,
-          contextId: "test-context",
-          approvalHandler: mockApprovalHandler,
-        });
-
-        expect(result.approved).toBe(true);
-      }
-
-      // 4th request should require manual approval due to limit
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Should have triggered manual approval
-      expect(mockApprovalHandler.requestApproval).toHaveBeenCalled();
-    });
-
-    it("should reset counter after manual approval", async () => {
-      const options: ToolApprovalOptions = {
-        autoApprovalEnabled: true,
-        categories: {
-          alwaysAllowReadOnly: true,
-        },
-        maxAutoApprovedRequests: 2,
-      };
-
-      // Reach the limit
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Manual approval resets counter
-      mockApprovalHandler.requestApproval.mockResolvedValueOnce({
-        approved: true,
-        toolCallId: "call_123",
-      });
-
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Counter should be reset, next auto-approvals should work
-      const result = await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      expect(result.approved).toBe(true);
-    });
-
-    it("should maintain separate state per context", async () => {
-      const options: ToolApprovalOptions = {
-        autoApprovalEnabled: true,
-        categories: {
-          alwaysAllowReadOnly: true,
-        },
-        maxAutoApprovedRequests: 1,
-      };
-
-      // Context 1 reaches limit
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "context-1",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Context 2 should still have fresh state
-      const result = await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "context-2",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      expect(result.approved).toBe(true);
-    });
-  });
-
-  describe("State Management - P0 Implementation", () => {
-    it("should expose state for monitoring", () => {
-      const state = coordinator.getApprovalState("non-existent");
-      expect(state).toBeUndefined();
-    });
-
-    it("should allow manual state reset", async () => {
-      const options: ToolApprovalOptions = {
-        autoApprovalEnabled: true,
-        categories: {
-          alwaysAllowReadOnly: true,
-        },
-        maxAutoApprovedRequests: 1,
-      };
-
-      // Use up the limit
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Manually reset
-      coordinator.resetApprovalState("test-context");
-
-      // Should be able to auto-approve again
-      const result = await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      expect(result.approved).toBe(true);
-    });
-  });
-
   describe("Risk Level Decoupling - P1 Implementation", () => {
     it("should accept riskLevel without full tool definition", async () => {
       const options: ToolApprovalOptions = {
@@ -350,30 +191,6 @@ describe("ToolApprovalCoordinator", () => {
 
       loggerSpy.mockRestore();
     });
-
-    it("should include timestamp in audit logs", async () => {
-      // Verify state tracking includes timestamps
-      const options: ToolApprovalOptions = {
-        autoApprovalEnabled: true,
-        categories: {
-          alwaysAllowReadOnly: true,
-        },
-      };
-
-      await coordinator.processToolApproval({
-        toolCall: mockToolCall,
-        tool: mockTool,
-        options,
-        contextId: "test-context",
-        approvalHandler: mockApprovalHandler,
-      });
-
-      // Get state and verify it has activity timestamp
-      const state = coordinator.getApprovalState("test-context");
-      expect(state).toBeDefined();
-      expect(state?.lastActivityAt).toBeDefined();
-      expect(typeof state?.lastActivityAt).toBe("number");
-    });
   });
 
   describe("Integration Scenarios", () => {
@@ -384,7 +201,6 @@ describe("ToolApprovalCoordinator", () => {
           alwaysAllowReadOnly: true,
           alwaysAllowWrite: false,
         },
-        maxAutoApprovedRequests: 2,
       };
 
       const readResult = await coordinator.processToolApproval({

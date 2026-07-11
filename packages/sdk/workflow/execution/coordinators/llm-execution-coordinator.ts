@@ -28,6 +28,7 @@ import { generateId } from "../../../utils/index.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
+import { TimeoutManager } from "../../../shared/state-managers/timeout-manager.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
 import { getWorkflowInterruptionDescription } from "../utils/workflow-interruption-utils.js";
 import type { WorkflowInterruptionCheckResult } from "../utils/workflow-interruption-utils.js";
@@ -523,7 +524,6 @@ export class LLMExecutionCoordinator {
    */
   private async requestToolApproval(
     toolCall: LLMToolCall,
-    approvalConfig: { approvalTimeout?: number } | undefined,
     executionId: string,
     nodeId: string,
   ): Promise<ToolApprovalResult> {
@@ -531,6 +531,7 @@ export class LLMExecutionCoordinator {
 
     // If there is an execution context, create checkpoints to support long-term approval processes.
     let checkpointId: string | undefined;
+    let timeoutManager: TimeoutManager | undefined;
     if (this.contextFactory.hasToolApprovalSupport()) {
       try {
         const approvalContext = this.contextFactory.createToolApprovalContext(executionId, nodeId);
@@ -549,6 +550,7 @@ export class LLMExecutionCoordinator {
           if (!entity) {
             throw new Error(`WorkflowExecutionEntity not found: ${executionId}`);
           }
+          timeoutManager = entity.timeoutManager;
           const coordinator = new CheckpointCoordinator();
           checkpointId = await coordinator.createWorkflowCheckpoint(entity, dependencies, {
             metadata: {
@@ -579,6 +581,9 @@ export class LLMExecutionCoordinator {
       }
     }
 
+    // Pause the TimeoutManager before waiting for user approval
+    timeoutManager?.pause();
+
     try {
       // Trigger the TOOL_APPROVAL_REQUESTED event
       const requestedEvent = buildToolApprovalRequestedEvent({
@@ -587,7 +592,6 @@ export class LLMExecutionCoordinator {
         interactionId,
         toolCall,
         contextId: executionId,
-        timeout: approvalConfig?.approvalTimeout || 0,
       });
 
       try {
@@ -603,7 +607,6 @@ export class LLMExecutionCoordinator {
       const response = await this.waitForUserInteractionResponse(
         executionId,
         interactionId,
-        approvalConfig?.approvalTimeout || 0,
       );
 
       // Parse approval results
@@ -611,6 +614,9 @@ export class LLMExecutionCoordinator {
 
       return approvalResult;
     } finally {
+      // Resume the TimeoutManager after user approval
+      timeoutManager?.resume();
+
       // Clean up the checkpoints (if any exist).
       const checkpointStateManager = this.contextFactory.getCheckpointStateManager();
       if (checkpointId && checkpointStateManager) {
@@ -663,7 +669,6 @@ export class LLMExecutionCoordinator {
     // Call the approval flow which returns ToolApprovalResult
     const result = await this.requestToolApproval(
       request.toolCall as LLMToolCall,
-      undefined,
       executionId,
       nodeId,
     );

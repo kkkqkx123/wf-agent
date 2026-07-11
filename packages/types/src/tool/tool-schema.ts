@@ -389,7 +389,6 @@ export const ToolApprovalOptionsSchema = z.object({
   mcp: McpApprovalSettingsSchema.optional(),
   interaction: InteractionSettingsSchema.optional(),
   autoApprovedTools: z.array(z.string()).optional(),
-  approvalTimeout: z.number().optional(),
 });
 
 /**

@@ -186,8 +186,13 @@ export class ToolRegistryAPI extends SimplifiedCrudResourceAPI<Tool, string, Too
           return false;
         }
       }
-      // Enabled filtering is temporarily not supported because the Tool interface has no enabled field
-      // TODO: If enabled filtering is needed, need to get the tool's enabled status from elsewhere
+      // Enabled filtering: enabled defaults to true if not set
+      if (filter.enabled !== undefined) {
+        const isEnabled = tool.enabled !== false; // enabled by default
+        if (isEnabled !== filter.enabled) {
+          return false;
+        }
+      }
       return true;
     });
   }

@@ -120,8 +120,6 @@ export interface ToolApprovalRequestedEvent extends BaseEvent {
   contextId: ID;
   /** Node ID */
   nodeId?: ID;
-  /** Timeout in milliseconds */
-  timeout: number;
   /** Batch metadata */
   batchId?: string;
   toolIndex?: number;

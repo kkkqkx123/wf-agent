@@ -189,6 +189,9 @@ export interface TimeoutSnapshot {
     /** Whether warning was emitted */
     warningEmitted: boolean;
 
+    /** Total accumulated paused duration in milliseconds */
+    totalPausedDuration?: number;
+
     /** Optional metadata */
     metadata?: Record<string, unknown>;
   }>;

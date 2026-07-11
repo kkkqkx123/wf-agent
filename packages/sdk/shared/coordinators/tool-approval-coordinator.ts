@@ -47,22 +47,6 @@ import {
 const logger = createContextualLogger();
 
 /**
- * Approval State for tracking usage limits per context
- */
-interface ApprovalState {
-  /** Number of consecutive auto-approved requests */
-  consecutiveAutoApprovedCount: number;
-  /** Last reset point (message index or timestamp) */
-  lastResetIndex: number;
-  /** Timestamp of last activity for cleanup */
-  lastActivityAt: number;
-  /** Total cumulative cost of auto-approved tools (optional, for future use) */
-  totalAutoApprovedCost?: number;
-  /** Timestamp of last approval time (for time-based resets) */
-  lastApprovalTime?: number;
-}
-
-/**
  * Audit log entry structure
  */
 interface AuditLogEntry {
@@ -101,22 +85,14 @@ export interface ExtendedToolApprovalCoordinatorParams extends ToolApprovalCoord
  * Responsibilities:
  * - Check if tool requires approval
  * - Check auto-approval rules
- * - Track usage limits (consecutive approvals, costs)
  * - Request user approval
  * - Process approval result
  *
  * Design Principles:
  * - Pure coordination logic
  * - Reusable across modules
- * - Stateful for usage limit tracking
  */
 export class ToolApprovalCoordinator {
-  /** State map for tracking approval limits per context */
-  private approvalStates: Map<string, ApprovalState> = new Map();
-
-  /** Cleanup interval for stale states (5 minutes) */
-  private readonly STATE_CLEANUP_INTERVAL = 5 * 60 * 1000;
-
   /**
    * Constructor
    *
@@ -128,10 +104,9 @@ export class ToolApprovalCoordinator {
    * Process tool approval
    *
    * This method coordinates the complete tool approval process:
-   * 1. Check usage limits (if configured)
-   * 2. Check auto-approval rules (with preset support)
-   * 3. Request user approval (if required)
-   * 4. Return approval result
+   * 1. Check auto-approval rules (with preset support)
+   * 2. Request user approval (if required)
+   * 3. Return approval result
    *
    * @param params Approval parameters
    * @returns Approval result
@@ -148,31 +123,6 @@ export class ToolApprovalCoordinator {
         toolCallId: toolCall.id,
         rejectionReason: "Tool definition or riskLevel must be provided for approval check",
       };
-    }
-
-    // 0. Check usage limits BEFORE auto-approval
-    const state = this.getOrCreateState(contextId);
-    const usageLimitCheck = this.checkUsageLimits(state, options || {});
-
-    if (!usageLimitCheck.allowed) {
-      logger.info("Usage limit exceeded, requiring manual approval", {
-        contextId,
-        reason: usageLimitCheck.reason,
-        consecutiveCount: state.consecutiveAutoApprovedCount,
-      });
-
-      // Reset counters after requiring manual approval
-      this.resetState(contextId);
-
-      // Proceed to manual approval
-      const manualResult = await this.requestUserApproval(params);
-
-      // If user approves manually, reset the counter
-      if (manualResult.approved) {
-        this.resetState(contextId);
-      }
-
-      return manualResult;
     }
 
     // 1. Check auto-approval (unified logic with presets)
@@ -228,11 +178,7 @@ export class ToolApprovalCoordinator {
         logger.debug("Tool auto-approved", {
           toolId: tool?.id || "unknown",
           riskLevel: effectiveRiskLevel,
-          consecutiveCount: state.consecutiveAutoApprovedCount + 1,
         });
-
-        // Update state for auto-approved request
-        this.updateStateAfterApproval(contextId);
 
         // Log audit trail
         this.logAuditTrail({
@@ -276,9 +222,6 @@ export class ToolApprovalCoordinator {
           toolId: tool?.id || "unknown",
           timeoutMs: decision.timeout,
         });
-
-        // Update state for timeout auto-response
-        this.updateStateAfterApproval(contextId);
 
         // Log audit trail
         this.logAuditTrail({
@@ -540,7 +483,7 @@ export class ToolApprovalCoordinator {
   private async requestUserApproval(
     params: ExtendedToolApprovalCoordinatorParams,
   ): Promise<ToolApprovalResult> {
-    const { toolCall, options, contextId, nodeId, toolDescription, approvalHandler } = params;
+    const { toolCall, contextId, nodeId, toolDescription, approvalHandler } = params;
 
     // Generate interaction ID
     const interactionId = generateId();
@@ -557,7 +500,7 @@ export class ToolApprovalCoordinator {
     try {
       // Trigger USER_INTERACTION_REQUESTED event
       if (this.eventManager) {
-        await this.triggerApprovalRequestedEvent(request, options?.approvalTimeout || 0);
+        await this.triggerApprovalRequestedEvent(request);
       }
 
       // Request approval
@@ -579,7 +522,6 @@ export class ToolApprovalCoordinator {
    */
   private async triggerApprovalRequestedEvent(
     request: ToolApprovalRequest,
-    timeout: number,
   ): Promise<void> {
     try {
       await this.eventManager!.emit(
@@ -590,7 +532,6 @@ export class ToolApprovalCoordinator {
           toolDescription: request.toolDescription,
           contextId: request.contextId,
           nodeId: request.nodeId,
-          timeout,
           batchId: request.batchId,
           toolIndex: request.toolIndex,
           totalTools: request.totalTools,
@@ -715,7 +656,6 @@ export class ToolApprovalCoordinator {
       pendingQueue,
       autoExecutedResults,
       // Pass configuration from options
-      timeout: options.approvalTimeout,
       securityPreset: options.securityPreset,
     };
 
@@ -789,8 +729,9 @@ export class ToolApprovalCoordinator {
     _tool: Tool | undefined,
     _contextId: string,
   ): import("../../services/auto-approval/index.js").AutoApprovalContext {
-    // TODO: Extract workspace boundary, file paths, domains, etc.
-    // For now, return minimal context
+    // Extract workspace boundary context from tool parameters
+    // For now, return minimal context - workspace boundary checking
+    // is a future enhancement when ToolContext provides workingDirectory
     return {
       isOutsideWorkspace: false,
       isProtected: false,
@@ -814,140 +755,6 @@ export class ToolApprovalCoordinator {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }
-
-  // ============================================================================
-  // State Management Methods
-  // ============================================================================
-
-  /**
-   * Get or create approval state for a context
-   */
-  private getOrCreateState(contextId: string): ApprovalState {
-    let state = this.approvalStates.get(contextId);
-
-    if (!state) {
-      state = {
-        consecutiveAutoApprovedCount: 0,
-        lastResetIndex: 0,
-        lastActivityAt: Date.now(),
-        totalAutoApprovedCost: 0,
-        lastApprovalTime: undefined,
-      };
-      this.approvalStates.set(contextId, state);
-    } else {
-      // Update activity timestamp
-      state.lastActivityAt = Date.now();
-    }
-
-    // Periodic cleanup of stale states
-    this.cleanupStaleStates();
-
-    return state;
-  }
-
-  /**
-   * Check if usage limits are exceeded
-   */
-  private checkUsageLimits(
-    state: ApprovalState,
-    options: ToolApprovalOptions,
-  ): { allowed: boolean; reason?: string } {
-    // Check consecutive auto-approved requests limit
-    const maxRequests = options.maxAutoApprovedRequests;
-    if (maxRequests !== undefined && maxRequests > 0) {
-      if (state.consecutiveAutoApprovedCount >= maxRequests) {
-        return {
-          allowed: false,
-          reason: `Exceeded maximum consecutive auto-approved requests (${maxRequests})`,
-        };
-      }
-    }
-
-    // TODO: Add cost-based limits
-    // if (options.maxAutoApprovedCost && state.totalAutoApprovedCost) {
-    //   if (state.totalAutoApprovedCost >= options.maxAutoApprovedCost) {
-    //     return {
-    //       allowed: false,
-    //       reason: `Exceeded maximum auto-approval cost (${options.maxAutoApprovedCost})`,
-    //     };
-    //   }
-    // }
-
-    // TODO: Add time-window-based resets
-    // if (options.autoApprovalTimeWindow && state.lastApprovalTime) {
-    //   const now = Date.now();
-    //   if (now - state.lastApprovalTime > options.autoApprovalTimeWindow) {
-    //     // Reset counter after time window expires
-    //     state.consecutiveAutoApprovedCount = 0;
-    //     state.totalAutoApprovedCost = 0;
-    //   }
-    // }
-
-    return { allowed: true };
-  }
-
-  /**
-   * Update state after an auto-approved request
-   */
-  private updateStateAfterApproval(contextId: string): void {
-    const state = this.approvalStates.get(contextId);
-    if (state) {
-      state.consecutiveAutoApprovedCount += 1;
-      state.lastActivityAt = Date.now();
-      state.lastApprovalTime = Date.now();
-
-      logger.debug("Updated approval state", {
-        contextId,
-        consecutiveCount: state.consecutiveAutoApprovedCount,
-      });
-    }
-  }
-
-  /**
-   * Reset state after manual approval or limit exceeded
-   */
-  private resetState(contextId: string): void {
-    const state = this.approvalStates.get(contextId);
-    if (state) {
-      state.consecutiveAutoApprovedCount = 0;
-      state.lastResetIndex += 1;
-      state.lastActivityAt = Date.now();
-      state.totalAutoApprovedCost = 0;
-
-      logger.debug("Reset approval state", {
-        contextId,
-        resetIndex: state.lastResetIndex,
-      });
-    }
-  }
-
-  /**
-   * Clean up stale states to prevent memory leaks
-   */
-  private cleanupStaleStates(): void {
-    const now = Date.now();
-
-    for (const [contextId, state] of this.approvalStates.entries()) {
-      if (now - state.lastActivityAt > this.STATE_CLEANUP_INTERVAL) {
-        this.approvalStates.delete(contextId);
-        logger.debug("Cleaned up stale approval state", { contextId });
-      }
-    }
-  }
-
-  /**
-   * Get current approval state (for debugging/monitoring)
-   */
-  public getApprovalState(contextId: string): ApprovalState | undefined {
-    return this.approvalStates.get(contextId);
-  }
-
-  /**
-   * Manually reset approval state for a context
-   */
-  public resetApprovalState(contextId: string): void {
-    this.resetState(contextId);
   }
 
   // ============================================================================

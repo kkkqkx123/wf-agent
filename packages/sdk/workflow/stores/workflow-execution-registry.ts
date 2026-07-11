@@ -310,7 +310,7 @@ export class WorkflowExecutionRegistry {
       const metadata: WorkflowExecutionStorageMetadata = {
         executionId: entity.id,
         workflowId: entity.getWorkflowId(),
-        workflowVersion: "1.0", // TODO: Get from workflow definition
+        workflowVersion: entity.getWorkflowVersion(), // Get version from workflow definition
         status: entity.getStatus(),
         executionType: entity.getExecutionType(),
         currentNodeId: entity.getCurrentNodeId(),

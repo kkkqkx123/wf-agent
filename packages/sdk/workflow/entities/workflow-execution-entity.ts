@@ -531,6 +531,13 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   }
 
   /**
+   * Get the execution hierarchy registry
+   */
+  getRegistry(): ExecutionHierarchyRegistry | undefined {
+    return this.hierarchyRegistry;
+  }
+
+  /**
    * Get execution time in milliseconds
    * @returns Execution time or 0 if not completed
    */

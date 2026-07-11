@@ -17,17 +17,27 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "TimeoutWrapper" });
 
+/** Polling interval (ms) for dynamic timeout checking */
+const POLL_INTERVAL_MS = 1000;
+
 /**
  * Execute a promise with timeout
+ *
+ * When `getEffectiveElapsed` is provided, the timeout check uses polling
+ * and pauses/resumes are tracked via the callback. This allows the caller
+ * to exclude certain wait times (e.g. approval waiting) from the timeout.
+ *
  * @param promise The promise to execute
  * @param timeoutMs Timeout in milliseconds (if undefined, no timeout)
  * @param operationName Name of the operation for logging
+ * @param getEffectiveElapsed Optional callback returning the effective elapsed time accounting for pauses
  * @returns The result of the promise or throws ExecutionError on timeout
  */
 export async function withExecutionTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number | undefined,
-  operationName: string
+  operationName: string,
+  getEffectiveElapsed?: () => number,
 ): Promise<T> {
   // If no timeout specified, just execute the promise as-is
   if (!timeoutMs || timeoutMs <= 0) {
@@ -35,13 +45,47 @@ export async function withExecutionTimeout<T>(
   }
 
   const startTime = Date.now();
+
+  if (getEffectiveElapsed) {
+    // Dynamic timeout mode: use polling with effective elapsed time
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      const interval = setInterval(() => {
+        const elapsed = getEffectiveElapsed();
+        if (elapsed >= timeoutMs) {
+          clearInterval(interval);
+          const error = new ExecutionError(
+            `Operation "${operationName}" exceeded timeout of ${timeoutMs}ms (effective elapsed: ${elapsed}ms)`,
+            undefined,
+            undefined,
+          );
+          logger.warn("Operation timeout exceeded", undefined, {
+            operationName,
+            timeoutMs,
+            elapsed,
+          });
+          reject(error);
+        }
+      }, POLL_INTERVAL_MS);
+
+      // Cleanup interval when the actual promise settles
+      promise
+        .then(
+          () => clearInterval(interval),
+          () => clearInterval(interval),
+        );
+    });
+
+    return Promise.race([promise, timeoutPromise]);
+  }
+
+  // Legacy mode: fixed setTimeout timer
   const timeoutPromise = new Promise<T>((_, reject) => {
     const handle = setTimeout(() => {
       const elapsed = Date.now() - startTime;
       const error = new ExecutionError(
         `Operation "${operationName}" exceeded timeout of ${timeoutMs}ms (elapsed: ${elapsed}ms)`,
         undefined,
-        undefined
+        undefined,
       );
 
       logger.warn(
@@ -51,7 +95,7 @@ export async function withExecutionTimeout<T>(
           operationName,
           timeoutMs,
           elapsed,
-        }
+        },
       );
 
       reject(error);
@@ -61,7 +105,7 @@ export async function withExecutionTimeout<T>(
     promise
       .then(
         () => clearTimeout(handle),
-        () => clearTimeout(handle)
+        () => clearTimeout(handle),
       );
   });
 

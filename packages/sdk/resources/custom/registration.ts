@@ -12,6 +12,7 @@
 
 import type { ToolRegistry } from "@sdk/shared/registry/tool-registry.js";
 import type { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-template-registry.js";
+import type { PromptTemplateRegistry } from "@sdk/shared/registry/prompt-template-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { toSdkTool } from "@sdk/services/tools/utils.js";
 import type {
@@ -20,6 +21,7 @@ import type {
   CustomPromptDefinition,
   CustomResources,
 } from "./types.js";
+import type { PromptTemplate, PromptVariableDefinition } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "CustomResourcesRegistration" });
 
@@ -176,13 +178,16 @@ export function registerCustomTriggers(
 /**
  * Register custom prompts from loaded definitions
  *
- * Registers custom prompts into a prompt registry (future implementation).
- * For now, this is a placeholder that aggregates results.
+ * Registers custom prompts into a prompt registry.
+ * Converts custom prompt definitions to PromptTemplate format and registers them.
+ * Prevents registration if a prompt with the same ID already exists.
  *
+ * @param promptRegistry Prompt template registry to register into
  * @param prompts Array of custom prompt definitions
  * @returns Registration result with successes and failures
  */
 export function registerCustomPrompts(
+  promptRegistry: PromptTemplateRegistry,
   prompts: CustomPromptDefinition[],
 ): {
   success: string[];
@@ -193,8 +198,41 @@ export function registerCustomPrompts(
 
   for (const promptDef of prompts) {
     try {
-      // TODO: Implement prompt registration when prompt registry is available
-      // For now, we accept all prompts as successfully registered
+      // Check for collision with existing resources
+      if (promptRegistry.has(promptDef.id)) {
+        const errorMsg = `Prompt '${promptDef.id}' already exists. Custom resources cannot override existing prompts.`;
+        failures.push({ id: promptDef.id, error: errorMsg });
+        logger.warn(errorMsg);
+        continue;
+      }
+
+      // Map custom prompt type to PromptTemplate category
+      const categoryMap: Record<string, PromptTemplate["category"]> = {
+        system: "system",
+        user: "user-command",
+        assistant: "dynamic",
+      };
+      const category = categoryMap[promptDef.type] || "dynamic";
+
+      // Convert string variables to PromptVariableDefinition[]
+      const variables: PromptVariableDefinition[] | undefined = promptDef.variables?.map(v => ({
+        name: v,
+        type: "string" as const,
+        required: false,
+        description: `Variable: ${v}`,
+      }));
+
+      // Convert to PromptTemplate format
+      const template: PromptTemplate = {
+        id: promptDef.id,
+        name: promptDef.name,
+        description: (promptDef.metadata?.["description"] as string) || promptDef.name,
+        category,
+        content: promptDef.content,
+        variables: variables && variables.length > 0 ? variables : undefined,
+      };
+
+      promptRegistry.register(template.id, template);
       success.push(promptDef.id);
       logger.info(`Registered custom prompt: ${promptDef.id}`);
     } catch (error) {
@@ -213,7 +251,7 @@ export function registerCustomPrompts(
  * Coordinates registration of tools, triggers, and prompts.
  * Aggregates results from all three registration pipelines.
  *
- * @param registries Object containing toolRegistry and triggerRegistry
+ * @param registries Object containing toolRegistry, triggerRegistry, and promptRegistry
  * @param customResources Loaded custom resources to register
  * @returns Aggregated registration results
  */
@@ -221,6 +259,7 @@ export function registerCustomResources(
   registries: {
     toolRegistry: ToolRegistry;
     triggerRegistry: TriggerTemplateRegistry;
+    promptRegistry: PromptTemplateRegistry;
   },
   customResources: CustomResources,
 ): CustomResourcesRegistrationResult {
@@ -256,7 +295,7 @@ export function registerCustomResources(
   // Register prompts
   if (customResources.prompts.length > 0) {
     try {
-      results.prompts = registerCustomPrompts(customResources.prompts);
+      results.prompts = registerCustomPrompts(registries.promptRegistry, customResources.prompts);
       logger.info(`Custom prompts registered: ${results.prompts.success.length} succeeded`);
     } catch (error) {
       logger.error("Failed to register custom prompts", { error });

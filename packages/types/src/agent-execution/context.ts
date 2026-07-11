@@ -166,6 +166,9 @@ export interface AgentLoopRuntimeConfig {
   /** Trigger configuration list (with parsed Condition objects) */
   triggers?: AgentTrigger[];
 
+  /** Tags for categorization and filtering */
+  tags?: string[];
+
   // ========== Dynamic System Prompt Generation ==========
 
   /**

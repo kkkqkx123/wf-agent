@@ -94,6 +94,9 @@ export interface AgentLoopStateSnapshot {
     metadata?: Record<string, unknown>;
   }>;
 
+  /** Pause start timestamp (ms) - set when execution is paused, used for pause duration calculation */
+  pauseStartTime?: number | null;
+
   // ========== Variable history tracking ==========
 
   /** Variable snapshots captured at each iteration for debugging */

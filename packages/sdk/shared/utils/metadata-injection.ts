@@ -309,11 +309,46 @@ export function injectAllMetadata(
   }
 
   // 2. Inject workflow metadata (if execute_workflow tool is available)
-  // TODO: Implement workflow metadata injection when WorkflowRegistry is available
-  // For now, this is handled separately in agent-loop-adapter.ts
+  try {
+    const workflowRegistry = globalContext.container.get(Identifiers.WorkflowRegistry) as
+      | { listWorkflows?: () => Array<{ id: string; name: string; description: string }> }
+      | undefined;
+
+    if (workflowRegistry?.listWorkflows) {
+      const workflows = workflowRegistry.listWorkflows();
+      if (workflows.length > 0) {
+        const workflowDescriptions = workflows
+          .map(w => `- ${w.name} (${w.id}): ${w.description}`)
+          .join("\n");
+        currentPrompt += `\n\nAvailable workflows:\n${workflowDescriptions}`;
+        summary.workflowsInjected = true;
+        logger.debug("Injected workflow metadata", { count: workflows.length });
+      }
+    }
+  } catch (error) {
+    logger.debug("Workflow registry not available, skipping workflow metadata injection", { error });
+  }
 
   // 3. Inject agent metadata (if call_agent tool is available)
-  // TODO: Implement agent metadata injection when AgentRegistry is available
+  try {
+    const agentRegistry = globalContext.container.get(Identifiers.AgentLoopRegistry) as
+      | { listAgents?: () => Array<{ id: string; name: string; description: string }> }
+      | undefined;
+
+    if (agentRegistry?.listAgents) {
+      const agents = agentRegistry.listAgents();
+      if (agents.length > 0) {
+        const agentDescriptions = agents
+          .map(a => `- ${a.name} (${a.id}): ${a.description}`)
+          .join("\n");
+        currentPrompt += `\n\nAvailable agents:\n${agentDescriptions}`;
+        summary.agentsInjected = true;
+        logger.debug("Injected agent metadata", { count: agents.length });
+      }
+    }
+  } catch (error) {
+    logger.debug("Agent registry not available, skipping agent metadata injection", { error });
+  }
 
   return {
     systemPrompt: currentPrompt,

@@ -42,6 +42,11 @@ export interface Tool {
    * @default false
    */
   strict?: boolean;
+  /**
+   * Whether the tool is enabled (default: true)
+   * Disabled tools are hidden from LLM and cannot be invoked
+   */
+  enabled?: boolean;
 }
 
 /**

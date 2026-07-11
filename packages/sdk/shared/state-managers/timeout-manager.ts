@@ -29,6 +29,10 @@ const logger = createContextualLogger({ component: "TimeoutManager" });
  */
 interface TimeoutEntryWithHandle extends TimeoutEntry {
   handle: TimeoutHandle | null;
+  /** Timestamp when this entry was paused (null if not paused) */
+  pausedAt?: number;
+  /** Total accumulated paused duration in milliseconds */
+  totalPausedDuration?: number;
 }
 
 /**
@@ -372,6 +376,90 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
     };
   }
 
+  /**
+   * Pause all active timeouts
+   *
+   * Clears all active timers and records the pause timestamp.
+   * Use resume() to restore timeouts with adjusted remaining time.
+   * Safe to call multiple times (idempotent).
+   */
+  pause(): void {
+    const now = Date.now();
+    this.timeouts.forEach(entry => {
+      if (entry.status === "active" && !entry.pausedAt) {
+        // Record pause start time
+        entry.pausedAt = now;
+        // Clear the main timer
+        if (entry.timerId) {
+          clearTimeout(entry.timerId);
+          entry.timerId = undefined;
+        }
+        // Clear the warning timer
+        if (entry.warningTimerId) {
+          clearTimeout(entry.warningTimerId);
+          entry.warningTimerId = undefined;
+        }
+      }
+    });
+    logger.debug("Paused all active timeouts", { count: this.size() });
+  }
+
+  /**
+   * Resume all paused timeouts
+   *
+   * Adjusts startTime by the pause duration and re-creates timers
+   * with the remaining time. Safe to call multiple times (idempotent).
+   */
+  resume(): void {
+    const now = Date.now();
+    this.timeouts.forEach(entry => {
+      if (entry.status === "active" && entry.pausedAt) {
+        const pauseDuration = now - entry.pausedAt;
+        entry.totalPausedDuration = (entry.totalPausedDuration || 0) + pauseDuration;
+        entry.pausedAt = undefined;
+
+        // Calculate remaining time
+        const elapsed = now - entry.startTime - (entry.totalPausedDuration || 0);
+        const remaining = Math.max(0, entry.duration - elapsed);
+
+        // Re-create main timer with remaining time
+        if (remaining > 0) {
+          const timerId = setTimeout(async () => {
+            await this.handleTimeoutExpiration(entry);
+          }, remaining);
+          entry.timerId = timerId;
+
+          // Re-create warning timer if applicable
+          if (entry.onWarning && this.config.enableWarnings) {
+            const warningRemaining = Math.max(0, entry.duration - this.config.defaultWarningThreshold - elapsed);
+            if (warningRemaining > 0 && !entry.warningEmitted) {
+              const warningTimerId = setTimeout(async () => {
+                await this.handleWarning(entry, this.config.defaultWarningThreshold);
+              }, warningRemaining);
+              entry.warningTimerId = warningTimerId;
+            }
+          }
+        } else {
+          // Timeout already expired during pause, fire immediately
+          this.handleTimeoutExpiration(entry);
+        }
+      }
+    });
+    logger.debug("Resumed all paused timeouts");
+  }
+
+  /**
+   * Get effective elapsed time for a timeout handle
+   * @param handle TimeoutHandle
+   * @returns Effective elapsed time (excluding paused duration), or 0 if not found
+   */
+  getEffectiveElapsed(handle: TimeoutHandle): number {
+    const entry = this.timeouts.get(handle.id);
+    if (!entry) return 0;
+    const elapsed = Date.now() - entry.startTime - (entry.totalPausedDuration || 0);
+    return Math.max(0, elapsed);
+  }
+
   // ==================== StateManager Interface ====================
 
   /**
@@ -442,6 +530,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
         duration: entry.duration,
         status: entry.status,
         warningEmitted: entry.warningEmitted,
+        totalPausedDuration: entry.totalPausedDuration,
         metadata: entry.metadata,
       });
     });
@@ -474,6 +563,7 @@ export class TimeoutManager implements StateManager<TimeoutSnapshot> {
         status: timeoutData.status,
         warningEmitted: timeoutData.warningEmitted,
         onTimeout: () => {}, // Placeholder, will be re-registered
+        totalPausedDuration: timeoutData.totalPausedDuration,
         metadata: timeoutData.metadata,
         handle: null, // Will be set below
       };

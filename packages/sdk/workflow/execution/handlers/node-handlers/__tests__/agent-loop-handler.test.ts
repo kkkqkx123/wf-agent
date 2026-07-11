@@ -118,10 +118,14 @@ describe("agentLoopHandler", () => {
     expect(result.error).toBeDefined();
   });
 
-  // TODO: Update this test to use the new variable state manager architecture
-  it.skip("should add input prompt from variables when available", async () => {
-    // This test needs to be updated to work with the new VariableManager architecture
-    // mockEntity.variableStateManager.setVariable('input', 'User query here', 'execution');
+  it("should add input prompt from variables when available", async () => {
+    // Set up the variable state manager to return an input value
+    mockEntity.variableStateManager.getVariable.mockImplementation((name: string) => {
+      if (name === "input" || name === "prompt") {
+        return "User query here";
+      }
+      return undefined;
+    });
 
     const config: AgentLoopNodeConfig = {
       inlineConfig: {
@@ -132,7 +136,12 @@ describe("agentLoopHandler", () => {
 
     await agentLoopHandler(mockGlobalContext, mockEntity, node, defaultContext);
 
+    // Verify that MESSAGE_ADDED event was emitted for the input prompt
     expect(mockEventManager.emit).toHaveBeenCalled();
+    const emitCall = mockEventManager.emit.mock.calls.find(
+      (call: unknown[]) => call[0] && (call[0] as any).type === "MESSAGE_ADDED",
+    );
+    expect(emitCall).toBeDefined();
   });
 
   it("should handle agent loop execution failure", async () => {

@@ -315,14 +315,10 @@ export async function loopStartHandler(
       totalFailures: 0,
     };
 
-    // TODO Phase 2: Replace with explicit variable import for loop iterations
-    // For now, scope isolation is removed. Loop variables will be handled through explicit mappings.
-    // executionEntity.variableStateManager.enterSubgraphScope();
-
-    // Initialize loop-scoped variables from definitions (all go to flat structure now)
-    for (const variable of workflowExecution.variables) {
-      executionEntity.variableStateManager.setVariable(variable.name, variable.value);
-    }
+    // Phase 2: Scope isolation via enterSubgraphScope() will be added here
+    // when VariableManager supports scope stack. For now, explicit variable
+    // import via handleLoopVariableInputs (above) handles variable isolation
+    // through deep-cloning.
 
     setLoopState(executionEntity, loopState);
   }
@@ -382,8 +378,9 @@ export async function loopStartHandler(
     // Loop ended, clearing loop state.
     clearLoopState(executionEntity);
 
-    // TODO Phase 2: Replace with explicit variable export cleanup
-    // executionEntity.variableStateManager.exitSubgraphScope();
+    // Phase 2: Scope exit via exitSubgraphScope() will be added here
+    // when VariableManager supports scope stack. Variables are currently
+    // isolated through deep-cloning in importVariables/exportVariables.
 
     return {
       loopId: config.loopId,

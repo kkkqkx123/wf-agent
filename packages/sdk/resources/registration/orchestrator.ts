@@ -134,6 +134,7 @@ export async function registerAllResources(
         {
           toolRegistry: registries.toolRegistry,
           triggerRegistry: registries.triggerRegistry,
+          promptRegistry: registries.promptTemplateRegistry,
         },
         customResources,
       );

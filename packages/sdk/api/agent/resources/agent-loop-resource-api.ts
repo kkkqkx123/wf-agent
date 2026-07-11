@@ -213,7 +213,13 @@ export class AgentLoopResourceAPI extends SimplifiedCrudResourceAPI<
       ) {
         return false;
       }
-      // TODO: Add tag filtering when tags are supported
+      // Add tag filtering
+      if (filter.tags && filter.tags.length > 0) {
+        const entityTags = entity.config.tags || [];
+        if (!filter.tags.some(tag => entityTags.includes(tag))) {
+          return false;
+        }
+      }
       return true;
     });
   }

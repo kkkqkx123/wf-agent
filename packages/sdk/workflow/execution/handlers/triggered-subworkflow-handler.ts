@@ -47,6 +47,7 @@ import {
 import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../shared/utils/error-utils.js";
 import { cleanupChildExecution } from "../utils/child-execution-cleanup.js";
+import type { MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
 
 /**
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
@@ -302,10 +303,28 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         }
       }
 
-      // Map message contexts (future: integrate with message reference architecture)
+      // Map message contexts: parent context ID → subworkflow input name
       if (config.inputMapping.messageContexts) {
-        // TODO: Implement message context mapping using new reference architecture
-        logger.warn("Message context mapping not yet implemented");
+        const parentEntity = task.mainWorkflowExecutionEntity;
+        const parentExecution = parentEntity.getWorkflowExecutionData() as
+          WorkflowExecution & { messageContextRegistry?: MessageContextRegistry };
+        const registry = parentExecution.messageContextRegistry;
+
+        if (registry) {
+          for (const [contextId, inputName] of Object.entries(config.inputMapping.messageContexts)) {
+            const context = registry.get(contextId);
+            if (context) {
+              mappedInput[inputName] = context.messages;
+            } else {
+              logger.warn("Message context not found for mapping", {
+                contextId,
+                inputName,
+              });
+            }
+          }
+        } else {
+          logger.warn("MessageContextRegistry not available on parent execution");
+        }
       }
 
       // Add additional static parameters

@@ -91,14 +91,6 @@ export interface ToolApprovalOptions {
   mcp?: McpApprovalSettings;
   /** Interaction settings */
   interaction?: InteractionSettings;
-
-  // === Usage Limits ===
-  /** Maximum number of consecutive auto-approved requests before requiring manual approval */
-  maxAutoApprovedRequests?: number;
-
-  // === General settings ===
-  /** Approval timeout in milliseconds (0 = no timeout) */
-  approvalTimeout?: number;
 }
 
 /**
@@ -130,8 +122,6 @@ export interface ToolApprovalRequest {
   autoExecutedResults?: ToolExecutionResult[];
   
   // Configuration from ToolApprovalOptions
-  /** Approval timeout in milliseconds (from options.approvalTimeout) */
-  timeout?: number;
   /** Security preset name (from options.securityPreset) */
   securityPreset?: import("./approval.js").SecurityPreset;
 }

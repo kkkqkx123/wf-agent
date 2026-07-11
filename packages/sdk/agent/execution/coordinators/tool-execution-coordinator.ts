@@ -472,24 +472,31 @@ export class ToolExecutionCoordinator {
           },
         };
 
-        const result = await this.toolApprovalHandler.requestApproval({
-          toolCall: llmToolCall,
-          batchId: undefined,
-          toolIndex: 0,
-          totalTools: 1,
-          pendingQueue: [],
-          contextId: entity.id,
-          nodeId: entity.nodeId || "unknown",
-          interactionId: `approval-${Date.now()}-${request.toolCall.id}`,
-        });
+        // Pause the TimeoutManager while waiting for user approval
+        entity.timeoutManager.pause();
+        try {
+          const result = await this.toolApprovalHandler.requestApproval({
+            toolCall: llmToolCall,
+            batchId: undefined,
+            toolIndex: 0,
+            totalTools: 1,
+            pendingQueue: [],
+            contextId: entity.id,
+            nodeId: entity.nodeId || "unknown",
+            interactionId: `approval-${Date.now()}-${request.toolCall.id}`,
+          });
 
-        return {
-          approved: result.approved,
-          toolCallId: result.toolCallId,
-          editedParameters: result.editedParameters,
-          userInstruction: result.userInstruction,
-          rejectionReason: result.rejectionReason,
-        };
+          return {
+            approved: result.approved,
+            toolCallId: result.toolCallId,
+            editedParameters: result.editedParameters,
+            userInstruction: result.userInstruction,
+            rejectionReason: result.rejectionReason,
+          };
+        } finally {
+          // Resume the TimeoutManager after user approval
+          entity.timeoutManager.resume();
+        }
       } catch (error) {
         logger.error("Tool approval handler failed", {
           agentLoopId: entity.id,

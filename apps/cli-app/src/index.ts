@@ -30,6 +30,12 @@ import { createAgentCommands } from "./commands/agent/index.js";
 import { createSkillCommands } from "./commands/skill/index.js";
 import { createAgentProfileCommands } from "./commands/agent-profile/index.js";
 import { createMetricsCommands } from "./commands/metrics/index.js";
+import { createStorageCommands } from "./commands/storage/index.js";
+import { createSearchCommand } from "./commands/search/index.js";
+import { createWorkflowGraphCommands } from "./commands/workflow-graph/index.js";
+import { createExecutionComparisonCommand } from "./commands/execution-comparison/index.js";
+import { createProgressCommand } from "./commands/progress/index.js";
+import { createWorkflowVersionCommand } from "./commands/workflow-version/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
 
@@ -224,6 +230,26 @@ program.addCommand(createAgentProfileCommands());
 
 // Add the Metrics command group
 program.addCommand(createMetricsCommands());
+
+// Add storage command group
+program.addCommand(createStorageCommands());
+
+// Add search command
+program.addCommand(createSearchCommand());
+
+// Add workflow graph command as subcommand under workflow
+const workflowCmd = program.commands.find(c => c.name() === "workflow");
+if (workflowCmd) {
+  workflowCmd.addCommand(createWorkflowGraphCommands());
+  workflowCmd.addCommand(createWorkflowVersionCommand());
+}
+
+// Add execution comparison command as subcommand under workflow-execution
+const executionCmd = program.commands.find(c => c.name() === "workflow-execution");
+if (executionCmd) {
+  executionCmd.addCommand(createExecutionComparisonCommand());
+  executionCmd.addCommand(createProgressCommand());
+}
 
 // Parse command-line arguments
 program.parse(process.argv);

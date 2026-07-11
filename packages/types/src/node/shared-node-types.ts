@@ -66,6 +66,31 @@ export interface NodeExecutionConfig {
    * Used in condition expressions like: node.<outputId>.field
    */
   outputId?: string;
+
+  /**
+   * Failure handling strategy for node execution.
+   * - 'fail': Immediately fail the workflow (default for most nodes).
+   * - 'retry': Retry the node execution up to maxRetries times.
+   * - 'continue': Return a fallback result and continue execution.
+   * Not applicable to control-flow nodes (START, END, FORK, JOIN, SYNC, ROUTE, LOOP_START, LOOP_END).
+   * @default 'fail' (LLM and AGENT_LOOP default to 'retry' with maxRetries=3)
+   */
+  onFailure?: 'fail' | 'retry' | 'continue';
+
+  /** Maximum number of retry attempts (only used when onFailure is 'retry'). @default 3 */
+  maxRetries?: number;
+
+  /** Base delay between retries in milliseconds. @default 1000 */
+  retryDelayMs?: number;
+
+  /** Whether to use exponential backoff for retry delays. @default true */
+  exponentialBackoff?: boolean;
+
+  /**
+   * Fallback output value when continuing on failure.
+   * Only used when onFailure is 'continue'.
+   */
+  fallbackOutput?: Record<string, unknown>;
 }
 
 // ============================================================================

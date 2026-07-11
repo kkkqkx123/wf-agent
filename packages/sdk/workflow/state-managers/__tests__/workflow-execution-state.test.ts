@@ -125,17 +125,7 @@ describe("WorkflowExecutionState", () => {
       });
     });
 
-    describe("timeout", () => {
-      it("should transition to TIMEOUT", () => {
-        // Act
-        state.timeout();
-
-        // Assert
-        expect(state.status).toBe("TIMEOUT");
-        expect(state.endTime).not.toBeNull();
-        expect(state.isTimeout()).toBe(true);
-      });
-    });
+    // timeout() method removed per design: all timeout scenarios use CANCELLED status
   });
 
   describe("interrupt flags", () => {
@@ -479,12 +469,6 @@ describe("WorkflowExecutionState", () => {
       expect(state.isCancelled()).toBe(false);
       state.cancel();
       expect(state.isCancelled()).toBe(true);
-    });
-
-    it("should check timeout status", () => {
-      expect(state.isTimeout()).toBe(false);
-      state.timeout();
-      expect(state.isTimeout()).toBe(true);
     });
   });
 });

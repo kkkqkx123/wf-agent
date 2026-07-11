@@ -447,14 +447,80 @@ export class NodeExecutionCoordinator {
           );
         }
 
-        // Step 4: Execute node logic
+        // Step 4: Execute node logic with retry support
         logger.debug("Executing node logic", { executionId, nodeId, nodeType });
         const nodeStartTime = now();
-        const nodeResult = await this.executeNodeLogic(
+
+        // --- Resolve retry configuration ---
+        // Priority: node-level config > type-based default > global defaultNodeRetry
+        const nodeCfg = node as unknown as Record<string, unknown>;
+        const nodeOnFailure = nodeCfg["onFailure"] as string | undefined;
+        const nodeMaxRetries = nodeCfg["maxRetries"] as number | undefined;
+        const nodeRetryDelayMs = nodeCfg["retryDelayMs"] as number | undefined;
+        const nodeExponentialBackoff = nodeCfg["exponentialBackoff"] as boolean | undefined;
+        const nodeFallbackOutput = nodeCfg["fallbackOutput"] as Record<string, unknown> | undefined;
+
+        // Type-based defaults: LLM and AGENT_LOOP default to retry(3)
+        const retryableTypes = new Set(["LLM", "AGENT_LOOP"]);
+        const typeBasedRetry = retryableTypes.has(nodeType)
+          ? { maxRetries: 3, retryDelay: 1000, exponentialBackoff: true }
+          : null;
+
+        // Global default from WorkflowExecutionOptions
+        const globalDefault = workflowExecutionEntity.getDefaultNodeRetry();
+
+        // Resolve effective config
+        const onFailure = nodeOnFailure ?? (typeBasedRetry ? "retry" : "fail");
+        const maxRetries = nodeMaxRetries ?? typeBasedRetry?.maxRetries ?? globalDefault?.maxRetries ?? 0;
+        const retryDelay = nodeRetryDelayMs ?? typeBasedRetry?.retryDelay ?? globalDefault?.retryDelay ?? 1000;
+        const exponentialBackoff =
+          nodeExponentialBackoff ?? typeBasedRetry?.exponentialBackoff ?? globalDefault?.exponentialBackoff ?? true;
+        const fallbackOutput = nodeFallbackOutput;
+
+        // Execute node logic with retry loop
+        let nodeResult = await this.executeNodeLogic(
           workflowExecutionEntity,
           node,
           effectiveSignal,
         );
+
+        if (nodeResult.status === "FAILED" && onFailure === "retry" && maxRetries > 0) {
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            if (effectiveSignal?.aborted) break;
+
+            // Calculate delay with optional exponential backoff (capped at 60s)
+            const delay = exponentialBackoff
+              ? Math.min(retryDelay * Math.pow(2, attempt - 1), 60000)
+              : retryDelay;
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            logger.info("Retrying node execution", {
+              executionId,
+              nodeId,
+              nodeType,
+              attempt,
+              maxRetries,
+            });
+
+            nodeResult = await this.executeNodeLogic(
+              workflowExecutionEntity,
+              node,
+              effectiveSignal,
+            );
+
+            if (nodeResult.status === "COMPLETED" || effectiveSignal?.aborted) break;
+          }
+        }
+
+        // If still failed after retries, check for 'continue' strategy
+        if (nodeResult.status === "FAILED" && onFailure === "continue") {
+          nodeResult = {
+            ...nodeResult,
+            status: "SKIPPED" as const,
+            output: fallbackOutput || {},
+          };
+        }
+
         const nodeDuration = diffTimestamp(nodeStartTime, now());
 
         // Record node execution completion in metrics

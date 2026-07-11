@@ -93,18 +93,25 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   /** Stop Controller */
   abortController?: AbortController;
 
-  /** Node execution timeout in milliseconds (default: 30000) */
-  private _nodeTimeout: number = 30000;
+  /** Node execution timeout in milliseconds (default: 300000 = 5 minutes) */
+  private _nodeTimeout: number = 300000;
 
   /** Maximum pause duration in milliseconds (0 = no limit, default: 0) */
   private _maxPauseDuration: number = 0;
+
+  /** Default node retry configuration (undefined = no retry) */
+  private _defaultNodeRetry?: {
+    maxRetries: number;
+    retryDelay: number;
+    exponentialBackoff: boolean;
+  };
 
   /**
    * Set node execution timeout
    * @param timeoutMs Timeout in milliseconds
    */
   setNodeTimeout(timeoutMs: number): void {
-    this._nodeTimeout = timeoutMs > 0 ? timeoutMs : 30000;
+    this._nodeTimeout = timeoutMs > 0 ? timeoutMs : 300000;
   }
 
   /**
@@ -129,6 +136,20 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   getMaxPauseDuration(): number {
     return this._maxPauseDuration;
+  }
+
+  /**
+   * Set default node retry configuration
+   */
+  setDefaultNodeRetry(config: { maxRetries: number; retryDelay: number; exponentialBackoff: boolean } | undefined): void {
+    this._defaultNodeRetry = config;
+  }
+
+  /**
+   * Get default node retry configuration
+   */
+  getDefaultNodeRetry(): { maxRetries: number; retryDelay: number; exponentialBackoff: boolean } | undefined {
+    return this._defaultNodeRetry;
   }
 
   /** Trigger Management */

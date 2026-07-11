@@ -36,6 +36,21 @@ export interface WorkflowExecutionOptions {
   maxPauseDuration?: number;
   /** Node execution completion callback */
   onNodeExecuted?: (result: NodeExecutionResult) => void | Promise<void>;
+
+  /**
+   * Global default node retry configuration.
+   * Individual nodes can override via onFailure/maxRetries/retryDelayMs in their config.
+   * @default { maxRetries: 0, retryDelay: 1000, exponentialBackoff: true }
+   */
+  defaultNodeRetry?: {
+    /** Maximum number of retry attempts (0 = no retry). @default 0 */
+    maxRetries: number;
+    /** Base delay between retries in milliseconds. @default 1000 */
+    retryDelay: number;
+    /** Whether to use exponential backoff for retry delays. @default true */
+    exponentialBackoff: boolean;
+  };
+
   /** Tool Callbacks */
   onToolCalled?: (toolId: ID, parameters: Record<string, unknown>) => void | Promise<void>;
   /** Error callback */

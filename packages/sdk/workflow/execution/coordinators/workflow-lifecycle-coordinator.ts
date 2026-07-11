@@ -89,6 +89,11 @@ export class WorkflowLifecycleCoordinator {
       workflowExecutionEntity.setMaxPauseDuration(options.maxPauseDuration);
     }
 
+    // Set default node retry from options (if provided)
+    if (options.defaultNodeRetry !== undefined) {
+      workflowExecutionEntity.setDefaultNodeRetry(options.defaultNodeRetry);
+    }
+
     // Step 1.5: Check if this is a triggered execution
     const parentContext = workflowExecutionEntity.getParentContext();
     if (parentContext) {
@@ -268,8 +273,8 @@ export class WorkflowLifecycleCoordinator {
             executionId,
             maxPauseDuration,
           });
-          // Cancel the workflow execution via entity state
-          workflowExecutionEntity.state.cancel();
+          // Use entity.interrupt("STOP") to properly abort AbortSignal and cascade to children
+          workflowExecutionEntity.interrupt("STOP");
           // Cleanup the timeout handle from tracking
           this.pauseTimeoutHandles.delete(executionId);
         },

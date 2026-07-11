@@ -251,14 +251,6 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Timeout
-   */
-  timeout(): void {
-    this._status = "TIMEOUT";
-    this._endTime = now();
-  }
-
-  /**
    * Interrupt execution
    * @param type: Type of the interrupt
    */
@@ -313,13 +305,6 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    */
   isCancelled(): boolean {
     return this._status === "CANCELLED";
-  }
-
-  /**
-   * Check for timeouts.
-   */
-  isTimeout(): boolean {
-    return this._status === "TIMEOUT";
   }
 
   /**

@@ -146,6 +146,28 @@ export interface AgentLoopRuntimeConfig {
   /** Maximum pause duration in milliseconds (optional, default: no timeout, agent loop will be cancelled if paused longer) */
   maxPauseDuration?: number;
 
+  /**
+   * Maximum number of automatic retries on failure.
+   * When set, the agent loop will automatically retry execution on recoverable errors.
+   * Uses error chain analysis to determine if an error is recoverable.
+   * @default 0 (no automatic retry)
+   */
+  maxRetries?: number;
+
+  /**
+   * Delay between retries in milliseconds.
+   * When exponentialBackoff is enabled, this is the base delay.
+   * @default 1000
+   */
+  retryDelay?: number;
+
+  /**
+   * Whether to use exponential backoff for retry delays.
+   * When enabled, delay = retryDelay * 2^attempt
+   * @default true
+   */
+  exponentialBackoff?: boolean;
+
   /** Initial message list */
   initialMessages?: Message[];
 
@@ -165,6 +187,14 @@ export interface AgentLoopRuntimeConfig {
 
   /** Whether to create checkpoint on error */
   createCheckpointOnError?: boolean;
+
+  /**
+   * Interval for periodic checkpoint creation in milliseconds.
+   * When set, a checkpoint will be created at this interval during long-running agent loop executions.
+   * This helps reduce data loss in case of failures during extended execution.
+   * @default 0 (no periodic checkpoint)
+   */
+  checkpointIntervalMs?: number;
 
   /** Hook configuration list (with parsed Condition objects) */
   hooks?: AgentHook[];

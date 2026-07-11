@@ -179,9 +179,11 @@ expectAssignable<WorkflowCheckpointTriggerType>(triggerTrigger);
 
 const iterationEndTrigger: AgentLoopCheckpointTriggerType = "ITERATION_END";
 const errorTrigger: AgentLoopCheckpointTriggerType = "ERROR";
+const intervalTrigger: AgentLoopCheckpointTriggerType = "INTERVAL";
 
 expectAssignable<AgentLoopCheckpointTriggerType>(iterationEndTrigger);
 expectAssignable<AgentLoopCheckpointTriggerType>(errorTrigger);
+expectAssignable<AgentLoopCheckpointTriggerType>(intervalTrigger);
 
 // =============================================================================
 // Test 9: CheckpointConfigResult

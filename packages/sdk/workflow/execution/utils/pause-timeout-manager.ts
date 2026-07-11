@@ -1,6 +1,11 @@
 /**
  * Pause Timeout Manager
  *
+ * @deprecated Use entity.timeoutManager directly instead.
+ * WorkflowLifecycleCoordinator now registers pause timeout directly on the entity's
+ * TimeoutManager, consistent with AgentLoopCoordinator. This class is retained
+ * for reference and backward compatibility but is no longer used.
+ *
  * Manages timeout for paused workflow executions.
  *
  * This manager now uses the TimeoutManager from the execution entity to ensure consistency

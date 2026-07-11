@@ -124,6 +124,7 @@ export type AgentLoopCheckpointTriggerType =
   | "TOOL_CALL"
   | "TOOL_RESULT"
   | "MANUAL"
+  | "INTERVAL"
   | "NEVER";
 
 /**

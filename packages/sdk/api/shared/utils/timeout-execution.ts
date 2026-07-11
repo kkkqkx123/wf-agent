@@ -4,6 +4,10 @@
  * Provides a simple wrapper to add timeout support to async operations
  * without modifying the internal execution flow.
  *
+ * Supports two modes:
+ * 1. **TimeoutManager mode** (preferred): Uses TimeoutManager for pause-aware timeout tracking
+ * 2. **Legacy mode**: Simple setTimeout fallback when no TimeoutManager is provided
+ *
  * Usage:
  *   const result = await withExecutionTimeout(
  *     executor.execute(config),
@@ -14,71 +18,75 @@
 
 import { ExecutionError } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { TimeoutManager } from "../../../shared/state-managers/timeout-manager.js";
+import type { InterruptionStateReference } from "../../../shared/types/timeout.js";
 
 const logger = createContextualLogger({ component: "TimeoutWrapper" });
-
-/** Polling interval (ms) for dynamic timeout checking */
-const POLL_INTERVAL_MS = 1000;
 
 /**
  * Execute a promise with timeout
  *
- * When `getEffectiveElapsed` is provided, the timeout check uses polling
- * and pauses/resumes are tracked via the callback. This allows the caller
- * to exclude certain wait times (e.g. approval waiting) from the timeout.
+ * When `timeoutManager` is provided, the timeout is registered on the TimeoutManager
+ * for pause-aware tracking (no polling). Otherwise, a simple setTimeout is used.
  *
  * @param promise The promise to execute
  * @param timeoutMs Timeout in milliseconds (if undefined, no timeout)
  * @param operationName Name of the operation for logging
- * @param getEffectiveElapsed Optional callback returning the effective elapsed time accounting for pauses
+ * @param timeoutManager Optional TimeoutManager for pause-aware timeout tracking
+ * @param interruptionState Optional InterruptionStateReference for binding
  * @returns The result of the promise or throws ExecutionError on timeout
  */
 export async function withExecutionTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number | undefined,
   operationName: string,
-  getEffectiveElapsed?: () => number,
+  timeoutManager?: TimeoutManager,
+  interruptionState?: InterruptionStateReference,
 ): Promise<T> {
   // If no timeout specified, just execute the promise as-is
   if (!timeoutMs || timeoutMs <= 0) {
     return promise;
   }
 
-  const startTime = Date.now();
-
-  if (getEffectiveElapsed) {
-    // Dynamic timeout mode: use polling with effective elapsed time
-    const timeoutPromise = new Promise<T>((_, reject) => {
-      const interval = setInterval(() => {
-        const elapsed = getEffectiveElapsed();
-        if (elapsed >= timeoutMs) {
-          clearInterval(interval);
+  if (timeoutManager) {
+    // TimeoutManager mode: pause-aware, no polling
+    return new Promise<T>((resolve, reject) => {
+      const handle = timeoutManager.register({
+        id: `timeout-${operationName}-${Date.now()}`,
+        duration: timeoutMs,
+        onTimeout: () => {
           const error = new ExecutionError(
-            `Operation "${operationName}" exceeded timeout of ${timeoutMs}ms (effective elapsed: ${elapsed}ms)`,
-            undefined,
-            undefined,
+            `Operation "${operationName}" exceeded timeout of ${timeoutMs}ms (TimeoutManager)`,
           );
           logger.warn("Operation timeout exceeded", undefined, {
             operationName,
             timeoutMs,
-            elapsed,
           });
           reject(error);
-        }
-      }, POLL_INTERVAL_MS);
+        },
+        tag: "operation-timeout",
+        interruptionState,
+        metadata: {
+          operationName,
+          timeoutMs,
+        },
+      });
 
-      // Cleanup interval when the actual promise settles
-      promise
-        .then(
-          () => clearInterval(interval),
-          () => clearInterval(interval),
-        );
+      promise.then(
+        (result) => {
+          handle.cancel();
+          resolve(result);
+        },
+        (error) => {
+          handle.cancel();
+          reject(error);
+        },
+      );
     });
-
-    return Promise.race([promise, timeoutPromise]);
   }
 
   // Legacy mode: fixed setTimeout timer
+  const startTime = Date.now();
   const timeoutPromise = new Promise<T>((_, reject) => {
     const handle = setTimeout(() => {
       const elapsed = Date.now() - startTime;

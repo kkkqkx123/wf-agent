@@ -30,8 +30,8 @@ import * as Identifiers from "../../../di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execution-hierarchy-registry.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { PauseTimeoutManager } from "../utils/pause-timeout-manager.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
+import type { TimeoutHandle } from "../../../shared/types/timeout.js";
 
 const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator" });
 
@@ -41,7 +41,8 @@ const logger = createContextualLogger({ component: "WorkflowLifecycleCoordinator
  * Responsible for high-level process orchestration and coordination, organizing multiple components to complete complex workflow execution lifecycle operations.
  */
 export class WorkflowLifecycleCoordinator {
-  private pauseTimeoutManager?: PauseTimeoutManager;
+  /** Phase 3: Track pause timeout handles for each execution */
+  private pauseTimeoutHandles: Map<string, TimeoutHandle> = new Map();
 
   constructor(
     private readonly workflowExecutionRegistry: WorkflowExecutionRegistry,
@@ -55,25 +56,6 @@ export class WorkflowLifecycleCoordinator {
   }
 
   private readonly metricsRegistry: MetricsRegistry;
-
-  /**
-   * Initialize pause timeout manager (optional)
-   * Call this to enable automatic timeout for paused workflows
-   */
-  initializePauseTimeout(config?: { maxPauseDuration?: number; warningThreshold?: number }): void {
-    const eventManager = this.globalContext.eventRegistry;
-
-    this.pauseTimeoutManager = new PauseTimeoutManager(
-      this.workflowExecutionRegistry,
-      eventManager,
-      config,
-    );
-
-    logger.info("Pause timeout manager initialized", {
-      maxPauseDuration: config?.maxPauseDuration || 24 * 60 * 60 * 1000,
-      warningThreshold: config?.warningThreshold || 60 * 60 * 1000,
-    });
-  }
 
   /**
    * Execute Workflow
@@ -96,6 +78,16 @@ export class WorkflowLifecycleCoordinator {
       options,
     );
     const executionId = workflowExecutionEntity.id;
+
+    // Set node timeout from options (if provided)
+    if (options.nodeTimeout !== undefined) {
+      workflowExecutionEntity.setNodeTimeout(options.nodeTimeout);
+    }
+
+    // Set max pause duration from options (if provided)
+    if (options.maxPauseDuration !== undefined) {
+      workflowExecutionEntity.setMaxPauseDuration(options.maxPauseDuration);
+    }
 
     // Step 1.5: Check if this is a triggered execution
     const parentContext = workflowExecutionEntity.getParentContext();
@@ -122,7 +114,12 @@ export class WorkflowLifecycleCoordinator {
     }
 
     // Root execution: proceed with standard execution path
-    return await this.executeRootWorkflow(workflowExecutionEntity, stateCoordinator, workflowId);
+    return await this.executeRootWorkflow(
+      workflowExecutionEntity,
+      stateCoordinator,
+      workflowId,
+      options.maxExecutionTime,
+    );
   }
 
   /**
@@ -133,6 +130,7 @@ export class WorkflowLifecycleCoordinator {
     workflowExecutionEntity: import("../../entities/workflow-execution-entity.js").WorkflowExecutionEntity,
     stateCoordinator: import("../../state-managers/workflow-state-coordinator.js").WorkflowStateCoordinator,
     workflowId: string,
+    maxExecutionTime?: number,
   ): Promise<WorkflowExecutionResult> {
     const executionId = workflowExecutionEntity.id;
     const workflowVersion = workflowExecutionEntity.getWorkflowVersion();
@@ -161,6 +159,29 @@ export class WorkflowLifecycleCoordinator {
     // Step 3: Start the Workflow Execution
     await this.workflowStateTransitor.startWorkflowExecution(workflowExecutionEntity);
 
+    // Phase 4: Workflow Wall-Clock Timeout
+    // Register a max execution time timeout on the entity's TimeoutManager
+    let wallClockTimeoutHandle: TimeoutHandle | undefined;
+    if (maxExecutionTime && maxExecutionTime > 0) {
+      wallClockTimeoutHandle = workflowExecutionEntity.timeoutManager.register({
+        id: `wall-clock-${executionId}`,
+        duration: maxExecutionTime,
+        onTimeout: () => {
+          logger.warn("Workflow execution wall-clock timeout exceeded, stopping execution", {
+            executionId,
+            workflowId,
+            maxExecutionTime,
+          });
+          workflowExecutionEntity.interrupt("STOP");
+        },
+        tag: "workflow-execution",
+        metadata: {
+          maxExecutionTime,
+        },
+        interruptionState: workflowExecutionEntity.getInterruptionState(),
+      });
+    }
+
     // Step 4: Execute the Workflow
     const result = await this.workflowExecutor.executeWorkflow(workflowExecutionEntity);
 
@@ -182,6 +203,11 @@ export class WorkflowLifecycleCoordinator {
         await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
       }
     } finally {
+      // Cancel the wall-clock timeout if it was registered
+      if (wallClockTimeoutHandle) {
+        wallClockTimeoutHandle.cancel();
+      }
+
       // Step 6: Cleanup execution-scoped event listeners (ensure cleanup in all cases)
       const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(
         workflowExecutionEntity.id,
@@ -217,10 +243,50 @@ export class WorkflowLifecycleCoordinator {
     // Fully delegate the state transition and event triggering to the Transitor.
     await this.workflowStateTransitor.pauseWorkflowExecution(workflowExecutionEntity);
 
-    // Start monitoring for pause timeout (if enabled)
-    if (this.pauseTimeoutManager) {
-      this.pauseTimeoutManager.startMonitoring(executionId);
-      logger.debug("Started pause timeout monitoring", { executionId });
+    // Phase 3: Register pause timeout on the entity's TimeoutManager
+    // (consistent with AgentLoopCoordinator.pause() pattern)
+    const maxPauseDuration = workflowExecutionEntity.getMaxPauseDuration();
+    if (maxPauseDuration && maxPauseDuration > 0) {
+      // Cancel any existing pause timeout handle
+      const existingHandle = this.pauseTimeoutHandles.get(executionId);
+      if (existingHandle) {
+        existingHandle.cancel();
+      }
+
+      const pauseHandle = workflowExecutionEntity.timeoutManager.register({
+        id: `pause-${executionId}`,
+        duration: maxPauseDuration,
+        warningThreshold: Math.min(maxPauseDuration * 0.1, 3600000), // 10% of duration or 1 hour
+        onWarning: async () => {
+          logger.warn("Workflow execution pause timeout approaching", {
+            executionId,
+            maxPauseDuration,
+          });
+        },
+        onTimeout: async () => {
+          logger.warn("Workflow execution pause timeout exceeded, stopping execution", {
+            executionId,
+            maxPauseDuration,
+          });
+          // Cancel the workflow execution via entity state
+          workflowExecutionEntity.state.cancel();
+          // Cleanup the timeout handle from tracking
+          this.pauseTimeoutHandles.delete(executionId);
+        },
+        tag: "workflow-pause",
+        metadata: {
+          executionId,
+          maxPauseDuration,
+        },
+        interruptionState: workflowExecutionEntity.getInterruptionState(),
+      });
+
+      this.pauseTimeoutHandles.set(executionId, pauseHandle);
+
+      logger.debug("Started pause timeout monitoring via entity.timeoutManager", {
+        executionId,
+        maxPauseDuration,
+      });
     }
   }
 
@@ -241,9 +307,11 @@ export class WorkflowLifecycleCoordinator {
   async resumeWorkflowExecution(executionId: string): Promise<WorkflowExecutionResult> {
     logger.info("Resuming workflow execution", { executionId });
 
-    // Stop pause timeout monitoring (if enabled)
-    if (this.pauseTimeoutManager) {
-      this.pauseTimeoutManager.stopMonitoring(executionId);
+    // Phase 3: Cancel the pause timeout monitor (if active)
+    const pauseHandle = this.pauseTimeoutHandles.get(executionId);
+    if (pauseHandle) {
+      pauseHandle.cancel();
+      this.pauseTimeoutHandles.delete(executionId);
       logger.debug("Stopped pause timeout monitoring", { executionId });
     }
 
@@ -336,9 +404,11 @@ export class WorkflowLifecycleCoordinator {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
     }
 
-    // Stop pause timeout monitoring (if enabled)
-    if (this.pauseTimeoutManager) {
-      this.pauseTimeoutManager.stopMonitoring(executionId);
+    // Phase 3: Cancel the pause timeout monitor (if active)
+    const pauseHandle = this.pauseTimeoutHandles.get(executionId);
+    if (pauseHandle) {
+      pauseHandle.cancel();
+      this.pauseTimeoutHandles.delete(executionId);
       logger.debug("Stopped pause timeout monitoring", { executionId });
     }
 
@@ -484,14 +554,12 @@ export class WorkflowLifecycleCoordinator {
   destroy(): void {
     logger.info("Destroying WorkflowLifecycleCoordinator");
 
-    // Stop pause timeout monitoring if active
-    try {
-      this.pauseTimeoutManager?.cleanup();
-    } catch (error) {
-      logger.warn("Failed to cleanup pause timeout manager during destroy", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    // Phase 3: Cancel all pause timeout monitors
+    for (const [executionId, handle] of this.pauseTimeoutHandles) {
+      handle.cancel();
+      logger.debug("Cancelled pause timeout handle during destroy", { executionId });
     }
+    this.pauseTimeoutHandles.clear();
 
     // Clean up all entities in the registry
     this.workflowExecutionRegistry.clear();

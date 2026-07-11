@@ -56,6 +56,23 @@ export interface AgentLoopExecuteOptions extends AgentLoopEntityOptions {
 }
 
 /**
+ * Options for continuing an Agent Loop execution.
+ * Provides error context injection and retry control.
+ */
+export interface AgentLoopContinueOptions {
+  /**
+   * Error context to inject into the conversation as a system message.
+   * This helps the LLM understand what went wrong and adjust its approach.
+   */
+  errorContext?: string;
+  /**
+   * Maximum number of retry attempts allowed for this continue operation.
+   * @default 0 (no retry limit)
+   */
+  maxRetries?: number;
+}
+
+/**
  * AgentLoopCoordinator - Agent Loop Lifecycle Coordinator
  *
  * Key Responsibilities:
@@ -358,6 +375,8 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         return "TOOL_CALL";
       case "on_tool_result":
         return "TOOL_RESULT";
+      case "on_interval":
+        return "INTERVAL";
       case "manual":
         return "MANUAL";
       case "never":
@@ -558,139 +577,288 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       });
     }
 
-    try {
-      // 4. Execute the loop
-      const result = await this.executor.execute(entity, stateCoordinator);
+    // Phase 2.5: Retry configuration
+    const maxRetries = config.maxRetries ?? 0;
+    const retryDelay = config.retryDelay ?? 1000;
+    const useBackoff = config.exponentialBackoff ?? true;
+    let lastError: unknown;
+    let lastResult: AgentLoopResult | null = null;
 
-      const duration = now() - startTime;
-
-      // Record execution complete metrics
-      if (this.metricsCollector) {
-        this.metricsCollector.recordExecutionComplete(
-          entity.id,
-          entity.id,
-          duration,
-          entity.state.currentIteration,
-          entity.state.toolCallCount,
-          result.success,
-        );
-      }
-
-      // 5. Update the status using state transitor
-      // NOTE: AgentExecutionCoordinator may have already completed the entity internally
-      // (e.g., executeIteration calls entity.state.complete() when LLM returns final answer).
-      // Only attempt transition if still RUNNING to avoid state machine violation.
-      if (result.success) {
-        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
-          // Create checkpoint before completion
-          await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_complete");
-          await this.stateTransitor.completeAgentLoop(entity, result);
-
-          // Update task status if tracking
-          const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
-          if (taskId) {
-            this.registry.updateTaskStatusToCompleted(taskId, result);
+    // Phase 6: Intermediate checkpoint interval
+    // Create checkpoints periodically during long-running execution
+    let checkpointInterval: ReturnType<typeof setInterval> | undefined;
+    let checkpointInProgress = false;
+    const checkpointIntervalMs = config.checkpointIntervalMs ?? 0;
+    if (checkpointIntervalMs > 0 && this.checkpointCoordinator && this.checkpointPolicy.enabled) {
+      checkpointInterval = setInterval(async () => {
+        if (checkpointInProgress) return; // Skip if previous checkpoint still in progress
+        checkpointInProgress = true;
+        try {
+          const cpId = await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_interval");
+          if (cpId) {
+            logger.debug("Intermediate checkpoint created", {
+              agentLoopId: entity.id,
+              checkpointId: cpId,
+              iteration: entity.state.currentIteration,
+            });
           }
+        } catch (err) {
+          logger.warn("Intermediate checkpoint creation failed", {
+            agentLoopId: entity.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        } finally {
+          checkpointInProgress = false;
         }
-      } else {
-        if (entity.getStatus() === AgentLoopStatus.RUNNING) {
-          // Create checkpoint before failure
-          await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
-          await this.stateTransitor.failAgentLoop(entity, result.error);
-
-          // Update task status if tracking
-          const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
-          if (taskId) {
-            this.registry.updateTaskStatusToFailed(taskId, result.error as Error);
-          }
-        }
-      }
-
-      return result;
-    } catch (error) {
-      const duration = now() - startTime;
-
-      // Record error in execution state and publish event
-      const errorRecord: ExecutionErrorRecord = {
-        id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-        timestamp: Date.now(),
-        iteration: entity.state.currentIteration,
-        message: error instanceof Error ? error.message : String(error),
-        code: error instanceof Error ? error.name : "UnknownError",
-        severity: "error",
-        errorType: "execution_error",
-        context: {
-          operation: "agent_loop_execution",
-        },
-        isRecoverable: false,
-      };
-
-      // Add error to state for persistence
-      entity.state.addErrorRecord(errorRecord);
-
-      // Publish error event for metrics and logging
-      const eventBus = getExecutionEventBus();
-      await eventBus.publish({
-        type: "error_occurred",
-        executionId: entity.id,
-        timestamp: Date.now(),
-        error: errorRecord,
-        context: {
-          iteration: entity.state.currentIteration,
-        },
-      });
-
-      // Record execution complete for metrics (now event-driven, but still needed for old path)
-      if (this.metricsCollector) {
-        this.metricsCollector.recordExecutionComplete(
-          entity.id,
-          entity.id,
-          duration,
-          entity.state.currentIteration,
-          entity.state.toolCallCount,
-          false,
-        );
-      }
-
-      // Attempt to fail the agent loop, but gracefully handle if already completed
-      try {
-        // Create checkpoint before failure
-        await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
-        await this.stateTransitor.failAgentLoop(entity, error);
-
-        // Update task status if tracking
-        const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
-        if (taskId) {
-          this.registry.updateTaskStatusToFailed(taskId, error as Error);
-        }
-      } catch (stateError) {
-        logger.warn("Failed to transition agent loop to FAILED state", {
-          agentLoopId: entity.id,
-          currentStatus: entity.getStatus(),
-          error: stateError instanceof Error ? stateError.message : String(stateError),
-        });
-      }
-      return {
-        success: false,
-        iterations: entity.state.currentIteration,
-        toolCallCount: entity.state.toolCallCount,
-        error,
-      };
-    } finally {
-      // Cancel the wall-clock timeout if it was registered
-      if (wallClockTimeoutHandle) {
-        wallClockTimeoutHandle.cancel();
-      }
-
-      const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);
-      if (cleanedCount > 0) {
-        logger.debug("Cleaned up event listeners after agent loop execution", {
-          agentLoopId: entity.id,
-          cleanedCount,
-        });
+      }, checkpointIntervalMs);
+      // Unref the timer so it doesn't prevent process exit
+      if (checkpointInterval.unref) {
+        checkpointInterval.unref();
       }
     }
+
+    try {
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        // Retry attempt: inject error context and reset state
+        const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+        logger.info("Retrying agent loop execution", {
+          agentLoopId: entity.id,
+          attempt,
+          maxRetries,
+          error: errorMessage,
+        });
+
+        // Reset interruption state for retry (creates new AbortController)
+        entity.resetInterrupt();
+
+        // Restore state via state transitor (same as continue())
+        await this.stateTransitor.resumeAgentLoop(entity);
+
+        // Inject error context into the conversation so LLM can adjust
+        const retryCtx = `[Retry Context - Attempt ${attempt}/${maxRetries}]\nPrevious execution error: ${errorMessage}\n\nPlease analyze the error and adjust your approach.`;
+        stateCoordinator.addMessage({ role: "system", content: retryCtx });
+
+        // Calculate delay with optional exponential backoff
+        const delay = useBackoff
+          ? Math.min(retryDelay * Math.pow(2, attempt - 1), 60000) // cap at 60s
+          : retryDelay;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      try {
+        // 4. Execute the loop
+        const result = await this.executor.execute(entity, stateCoordinator);
+
+        const duration = now() - startTime;
+
+        // Record execution complete metrics
+        if (this.metricsCollector) {
+          this.metricsCollector.recordExecutionComplete(
+            entity.id,
+            entity.id,
+            duration,
+            entity.state.currentIteration,
+            entity.state.toolCallCount,
+            result.success,
+          );
+        }
+
+        // 5. Update the status using state transitor
+        if (result.success) {
+          if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+            // Create checkpoint before completion
+            await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_complete");
+            await this.stateTransitor.completeAgentLoop(entity, result);
+
+            // Update task status if tracking
+            const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+            if (taskId) {
+              this.registry.updateTaskStatusToCompleted(taskId, result);
+            }
+          }
+          return result;
+        }
+
+        // Execution failed but did not throw
+        if (attempt >= maxRetries) {
+          // No more retries — fall through to error handling
+          lastError = result.error;
+          lastResult = result;
+          break;
+        }
+
+        // Check if the error is recoverable via error chain analysis
+        const recoveryAction = entity.state.getRecommendedRecoveryAction();
+        if (recoveryAction !== 'retry') {
+          logger.info("Error not recoverable, skipping retry", {
+            agentLoopId: entity.id,
+            recoveryAction,
+            error: result.error,
+          });
+          lastError = result.error;
+          lastResult = result;
+          break;
+        }
+
+        // Record error for retry tracking
+        lastError = result.error;
+        logger.info("Agent loop execution failed, will retry", {
+          agentLoopId: entity.id,
+          attempt,
+          maxRetries,
+          recoveryAction,
+        });
+        // Continue to next attempt
+      } catch (error) {
+        // Record error in execution state
+        const errorRecord: ExecutionErrorRecord = {
+          id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          timestamp: Date.now(),
+          iteration: entity.state.currentIteration,
+          message: error instanceof Error ? error.message : String(error),
+          code: error instanceof Error ? error.name : "UnknownError",
+          severity: "error",
+          errorType: "execution_error",
+          context: {
+            operation: "agent_loop_execution",
+          },
+          isRecoverable: false,
+        };
+
+        entity.state.addErrorRecord(errorRecord);
+        lastError = error;
+
+        if (attempt >= maxRetries) {
+          // No more retries — fall through to error handling
+          break;
+        }
+
+        // Check if the error is recoverable
+        const recoveryAction = entity.state.getRecommendedRecoveryAction();
+        if (recoveryAction !== 'retry') {
+          logger.info("Error not recoverable, skipping retry", {
+            agentLoopId: entity.id,
+            recoveryAction,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          break;
+        }
+
+        logger.info("Agent loop execution threw, will retry", {
+          agentLoopId: entity.id,
+          attempt,
+          maxRetries,
+          recoveryAction,
+        });
+        // Continue to next attempt
+      }
+    }
+
+    // All retries exhausted — handle the final error
+    // (This code runs only when all attempts failed)
+    if (lastResult && !lastResult.success) {
+      // Non-throwing failure path: the executor returned a failed result
+      if (entity.getStatus() === AgentLoopStatus.RUNNING) {
+        await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
+        await this.stateTransitor.failAgentLoop(entity, lastResult.error);
+
+        const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+        if (taskId) {
+          this.registry.updateTaskStatusToFailed(taskId, lastResult.error as Error);
+        }
+      }
+      return lastResult;
+    }
+
+    // Throwing failure path: record error and transition to FAILED
+    const duration = now() - startTime;
+
+    const errorRecord: ExecutionErrorRecord = {
+      id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: Date.now(),
+      iteration: entity.state.currentIteration,
+      message: lastError instanceof Error ? lastError.message : String(lastError),
+      code: lastError instanceof Error ? lastError.name : "UnknownError",
+      severity: "error",
+      errorType: "execution_error",
+      context: {
+        operation: "agent_loop_execution",
+      },
+      isRecoverable: false,
+    };
+
+    // Add error to state for persistence
+    entity.state.addErrorRecord(errorRecord);
+
+    // Publish error event for metrics and logging
+    const eventBus = getExecutionEventBus();
+    await eventBus.publish({
+      type: "error_occurred",
+      executionId: entity.id,
+      timestamp: Date.now(),
+      error: errorRecord,
+      context: {
+        iteration: entity.state.currentIteration,
+      },
+    });
+
+    // Record execution complete for metrics
+    if (this.metricsCollector) {
+      this.metricsCollector.recordExecutionComplete(
+        entity.id,
+        entity.id,
+        duration,
+        entity.state.currentIteration,
+        entity.state.toolCallCount,
+        false,
+      );
+    }
+
+    // Attempt to fail the agent loop, but gracefully handle if already completed
+    try {
+      await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_error");
+      await this.stateTransitor.failAgentLoop(entity, lastError);
+
+      const taskId = this.registry.findTaskIdByAgentLoopId(entity.id);
+      if (taskId) {
+        this.registry.updateTaskStatusToFailed(taskId, lastError as Error);
+      }
+    } catch (stateError) {
+      logger.warn("Failed to transition agent loop to FAILED state", {
+        agentLoopId: entity.id,
+        currentStatus: entity.getStatus(),
+        error: stateError instanceof Error ? stateError.message : String(stateError),
+      });
+    }
+
+    return {
+      success: false,
+      iterations: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      error: lastError,
+    };
+  } finally {
+    // Cancel the wall-clock timeout if it was registered
+    if (wallClockTimeoutHandle) {
+      wallClockTimeoutHandle.cancel();
+    }
+
+    // Phase 6: Clear the checkpoint interval timer
+    if (checkpointInterval) {
+      clearInterval(checkpointInterval);
+      checkpointInterval = undefined;
+    }
+
+    const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);
+    if (cleanedCount > 0) {
+      logger.debug("Cleaned up event listeners after agent loop execution", {
+        agentLoopId: entity.id,
+        cleanedCount,
+      });
+    }
   }
+}
 
   /**
    * Submit Agent Loop for asynchronous execution (for triggered execution from Workflow)
@@ -941,19 +1109,21 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       const pauseHandle = entity.timeoutManager.register({
         id: `pause-${id}`,
         duration: maxPauseDuration,
-        onTimeout: async () => {
-          logger.warn("Agent loop pause timeout exceeded, cancelling", {
+        warningThreshold: Math.min(maxPauseDuration * 0.1, 3600000), // 10% of duration or 1 hour, whichever is smaller
+        onWarning: async () => {
+          logger.warn("Agent loop pause timeout approaching", {
             agentLoopId: id,
             maxPauseDuration,
           });
-          // Stop the agent loop via the entity's interruption state
+        },
+        onTimeout: async () => {
+          logger.warn("Agent loop pause timeout exceeded, stopping execution", {
+            agentLoopId: id,
+            maxPauseDuration,
+          });
+          // Only set the interrupt flag — the executor loop will detect it
+          // and handle the state transition (same pattern as wall-clock timeout)
           entity.interrupt("STOP");
-          // Transition to cancelled state
-          await this.stateTransitor.cancelAgentLoop(entity, "Pause timeout exceeded");
-          // Cleanup entity resources
-          entity.cleanup();
-          // Unregister from registry
-          this.registry.unregister(id);
           // Cleanup the timeout handle from tracking
           this.pauseTimeoutHandles.delete(id);
         },
@@ -1076,7 +1246,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
    * @param id Instance ID
    * @returns Execution result
    */
-  async continue(id: ID): Promise<AgentLoopResult> {
+  async continue(id: ID, options?: AgentLoopContinueOptions): Promise<AgentLoopResult> {
     logger.debug("Attempting to continue Agent Loop", { agentLoopId: id });
 
     const entity = await this.registry.get(id);
@@ -1092,6 +1262,18 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         currentStatus: entity.getStatus(),
       });
       throw new Error(`AgentLoop is currently running: ${id}`);
+    }
+
+    // Validate retry count upper limit
+    const maxRetries = options?.maxRetries ?? 0;
+    const existingRetries = entity.state.currentIteration; // Use iteration count as proxy for retry count
+    if (maxRetries > 0 && existingRetries >= maxRetries) {
+      logger.warn("Agent Loop retry count exceeded, cannot continue", {
+        agentLoopId: id,
+        existingRetries,
+        maxRetries,
+      });
+      throw new Error(`AgentLoop retry count exceeded: ${existingRetries} >= ${maxRetries}`);
     }
 
     // Validate last message
@@ -1123,6 +1305,16 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         agentLoopId: id,
       });
       throw new Error(`AgentLoop state coordinator not found: ${id}`);
+    }
+
+    // Inject error context into the conversation if provided
+    if (options?.errorContext) {
+      const retryMessage = `[Continue Context - Retry]\n${options.errorContext}\n\nPlease analyze the error and adjust your approach.`;
+      stateCoordinator.addMessage({ role: "system", content: retryMessage });
+      logger.info("Injected error context into continue operation", {
+        agentLoopId: id,
+        errorContext: options.errorContext,
+      });
     }
 
     try {

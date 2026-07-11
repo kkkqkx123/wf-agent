@@ -16,10 +16,24 @@ export interface WorkflowExecutionOptions {
   maxSteps?: number;
   /** Timeout time (milliseconds) */
   timeout?: number;
+  /** Maximum wall-clock execution time in milliseconds (0 = no limit) */
+  maxExecutionTime?: number;
   /** Whether to enable checkpoints */
   enableCheckpoints?: boolean;
   /** Token Limit Threshold */
   tokenLimit?: number;
+  /**
+   * Default timeout for individual node execution in milliseconds.
+   * Can be overridden at the node level.
+   * @default 30000
+   */
+  nodeTimeout?: number;
+  /**
+   * Maximum pause duration in milliseconds (0 = no limit).
+   * When set, the workflow execution will be automatically cancelled if paused longer.
+   * @default 0
+   */
+  maxPauseDuration?: number;
   /** Node execution completion callback */
   onNodeExecuted?: (result: NodeExecutionResult) => void | Promise<void>;
   /** Tool Callbacks */

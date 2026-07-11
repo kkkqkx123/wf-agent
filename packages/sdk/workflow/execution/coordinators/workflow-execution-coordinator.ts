@@ -14,6 +14,10 @@ import {
   toWorkflowInterruptionResult,
   type WorkflowInterruptionCheckResult,
 } from "../utils/workflow-interruption-utils.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { TimeoutHandle } from "../../../shared/types/timeout.js";
+
+const logger = createContextualLogger({ component: "WorkflowExecutionCoordinator" });
 
 /**
  * WorkflowExecutionCoordinator - Workflow Execution Coordinator
@@ -45,7 +49,7 @@ export class WorkflowExecutionCoordinator {
     const abortSignal = this.interruptionManager.getAbortSignal();
 
     // Use unified interruption handling wrapper
-    const result = await executeWithInterruptionHandling(async signal => {
+    const result = await executeWithInterruptionHandling(async _signal => {
       // Execution process orchestration
       while (true) {
         // Get the current node
@@ -54,18 +58,90 @@ export class WorkflowExecutionCoordinator {
           break;
         }
 
+        // Phase 4: Skip already completed nodes (for resume from checkpoint)
+        // When resuming from a checkpoint, the currentNodeId may point to a node
+        // that was already completed. Skip it and advance to the next node.
+        const completedNodeIds = new Set(
+          this.workflowExecutionEntity
+            .getNodeResults()
+            .filter(r => r.status === "COMPLETED")
+            .map(r => r.nodeId),
+        );
+        if (completedNodeIds.has(currentNodeId)) {
+          logger.debug("Skipping already completed node during resume", {
+            executionId: this.workflowExecutionEntity.id,
+            nodeId: currentNodeId,
+          });
+          // Advance to next node and continue the outer loop
+          const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
+          if (outgoingEdges.length <= 1) {
+            const nextNode = this.navigator.getNextNode(currentNodeId);
+            if (nextNode && nextNode.nextNodeId) {
+              this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+            } else {
+              break;
+            }
+          } else {
+            const evalContext = this.buildRoutingEvaluationContext();
+            const routingResult = this.navigator.routeNextNode(
+              currentNodeId,
+              (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+            );
+            if (routingResult) {
+              this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+            } else {
+              break;
+            }
+          }
+          continue; // Re-check the outer loop with the new node
+        }
+
         // Get the node object from the graph (already a RuntimeNode after preprocessing)
         const currentNode = this.navigator.getGraph().getNode(currentNodeId);
         if (!currentNode) {
           break;
         }
 
-        // Execute Node with signal (currentNode is already a RuntimeNode)
+        // Phase 5: Node Completion Timeout
+        // Register a per-node timeout on the entity's TimeoutManager
+        const nodeTimeoutMs = this.workflowExecutionEntity.getNodeTimeout();
+        let nodeTimeoutHandle: TimeoutHandle | undefined;
+        const nodeAbortController = new AbortController();
+
+        nodeTimeoutHandle = this.workflowExecutionEntity.timeoutManager.register({
+          id: `node-${currentNodeId}-${Date.now()}`,
+          duration: nodeTimeoutMs,
+          onTimeout: () => {
+            logger.warn(`Node '${currentNodeId}' timed out after ${nodeTimeoutMs}ms`, {
+              executionId: this.workflowExecutionEntity.id,
+              nodeId: currentNodeId,
+            });
+            nodeAbortController.abort(`Node ${currentNodeId} timed out after ${nodeTimeoutMs}ms`);
+          },
+          tag: "node-execution",
+          metadata: {
+            nodeId: currentNodeId,
+            nodeTimeoutMs,
+          },
+          interruptionState: this.workflowExecutionEntity.getInterruptionState(),
+        });
+
+        // Use only the node timeout signal - the main interruption signal is
+        // handled by the executeWithInterruptionHandling wrapper at the outer level.
+        // Wall-clock timeout serves as the final circuit breaker, not mixed with node timeout.
+        const nodeSignal = nodeAbortController.signal;
+
+        // Execute Node with node signal
         const nodeResult = await this.nodeExecutionCoordinator.executeNode(
           this.workflowExecutionEntity,
           currentNode,
-          { abortSignal: signal },
+          { abortSignal: nodeSignal },
         );
+
+        // Cancel the node timeout handle
+        if (nodeTimeoutHandle) {
+          nodeTimeoutHandle.cancel();
+        }
 
         // Update the current node ID
         if (nodeResult.status === "COMPLETED") {

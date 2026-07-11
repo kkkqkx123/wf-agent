@@ -102,6 +102,31 @@ export interface AgentLoopNodeConfig {
     maxIterations?: number;
 
     /**
+     * Maximum number of automatic retries on failure
+     * @default 0 (no automatic retry)
+     */
+    maxRetries?: number;
+
+    /**
+     * Delay between retries in milliseconds
+     * @default 1000
+     */
+    retryDelay?: number;
+
+    /**
+     * Whether to use exponential backoff for retry delays
+     * @default true
+     */
+    exponentialBackoff?: boolean;
+
+    /**
+     * Interval for periodic checkpoint creation in milliseconds.
+     * When set, a checkpoint is created at this interval during long-running execution.
+     * @default 0 (no periodic checkpoint)
+     */
+    checkpointIntervalMs?: number;
+
+    /**
      * Available tools configuration
      * @description Specifies which tools are available during agent loop execution.
      * If not specified, uses all available tools in the context.

@@ -21,6 +21,8 @@ export enum AgentCheckpointTrigger {
   ON_TOOL_CALL = "on_tool_call",
   /** Create checkpoint when tool results are received */
   ON_TOOL_RESULT = "on_tool_result",
+  /** Create checkpoint on a periodic interval */
+  ON_INTERVAL = "on_interval",
   /** Only create checkpoints manually */
   MANUAL = "manual",
   /** Disable automatic checkpointing */

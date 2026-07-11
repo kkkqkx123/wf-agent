@@ -93,6 +93,44 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   /** Stop Controller */
   abortController?: AbortController;
 
+  /** Node execution timeout in milliseconds (default: 30000) */
+  private _nodeTimeout: number = 30000;
+
+  /** Maximum pause duration in milliseconds (0 = no limit, default: 0) */
+  private _maxPauseDuration: number = 0;
+
+  /**
+   * Set node execution timeout
+   * @param timeoutMs Timeout in milliseconds
+   */
+  setNodeTimeout(timeoutMs: number): void {
+    this._nodeTimeout = timeoutMs > 0 ? timeoutMs : 30000;
+  }
+
+  /**
+   * Get node execution timeout
+   * @returns Node timeout in milliseconds
+   */
+  getNodeTimeout(): number {
+    return this._nodeTimeout;
+  }
+
+  /**
+   * Set maximum pause duration
+   * @param durationMs Maximum pause duration in milliseconds (0 = no limit)
+   */
+  setMaxPauseDuration(durationMs: number): void {
+    this._maxPauseDuration = durationMs > 0 ? durationMs : 0;
+  }
+
+  /**
+   * Get maximum pause duration
+   * @returns Maximum pause duration in milliseconds (0 = no limit)
+   */
+  getMaxPauseDuration(): number {
+    return this._maxPauseDuration;
+  }
+
   /** Trigger Management */
   triggerManager?: unknown;
 

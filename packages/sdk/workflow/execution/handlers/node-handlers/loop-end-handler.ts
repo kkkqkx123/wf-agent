@@ -10,6 +10,9 @@ import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError, NotFoundError } from "@wf-agent/types";
 import { conditionEvaluator } from "../../../../services/evaluation/index.js";
 import { now, getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "loop-end-handler" });
 
 /**
  * Loop state
@@ -21,6 +24,10 @@ interface LoopState {
   maxIterations: number;
   iterationCount: number;
   variableName: string | null; // Can be null (during counting loops).
+  /** Number of consecutive failures in this loop */
+  consecutiveFailures: number;
+  /** Total number of failures across all iterations */
+  totalFailures: number;
 }
 
 /**
@@ -202,6 +209,34 @@ export async function loopEndHandler(
       },
     );
   }
+
+  // Track iteration failures: scan nodeResults for FAILED nodes in this iteration
+  // (nodes that executed after the last LOOP_START or LOOP_END)
+  const iterationFailed = workflowExecutionEntity
+    .getNodeResults()
+    .some(
+      r =>
+        (r.status === "FAILED" || r.status === "CANCELLED") &&
+        r.nodeId !== node.id,
+    );
+
+  if (iterationFailed) {
+    loopState.consecutiveFailures = (loopState.consecutiveFailures || 0) + 1;
+    loopState.totalFailures = (loopState.totalFailures || 0) + 1;
+    logger.debug("Loop iteration detected failure", {
+      loopId: config.loopId,
+      consecutiveFailures: loopState.consecutiveFailures,
+      totalFailures: loopState.totalFailures,
+      iterationCount: loopState.iterationCount,
+    });
+  } else {
+    // Reset consecutive failures on successful iteration
+    loopState.consecutiveFailures = 0;
+  }
+
+  // Save updated loop state back to VariableManager
+  const manager = workflowExecutionEntity.variableStateManager;
+  manager.setVariable("__loop_state", loopState);
 
   // Evaluating interrupt conditions
   let shouldBreak = false;

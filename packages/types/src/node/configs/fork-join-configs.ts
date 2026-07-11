@@ -40,6 +40,15 @@ export interface ForkNodeConfig {
   forkPaths: ForkPath[];
   /** Fork strategy (serial、parallel) */
   forkStrategy: 'serial' | 'parallel';
+  /**
+   * Failure handling strategy for fork branches.
+   * - 'fail-fast': Terminate immediately if any branch fails (default).
+   * - 'continue-on-error': Continue executing remaining branches even if some fail.
+   * - 'fail-on-threshold': Fail only if the number of failed branches exceeds maxFailedBranches.
+   */
+  failureStrategy?: 'fail-fast' | 'continue-on-error' | 'fail-on-threshold';
+  /** Maximum number of failed branches allowed (only used when failureStrategy is 'fail-on-threshold'). Default: 0 */
+  maxFailedBranches?: number;
 }
 
 /**

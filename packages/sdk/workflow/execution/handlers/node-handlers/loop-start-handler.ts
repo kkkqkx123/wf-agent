@@ -8,6 +8,9 @@ import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
 import { now, getErrorMessage } from "@wf-agent/common-utils";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "loop-start-handler" });
 
 /**
  * Loop state
@@ -19,6 +22,10 @@ interface LoopState {
   maxIterations: number;
   iterationCount: number;
   variableName: string | null; // Can be null (when counting loops).
+  /** Number of consecutive failures in this loop (for onIterationFailure strategy) */
+  consecutiveFailures: number;
+  /** Total number of failures across all iterations */
+  totalFailures: number;
 }
 
 /**
@@ -304,6 +311,8 @@ export async function loopStartHandler(
       maxIterations: config.maxIterations,
       iterationCount: 0,
       variableName: variableName,
+      consecutiveFailures: 0,
+      totalFailures: 0,
     };
 
     // TODO Phase 2: Replace with explicit variable import for loop iterations
@@ -316,6 +325,54 @@ export async function loopStartHandler(
     }
 
     setLoopState(executionEntity, loopState);
+  }
+
+  // Check iteration failure strategy (only applies when loopState already existed, i.e., not first iteration)
+  // Detect failures in the previous iteration by scanning nodeResults for FAILED nodes
+  // that belong to the loop body (between the last LOOP_START/LOOP_END and now).
+  const onIterationFailure = config.onIterationFailure ?? "fail";
+  const maxConsecutiveFailures = config.maxConsecutiveFailures ?? 0;
+
+  if (loopState.totalFailures > 0) {
+    // The previous iteration had failures — apply strategy
+    if (onIterationFailure === "fail") {
+      // Terminate the loop
+      clearLoopState(executionEntity);
+      return {
+        loopId: config.loopId,
+        iterationCount: loopState.iterationCount,
+        maxIterations: loopState.maxIterations,
+        hasMoreIterations: false,
+      };
+    }
+
+    // For skip/continue: check max consecutive failures threshold
+    if (
+      maxConsecutiveFailures > 0 &&
+      loopState.consecutiveFailures >= maxConsecutiveFailures
+    ) {
+      logger.warn("Loop terminated due to max consecutive failures", {
+        loopId: config.loopId,
+        consecutiveFailures: loopState.consecutiveFailures,
+        maxConsecutiveFailures,
+      });
+      clearLoopState(executionEntity);
+      return {
+        loopId: config.loopId,
+        iterationCount: loopState.iterationCount,
+        maxIterations: loopState.maxIterations,
+        hasMoreIterations: false,
+      };
+    }
+
+    // Log the skip/continue decision
+    logger.info("Loop iteration failure handled by strategy", {
+      loopId: config.loopId,
+      onIterationFailure,
+      consecutiveFailures: loopState.consecutiveFailures,
+      totalFailures: loopState.totalFailures,
+      iterationCount: loopState.iterationCount,
+    });
   }
 
   // Check the loop conditions.

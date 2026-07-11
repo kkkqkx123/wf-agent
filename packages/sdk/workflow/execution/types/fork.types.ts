@@ -33,4 +33,13 @@ export interface ForkExecutionConfig {
   maxConcurrency?: number;
   /** Timeout for all branches in milliseconds */
   timeout?: number;
+  /**
+   * Failure handling strategy for fork branches.
+   * - 'fail-fast': Terminate immediately if any branch fails (default).
+   * - 'continue-on-error': Continue executing remaining branches even if some fail.
+   * - 'fail-on-threshold': Fail only if the number of failed branches exceeds maxFailedBranches.
+   */
+  failureStrategy?: "fail-fast" | "continue-on-error" | "fail-on-threshold";
+  /** Maximum number of failed branches allowed (only used with fail-on-threshold). Default: 0 */
+  maxFailedBranches?: number;
 }

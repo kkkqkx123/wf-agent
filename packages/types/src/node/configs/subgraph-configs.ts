@@ -48,6 +48,26 @@ export interface SubgraphNodeConfig {
   
   /** Whether to execute asynchronously */
   async: boolean;
+
+  /**
+   * Failure handling strategy for subgraph execution.
+   * - 'fail': Propagate the error to the parent workflow (default).
+   * - 'continue': Return a SKIPPED result with optional fallbackOutput, allowing the parent to continue.
+   * - 'retry': Retry the subgraph execution up to maxRetries times before failing.
+   */
+  onFailure?: 'fail' | 'continue' | 'retry';
+
+  /** Maximum number of retry attempts (only used when onFailure is 'retry'). Default: 3 */
+  maxRetries?: number;
+
+  /** Base delay between retries in milliseconds (applies exponential backoff). Default: 1000 */
+  retryDelayMs?: number;
+
+  /**
+   * Fallback output value when continuing on failure.
+   * Only used when onFailure is 'continue'.
+   */
+  fallbackOutput?: Record<string, unknown>;
   
   /**
    * Variable Input Mapping

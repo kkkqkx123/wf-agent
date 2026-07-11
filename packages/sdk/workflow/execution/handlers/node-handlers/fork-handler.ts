@@ -6,7 +6,9 @@
  *
  * Design Principles:
  * - Each branch gets its own isolated WorkflowExecutionEntity
- * - Branches execute in true parallel via Promise.all()
+ * - Branches execute in true parallel via Promise.allSettled
+ * - A single branch failure does NOT prevent other branches from completing
+ * - Failure strategy (fail-fast / continue-on-error / fail-on-threshold) controls overall behavior
  * - Variables are deep cloned to prevent race conditions
  * - Returns typed ForkBranchResult[] array
  */
@@ -29,6 +31,19 @@ import {
 } from "../../../../shared/utils/event/builders/index.js";
 import * as Identifiers from "../../../../di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
+
+/**
+ * Internal result type for a single fork branch execution,
+ * holding either success or failure data before the final ForkBranchResult is built.
+ */
+interface BranchExecutionOutcome {
+  pathId: string;
+  branchEntity: WorkflowExecutionEntity;
+  status: "COMPLETED" | "FAILED";
+  executionResult?: import("@wf-agent/types").WorkflowExecutionResult;
+  error?: Error;
+  executionTime: number;
+}
 
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
@@ -70,13 +85,19 @@ export async function forkHandler(
     throw new Error("WorkflowExecutor required for FORK execution");
   }
 
-  logger.info("Starting FORK node execution", {
-    nodeId: node.id,
-    forkPathCount: forkPaths.length,
-    forkStrategy: config.forkStrategy,
-  });
+  // Extract failure strategy from config (default: fail-fast)
+      const failureStrategy = config.failureStrategy ?? "fail-fast";
+      const maxFailedBranches = config.maxFailedBranches ?? 0;
 
-  const startTime = now();
+      logger.info("Starting FORK node execution", {
+        nodeId: node.id,
+        forkPathCount: forkPaths.length,
+        forkStrategy: config.forkStrategy,
+        failureStrategy,
+        maxFailedBranches,
+      });
+
+      const startTime = now();
 
   // Track branch creations for cleanup in case of failure
   let branchCreations: Array<{ pathId: string; branchEntity: WorkflowExecutionEntity }> = [];
@@ -175,53 +196,120 @@ export async function forkHandler(
       }
     }
 
-    // Step 2: Execute all branches in parallel
+    // Step 2: Execute all branches in parallel with isolation
+    // Each branch is wrapped in try/catch so a single branch failure
+    // does NOT prevent other branches from completing.
     logger.debug("Executing fork branches in parallel", {
       nodeId: node.id,
       branchCount: branchCreations.length,
+      failureStrategy,
     });
 
-    const executionResults = await Promise.all(
+    const branchOutcomes: BranchExecutionOutcome[] = await Promise.all(
       branchCreations.map(async branch => {
         const branchStartTime = now();
-        const result = await executor.executeWorkflow(branch.branchEntity);
-        const branchDuration = diffTimestamp(branchStartTime, now());
+        try {
+          const result = await executor.executeWorkflow(branch.branchEntity);
+          const branchDuration = diffTimestamp(branchStartTime, now());
 
-        logger.debug("Fork branch completed", {
-          nodeId: node.id,
-          forkPathId: branch.pathId,
-          branchExecutionId: branch.branchEntity.id,
-          duration: branchDuration,
-          status: result.metadata.status,
-        });
+          logger.debug("Fork branch completed", {
+            nodeId: node.id,
+            forkPathId: branch.pathId,
+            branchExecutionId: branch.branchEntity.id,
+            duration: branchDuration,
+            status: result.metadata.status,
+          });
 
-        return {
-          ...result,
-          executionTime: branchDuration,
-        };
+          return {
+            pathId: branch.pathId,
+            branchEntity: branch.branchEntity,
+            status: "COMPLETED" as const,
+            executionResult: result,
+            executionTime: branchDuration,
+          };
+        } catch (error) {
+          const branchDuration = diffTimestamp(branchStartTime, now());
+          const errorObj = error instanceof Error ? error : new Error(String(error));
+
+          logger.warn("Fork branch failed", {
+            nodeId: node.id,
+            forkPathId: branch.pathId,
+            branchExecutionId: branch.branchEntity.id,
+            duration: branchDuration,
+            error: errorObj,
+          });
+
+          return {
+            pathId: branch.pathId,
+            branchEntity: branch.branchEntity,
+            status: "FAILED" as const,
+            error: errorObj,
+            executionTime: branchDuration,
+          };
+        }
       }),
     );
 
+    // Apply failure strategy
+    const failedCount = branchOutcomes.filter(o => o.status === "FAILED").length;
+
+    if (failureStrategy === "fail-fast" && failedCount > 0) {
+      // fail-fast: throw as soon as any branch fails (preserving the existing behavior)
+      const firstFailure = branchOutcomes.find(o => o.status === "FAILED")!;
+      throw new Error(
+        `FORK node '${node.id}' failed (fail-fast): branch '${firstFailure.pathId}' failed - ${firstFailure.error?.message}`,
+        { cause: firstFailure.error },
+      );
+    }
+
+    if (failureStrategy === "fail-on-threshold" && failedCount > maxFailedBranches) {
+      throw new Error(
+        `FORK node '${node.id}' failed (fail-on-threshold): ${failedCount} branches failed, threshold is ${maxFailedBranches}`,
+      );
+    }
+
+    // continue-on-error (or threshold met): proceed with all outcomes
+
     // Step 3: Build ForkBranchResult array with cleanup
     const results: ForkBranchResult[] = await Promise.all(
-      branchCreations.map(async (branch, index) => {
-        const executionResult = executionResults[index];
-        if (!executionResult) {
-          throw new Error(`Missing execution result for branch ${branch.pathId}`);
-        }
-
-        // Cleanup branch execution entity after completion
+      branchOutcomes.map(async outcome => {
+        // Cleanup branch execution entity
         await cleanupChildExecution(
-          branch.branchEntity,
+          outcome.branchEntity,
           workflowExecutionEntity,
-          executionResult.metadata.status === "COMPLETED" ? "COMPLETED" : "FAILED",
+          outcome.status === "COMPLETED" ? "COMPLETED" : "FAILED",
         );
 
+        if (outcome.status === "COMPLETED") {
+          return createForkBranchResult(
+            outcome.pathId,
+            outcome.branchEntity,
+            outcome.executionResult!,
+            outcome.executionTime,
+          );
+        }
+
+        // For failed branches, build a result with FAILED status
+        const failedResult: import("@wf-agent/types").WorkflowExecutionResult = {
+          executionId: outcome.branchEntity.id,
+          output: outcome.branchEntity.getOutput(),
+          executionTime: outcome.executionTime,
+          nodeResults: outcome.branchEntity.getNodeResults(),
+          metadata: {
+            status: "FAILED",
+            startTime: outcome.branchEntity.getStartTime() || Date.now(),
+            endTime: Date.now(),
+            executionTime: outcome.executionTime,
+            nodeCount: outcome.branchEntity.getNodeResults().length,
+            errorCount: outcome.branchEntity.getErrors().length,
+          },
+        };
+
         return createForkBranchResult(
-          branch.pathId,
-          branch.branchEntity,
-          executionResult,
-          executionResult.executionTime,
+          outcome.pathId,
+          outcome.branchEntity,
+          failedResult,
+          outcome.executionTime,
         );
       }),
     );

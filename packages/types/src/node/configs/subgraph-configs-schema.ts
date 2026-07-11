@@ -15,6 +15,22 @@ import { WorkflowVariableInputSchema, WorkflowVariableOutputSchema, WorkflowData
 export const SubgraphNodeConfigSchema = z.object({
   subgraphId: z.string().min(1, "Subgraph ID is required"),
   async: z.boolean(),
+  onFailure: z
+    .enum(["fail", "continue", "retry"], {
+      message: "onFailure must be one of: fail, continue, retry",
+    })
+    .optional(),
+  maxRetries: z
+    .number()
+    .int()
+    .positive("maxRetries must be positive")
+    .optional(),
+  retryDelayMs: z
+    .number()
+    .int()
+    .nonnegative("retryDelayMs must be non-negative")
+    .optional(),
+  fallbackOutput: z.record(z.string(), z.unknown()).optional(),
   variableInputs: z.array(WorkflowVariableInputSchema).optional(),
   variableOutputs: z.array(WorkflowVariableOutputSchema).optional(),
   dataInputs: z.array(WorkflowDataInputSchema).optional(),
@@ -22,7 +38,19 @@ export const SubgraphNodeConfigSchema = z.object({
     inputs: z.array(WorkflowMessageInputSchema).optional(),
     outputs: z.array(WorkflowMessageOutputSchema).optional(),
   }).optional(),
-});
+}).refine(
+  (data) => {
+    // retry strategy requires maxRetries
+    if (data.onFailure === "retry" && (data.maxRetries === undefined || data.maxRetries === null)) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: "maxRetries is required when onFailure is retry",
+    path: ["maxRetries"],
+  },
+);
 
 /**
  * Type guard for runtime type checking

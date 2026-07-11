@@ -45,6 +45,16 @@ export const LoopStartNodeConfigSchema = z.object({
   variableInputs: z.array(loopVariableInputSchema).optional(),
   dataSource: dataSourceSchema.optional(),
   maxIterations: z.number().positive("Max iterations must be positive"),
+  onIterationFailure: z
+    .enum(["fail", "skip", "continue"], {
+      message: "onIterationFailure must be one of: fail, skip, continue",
+    })
+    .optional(),
+  maxConsecutiveFailures: z
+    .number()
+    .int()
+    .nonnegative("maxConsecutiveFailures must be non-negative")
+    .optional(),
 });
 
 /**

@@ -32,6 +32,7 @@ import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
+import { delay } from "../../../../shared/utils/timeout/timeout-utils.js";
 
 const logger = createContextualLogger({ component: "subgraph-node-handler" });
 
@@ -65,6 +66,12 @@ export async function subgraphHandler(
 ): Promise<SubgraphNodeOutput> {
   const config = node.config as SubgraphNodeConfig;
   const subworkflowId = config.subgraphId;
+
+  // Extract failure strategy config (default: fail)
+  const onFailure = config.onFailure ?? "fail";
+  const maxRetries = config.maxRetries ?? 3;
+  const retryDelayMs = config.retryDelayMs ?? 1000;
+  const fallbackOutput = config.fallbackOutput;
 
   if (!subworkflowId) {
     throw new Error(`SUBGRAPH node '${node.id}' missing subgraphId configuration`);
@@ -205,6 +212,7 @@ export async function subgraphHandler(
       subworkflowId,
       subgraphExecutionId: subgraphEntity?.id,
       error: errorObj,
+      onFailure,
     });
 
     // Record failure metrics
@@ -230,6 +238,111 @@ export async function subgraphHandler(
       });
     }
 
+    // Apply failure strategy
+    if (onFailure === "continue") {
+      // Cleanup resources
+      if (subgraphEntity) {
+        try {
+          await cleanupChildExecution(subgraphEntity, workflowExecutionEntity, "FAILED");
+        } catch (cleanupError) {
+          logger.warn("Failed to cleanup subgraph after error", {
+            subgraphExecutionId: subgraphEntity.id,
+            cleanupError: getErrorOrNew(cleanupError),
+          });
+        }
+      }
+
+      logger.info("Subgraph failure handled by continue strategy", {
+        nodeId: node.id,
+        subworkflowId,
+        duration: executionDuration,
+      });
+
+      return {
+        executionResult: {
+          status: "SKIPPED",
+          output: fallbackOutput ?? {},
+        },
+        duration: executionDuration,
+      };
+    }
+
+    if (onFailure === "retry") {
+      logger.info("Subgraph failure handled by retry strategy", {
+        nodeId: node.id,
+        subworkflowId,
+        maxRetries,
+        retryDelayMs,
+      });
+
+      let lastError: Error = errorObj;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        // Exponential backoff delay
+        const backoffDelay = retryDelayMs * Math.pow(2, attempt - 1);
+        logger.debug("Subgraph retry attempt", {
+          nodeId: node.id,
+          subworkflowId,
+          attempt,
+          maxRetries,
+          delay: backoffDelay,
+        });
+        await delay(backoffDelay);
+
+        try {
+          // Re-create the subgraph execution entity for retry
+          const retryBuildResult = await executionBuilder.createChildExecution(
+            workflowExecutionEntity,
+            {
+              type: "SUBGRAPH",
+              config: {
+                subworkflowId,
+                nodeId: node.id,
+                variableMapping,
+                dataMapping,
+                async: false,
+              },
+            },
+          );
+
+          const retryEntity = retryBuildResult.workflowExecutionEntity;
+          const retryStartTime = Date.now();
+          const retryResult = await executor.executeWorkflow(retryEntity);
+          const retryDuration = Date.now() - retryStartTime;
+
+          logger.info("Subgraph retry succeeded", {
+            nodeId: node.id,
+            subworkflowId,
+            attempt,
+            duration: retryDuration,
+          });
+
+          return {
+            executionResult: {
+              status: retryResult.metadata.status,
+              output: retryResult.output,
+            },
+            duration: executionDuration + retryDuration,
+          };
+        } catch (retryError) {
+          lastError = getErrorOrNew(retryError);
+          logger.warn("Subgraph retry attempt failed", {
+            nodeId: node.id,
+            subworkflowId,
+            attempt,
+            error: lastError,
+          });
+        }
+      }
+
+      // All retries exhausted, fall through to fail
+      throw new Error(
+        `Subgraph execution failed for node '${node.id}' after ${maxRetries} retries: ${lastError.message}`,
+        { cause: lastError },
+      );
+    }
+
+    // Default: onFailure === "fail" (or unrecognized strategy)
     // Cleanup resources on failure
     if (subgraphEntity) {
       try {

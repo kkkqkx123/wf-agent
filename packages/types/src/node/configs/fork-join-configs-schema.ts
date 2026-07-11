@@ -23,6 +23,17 @@ export const ForkNodeConfigSchema = z
     forkStrategy: z.enum(["serial", "parallel"], {
       message: "Fork strategy must be one of: serial, parallel",
     }),
+    failureStrategy: z
+      .enum(["fail-fast", "continue-on-error", "fail-on-threshold"], {
+        message:
+          "Failure strategy must be one of: fail-fast, continue-on-error, fail-on-threshold",
+      })
+      .optional(),
+    maxFailedBranches: z
+      .number()
+      .int()
+      .nonnegative("maxFailedBranches must be non-negative")
+      .optional(),
   })
   .refine(
     (data) => {
@@ -32,6 +43,23 @@ export const ForkNodeConfigSchema = z
       return pathIds.length === uniquePathIds.size;
     },
     { message: "Fork path IDs must be unique", path: ["forkPaths"] },
+  )
+  .refine(
+    (data) => {
+      // fail-on-threshold requires maxFailedBranches
+      if (
+        data.failureStrategy === "fail-on-threshold" &&
+        (data.maxFailedBranches === undefined || data.maxFailedBranches === null)
+      ) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "maxFailedBranches is required when failureStrategy is fail-on-threshold",
+      path: ["maxFailedBranches"],
+    },
   );
 
 /**

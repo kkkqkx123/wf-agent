@@ -119,6 +119,21 @@ export interface LoopStartNodeConfig {
   
   /** Maximum number of iterations (safety protection, required) */
   maxIterations: number;
+
+  /**
+   * Failure handling strategy for loop iterations.
+   * - 'fail': Terminate the entire workflow if any iteration fails (default).
+   * - 'skip': Skip the failed iteration and continue with the next one.
+   * - 'continue': Continue as if the iteration succeeded.
+   */
+  onIterationFailure?: 'fail' | 'skip' | 'continue';
+
+  /**
+   * Maximum number of consecutive iteration failures before terminating.
+   * Only used when onIterationFailure is 'skip' or 'continue'.
+   * Default: 0 (no limit).
+   */
+  maxConsecutiveFailures?: number;
 }
 
 /**

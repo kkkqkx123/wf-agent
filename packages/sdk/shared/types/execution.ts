@@ -18,6 +18,26 @@ import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js"
 export type { IExecutionEntity, ExecutionStatus } from "./execution-entity.js";
 
 // ============================================================================
+// Sub-Execution Failure Severity
+// ============================================================================
+
+/**
+ * Unified severity for sub-execution failures.
+ * Provides a consistent classification across all sub-execution types
+ * (FORK branches, SUBGRAPH nodes, LOOP iterations, Agent iterations).
+ *
+ * - 'fatal': Terminate parent execution immediately, regardless of strategy.
+ * - 'error': Apply the configured failure strategy (onFailure / failureStrategy / onIterationFailure).
+ * - 'warning': Log the failure but continue execution (configurable suppression).
+ * - 'info': Silently continue execution without logging.
+ */
+export type SubExecutionFailureSeverity =
+  | "fatal"
+  | "error"
+  | "warning"
+  | "info";
+
+// ============================================================================
 // Execution Instance Types
 // ============================================================================
 

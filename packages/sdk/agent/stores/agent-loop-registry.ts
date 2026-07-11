@@ -558,20 +558,6 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   }
 
   /**
-   * Update task status to TIMEOUT
-   * @param taskId Task ID
-   */
-  updateTaskStatusToTimeout(taskId: string): void {
-    const taskInfo = this.tasks.get(taskId);
-    if (taskInfo) {
-      taskInfo.status = "TIMEOUT";
-      taskInfo.completeTime = now();
-      this.taskStats.timeout++;
-      logger.debug("Task status updated to TIMEOUT", { taskId });
-    }
-  }
-
-  /**
    * Get task information
    * @param taskId Task ID
    * @returns Task information or null

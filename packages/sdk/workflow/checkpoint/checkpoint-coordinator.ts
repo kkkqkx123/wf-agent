@@ -1261,7 +1261,7 @@ protected async buildCheckpoint(
 
         if (status === "COMPLETED") {
           completedPaths.add(pathId);
-        } else if (status === "FAILED" || status === "CANCELLED" || status === "TIMEOUT") {
+        } else if (status === "FAILED" || status === "CANCELLED") {
           failedPaths.add(pathId);
         } else {
           pendingPaths.add(pathId);

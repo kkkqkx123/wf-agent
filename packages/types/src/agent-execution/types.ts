@@ -17,7 +17,7 @@
  * Agent Loop Execution Status Enumeration
  *
  * Unified with WorkflowExecutionStatus to provide consistent status values
- * across both execution types. STOPPED and TIMEOUT are added for consistency,
+ * across both execution types. STOPPED is added for consistency,
  * though Agent typically maps stop requests to CANCELLED.
  */
 export const AgentLoopStatus = {
@@ -28,7 +28,6 @@ export const AgentLoopStatus = {
   FAILED: "FAILED",
   CANCELLED: "CANCELLED",
   STOPPED: "STOPPED",
-  TIMEOUT: "TIMEOUT",
 } as const;
 
 /**

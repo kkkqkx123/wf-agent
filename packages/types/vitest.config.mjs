@@ -14,7 +14,7 @@ export default defineConfig({
     include: ["**/__tests__/**/*.ts", "**/?(*.)+(spec|test).ts"],
 
     // 排除文件
-    exclude: ["node_modules", "dist", "coverage", "**/*.d.ts"],
+    exclude: ["node_modules", "dist", "coverage", "**/*.d.ts", "**/test-d/**/*"],
 
     // 覆盖率配置
     coverage: {

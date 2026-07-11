@@ -19,9 +19,7 @@ export type WorkflowExecutionStatus =
   /** Failed */
   | "FAILED"
   /** Cancelled */
-  | "CANCELLED"
-  /** Timeout */
-  | "TIMEOUT";
+  | "CANCELLED";
 
 /**
  * Workflow Execution Type

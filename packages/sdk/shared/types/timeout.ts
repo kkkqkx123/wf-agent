@@ -375,7 +375,7 @@ export interface ResolvedTimeoutManagerConfig {
  * Default TimeoutManager configuration values
  */
 export const DEFAULT_TIMEOUT_MANAGER_CONFIG: ResolvedTimeoutManagerConfig = {
-  defaultTimeout: 30000, // 30 seconds
+  defaultTimeout: 300000, // 5 minutes
   maxTimeout: 86400000, // 24 hours
   enableWarnings: true,
   defaultWarningThreshold: 60000, // 1 minute

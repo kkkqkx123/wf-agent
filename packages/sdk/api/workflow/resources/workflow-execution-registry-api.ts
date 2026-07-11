@@ -270,7 +270,6 @@ export class WorkflowExecutionRegistryAPI extends SimplifiedCrudResourceAPI<
       COMPLETED: 0,
       FAILED: 0,
       CANCELLED: 0,
-      TIMEOUT: 0,
       STOPPED: 0,
     };
     const byWorkflow: Record<string, number> = {};

@@ -35,20 +35,12 @@ describe("isValidTransition", () => {
     expect(isValidTransition("RUNNING", "CANCELLED")).toBe(true);
   });
 
-  it("Should allow RUNNING -> TIMEOUT transitions", () => {
-    expect(isValidTransition("RUNNING", "TIMEOUT")).toBe(true);
-  });
-
   it("Should allow PAUSED -> RUNNING conversion", () => {
     expect(isValidTransition("PAUSED", "RUNNING")).toBe(true);
   });
 
   it("Should allow PAUSED -> CANCELLED conversion", () => {
     expect(isValidTransition("PAUSED", "CANCELLED")).toBe(true);
-  });
-
-  it("Should allow PAUSED -> TIMEOUT conversion", () => {
-    expect(isValidTransition("PAUSED", "TIMEOUT")).toBe(true);
   });
 
   it("CREATED -> COMPLETED conversion should not be allowed", () => {
@@ -65,10 +57,6 @@ describe("isValidTransition", () => {
 
   it("The CANCELLED -> RUNNING transition should not be allowed!", () => {
     expect(isValidTransition("CANCELLED", "RUNNING")).toBe(false);
-  });
-
-  it("TIMEOUT -> RUNNING transitions should not be allowed", () => {
-    expect(isValidTransition("TIMEOUT", "RUNNING")).toBe(false);
   });
 
   it("CREATED -> PAUSED conversions should not be allowed", () => {
@@ -130,14 +118,14 @@ describe("getAllowedTransitions", () => {
 
   it("Returns all transitions allowed by the RUNNING state.", () => {
     const transitions = getAllowedTransitions("RUNNING");
-    expect(transitions).toEqual(["PAUSED", "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"]);
-    expect(transitions).toHaveLength(5);
+    expect(transitions).toEqual(["PAUSED", "COMPLETED", "FAILED", "CANCELLED"]);
+    expect(transitions).toHaveLength(4);
   });
 
   it("Returns all transitions allowed by the PAUSED status", () => {
     const transitions = getAllowedTransitions("PAUSED");
-    expect(transitions).toEqual(["RUNNING", "CANCELLED", "TIMEOUT"]);
-    expect(transitions).toHaveLength(3);
+    expect(transitions).toEqual(["RUNNING", "CANCELLED"]);
+    expect(transitions).toHaveLength(2);
   });
 
   it("Returns all transitions allowed by the COMPLETED state (empty array)", () => {
@@ -154,12 +142,6 @@ describe("getAllowedTransitions", () => {
 
   it("Returns all transitions allowed by the CANCELLED status (empty array)", () => {
     const transitions = getAllowedTransitions("CANCELLED");
-    expect(transitions).toEqual([]);
-    expect(transitions).toHaveLength(0);
-  });
-
-  it("Returns all transitions allowed by the TIMEOUT state (empty array)", () => {
-    const transitions = getAllowedTransitions("TIMEOUT");
     expect(transitions).toEqual([]);
     expect(transitions).toHaveLength(0);
   });
@@ -181,10 +163,6 @@ describe("isTerminalStatus", () => {
 
   it("CANCELLED should be recognized as terminated", () => {
     expect(isTerminalStatus("CANCELLED")).toBe(true);
-  });
-
-  it("TIMEOUT should be recognized as a termination state", () => {
-    expect(isTerminalStatus("TIMEOUT")).toBe(true);
   });
 
   it("CREATED should not be recognized as a terminated state.", () => {
@@ -229,10 +207,6 @@ describe("isActiveStatus", () => {
     expect(isActiveStatus("CANCELLED")).toBe(false);
   });
 
-  it("TIMEOUT should not be recognized as active.", () => {
-    expect(isActiveStatus("TIMEOUT")).toBe(false);
-  });
-
   it("Returns false for invalid states", () => {
     expect(isActiveStatus("INVALID" as any)).toBe(false);
   });
@@ -246,7 +220,6 @@ describe("State transition rule integrity", () => {
     "COMPLETED",
     "FAILED",
     "CANCELLED",
-    "TIMEOUT",
   ];
 
   it("All states have defined transition rules", () => {
@@ -261,7 +234,6 @@ describe("State transition rule integrity", () => {
       "COMPLETED",
       "FAILED",
       "CANCELLED",
-      "TIMEOUT",
     ];
     for (const status of terminalStatuses) {
       const transitions = getAllowedTransitions(status);

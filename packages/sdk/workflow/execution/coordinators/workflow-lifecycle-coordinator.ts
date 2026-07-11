@@ -248,6 +248,11 @@ export class WorkflowLifecycleCoordinator {
     // Fully delegate the state transition and event triggering to the Transitor.
     await this.workflowStateTransitor.pauseWorkflowExecution(workflowExecutionEntity);
 
+    // Phase 2: Set interrupt flag to propagate pause signal through InterruptionState
+    // This triggers interruptionState.requestPause() which aborts AbortSignal,
+    // emits EXECUTION_PAUSED event, and cascades to child executions.
+    workflowExecutionEntity.interrupt("PAUSE");
+
     // Phase 3: Register pause timeout on the entity's TimeoutManager
     // (consistent with AgentLoopCoordinator.pause() pattern)
     const maxPauseDuration = workflowExecutionEntity.getMaxPauseDuration();

@@ -18,18 +18,17 @@ import { RuntimeValidationError } from "@wf-agent/types";
 /**
  * State transition rule definitions:
  * CREATED -> RUNNING
- * RUNNING -> PAUSED | COMPLETED | FAILED | CANCELLED | TIMEOUT
- * PAUSED -> RUNNING | CANCELLED | TIMEOUT
- * COMPLETED/FAILED/CANCELLED/TIMEOUT -> Final state; cannot be transitioned
+ * RUNNING -> PAUSED | COMPLETED | FAILED | CANCELLED
+ * PAUSED -> RUNNING | CANCELLED
+ * COMPLETED/FAILED/CANCELLED -> Final state; cannot be transitioned
  */
 const STATE_TRANSITIONS: Record<string, string[]> = {
   CREATED: ["RUNNING"],
-  RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"],
-  PAUSED: ["RUNNING", "CANCELLED", "TIMEOUT"],
+  RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"],
+  PAUSED: ["RUNNING", "CANCELLED"],
   COMPLETED: [],
   FAILED: [],
   CANCELLED: [],
-  TIMEOUT: [],
 };
 
 /**
@@ -91,7 +90,7 @@ export function getAllowedTransitions(
  * @returns: Whether it is in a terminated state
  */
 export function isTerminalStatus(status: WorkflowExecutionStatus): boolean {
-  return ["COMPLETED", "FAILED", "CANCELLED", "TIMEOUT"].includes(status);
+  return ["COMPLETED", "FAILED", "CANCELLED"].includes(status);
 }
 
 /**

@@ -257,7 +257,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       [AgentLoopStatus.FAILED]: 0,
       [AgentLoopStatus.CANCELLED]: 0,
       [AgentLoopStatus.STOPPED]: 0,
-      [AgentLoopStatus.TIMEOUT]: 0,
     };
 
     for (const entity of entities) {
@@ -459,7 +458,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
         [AgentLoopStatus.FAILED]: 'execution_failed',
         [AgentLoopStatus.CANCELLED]: 'execution_cancelled',
         [AgentLoopStatus.STOPPED]: 'execution_stopped',
-        [AgentLoopStatus.TIMEOUT]: 'execution_timeout',
       };
       timeline.push({
         id: `${agentLoopId}:end`,

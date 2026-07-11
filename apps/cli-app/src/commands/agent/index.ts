@@ -16,6 +16,7 @@ import { CLIValidationError } from "../../types/cli-types.js";
 import { loadAgentLoopConfig } from "@wf-agent/config-processor";
 import { transformToAgentLoopConfig } from "@wf-agent/sdk/api";
 import { existsSync } from "fs";
+import { createIterationCommands } from "../agent-loop-iteration/index.js";
 
 const output = getOutput();
 const router = getRouter();
@@ -576,6 +577,9 @@ export function createAgentCommands(): Command {
         });
       }
     });
+
+  // Add iteration analysis subcommand
+  agentCmd.addCommand(createIterationCommands());
 
   return agentCmd;
 }

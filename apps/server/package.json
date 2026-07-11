@@ -1,0 +1,45 @@
+{
+  "name": "@wf-agent/server",
+  "version": "1.0.0",
+  "description": "Modular Agent Framework Unified Server for Web and VSCode WebView",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "start:watch": "node --watch dist/index.js",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "keywords": [
+    "server",
+    "api",
+    "agent",
+    "modular-agent",
+    "express"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "dependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
+    "@iarna/toml": "^2.2.5",
+    "@wf-agent/common-utils": "workspace:*",
+    "@wf-agent/config-processor": "workspace:*",
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/storage": "workspace:*",
+    "@wf-agent/types": "workspace:*",
+    "chalk": "^5.6.2",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

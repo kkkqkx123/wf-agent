@@ -71,19 +71,19 @@
   "author": "Modular Agent Framework Team",
   "license": "MIT",
   "dependencies": {
-    "@grpc/grpc-js": "^1.11.0",
-    "@grpc/proto-loader": "^0.7.13",
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "@iarna/toml": "^2.2.5",
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/storage": "workspace:*",
     "@wf-agent/types": "workspace:*",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^12.11.1",
     "chevrotain": "^12.0.0",
     "fast-ignore": "^2.0.0",
     "isbinaryfile": "^6.0.0",
-    "lru-cache": "^11.5.1",
+    "lru-cache": "^11.5.2",
     "minimatch": "^10.2.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

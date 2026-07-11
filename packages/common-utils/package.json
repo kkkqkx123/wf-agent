@@ -30,11 +30,11 @@
   },
   "dependencies": {
     "@wf-agent/types": "workspace:*",
-    "zod": "^4.3.6",
+    "zod": "^4.4.3",
     "chevrotain": "^12.0.0",
-    "chokidar": "^4.0.3",
+    "chokidar": "^5.0.0",
     "xxhash-wasm": "^1.1.0",
-    "lru-cache": "^10.0.0"
+    "lru-cache": "^11.5.2"
   },
   "devDependencies": {
     "tsd": "^0.33.0"

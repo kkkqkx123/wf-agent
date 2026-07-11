@@ -26,7 +26,7 @@
   "author": "Modular Agent Framework Team",
   "license": "MIT",
   "dependencies": {
-    "@commander-js/extra-typings": "^14.0.0",
+    "@commander-js/extra-typings": "^15.0.0",
     "@iarna/toml": "^2.2.5",
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/config-processor": "workspace:*",
@@ -34,7 +34,7 @@
     "@wf-agent/storage": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
-    "dotenv": "^16.4.5",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1"
   },
   "devDependencies": {},

@@ -11,7 +11,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rimraf dist",
@@ -23,6 +25,6 @@
     "@wf-agent/types": "workspace:*"
   },
   "devDependencies": {
-    "rimraf": "^6.0.1"
+    "rimraf": "^6.1.3"
   }
 }

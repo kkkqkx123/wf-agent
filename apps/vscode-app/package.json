@@ -32,6 +32,6 @@
     "@wf-agent/types": "workspace:*"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0"
+    "@types/vscode": "^1.125.0"
   }
 }

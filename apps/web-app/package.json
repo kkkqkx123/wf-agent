@@ -5,13 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
     "start": "node dist/index.js",
     "clean": "rimraf dist",
-  	"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
@@ -30,13 +30,13 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
-		"@sveltejs/adapter-auto": "^7.0.1",
-		"@sveltejs/kit": "^2.59.0",
-		"@sveltejs/vite-plugin-svelte": "^7.0.0",
-		"@types/node": "^25.6.0",
-		"svelte": "^5.55.5",
-		"svelte-check": "^4.4.7",
-		"typescript": "^6.0.3",
-		"vite": "^8.0.10"
-	}
+    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/kit": "^2.69.2",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@types/node": "^26.1.1",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.7.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4"
+  }
 }

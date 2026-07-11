@@ -33,7 +33,7 @@
   "author": "Modular Agent Framework Team",
   "license": "MIT",
   "dependencies": {
-    "@commander-js/extra-typings": "^14.0.0",
+    "@commander-js/extra-typings": "^15.0.0",
     "@iarna/toml": "^2.2.5",
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/config-processor": "workspace:*",
@@ -41,11 +41,11 @@
     "@wf-agent/storage": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
-    "commander": "^14.0.3",
-    "get-east-asian-width": "^1.5.0",
+    "commander": "^15.0.0",
+    "get-east-asian-width": "^1.6.0",
     "node-pty": "^1.1.0",
     "rxjs": "^7.8.2",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "tsd": "^0.33.0"

@@ -27,10 +27,10 @@
   "dependencies": {
     "@wf-agent/types": "workspace:*",
     "@wf-agent/common-utils": "workspace:*",
-    "better-sqlite3": "^12.10.0",
-    "lru-cache": "^11.3.6",
-    "pg": "^8.20.0",
-    "pg-pool": "^3.13.0"
+    "better-sqlite3": "^12.11.1",
+    "lru-cache": "^11.5.2",
+    "pg": "^8.22.0",
+    "pg-pool": "^3.14.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

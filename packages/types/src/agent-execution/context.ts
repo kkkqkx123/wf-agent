@@ -140,6 +140,12 @@ export interface AgentLoopRuntimeConfig {
   /** Maximum iterations (-1 means unlimited) */
   maxIterations?: number;
 
+  /** Maximum wall-clock execution time in milliseconds (optional, default: no timeout) */
+  maxExecutionTime?: number;
+
+  /** Maximum pause duration in milliseconds (optional, default: no timeout, agent loop will be cancelled if paused longer) */
+  maxPauseDuration?: number;
+
   /** Initial message list */
   initialMessages?: Message[];
 

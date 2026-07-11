@@ -23,6 +23,7 @@ import type {
   ToolApprovalHandler,
   AgentHookTriggeredEvent,
 } from "@wf-agent/types";
+import type { TimeoutHandle } from "../../../shared/types/timeout.js";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { ToolCallExecutor, ToolExecutionResult } from "../../../services/executors/tool-call-executor.js";
@@ -30,6 +31,7 @@ import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import { ToolApprovalCoordinator } from "../../../shared/coordinators/tool-approval-coordinator.js";
 import { executeAgentHook } from "../handlers/hook-handlers/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { combineAbortSignals } from "../../../shared/utils/interruption/index.js";
 import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
 
 const logger = createContextualLogger({ component: "ToolExecutionCoordinator" });
@@ -46,6 +48,8 @@ export interface ToolExecutionCoordinatorDependencies {
   toolApprovalHandler?: ToolApprovalHandler;
   /** Custom event emitter for agent hooks (optional) */
   emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
+  /** Per-tool execution timeout in milliseconds (optional, default: no timeout) */
+  toolTimeout?: number;
 }
 
 /**
@@ -60,6 +64,7 @@ export class ToolExecutionCoordinator {
   private readonly toolApprovalHandler?: ToolApprovalHandler;
   private readonly emitEvent?: (event: AgentHookTriggeredEvent) => Promise<void>;
   private readonly stateCoordinator: AgentStateCoordinator;
+  private readonly toolTimeout?: number;
 
   constructor(deps: ToolExecutionCoordinatorDependencies & { stateCoordinator: AgentStateCoordinator }) {
     this.toolCallExecutor = deps.toolCallExecutor;
@@ -67,6 +72,7 @@ export class ToolExecutionCoordinator {
     this.toolApprovalHandler = deps.toolApprovalHandler;
     this.emitEvent = deps.emitEvent;
     this.stateCoordinator = deps.stateCoordinator;
+    this.toolTimeout = deps.toolTimeout;
 
     // Initialize approval coordinator
     this.approvalCoordinator = new ToolApprovalCoordinator(deps.eventManager);
@@ -378,35 +384,92 @@ export class ToolExecutionCoordinator {
         toolName: toolCallInfo.name,
       });
 
-      // Execute actual tool call
-      const toolResults = await this.toolCallExecutor.executeToolCalls(
-        [toolCall],
-        conversationManager,
-        entity.id,
-        entity.nodeId,
-        { abortSignal: entity.getAbortSignal() },
-      );
+      // Phase 1: Tool Execution Timeout
+      // Register a per-tool timeout on the entity's TimeoutManager
+      let toolTimeoutHandle: TimeoutHandle | undefined;
+      const toolTimeoutController = new AbortController();
 
-      const result = toolResults[0]!;
-      if (result?.success) {
-        entity.state.recordToolCallEnd(toolCall.id, result.result);
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
-          ...toolCallInfo,
-          result: result.result,
-        });
-      } else {
-        entity.state.recordToolCallEnd(
-          toolCall.id,
-          undefined,
-          result?.error || "Tool execution failed",
-        );
-        await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
-          ...toolCallInfo,
-          error: result?.error,
+      if (this.toolTimeout && this.toolTimeout > 0) {
+        toolTimeoutHandle = entity.timeoutManager.register({
+          id: `tool-${toolCall.id}`,
+          duration: this.toolTimeout,
+          onTimeout: () => {
+            logger.warn(`Tool '${toolCallInfo.name}' timed out after ${this.toolTimeout}ms`, {
+              agentLoopId,
+              toolCallId: toolCall.id,
+              toolName: toolCallInfo.name,
+            });
+            toolTimeoutController.abort(
+              `Tool ${toolCallInfo.name} timed out after ${this.toolTimeout}ms`,
+            );
+          },
+          tag: "tool-execution",
+          metadata: {
+            toolName: toolCallInfo.name,
+            toolCallId: toolCall.id,
+          },
+          interruptionState: entity.getInterruptionState(),
         });
       }
 
-      return result;
+      // Execute actual tool call with combined abort signal
+      try {
+        const combinedSignal = combineAbortSignals([
+          entity.getAbortSignal(),
+          toolTimeoutController.signal,
+        ]);
+
+        const toolResults = await this.toolCallExecutor.executeToolCalls(
+          [toolCall],
+          conversationManager,
+          entity.id,
+          entity.nodeId,
+          { abortSignal: combinedSignal },
+        );
+
+        const result = toolResults[0]!;
+        if (result?.success) {
+          entity.state.recordToolCallEnd(toolCall.id, result.result);
+          await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
+            ...toolCallInfo,
+            result: result.result,
+          });
+        } else {
+          entity.state.recordToolCallEnd(
+            toolCall.id,
+            undefined,
+            result?.error || "Tool execution failed",
+          );
+          await executeAgentHook(entity, "AFTER_TOOL_CALL", this.emitAgentEvent.bind(this), this.stateCoordinator, {
+            ...toolCallInfo,
+            error: result?.error,
+          });
+        }
+
+        return result;
+      } catch (error) {
+        // Check if the error was caused by tool timeout
+        if (toolTimeoutController.signal.aborted) {
+          const timeoutError = `Tool '${toolCallInfo.name}' timed out after ${this.toolTimeout}ms`;
+          logger.error(timeoutError, { agentLoopId, toolCallId: toolCall.id });
+
+          entity.state.recordToolCallEnd(toolCall.id, undefined, timeoutError);
+
+          return {
+            toolCallId: toolCall.id,
+            toolId: "",
+            success: false,
+            error: timeoutError,
+            executionTime: this.toolTimeout || 0,
+          };
+        }
+        // Re-throw non-timeout errors
+        throw error;
+      } finally {
+        if (toolTimeoutHandle) {
+          toolTimeoutHandle.cancel();
+        }
+      }
     } else {
       logger.warn("Tool call rejected or failed", {
         agentLoopId,

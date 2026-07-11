@@ -39,6 +39,7 @@ import { CheckpointMetricsCollector } from "../../../shared/checkpoint/core/metr
 import type { CheckpointMetricsEvent, CheckpointErrorContext, CheckpointCreationMetrics } from "@wf-agent/types";
 import { getExecutionEventBus } from "../../../shared/events/execution-event-bus.js";
 import type { ExecutionErrorRecord } from "@wf-agent/types";
+import type { TimeoutHandle } from "../../../shared/types/timeout.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -76,6 +77,9 @@ export class AgentLoopCoordinator implements AgentTaskManager {
   private checkpointErrorHandler?: CheckpointErrorHandler;
   private checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
   private checkpointMetricsCollector?: CheckpointMetricsCollector;
+
+  /** Phase 3: Track pause timeout handles for each entity */
+  private pauseTimeoutHandles: Map<string, TimeoutHandle> = new Map();
 
   constructor(
     private readonly registry: AgentLoopRegistry,
@@ -511,7 +515,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
    * @private
    */
   private async executeRootAgent(
-    _config: AgentLoopRuntimeConfig,
+    config: AgentLoopRuntimeConfig,
     entity: AgentLoopEntity,
     stateCoordinator: AgentStateCoordinator,
   ): Promise<AgentLoopResult> {
@@ -530,6 +534,29 @@ export class AgentLoopCoordinator implements AgentTaskManager {
     await this.stateTransitor.startAgentLoop(entity, messageCount);
 
     const startTime = now();
+
+    // Phase 2: Agent Loop Wall-Clock Timeout
+    // Register a max execution time timeout on the entity's TimeoutManager
+    let wallClockTimeoutHandle: TimeoutHandle | undefined;
+    if (config.maxExecutionTime && config.maxExecutionTime > 0) {
+      wallClockTimeoutHandle = entity.timeoutManager.register({
+        id: `wall-clock-${entity.id}`,
+        duration: config.maxExecutionTime,
+        onTimeout: () => {
+          logger.warn("Agent loop wall-clock timeout exceeded, stopping execution", {
+            agentLoopId: entity.id,
+            maxExecutionTime: config.maxExecutionTime,
+            currentIteration: entity.state.currentIteration,
+          });
+          entity.interrupt("STOP");
+        },
+        tag: "agent-loop-execution",
+        metadata: {
+          maxExecutionTime: config.maxExecutionTime,
+        },
+        interruptionState: entity.getInterruptionState(),
+      });
+    }
 
     try {
       // 4. Execute the loop
@@ -650,6 +677,11 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         error,
       };
     } finally {
+      // Cancel the wall-clock timeout if it was registered
+      if (wallClockTimeoutHandle) {
+        wallClockTimeoutHandle.cancel();
+      }
+
       const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);
       if (cleanedCount > 0) {
         logger.debug("Cleaned up event listeners after agent loop execution", {
@@ -896,6 +928,50 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       await this.createCheckpointIfEnabled(entity, stateCoordinator, "on_pause");
     }
 
+    // Phase 3: Agent Loop Pause Timeout Monitor
+    // Register a pause timeout on the entity's TimeoutManager
+    const maxPauseDuration = entity.config.maxPauseDuration;
+    if (maxPauseDuration && maxPauseDuration > 0) {
+      // Cancel any existing pause timeout handle
+      const existingHandle = this.pauseTimeoutHandles.get(id);
+      if (existingHandle) {
+        existingHandle.cancel();
+      }
+
+      const pauseHandle = entity.timeoutManager.register({
+        id: `pause-${id}`,
+        duration: maxPauseDuration,
+        onTimeout: async () => {
+          logger.warn("Agent loop pause timeout exceeded, cancelling", {
+            agentLoopId: id,
+            maxPauseDuration,
+          });
+          // Stop the agent loop via the entity's interruption state
+          entity.interrupt("STOP");
+          // Transition to cancelled state
+          await this.stateTransitor.cancelAgentLoop(entity, "Pause timeout exceeded");
+          // Cleanup entity resources
+          entity.cleanup();
+          // Unregister from registry
+          this.registry.unregister(id);
+          // Cleanup the timeout handle from tracking
+          this.pauseTimeoutHandles.delete(id);
+        },
+        tag: "agent-loop-pause",
+        metadata: {
+          maxPauseDuration,
+        },
+        interruptionState: entity.getInterruptionState(),
+      });
+
+      this.pauseTimeoutHandles.set(id, pauseHandle);
+
+      logger.debug("Agent loop pause timeout monitoring started", {
+        agentLoopId: id,
+        maxPauseDuration,
+      });
+    }
+
     // Set the pause flag
     entity.interrupt("PAUSE");
     logger.info("Agent Loop pause requested", { agentLoopId: id });
@@ -929,6 +1005,14 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         ? Date.now() - entity.state.pauseStartTime
         : 0;
       this.metricsCollector.recordResume(id, pauseDuration);
+    }
+
+    // Phase 3: Cancel the pause timeout monitor
+    const pauseHandle = this.pauseTimeoutHandles.get(id);
+    if (pauseHandle) {
+      pauseHandle.cancel();
+      this.pauseTimeoutHandles.delete(id);
+      logger.debug("Agent loop pause timeout monitoring cancelled", { agentLoopId: id });
     }
 
     // Reset the interrupt flag
@@ -1084,6 +1168,13 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       throw new Error(`AgentLoop not found: ${id}`);
     }
 
+    // Phase 3: Cancel the pause timeout monitor if active
+    const pauseHandle = this.pauseTimeoutHandles.get(id);
+    if (pauseHandle) {
+      pauseHandle.cancel();
+      this.pauseTimeoutHandles.delete(id);
+    }
+
     // Set a stop flag and abort the process using state transitor
     entity.interrupt("STOP");
     await this.stateTransitor.cancelAgentLoop(entity, "User requested stop");
@@ -1163,6 +1254,13 @@ export class AgentLoopCoordinator implements AgentTaskManager {
    */
   destroy(): void {
     logger.info("Destroying AgentLoopCoordinator");
+
+    // Phase 3: Cancel all pause timeout monitors
+    for (const [id, handle] of this.pauseTimeoutHandles) {
+      handle.cancel();
+      logger.debug("Cancelled pause timeout handle during destroy", { agentLoopId: id });
+    }
+    this.pauseTimeoutHandles.clear();
 
     // Clean up all entities in the registry
     this.registry.clear();

@@ -3,7 +3,7 @@
  *
  * Unified module for timeout management system including:
  * - Core type definitions (TimeoutRegistration, TimeoutHandle, TimeoutEvent)
- * - Manager configuration interfaces (TimeoutManagerConfig, TimeoutRegistryConfig)
+ * - Manager configuration interfaces (TimeoutManagerConfig)
  * - Default configuration constants
  */
 
@@ -358,40 +358,6 @@ export interface TimeoutManagerConfig {
 }
 
 /**
- * TimeoutRegistry configuration
- *
- * Controls the behavior of the global timeout registry.
- */
-export interface TimeoutRegistryConfig {
-  /**
-   * Default configuration for TimeoutManager instances
-   * Applied to all managers created by this registry
-   */
-  defaultManagerConfig?: TimeoutManagerConfig;
-
-  /**
-   * Auto-cleanup on execution end
-   * If true, automatically cancels all timeouts when execution ends
-   * @default true
-   */
-  autoCleanup?: boolean;
-
-  /**
-   * Metrics collection interval in milliseconds
-   * How often to aggregate and emit metrics
-   * @default 60000 (1 minute)
-   */
-  metricsInterval?: number;
-
-  /**
-   * Maximum number of active timeouts per execution
-   * Prevents resource exhaustion from too many concurrent timeouts
-   * @default 1000
-   */
-  maxTimeoutsPerExecution?: number;
-}
-
-/**
  * Resolved TimeoutManager configuration
  *
  * All optional fields are filled with defaults.
@@ -406,18 +372,6 @@ export interface ResolvedTimeoutManagerConfig {
 }
 
 /**
- * Resolved TimeoutRegistry configuration
- *
- * All optional fields are filled with defaults.
- */
-export interface ResolvedTimeoutRegistryConfig {
-  defaultManagerConfig: ResolvedTimeoutManagerConfig;
-  autoCleanup: boolean;
-  metricsInterval: number;
-  maxTimeoutsPerExecution: number;
-}
-
-/**
  * Default TimeoutManager configuration values
  */
 export const DEFAULT_TIMEOUT_MANAGER_CONFIG: ResolvedTimeoutManagerConfig = {
@@ -426,15 +380,5 @@ export const DEFAULT_TIMEOUT_MANAGER_CONFIG: ResolvedTimeoutManagerConfig = {
   enableWarnings: true,
   defaultWarningThreshold: 60000, // 1 minute
   enableMetrics: true,
-  maxTimeoutsPerExecution: 1000,
-};
-
-/**
- * Default TimeoutRegistry configuration values
- */
-export const DEFAULT_TIMEOUT_REGISTRY_CONFIG: ResolvedTimeoutRegistryConfig = {
-  defaultManagerConfig: DEFAULT_TIMEOUT_MANAGER_CONFIG,
-  autoCleanup: true,
-  metricsInterval: 60000, // 1 minute
   maxTimeoutsPerExecution: 1000,
 };

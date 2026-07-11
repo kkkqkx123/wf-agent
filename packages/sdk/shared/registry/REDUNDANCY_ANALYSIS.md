@@ -26,7 +26,7 @@ registry/
 ├── prompt-template-registry.ts  (5.6KB)
 ├── script-registry.ts           (21.3KB)
 ├── skill-registry.ts            (25KB)
-├── timeout-registry.ts          (18.8KB)
+├── ~~timeout-registry.ts~~      (removed, use executionEntity.timeoutManager directly)
 ├── tool-registry.ts             (20.7KB)
 ├── trigger-template-registry.ts (16.8KB)
 ├── types.ts                     (3.1KB)
@@ -99,30 +99,18 @@ on<T extends BaseEvent>(eventType, listener, options) {
 
 ---
 
-### 3. Timeout Registry: Questionable Necessity
+### 3. Timeout Registry: ✅ Resolved (Deleted)
 
-**File**: `timeout-registry.ts` (18.8KB)
+**File**: `timeout-registry.ts` — **deleted**.
 
-**Current Role**:
-- Manages multiple `TimeoutManager` instances by executionId
-- Maintains tag index (tagIndex)
-- Global statistics tracking
+**Outcome**:
+- The file was already a stub (deprecation notice only)
+- `TimeoutManager` is now held directly on `ExecutionEntity` (`executionEntity.timeoutManager`)
+- No actual code imported from `timeout-registry.ts`
+- Related type definitions (`TimeoutRegistryConfig`, `ResolvedTimeoutRegistryConfig`, `DEFAULT_TIMEOUT_REGISTRY_CONFIG`) removed from `shared/types/timeout.ts`
+- Outdated docs referencing TimeoutRegistry have been deleted
 
-**Problem**:
-- `TimeoutManager` in `state-managers/` is already feature-complete
-- Registry layer only provides:
-  - Get/create manager by executionId
-  - Tag indexing
-  - Global stats
-
-**Questions to Consider**:
-- Is per-execution tag indexing necessary?
-- Can clients directly manage `TimeoutManager` instances?
-- Does global stats justify the abstraction layer?
-
-**Recommendation**: Evaluate if registry layer is needed, or use Map directly
-
-**Expected Benefit**: Potentially reduce 18.8KB
+**Resolution**: File deleted, types cleaned up, docs removed.
 
 ---
 
@@ -175,7 +163,7 @@ on<T extends BaseEvent>(eventType, listener, options) {
 |----------|------|------------------|--------|
 | **High** | Merge event-emitter + event-registry | Reduce 10.6KB, eliminate proxy layer | Medium |
 | **High** | Simplify execution-hierarchy-registry | Reduce 200+ lines, separate concerns | Medium |
-| **Medium** | Evaluate timeout-registry necessity | Potentially reduce 18.8KB | Low |
+| **Medium** | Evaluate timeout-registry necessity | Potentially reduce 18.8KB | Low | ✅ Resolved — Deleted
 | **Medium** | Extract storage utils common pattern | Reduce duplication | Medium |
 | **Low** | Unify validation logic | Improve consistency | Low |
 

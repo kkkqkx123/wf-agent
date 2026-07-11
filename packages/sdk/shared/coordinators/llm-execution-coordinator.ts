@@ -33,6 +33,7 @@ import { ExecutionError } from "@wf-agent/types";
 import {
   executeWithInterruptionHandling,
   getExecutionInterruptionDescription,
+  combineAbortSignals,
 } from "../utils/interruption/index.js";
 import type { ExecutionInterruptionCheckResult } from "../utils/interruption/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -48,6 +49,8 @@ import {
   buildTokenUsageWarningEvent,
   buildConversationStateChangedEvent,
 } from "../utils/event/builders/index.js";
+import type { TimeoutManager } from "../state-managers/timeout-manager.js";
+import type { TimeoutHandle } from "../types/timeout.js";
 
 const logger = createContextualLogger();
 
@@ -80,6 +83,22 @@ export interface LLMExecutionParams {
    * messages from the conversation state and before passing them to the LLM executor.
    */
   transformContext?: TransformContextFn;
+
+  // ========== TimeoutManager Integration (Phase 4) ==========
+
+  /**
+   * TimeoutManager for registering LLM call timeouts.
+   * When provided, the LLM call timeout is managed by the TimeoutManager,
+   * enabling pause-aware timeout tracking and interruption state binding.
+   */
+  timeoutManager?: TimeoutManager;
+
+  /**
+   * LLM call timeout duration in milliseconds.
+   * Only used when timeoutManager is provided.
+   * Default: no additional timeout (uses HTTP client timeout as fallback).
+   */
+  timeoutDuration?: number;
 }
 
 /**
@@ -147,9 +166,47 @@ export class LLMExecutionCoordinator {
     params: LLMExecutionParams,
     conversationState: ConversationSession,
   ): Promise<LLMExecutionResponse> {
+    // Phase 4: TimeoutManager integration for LLM calls
+    // Register a timeout on the provided TimeoutManager to enable pause-aware timeout tracking
+    let llmTimeoutHandle: TimeoutHandle | undefined;
+    const llmTimeoutController = new AbortController();
+
+    if (params.timeoutManager && params.timeoutDuration && params.timeoutDuration > 0) {
+      llmTimeoutHandle = params.timeoutManager.register({
+        id: `llm-call-${params.contextId}-${Date.now()}`,
+        duration: params.timeoutDuration,
+        onTimeout: () => {
+          logger.warn(
+            `LLM call timed out after ${params.timeoutDuration}ms`,
+            { contextId: params.contextId },
+          );
+          llmTimeoutController.abort(
+            `LLM call timed out after ${params.timeoutDuration}ms`,
+          );
+        },
+        tag: "llm-call",
+        metadata: {
+          contextId: params.contextId,
+          timeoutDuration: params.timeoutDuration,
+        },
+      });
+    }
+
+    // Combine the timeout signal with the existing abort signal
+    const combinedAbortSignal = combineAbortSignals([
+      params.abortSignal,
+      llmTimeoutController.signal,
+    ]);
+
+    // Create modified params with combined abort signal
+    const timeoutParams: LLMExecutionParams = {
+      ...params,
+      abortSignal: combinedAbortSignal,
+    };
+
     try {
       // Execute single LLM call with optional tool execution
-      const result = await this.executeSingleLLMCall(params, conversationState);
+      const result = await this.executeSingleLLMCall(timeoutParams, conversationState);
 
       // Guard against undefined/null return (should not happen in normal flow)
       if (result === undefined || result === null) {
@@ -185,6 +242,11 @@ export class LLMExecutionCoordinator {
         success: false,
         error: error instanceof Error ? error : new Error(String(error)),
       };
+    } finally {
+      // Cancel the LLM timeout handle if it was registered
+      if (llmTimeoutHandle) {
+        llmTimeoutHandle.cancel();
+      }
     }
   }
 

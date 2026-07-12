@@ -157,6 +157,23 @@ export class ToolCallExecutor {
   ) {}
 
   /**
+   * Set tool failure protection state (for runtime injection)
+   * Allows per-execution configuration of tool failure protection
+   * @param protection Tool failure protection state
+   */
+  setToolFailureProtection(protection: ToolFailureProtectionState): void {
+    this.options.toolFailureProtection = protection;
+  }
+
+  /**
+   * Get current tool failure protection state
+   * @returns Current tool failure protection state or undefined
+   */
+  getToolFailureProtection(): ToolFailureProtectionState | undefined {
+    return this.options.toolFailureProtection;
+  }
+
+  /**
    * Array of tool calls to execute
    *
    * @param toolCalls - Array of tool calls to be executed

@@ -35,6 +35,7 @@ export {
   TEMPLATE_METRICS,
   CONFIG_METRICS,
   SUBGRAPH_METRICS,
+  RETRY_METRICS,
 } from "./constants.js";
 
 // Factory functions
@@ -63,6 +64,7 @@ export { ErrorMetricsCollector } from "./error-collector.js";
 export { ResourceMetricsCollector } from "./resource-collector.js";
 export { ConfigMetricsCollector } from "./config-collector.js";
 export { AgentLoopMetricsCollector } from "./agent-loop-collector.js";
+export { RetryBudgetMetricsCollector } from "./retry-budget-collector.js";
 
 export { MetricsRegistry, type MetricsRegistryConfig } from "./metrics-registry.js";
 
@@ -76,3 +78,4 @@ export type {
   PrometheusMetric,
   PrometheusSample,
 } from "./utils/prometheus-formatter.js";
+

@@ -13,3 +13,5 @@ export * from "./llm-execution-coordinator.js";
 export * from "./tool-approval-coordinator.js";
 export * from "./tool-permission-manager.js";
 export * from "./rejection-message-builder.js";
+export * from "./failure-policy-manager.js";
+export * from "./retry-budget.js";

@@ -49,6 +49,18 @@ export interface ForkNodeConfig {
   failureStrategy?: 'fail-fast' | 'continue-on-error' | 'fail-on-threshold';
   /** Maximum number of failed branches allowed (only used when failureStrategy is 'fail-on-threshold'). Default: 0 */
   maxFailedBranches?: number;
+  /**
+   * Retry policy for failed FORK branches (Task #7)
+   * When a branch fails, automatically retry up to maxRetries times with exponential backoff.
+   * If not specified, failed branches are not retried.
+   */
+  retryPolicy?: import('../../execution/failure-policy.js').RetryPolicy;
+  /**
+   * Timeout for each child branch execution in milliseconds (Task #9)
+   * If a branch exceeds this timeout, it is immediately cancelled and marked as failed.
+   * If not specified, no timeout is enforced.
+   */
+  childExecutionTimeout?: number;
 }
 
 /**

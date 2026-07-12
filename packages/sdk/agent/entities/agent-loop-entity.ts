@@ -141,6 +141,14 @@ export class AgentLoopEntity implements IExecutionEntity {
   /** Cached available tools set */
   private cachedAvailableTools?: Set<string>;
 
+  // ========== Warning Count (Task #5) ==========
+
+  /** Warning count for agent execution (incremented on warnings from LLM) */
+  private warningCount: number = 0;
+
+  /** Default warning threshold (can be configured) */
+  private warningThreshold: number = 10;
+
   /**
    * Constructor
    * @param id Execution instance ID
@@ -734,6 +742,66 @@ export class AgentLoopEntity implements IExecutionEntity {
   isToolAvailable(toolId: string): boolean {
     const availableTools = this.getAvailableTools();
     return availableTools.has(toolId);
+  }
+
+  // ========== Warning Count Management (Task #5) ==========
+
+  /**
+   * Get current warning count
+   * @returns Current warning count
+   */
+  getWarningCount(): number {
+    return this.warningCount;
+  }
+
+  /**
+   * Increment warning count by 1
+   * @returns New warning count after increment
+   */
+  incrementWarning(): number {
+    this.warningCount++;
+    return this.warningCount;
+  }
+
+  /**
+   * Increment warning count by a specific amount
+   * @param amount Amount to increment by (default: 1)
+   * @returns New warning count after increment
+   */
+  addWarnings(amount: number = 1): number {
+    this.warningCount += amount;
+    return this.warningCount;
+  }
+
+  /**
+   * Reset warning count to 0
+   */
+  resetWarnings(): void {
+    this.warningCount = 0;
+  }
+
+  /**
+   * Get warning threshold
+   * @returns Current warning threshold
+   */
+  getWarningThreshold(): number {
+    return this.warningThreshold;
+  }
+
+  /**
+   * Set warning threshold
+   * @param threshold New threshold value
+   */
+  setWarningThreshold(threshold: number): void {
+    this.warningThreshold = Math.max(1, threshold); // Ensure at least 1
+  }
+
+  /**
+   * Check if warning count has exceeded threshold
+   * @returns true if warning count >= threshold
+   */
+  hasExceededWarningThreshold(): boolean {
+    return this.warningCount >= this.warningThreshold;
   }
 
   // ========== Resource Cleanup ==========

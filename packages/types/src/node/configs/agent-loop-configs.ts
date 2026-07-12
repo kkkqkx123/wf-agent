@@ -120,6 +120,20 @@ export interface AgentLoopNodeConfig {
     exponentialBackoff?: boolean;
 
     /**
+     * Retry policy for AGENT_LOOP execution failures (Task #7)
+     * When specified, this takes precedence over legacy maxRetries/retryDelay.
+     * Allows fine-grained control over retry behavior with backoff and budget management.
+     */
+    retryPolicy?: import('../../execution/failure-policy.js').RetryPolicy;
+
+    /**
+     * Timeout for AGENT_LOOP execution in milliseconds (Task #9)
+     * If the agent loop exceeds this time, it will be immediately terminated.
+     * If not specified, no timeout is enforced.
+     */
+    executionTimeout?: number;
+
+    /**
      * Interval for periodic checkpoint creation in milliseconds.
      * When set, a checkpoint is created at this interval during long-running execution.
      * @default 0 (no periodic checkpoint)

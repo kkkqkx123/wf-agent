@@ -8,20 +8,25 @@
  */
 export type ErrorSeverity =
   /**
-   * Critical error - causes execution to stop
-   * Applies to: configuration errors, validation errors, unrecoverable logic errors
+   * Information level - does not affect execution
+   * Applies to: debugging messages, non-critical warnings, monitoring events
    */
-  | "error"
+  | "info"
   /**
-   * Warning Error - Continue Execution
+   * Warning level - can continue but needs attention
    * Applies to: network timeouts, temporary failures, retryable errors
    */
   | "warning"
   /**
-   * Message Error - Continue Execution
-   * Applies to: debugging messages, non-critical warnings, monitoring events
+   * Error level - usually requires stopping
+   * Applies to: validation errors, logic errors
    */
-  | "info";
+  | "error"
+  /**
+   * Critical level - must stop immediately
+   * Applies to: configuration errors, unrecoverable errors
+   */
+  | "critical";
 
 /**
  * error context
@@ -50,7 +55,7 @@ export interface ErrorContext {
   /** Resource ID */
   resourceId?: string;
   /** severity */
-  severity?: "error" | "warning" | "info";
+  severity?: ErrorSeverity;
   /** additional contextual information */
   [key: string]: unknown;
 }

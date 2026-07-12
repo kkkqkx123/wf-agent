@@ -119,6 +119,7 @@ export class AgentLoopExecutor {
       eventManager: deps.eventManager,
       checkpointDependencies: cpDeps,
       globalContext: this.globalContext,
+      // Note: toolFailureProtection will be injected per-execution in createCoordinator
     });
   }
 

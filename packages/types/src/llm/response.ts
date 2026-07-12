@@ -58,4 +58,13 @@ export interface LLMResult {
     /** Total time (in milliseconds) from request sent to end of stream */
     totalDuration: number;
   };
+  /**
+   * Warnings from the LLM response (Task #5)
+   * Used to track warnings that should be accumulated in AgentLoopEntity
+   */
+  warnings?: Array<{
+    code: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }>;
 }

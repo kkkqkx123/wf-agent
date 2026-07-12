@@ -94,6 +94,11 @@ export class ToolExecutionCoordinator {
     const agentLoopId = entity.id;
     const iteration = entity.state.currentIteration;
 
+    // Inject tool failure protection from entity (Task #4)
+    if (entity.toolFailureProtection) {
+      this.toolCallExecutor.setToolFailureProtection(entity.toolFailureProtection);
+    }
+
     logger.debug("Executing tool calls", {
       agentLoopId,
       iteration,
@@ -250,6 +255,11 @@ export class ToolExecutionCoordinator {
     toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>,
   ): AsyncGenerator<AgentStreamEvent> {
     const agentLoopId = entity.id;
+
+    // Inject tool failure protection from entity (Task #4)
+    if (entity.toolFailureProtection) {
+      this.toolCallExecutor.setToolFailureProtection(entity.toolFailureProtection);
+    }
 
     logger.debug("Executing tool calls in stream", {
       agentLoopId,

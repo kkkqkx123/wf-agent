@@ -19,6 +19,7 @@ import type {
   WorkflowExecution,
   WorkflowExecutionStatus,
   WorkflowExecutionType,
+  FailurePolicy,
 } from "@wf-agent/types";
 import type { WorkflowGraph } from "../types/graph/preprocessed-graph.js";
 import type {
@@ -43,6 +44,9 @@ import { DependencyManager } from "../../services/evaluation/index.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { TimeoutManager } from "../../shared/state-managers/timeout-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { createDefaultFailurePolicy } from "../../shared/coordinators/failure-policy-manager.js";
+import { RetryBudget } from "../../shared/coordinators/retry-budget.js";
+import type { RetryBudgetConfig } from "../../shared/coordinators/retry-budget.js";
 
 const logger = createContextualLogger({ operation: "WorkflowExecutionEntity" });
 
@@ -90,6 +94,9 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   /** Timeout Manager for managing execution timeouts */
   readonly timeoutManager: TimeoutManager;
 
+  /** Failure Policy for handling execution failures (NEW) */
+  private failurePolicy: FailurePolicy;
+
   /** Stop Controller */
   abortController?: AbortController;
 
@@ -105,6 +112,9 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
     retryDelay: number;
     exponentialBackoff: boolean;
   };
+
+  /** Retry Budget for global retry quota management (Task #8) */
+  private _retryBudget?: RetryBudget;
 
   /**
    * Set node execution timeout
@@ -150,6 +160,23 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   getDefaultNodeRetry(): { maxRetries: number; retryDelay: number; exponentialBackoff: boolean } | undefined {
     return this._defaultNodeRetry;
+  }
+
+  /**
+   * Initialize retry budget for this workflow execution (Task #8)
+   * @param config Retry budget configuration
+   */
+  initializeRetryBudget(config: RetryBudgetConfig): RetryBudget {
+    this._retryBudget = new RetryBudget(config);
+    return this._retryBudget;
+  }
+
+  /**
+   * Get retry budget for this execution
+   * @returns RetryBudget instance if initialized, undefined otherwise
+   */
+  getRetryBudget(): RetryBudget | undefined {
+    return this._retryBudget;
   }
 
   /** Trigger Management */
@@ -211,6 +238,9 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
 
     // Initialize timeout manager for this execution
     this.timeoutManager = new TimeoutManager();
+
+    // Initialize failure policy with default implementation
+    this.failurePolicy = createDefaultFailurePolicy();
 
     // Initialize hierarchy manager with existing hierarchy metadata or as root node
     this.hierarchyManager = new ExecutionHierarchyManager(
@@ -431,6 +461,24 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   deleteVariable(name: string): boolean {
     return this.variableStateManager.deleteVariable(name);
+  }
+
+  // ========== Failure Policy ============
+
+  /**
+   * Get the failure policy for this execution
+   * @returns The configured FailurePolicy
+   */
+  getFailurePolicy(): FailurePolicy {
+    return this.failurePolicy;
+  }
+
+  /**
+   * Set the failure policy for this execution
+   * @param policy The new FailurePolicy to use
+   */
+  setFailurePolicy(policy: FailurePolicy): void {
+    this.failurePolicy = policy;
   }
 
   // Stop control ============

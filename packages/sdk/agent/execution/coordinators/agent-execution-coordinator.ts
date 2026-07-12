@@ -10,9 +10,13 @@
  * - Delegates to ToolExecutionCoordinator for tool execution
  * - Supports both sync and streaming execution modes
  * - Integrates with interruption handling
+ * - Supports retry with exponential backoff (Task #7)
+ * - Supports per-execution timeout (Task #9)
+ * - Integrates with global retry budget (Task #8)
  */
 
 import type { AgentLoopResult, AgentStreamEvent, ToolSchema, LLMMessage } from "@wf-agent/types";
+import type { RetryPolicy } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
@@ -30,6 +34,136 @@ import {
 export type { AgentLoopStreamEvent };
 
 const logger = createContextualLogger({ component: "AgentExecutionCoordinator" });
+
+// ============================================================================
+// Retry and Timeout Helper Functions (Task #7, #9)
+// ============================================================================
+
+/**
+ * Execute iteration with retry and timeout support
+ *
+ * Wraps iteration execution with:
+ * - Exponential backoff retry (if retryPolicy configured)
+ * - Timeout protection (if executionTimeout configured)
+ * - Global retry budget checking and consumption
+ *
+ * @param agentLoopId Agent loop ID for logging
+ * @param entity Agent loop entity
+ * @param executor Async function that performs the iteration
+ * @param retryPolicy Optional retry policy configuration
+ * @param timeoutMs Optional timeout in milliseconds
+ * @returns Execution result
+ */
+async function executeIterationWithRetryAndTimeout<T>(
+  agentLoopId: string,
+  entity: AgentLoopEntity,
+  executor: () => Promise<T>,
+  retryPolicy?: RetryPolicy,
+  timeoutMs?: number,
+): Promise<T> {
+  const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
+  let lastError: Error | undefined;
+
+  for (let attemptCount = 0; attemptCount < maxAttempts; attemptCount++) {
+    try {
+      // Apply timeout if configured
+      if (timeoutMs) {
+        return await executeWithTimeout(executor, timeoutMs, "Agent loop execution");
+      }
+
+      return await executor();
+    } catch (error) {
+      lastError = error as Error;
+      const isLastAttempt = attemptCount === maxAttempts - 1;
+
+      // Log failure
+      logger.debug("Iteration failed", {
+        agentLoopId,
+        attemptCount,
+        isLastAttempt,
+        error: lastError.message,
+      });
+
+      // If this is the last attempt or retry is disabled, throw
+      if (isLastAttempt || !retryPolicy?.enabled) {
+        throw lastError;
+      }
+
+      // Check if we should retry this error
+      if (!retryPolicy.shouldRetry(lastError, attemptCount)) {
+        logger.debug("Error not retryable, stopping retry", {
+          agentLoopId,
+          attemptCount,
+          error: lastError.message,
+        });
+        throw lastError;
+      }
+
+      // Calculate delay for next retry
+      const delayMs = retryPolicy.getNextDelay(attemptCount);
+
+      // Check global retry budget before consuming
+      const retryBudget = (entity as any).getRetryBudget?.();
+      if (retryBudget && !retryBudget.canRetry(delayMs)) {
+        logger.warn("Global retry budget exhausted, stopping retry", {
+          agentLoopId,
+          attemptCount,
+        });
+        throw lastError;
+      }
+
+      // Consume from budget if available
+      if (retryBudget) {
+        retryBudget.consumeRetry(delayMs);
+      }
+
+      // Wait before retry with exponential backoff
+      logger.info("Retrying iteration after delay", {
+        agentLoopId,
+        attemptCount,
+        delayMs,
+        nextAttempt: attemptCount + 2,
+        maxAttempts,
+      });
+
+      await delay(delayMs);
+    }
+  }
+
+  // Should never reach here, but just in case
+  throw lastError || new Error("Iteration failed for unknown reason");
+}
+
+/**
+ * Execute a promise with timeout
+ *
+ * @param executor Async function to execute
+ * @param timeoutMs Timeout in milliseconds
+ * @param context Context for error message
+ * @returns Execution result
+ */
+async function executeWithTimeout<T>(
+  executor: () => Promise<T>,
+  timeoutMs: number,
+  context: string,
+): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`${context} exceeded ${timeoutMs}ms timeout`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([executor(), timeoutPromise]);
+}
+
+/**
+ * Sleep helper function
+ *
+ * @param ms Milliseconds to sleep
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 /**
  * AgentExecutionCoordinator Dependencies
@@ -71,8 +205,9 @@ export class AgentExecutionCoordinator {
   ): Promise<AgentLoopResult> {
     const agentLoopId = entity.id;
     const startTime = Date.now();
+    const config = entity.config;
 
-    this.recordExecutionStart(profileId, entity.config.agentConfigId || "unknown", agentLoopId);
+    this.recordExecutionStart(profileId, config.agentConfigId || "unknown", agentLoopId);
 
     try {
       const result = await executeWithInterruptionHandling(async signal => {
@@ -83,12 +218,19 @@ export class AgentExecutionCoordinator {
             maxIterations,
           });
 
-          const iterationResult = await this.iterationCoordinator.executeIteration(
+          const iterationResult = await executeIterationWithRetryAndTimeout(
+            agentLoopId,
             entity,
-            conversationManager,
-            toolSchemas,
-            profileId,
-            signal,
+            () =>
+              this.iterationCoordinator.executeIteration(
+                entity,
+                conversationManager,
+                toolSchemas,
+                profileId,
+                signal,
+              ),
+            config.retryPolicy,
+            config.executionTimeout,
           );
 
           if (iterationResult.interruption) {
@@ -262,6 +404,7 @@ export class AgentExecutionCoordinator {
     maxIterations: number,
   ): AsyncGenerator<AgentLoopStreamEvent> {
     const agentLoopId = entity.id;
+    const config = entity.config;
 
     while (entity.state.currentIteration < maxIterations) {
       logger.debug("Starting new stream iteration", {
@@ -270,11 +413,15 @@ export class AgentExecutionCoordinator {
         maxIterations,
       });
 
-      const shouldContinue = yield* this.iterationCoordinator.executeIterationStream(
+      // For streaming, we need to wrap the generator with retry and timeout support
+      const shouldContinue = yield* this.executeIterationStreamWithRetryAndTimeout(
+        agentLoopId,
         entity,
         conversationManager,
         toolSchemas,
         profileId,
+        config.retryPolicy,
+        config.executionTimeout,
       );
 
       if (!shouldContinue) {
@@ -298,6 +445,149 @@ export class AgentExecutionCoordinator {
     );
     yield endEvent;
     await this.iterationCoordinator.emitToRegistry(endEvent, entity);
+  }
+
+  /**
+   * Execute iteration stream with retry and timeout support
+   *
+   * For streaming execution, we need to handle retries at the generator level.
+   * Each retry will re-execute the iteration stream generator.
+   *
+   * Semantics:
+   * - Returns true: iteration completed normally (agent decided to continue or stop)
+   * - Throws error: iteration failed after all retries exhausted
+   *
+   * Note: Timeout errors are NOT retried (wastes budget on already-failed operations)
+   */
+  private async *executeIterationStreamWithRetryAndTimeout(
+    agentLoopId: string,
+    entity: AgentLoopEntity,
+    conversationManager: ConversationSession,
+    toolSchemas: ToolSchema[] | undefined,
+    profileId: string,
+    retryPolicy?: RetryPolicy,
+    timeoutMs?: number,
+  ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
+    const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
+    let lastError: Error | undefined;
+
+    for (let attemptCount = 0; attemptCount < maxAttempts; attemptCount++) {
+      try {
+        // For streaming, we need to handle timeout differently
+        // We'll track elapsed time and emit events accordingly
+        let result: boolean;
+
+        if (timeoutMs) {
+          result = yield* this.executeIterationStreamWithTimeout(
+            entity,
+            conversationManager,
+            toolSchemas,
+            profileId,
+            timeoutMs,
+          );
+        } else {
+          result = yield* this.iterationCoordinator.executeIterationStream(
+            entity,
+            conversationManager,
+            toolSchemas,
+            profileId,
+          );
+        }
+
+        // Iteration completed successfully
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+        const isLastAttempt = attemptCount === maxAttempts - 1;
+
+        logger.debug("Stream iteration failed", {
+          agentLoopId,
+          attemptCount,
+          isLastAttempt,
+          error: lastError.message,
+        });
+
+        if (isLastAttempt || !retryPolicy?.enabled) {
+          throw lastError;
+        }
+
+        // Timeout errors should NOT be retried - already waited maximum time
+        if (lastError.message?.includes("timeout")) {
+          logger.debug("Timeout error not retryable, stopping retry", {
+            agentLoopId,
+            attemptCount,
+          });
+          throw lastError;
+        }
+
+        if (!retryPolicy.shouldRetry(lastError, attemptCount)) {
+          logger.debug("Error not retryable in stream, stopping retry", {
+            agentLoopId,
+            attemptCount,
+          });
+          throw lastError;
+        }
+
+        const delayMs = retryPolicy.getNextDelay(attemptCount);
+
+        const retryBudget = (entity as any).getRetryBudget?.();
+        if (retryBudget && !retryBudget.canRetry(delayMs)) {
+          logger.warn("Global retry budget exhausted in stream, stopping retry", {
+            agentLoopId,
+            attemptCount,
+          });
+          throw lastError;
+        }
+
+        if (retryBudget) {
+          retryBudget.consumeRetry(delayMs);
+        }
+
+        logger.info("Retrying stream iteration after delay", {
+          agentLoopId,
+          attemptCount,
+          delayMs,
+          nextAttempt: attemptCount + 2,
+          maxAttempts,
+        });
+
+        await delay(delayMs);
+      }
+    }
+
+    throw lastError || new Error("Stream iteration failed for unknown reason");
+  }
+
+  /**
+   * Execute iteration stream with timeout protection
+   * Returns true if should continue, false if should stop
+   */
+  private async *executeIterationStreamWithTimeout(
+    entity: AgentLoopEntity,
+    conversationManager: ConversationSession,
+    toolSchemas: ToolSchema[] | undefined,
+    profileId: string,
+    timeoutMs: number,
+  ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
+    const startTime = Date.now();
+    const iterationGenerator = this.iterationCoordinator.executeIterationStream(
+      entity,
+      conversationManager,
+      toolSchemas,
+      profileId,
+    );
+
+    for await (const event of iterationGenerator) {
+      // Check timeout before yielding each event
+      const elapsed = Date.now() - startTime;
+      if (elapsed > timeoutMs) {
+        throw new Error(`Stream iteration exceeded ${timeoutMs}ms timeout after ${elapsed}ms`);
+      }
+
+      yield event;
+    }
+
+    return true;
   }
 
   // ============ Metrics Recording ============

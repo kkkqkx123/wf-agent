@@ -195,3 +195,40 @@ export const SUBGRAPH_METRICS = {
  * Type for subgraph metric names
  */
 export type SubgraphMetricName = keyof typeof SUBGRAPH_METRICS;
+
+/**
+ * Standard metric names for retry and timeout operations
+ */
+export const RETRY_METRICS = {
+  // Retry budget metrics
+  BUDGET_CONSUMED_COUNT: "retry.budget.consumed.count",
+  BUDGET_CONSUMED_TIME: "retry.budget.consumed.time_ms",
+  BUDGET_REMAINING_COUNT: "retry.budget.remaining.count",
+  BUDGET_REMAINING_TIME: "retry.budget.remaining.time_ms",
+  BUDGET_EXHAUSTED: "retry.budget.exhausted.count",
+
+  // Retry attempt metrics
+  ATTEMPT_TOTAL: "retry.attempt.total",
+  ATTEMPT_SUCCEEDED: "retry.attempt.succeeded",
+  ATTEMPT_FAILED: "retry.attempt.failed",
+
+  // Retry delay metrics
+  DELAY_DURATION: "retry.delay.duration_ms",
+  BACKOFF_FACTOR: "retry.backoff.factor",
+
+  // Timeout error metrics
+  TIMEOUT_ERROR_COUNT: "retry.timeout_error.count",
+  TIMEOUT_ERROR_NO_RETRY: "retry.timeout_error.no_retry.count",
+
+  // Retry outcome metrics
+  ULTIMATELY_SUCCEEDED: "retry.outcome.succeeded",
+  ULTIMATELY_FAILED: "retry.outcome.failed",
+
+  // Per-consumer retry tracking
+  CONSUMER_ACTIVE_RETRIES: "retry.consumer.active.count",
+} as const;
+
+/**
+ * Type for retry metric names
+ */
+export type RetryMetricName = keyof typeof RETRY_METRICS;

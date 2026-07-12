@@ -46,7 +46,7 @@ const logger = createContextualLogger({ component: "join-handler" });
  * @param parentEntity The parent workflow execution entity (has SyncBarrier)
  * @param forkPathIds Array of fork path IDs to look up
  * @param executionRegistry Registry to retrieve execution entities
- * @returns Map of forkPathId → WorkflowExecutionEntity for completed branches
+ * @returns Map of forkPathId → WorkflowExecutionEntity for completed branches, plus failed/skipped branches with error info
  */
 function collectBranches(
   parentEntity: WorkflowExecutionEntity,
@@ -54,7 +54,7 @@ function collectBranches(
   executionRegistry: WorkflowExecutionRegistry,
 ): {
   completedBranches: Map<string, WorkflowExecutionEntity>;
-  failedBranches: string[];
+  failedBranches: Array<{ pathId: string; error?: string }>;
   skippedBranches: string[];
 } {
   const syncBarrier = parentEntity.getSyncBarrier();
@@ -69,7 +69,7 @@ function collectBranches(
   }
 
   const completedBranches = new Map<string, WorkflowExecutionEntity>();
-  const failedBranches: string[] = [];
+  const failedBranches: Array<{ pathId: string; error?: string }> = [];
   const skippedBranches: string[] = [];
 
   for (const pathId of forkPathIds) {
@@ -97,7 +97,14 @@ function collectBranches(
     if (status === "COMPLETED") {
       completedBranches.set(pathId, branchEntity);
     } else if (status === "FAILED" || status === "CANCELLED") {
-      failedBranches.push(pathId);
+      // Task #6: Preserve error information from failed branches
+      const errors = branchEntity.getErrors();
+      const lastError = errors[errors.length - 1];
+      const errorMessage = lastError instanceof Error ? lastError.message : String(lastError);
+      failedBranches.push({
+        pathId,
+        error: errorMessage || `Branch execution ${status}`,
+      });
     } else {
       skippedBranches.push(pathId);
     }
@@ -458,7 +465,7 @@ export async function joinHandler(
       failedCount: failedBranches.length,
       skippedCount: skippedBranches.length,
       completedPaths: completedPathIds,
-      failedPaths: failedBranches,
+      failedPaths: failedBranches.map(f => ({ pathId: f.pathId, error: f.error })),
     });
 
     // Emit JOIN_CONDITION_EVALUATED event
@@ -481,10 +488,14 @@ export async function joinHandler(
     );
 
     if (!strategyResult.shouldProceed) {
-      const executionDuration = Date.now() - startTime;
-      logger.warn("JOIN strategy condition not met", {
+      const errorMessage = strategyResult.error || "JOIN strategy condition not met";
+
+      logger.error("JOIN strategy condition not met - throwing exception", {
         strategy: config.joinStrategy,
-        error: strategyResult.error,
+        error: errorMessage,
+        completedCount: completedBranches.size,
+        failedCount: failedBranches.length,
+        totalBranches,
       });
 
       // Emit JOIN_FAILED event
@@ -494,17 +505,16 @@ export async function joinHandler(
           parentExecutionId: workflowExecutionEntity.id,
           childExecutionIds: completedPathIds,
           joinStrategy: config.joinStrategy,
-          error: new Error(strategyResult.error || "Strategy condition not met"),
+          error: new Error(errorMessage),
         }),
       );
 
-      return {
-        completedBranches: completedPathIds,
-        failedBranches,
-        skippedBranches,
-        strategy: config.joinStrategy,
-        aggregatedOutput: { error: strategyResult.error, executionTime: executionDuration },
-      };
+      // Throw exception to stop workflow (previously was returning an error result)
+      throw new Error(
+        `JOIN node '${node.id}' failed: ${errorMessage} ` +
+        `(strategy=${config.joinStrategy}, completed=${completedBranches.size}, ` +
+        `failed=${failedBranches.length}, total=${totalBranches})`,
+      );
     }
 
     // Step 3: Aggregate variable outputs from main branch

@@ -48,6 +48,142 @@ interface BranchExecutionOutcome {
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
 /**
+ * Helper function to execute a branch with retry support and timeout (Task #7, #9)
+ *
+ * Implements exponential backoff retry with global retry budget consumption.
+ * Each branch execution respects per-branch timeout if configured.
+ *
+ * @param pathId Fork path ID
+ * @param branchEntity Branch execution entity
+ * @param nodeId FORK node ID
+ * @param config FORK node configuration
+ * @param executor Workflow executor
+ * @param parentEntity Parent workflow execution entity
+ * @returns Branch execution outcome with retry attempt tracking
+ */
+async function executeBranchWithRetry(
+  pathId: string,
+  branchEntity: WorkflowExecutionEntity,
+  nodeId: string,
+  config: ForkNodeConfig,
+  executor: any, // WorkflowExecutor type
+  parentEntity: WorkflowExecutionEntity,
+): Promise<BranchExecutionOutcome> {
+  const retryPolicy = config.retryPolicy;
+  const timeout = config.childExecutionTimeout;
+  const retryBudget = parentEntity.getRetryBudget();
+
+  let lastError: Error | undefined;
+  let attempts = 0;
+  let totalStartTime = now();
+  const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
+
+  while (attempts < maxAttempts) {
+    const branchStartTime = now();
+
+    try {
+      // Execute branch with optional timeout (Task #9)
+      let result: import("@wf-agent/types").WorkflowExecutionResult;
+
+      if (timeout && timeout > 0) {
+        // Apply timeout using Promise.race
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error(`Branch execution timeout after ${timeout}ms`)),
+            timeout,
+          );
+        });
+
+        result = await Promise.race([executor.executeWorkflow(branchEntity), timeoutPromise]);
+      } else {
+        result = await executor.executeWorkflow(branchEntity);
+      }
+
+      const branchDuration = diffTimestamp(branchStartTime, now());
+
+      logger.debug("Fork branch completed successfully", {
+        nodeId,
+        forkPathId: pathId,
+        branchExecutionId: branchEntity.id,
+        duration: branchDuration,
+        attempts: attempts + 1,
+        status: result.metadata.status,
+      });
+
+      return {
+        pathId,
+        branchEntity,
+        status: "COMPLETED" as const,
+        executionResult: result,
+        executionTime: branchDuration,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      attempts++;
+      const branchDuration = diffTimestamp(branchStartTime, now());
+
+      logger.warn("Fork branch execution failed", {
+        nodeId,
+        forkPathId: pathId,
+        branchExecutionId: branchEntity.id,
+        duration: branchDuration,
+        attempt: attempts,
+        maxAttempts,
+        error: lastError,
+      });
+
+      // Check if should retry (Task #7)
+      if (
+        attempts < maxAttempts &&
+        retryPolicy?.enabled &&
+        retryPolicy.shouldRetry(lastError, attempts - 1)
+      ) {
+        // Calculate delay for exponential backoff
+        const delay = retryPolicy.getNextDelay(attempts - 1);
+
+        logger.debug("Branch retry scheduled", {
+          nodeId,
+          forkPathId: pathId,
+          branchExecutionId: branchEntity.id,
+          attemptNumber: attempts,
+          nextDelay: delay,
+        });
+
+        // Check global retry budget (Task #8)
+        if (retryBudget && !retryBudget.canRetry(delay)) {
+          logger.warn("Retry budget exhausted, stopping retries", {
+            nodeId,
+            forkPathId: pathId,
+            retriesRemaining: retryBudget.getRetriesRemaining(),
+          });
+          break;
+        }
+
+        // Consume from retry budget if available
+        if (retryBudget) {
+          retryBudget.consumeRetry(delay);
+        }
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // No more retries
+        break;
+      }
+    }
+  }
+
+  // Return failed outcome after all retry attempts exhausted
+  return {
+    pathId,
+    branchEntity,
+    status: "FAILED" as const,
+    error: lastError,
+    executionTime: diffTimestamp(totalStartTime, now()),
+  };
+}
+
+/**
  * Fork Node Processing Function
  *
  * Orchestrates parallel execution of all fork branches:
@@ -203,50 +339,20 @@ export async function forkHandler(
       nodeId: node.id,
       branchCount: branchCreations.length,
       failureStrategy,
+      retryPolicyEnabled: config.retryPolicy?.enabled ?? false,
+      childExecutionTimeout: config.childExecutionTimeout,
     });
 
     const branchOutcomes: BranchExecutionOutcome[] = await Promise.all(
       branchCreations.map(async branch => {
-        const branchStartTime = now();
-        try {
-          const result = await executor.executeWorkflow(branch.branchEntity);
-          const branchDuration = diffTimestamp(branchStartTime, now());
-
-          logger.debug("Fork branch completed", {
-            nodeId: node.id,
-            forkPathId: branch.pathId,
-            branchExecutionId: branch.branchEntity.id,
-            duration: branchDuration,
-            status: result.metadata.status,
-          });
-
-          return {
-            pathId: branch.pathId,
-            branchEntity: branch.branchEntity,
-            status: "COMPLETED" as const,
-            executionResult: result,
-            executionTime: branchDuration,
-          };
-        } catch (error) {
-          const branchDuration = diffTimestamp(branchStartTime, now());
-          const errorObj = error instanceof Error ? error : new Error(String(error));
-
-          logger.warn("Fork branch failed", {
-            nodeId: node.id,
-            forkPathId: branch.pathId,
-            branchExecutionId: branch.branchEntity.id,
-            duration: branchDuration,
-            error: errorObj,
-          });
-
-          return {
-            pathId: branch.pathId,
-            branchEntity: branch.branchEntity,
-            status: "FAILED" as const,
-            error: errorObj,
-            executionTime: branchDuration,
-          };
-        }
+        return executeBranchWithRetry(
+          branch.pathId,
+          branch.branchEntity,
+          node.id,
+          config,
+          executor,
+          workflowExecutionEntity,
+        );
       }),
     );
 

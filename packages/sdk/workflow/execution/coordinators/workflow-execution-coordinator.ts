@@ -167,7 +167,66 @@ export class WorkflowExecutionCoordinator {
               break;
             }
           }
+        } else if (nodeResult.status === "FAILED") {
+          // Node execution failed - update workflow status and stop execution
+          const errorMessage = nodeResult.error instanceof Error ? nodeResult.error.message : String(nodeResult.error) || "Unknown error";
+          logger.error("Node execution failed - stopping workflow", {
+            executionId: this.workflowExecutionEntity.id,
+            nodeId: currentNodeId,
+            nodeStatus: nodeResult.status,
+            error: errorMessage,
+          });
+
+          // Update workflow status to FAILED
+          this.workflowExecutionEntity.state.fail(
+            nodeResult.error instanceof Error ? nodeResult.error : new Error(`Node '${currentNodeId}' execution failed`),
+          );
+
+          // Stop workflow execution
+          break;
+        } else if (nodeResult.status === "SKIPPED") {
+          // Node was skipped - log and continue to next
+          const skipReason = nodeResult.error instanceof Error ? nodeResult.error.message : (typeof nodeResult.error === "string" ? nodeResult.error : "Node was skipped");
+          logger.info("Node execution skipped", {
+            executionId: this.workflowExecutionEntity.id,
+            nodeId: currentNodeId,
+            reason: skipReason,
+          });
+
+          // Continue to next node after skipped node
+          const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
+          if (outgoingEdges.length <= 1) {
+            const nextNode = this.navigator.getNextNode(currentNodeId);
+            if (nextNode && nextNode.nextNodeId) {
+              this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+            } else {
+              break;
+            }
+          } else {
+            const evalContext = this.buildRoutingEvaluationContext();
+            const routingResult = this.navigator.routeNextNode(
+              currentNodeId,
+              (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+            );
+            if (routingResult) {
+              this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+            } else {
+              break;
+            }
+          }
         } else {
+          // Unknown node status - stop execution
+          logger.error("Unknown node execution status", {
+            executionId: this.workflowExecutionEntity.id,
+            nodeId: currentNodeId,
+            status: nodeResult.status,
+          });
+
+          // Update workflow status to FAILED
+          this.workflowExecutionEntity.state.fail(
+            new Error(`Node '${currentNodeId}' returned unknown status: ${nodeResult.status}`),
+          );
+
           break;
         }
       }

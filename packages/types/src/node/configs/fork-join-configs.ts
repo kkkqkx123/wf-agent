@@ -59,21 +59,35 @@ export interface ForkNodeConfig {
    * Timeout for each child branch execution in milliseconds (Task #9)
    * If a branch exceeds this timeout, it is immediately cancelled and marked as failed.
    * If not specified, no timeout is enforced.
+   *
+   * Problem #8 Fix: This is now perExecutionTimeout (per single attempt)
+   * Use totalBranchTimeout for cumulative time across all retries
    */
   childExecutionTimeout?: number;
+  /**
+   * Total timeout for a branch across all retry attempts in milliseconds (Problem #8)
+   * Limits the total wall-clock time a branch can take, including retries
+   * If a branch exceeds this timeout across all retry attempts, it is marked as failed
+   * If not specified, only childExecutionTimeout applies
+   *
+   * Example: childExecutionTimeout=5000, totalBranchTimeout=30000
+   * - Single attempt max: 5 seconds
+   * - All retries combined max: 30 seconds
+   */
+  totalBranchTimeout?: number;
 }
 
 /**
  * Join Node Output
  * - completedBranches: ID[] - IDs of branches that completed successfully
- * - failedBranches: ID[] - IDs of branches that failed
+ * - failedBranches: Array<{pathId, error}> - Information about branches that failed (Task #1: Preserve error details)
  * - skippedBranches: ID[] - IDs of branches that were skipped
  * - strategy: string - The join strategy used
  * - aggregatedOutput?: unknown - The aggregated result from completed branches
  */
 export interface JoinNodeOutput {
   completedBranches: ID[];
-  failedBranches: ID[];
+  failedBranches: Array<{ pathId: ID; error?: string }>;
   skippedBranches: ID[];
   strategy: string;
   aggregatedOutput?: unknown;

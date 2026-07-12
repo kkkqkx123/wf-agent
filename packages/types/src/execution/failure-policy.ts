@@ -39,6 +39,10 @@ export enum FailureAction {
 
 /**
  * Retry configuration and strategy
+ *
+ * Problem #5 Fix: Support two time budget modes
+ * - 'delay-only': Track retry delays only (current behavior)
+ * - 'total-time': Track both delays and execution time
  */
 export interface RetryPolicy {
   /** Whether retry is enabled */
@@ -58,6 +62,14 @@ export interface RetryPolicy {
 
   /** Whether to add random jitter to delays */
   jitter: boolean;
+
+  /**
+   * Time budget mode (Problem #5)
+   * - 'delay-only': Time budget tracks only retry delays, not execution time
+   * - 'total-time': Time budget tracks both delays and execution time
+   * Default: 'delay-only' (backward compatible)
+   */
+  timeBudgetMode?: 'delay-only' | 'total-time';
 
   /**
    * Determine if the error should be retried

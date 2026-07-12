@@ -30,6 +30,7 @@ const DEFAULT_RETRY_POLICY: Required<RetryPolicy> = {
   backoffMultiplier: 2,
   maxDelay: 30000,
   jitter: true,
+  timeBudgetMode: 'delay-only', // Problem #5: default to delay-only mode (backward compatible)
   shouldRetry: (error: SDKError, attemptCount: number) => {
     // Do NOT retry timeout errors - already waited maximum time
     if (error.message?.toLowerCase().includes("timeout")) {

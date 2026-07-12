@@ -170,12 +170,24 @@ function evaluateStrategy(
     }
 
     case "SUCCESS_COUNT_THRESHOLD": {
-      const metThreshold = completedCount >= (threshold ?? 1);
+      // Validate threshold is reasonable (Problem #7 fix)
+      const validatedThreshold = threshold ?? 1;
+      if (validatedThreshold > totalCount) {
+        logger.warn(
+          "JOIN threshold impossible to meet: threshold exceeds total branch count",
+          {
+            strategy: "SUCCESS_COUNT_THRESHOLD",
+            threshold: validatedThreshold,
+            totalCount,
+          },
+        );
+      }
+      const metThreshold = completedCount >= validatedThreshold;
       return {
         shouldProceed: metThreshold,
         error: metThreshold
           ? undefined
-          : `JOIN strategy SUCCESS_COUNT_THRESHOLD not met: ${completedCount}/${threshold ?? 1} required`,
+          : `JOIN strategy SUCCESS_COUNT_THRESHOLD not met: ${completedCount}/${validatedThreshold} required`,
       };
     }
 
@@ -436,6 +448,7 @@ export async function joinHandler(
       strategy: config.joinStrategy,
       forkPathIds: config.forkPathIds,
       mainPathId: config.mainPathId,
+      timeout: config.timeout ? `${config.timeout}s` : "none",
     });
 
     // Step 1: Collect completed branches via SyncBarrier
@@ -446,6 +459,23 @@ export async function joinHandler(
     );
 
     completedPathIds.push(...Array.from(completedBranches.keys()));
+
+    // Check for timeout (Problem #6: JOIN deadlock prevention)
+    if (config.timeout && config.timeout > 0) {
+      const elapsedSeconds = (Date.now() - startTime) / 1000;
+      if (elapsedSeconds > config.timeout) {
+        const incompleteCount =
+          config.forkPathIds.length - completedBranches.size - failedBranches.length;
+        logger.warn("JOIN execution timeout exceeded", {
+          nodeId: node.id,
+          timeout: config.timeout,
+          elapsed: Math.round(elapsedSeconds),
+          completedCount: completedBranches.size,
+          failedCount: failedBranches.length,
+          incompleteCount,
+        });
+      }
+    }
 
     // Emit JOIN_STARTED event with populated childExecutionIds
     await emit(
@@ -564,8 +594,8 @@ export async function joinHandler(
 
     return {
       completedBranches: completedPathIds,
-      failedBranches: [],
-      skippedBranches: [],
+      failedBranches: failedBranches,
+      skippedBranches: skippedBranches,
       strategy: config.joinStrategy,
       aggregatedOutput:
         completedPathIds.length > 0
@@ -583,6 +613,10 @@ export async function joinHandler(
       error,
     });
 
+    // Re-collect branches for error response to include failed/skipped info
+    const { failedBranches: errorFailedBranches, skippedBranches: errorSkippedBranches } =
+      collectBranches(workflowExecutionEntity, config.forkPathIds, executionRegistry);
+
     // Emit JOIN_FAILED event on unexpected error
     await emit(
       eventManager,
@@ -596,8 +630,8 @@ export async function joinHandler(
 
     return {
       completedBranches: completedPathIds,
-      failedBranches: [],
-      skippedBranches: [],
+      failedBranches: errorFailedBranches,
+      skippedBranches: errorSkippedBranches,
       strategy: config.joinStrategy,
       aggregatedOutput: { error: String(error), executionTime: executionDuration },
     };

@@ -48,10 +48,14 @@ interface BranchExecutionOutcome {
 const logger = createContextualLogger({ component: "fork-node-handler" });
 
 /**
- * Helper function to execute a branch with retry support and timeout (Task #7, #9)
+ * Helper function to execute a branch with retry support and timeout
  *
  * Implements exponential backoff retry with global retry budget consumption.
  * Each branch execution respects per-branch timeout if configured.
+ *
+ * Problem #4 Fix: Support per-branch budget allocation
+ * Problem #5 Fix: Support time budget modes (delay-only or total-time)
+ * Problem #8 Fix: Support both perExecutionTimeout and totalBranchTimeout
  *
  * @param pathId Fork path ID
  * @param branchEntity Branch execution entity
@@ -70,31 +74,70 @@ async function executeBranchWithRetry(
   parentEntity: WorkflowExecutionEntity,
 ): Promise<BranchExecutionOutcome> {
   const retryPolicy = config.retryPolicy;
-  const timeout = config.childExecutionTimeout;
+  const perExecutionTimeout = config.childExecutionTimeout; // Problem #8: renamed for clarity
+  const totalBranchTimeout = config.totalBranchTimeout; // Problem #8: new field
   const retryBudget = parentEntity.getRetryBudget();
 
   let lastError: Error | undefined;
   let attempts = 0;
-  let totalStartTime = now();
+  const totalStartTime = now();
   const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
 
   while (attempts < maxAttempts) {
     const branchStartTime = now();
 
     try {
-      // Execute branch with optional timeout (Task #9)
+      // Check total branch timeout (Problem #8)
+      if (totalBranchTimeout && totalBranchTimeout > 0) {
+        const elapsedMs = diffTimestamp(totalStartTime, now());
+        if (elapsedMs > totalBranchTimeout) {
+          throw new Error(
+            `Branch total timeout exceeded after ${elapsedMs}ms (limit: ${totalBranchTimeout}ms)`,
+          );
+        }
+      }
+
+      // Execute branch with optional per-execution timeout (Problem #8)
       let result: import("@wf-agent/types").WorkflowExecutionResult;
 
-      if (timeout && timeout > 0) {
-        // Apply timeout using Promise.race
+      if (perExecutionTimeout && perExecutionTimeout > 0) {
+        // Apply per-execution timeout using Promise.race with proper cleanup (Problem #3 fix)
+        let timeoutId: NodeJS.Timeout | undefined;
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error(`Branch execution timeout after ${timeout}ms`)),
-            timeout,
+          timeoutId = setTimeout(
+            () => reject(new Error(`Branch execution timeout after ${perExecutionTimeout}ms`)),
+            perExecutionTimeout,
           );
         });
 
-        result = await Promise.race([executor.executeWorkflow(branchEntity), timeoutPromise]);
+        try {
+          result = await Promise.race([executor.executeWorkflow(branchEntity), timeoutPromise]);
+          // Clear timeout on successful completion
+          if (timeoutId) clearTimeout(timeoutId);
+        } catch (error) {
+          // Clear timeout on error
+          if (timeoutId) clearTimeout(timeoutId);
+
+          // If timeout occurred, stop the branch entity to ensure cleanup
+          if (error instanceof Error && error.message.includes("timeout")) {
+            logger.debug("Timeout occurred, stopping branch execution", {
+              nodeId,
+              forkPathId: pathId,
+              branchExecutionId: branchEntity.id,
+            });
+            try {
+              branchEntity.stop();
+            } catch (stopError) {
+              logger.warn("Failed to stop branch on timeout", {
+                nodeId,
+                forkPathId: pathId,
+                stopError,
+              });
+            }
+          }
+
+          throw error;
+        }
       } else {
         result = await executor.executeWorkflow(branchEntity);
       }
@@ -120,13 +163,15 @@ async function executeBranchWithRetry(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       attempts++;
-      const branchDuration = diffTimestamp(branchStartTime, now());
+      const executionDurationMs = diffTimestamp(branchStartTime, now());
+      const branchDuration = diffTimestamp(totalStartTime, now());
 
       logger.warn("Fork branch execution failed", {
         nodeId,
         forkPathId: pathId,
         branchExecutionId: branchEntity.id,
         duration: branchDuration,
+        attemptDuration: executionDurationMs,
         attempt: attempts,
         maxAttempts,
         error: lastError,
@@ -149,19 +194,26 @@ async function executeBranchWithRetry(
           nextDelay: delay,
         });
 
-        // Check global retry budget (Task #8)
-        if (retryBudget && !retryBudget.canRetry(delay)) {
-          logger.warn("Retry budget exhausted, stopping retries", {
-            nodeId,
-            forkPathId: pathId,
-            retriesRemaining: retryBudget.getRetriesRemaining(),
-          });
-          break;
-        }
-
-        // Consume from retry budget if available
+        // Check global retry budget with per-branch allocation (Problem #4) and time budget (Problem #5)
         if (retryBudget) {
-          retryBudget.consumeRetry(delay);
+          // Determine time budget mode (Problem #5)
+          const timeBudgetMode = retryPolicy.timeBudgetMode ?? 'delay-only';
+          const executionTimeForBudget =
+            timeBudgetMode === 'total-time' ? executionDurationMs : 0;
+
+          // Check budget with branch ID (Problem #4) and execution time (Problem #5)
+          if (!retryBudget.canRetry(delay, pathId, executionTimeForBudget)) {
+            logger.warn("Retry budget exhausted (Problem #4), stopping retries", {
+              nodeId,
+              forkPathId: pathId,
+              retriesRemaining: retryBudget.getRetriesRemaining(),
+              branchBudget: retryBudget.getBranchBudgetState(pathId),
+            });
+            break;
+          }
+
+          // Consume from retry budget
+          retryBudget.consumeRetry(delay, pathId, executionTimeForBudget);
         }
 
         // Wait before retry
@@ -174,12 +226,24 @@ async function executeBranchWithRetry(
   }
 
   // Return failed outcome after all retry attempts exhausted
+  const totalExecutionTime = diffTimestamp(totalStartTime, now());
+
+  // Check if total branch timeout was exceeded (Problem #8)
+  if (totalBranchTimeout && totalBranchTimeout > 0 && totalExecutionTime > totalBranchTimeout) {
+    logger.warn("Branch exceeded total timeout (Problem #8)", {
+      nodeId,
+      forkPathId: pathId,
+      totalExecutionTime,
+      totalBranchTimeout,
+    });
+  }
+
   return {
     pathId,
     branchEntity,
     status: "FAILED" as const,
     error: lastError,
-    executionTime: diffTimestamp(totalStartTime, now()),
+    executionTime: totalExecutionTime,
   };
 }
 
@@ -332,6 +396,19 @@ export async function forkHandler(
       }
     }
 
+    // Problem #4 Fix: Allocate per-branch retry budgets BEFORE executing branches
+    // This prevents starvation where fast-failing branches consume all budget
+    const retryBudget = workflowExecutionEntity.getRetryBudget();
+    if (retryBudget && config.retryPolicy?.enabled) {
+      const branchIds = branchCreations.map(b => b.pathId);
+      const allocatedPerBranch = retryBudget.allocateBranchBudgets(branchIds);
+      logger.info("Fork branch budgets allocated (Problem #4)", {
+        nodeId: node.id,
+        branchCount: branchIds.length,
+        allocatedPerBranch,
+      });
+    }
+
     // Step 2: Execute all branches in parallel with isolation
     // Each branch is wrapped in try/catch so a single branch failure
     // does NOT prevent other branches from completing.
@@ -341,9 +418,10 @@ export async function forkHandler(
       failureStrategy,
       retryPolicyEnabled: config.retryPolicy?.enabled ?? false,
       childExecutionTimeout: config.childExecutionTimeout,
+      totalBranchTimeout: config.totalBranchTimeout,
     });
 
-    const branchOutcomes: BranchExecutionOutcome[] = await Promise.all(
+    const settledResults = await Promise.allSettled(
       branchCreations.map(async branch => {
         return executeBranchWithRetry(
           branch.pathId,
@@ -355,6 +433,27 @@ export async function forkHandler(
         );
       }),
     );
+
+    // Convert PromiseSettledResult[] to BranchExecutionOutcome[]
+    // Ensures all branches are processed regardless of individual failures
+    const branchOutcomes: BranchExecutionOutcome[] = settledResults.map((result, index) => {
+      const branch = branchCreations[index]!; // Assert non-null as indices match
+      if (result.status === "fulfilled") {
+        return result.value;
+      } else {
+        // Handle promise rejection as a failed branch
+        const rejectionError = result.reason instanceof Error
+          ? result.reason
+          : new Error(String(result.reason));
+        return {
+          pathId: branch.pathId,
+          branchEntity: branch.branchEntity,
+          status: "FAILED" as const,
+          error: rejectionError,
+          executionTime: 0, // Unknown duration for rejected promises
+        };
+      }
+    });
 
     // Apply failure strategy
     const failedCount = branchOutcomes.filter(o => o.status === "FAILED").length;

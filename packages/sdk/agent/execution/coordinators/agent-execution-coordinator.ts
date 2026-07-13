@@ -143,9 +143,9 @@ async function executeIterationWithRetryAndTimeout<T>(
       // Calculate delay for next retry
       const delayMs = retryPolicy.getNextDelay(attemptCount);
 
-      // Check retry budget before consuming delay
+      // Check retry budget and consume in single operation
       if (retryBudget) {
-        const budgetCheck = retryBudget.canRetry(delayMs);
+        const budgetCheck = retryBudget.consumeRetry(delayMs);
         if (!budgetCheck.allowed) {
           logger.warn("Retry budget would be exceeded by retry delay, stopping retry", {
             agentLoopId,
@@ -156,11 +156,6 @@ async function executeIterationWithRetryAndTimeout<T>(
           });
           throw lastError;
         }
-      }
-
-      // Consume from budget
-      if (retryBudget) {
-        retryBudget.consumeRetry(delayMs);
       }
 
       // Wait before retry with exponential backoff
@@ -263,9 +258,9 @@ async function executeAgentLoopWithFailurePolicy(
           maxAttempts,
         });
 
-        // Check retry budget before consuming delay
+        // Check retry budget and consume in single operation
         if (retryBudget) {
-          const budgetCheck = retryBudget.canRetry(delayMs);
+          const budgetCheck = retryBudget.consumeRetry(delayMs);
           if (!budgetCheck.allowed) {
             logger.warn("Retry budget would be exceeded by main loop retry delay", {
               agentLoopId,
@@ -277,7 +272,6 @@ async function executeAgentLoopWithFailurePolicy(
             // Budget exhausted, don't retry
             break;
           }
-          retryBudget.consumeRetry(delayMs);
         }
 
         await delay(delayMs);
@@ -316,9 +310,9 @@ async function executeAgentLoopWithFailurePolicy(
         nextAttempt: attemptCount + 2,
       });
 
-      // Check retry budget before consuming delay
+      // Check retry budget and consume in single operation
       if (retryBudget) {
-        const budgetCheck = retryBudget.canRetry(delayMs);
+        const budgetCheck = retryBudget.consumeRetry(delayMs);
         if (!budgetCheck.allowed) {
           logger.warn("Retry budget would be exceeded by main loop retry delay", {
             agentLoopId,
@@ -328,7 +322,6 @@ async function executeAgentLoopWithFailurePolicy(
           });
           throw error;
         }
-        retryBudget.consumeRetry(delayMs);
       }
 
       await delay(delayMs);
@@ -863,9 +856,9 @@ export class AgentExecutionCoordinator {
 
         const delayMs = retryPolicy.getNextDelay(attemptCount);
 
-        // Check retry budget before consuming delay
+        // Check retry budget and consume in single operation
         if (retryBudget) {
-          const budgetCheck = retryBudget.canRetry(delayMs);
+          const budgetCheck = retryBudget.consumeRetry(delayMs);
           if (!budgetCheck.allowed) {
             logger.warn("Retry budget would be exceeded by stream retry delay, stopping retry", {
               agentLoopId,
@@ -876,11 +869,6 @@ export class AgentExecutionCoordinator {
             });
             throw lastError;
           }
-        }
-
-        // Consume from budget
-        if (retryBudget) {
-          retryBudget.consumeRetry(delayMs);
         }
 
         logger.info("Retrying stream iteration after delay", {

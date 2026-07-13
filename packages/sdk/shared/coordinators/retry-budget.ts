@@ -57,6 +57,11 @@ export interface RetryBudgetConfig {
   name?: string;
   /** Whether to enable detailed logging */
   verbose?: boolean;
+  /**
+   * Optional callback for budget events (e.g. retry consumed, budget exhausted).
+   * Enables observability without coupling to a specific metrics collector.
+   */
+  onEvent?: (event: RetryBudgetEvent) => void;
 }
 
 /**
@@ -102,7 +107,7 @@ export interface BranchBudgetState {
 }
 
 /**
- * Time budget check result — used by both canRetry() and canConsumeDelay()
+ * Time budget check result — used by both canRetry() and consumeRetry()
  */
 export interface BudgetCheckResult {
   allowed: boolean;
@@ -122,6 +127,23 @@ function allowedResult(remaining: number): BudgetCheckResult {
  */
 function deniedResult(remaining: number, reason: string): BudgetCheckResult {
   return { allowed: false, remaining, reason };
+}
+
+/**
+ * Event emitted by RetryBudget for observability.
+ * Consumers (e.g. RetryBudgetMetricsCollector) can subscribe via onEvent callback.
+ */
+export interface RetryBudgetEvent {
+  type: 'retry_consumed' | 'budget_exhausted' | 'retry_denied' | 'budget_reset';
+  detail: {
+    retriesConsumed: number;
+    maxRetries: number | undefined;
+    timeBudgetConsumedMs: number;
+    timeBudgetMs: number | undefined;
+    branchId?: string;
+    reason?: string;
+    delayMs?: number;
+  };
 }
 
 /**
@@ -154,6 +176,9 @@ export class RetryBudget {
   /** Total retries allocated to all branches (used for pool calculation) */
   private totalBranchAllocated: number = 0;
 
+  /** Optional event callback for observability */
+  private readonly onEvent?: (event: RetryBudgetEvent) => void;
+
   constructor(config: RetryBudgetConfig) {
     if (config.maxRetries !== undefined && config.maxRetries < 0) {
       throw new Error("maxRetries must be >= 0 or undefined");
@@ -169,6 +194,7 @@ export class RetryBudget {
     this.verbose = config.verbose ?? false;
     this.startTime = Date.now();
     this.name = config.name ?? 'RetryBudget';
+    this.onEvent = config.onEvent;
 
     logger.info("RetryBudget created", {
       name: this.name,
@@ -183,6 +209,26 @@ export class RetryBudget {
    */
   getElapsedTime(): number {
     return Date.now() - this.startTime;
+  }
+
+  /**
+   * Emit an event for observability, if onEvent callback is configured.
+   */
+  private emitEvent(
+    type: RetryBudgetEvent['type'],
+    extra: Partial<RetryBudgetEvent['detail']> = {},
+  ): void {
+    if (!this.onEvent) return;
+    this.onEvent({
+      type,
+      detail: {
+        retriesConsumed: this.retriesConsumed,
+        maxRetries: this.maxRetries,
+        timeBudgetConsumedMs: this.timeBudgetConsumedMs,
+        timeBudgetMs: this.timeBudgetMs,
+        ...extra,
+      },
+    });
   }
 
   /**
@@ -376,16 +422,18 @@ export class RetryBudget {
    * @param branchId Optional branch ID (for per-branch budget tracking - Problem #4)
    * @param executionTimeMs Optional execution time (for total-time mode - Problem #5).
    *                        Use 0 (default) when using agent path with recordExecutionTime.
-   * @returns true if consumed successfully, false if budget exhausted
+   * @returns BudgetCheckResult: { allowed: true, remaining } if consumed successfully,
+   *          or { allowed: false, reason } if budget was exhausted.
    */
   consumeRetry(
     delayMs: number = 0,
     branchId?: string,
     executionTimeMs: number = 0,
-  ): boolean {
+  ): BudgetCheckResult {
     const check = this.canRetry(delayMs, branchId, executionTimeMs);
     if (!check.allowed) {
-      return false;
+      this.emitEvent('retry_denied', { branchId, reason: check.reason, delayMs });
+      return check;
     }
 
     // Consume from global budget
@@ -406,6 +454,9 @@ export class RetryBudget {
       this.timeBudgetConsumedMs += executionTimeMs;
     }
 
+    // Emit event after consumption
+    this.emitEvent('retry_consumed', { branchId, delayMs });
+
     if (this.verbose) {
       logger.debug("Retry consumed from budget", {
         retriesConsumed: this.retriesConsumed,
@@ -417,7 +468,11 @@ export class RetryBudget {
       });
     }
 
-    return true;
+    // Recalculate remaining for the returned result
+    const remaining = this.timeBudgetMs !== undefined
+      ? Math.max(0, this.timeBudgetMs - this.timeBudgetConsumedMs)
+      : Number.MAX_SAFE_INTEGER;
+    return allowedResult(remaining);
   }
 
   /**
@@ -466,7 +521,9 @@ export class RetryBudget {
    */
   getState(): RetryBudgetState {
     const countExhausted = this.maxRetries !== undefined && this.retriesConsumed >= this.maxRetries;
-    const timeExhausted = this.timeBudgetMs !== undefined && this.timeBudgetConsumedMs >= this.timeBudgetMs;
+    const timeExhausted = this.timeBudgetMs !== undefined && (
+      this.timeBudgetMs === 0 || this.timeBudgetConsumedMs > this.timeBudgetMs
+    );
 
     // Derived values
     const totalDelayConsumedMs = this.timeBudgetConsumedMs - this.executionTimeConsumedMs;
@@ -534,19 +591,15 @@ export class RetryBudget {
     this.branchBudgets.clear();
     this.totalBranchAllocated = 0;
     if (resetStartTime) {
-      (this as unknown as { startTime: number }).startTime = Date.now();
+      this._resetStartTime();
     }
+    this.emitEvent('budget_reset');
+  }
+
+  /** Reset the internal start time clock (bypasses readonly via private method). */
+  private _resetStartTime(): void {
+    (this as unknown as { startTime: number }).startTime = Date.now();
   }
 }
 
-/**
- * Create a retry budget with convenient defaults.
- * When only timeBudgetMs is provided, creates a time-only budget (no count limit).
- * When only maxRetries is provided, creates a count-only budget (no time limit).
- * When both are provided, both dimensions are enforced.
- */
-export function createRetryBudget(
-  config: RetryBudgetConfig,
-): RetryBudget {
-  return new RetryBudget(config);
-}
+

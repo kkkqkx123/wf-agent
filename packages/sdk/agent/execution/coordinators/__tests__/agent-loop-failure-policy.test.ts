@@ -132,11 +132,10 @@ async function executeAgentLoopWithFailurePolicy(
         mainLoopRetryCount++;
 
         if (retryBudget) {
-          const budgetCheck = retryBudget.canRetry(delayMs);
+          const budgetCheck = retryBudget.consumeRetry(delayMs);
           if (!budgetCheck.allowed) {
             break;  // Stop retrying due to budget
           }
-          retryBudget.consumeRetry(delayMs);
         }
 
         await delay(delayMs);
@@ -160,11 +159,10 @@ async function executeAgentLoopWithFailurePolicy(
       mainLoopRetryCount++;
 
       if (retryBudget) {
-          const budgetCheck = retryBudget.canRetry(delayMs);
+          const budgetCheck = retryBudget.consumeRetry(delayMs);
           if (!budgetCheck.allowed) {
             break;  // Budget exhausted, stop retrying
           }
-          retryBudget.consumeRetry(delayMs);
         }
 
         await delay(delayMs);

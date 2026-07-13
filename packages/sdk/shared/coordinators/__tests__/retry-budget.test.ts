@@ -197,7 +197,12 @@ describe("RetryBudget - Unit Tests", () => {
 
       expect(budget.getState().retriesConsumed).toBe(3);
       expect(budget.getState().timeBudgetConsumed).toBe(3000); // Exactly 3s of 3s
-      expect(budget.getState().isExhausted).toBe(true);
+      // isExhausted is false because consumed exactly equals budget (not over).
+      // canRetry(0) is still allowed — zero-delay retry at the budget ceiling is fine.
+      expect(budget.getState().isExhausted).toBe(false);
+      expect(budget.canRetry(0).allowed).toBe(true);
+      // Any positive delay would exceed
+      expect(budget.canRetry(1).allowed).toBe(false);
     });
   });
 
@@ -245,7 +250,12 @@ describe("RetryBudget - Unit Tests", () => {
       // Consume exactly the time budget
       budget.consumeRetry(2000);
 
-      expect(budget.isExhausted()).toBe(true);
+      // isExhausted and canRetry are consistent: consumed exactly equals budget
+      // so canRetry(0) is still allowed (no positive delay would go over)
+      expect(budget.isExhausted()).toBe(false);
+      expect(budget.canRetry(0).allowed).toBe(true);
+      // Any positive delay would exceed — exhausted in practice
+      expect(budget.canRetry(1).allowed).toBe(false);
     });
   });
 

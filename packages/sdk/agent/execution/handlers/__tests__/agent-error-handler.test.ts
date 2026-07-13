@@ -70,6 +70,7 @@ describe("AgentErrorHandler", () => {
         fail: vi.fn(),
         pause: vi.fn(),
         cancel: vi.fn(),
+        addErrorRecord: vi.fn(),
         isStreaming: false,
         pendingToolCalls: new Set<string>(),
         streamMessage: null,
@@ -117,6 +118,12 @@ describe("AgentErrorHandler", () => {
       expect(result).toBe(sdkError);
       expect(result.severity).toBe("warning");
       expect(mockEntity.state.fail).not.toHaveBeenCalled();
+      // [P2 Fix] warning level errors should be recorded via addErrorRecord
+      expect(mockEntity.state.addErrorRecord).toHaveBeenCalledTimes(1);
+      const record = vi.mocked(mockEntity.state.addErrorRecord).mock.calls[0][0];
+      expect(record.severity).toBe("warning");
+      expect(record.isRecoverable).toBe(true);
+      expect(record.iteration).toBe(3);
     });
 
     it("should preserve SDKError severity and not fail for info level", async () => {
@@ -131,6 +138,12 @@ describe("AgentErrorHandler", () => {
       expect(result).toBe(sdkError);
       expect(result.severity).toBe("info");
       expect(mockEntity.state.fail).not.toHaveBeenCalled();
+      // [P2 Fix] info level errors should be recorded via addErrorRecord
+      expect(mockEntity.state.addErrorRecord).toHaveBeenCalledTimes(1);
+      const record = vi.mocked(mockEntity.state.addErrorRecord).mock.calls[0][0];
+      expect(record.severity).toBe("info");
+      expect(record.isRecoverable).toBe(true);
+      expect(record.iteration).toBe(3);
     });
 
     it("should fail entity only for error severity", async () => {

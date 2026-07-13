@@ -25,7 +25,7 @@ describe("RetryBudget - Unit Tests", () => {
      */
     it("should only count retry delays, not wall-clock time", async () => {
       const budget = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs: 5000, // 5 seconds of retry delays allowed
       });
 
@@ -66,7 +66,7 @@ describe("RetryBudget - Unit Tests", () => {
 
       // Budget A: Execute quickly
       const budgetA = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs,
       });
 
@@ -75,7 +75,7 @@ describe("RetryBudget - Unit Tests", () => {
 
       // Budget B: Execute slowly (long wait between decisions)
       const budgetB = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs,
       });
 
@@ -97,7 +97,7 @@ describe("RetryBudget - Unit Tests", () => {
      */
     it("should enforce retry count limit", () => {
       const budget = new RetryBudget({
-        totalRetries: 3,
+        maxRetries: 3,
       });
 
       expect(budget.canRetry()).toBe(true);
@@ -124,7 +124,7 @@ describe("RetryBudget - Unit Tests", () => {
      */
     it("should track multiple delays from same consumer", () => {
       const budget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 
@@ -166,7 +166,7 @@ describe("RetryBudget - Unit Tests", () => {
      */
     it("should respect whichever limit is hit first (count)", () => {
       const budget = new RetryBudget({
-        totalRetries: 2,
+        maxRetries: 2,
         timeBudgetMs: 10000, // Plenty of time
       });
 
@@ -187,7 +187,7 @@ describe("RetryBudget - Unit Tests", () => {
      */
     it("should respect whichever limit is hit first (time)", () => {
       const budget = new RetryBudget({
-        totalRetries: 10, // Plenty of attempts
+        maxRetries: 10, // Plenty of attempts
         timeBudgetMs: 3000, // Limited time
       });
 
@@ -216,7 +216,7 @@ describe("RetryBudget - Unit Tests", () => {
   describe("Budget State Queries", () => {
     it("should provide accurate state snapshots", () => {
       const budget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 
@@ -231,13 +231,15 @@ describe("RetryBudget - Unit Tests", () => {
         timeBudgetMs: 10000,
         timeBudgetMode: "delay-only",
         timeBudgetConsumed: 5000,
+        executionTimeConsumedMs: 0,
+        elapsedTimeMs: expect.any(Number),
         isExhausted: false,
       });
     });
 
     it("should mark as exhausted when count limit reached", () => {
       const budget = new RetryBudget({
-        totalRetries: 1,
+        maxRetries: 1,
       });
 
       budget.consumeRetry();
@@ -246,7 +248,7 @@ describe("RetryBudget - Unit Tests", () => {
 
     it("should mark as exhausted when time limit reached", () => {
       const budget = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs: 2000,
       });
 
@@ -259,18 +261,18 @@ describe("RetryBudget - Unit Tests", () => {
   });
 
   describe("Edge Cases", () => {
-    it("should reject negative totalRetries", () => {
+    it("should reject negative maxRetries", () => {
       expect(() => {
         new RetryBudget({
-          totalRetries: -1,
+          maxRetries: -1,
         });
-      }).toThrow("totalRetries must be >= 0");
+      }).toThrow("maxRetries must be >= 0 or undefined");
     });
 
     it("should reject negative timeBudgetMs", () => {
       expect(() => {
         new RetryBudget({
-          totalRetries: 5,
+          maxRetries: 5,
           timeBudgetMs: -1,
         });
       }).toThrow("timeBudgetMs must be >= 0");
@@ -278,7 +280,7 @@ describe("RetryBudget - Unit Tests", () => {
 
     it("should handle zero budget", () => {
       const budget = new RetryBudget({
-        totalRetries: 0,
+        maxRetries: 0,
         timeBudgetMs: 0,
       });
 
@@ -288,7 +290,7 @@ describe("RetryBudget - Unit Tests", () => {
 
     it("should handle unlimited time budget (timeBudgetMs = 0)", () => {
       const budget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 0, // 0 means unlimited
       });
 
@@ -307,7 +309,7 @@ describe("RetryBudget - Unit Tests", () => {
   describe("Reset Functionality", () => {
     it("should reset budget to initial state", () => {
       const budget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 

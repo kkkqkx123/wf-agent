@@ -148,6 +148,22 @@ export async function handleAgentError(
       });
     }
   } else {
+    // [P2 Fix] Record warning/info errors into errorRecords for complete error chain
+    // These are non-fatal but still important for error pattern analysis and observability.
+    entity.state.addErrorRecord({
+      id: `error:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: Date.now(),
+      message: standardizedError.message,
+      errorType: "execution_error",
+      severity: standardizedError.severity as "warning" | "info",
+      iteration: entity.state.currentIteration,
+      context: {
+        operation,
+        toolName: context.toolName,
+      },
+      isRecoverable: true,
+    });
+
     logger.info("Agent Loop error is recoverable, continuing execution", {
       agentLoopId: entity.id,
       operation,

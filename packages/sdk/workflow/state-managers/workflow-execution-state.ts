@@ -14,11 +14,32 @@ import type {
 } from "@wf-agent/types";
 import {
   RuntimeValidationError,
-  EXECUTION_STATE_MAX_ERROR_RECORDS,
   EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
   EXECUTION_STATE_MAX_EVENTS,
 } from "@wf-agent/types";
 import type { StateManager } from "../../shared/types/state-manager.js";
+
+// ============================================================================
+// Error Chain Analysis Types
+// ============================================================================
+
+/**
+ * Error pattern analysis result
+ */
+export interface ErrorPattern {
+  /** Pattern type: none, single, or chain */
+  type: 'none' | 'single' | 'chain';
+  /** Total error count */
+  count: number;
+  /** All error records */
+  errors: ExecutionErrorRecord[];
+  /** Distribution of errors by type */
+  typeDistribution: Record<string, number>;
+  /** Nodes causing the most errors */
+  nodeProblems: Array<{ nodeId: string; count: number }>;
+  /** Distribution by severity */
+  severityBreakdown: Record<string, number>;
+}
 
 /**
  * Operation-level execution state
@@ -199,7 +220,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   /**
    * Pause execution
    */
-  pause(): void {
+  pause(nodeId?: string): void {
     if (this._status !== "RUNNING") {
       throw new RuntimeValidationError(
         `Can only pause RUNNING execution, current status: ${this._status}`,
@@ -208,6 +229,16 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     }
     this._status = "PAUSED";
     this._shouldPause = false;
+
+    // [P4 Fix] Record interruption for history tracking and checkpoint consistency
+    this.recordInterruption({
+      id: `interrupt:${now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: "PAUSE",
+      reason: "Workflow execution paused",
+      nodeId,
+      status: "pending",
+    });
   }
 
   /**
@@ -222,6 +253,16 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     }
     this._status = "RUNNING";
     this._shouldPause = false;
+
+    // Update the last PAUSE interruption record to mark it as resumed
+    for (let i = this._interruptionRecords.length - 1; i >= 0; i--) {
+      const record = this._interruptionRecords[i];
+      if (record && record.type === "PAUSE" && record.status === "pending") {
+        record.status = "resumed";
+        record.resumedAt = now();
+        break;
+      }
+    }
   }
 
   /**
@@ -256,9 +297,19 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   /**
    * Cancel execution
    */
-  cancel(): void {
+  cancel(nodeId?: string): void {
     this._status = "CANCELLED";
     this._endTime = now();
+
+    // [P4 Fix] Record interruption for history tracking and checkpoint consistency
+    this.recordInterruption({
+      id: `interrupt:${now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: "STOP",
+      reason: "Workflow execution cancelled",
+      nodeId,
+      status: "abandoned",
+    });
   }
 
   /**
@@ -398,11 +449,10 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
       error.rootCauseId = errorId;
     }
 
-    // 3. Limit record count
-    const MAX_ERRORS = EXECUTION_STATE_MAX_ERROR_RECORDS;
-    if (this._errorRecords.length >= MAX_ERRORS) {
-      this._errorRecords.shift();
-    }
+    // 3. Add to records (unlimited retention for complete error history)
+    // Previous limit: EXECUTION_STATE_MAX_ERROR_RECORDS = 100 (deprecated)
+    // Migration: All errors are now retained, users should implement their own
+    // retention policies at the persistence layer if needed
 
     // 4. Add to records
     this._errorRecords.push(error);
@@ -497,6 +547,93 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
 
     const rootCauseId = lastError.rootCauseId || lastError.id;
     return this._errorRecords.find(e => e.id === rootCauseId) || lastError;
+  }
+
+  /**
+   * Analyze error patterns across all recorded errors.
+   * Provides distribution by type, affected nodes, and severity breakdown.
+   * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
+   */
+  analyzeErrorPattern(): ErrorPattern {
+    if (this._errorRecords.length === 0) {
+      return {
+        type: 'none',
+        count: 0,
+        errors: [],
+        typeDistribution: {},
+        nodeProblems: [],
+        severityBreakdown: {},
+      };
+    }
+
+    const errors = this._errorRecords;
+    const typeCount: Record<string, number> = {};
+    const nodeCount: Record<string, number> = {};
+    const severityCount: Record<string, number> = {};
+
+    errors.forEach(err => {
+      typeCount[err.errorType] = (typeCount[err.errorType] ?? 0) + 1;
+      if (err.nodeId) {
+        nodeCount[err.nodeId] = (nodeCount[err.nodeId] ?? 0) + 1;
+      }
+      severityCount[err.severity] = (severityCount[err.severity] ?? 0) + 1;
+    });
+
+    return {
+      type: errors.length > 1 ? 'chain' : 'single',
+      count: errors.length,
+      errors,
+      typeDistribution: typeCount,
+      nodeProblems: Object.entries(nodeCount)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([nodeId, count]) => ({ nodeId, count })),
+      severityBreakdown: severityCount,
+    };
+  }
+
+  /**
+   * Check if execution can recover from current errors.
+   * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
+   */
+  canRecoverFromErrors(): boolean {
+    if (this._errorRecords.length === 0) return true;
+    const lastError = this._errorRecords[this._errorRecords.length - 1];
+    if (!lastError) return true;
+    return lastError.isRecoverable;
+  }
+
+  /**
+   * Get recommended recovery action based on error chain analysis.
+   * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
+   */
+  getRecommendedRecoveryAction(): "retry" | "fallback" | "manual_intervention" | "abort" {
+    if (this._errorRecords.length === 0) return "retry";
+
+    const lastError = this._errorRecords[this._errorRecords.length - 1];
+    if (!lastError) return "retry";
+
+    // If the last error is recoverable, suggest retry
+    if (lastError.isRecoverable) return "retry";
+
+    // If recovery action was specified in the error, use it
+    if (lastError.recoveryAction) return lastError.recoveryAction as "retry" | "fallback" | "manual_intervention" | "abort";
+
+    // Check error chain patterns
+    if (this._errorRecords.length >= 3) {
+      // Multiple errors in chain suggests deeper issues
+      return "manual_intervention";
+    }
+
+    // Check for repeated tool errors
+    const toolErrors = this._errorRecords.filter(
+      e => e.errorType === "tool_error" || e.context?.toolName,
+    );
+    if (toolErrors.length >= 2) {
+      return "fallback";
+    }
+
+    return "abort";
   }
 
   /**

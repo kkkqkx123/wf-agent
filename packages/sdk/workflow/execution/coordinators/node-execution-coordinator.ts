@@ -555,6 +555,31 @@ export class NodeExecutionCoordinator {
           };
         }
 
+        // [P1 Fix] Record node-level error into state errorRecords before checkpoint
+        // This ensures the error is tracked in the error chain for root cause analysis.
+        if (nodeResult.status === "FAILED") {
+          workflowExecutionEntity.state.recordError({
+            id: `error:${now()}:${Math.random().toString(36).slice(2, 9)}`,
+            timestamp: now(),
+            message: nodeResult.error instanceof Error
+              ? nodeResult.error.message
+              : String(nodeResult.error || "Node execution failed"),
+            errorType: "execution_error",
+            severity: "error",
+            nodeId: nodeId,
+            context: {
+              operation: "node_execution",
+            },
+            isRecoverable: false,
+            details: {
+              nodeType: nodeType,
+              nodeName: (node as WorkflowNode).name,
+              retryCount,
+              totalRetryTime,
+            },
+          });
+        }
+
         // [Problem #3 Fix] Create a failure checkpoint when node ultimately fails
         // This ensures the failure state is persisted even if the SDK crashes after this point.
         if (nodeResult.status === "FAILED" && this.checkpointDependencies) {
@@ -746,6 +771,23 @@ export class NodeExecutionCoordinator {
         };
 
         workflowExecutionEntity.addNodeResult(errorResult);
+
+        // [P1 Fix] Record the catch-block error into state errorRecords
+        workflowExecutionEntity.state.recordError({
+          id: `error:${now()}:${Math.random().toString(36).slice(2, 9)}`,
+          timestamp: now(),
+          message: enhancedError.message || "Node execution threw an exception",
+          errorType: "execution_error",
+          severity: "error",
+          nodeId: nodeId,
+          context: {
+            operation: "node_execution_catch",
+          },
+          isRecoverable: false,
+          details: {
+            nodeType: nodeType,
+          },
+        });
 
         // [Problem #3 Fix] Create failure checkpoint in catch block to persist error state
         if (this.checkpointDependencies) {

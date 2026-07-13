@@ -67,14 +67,15 @@ describe("AgentLoopState - Execution Records (Plan C)", () => {
       }
 
       const records = state.getErrorRecords();
-      expect(records).toHaveLength(EXECUTION_STATE_MAX_ERROR_RECORDS);
+      // [P5 Fix] Error records are no longer capped - all records are retained
+      expect(records).toHaveLength(110);
 
-      // Check that the latest records are kept
+      // Check that all records are kept (first and last)
       expect(records[0]!.id).toBe(
-        `error-${10}`,
+        `error-0`,
       );
-      expect(records[EXECUTION_STATE_MAX_ERROR_RECORDS - 1]!.id).toBe(
-        `error-${EXECUTION_STATE_MAX_ERROR_RECORDS + 9}`,
+      expect(records[109]!.id).toBe(
+        `error-109`,
       );
     });
 

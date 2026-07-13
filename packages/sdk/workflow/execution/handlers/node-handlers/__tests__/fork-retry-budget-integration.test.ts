@@ -15,7 +15,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { RetryPolicy } from "@wf-agent/types";
-import { RetryBudget } from "../../shared/coordinators/retry-budget.js";
+import { RetryBudget } from "../../../../../shared/coordinators/retry-budget.js";
 
 describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
   describe("Multi-Branch Retry Scenario", () => {
@@ -31,7 +31,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should share global budget across multiple branches", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs: 10000, // 10 seconds total
       });
 
@@ -81,7 +81,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should stop retrying when global budget exhausted", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs: 5000, // Only 5 seconds
       });
 
@@ -113,7 +113,9 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       // Branch 2: Second retry (2s) - would make total 1+2+1+2 = 6s > 5s budget
       expect(globalBudget.canRetry(2000)).toBe(false);
 
-      expect(globalBudget.isExhausted()).toBe(true);
+      // Budget is not fully exhausted: 4000ms consumed out of 5000ms
+      // (a 1000ms retry would still fit)
+      expect(globalBudget.isExhausted()).toBe(false);
     });
 
     /**
@@ -121,7 +123,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should stop retrying when retry count exhausted", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 3, // Only 3 retries total
+        maxRetries: 3, // Only 3 retries total
         timeBudgetMs: 60000, // Plenty of time
       });
 
@@ -155,7 +157,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should not retry timeout errors from branches", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 
@@ -193,7 +195,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should handle mixed timeout and retry scenarios", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 
@@ -252,7 +254,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should allow other branches to execute during retry", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 
@@ -285,7 +287,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
      */
     it("should apply same retry policy to all branches", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 10,
+        maxRetries: 10,
         timeBudgetMs: 30000,
       });
 
@@ -324,7 +326,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
   describe("Budget State Queries During Retries", () => {
     it("should provide accurate state while branches are retrying", () => {
       const globalBudget = new RetryBudget({
-        totalRetries: 5,
+        maxRetries: 5,
         timeBudgetMs: 10000,
       });
 

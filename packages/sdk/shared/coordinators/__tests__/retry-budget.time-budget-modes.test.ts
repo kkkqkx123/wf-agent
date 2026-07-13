@@ -9,7 +9,7 @@ import { RetryBudget } from '../retry-budget';
 describe('RetryBudget time budget modes (Problem #5)', () => {
   it('delay-only mode: only counts retry delays', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       timeBudgetMode: 'delay-only',
       verbose: false,
@@ -26,7 +26,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('total-time mode: counts delays + execution time', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -43,7 +43,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('should default to delay-only mode', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       // Not specifying timeBudgetMode
       verbose: false,
@@ -55,7 +55,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('delay-only: allows long execution as long as delays are limited', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 10000, // Only 10s delay budget
       timeBudgetMode: 'delay-only',
       verbose: false,
@@ -75,7 +75,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('total-time: limits both delays and execution', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 30000, // 30s total budget
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -96,14 +96,14 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('should pass timeBudgetMode through getState', () => {
     const delayOnlyBudget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       timeBudgetMode: 'delay-only',
       verbose: false,
     });
 
     const totalTimeBudget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -115,7 +115,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('delay-only: execution time parameter should be ignored', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 10000,
       timeBudgetMode: 'delay-only',
       verbose: false,
@@ -137,7 +137,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('total-time: multiple attempts accumulate correctly', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 100000, // 100s total
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -170,7 +170,7 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('should reset modes correctly', () => {
     const budget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -190,14 +190,14 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
 
   it('no time budget: both modes should allow unlimited time', () => {
     const delayOnlyBudget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 0, // No time budget
       timeBudgetMode: 'delay-only',
       verbose: false,
     });
 
     const totalTimeBudget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 0, // No time budget
       timeBudgetMode: 'total-time',
       verbose: false,
@@ -218,14 +218,14 @@ describe('RetryBudget time budget modes (Problem #5)', () => {
   it('mode impacts effective retry count', () => {
     // Scenario: 100s total budget, 10s delay, 20s execution per retry
     const delayOnlyBudget = new RetryBudget({
-      totalRetries: 100,
+      maxRetries: 100,
       timeBudgetMs: 100000,
       timeBudgetMode: 'delay-only',
       verbose: false,
     });
 
     const totalTimeBudget = new RetryBudget({
-      totalRetries: 100,
+      maxRetries: 100,
       timeBudgetMs: 100000,
       timeBudgetMode: 'total-time',
       verbose: false,

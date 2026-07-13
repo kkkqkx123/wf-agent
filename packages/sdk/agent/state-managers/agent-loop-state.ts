@@ -114,6 +114,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   /** Total number of tool calls */
   private _toolCallCount: number = 0;
 
+  /** Total number of timeouts */
+  private _timeoutCount: number = 0;
+
   /** Iterating through the history records */
   private _iterationHistory: IterationRecord[] = [];
 
@@ -217,6 +220,20 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    */
   get toolCallCount(): number {
     return this._toolCallCount;
+  }
+
+  /**
+   * [P6 Fix] Get the total number of timeouts that occurred during execution
+   */
+  get timeoutCount(): number {
+    return this._timeoutCount;
+  }
+
+  /**
+   * [P6 Fix] Increment timeout counter when a timeout occurs during execution
+   */
+  incrementTimeoutCount(): void {
+    this._timeoutCount++;
   }
 
   /**
@@ -485,9 +502,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @param record Error record to add
    */
   addErrorRecord(record: ExecutionErrorRecord): void {
-    // [Problem #5 Fix] Remove cap to be consistent with recordError()
-    // Error retention is now managed at the persistence layer
-    this._errorRecords.push(record);
+    // [P3 Fix] Delegate to recordError() for consistent error chain tracking
+    // Previously this was a direct push that bypassed parentErrorId/errorChain/rootCauseId
+    this.recordError(record);
   }
 
   /**
@@ -1093,6 +1110,19 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._endTime = now();
     this._isStreaming = false;
     this._streamMessage = null;
+
+    // [P7 Fix] Record error in errorRecords with iteration context
+    // The iteration is captured from the current state at the time of failure
+    this.recordError({
+      id: `error:${this._endTime}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: this._endTime,
+      message: error instanceof Error ? error.message : String(error),
+      errorType: "execution_error",
+      severity: "error",
+      iteration: this._currentIteration,
+      context: { operation: "agent_execution_fail" },
+      isRecoverable: false,
+    });
   }
 
   /**
@@ -1147,6 +1177,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._interruptionRecords = [];
     this._eventRecords = [];
     this._variableSnapshots = [];
+    this._timeoutCount = 0;
   }
 
   /**
@@ -1173,6 +1204,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   reset(): void {
     this._currentIteration = 0;
     this._toolCallCount = 0;
+    this._timeoutCount = 0;
     this._iterationHistory = [];
     this._currentIterationRecord = null;
     this._startTime = null;
@@ -1198,6 +1230,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     cloned._status = this._status;
     cloned._currentIteration = this._currentIteration;
     cloned._toolCallCount = this._toolCallCount;
+    cloned._timeoutCount = this._timeoutCount;
     cloned._startTime = this._startTime;
     cloned._endTime = this._endTime;
     cloned._error = this._error;
@@ -1238,6 +1271,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       status: this._status,
       currentIteration: this._currentIteration,
       toolCallCount: this._toolCallCount,
+      timeoutCount: this._timeoutCount > 0 ? this._timeoutCount : undefined,
       startTime: this._startTime,
       endTime: this._endTime,
       error: this._error,
@@ -1274,6 +1308,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._status = snapshot.status;
     this._currentIteration = snapshot.currentIteration;
     this._toolCallCount = snapshot.toolCallCount;
+    this._timeoutCount = snapshot.timeoutCount ?? 0;
     this._startTime = snapshot.startTime;
     this._endTime = snapshot.endTime;
     this._error = snapshot.error;

@@ -7,6 +7,17 @@ import type { WorkflowExecutionStatus } from "./status.js";
 import type { NodeExecutionResult } from "./history.js";
 
 /**
+ * Retry budget configuration for workflow execution.
+ * Controls global retry budget across all nodes and branches.
+ */
+export interface RetryBudgetOption {
+  /** Maximum total retry count across the entire workflow (undefined = unlimited count) */
+  maxRetries?: number;
+  /** Maximum total time spent on retry delays (ms), 0 = unlimited */
+  timeBudgetMs?: number;
+}
+
+/**
  * Workflow Execution Option Type
  */
 export interface WorkflowExecutionOptions {
@@ -55,6 +66,13 @@ export interface WorkflowExecutionOptions {
   onToolCalled?: (toolId: ID, parameters: Record<string, unknown>) => void | Promise<void>;
   /** Error callback */
   onError?: (error: unknown) => void | Promise<void>;
+
+  /**
+   * Global retry budget configuration.
+   * When set, a RetryBudget is created for the entire workflow execution
+   * and shared across all node-level retries and FORK branch retries.
+   */
+  retryBudget?: RetryBudgetOption;
 }
 
 /**

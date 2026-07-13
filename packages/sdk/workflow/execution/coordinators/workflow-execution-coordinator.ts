@@ -269,9 +269,9 @@ export class WorkflowExecutionCoordinator {
 
     // Update status via state lifecycle method
     if (type === "PAUSE") {
-      this.workflowExecutionEntity.state.pause();
+      this.workflowExecutionEntity.state.pause(currentNodeId);
     } else {
-      this.workflowExecutionEntity.state.cancel();
+      this.workflowExecutionEntity.state.cancel(currentNodeId);
     }
 
     // [Problem #4 Fix] Collect error details from node results
@@ -283,6 +283,23 @@ export class WorkflowExecutionCoordinator {
           nodeId: nr.nodeId,
           message: nr.error instanceof Error ? nr.error.message : String(nr.error),
           type: nr.error instanceof Error ? nr.error.name : "unknown",
+        });
+      }
+    }
+
+    // [P10 Fix] Record failed node errors into state errorRecords for checkpoint consistency
+    // This ensures the error chain is preserved even if the execution is interrupted.
+    for (const err of errors) {
+      if (err.nodeId) {
+        this.workflowExecutionEntity.state.recordError({
+          id: `error:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+          timestamp: Date.now(),
+          message: err.message,
+          errorType: "execution_error",
+          severity: "error",
+          nodeId: err.nodeId,
+          context: { operation: "workflow_interruption" },
+          isRecoverable: false,
         });
       }
     }

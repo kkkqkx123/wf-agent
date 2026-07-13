@@ -47,6 +47,8 @@ export interface AgentLoopStateSnapshot {
   currentIteration: number;
   /** Total tool call count */
   toolCallCount: number;
+  /** Total timeout count */
+  timeoutCount?: number;
   /** Execution start timestamp (ms) */
   startTime: number | null;
   /** Execution end timestamp (ms) */

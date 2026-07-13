@@ -1,11 +1,15 @@
 /**
- * Retry Budget - Global budget management for retries across workflow execution
+ * Retry Budget - Global budget management for retries across agent/workflow execution
+ *
+ * Unified retry budget that supports both count-based and time-based budgeting:
+ * - Agent: time-only mode (unlimited retry count, only time budget matters)
+ * - Workflow: count + optional time budget, with per-branch allocation
  *
  * Prevents unbounded retry spending by tracking a global retry budget
  * that is shared across all FORK branches, AGENT_LOOP iterations, and other retryable operations.
  *
  * Design Principles:
- * - Single global budget per workflow execution
+ * - Single global budget per workflow/agent execution
  * - Decrement on each retry attempt
  * - Prevent retries when budget exhausted
  * - Observable budget consumption via metrics
@@ -21,18 +25,29 @@
 
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
-const logger = createContextualLogger({ component: "retry-budget" });
+const logger = createContextualLogger({ component: "RetryBudget" });
+
+export type TimeBudgetMode = 'delay-only' | 'total-time';
 
 /**
  * Retry budget configuration
+ *
+ * When maxRetries is undefined, the budget is time-only (no retry count limit).
+ * When timeBudgetMs is 0 or undefined, there is no time limit (count-only).
+ * When both are set, both dimensions constrain retries.
  */
 export interface RetryBudgetConfig {
-  /** Total retry budget in count (e.g., 10 = allow 10 retries across entire workflow) */
-  totalRetries: number;
-  /** Optional time budget in milliseconds (0 = unlimited time) */
+  /**
+   * Maximum retry count. undefined = unlimited count (time-only mode).
+   * 0 = no retries allowed (budget immediately exhausted on count dimension).
+   */
+  maxRetries?: number;
+  /** Optional time budget in milliseconds (0 or undefined = unlimited time) */
   timeBudgetMs?: number;
   /** Time budget mode: 'delay-only' (default) or 'total-time' (Problem #5) */
-  timeBudgetMode?: 'delay-only' | 'total-time';
+  timeBudgetMode?: TimeBudgetMode;
+  /** Name for identification and logging */
+  name?: string;
   /** Whether to enable detailed logging */
   verbose?: boolean;
 }
@@ -41,7 +56,7 @@ export interface RetryBudgetConfig {
  * Retry budget state
  */
 export interface RetryBudgetState {
-  /** Total retries available */
+  /** Total retries available (0 means unlimited) */
   totalRetries: number;
   /** Retries consumed so far */
   retriesConsumed: number;
@@ -50,9 +65,13 @@ export interface RetryBudgetState {
   /** Time budget in milliseconds (0 = unlimited) */
   timeBudgetMs: number;
   /** Time budget mode ('delay-only' or 'total-time') */
-  timeBudgetMode: 'delay-only' | 'total-time';
-  /** Time budget consumed in milliseconds */
+  timeBudgetMode: TimeBudgetMode;
+  /** Time budget consumed in milliseconds (delay only) */
   timeBudgetConsumed: number;
+  /** Execution time consumed in milliseconds (only tracked in total-time mode) */
+  executionTimeConsumedMs: number;
+  /** Elapsed time since budget creation */
+  elapsedTimeMs: number;
   /** Whether budget is exhausted */
   isExhausted: boolean;
 }
@@ -72,44 +91,67 @@ export interface BranchBudgetState {
 }
 
 /**
+ * Time budget check result (for agent-style usage)
+ */
+export interface BudgetCheckResult {
+  allowed: boolean;
+  remaining: number;
+  reason?: string;
+}
+
+/**
  * Retry Budget Manager
  *
- * Manages global retry budget for workflow execution to prevent
+ * Manages global retry budget for workflow/agent execution to prevent
  * unbounded retry loops across FORK branches and AGENT_LOOP iterations.
  *
  * Problem #4: Supports per-branch budget allocation to prevent starvation
  * Problem #5: Supports configurable time budget modes
  */
 export class RetryBudget {
-  private totalRetries: number;
+  /** Maximum retry count. < 0 means unlimited. */
+  private maxRetries: number;
   private retriesConsumed: number = 0;
   private timeBudgetMs: number;
-  private timeBudgetMode: 'delay-only' | 'total-time';
+  private timeBudgetMode: TimeBudgetMode;
   private timeBudgetConsumedMs: number = 0;
   private executionTimeConsumedMs: number = 0;
+  private readonly startTime: number;
+  private readonly name: string;
   private verbose: boolean;
 
   /** Per-branch budgets (Problem #4) */
   private branchBudgets: Map<string, { allocated: number; consumed: number }> = new Map();
 
   constructor(config: RetryBudgetConfig) {
-    if (config.totalRetries < 0) {
-      throw new Error("totalRetries must be >= 0");
+    if (config.maxRetries !== undefined && config.maxRetries < 0) {
+      throw new Error("maxRetries must be >= 0 or undefined");
     }
     if (config.timeBudgetMs && config.timeBudgetMs < 0) {
       throw new Error("timeBudgetMs must be >= 0");
     }
 
-    this.totalRetries = config.totalRetries;
+    // Internally store maxRetries. -1 means unlimited (no count check).
+    this.maxRetries = config.maxRetries ?? -1;
     this.timeBudgetMs = config.timeBudgetMs ?? 0; // 0 means unlimited
     this.timeBudgetMode = config.timeBudgetMode ?? 'delay-only';
     this.verbose = config.verbose ?? false;
+    this.startTime = Date.now();
+    this.name = config.name ?? 'RetryBudget';
 
     logger.info("RetryBudget created", {
-      totalRetries: this.totalRetries,
-      timeBudgetMs: this.timeBudgetMs === 0 ? "unlimited" : this.timeBudgetMs,
+      name: this.name,
+      maxRetries: this.maxRetries < 0 ? 'unlimited' : this.maxRetries,
+      timeBudgetMs: this.timeBudgetMs === 0 ? 'unlimited' : this.timeBudgetMs,
       timeBudgetMode: this.timeBudgetMode,
     });
+  }
+
+  /**
+   * Get elapsed time since budget creation
+   */
+  getElapsedTime(): number {
+    return Date.now() - this.startTime;
   }
 
   /**
@@ -124,8 +166,13 @@ export class RetryBudget {
       return 0;
     }
 
+    // In unlimited count mode, skip per-branch budget allocation
+    if (this.maxRetries < 0) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
     // Distribute total retries equally among branches
-    const allocatedPerBranch = Math.floor(this.totalRetries / branchIds.length);
+    const allocatedPerBranch = Math.floor(this.maxRetries / branchIds.length);
 
     for (const branchId of branchIds) {
       this.branchBudgets.set(branchId, {
@@ -157,12 +204,12 @@ export class RetryBudget {
     branchId?: string,
     executionTimeMs: number = 0,
   ): boolean {
-    // Check global retry count budget
-    if (this.retriesConsumed >= this.totalRetries) {
+    // Check global retry count budget (skip if unlimited: maxRetries < 0)
+    if (this.maxRetries >= 0 && this.retriesConsumed >= this.maxRetries) {
       if (this.verbose) {
         logger.warn("Retry budget exhausted (global count)", {
           retriesConsumed: this.retriesConsumed,
-          totalRetries: this.totalRetries,
+          maxRetries: this.maxRetries,
         });
       }
       return false;
@@ -212,6 +259,29 @@ export class RetryBudget {
   }
 
   /**
+   * Check if a delay can be consumed (agent-style check with rich result).
+   * Returns a result with reason string if not allowed.
+   */
+  canConsumeDelay(delayMs: number): BudgetCheckResult {
+    if (this.timeBudgetMs > 0) {
+      const projected = this.timeBudgetConsumedMs + delayMs;
+      if (projected > this.timeBudgetMs) {
+        return {
+          allowed: false,
+          remaining: Math.max(0, this.timeBudgetMs - this.timeBudgetConsumedMs),
+          reason: `Retry delay ${delayMs}ms would exceed time budget (remaining: ${Math.max(0, this.timeBudgetMs - this.timeBudgetConsumedMs)}ms)`,
+        };
+      }
+    }
+    return {
+      allowed: true,
+      remaining: this.timeBudgetMs > 0
+        ? Math.max(0, this.timeBudgetMs - this.timeBudgetConsumedMs - delayMs)
+        : Number.MAX_SAFE_INTEGER,
+    };
+  }
+
+  /**
    * Consume retry from budget (both global and per-branch)
    * @param delayMs Delay incurred in milliseconds
    * @param branchId Optional branch ID (for per-branch budget tracking - Problem #4)
@@ -248,8 +318,8 @@ export class RetryBudget {
     if (this.verbose) {
       logger.debug("Retry consumed from budget", {
         retriesConsumed: this.retriesConsumed,
-        totalRetries: this.totalRetries,
-        retriesRemaining: this.totalRetries - this.retriesConsumed,
+        maxRetries: this.maxRetries,
+        retriesRemaining: this.getRetriesRemaining(),
         timeBudgetMode: this.timeBudgetMode,
         timeBudgetConsumedMs: this.timeBudgetConsumedMs,
         branchId,
@@ -260,19 +330,87 @@ export class RetryBudget {
   }
 
   /**
-   * Get current budget state
+   * Record execution time against the time budget (total-time mode only).
+   * Unlike consumeRetry(), this does NOT consume a retry count slot.
+   * This is used for agent-style usage where execution time is tracked
+   * after each attempt (successful or failed), separate from retry count.
+   */
+  recordExecutionTime(executionTimeMs: number): void {
+    if (this.timeBudgetMode !== 'total-time') {
+      return;
+    }
+    this.executionTimeConsumedMs += executionTimeMs;
+    this.timeBudgetConsumedMs += executionTimeMs;
+
+    logger.debug("Execution time recorded", {
+      name: this.name,
+      executionTimeMs,
+      totalExecutionTimeMs: this.executionTimeConsumedMs,
+      timeBudgetConsumedMs: this.timeBudgetConsumedMs,
+      mode: this.timeBudgetMode,
+    });
+  }
+
+  /**
+   * Check if budget is exhausted
+   */
+  isExhausted(): boolean {
+    const state = this.getState();
+    return state.isExhausted;
+  }
+
+  /**
+   * Get current budget state (backward compatible)
    */
   getState(): RetryBudgetState {
+    const countExhausted = this.maxRetries >= 0 && this.retriesConsumed >= this.maxRetries;
+    const timeExhausted = this.timeBudgetMs > 0 && this.timeBudgetConsumedMs >= this.timeBudgetMs;
     return {
-      totalRetries: this.totalRetries,
+      totalRetries: this.maxRetries < 0 ? 0 : this.maxRetries,
       retriesConsumed: this.retriesConsumed,
-      retriesRemaining: Math.max(0, this.totalRetries - this.retriesConsumed),
+      retriesRemaining: this.getRetriesRemaining(),
       timeBudgetMs: this.timeBudgetMs,
       timeBudgetMode: this.timeBudgetMode,
       timeBudgetConsumed: this.timeBudgetConsumedMs,
-      isExhausted:
-        this.retriesConsumed >= this.totalRetries ||
-        (this.timeBudgetMs > 0 && this.timeBudgetConsumedMs >= this.timeBudgetMs),
+      executionTimeConsumedMs: this.executionTimeConsumedMs,
+      elapsedTimeMs: this.getElapsedTime(),
+      isExhausted: countExhausted || timeExhausted,
+    };
+  }
+
+  /**
+   * Rich stats for observability (agent-friendly)
+   */
+  getStats(): {
+    mode: TimeBudgetMode;
+    totalBudgetMs: number;
+    elapsedTimeMs: number;
+    totalDelayConsumedMs: number;
+    totalExecutionTimeConsumedMs: number;
+    totalTimeConsumedMs: number;
+    remainingMs: number;
+    retryCount: number;
+    exhausted: boolean;
+    totalRetries: number;
+    retriesConsumed: number;
+  } {
+    const totalTimeConsumed = this.timeBudgetMode === 'delay-only'
+      ? this.timeBudgetConsumedMs
+      : this.timeBudgetConsumedMs;
+    return {
+      mode: this.timeBudgetMode,
+      totalBudgetMs: this.timeBudgetMs,
+      elapsedTimeMs: this.getElapsedTime(),
+      totalDelayConsumedMs: this.timeBudgetConsumedMs - this.executionTimeConsumedMs,
+      totalExecutionTimeConsumedMs: this.executionTimeConsumedMs,
+      totalTimeConsumedMs: totalTimeConsumed,
+      remainingMs: this.timeBudgetMs > 0
+        ? Math.max(0, this.timeBudgetMs - this.timeBudgetConsumedMs)
+        : Number.MAX_SAFE_INTEGER,
+      retryCount: this.retriesConsumed,
+      exhausted: this.isExhausted(),
+      totalRetries: this.maxRetries < 0 ? 0 : this.maxRetries,
+      retriesConsumed: this.retriesConsumed,
     };
   }
 
@@ -297,15 +435,15 @@ export class RetryBudget {
    * Get retries remaining
    */
   getRetriesRemaining(): number {
-    return Math.max(0, this.totalRetries - this.retriesConsumed);
+    if (this.maxRetries < 0) return Number.MAX_SAFE_INTEGER;
+    return Math.max(0, this.maxRetries - this.retriesConsumed);
   }
 
   /**
-   * Check if exhausted
+   * Get name for identification
    */
-  isExhausted(): boolean {
-    const state = this.getState();
-    return state.isExhausted;
+  getName(): string {
+    return this.name;
   }
 
   /**
@@ -317,4 +455,16 @@ export class RetryBudget {
     this.executionTimeConsumedMs = 0;
     this.branchBudgets.clear();
   }
+}
+
+/**
+ * Create a retry budget with convenient defaults.
+ * When only timeBudgetMs is provided, creates a time-only budget (no count limit).
+ * When only maxRetries is provided, creates a count-only budget (no time limit).
+ * When both are provided, both dimensions are enforced.
+ */
+export function createRetryBudget(
+  config: RetryBudgetConfig,
+): RetryBudget {
+  return new RetryBudget(config);
 }

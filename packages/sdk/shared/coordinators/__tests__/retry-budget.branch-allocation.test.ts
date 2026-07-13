@@ -11,7 +11,7 @@ describe('RetryBudget per-branch allocation (Problem #4)', () => {
 
   beforeEach(() => {
     budget = new RetryBudget({
-      totalRetries: 12,
+      maxRetries: 12,
       timeBudgetMs: 60000,
       verbose: false,
     });
@@ -78,7 +78,7 @@ describe('RetryBudget per-branch allocation (Problem #4)', () => {
   it('should handle uneven division of budget', () => {
     // Test with 10 retries (not 12 from beforeEach)
     const unevenBudget = new RetryBudget({
-      totalRetries: 10,
+      maxRetries: 10,
       timeBudgetMs: 60000,
       verbose: false,
     });
@@ -207,7 +207,7 @@ describe('RetryBudget per-branch allocation (Problem #4)', () => {
 
   it('should work with time budget constraints simultaneously', () => {
     const budgetWithTime = new RetryBudget({
-      totalRetries: 12,
+      maxRetries: 12,
       timeBudgetMs: 30000, // 30 seconds
       verbose: false,
     });

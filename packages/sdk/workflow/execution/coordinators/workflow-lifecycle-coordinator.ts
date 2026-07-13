@@ -94,6 +94,15 @@ export class WorkflowLifecycleCoordinator {
       workflowExecutionEntity.setDefaultNodeRetry(options.defaultNodeRetry);
     }
 
+    // Initialize retry budget from options (if provided)
+    if (options.retryBudget !== undefined) {
+      workflowExecutionEntity.initializeRetryBudget({
+        maxRetries: options.retryBudget.maxRetries,
+        timeBudgetMs: options.retryBudget.timeBudgetMs,
+        name: `workflow-${executionId}`,
+      });
+    }
+
     // Step 1.5: Check if this is a triggered execution
     const parentContext = workflowExecutionEntity.getParentContext();
     if (parentContext) {

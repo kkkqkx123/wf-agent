@@ -251,6 +251,52 @@ export interface AgentLoopRuntimeConfig {
    * CLI options can override these settings.
    */
   dynamicContextConfig?: DynamicContextConfig;
+
+  // ========== Failure Handling Policy (Problem #5 enhancement) ==========
+
+  /**
+   * Failure handling strategy for agent loop execution.
+   * - 'fail': Immediately fail the agent loop (default)
+   * - 'retry': Retry the agent loop execution up to maxMainLoopRetries times
+   * - 'continue': Return a fallback result and continue execution
+   * @default 'fail'
+   */
+  onFailure?: 'fail' | 'retry' | 'continue';
+
+  /**
+   * Maximum number of retries at the main loop level
+   * Only applied when onFailure === 'retry'
+   * Controls how many times the entire agent execution loop should be retried on failure
+   *
+   * Different from retryPolicy.maxRetries which controls single-iteration retries.
+   * @default 1 (for compatibility)
+   */
+  maxMainLoopRetries?: number;
+
+  /**
+   * Base delay between main loop retries in milliseconds
+   * Only used when onFailure === 'retry' and maxMainLoopRetries > 0
+   * With exponential backoff: delay = mainLoopRetryDelay * 2^attemptNumber
+   * @default 1000
+   */
+  mainLoopRetryDelay?: number;
+
+  /**
+   * Whether to use exponential backoff for main loop retry delays
+   * When enabled, each retry delay doubles (capped at 60s)
+   * @default true
+   */
+  mainLoopExponentialBackoff?: boolean;
+
+  /**
+   * Fallback output value when continuing on failure.
+   * Only used when onFailure is 'continue'.
+   * Applied when the entire agent loop fails, providing default results.
+   */
+  fallbackOutput?: {
+    content?: string;
+    data?: Record<string, unknown>;
+  };
 }
 
 // =============================================================================

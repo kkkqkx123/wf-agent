@@ -249,7 +249,7 @@ const statelessTool: Tool = {
     required: ["path"],
   },
   config: {
-    execute: async (params: ToolRuntimeParameters) => {
+    execute: async (_params: ToolRuntimeParameters) => {
       return { content: "file content" };
     },
   },

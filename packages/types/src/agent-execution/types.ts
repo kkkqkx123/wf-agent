@@ -107,4 +107,56 @@ export interface AgentLoopResult {
     data?: Record<string, unknown>;
     variables?: Record<string, unknown>;
   };
+
+  // ============ Retry/Timeout/Fallback Statistics (Problem #5 enhancement) ============
+
+  /**
+   * Iteration-level retry statistics
+   * Counts retries of individual iterations when a single iteration fails
+   * @see retryPolicy configuration
+   */
+  iterationLevelRetryCount?: number;
+
+  /**
+   * Iteration-level retry delay time
+   * Total time spent in delays for retrying individual iterations
+   */
+  iterationLevelRetryDelayTime?: number;
+
+  /**
+   * Main-loop-level retry count
+   * Counts retries of the entire agent execution when the loop fails
+   * @see onFailure='retry' configuration
+   */
+  mainLoopRetryCount?: number;
+
+  /**
+   * Main-loop-level retry delay time
+   * Total time spent in delays for retrying the entire agent loop
+   */
+  mainLoopRetryDelayTime?: number;
+
+  /**
+   * Total number of retry attempts (backward compatible)
+   * Sum of iterationLevelRetryCount + mainLoopRetryCount
+   */
+  totalRetryCount?: number;
+
+  /** Total time spent in retry delays (milliseconds) - backward compatible */
+  totalRetryDelayTime?: number;
+
+  /** Number of timeouts that occurred */
+  timeoutCount?: number;
+
+  /** Number of fallback uses */
+  fallbackCount?: number;
+
+  /** Detailed iteration statistics (optional, for observability) */
+  iterationStats?: Array<{
+    iteration: number;
+    retryCount: number;
+    duration: number;
+    timedOut: boolean;
+    fallbackUsed: boolean;
+  }>;
 }

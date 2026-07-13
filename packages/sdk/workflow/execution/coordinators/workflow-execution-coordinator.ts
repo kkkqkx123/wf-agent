@@ -274,22 +274,37 @@ export class WorkflowExecutionCoordinator {
       this.workflowExecutionEntity.state.cancel();
     }
 
+    // [Problem #4 Fix] Collect error details from node results
+    const nodeResults = this.workflowExecutionEntity.getNodeResults();
+    const errors: WorkflowExecutionResult["errors"] = [];
+    for (const nr of nodeResults) {
+      if (nr.status === "FAILED" && nr.error) {
+        errors.push({
+          nodeId: nr.nodeId,
+          message: nr.error instanceof Error ? nr.error.message : String(nr.error),
+          type: nr.error instanceof Error ? nr.error.name : "unknown",
+        });
+      }
+    }
+
     // Build interrupted result
     return {
       executionId: this.workflowExecutionEntity.id,
       output: this.workflowExecutionEntity.getOutput(),
       executionTime: Date.now() - (this.workflowExecutionEntity.getStartTime() || Date.now()),
-      nodeResults: this.workflowExecutionEntity.getNodeResults(),
+      nodeResults,
       metadata: {
         status: type === "PAUSE" ? "PAUSED" : "CANCELLED",
         startTime: this.workflowExecutionEntity.getStartTime() || Date.now(),
         endTime: Date.now(),
         executionTime: Date.now() - (this.workflowExecutionEntity.getStartTime() || Date.now()),
-        nodeCount: this.workflowExecutionEntity.getNodeResults().length,
+        nodeCount: nodeResults.length,
         errorCount: this.workflowExecutionEntity.getErrors().length,
         interruptionType: type,
         interruptedAtNodeId: currentNodeId,
       },
+      // [Problem #4 Fix] Include structured error details
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 
@@ -300,20 +315,42 @@ export class WorkflowExecutionCoordinator {
   private buildSuccessResult(): WorkflowExecutionResult {
     const endTime = this.workflowExecutionEntity.getEndTime() || Date.now();
     const startTime = this.workflowExecutionEntity.getStartTime() || Date.now();
+    const rawErrors = this.workflowExecutionEntity.getErrors();
+
+    // [Problem #4 Fix] Collect error details from node results and global errors
+    const errors: WorkflowExecutionResult["errors"] = [];
+    const nodeResults = this.workflowExecutionEntity.getNodeResults();
+    for (const nr of nodeResults) {
+      if (nr.status === "FAILED" && nr.error) {
+        errors.push({
+          nodeId: nr.nodeId,
+          message: nr.error instanceof Error ? nr.error.message : String(nr.error),
+          type: nr.error instanceof Error ? nr.error.name : "unknown",
+        });
+      }
+    }
+    for (const raw of rawErrors) {
+      errors.push({
+        message: typeof raw === "string" ? raw : raw instanceof Error ? raw.message : String(raw),
+        type: raw instanceof Error ? raw.name : "string",
+      });
+    }
 
     return {
       executionId: this.workflowExecutionEntity.id,
       output: this.workflowExecutionEntity.getOutput(),
       executionTime: endTime - startTime,
-      nodeResults: this.workflowExecutionEntity.getNodeResults(),
+      nodeResults,
       metadata: {
         status: this.workflowExecutionEntity.getStatus(),
         startTime,
         endTime,
         executionTime: endTime - startTime,
-        nodeCount: this.workflowExecutionEntity.getNodeResults().length,
-        errorCount: this.workflowExecutionEntity.getErrors().length,
+        nodeCount: nodeResults.length,
+        errorCount: rawErrors.length,
       },
+      // [Problem #4 Fix] Include structured error details
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 

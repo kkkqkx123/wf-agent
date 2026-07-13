@@ -73,6 +73,14 @@ describe("AgentErrorHandler", () => {
         isStreaming: false,
         pendingToolCalls: new Set<string>(),
         streamMessage: null,
+        analyzeErrorPattern: vi.fn(() => ({
+          type: "single",
+          count: 1,
+          errors: [],
+          typeDistribution: {},
+          toolProblems: [],
+          severityBreakdown: { error: 1 },
+        })),
       },
       config: {
         profileId: "test-profile",

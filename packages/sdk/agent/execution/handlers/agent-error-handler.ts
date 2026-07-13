@@ -134,6 +134,19 @@ export async function handleAgentError(
       operation,
       errorMessage: standardizedError.message,
     });
+
+    // [Problem #6 Fix] Analyze error pattern for observability
+    const errorPattern = entity.state.analyzeErrorPattern();
+    if (errorPattern.type !== "none") {
+      logger.info("Agent Loop error pattern analysis", {
+        agentLoopId: entity.id,
+        patternType: errorPattern.type,
+        errorCount: errorPattern.count,
+        typeDistribution: errorPattern.typeDistribution,
+        severityBreakdown: errorPattern.severityBreakdown,
+        toolProblems: errorPattern.toolProblems,
+      });
+    }
   } else {
     logger.info("Agent Loop error is recoverable, continuing execution", {
       agentLoopId: entity.id,

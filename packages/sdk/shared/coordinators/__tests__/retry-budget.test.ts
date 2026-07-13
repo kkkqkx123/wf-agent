@@ -229,6 +229,7 @@ describe("RetryBudget - Unit Tests", () => {
         retriesConsumed: 2,
         retriesRemaining: 3,
         timeBudgetMs: 10000,
+        timeBudgetMode: "delay-only",
         timeBudgetConsumed: 5000,
         isExhausted: false,
       });

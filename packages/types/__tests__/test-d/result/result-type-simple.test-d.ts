@@ -52,6 +52,9 @@ function handleResult(result: Result<string>): void {
   }
 }
 
+declare const sampleStringResult: Result<string>;
+handleResult(sampleStringResult);
+
 // ============================================================================
 // Test 4: Custom error types
 // ============================================================================

@@ -1,9 +1,16 @@
 /**
  * Checkpoint common basic type definitions
  * For use by both the agent and graph modules
+ *
+ * Contains: snapshot types, checkpoint core interfaces, unified triggers,
+ * checkpoint policies, and decision context — all shared across execution domains.
  */
 
 import type { ID, Timestamp } from "../common.js";
+
+// =============================================================================
+// Snapshot Types
+// =============================================================================
 
 /**
  * Snapshot version for format identification
@@ -24,6 +31,10 @@ export interface SnapshotBase {
   _entityType: string;
 }
 
+// =============================================================================
+// Checkpoint Type (FULL / DELTA)
+// =============================================================================
+
 /**
  * Checkpoint type
  */
@@ -39,6 +50,10 @@ export const CheckpointTypeEnum: Record<string, CheckpointType> = {
   DELTA: "DELTA",
 };
 
+// =============================================================================
+// Checkpoint Metadata
+// =============================================================================
+
 /**
  * Checkpoint metadata type
  */
@@ -50,6 +65,10 @@ export interface CheckpointMetadata {
   /** Custom field object */
   customFields?: Record<string, unknown>;
 }
+
+// =============================================================================
+// Checkpoint Options
+// =============================================================================
 
 /**
  * Checkpoint creation options
@@ -68,6 +87,10 @@ export interface CheckpointOptions {
    */
   syncTimeout?: number;
 }
+
+// =============================================================================
+// Incremental (Delta) Storage Configuration
+// =============================================================================
 
 /**
  * Incremental Storage Strategy Configuration (General)
@@ -90,6 +113,10 @@ export const DEFAULT_DELTA_STORAGE_CONFIG: DeltaStorageConfig = {
   maxDeltaChainLength: 20,
 };
 
+// =============================================================================
+// Checkpoint Configuration Source
+// =============================================================================
+
 /**
  * Checkpoint configuration source
  * Indicates the location where the configuration definition is located
@@ -102,8 +129,13 @@ export type CheckpointConfigSource =
   | "global" // Global Configuration
   | "default"; // Default value
 
+// =============================================================================
+// Domain-specific Trigger Types (Legacy)
+// =============================================================================
+
 /**
  * Workflow checkpoint trigger timing
+ * @deprecated Use CheckpointTrigger enum instead
  */
 export type WorkflowCheckpointTriggerType =
   | "NODE_BEFORE_EXECUTE"
@@ -115,6 +147,7 @@ export type WorkflowCheckpointTriggerType =
 
 /**
  * Agent Loop Checkpoint Trigger Timing
+ * @deprecated Use CheckpointTrigger enum instead
  */
 export type AgentLoopCheckpointTriggerType =
   | "ITERATION_END"
@@ -126,6 +159,137 @@ export type AgentLoopCheckpointTriggerType =
   | "MANUAL"
   | "INTERVAL"
   | "NEVER";
+
+// =============================================================================
+// Unified Checkpoint Trigger Enum
+// =============================================================================
+
+/**
+ * Unified Checkpoint Trigger Enumeration
+ *
+ * Covers all possible trigger points across Workflow and Agent systems.
+ * Uses consistent naming convention: UPPER_SNAKE_CASE for clarity.
+ */
+export enum CheckpointTrigger {
+  // ============ Execution Lifecycle ============
+
+  /**
+   * Before any execution starts
+   * Applicable to: Workflow nodes, Agent loops
+   */
+  BEFORE_EXECUTE = "BEFORE_EXECUTE",
+
+  /**
+   * After execution completes successfully
+   * Applicable to: Workflow nodes, Agent iterations
+   */
+  AFTER_EXECUTE = "AFTER_EXECUTE",
+
+  // ============ Error & Recovery ============
+
+  /**
+   * When an error occurs during execution
+   * Applicable to: All execution contexts
+   */
+  ON_ERROR = "ON_ERROR",
+
+  /**
+   * When a retry is about to happen
+   * Applicable to: Workflow nodes, Agent iterations, main loop
+   */
+  BEFORE_RETRY = "BEFORE_RETRY",
+
+  /**
+   * After a retry succeeds
+   * Applicable to: Workflow nodes, Agent iterations, main loop
+   */
+  AFTER_RETRY_SUCCESS = "AFTER_RETRY_SUCCESS",
+
+  /**
+   * When fallback mechanism is activated
+   * Applicable to: Workflow nodes (with fallbackOutput), Agent loops (with fallbackOutput)
+   */
+  ON_FALLBACK = "ON_FALLBACK",
+
+  // ============ Iteration (Agent-specific) ============
+
+  /**
+   * After each Agent iteration completes
+   * Applicable to: Agent loops only
+   */
+  ITERATION_END = "ITERATION_END",
+
+  /**
+   * When an Agent iteration fails
+   * Applicable to: Agent loops only
+   */
+  ITERATION_FAILED = "ITERATION_FAILED",
+
+  // ============ Tool Invocation ============
+
+  /**
+   * Before a tool is called
+   * Applicable to: All execution contexts (Agent, Workflow)
+   */
+  TOOL_BEFORE = "TOOL_BEFORE",
+
+  /**
+   * After a tool returns (success or failure)
+   * Applicable to: All execution contexts
+   */
+  TOOL_AFTER = "TOOL_AFTER",
+
+  // ============ Flow Control ============
+
+  /**
+   * When execution is paused
+   * Applicable to: Workflow execution, Agent loops
+   */
+  ON_PAUSE = "ON_PAUSE",
+
+  /**
+   * When execution is cancelled
+   * Applicable to: Workflow execution, Agent loops
+   */
+  ON_CANCEL = "ON_CANCEL",
+
+  /**
+   * When execution completes (success or failure)
+   * Applicable to: Workflow execution, Agent loops
+   */
+  ON_COMPLETE = "ON_COMPLETE",
+
+  // ============ Periodic ============
+
+  /**
+   * Periodic checkpoint (every N seconds)
+   * Applicable to: Long-running executions
+   */
+  INTERVAL = "INTERVAL",
+
+  // ============ Manual ============
+
+  /**
+   * Manual checkpoint (explicit user request)
+   * Applicable to: All execution contexts
+   */
+  MANUAL = "MANUAL",
+
+  // ============ Disabled ============
+
+  /**
+   * Disable automatic checkpointing
+   * Used to indicate no checkpointing should occur
+   */
+  NEVER = "NEVER",
+}
+
+/** Type alias for CheckpointTrigger enum values */
+export type CheckpointTriggerType = CheckpointTrigger;
+
+// =============================================================================
+// Checkpoint Config Result
+// =============================================================================
 
 /**
  * Checkpoint configuration results (general)
@@ -141,6 +305,10 @@ export interface CheckpointConfigResult {
   triggerType?: WorkflowCheckpointTriggerType | AgentLoopCheckpointTriggerType;
 }
 
+// =============================================================================
+// Checkpoint List Options
+// =============================================================================
+
 /**
  * General Checkpoint List Options
  */
@@ -154,6 +322,152 @@ export interface CheckpointListOptions {
   /** Offset */
   offset?: number;
 }
+
+// =============================================================================
+// Checkpoint Policy: Content / Retention / Error Handling
+// =============================================================================
+
+/**
+ * Checkpoint Content Configuration
+ *
+ * Controls what data is included in each checkpoint.
+ */
+export interface CheckpointContentConfig {
+  /**
+   * Include full execution state
+   * Examples: variable bindings, loop counters, LLM state
+   * @default true
+   */
+  includeState?: boolean;
+
+  /**
+   * Include message/interaction history
+   * For Agent: LLM messages, tool calls, results
+   * For Workflow: node outputs, intermediate values
+   * @default true
+   */
+  includeHistory?: boolean;
+
+  /**
+   * Include statistics (retry count, timing, etc.)
+   * Adds: retry counts, delays, duration, fallback usage
+   * @default false
+   */
+  includeStatistics?: boolean;
+
+  /**
+   * Custom metadata to attach to the checkpoint
+   * Useful for tagging, filtering, or debugging
+   * @default undefined
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Checkpoint Retention and Cleanup Configuration
+ */
+export interface CheckpointRetentionConfig {
+  /**
+   * Maximum number of checkpoints to keep
+   * When exceeded, oldest checkpoints are deleted
+   * @default 1000
+   * @example -1 for unlimited
+   */
+  maxCheckpoints?: number;
+
+  /**
+   * Maximum age of checkpoints in milliseconds
+   * Older checkpoints are automatically deleted
+   * @default 7 days
+   * @example -1 for no limit
+   */
+  maxAge?: number;
+
+  /**
+   * Compression strategy for checkpoint storage
+   * @default 'auto' (compress large checkpoints)
+   */
+  compression?: 'none' | 'gzip' | 'auto';
+}
+
+/**
+ * Checkpoint Error Handling Configuration
+ */
+export interface CheckpointErrorHandlingConfig {
+  /**
+   * Whether to fail execution if checkpoint creation fails
+   * If false, checkpoint failures are logged but don't interrupt execution
+   * @default false
+   */
+  failOnCheckpointError?: boolean;
+
+  /**
+   * Retry checkpoint creation on failure
+   * @default true
+   */
+  retryOnFailure?: boolean;
+
+  /**
+   * Maximum number of checkpoint creation retries
+   * @default 3
+   */
+  maxRetries?: number;
+}
+
+/**
+ * Unified Checkpoint Policy
+ *
+ * Defines when, what, and how checkpoints are created and retained.
+ */
+export interface UnifiedCheckpointPolicy {
+  /**
+   * Whether automatic checkpointing is enabled
+   * @default true
+   */
+  enabled: boolean;
+
+  /**
+   * Trigger events (can combine multiple)
+   *
+   * Single trigger:
+   * ```typescript
+   * triggers: CheckpointTrigger.ON_ERROR
+   * ```
+   *
+   * Multiple triggers:
+   * ```typescript
+   * triggers: [CheckpointTrigger.ON_ERROR, CheckpointTrigger.ON_COMPLETE]
+   * ```
+   *
+   * Disable checkpointing:
+   * ```typescript
+   * triggers: CheckpointTrigger.NEVER
+   * ```
+   */
+  triggers: CheckpointTriggerType | CheckpointTriggerType[];
+
+  /**
+   * Content configuration for checkpoints
+   * @default { includeState: true, includeHistory: true }
+   */
+  content?: CheckpointContentConfig;
+
+  /**
+   * Retention and cleanup policy
+   * @default { maxCheckpoints: 1000, maxAge: 7 days }
+   */
+  retention?: CheckpointRetentionConfig;
+
+  /**
+   * Error handling configuration
+   * @default { failOnCheckpointError: false, retryOnFailure: true, maxRetries: 3 }
+   */
+  errorHandling?: CheckpointErrorHandlingConfig;
+}
+
+// =============================================================================
+// Base Checkpoint Interfaces
+// =============================================================================
 
 /**
  * Base Checkpoint Core Interface (Strict, no index signature)
@@ -209,6 +523,176 @@ export interface DeltaCheckpoint<TDelta> extends BaseCheckpoint<TDelta, never> {
 /**
  * Union type for any checkpoint
  */
-export type AnyCheckpoint<TDelta, TSnapshot> = 
+export type AnyCheckpoint<TDelta, TSnapshot> =
   | FullCheckpoint<TSnapshot>
   | DeltaCheckpoint<TDelta>;
+
+// =============================================================================
+// Predefined Checkpoint Policies
+// =============================================================================
+
+/**
+ * Minimal Checkpoint Policy
+ *
+ * Only creates checkpoints on error and completion.
+ * Storage-efficient for low-overhead execution.
+ */
+export const CHECKPOINT_POLICY_MINIMAL: UnifiedCheckpointPolicy = {
+  enabled: true,
+  triggers: [CheckpointTrigger.ON_ERROR, CheckpointTrigger.ON_COMPLETE],
+  content: {
+    includeState: true,
+    includeHistory: false,
+  },
+  retention: {
+    maxCheckpoints: 100,
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
+    compression: 'gzip',
+  },
+};
+
+/**
+ * Standard Checkpoint Policy
+ *
+ * Creates checkpoints on important lifecycle events.
+ * Balanced between observability and resource usage.
+ */
+export const CHECKPOINT_POLICY_STANDARD: UnifiedCheckpointPolicy = {
+  enabled: true,
+  triggers: [
+    CheckpointTrigger.BEFORE_EXECUTE,
+    CheckpointTrigger.ON_ERROR,
+    CheckpointTrigger.ON_COMPLETE,
+  ],
+  content: {
+    includeState: true,
+    includeHistory: true,
+  },
+  retention: {
+    maxCheckpoints: 1000,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    compression: 'auto',
+  },
+};
+
+/**
+ * Comprehensive Checkpoint Policy
+ *
+ * Creates detailed checkpoints for every significant event.
+ * Provides maximum observability for debugging and time-travel scenarios.
+ */
+export const CHECKPOINT_POLICY_COMPREHENSIVE: UnifiedCheckpointPolicy = {
+  enabled: true,
+  triggers: [
+    CheckpointTrigger.BEFORE_EXECUTE,
+    CheckpointTrigger.AFTER_EXECUTE,
+    CheckpointTrigger.ON_ERROR,
+    CheckpointTrigger.BEFORE_RETRY,
+    CheckpointTrigger.AFTER_RETRY_SUCCESS,
+    CheckpointTrigger.ITERATION_END,
+    CheckpointTrigger.TOOL_BEFORE,
+    CheckpointTrigger.TOOL_AFTER,
+    CheckpointTrigger.ON_FALLBACK,
+  ],
+  content: {
+    includeState: true,
+    includeHistory: true,
+    includeStatistics: true,
+  },
+  retention: {
+    maxCheckpoints: 10000,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    compression: 'gzip',
+  },
+};
+
+/**
+ * No Checkpoint Policy
+ *
+ * Disables automatic checkpointing completely.
+ * Checkpoints can still be created manually.
+ */
+export const CHECKPOINT_POLICY_NONE: UnifiedCheckpointPolicy = {
+  enabled: false,
+  triggers: CheckpointTrigger.NEVER,
+};
+
+/**
+ * Map of common checkpoint policies for easy selection
+ */
+export const CHECKPOINT_POLICIES = {
+  MINIMAL: CHECKPOINT_POLICY_MINIMAL,
+  STANDARD: CHECKPOINT_POLICY_STANDARD,
+  COMPREHENSIVE: CHECKPOINT_POLICY_COMPREHENSIVE,
+  NONE: CHECKPOINT_POLICY_NONE,
+} as const;
+
+// =============================================================================
+// Checkpoint Decision Context
+// =============================================================================
+
+/**
+ * Context Information for Checkpoint Decision-Making
+ *
+ * Provides execution context to enable intelligent checkpoint decisions
+ * based on the current execution state and history.
+ */
+export interface CheckpointContext {
+  /**
+   * Execution entity type
+   * Indicates whether this is a Workflow, Agent loop, or Node
+   */
+  entityType: 'workflow' | 'agent-loop' | 'node';
+
+  /**
+   * Entity identifier (executionId, agentLoopId, or nodeId)
+   */
+  entityId: string;
+
+  /**
+   * Current attempt/iteration number (1-based)
+   */
+  attempt?: number;
+
+  /**
+   * Current retry count at the relevant level
+   * For workflows: node-level retries
+   * For agent loops: iteration-level and/or main-loop retries
+   */
+  retryCount?: number;
+
+  /**
+   * Error information (if execution failed)
+   * Present for ON_ERROR and ITERATION_FAILED triggers
+   */
+  error?: unknown;
+
+  /**
+   * Whether fallback mechanism is being used
+   * Present for ON_FALLBACK trigger
+   */
+  fallbackUsed?: boolean;
+
+  /**
+   * Whether this is a main-loop retry (Agent-specific)
+   * Indicates retry at the entire loop level vs iteration level
+   */
+  isMainLoopRetry?: boolean;
+
+  /**
+   * Execution timing information
+   */
+  timing?: {
+    /** Execution start timestamp */
+    startTime?: number;
+    /** Current time */
+    currentTime?: number;
+    /** Execution duration in milliseconds */
+    duration?: number;
+  };
+
+  /**
+   * Custom context metadata for extensibility
+   */
+  metadata?: Record<string, unknown>;
+}

@@ -60,7 +60,6 @@ import {
   type ExecutionErrorRecord,
   type ExecutionInterruptionRecord,
   type ExecutionEventRecord,
-  EXECUTION_STATE_MAX_ERROR_RECORDS,
   EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
   EXECUTION_STATE_MAX_EVENTS,
 } from "@wf-agent/types";
@@ -486,11 +485,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @param record Error record to add
    */
   addErrorRecord(record: ExecutionErrorRecord): void {
+    // [Problem #5 Fix] Remove cap to be consistent with recordError()
+    // Error retention is now managed at the persistence layer
     this._errorRecords.push(record);
-    // Keep only the latest N records to prevent state bloat
-    if (this._errorRecords.length > EXECUTION_STATE_MAX_ERROR_RECORDS) {
-      this._errorRecords = this._errorRecords.slice(-EXECUTION_STATE_MAX_ERROR_RECORDS);
-    }
   }
 
   /**

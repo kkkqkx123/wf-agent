@@ -128,8 +128,6 @@ expectType<IterationRecord[]>(agentExecution.iterationHistory);
 expectType<number>(agentExecution.startTime);
 expectType<number | undefined>(agentExecution.endTime);
 expectType<unknown | undefined>(agentExecution.error);
-expectType<string | undefined>(agentExecution.parentWorkflowExecutionId);
-expectType<string | undefined>(agentExecution.nodeId);
 
 // Execution with hierarchy metadata
 const executionWithHierarchy: AgentLoopExecution = {
@@ -319,6 +317,7 @@ expectType<string | undefined>(hookConfig.checkpointDescription);
 const conditionalHook: AgentHook = {
   hookType: "AFTER_TOOL_CALL",
   condition: {
+    type: "expression",
     expression: "toolCallCount > 5",
   },
   eventName: "tool.heavy_usage",

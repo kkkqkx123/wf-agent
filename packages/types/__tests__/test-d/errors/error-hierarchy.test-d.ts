@@ -30,7 +30,7 @@ import {
 // ============================================================================
 
 declare const severity: ErrorSeverity;
-expectAssignable<"error" | "warning" | "info">(severity);
+expectAssignable<"error" | "warning" | "info" | "critical">(severity);
 
 const errorSeverity: ErrorSeverity = "error";
 expectAssignable<ErrorSeverity>(errorSeverity);
@@ -57,7 +57,7 @@ expectType<string | undefined>(context.field);
 expectType<unknown>(context.value);
 expectType<string | undefined>(context.resourceType);
 expectType<string | undefined>(context.resourceId);
-expectType<"error" | "warning" | "info" | undefined>(context.severity);
+expectType<"error" | "warning" | "info" | "critical" | undefined>(context.severity);
 
 // Additional properties should be allowed
 expectType<unknown>(context["customField"]);
@@ -73,7 +73,7 @@ expectType<Record<string, unknown> | undefined>(baseError.context);
 expectType<Error | undefined>(baseError.cause);
 
 // Default severity should be "error"
-expectType<"error" | "warning" | "info">(baseError.severity);
+expectType<ErrorSeverity>(baseError.severity);
 
 // With custom severity
 const warningError = new SDKError("Warning message", "warning");
@@ -177,7 +177,7 @@ if (configError.context) {
 }
 
 // Default severity should be "error"
-expectType<"error" | "warning" | "info">(configError.severity);
+expectType<ErrorSeverity>(configError.severity);
 
 // ============================================================================
 // Test 7: RuntimeValidationError

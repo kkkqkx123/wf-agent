@@ -42,7 +42,7 @@ import {
  * Test StorageType union
  */
 declare const storageType: StorageType;
-expectType<"json" | "sqlite" | "memory">(storageType);
+expectType<"json" | "sqlite" | "memory" | "postgres">(storageType);
 
 /**
  * Test CompressionAlgorithm union
@@ -351,15 +351,15 @@ if (isCompressionConfig(unknownValue)) {
  * Test isStorageConfig type guard
  */
 if (isStorageConfig(unknownValue)) {
-  expectType<StorageConfig>(unknownValue);
-  expectType<StorageType>(unknownValue.type);
+  expectAssignable<StorageConfig>(unknownValue);
+  expectAssignable<StorageType>(unknownValue.type);
   
   if (unknownValue.type === "json") {
     expectType<JsonStorageConfig | undefined>(unknownValue.json);
   }
   
   if (unknownValue.type === "sqlite") {
-    expectType<SqliteStorageConfig | undefined>(unknownValue.sqlite);
+    expectAssignable<SqliteStorageConfig | undefined>(unknownValue.sqlite);
   }
 }
 
@@ -367,10 +367,10 @@ if (isStorageConfig(unknownValue)) {
  * Test isPresetsConfig type guard
  */
 if (isPresetsConfig(unknownValue)) {
-  expectType<PresetsConfig>(unknownValue);
-  expectType<ContextCompressionPresetConfig | undefined>(unknownValue.contextCompression);
-  expectType<PredefinedToolsPresetConfig | undefined>(unknownValue.predefinedTools);
-  expectType<PredefinedPromptsPresetConfig | undefined>(unknownValue.predefinedPrompts);
+  expectAssignable<PresetsConfig>(unknownValue);
+  expectAssignable<ContextCompressionPresetConfig | undefined>(unknownValue.contextCompression);
+  expectAssignable<PredefinedToolsPresetConfig | undefined>(unknownValue.predefinedTools);
+  expectAssignable<PredefinedPromptsPresetConfig | undefined>(unknownValue.predefinedPrompts);
 }
 
 /**

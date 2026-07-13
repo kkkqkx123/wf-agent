@@ -147,6 +147,23 @@ export const PresetsConfigSchema = z.object({
   predefinedPrompts: PredefinedPromptsPresetConfigSchema.optional(),
 });
 
+/**
+ * Presets Configuration Type (inferred from schema)
+ */
+export type PresetsConfig = z.infer<typeof PresetsConfigSchema>;
+/**
+ * Context Compression Preset Configuration Type (inferred from schema)
+ */
+export type ContextCompressionPresetConfig = z.infer<typeof ContextCompressionPresetConfigSchema>;
+/**
+ * Predefined Tools Preset Configuration Type (inferred from schema)
+ */
+export type PredefinedToolsPresetConfig = z.infer<typeof PredefinedToolsPresetConfigSchema>;
+/**
+ * Predefined Prompts Preset Configuration Type (inferred from schema)
+ */
+export type PredefinedPromptsPresetConfig = z.infer<typeof PredefinedPromptsPresetConfigSchema>;
+
 // ============================================================================
 // Output Configuration Schemas
 // ============================================================================

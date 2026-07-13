@@ -39,7 +39,7 @@ if (result._tag === "Err") {
 function processByTag(result: Result<number>): void {
   switch (result._tag) {
     case "Ok":
-      expectType<Ok<number>>(result);
+      expectType<Ok<number, Error>>(result);
       expectType<number>(result.value);
       break;
     case "Err":
@@ -48,6 +48,9 @@ function processByTag(result: Result<number>): void {
       break;
   }
 }
+
+declare const sampleResult: Result<number>;
+processByTag(sampleResult);
 
 // ============================================================================
 // Test 2: unwrap() Method
@@ -76,7 +79,7 @@ if (maybeResult.isOk()) {
 
 // Ok case: returns the value, ignores callback
 declare const okForUnwrap: Ok<string>;
-const okUnwrapped: string = okForUnwrap.unwrapOrElse((err) => "fallback");
+const okUnwrapped: string = okForUnwrap.unwrapOrElse((_err) => "fallback");
 expectType<string>(okUnwrapped);
 
 // Err case: executes callback to convert error to value
@@ -140,14 +143,14 @@ expectType<Result<boolean>>(multiChain);
 
 // Default error type preservation
 declare const typeErrorResult: Result<number, TypeError>;
-const preservedError = typeErrorResult.andThen((n) => {
+const preservedError = typeErrorResult.andThen((_n) => {
   // F defaults to E (TypeError)
   return {} as Result<string, TypeError>;
 });
 expectType<Result<string, TypeError>>(preservedError);
 
 // Changing error type in chain
-const changedError = typeErrorResult.andThen((n) => {
+const changedError = typeErrorResult.andThen((_n) => {
   // Explicitly specify different error type
   return {} as Result<string, RangeError>;
 });
@@ -210,11 +213,11 @@ const manualOk: Ok<string> = {
   unwrap(): string {
     return "test";
   },
-  unwrapOrElse(fn: (error: never) => string): string {
+  unwrapOrElse(_fn: (error: never) => string): string {
     return "test";
   },
-  andThen<U, F = Error>(fn: (value: string) => Result<U, F>): Result<U, F> {
-    return fn("test");
+  andThen<U, F = Error>(_fn: (value: string) => Result<U, F>): Result<U, F> {
+    return _fn("test");
   },
 };
 expectType<Ok<string>>(manualOk);
@@ -237,7 +240,7 @@ const manualErr: Err<Error> = {
   unwrapOrElse<T>(fn: (error: Error) => T): T {
     return fn(new Error("test"));
   },
-  andThen<U, F = Error>(fn: (value: never) => Result<U, F>): Result<U, F> {
+  andThen<U, F = Error>(_fn: (value: never) => Result<U, F>): Result<U, F> {
     // This code path is unreachable
     return {} as Result<U, F>;
   },
@@ -345,7 +348,6 @@ declare const readonlyErr: Err<Error>;
 
 // Verify they are indeed readonly by checking assignability
 type OkKeys = keyof Ok<string>;
-type ErrKeys = keyof Err<Error>;
 
 // _tag and value/error should be in the keys
 expectAssignable<"_tag" | "value" | "isOk" | "isErr" | "unwrap" | "unwrapOrElse" | "andThen">(
@@ -366,7 +368,7 @@ function safeParseJSON(json: string): Result<unknown, SyntaxError> {
       isOk() { return true; },
       isErr() { return false; },
       unwrap() { return parsed; },
-      unwrapOrElse(fn) { return parsed; },
+      unwrapOrElse(_fn) { return parsed; },
       andThen(fn) { return fn(parsed); },
     } as Ok<unknown>;
   } catch (e) {
@@ -379,7 +381,7 @@ function safeParseJSON(json: string): Result<unknown, SyntaxError> {
       unwrapOrElse(fn) { 
         return fn(e instanceof SyntaxError ? e : new SyntaxError(String(e))); 
       },
-      andThen(fn) { return {} as any; },
+      andThen(_fn) { return {} as any; },
       orElse(fn) { return fn(e instanceof SyntaxError ? e : new SyntaxError(String(e))); },
     } as Err<SyntaxError>;
   }
@@ -398,7 +400,7 @@ function validateEmail(email: string): Result<string, ValidationError> {
       isErr() { return true; },
       unwrap(): never { throw new Error(); },
       unwrapOrElse(fn) { return fn({ field: "email", message: "Invalid email" }); },
-      andThen(fn) { return {} as any; },
+      andThen(_fn) { return {} as any; },
       orElse(fn) { return fn({ field: "email", message: "Invalid email" }); },
     } as Err<ValidationError>;
   }
@@ -409,7 +411,7 @@ function validateEmail(email: string): Result<string, ValidationError> {
     isOk() { return true; },
     isErr() { return false; },
     unwrap() { return email; },
-    unwrapOrElse(fn) { return email; },
+    unwrapOrElse(_fn) { return email; },
     andThen(fn) { return fn(email); },
   } as Ok<string>;
 }
@@ -428,7 +430,7 @@ async function asyncOperation(): Promise<Result<string, Error>> {
       isOk() { return true; },
       isErr() { return false; },
       unwrap() { return "success"; },
-      unwrapOrElse(fn) { return "success"; },
+      unwrapOrElse(_fn) { return "success"; },
       andThen(fn) { return fn("success"); },
     } as Ok<string>;
   } catch (e) {
@@ -439,7 +441,7 @@ async function asyncOperation(): Promise<Result<string, Error>> {
       isErr() { return true; },
       unwrap(): never { throw new Error(); },
       unwrapOrElse(fn) { return fn(e instanceof Error ? e : new Error(String(e))); },
-      andThen(fn) { return {} as any; },
+      andThen(_fn) { return {} as any; },
       orElse(fn) { return fn(e instanceof Error ? e : new Error(String(e))); },
     } as Err<Error>;
   }

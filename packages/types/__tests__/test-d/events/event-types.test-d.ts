@@ -12,7 +12,7 @@
  * Priority: MEDIUM (Phase 2)
  */
 
-import { expectType, expectAssignable } from "tsd";
+import { expectType } from "tsd";
 import type {
   BaseEvent,
   EventType,
@@ -184,7 +184,7 @@ expectType<EventListener<BaseEvent>>(handler.listener);
 // Handler with async listener
 const asyncHandler: EventHandler = {
   eventType: "TOOL_CALL_COMPLETED",
-  listener: async (event: BaseEvent) => {
+  listener: async (_event: BaseEvent) => {
     await Promise.resolve();
   },
 };
@@ -250,8 +250,6 @@ expectType<"AGENT_STARTED">(agentStarted.type);
 expectType<string>(agentStarted.agentLoopId);
 expectType<number>(agentStarted.maxIterations);
 expectType<number>(agentStarted.initialMessageCount);
-expectType<string | undefined>(agentStarted.parentWorkflowExecutionId);
-expectType<string | undefined>(agentStarted.nodeId);
 
 // Agent started as graph node
 const agentStartedAsNode: AgentStartedEvent = {
@@ -261,8 +259,6 @@ const agentStartedAsNode: AgentStartedEvent = {
   agentLoopId: "agent-loop-456",
   maxIterations: 5,
   initialMessageCount: 1,
-  parentWorkflowExecutionId: "workflow-exec-789",
-  nodeId: "agent-node-1",
 };
 
 expectType<AgentStartedEvent>(agentStartedAsNode);
@@ -327,8 +323,6 @@ const turnStartedAsNode: AgentTurnStartedEvent = {
   timestamp: Date.now(),
   agentLoopId: "agent-loop-456",
   iteration: 1,
-  parentWorkflowExecutionId: "workflow-exec-789",
-  nodeId: "agent-node-1",
 };
 
 expectType<AgentTurnStartedEvent>(turnStartedAsNode);
@@ -385,6 +379,9 @@ function handleAgentEvent(event: BaseEvent): void {
   }
 }
 
+declare const sampleBaseEvent: BaseEvent;
+handleAgentEvent(sampleBaseEvent);
+
 // =============================================================================
 // Test 11: Integration Pattern - Event Subscription
 // =============================================================================
@@ -398,7 +395,7 @@ interface EventSubscription {
 const subscription: EventSubscription = {
   handler: {
     eventType: "AGENT_ITERATION_COMPLETED",
-    listener: (event: BaseEvent) => {
+    listener: (_event: BaseEvent) => {
       console.log("Iteration completed");
     },
   },
@@ -423,13 +420,13 @@ expectType<() => void>(subscription.unsubscribe);
 interface EventHistory {
   events: BaseEvent[];
   totalEvents: number;
-  filteredByType: (type: EventType) => BaseEvent[];
+  filteredByType: (_type: EventType) => BaseEvent[];
 }
 
 const history: EventHistory = {
   events: [baseEvent, minimalEvent],
   totalEvents: 2,
-  filteredByType: (type: EventType) => {
+  filteredByType: (_type: EventType) => {
     return [];
   },
 };

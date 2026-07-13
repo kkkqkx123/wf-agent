@@ -3,7 +3,7 @@
  * Defining the structure and content of a checkpoint
  */
 
-// Export base type
+// Export base type (includes unified triggers, policies, and contexts)
 export { CheckpointTypeEnum as CheckpointType } from "./base.js";
 export type { CheckpointType as TCheckpointType } from "./base.js";
 export {
@@ -23,6 +23,20 @@ export {
   FullCheckpoint,
   DeltaCheckpoint,
   AnyCheckpoint,
+  CheckpointTrigger,
+  CHECKPOINT_POLICY_MINIMAL,
+  CHECKPOINT_POLICY_STANDARD,
+  CHECKPOINT_POLICY_COMPREHENSIVE,
+  CHECKPOINT_POLICY_NONE,
+  CHECKPOINT_POLICIES,
+} from "./base.js";
+export type {
+  CheckpointTriggerType,
+  CheckpointContentConfig,
+  CheckpointRetentionConfig,
+  CheckpointErrorHandlingConfig,
+  UnifiedCheckpointPolicy,
+  CheckpointContext,
 } from "./base.js";
 
 // Export error handling types
@@ -83,3 +97,4 @@ export type {
   ExecutionInterruptionRecord,
   ExecutionEventRecord,
 } from "./execution-events.js";
+

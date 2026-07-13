@@ -26,6 +26,7 @@ import {
 } from "../../../shared/utils/interruption/index.js";
 import { handleAgentError } from "../handlers/agent-error-handler.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { TimeBudget } from "../../../shared/coordinators/time-budget.js";
 import {
   AgentIterationCoordinator,
   type AgentLoopStreamEvent,
@@ -45,13 +46,16 @@ const logger = createContextualLogger({ component: "AgentExecutionCoordinator" }
  * Wraps iteration execution with:
  * - Exponential backoff retry (if retryPolicy configured)
  * - Timeout protection (if executionTimeout configured)
- * - Global retry budget checking and consumption
+ * - Time budget checking with configurable modes (delay-only or total-time)
+ *
+ * Problem #5 Fix: Supports timeBudgetMode for consistent time tracking
  *
  * @param agentLoopId Agent loop ID for logging
  * @param entity Agent loop entity
  * @param executor Async function that performs the iteration
  * @param retryPolicy Optional retry policy configuration
  * @param timeoutMs Optional timeout in milliseconds
+ * @param timeBudget Optional time budget for tracking retry delays/execution time
  * @returns Execution result
  */
 async function executeIterationWithRetryAndTimeout<T>(
@@ -60,21 +64,48 @@ async function executeIterationWithRetryAndTimeout<T>(
   executor: () => Promise<T>,
   retryPolicy?: RetryPolicy,
   timeoutMs?: number,
+  timeBudget?: TimeBudget,
 ): Promise<T> {
   const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
   let lastError: Error | undefined;
 
   for (let attemptCount = 0; attemptCount < maxAttempts; attemptCount++) {
+    const attemptStartTime = Date.now();
+
     try {
+      // Check time budget before attempting execution
+      if (timeBudget && timeBudget.isExhausted()) {
+        logger.warn("Time budget exhausted before attempt", {
+          agentLoopId,
+          attemptCount,
+          timeBudgetStats: timeBudget.getStats(),
+        });
+        throw lastError || new Error("Time budget exhausted for retry operations");
+      }
+
       // Apply timeout if configured
       if (timeoutMs) {
         return await executeWithTimeout(executor, timeoutMs, "Agent loop execution");
       }
 
-      return await executor();
+      const result = await executor();
+
+      // Record execution time in budget if in total-time mode
+      if (timeBudget) {
+        const executionTime = Date.now() - attemptStartTime;
+        timeBudget.recordExecutionTime(executionTime);
+      }
+
+      return result;
     } catch (error) {
       lastError = error as Error;
       const isLastAttempt = attemptCount === maxAttempts - 1;
+
+      // Record execution time in budget
+      if (timeBudget) {
+        const executionTime = Date.now() - attemptStartTime;
+        timeBudget.recordExecutionTime(executionTime);
+      }
 
       // Log failure
       logger.debug("Iteration failed", {
@@ -102,7 +133,22 @@ async function executeIterationWithRetryAndTimeout<T>(
       // Calculate delay for next retry
       const delayMs = retryPolicy.getNextDelay(attemptCount);
 
-      // Check global retry budget before consuming
+      // Check time budget before consuming delay
+      if (timeBudget) {
+        const budgetCheck = timeBudget.canConsumeDelay(delayMs);
+        if (!budgetCheck.allowed) {
+          logger.warn("Time budget would be exceeded by retry delay, stopping retry", {
+            agentLoopId,
+            attemptCount,
+            delayMs,
+            reason: budgetCheck.reason,
+            timeBudgetStats: timeBudget.getStats(),
+          });
+          throw lastError;
+        }
+      }
+
+      // Check legacy global retry budget for backward compatibility
       const retryBudget = (entity as any).getRetryBudget?.();
       if (retryBudget && !retryBudget.canRetry(delayMs)) {
         logger.warn("Global retry budget exhausted, stopping retry", {
@@ -112,7 +158,10 @@ async function executeIterationWithRetryAndTimeout<T>(
         throw lastError;
       }
 
-      // Consume from budget if available
+      // Consume from budgets
+      if (timeBudget) {
+        timeBudget.consumeDelay(delayMs);
+      }
       if (retryBudget) {
         retryBudget.consumeRetry(delayMs);
       }
@@ -124,6 +173,7 @@ async function executeIterationWithRetryAndTimeout<T>(
         delayMs,
         nextAttempt: attemptCount + 2,
         maxAttempts,
+        timeBudgetStats: timeBudget?.getStats(),
       });
 
       await delay(delayMs);
@@ -154,6 +204,165 @@ async function executeWithTimeout<T>(
   });
 
   return Promise.race([executor(), timeoutPromise]);
+}
+
+/**
+ * Execute agent loop with main-level retry and failure handling
+ *
+ * Implements unified FailurePolicy framework (Problem #6):
+ * - 'fail': Return error immediately on failure
+ * - 'retry': Retry entire agent execution with configurable parameters
+ * - 'continue': Use fallbackOutput on failure
+ *
+ * This wraps the core loop execution with failure policy enforcement.
+ * Supports time budget tracking for consistent resource management.
+ */
+async function executeAgentLoopWithFailurePolicy(
+  agentLoopId: string,
+  executor: () => Promise<AgentLoopResult>,
+  onFailure: string = "fail",
+  maxMainLoopRetries: number = 0,
+  mainLoopRetryDelay: number = 1000,
+  mainLoopExponentialBackoff: boolean = true,
+  timeBudget?: TimeBudget,
+): Promise<AgentLoopResult> {
+  const maxAttempts = onFailure === "retry" ? (maxMainLoopRetries + 1) : 1;
+  let lastError: any = undefined;
+  let mainLoopRetryCount = 0;
+  const mainLoopRetryDelays: number[] = [];
+
+  for (let attemptCount = 0; attemptCount < maxAttempts; attemptCount++) {
+    try {
+      const result = await executor();
+
+      // If successful, enrich with retry statistics
+      if (result.success) {
+        return enrichResultWithMainLoopStats(result, mainLoopRetryCount, mainLoopRetryDelays);
+      }
+
+      // If failed, store error for potential retry
+      lastError = result;
+      const isLastAttempt = attemptCount === maxAttempts - 1;
+
+      if (isLastAttempt) {
+        // Last attempt and still failed
+        break;
+      }
+
+      // For 'retry' strategy, continue to next attempt
+      if (onFailure === "retry") {
+        const delayMs = mainLoopExponentialBackoff
+          ? Math.min(mainLoopRetryDelay * Math.pow(2, attemptCount), 60000)
+          : mainLoopRetryDelay;
+
+        mainLoopRetryDelays.push(delayMs);
+        mainLoopRetryCount++;
+
+        logger.info("Agent loop execution failed, retrying main loop", {
+          agentLoopId,
+          attemptCount,
+          delayMs,
+          nextAttempt: attemptCount + 2,
+          maxAttempts,
+        });
+
+        // Check time budget before consuming delay
+        if (timeBudget) {
+          const budgetCheck = timeBudget.canConsumeDelay(delayMs);
+          if (!budgetCheck.allowed) {
+            logger.warn("Time budget would be exceeded by main loop retry delay", {
+              agentLoopId,
+              attemptCount,
+              delayMs,
+              reason: budgetCheck.reason,
+              timeBudgetStats: timeBudget.getStats(),
+            });
+            // Budget exhausted, don't retry
+            break;
+          }
+          timeBudget.consumeDelay(delayMs);
+        }
+
+        await delay(delayMs);
+        continue;
+      }
+
+      // For other strategies, don't retry
+      break;
+    } catch (error) {
+      lastError = error;
+      const isLastAttempt = attemptCount === maxAttempts - 1;
+
+      logger.debug("Agent loop execution threw error", {
+        agentLoopId,
+        attemptCount,
+        isLastAttempt,
+        error: (error as Error).message,
+      });
+
+      if (isLastAttempt || onFailure !== "retry") {
+        throw error;
+      }
+
+      // Retry on error if configured
+      const delayMs = mainLoopExponentialBackoff
+        ? Math.min(mainLoopRetryDelay * Math.pow(2, attemptCount), 60000)
+        : mainLoopRetryDelay;
+
+      mainLoopRetryDelays.push(delayMs);
+      mainLoopRetryCount++;
+
+      logger.info("Agent loop execution errored, retrying main loop", {
+        agentLoopId,
+        attemptCount,
+        delayMs,
+        nextAttempt: attemptCount + 2,
+      });
+
+      // Check time budget before consuming delay
+      if (timeBudget) {
+        const budgetCheck = timeBudget.canConsumeDelay(delayMs);
+        if (!budgetCheck.allowed) {
+          logger.warn("Time budget would be exceeded by main loop retry delay", {
+            agentLoopId,
+            attemptCount,
+            delayMs,
+            reason: budgetCheck.reason,
+          });
+          throw error;
+        }
+        timeBudget.consumeDelay(delayMs);
+      }
+
+      await delay(delayMs);
+    }
+  }
+
+  // Return error enriched with statistics
+  return enrichResultWithMainLoopStats(lastError, mainLoopRetryCount, mainLoopRetryDelays);
+}
+
+/**
+ * Enrich result with main loop retry statistics
+ */
+function enrichResultWithMainLoopStats(
+  result: any,
+  mainLoopRetryCount: number,
+  mainLoopRetryDelays: number[],
+): AgentLoopResult {
+  const mainLoopRetryDelayTime = mainLoopRetryDelays.reduce((a, b) => a + b, 0);
+  const iterationLevelRetryCount = result.totalRetryCount ?? 0;
+  const iterationLevelRetryDelayTime = result.totalRetryDelayTime ?? 0;
+
+  return {
+    ...result,
+    mainLoopRetryCount,
+    mainLoopRetryDelayTime,
+    iterationLevelRetryCount,
+    iterationLevelRetryDelayTime,
+    totalRetryCount: iterationLevelRetryCount + mainLoopRetryCount,
+    totalRetryDelayTime: iterationLevelRetryDelayTime + mainLoopRetryDelayTime,
+  };
 }
 
 /**
@@ -204,122 +413,191 @@ export class AgentExecutionCoordinator {
     maxIterations: number,
   ): Promise<AgentLoopResult> {
     const agentLoopId = entity.id;
-    const startTime = Date.now();
     const config = entity.config;
+    const onFailure = config.onFailure ?? "fail";
+    const maxMainLoopRetries = config.maxMainLoopRetries ?? (onFailure === "retry" ? 1 : 0);
+    const mainLoopRetryDelay = config.mainLoopRetryDelay ?? 1000;
+    const mainLoopExponentialBackoff = config.mainLoopExponentialBackoff ?? true;
 
-    this.recordExecutionStart(profileId, config.agentConfigId || "unknown", agentLoopId);
+    // Create time budget for retry operations
+    // Use timeBudgetMode from retry policy if available, default to 'delay-only'
+    const timeBudgetMode = config.retryPolicy?.timeBudgetMode ?? "delay-only";
+    // Default retry budget: 5 minutes
+    const retryBudgetMs = 300000;
+    const timeBudget = new TimeBudget({
+      totalBudgetMs: retryBudgetMs,
+      mode: timeBudgetMode,
+      name: `agent-loop-${agentLoopId}`,
+    });
 
-    try {
-      const result = await executeWithInterruptionHandling(async signal => {
-        while (entity.state.currentIteration < maxIterations) {
-          logger.debug("Starting new iteration", {
-            agentLoopId,
-            iteration: entity.state.currentIteration + 1,
-            maxIterations,
-          });
+    return executeAgentLoopWithFailurePolicy(
+      agentLoopId,
+      async () => {
+        const startTime = Date.now();
+        this.recordExecutionStart(profileId, config.agentConfigId || "unknown", agentLoopId);
 
-          const iterationResult = await executeIterationWithRetryAndTimeout(
-            agentLoopId,
-            entity,
-            () =>
-              this.iterationCoordinator.executeIteration(
+        try {
+          const result = await executeWithInterruptionHandling(async signal => {
+            while (entity.state.currentIteration < maxIterations) {
+              logger.debug("Starting new iteration", {
+                agentLoopId,
+                iteration: entity.state.currentIteration + 1,
+                maxIterations,
+              });
+
+              const iterationResult = await executeIterationWithRetryAndTimeout(
+                agentLoopId,
                 entity,
-                conversationManager,
-                toolSchemas,
-                profileId,
-                signal,
-              ),
-            config.retryPolicy,
-            config.executionTimeout,
-          );
+                () =>
+                  this.iterationCoordinator.executeIteration(
+                    entity,
+                    conversationManager,
+                    toolSchemas,
+                    profileId,
+                    signal,
+                  ),
+                config.retryPolicy,
+                config.executionTimeout,
+                timeBudget,
+              );
 
-          if (iterationResult.interruption) {
+              if (iterationResult.interruption) {
+                return {
+                  success: false,
+                  iterations: entity.state.currentIteration,
+                  toolCallCount: entity.state.toolCallCount,
+                  error: `Execution ${iterationResult.interruption}`,
+                };
+              }
+
+              if (!iterationResult.shouldContinue) {
+                logger.info("Agent Loop execution completed successfully", {
+                  agentLoopId,
+                  iterations: entity.state.currentIteration,
+                  toolCallCount: entity.state.toolCallCount,
+                });
+
+                this.recordExecutionComplete(profileId, startTime, true, entity);
+
+                const timeBudgetStats = timeBudget.getStats();
+                return {
+                  success: true,
+                  content: iterationResult.content,
+                  iterations: entity.state.currentIteration,
+                  toolCallCount: entity.state.toolCallCount,
+                  completionData: iterationResult.completionData,
+                  // Add retry/timeout statistics
+                  totalRetryCount: timeBudgetStats.retryCount,
+                  totalRetryDelayTime: timeBudgetStats.totalDelayConsumedMs,
+                  timeoutCount: 0, // TODO: track timeout count in entity
+                };
+              }
+
+              logger.debug("Iteration completed, continuing", {
+                agentLoopId,
+                iteration: entity.state.currentIteration,
+              });
+            }
+
+            logger.info("Agent Loop reached maximum iterations", {
+              agentLoopId,
+              maxIterations,
+              toolCallCount: entity.state.toolCallCount,
+            });
+
+            entity.state.complete();
+            this.recordExecutionComplete(profileId, startTime, true, entity);
+
+            const timeBudgetStats = timeBudget.getStats();
+            return {
+              success: true,
+              iterations: entity.state.currentIteration,
+              toolCallCount: entity.state.toolCallCount,
+              content: "Reached maximum iterations without final answer.",
+              // Add retry/timeout statistics
+              totalRetryCount: timeBudgetStats.retryCount,
+              totalRetryDelayTime: timeBudgetStats.totalDelayConsumedMs,
+              timeoutCount: 0,
+            };
+          }, entity.getAbortSignal());
+
+          if (!result.success) {
+            const interruption = result.interruption;
+            const type = interruption.type === "paused" ? "PAUSE" : "STOP";
+
+            if (type === "PAUSE") {
+              entity.state.pause();
+            } else {
+              entity.state.cancel();
+            }
+
+            this.recordExecutionComplete(profileId, startTime, false, entity);
+
+            const timeBudgetStats = timeBudget.getStats();
             return {
               success: false,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
-              error: `Execution ${iterationResult.interruption}`,
+              error: `Execution ${interruption.type}`,
+              // Add retry/timeout statistics
+              totalRetryCount: timeBudgetStats.retryCount,
+              totalRetryDelayTime: timeBudgetStats.totalDelayConsumedMs,
+              timeoutCount: 0,
             };
           }
 
-          if (!iterationResult.shouldContinue) {
-            logger.info("Agent Loop execution completed successfully", {
+          return result.result;
+        } catch (error) {
+          const standardizedError = await handleAgentError(
+            entity,
+            error as Error,
+            "agent_loop_execution",
+          );
+
+          this.recordExecutionComplete(profileId, startTime, false, entity);
+
+          const timeBudgetStats = timeBudget.getStats();
+
+          // Check if fallback is configured for continuation on failure
+          if (onFailure === "continue" && config.fallbackOutput) {
+            logger.info("Agent loop failed, using fallback output", {
               agentLoopId,
               iterations: entity.state.currentIteration,
-              toolCallCount: entity.state.toolCallCount,
+              fallbackContent: config.fallbackOutput.content?.substring(0, 50),
             });
 
-            this.recordExecutionComplete(profileId, startTime, true);
-
             return {
-              success: true,
-              content: iterationResult.content,
+              success: true,  // Treated as success since we recovered with fallback
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
-              completionData: iterationResult.completionData,
+              content: config.fallbackOutput.content,
+              completionData: config.fallbackOutput.data ? { data: config.fallbackOutput.data } : undefined,
+              // Add retry/timeout statistics
+              totalRetryCount: timeBudgetStats.retryCount,
+              totalRetryDelayTime: timeBudgetStats.totalDelayConsumedMs,
+              timeoutCount: 0,
+              fallbackCount: 1,
             };
           }
 
-          logger.debug("Iteration completed, continuing", {
-            agentLoopId,
-            iteration: entity.state.currentIteration,
-          });
+          return {
+            success: false,
+            iterations: entity.state.currentIteration,
+            toolCallCount: entity.state.toolCallCount,
+            error: standardizedError,
+            // Add retry/timeout statistics
+            totalRetryCount: timeBudgetStats.retryCount,
+            totalRetryDelayTime: timeBudgetStats.totalDelayConsumedMs,
+            timeoutCount: 0,
+          };
         }
-
-        logger.info("Agent Loop reached maximum iterations", {
-          agentLoopId,
-          maxIterations,
-          toolCallCount: entity.state.toolCallCount,
-        });
-
-        entity.state.complete();
-        this.recordExecutionComplete(profileId, startTime, true);
-
-        return {
-          success: true,
-          iterations: entity.state.currentIteration,
-          toolCallCount: entity.state.toolCallCount,
-          content: "Reached maximum iterations without final answer.",
-        };
-      }, entity.getAbortSignal());
-
-      if (!result.success) {
-        const interruption = result.interruption;
-        const type = interruption.type === "paused" ? "PAUSE" : "STOP";
-
-        if (type === "PAUSE") {
-          entity.state.pause();
-        } else {
-          entity.state.cancel();
-        }
-
-        this.recordExecutionComplete(profileId, startTime, false);
-
-        return {
-          success: false,
-          iterations: entity.state.currentIteration,
-          toolCallCount: entity.state.toolCallCount,
-          error: `Execution ${interruption.type}`,
-        };
-      }
-
-      return result.result;
-    } catch (error) {
-      const standardizedError = await handleAgentError(
-        entity,
-        error as Error,
-        "agent_loop_execution",
-      );
-
-      this.recordExecutionComplete(profileId, startTime, false);
-
-      return {
-        success: false,
-        iterations: entity.state.currentIteration,
-        toolCallCount: entity.state.toolCallCount,
-        error: standardizedError,
-      };
-    }
+      },
+      onFailure,
+      maxMainLoopRetries,
+      mainLoopRetryDelay,
+      mainLoopExponentialBackoff,
+      timeBudget,
+    );
   }
 
   /**
@@ -382,6 +660,28 @@ export class AgentExecutionCoordinator {
         "agent_loop_stream_execution",
       );
 
+      // Check if fallback is configured for continuation on failure
+      const onFailure = entity.config.onFailure ?? "fail";
+      if (onFailure === "continue" && entity.config.fallbackOutput) {
+        logger.info("Agent loop stream failed, using fallback output", {
+          agentLoopId,
+          iteration: entity.state.currentIteration,
+          fallbackContent: entity.config.fallbackOutput.content?.substring(0, 50),
+        });
+
+        // Emit end event with fallback output (marked as success since recovered)
+        const endEvent = this.createAgentEndEvent(
+          agentLoopId,
+          conversationManager.getMessages(),
+          entity.state.currentIteration,
+          entity.state.toolCallCount,
+          true,  // success=true because fallback recovered
+        );
+        yield endEvent;
+        await this.iterationCoordinator.emitToRegistry(endEvent, entity);
+        return;
+      }
+
       const errorEvent = this.createErrorEvent(
         agentLoopId,
         standardizedError.message,
@@ -406,6 +706,15 @@ export class AgentExecutionCoordinator {
     const agentLoopId = entity.id;
     const config = entity.config;
 
+    // Create time budget for retry operations in streaming mode
+    const timeBudgetMode = config.retryPolicy?.timeBudgetMode ?? "delay-only";
+    const retryBudgetMs = 300000;  // 5 minutes
+    const timeBudget = new TimeBudget({
+      totalBudgetMs: retryBudgetMs,
+      mode: timeBudgetMode,
+      name: `agent-loop-stream-${agentLoopId}`,
+    });
+
     while (entity.state.currentIteration < maxIterations) {
       logger.debug("Starting new stream iteration", {
         agentLoopId,
@@ -422,6 +731,7 @@ export class AgentExecutionCoordinator {
         profileId,
         config.retryPolicy,
         config.executionTimeout,
+        timeBudget,
       );
 
       if (!shouldContinue) {
@@ -458,6 +768,7 @@ export class AgentExecutionCoordinator {
    * - Throws error: iteration failed after all retries exhausted
    *
    * Note: Timeout errors are NOT retried (wastes budget on already-failed operations)
+   * Problem #5: Supports timeBudgetMode for consistent time tracking
    */
   private async *executeIterationStreamWithRetryAndTimeout(
     agentLoopId: string,
@@ -467,12 +778,25 @@ export class AgentExecutionCoordinator {
     profileId: string,
     retryPolicy?: RetryPolicy,
     timeoutMs?: number,
+    timeBudget?: TimeBudget,
   ): AsyncGenerator<AgentLoopStreamEvent, boolean> {
     const maxAttempts = retryPolicy?.enabled ? (retryPolicy.maxRetries ?? 0) + 1 : 1;
     let lastError: Error | undefined;
 
     for (let attemptCount = 0; attemptCount < maxAttempts; attemptCount++) {
+      const attemptStartTime = Date.now();
+
       try {
+        // Check time budget before attempting execution
+        if (timeBudget && timeBudget.isExhausted()) {
+          logger.warn("Time budget exhausted before stream attempt", {
+            agentLoopId,
+            attemptCount,
+            timeBudgetStats: timeBudget.getStats(),
+          });
+          throw lastError || new Error("Time budget exhausted for retry operations");
+        }
+
         // For streaming, we need to handle timeout differently
         // We'll track elapsed time and emit events accordingly
         let result: boolean;
@@ -494,11 +818,23 @@ export class AgentExecutionCoordinator {
           );
         }
 
+        // Record execution time in budget if in total-time mode
+        if (timeBudget) {
+          const executionTime = Date.now() - attemptStartTime;
+          timeBudget.recordExecutionTime(executionTime);
+        }
+
         // Iteration completed successfully
         return result;
       } catch (error) {
         lastError = error as Error;
         const isLastAttempt = attemptCount === maxAttempts - 1;
+
+        // Record execution time in budget
+        if (timeBudget) {
+          const executionTime = Date.now() - attemptStartTime;
+          timeBudget.recordExecutionTime(executionTime);
+        }
 
         logger.debug("Stream iteration failed", {
           agentLoopId,
@@ -530,6 +866,22 @@ export class AgentExecutionCoordinator {
 
         const delayMs = retryPolicy.getNextDelay(attemptCount);
 
+        // Check time budget before consuming delay
+        if (timeBudget) {
+          const budgetCheck = timeBudget.canConsumeDelay(delayMs);
+          if (!budgetCheck.allowed) {
+            logger.warn("Time budget would be exceeded by stream retry delay, stopping retry", {
+              agentLoopId,
+              attemptCount,
+              delayMs,
+              reason: budgetCheck.reason,
+              timeBudgetStats: timeBudget.getStats(),
+            });
+            throw lastError;
+          }
+        }
+
+        // Check legacy global retry budget for backward compatibility
         const retryBudget = (entity as any).getRetryBudget?.();
         if (retryBudget && !retryBudget.canRetry(delayMs)) {
           logger.warn("Global retry budget exhausted in stream, stopping retry", {
@@ -539,6 +891,10 @@ export class AgentExecutionCoordinator {
           throw lastError;
         }
 
+        // Consume from budgets
+        if (timeBudget) {
+          timeBudget.consumeDelay(delayMs);
+        }
         if (retryBudget) {
           retryBudget.consumeRetry(delayMs);
         }
@@ -549,6 +905,7 @@ export class AgentExecutionCoordinator {
           delayMs,
           nextAttempt: attemptCount + 2,
           maxAttempts,
+          timeBudgetStats: timeBudget?.getStats(),
         });
 
         await delay(delayMs);
@@ -604,14 +961,20 @@ export class AgentExecutionCoordinator {
     }
   }
 
-  private recordExecutionComplete(profileId: string, startTime: number, success: boolean): void {
+  private recordExecutionComplete(
+    profileId: string,
+    startTime: number,
+    success: boolean,
+    entity?: AgentLoopEntity,
+  ): void {
     if (!this.metricsRegistry) return;
     const duration = Date.now() - startTime;
     const agentCollector = this.metricsRegistry.getAgentCollector();
     if (agentCollector) {
       agentCollector.recordExecutionComplete(profileId, {
-        iterations: 0,
-        toolCallCount: 0,
+        // [Problem #9 Fix] Pass actual iteration/tool call counts from entity state
+        iterations: entity?.state.currentIteration ?? 0,
+        toolCallCount: entity?.state.toolCallCount ?? 0,
         duration,
         success,
       });

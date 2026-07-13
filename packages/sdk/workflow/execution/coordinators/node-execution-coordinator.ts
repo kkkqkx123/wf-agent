@@ -484,15 +484,45 @@ export class NodeExecutionCoordinator {
           effectiveSignal,
         );
 
+        // Track retry statistics
+        let retryCount = 0;
+        const retryDelays: number[] = [];
+        let totalRetryTime = 0;
+
         if (nodeResult.status === "FAILED" && onFailure === "retry" && maxRetries > 0) {
+          // [Problem #1 Fix] Use RetryBudget from workflow entity for budget-aware retry
+          const retryBudget = workflowExecutionEntity.getRetryBudget();
+
           for (let attempt = 1; attempt <= maxRetries; attempt++) {
             if (effectiveSignal?.aborted) break;
 
             // Calculate delay with optional exponential backoff (capped at 60s)
-            const delay = exponentialBackoff
+            const delayMs = exponentialBackoff
               ? Math.min(retryDelay * Math.pow(2, attempt - 1), 60000)
               : retryDelay;
-            await new Promise(resolve => setTimeout(resolve, delay));
+
+            // [Problem #1 Fix] Check global retry budget before consuming delay
+            if (retryBudget && !retryBudget.canRetry(delayMs)) {
+              logger.warn("Global retry budget exhausted, stopping node retry", {
+                executionId,
+                nodeId,
+                attempt,
+                maxRetries,
+                delayMs,
+                budgetState: retryBudget.getState(),
+              });
+              break;
+            }
+
+            retryDelays.push(delayMs);
+            totalRetryTime += delayMs;
+
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+
+            // [Problem #1 Fix] Consume retry from budget after delay
+            if (retryBudget) {
+              retryBudget.consumeRetry(delayMs);
+            }
 
             logger.info("Retrying node execution", {
               executionId,
@@ -500,6 +530,7 @@ export class NodeExecutionCoordinator {
               nodeType,
               attempt,
               maxRetries,
+              delayMs,
             });
 
             nodeResult = await this.executeNodeLogic(
@@ -508,12 +539,15 @@ export class NodeExecutionCoordinator {
               effectiveSignal,
             );
 
+            retryCount++;
             if (nodeResult.status === "COMPLETED" || effectiveSignal?.aborted) break;
           }
         }
 
         // If still failed after retries, check for 'continue' strategy
+        let fallbackUsed = false;
         if (nodeResult.status === "FAILED" && onFailure === "continue") {
+          fallbackUsed = true;
           nodeResult = {
             ...nodeResult,
             status: "SKIPPED" as const,
@@ -521,7 +555,49 @@ export class NodeExecutionCoordinator {
           };
         }
 
+        // [Problem #3 Fix] Create a failure checkpoint when node ultimately fails
+        // This ensures the failure state is persisted even if the SDK crashes after this point.
+        if (nodeResult.status === "FAILED" && this.checkpointDependencies) {
+          try {
+            const coordinator = new CheckpointCoordinator();
+            await coordinator.createWorkflowCheckpoint(
+              workflowExecutionEntity,
+              this.checkpointDependencies,
+              {
+                nodeId,
+                metadata: {
+                  description: `Node failed: ${nodeId} (${nodeType})`,
+                  customFields: {
+                    failureType: "node_execution_failure",
+                    failedAt: now(),
+                    retryCount,
+                  },
+                },
+              },
+            );
+            logger.info("Failure checkpoint created for node", { executionId, nodeId, retryCount });
+          } catch (cpError) {
+            // Non-fatal: checkpoint creation failure should not mask the original node failure
+            logger.warn("Failed to create failure checkpoint, continuing", {
+              executionId,
+              nodeId,
+              error: cpError,
+            });
+          }
+        }
+
         const nodeDuration = diffTimestamp(nodeStartTime, now());
+
+        // Add retry statistics to node result
+        nodeResult.retryCount = retryCount;
+        if (retryDelays.length > 0) {
+          nodeResult.retryDelays = retryDelays;
+          nodeResult.totalRetryTime = totalRetryTime;
+        }
+        if (fallbackUsed) {
+          nodeResult.fallbackUsed = true;
+          nodeResult.fallbackRecovered = nodeResult.status === "SKIPPED";
+        }
 
         // Record node execution completion in metrics
         const nodeCollector = this.metricsRegistry.getNodeCollector();
@@ -536,6 +612,16 @@ export class NodeExecutionCoordinator {
                   : "unknown"
                 : undefined,
           });
+
+          // Record retry statistics separately
+          if (retryCount > 0) {
+            logger.debug("Node retry statistics recorded", {
+              executionId,
+              nodeId,
+              retryCount,
+              totalRetryTime,
+            });
+          }
         }
 
         // Step 5: Record the results of node execution
@@ -660,6 +746,34 @@ export class NodeExecutionCoordinator {
         };
 
         workflowExecutionEntity.addNodeResult(errorResult);
+
+        // [Problem #3 Fix] Create failure checkpoint in catch block to persist error state
+        if (this.checkpointDependencies) {
+          try {
+            const coordinator = new CheckpointCoordinator();
+            await coordinator.createWorkflowCheckpoint(
+              workflowExecutionEntity,
+              this.checkpointDependencies,
+              {
+                nodeId,
+                metadata: {
+                  description: `Node execution threw: ${nodeId} (${nodeType})`,
+                  customFields: {
+                    failureType: "node_execution_exception",
+                    failedAt: now(),
+                  },
+                },
+              },
+            );
+            logger.info("Failure checkpoint created in catch block", { executionId, nodeId });
+          } catch (cpError) {
+            logger.warn("Failed to create failure checkpoint in catch block, continuing", {
+              executionId,
+              nodeId,
+              error: cpError,
+            });
+          }
+        }
 
         const nodeFailedEvent = buildNodeFailedEvent({
           executionId: workflowExecutionEntity.id,

@@ -22,6 +22,7 @@ import type {
   CheckpointErrorStrategy,
   CheckpointErrorContext,
   ExecutionHierarchyMetadata,
+  AgentLoopCheckpointTriggerType,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
@@ -40,6 +41,9 @@ import { ChildCheckpointRestorer } from "../../shared/checkpoint/hierarchy/child
 import type { ChildRestoreDependencies } from "../../shared/checkpoint/hierarchy/child-restorer.js";
 import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
+import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
+import { agentTriggerToUnified } from "../../shared/checkpoint/adapters/unified-adapter.js";
+import type { CheckpointTriggerType } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -135,12 +139,34 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   private checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
 
   /**
+   * Default checkpoint strategy (P2 enhancement)
+   * Uses STANDARD policy by default for balanced checkpoint creation
+   */
+  private defaultStrategy: CheckpointStrategy;
+
+  /**
    * @param config AgentLoopRuntimeConfig for restoration (must be provided for restore operations)
    */
   constructor(config?: AgentLoopRuntimeConfig) {
     super();
     this.restoreConfig = config;
     this.versionManager = new CheckpointVersionManager(logger);
+    this.defaultStrategy = createCheckpointStrategy('STANDARD');
+  }
+
+  /**
+   * Set custom default checkpoint strategy (P2 enhancement)
+   * @param strategy CheckpointStrategy instance
+   */
+  setDefaultStrategy(strategy: CheckpointStrategy): void {
+    this.defaultStrategy = strategy;
+  }
+
+  /**
+   * Get current default checkpoint strategy
+   */
+  getDefaultStrategy(): CheckpointStrategy {
+    return this.defaultStrategy;
   }
 
   /**
@@ -230,6 +256,89 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     }
 
     return checkpointId;
+  }
+
+  /**
+   * Create an agent loop checkpoint using CheckpointStrategy (P2 enhancement)
+   *
+   * Uses the unified CheckpointStrategy framework to determine whether a checkpoint
+   * should be created based on the trigger event and configured policy.
+   *
+   * @param entity Agent loop entity
+   * @param trigger Checkpoint trigger event (unified type)
+   * @param dependencies Checkpoint dependencies
+   * @param strategy Optional custom CheckpointStrategy (uses default if not provided)
+   * @param options Checkpoint options
+   * @param context Optional context
+   * @returns Checkpoint ID if created, null if skipped by strategy
+   */
+  async createCheckpointWithStrategy(
+    entity: AgentLoopEntity,
+    trigger: CheckpointTriggerType,
+    dependencies: CheckpointDependencies,
+    strategy?: CheckpointStrategy,
+    options?: CheckpointOptions,
+    context?: Record<string, unknown>,
+  ): Promise<string | null> {
+    // Use provided strategy or default
+    const effectiveStrategy = strategy ?? this.defaultStrategy;
+
+    // Check if checkpoint should be created for this trigger
+    if (!effectiveStrategy.shouldCheckpoint(trigger)) {
+      logger.debug("Checkpoint skipped by strategy", {
+        agentLoopId: entity.id,
+        trigger,
+        strategy: effectiveStrategy.toString(),
+      });
+      return null;
+    }
+
+    // Create checkpoint with enriched metadata
+    const enrichedOptions: CheckpointOptions = {
+      ...options,
+      metadata: {
+        ...options?.metadata,
+        tags: [
+          ...(options?.metadata?.tags ?? []),
+          `trigger:${trigger}`,
+        ],
+      },
+    };
+
+    logger.debug("Creating checkpoint with strategy", {
+      agentLoopId: entity.id,
+      trigger,
+      strategy: effectiveStrategy.toString(),
+    });
+
+    return this.createCheckpoint(
+      entity,
+      dependencies,
+      enrichedOptions,
+      context,
+    );
+  }
+
+  /**
+   * Create a checkpoint from legacy Agent loop trigger type (backward compatibility)
+   * @deprecated Use createCheckpointWithStrategy with unified CheckpointTriggerType instead
+   */
+  async createCheckpointByAgentTrigger(
+    entity: AgentLoopEntity,
+    legacyTrigger: AgentLoopCheckpointTriggerType,
+    dependencies: CheckpointDependencies,
+    options?: CheckpointOptions,
+    context?: Record<string, unknown>,
+  ): Promise<string | null> {
+    const unifiedTrigger = agentTriggerToUnified(legacyTrigger);
+    return this.createCheckpointWithStrategy(
+      entity,
+      unifiedTrigger,
+      dependencies,
+      this.defaultStrategy,
+      options,
+      context,
+    );
   }
 
   /**

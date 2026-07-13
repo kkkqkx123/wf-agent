@@ -30,7 +30,7 @@ import {
 // ============================================================================
 
 declare const nodeType: StaticNodeType;
-expectAssignable<"START" | "END" | "VARIABLE" | "FORK" | "JOIN" | "SUBGRAPH" | "SYNC" | "SCRIPT" | "LLM" | "TOOL_VISIBILITY" | "USER_INTERACTION" | "ROUTE" | "CONTEXT_PROCESSOR" | "LOOP_START" | "LOOP_END" | "AGENT_LOOP" | "START_FROM_TRIGGER" | "CONTINUE_FROM_TRIGGER" | "EMBED_GRAPH">(nodeType);
+expectAssignable<"START" | "END" | "VARIABLE" | "FORK" | "JOIN" | "SUBGRAPH" | "SYNC" | "SCRIPT" | "INTERACTIVE_SCRIPT" | "LLM" | "TOOL_VISIBILITY" | "USER_INTERACTION" | "ROUTE" | "CONTEXT_PROCESSOR" | "LOOP_START" | "LOOP_END" | "AGENT_LOOP" | "START_FROM_TRIGGER" | "CONTINUE_FROM_TRIGGER" | "EMBED_GRAPH">(nodeType);
 
 // ============================================================================
 // Test 2: StaticNodeOfType generic type inference
@@ -127,9 +127,8 @@ function processNodeByType(node: StaticNode): void {
   }
 }
 
-// ============================================================================
-// Test 6: Invalid type assignments should fail
-// ============================================================================
+declare const sampleStaticNode: StaticNode;
+processNodeByType(sampleStaticNode);
 
 // A LLM node should not be assignable to a Script node variable
 declare const llmNodeFull: StaticLLMNode;

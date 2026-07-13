@@ -6,7 +6,7 @@ import type { ID, Timestamp } from "../common.js";
 
 /**
  * Node execution result type
- * 
+ *
  * output field uses Record<string, unknown> to enforce string-keyed data path access.
  * This aligns with the expression evaluator's path resolution mechanism
  * where output fields are accessed via dot-notation paths like "output.fieldName".
@@ -33,15 +33,41 @@ export interface NodeExecutionResult {
   timestamp?: Timestamp;
   /**
    * Node execution output data
-   * 
+   *
    * Uses Record<string, unknown> to enforce string-keyed data path IDs.
    * All node outputs must be structured as key-value objects to support
    * expression path resolution (e.g., "output.content", "output.status").
-   * 
+   *
    * Raw/scalar outputs from nodes like SCRIPT should be wrapped as
    * { result: <rawValue> } to maintain path-based access consistency.
    */
   output?: Record<string, unknown>;
+
+  // ============ Retry/Fallback Statistics (Problem #5 enhancement) ============
+
+  /** Number of retry attempts made */
+  retryCount?: number;
+
+  /** Delays (in milliseconds) for each retry attempt */
+  retryDelays?: number[];
+
+  /** Total time spent in retry delays */
+  totalRetryTime?: number;
+
+  /** Whether fallback was used */
+  fallbackUsed?: boolean;
+
+  /** Reason fallback was used (if applicable) */
+  fallbackReason?: string;
+
+  /** Whether execution recovered via fallback */
+  fallbackRecovered?: boolean;
+
+  /** Timeout count (if execution timed out multiple times) */
+  timeoutCount?: number;
+
+  /** Whether this node timed out */
+  timedOut?: boolean;
 }
 
 /**

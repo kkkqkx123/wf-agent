@@ -76,6 +76,22 @@ export interface WorkflowExecutionResult {
   nodeResults: NodeExecutionResult[];
   /** Execution metadata */
   metadata: WorkflowExecutionResultMetadata;
+
+  // ============ [Problem #4 Fix] Error Details ============
+
+  /**
+   * Errors that occurred during workflow execution.
+   * Includes all errors from failed nodes and global workflow failures.
+   * Each entry is either a NodeExecutionResult error or the global workflow error.
+   */
+  errors?: Array<{
+    /** Node ID where the error occurred (if node-level) */
+    nodeId?: ID;
+    /** Error message */
+    message: string;
+    /** Error type */
+    type?: string;
+  }>;
 }
 
 /**

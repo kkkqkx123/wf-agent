@@ -33,6 +33,7 @@ import type {
   CheckpointErrorStrategy,
   CheckpointErrorContext,
   CheckpointFormatVersion,
+  WorkflowCheckpointTriggerType,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../stores/workflow-registry.js";
@@ -62,6 +63,9 @@ import type { AgentLoopCheckpointCoordinator, CheckpointDependencies as AgentChe
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import type { ChildCheckpointResolver } from "../../shared/checkpoint/hierarchy/child-resolver.js";
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
+import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
+import { workflowTriggerToUnified } from "../../shared/checkpoint/adapters/unified-adapter.js";
+import type { CheckpointTriggerType } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 
@@ -150,9 +154,31 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
    */
   private versionManager: CheckpointVersionManager;
 
+  /**
+   * Default checkpoint strategy (P2 enhancement)
+   * Uses STANDARD policy by default for balanced checkpoint creation
+   */
+  private defaultStrategy: CheckpointStrategy;
+
   constructor() {
     super();
     this.versionManager = new CheckpointVersionManager(logger);
+    this.defaultStrategy = createCheckpointStrategy('STANDARD');
+  }
+
+  /**
+   * Set custom default checkpoint strategy
+   * @param strategy CheckpointStrategy instance
+   */
+  setDefaultStrategy(strategy: CheckpointStrategy): void {
+    this.defaultStrategy = strategy;
+  }
+
+  /**
+   * Get current default checkpoint strategy
+   */
+  getDefaultStrategy(): CheckpointStrategy {
+    return this.defaultStrategy;
   }
 
   // ============================================================================
@@ -229,6 +255,89 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
     }
 
     return checkpointId;
+  }
+
+  /**
+   * Create a workflow checkpoint using CheckpointStrategy (P2 enhancement)
+   *
+   * Uses the unified CheckpointStrategy framework to determine whether a checkpoint
+   * should be created based on the trigger event and configured policy.
+   *
+   * @param entity Workflow execution entity
+   * @param trigger Checkpoint trigger event (unified type)
+   * @param dependencies Workflow checkpoint dependencies
+   * @param strategy Optional custom CheckpointStrategy (uses default if not provided)
+   * @param options Checkpoint options
+   * @param conversationManager Optional conversation manager
+   * @returns Checkpoint ID if created, null if skipped by strategy
+   */
+  async createCheckpointWithStrategy(
+    entity: WorkflowExecutionEntity,
+    trigger: CheckpointTriggerType,
+    dependencies: WorkflowCheckpointDependencies,
+    strategy?: CheckpointStrategy,
+    options?: CheckpointOptions,
+    conversationManager?: ConversationSession,
+  ): Promise<string | null> {
+    // Use provided strategy or default
+    const effectiveStrategy = strategy ?? this.defaultStrategy;
+
+    // Check if checkpoint should be created for this trigger
+    if (!effectiveStrategy.shouldCheckpoint(trigger)) {
+      logger.debug("Checkpoint skipped by strategy", {
+        executionId: entity.id,
+        trigger,
+        strategy: effectiveStrategy.toString(),
+      });
+      return null;
+    }
+
+    // Create checkpoint with enriched metadata
+    const enrichedOptions: CheckpointOptions = {
+      ...options,
+      metadata: {
+        ...options?.metadata,
+        tags: [
+          ...(options?.metadata?.tags ?? []),
+          `trigger:${trigger}`,
+        ],
+      },
+    };
+
+    logger.debug("Creating checkpoint with strategy", {
+      executionId: entity.id,
+      trigger,
+      strategy: effectiveStrategy.toString(),
+    });
+
+    return this.createWorkflowCheckpoint(
+      entity,
+      dependencies,
+      enrichedOptions,
+      conversationManager,
+    );
+  }
+
+  /**
+   * Create a checkpoint from legacy Workflow trigger type (backward compatibility)
+   * @deprecated Use createCheckpointWithStrategy with unified CheckpointTriggerType instead
+   */
+  async createCheckpointByWorkflowTrigger(
+    entity: WorkflowExecutionEntity,
+    legacyTrigger: WorkflowCheckpointTriggerType,
+    dependencies: WorkflowCheckpointDependencies,
+    options?: CheckpointOptions,
+    conversationManager?: ConversationSession,
+  ): Promise<string | null> {
+    const unifiedTrigger = workflowTriggerToUnified(legacyTrigger);
+    return this.createCheckpointWithStrategy(
+      entity,
+      unifiedTrigger,
+      dependencies,
+      this.defaultStrategy,
+      options,
+      conversationManager,
+    );
   }
 
   /**

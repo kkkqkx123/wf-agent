@@ -240,6 +240,17 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._status = "FAILED";
     this._error = error;
     this._endTime = now();
+
+    // [Problem #2 Fix] Automatically record error in errorRecords for chain tracking
+    this.recordError({
+      id: `error:${this._endTime}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: this._endTime,
+      message: error instanceof Error ? error.message : String(error),
+      errorType: "execution_error",
+      severity: "error",
+      context: { operation: "workflow_execution_fail" },
+      isRecoverable: false,
+    });
   }
 
   /**

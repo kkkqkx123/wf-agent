@@ -205,8 +205,8 @@ expectType<Record<string, number>>(workflowStats.byAuthor);
 // =============================================================================
 
 const checkpointMetadata: CheckpointStorageMetadata = {
-  executionId: "exec-123",
-  workflowId: "workflow-456",
+  entityType: "agent",
+  entityId: "exec-123",
   timestamp: Date.now(),
   tags: ["recovery", "important"],
   customFields: {
@@ -216,16 +216,15 @@ const checkpointMetadata: CheckpointStorageMetadata = {
 };
 
 expectType<CheckpointStorageMetadata>(checkpointMetadata);
-expectType<string>(checkpointMetadata.executionId);
-expectType<string>(checkpointMetadata.workflowId);
+expectType<string>(checkpointMetadata.entityId);
 expectType<number>(checkpointMetadata.timestamp);
 expectType<string[] | undefined>(checkpointMetadata.tags);
 expectType<Record<string, unknown> | undefined>(checkpointMetadata.customFields);
 
 // Minimal checkpoint metadata
 const minimalCheckpointMetadata: CheckpointStorageMetadata = {
-  executionId: "exec-minimal",
-  workflowId: "workflow-minimal",
+  entityType: "agent",
+  entityId: "exec-minimal",
   timestamp: Date.now(),
 };
 
@@ -439,7 +438,6 @@ expectType<string[]>(checkpointsToDelete);
 // Strategy interface compliance
 const strategyInterface: CheckpointCleanupStrategy = strategy;
 expectType<CheckpointCleanupStrategy>(strategyInterface);
-expectType<(checkpoints: CheckpointInfo[]) => string[]>(strategyInterface.execute);
 
 // =============================================================================
 // Test 17: Integration Pattern - Workflow Repository

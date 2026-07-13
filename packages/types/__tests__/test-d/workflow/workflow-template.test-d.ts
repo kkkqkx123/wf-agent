@@ -15,8 +15,6 @@ import type {
   WorkflowTemplate,
   StaticNode,
   Edge,
-  WorkflowStartConfig,
-  WorkflowEndConfig,
   VariableDefinition,
   AvailableTools,
   VariableValueType,
@@ -63,7 +61,6 @@ const fullWorkflow: WorkflowTemplate = {
       name: "inputVar",
       type: "string",
       value: "default",
-      scope: "execution",
       readonly: false,
     },
   ],
@@ -84,7 +81,8 @@ const fullWorkflow: WorkflowTemplate = {
   createdAt: Date.now(),
   updatedAt: Date.now(),
   availableTools: {
-    initial: ["tool1", "tool2"],
+    available: ["tool1", "tool2"],
+    initial: ["tool1"],
   },
 };
 
@@ -169,7 +167,6 @@ if (fullWorkflow.variables) {
     expectType<string>(firstVar.name);
     expectType<VariableValueType>(firstVar.type);
     expectType<unknown>(firstVar.value);
-    expectType<"global" | "execution" | "subgraph" | "loop">(firstVar.scope);
     expectType<boolean>(firstVar.readonly);
   }
 }
@@ -179,15 +176,15 @@ if (fullWorkflow.variables) {
 // ============================================================================
 
 if (fullWorkflow.availableTools) {
-  expectType<string[]>(fullWorkflow.availableTools.initial);
-  expectType<Set<string> | undefined>(fullWorkflow.availableTools.dynamic);
-  expectType<"none" | "allowlist" | "blocklist" | undefined>(fullWorkflow.availableTools.filterMode);
+  expectAssignable<string[] | undefined>(fullWorkflow.availableTools.initial);
+  expectType<string[]>(fullWorkflow.availableTools.available);
 }
 
 const toolsOnlyInitial: AvailableTools = {
+  available: ["tool1"],
   initial: ["tool1"],
 };
-expectType<string[]>(toolsOnlyInitial.initial);
+expectAssignable<string[] | undefined>(toolsOnlyInitial.initial);
 
 // ============================================================================
 // Test 8: Metadata structure

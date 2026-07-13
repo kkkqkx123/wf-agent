@@ -132,7 +132,7 @@ async function executeAgentLoopWithFailurePolicy(
         mainLoopRetryCount++;
 
         if (retryBudget) {
-          const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+          const budgetCheck = retryBudget.canRetry(delayMs);
           if (!budgetCheck.allowed) {
             break;  // Stop retrying due to budget
           }
@@ -160,7 +160,7 @@ async function executeAgentLoopWithFailurePolicy(
       mainLoopRetryCount++;
 
       if (retryBudget) {
-          const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+          const budgetCheck = retryBudget.canRetry(delayMs);
           if (!budgetCheck.allowed) {
             break;  // Budget exhausted, stop retrying
           }
@@ -462,7 +462,7 @@ describe("executeAgentLoopWithFailurePolicy", () => {
       expect(result.success).toBe(true);
       expect(result.mainLoopRetryCount).toBe(1);
       // Verify budget was consumed
-      const stats = retryBudget.getStats();
+      const stats = retryBudget.getState();
       expect(stats.totalDelayConsumedMs).toBe(100);
     });
 
@@ -495,7 +495,7 @@ describe("executeAgentLoopWithFailurePolicy", () => {
       // Should only retry once (100ms from budget), second retry blocked (would need 200ms but budget only has 100 left)
       // mainLoopRetryCount is 2 because it's incremented before the budget check
       expect(result.mainLoopRetryCount).toBe(2);
-      const budgetAfter = retryBudget.getStats();
+      const budgetAfter = retryBudget.getState();
       expect(budgetAfter.totalDelayConsumedMs).toBe(100);
     });
 
@@ -651,6 +651,8 @@ describe("executeAgentLoopWithFailurePolicy", () => {
     });
 
     it("应该处理主循环延迟超过 60s 的上限", async () => {
+      vi.useFakeTimers();
+
       // Arrange
       let callCount = 0;
       const executor = async (): Promise<AgentLoopResult> => {
@@ -661,20 +663,27 @@ describe("executeAgentLoopWithFailurePolicy", () => {
         return { success: true, iterations: 1, toolCallCount: 0 };
       };
 
-      // Act
-      const result = await executeAgentLoopWithFailurePolicy(
+      // Act — start execution (will block on delays internally)
+      const resultPromise = executeAgentLoopWithFailurePolicy(
         "test-agent",
         executor,
         "retry",
         2,
         50000,  // Large base delay
-        true,   // exponential backoff: 50000 * 2^0 = 50000, 50000 * 2^1 = 100000 -> capped at 60000
+        true,   // exponential backoff
       );
+
+      // Fast-forward past the first delay (50000ms) and second delay (60000ms)
+      await vi.advanceTimersByTimeAsync(120000);
+
+      const result = await resultPromise;
 
       // Assert
       // First retry: min(50000, 60000) = 50000
       // Second retry: min(100000, 60000) = 60000
       expect(result.mainLoopRetryDelayTime).toBe(110000);  // 50000 + 60000
+
+      vi.useRealTimers();
     });
 
     it("应该在 executor 同步抛出异常时处理", async () => {

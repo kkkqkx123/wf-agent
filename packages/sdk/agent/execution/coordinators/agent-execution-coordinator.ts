@@ -78,7 +78,7 @@ async function executeIterationWithRetryAndTimeout<T>(
         logger.warn("Retry budget exhausted before attempt", {
           agentLoopId,
           attemptCount,
-          budgetStats: retryBudget.getStats(),
+          budgetStats: retryBudget.getState(),
         });
         throw lastError || new Error("Retry budget exhausted for retry operations");
       }
@@ -145,14 +145,14 @@ async function executeIterationWithRetryAndTimeout<T>(
 
       // Check retry budget before consuming delay
       if (retryBudget) {
-        const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+        const budgetCheck = retryBudget.canRetry(delayMs);
         if (!budgetCheck.allowed) {
           logger.warn("Retry budget would be exceeded by retry delay, stopping retry", {
             agentLoopId,
             attemptCount,
             delayMs,
             reason: budgetCheck.reason,
-            budgetStats: retryBudget.getStats(),
+            budgetStats: retryBudget.getState(),
           });
           throw lastError;
         }
@@ -170,7 +170,7 @@ async function executeIterationWithRetryAndTimeout<T>(
         delayMs,
         nextAttempt: attemptCount + 2,
         maxAttempts,
-        budgetStats: retryBudget?.getStats(),
+        budgetStats: retryBudget?.getState(),
       });
 
       await delay(delayMs);
@@ -265,14 +265,14 @@ async function executeAgentLoopWithFailurePolicy(
 
         // Check retry budget before consuming delay
         if (retryBudget) {
-          const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+          const budgetCheck = retryBudget.canRetry(delayMs);
           if (!budgetCheck.allowed) {
             logger.warn("Retry budget would be exceeded by main loop retry delay", {
               agentLoopId,
               attemptCount,
               delayMs,
               reason: budgetCheck.reason,
-              budgetStats: retryBudget.getStats(),
+              budgetStats: retryBudget.getState(),
             });
             // Budget exhausted, don't retry
             break;
@@ -318,7 +318,7 @@ async function executeAgentLoopWithFailurePolicy(
 
       // Check retry budget before consuming delay
       if (retryBudget) {
-        const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+        const budgetCheck = retryBudget.canRetry(delayMs);
         if (!budgetCheck.allowed) {
           logger.warn("Retry budget would be exceeded by main loop retry delay", {
             agentLoopId,
@@ -476,7 +476,7 @@ export class AgentExecutionCoordinator {
 
                 this.recordExecutionComplete(profileId, startTime, true, entity);
 
-                const budgetStats = retryBudget.getStats();
+                const budgetStats = retryBudget.getState();
                 return {
                   success: true,
                   content: iterationResult.content,
@@ -484,7 +484,7 @@ export class AgentExecutionCoordinator {
                   toolCallCount: entity.state.toolCallCount,
                   completionData: iterationResult.completionData,
                   // Add retry/timeout statistics
-                  totalRetryCount: budgetStats.retryCount,
+                  totalRetryCount: budgetStats.retriesConsumed,
                   totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
                   timeoutCount: entity.state.timeoutCount,
                 };
@@ -505,14 +505,14 @@ export class AgentExecutionCoordinator {
             entity.state.complete();
             this.recordExecutionComplete(profileId, startTime, true, entity);
 
-            const budgetStats = retryBudget.getStats();
+            const budgetStats = retryBudget.getState();
             return {
               success: true,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
               content: "Reached maximum iterations without final answer.",
               // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retryCount,
+              totalRetryCount: budgetStats.retriesConsumed,
               totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
             };
@@ -530,14 +530,14 @@ export class AgentExecutionCoordinator {
 
             this.recordExecutionComplete(profileId, startTime, false, entity);
 
-            const budgetStats = retryBudget.getStats();
+            const budgetStats = retryBudget.getState();
             return {
               success: false,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
               error: `Execution ${interruption.type}`,
               // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retryCount,
+              totalRetryCount: budgetStats.retriesConsumed,
               totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
             };
@@ -553,7 +553,7 @@ export class AgentExecutionCoordinator {
 
           this.recordExecutionComplete(profileId, startTime, false, entity);
 
-          const budgetStats = retryBudget.getStats();
+          const budgetStats = retryBudget.getState();
 
           // Check if fallback is configured for continuation on failure
           if (onFailure === "continue" && config.fallbackOutput) {
@@ -570,7 +570,7 @@ export class AgentExecutionCoordinator {
               content: config.fallbackOutput.content,
               completionData: config.fallbackOutput.data ? { data: config.fallbackOutput.data } : undefined,
               // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retryCount,
+              totalRetryCount: budgetStats.retriesConsumed,
               totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
               fallbackCount: 1,
@@ -583,7 +583,7 @@ export class AgentExecutionCoordinator {
             toolCallCount: entity.state.toolCallCount,
             error: standardizedError,
             // Add retry/timeout statistics
-            totalRetryCount: budgetStats.retryCount,
+            totalRetryCount: budgetStats.retriesConsumed,
             totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
             timeoutCount: entity.state.timeoutCount,
           };
@@ -789,7 +789,7 @@ export class AgentExecutionCoordinator {
           logger.warn("Retry budget exhausted before stream attempt", {
             agentLoopId,
             attemptCount,
-            budgetStats: retryBudget.getStats(),
+            budgetStats: retryBudget.getState(),
           });
           throw lastError || new Error("Retry budget exhausted for retry operations");
         }
@@ -865,14 +865,14 @@ export class AgentExecutionCoordinator {
 
         // Check retry budget before consuming delay
         if (retryBudget) {
-          const budgetCheck = retryBudget.canConsumeDelay(delayMs);
+          const budgetCheck = retryBudget.canRetry(delayMs);
           if (!budgetCheck.allowed) {
             logger.warn("Retry budget would be exceeded by stream retry delay, stopping retry", {
               agentLoopId,
               attemptCount,
               delayMs,
               reason: budgetCheck.reason,
-              budgetStats: retryBudget.getStats(),
+              budgetStats: retryBudget.getState(),
             });
             throw lastError;
           }
@@ -889,7 +889,7 @@ export class AgentExecutionCoordinator {
           delayMs,
           nextAttempt: attemptCount + 2,
           maxAttempts,
-          budgetStats: retryBudget?.getStats(),
+          budgetStats: retryBudget?.getState(),
         });
 
         await delay(delayMs);

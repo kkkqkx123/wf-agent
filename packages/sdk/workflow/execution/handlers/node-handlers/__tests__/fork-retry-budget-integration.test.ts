@@ -49,17 +49,17 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       };
 
       // Simulate Branch 2 retry
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0))).toBe(true); // 1s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0)).allowed).toBe(true); // 1s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(0));
 
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(1))).toBe(true); // 2s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(1)).allowed).toBe(true); // 2s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(1));
 
       // Simulate Branch 3 retry
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0))).toBe(true); // 1s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0)).allowed).toBe(true); // 1s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(0));
 
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(1))).toBe(true); // 2s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(1)).allowed).toBe(true); // 2s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(1));
 
       // Verify state
@@ -99,19 +99,19 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       };
 
       // Branch 1: First retry
-      expect(globalBudget.canRetry(1000)).toBe(true);
+      expect(globalBudget.canRetry(1000).allowed).toBe(true);
       globalBudget.consumeRetry(1000);
 
       // Branch 1: Second retry (2s)
-      expect(globalBudget.canRetry(2000)).toBe(true);
+      expect(globalBudget.canRetry(2000).allowed).toBe(true);
       globalBudget.consumeRetry(2000);
 
       // Branch 2: First retry (1s) - would make total 1+2+1 = 4s, OK
-      expect(globalBudget.canRetry(1000)).toBe(true);
+      expect(globalBudget.canRetry(1000).allowed).toBe(true);
       globalBudget.consumeRetry(1000);
 
       // Branch 2: Second retry (2s) - would make total 1+2+1+2 = 6s > 5s budget
-      expect(globalBudget.canRetry(2000)).toBe(false);
+      expect(globalBudget.canRetry(2000).allowed).toBe(false);
 
       // Budget is not fully exhausted: 4000ms consumed out of 5000ms
       // (a 1000ms retry would still fit)
@@ -140,7 +140,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       globalBudget.consumeRetry();
 
       // Fourth attempt should fail
-      expect(globalBudget.canRetry()).toBe(false);
+      expect(globalBudget.canRetry().allowed).toBe(false);
       expect(globalBudget.getState().retriesRemaining).toBe(0);
     });
   });
@@ -219,7 +219,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       const networkError = new Error("Network connection failed");
       expect(retryPolicy.shouldRetry?.(networkError, 0)).toBe(true);
 
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0))).toBe(true); // 1s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0)).allowed).toBe(true); // 1s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(0));
 
       // Branch 2: Timeout → don't retry
@@ -232,7 +232,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
       // Branch 3: Another network error → retry
       expect(retryPolicy.shouldRetry?.(networkError, 0)).toBe(true);
 
-      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0))).toBe(true); // 1s
+      expect(globalBudget.canRetry(retryPolicy.getNextDelay!(0)).allowed).toBe(true); // 1s
       globalBudget.consumeRetry(retryPolicy.getNextDelay!(0));
 
       // Verify state
@@ -268,7 +268,7 @@ describe("FORK Branch Retry with Global Budget - Integration Tests", () => {
 
       // Branch 2 starts retry (but doesn't block others)
       branch2Retrying = true;
-      expect(globalBudget.canRetry(1000)).toBe(true);
+      expect(globalBudget.canRetry(1000).allowed).toBe(true);
       globalBudget.consumeRetry(1000);
 
       // Branch 3 can still execute while Branch 2 is retrying

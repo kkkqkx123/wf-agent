@@ -59,6 +59,21 @@ export interface AgentLoopExecutionResult {
   executionTime: number;
   /** Agent Loop instance ID (used for pausing/resuming) */
   loopId?: string;
+  /**
+   * Inner error records from the agent loop execution state.
+   * Provides cross-layer error traceability: when this agent loop fails
+   * inside a workflow, the workflow's root cause analysis can access
+   * these records to trace into the agent's internal error chain.
+   */
+  innerErrorRecords?: Array<{
+    id: string;
+    timestamp: number;
+    message: string;
+    errorType: string;
+    severity: string;
+    iteration?: number;
+    context: { operation: string; toolName?: string };
+  }>;
 }
 
 /**
@@ -428,7 +443,13 @@ export async function agentLoopHandler(
     );
 
     if (!result.success) {
-      throw result.error || new Error("Agent loop failed");
+      // Attach inner error records to the thrown error for cross-layer traceability.
+      // The catch block below will forward them to the AgentLoopExecutionResult.
+      const thrownError = result.error || new Error("Agent loop failed");
+      if (result.innerErrorRecords && result.innerErrorRecords.length > 0) {
+        (thrownError as any).innerErrorRecords = result.innerErrorRecords;
+      }
+      throw thrownError;
     }
 
     // 3. Synchronize messages to ConversationSession
@@ -489,10 +510,17 @@ export async function agentLoopHandler(
       executionTime: diffTimestamp(startTime, now()),
     };
   } catch (error) {
+    // Extract inner error records attached by the throw path above
+    const innerErrorRecords = (error as any)?.innerErrorRecords as
+      | AgentLoopExecutionResult["innerErrorRecords"]
+      | undefined;
+
     return {
       status: "FAILED",
       error: getErrorOrNew(error),
       executionTime: diffTimestamp(startTime, now()),
+      // Cross-layer error traceability: forward inner agent error records
+      innerErrorRecords,
     };
   }
 }

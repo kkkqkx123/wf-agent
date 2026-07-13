@@ -711,7 +711,16 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         });
         // Continue to next attempt
       } catch (error) {
-        // Record error in execution state
+        lastError = error;
+
+        if (attempt >= maxRetries) {
+          // No more retries — fall through to post-retry error handling
+          // Recording is handled by the throwing-failure path below (line 777+)
+          // to avoid duplicate error records.
+          break;
+        }
+
+        // Record error in execution state for retry tracking
         const errorRecord: ExecutionErrorRecord = {
           id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           timestamp: Date.now(),
@@ -727,12 +736,6 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         };
 
         entity.state.addErrorRecord(errorRecord);
-        lastError = error;
-
-        if (attempt >= maxRetries) {
-          // No more retries — fall through to error handling
-          break;
-        }
 
         // Check if the error is recoverable
         const recoveryAction = entity.state.getRecommendedRecoveryAction();
@@ -837,6 +840,18 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       iterations: entity.state.currentIteration,
       toolCallCount: entity.state.toolCallCount,
       error: lastError,
+      // Cross-layer error traceability: include inner error records
+      innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
+        ? entity.state.getErrorRecords().map(r => ({
+            id: r.id,
+            timestamp: r.timestamp,
+            message: r.message,
+            errorType: r.errorType,
+            severity: r.severity,
+            iteration: r.iteration,
+            context: r.context,
+          }))
+        : undefined),
     };
   } finally {
     // Cancel the wall-clock timeout if it was registered
@@ -860,48 +875,8 @@ export class AgentLoopCoordinator implements AgentTaskManager {
   }
 }
 
-  /**
-   * Submit Agent Loop for asynchronous execution (for triggered execution from Workflow)
-   *
-   * This method supports async execution where the caller does not wait for completion.
-   * Instead, a task ID is returned and callbacks can be registered for completion/error handling.
-   *
-   * @param config Loop configuration
-   * @param options Execution options (may include parentContext)
-   * @param timeout Optional timeout in milliseconds
-   * @returns Task submission result with task ID
-   *
-   * @deprecated Use TriggeredAgentExecutionManager for triggered execution
-   */
-  async submitAsync(
-    config: AgentLoopRuntimeConfig,
-    options: AgentLoopExecuteOptions = {},
-    timeout?: number,
-  ): Promise<{ taskId: string; status: string; submitTime: number }> {
-    // Delegate to triggered manager for async execution
-    const triggeredAgentManager = this.globalContext.container.get(
-      Identifiers.TriggeredAgentExecutionManager,
-    );
-
-    const { entity, stateCoordinator } = await this.buildEntity(config, options);
-    this.registry.register(entity);
-    this.registry.registerStateCoordinator(entity.id, stateCoordinator);
-
-    return await (triggeredAgentManager as any).submitTriggeredExecution(
-      {
-        executionId: entity.id,
-        parentEntity: entity,
-        parentType: "AGENT_LOOP",
-        timeout,
-        waitForCompletion: false,
-      },
-      entity,
-      config,
-    );
-  }
-
-  /**
-   * Cancel a task (implements AgentTaskManager interface)
+/**
+ * Cancel a task (implements AgentTaskManager interface)
    * @param taskId Task ID
    * @returns Whether cancellation was successful
    */

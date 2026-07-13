@@ -457,6 +457,19 @@ export class AgentExecutionCoordinator {
                   iterations: entity.state.currentIteration,
                   toolCallCount: entity.state.toolCallCount,
                   error: `Execution ${iterationResult.interruption}`,
+                  // Cross-layer error traceability: include inner error records
+                  // Use safe-call pattern to support test mocks without getErrorRecords()
+                  innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
+                    ? entity.state.getErrorRecords().map(r => ({
+                        id: r.id,
+                        timestamp: r.timestamp,
+                        message: r.message,
+                        errorType: r.errorType,
+                        severity: r.severity,
+                        iteration: r.iteration,
+                        context: r.context,
+                      }))
+                    : undefined),
                 };
               }
 
@@ -533,6 +546,19 @@ export class AgentExecutionCoordinator {
               totalRetryCount: budgetStats.retriesConsumed,
               totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
+              // Cross-layer error traceability: include inner error records
+              // Use safe-call pattern to support test mocks without getErrorRecords()
+              innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
+                ? entity.state.getErrorRecords().map(r => ({
+                    id: r.id,
+                    timestamp: r.timestamp,
+                    message: r.message,
+                    errorType: r.errorType,
+                    severity: r.severity,
+                    iteration: r.iteration,
+                    context: r.context,
+                  }))
+                : undefined),
             };
           }
 
@@ -579,6 +605,19 @@ export class AgentExecutionCoordinator {
             totalRetryCount: budgetStats.retriesConsumed,
             totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
             timeoutCount: entity.state.timeoutCount,
+            // Cross-layer error traceability: include inner error records
+            // Use safe-call pattern to support test mocks without getErrorRecords()
+            innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
+              ? entity.state.getErrorRecords().map(r => ({
+                  id: r.id,
+                  timestamp: r.timestamp,
+                  message: r.message,
+                  errorType: r.errorType,
+                  severity: r.severity,
+                  iteration: r.iteration,
+                  context: r.context,
+                }))
+              : undefined),
           };
         }
       },

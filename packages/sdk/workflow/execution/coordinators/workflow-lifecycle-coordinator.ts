@@ -217,6 +217,15 @@ export class WorkflowLifecycleCoordinator {
         await this.workflowStateTransitor.failWorkflowExecution(workflowExecutionEntity, lastError);
       }
     } finally {
+      // Record workflow execution completion in metrics
+      if (workflowCollector) {
+        workflowCollector.recordExecutionComplete(workflowId, executionId, {
+          success: isSuccess,
+          duration: result.metadata?.executionTime ?? Date.now() - (workflowExecutionEntity.getStartTime() ?? Date.now()),
+          nodeCount: result.metadata?.nodeCount ?? 0,
+          errorType: isSuccess ? undefined : result.errors?.[0]?.type ?? "unknown",
+        });
+      }
       // Cancel the wall-clock timeout if it was registered
       if (wallClockTimeoutHandle) {
         wallClockTimeoutHandle.cancel();

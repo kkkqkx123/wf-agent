@@ -284,42 +284,6 @@ describe("AgentLoopState - Error Chain Tracking", () => {
     });
   });
 
-  describe("canRecoverFromErrors", () => {
-    it("should return true when all errors are recoverable", () => {
-      for (let i = 1; i <= 3; i++) {
-        const error: ExecutionErrorRecord = {
-          id: `error${i}`,
-          timestamp: Date.now(),
-          message: `Error ${i}`,
-          severity: "error",
-          errorType: "execution_error",
-          context: { operation: "test" },
-          isRecoverable: true,
-        };
-        state.recordError(error);
-      }
-
-      expect(state.canRecoverFromErrors()).toBe(true);
-    });
-
-    it("should return false when any error is not recoverable", () => {
-      for (let i = 1; i <= 3; i++) {
-        const error: ExecutionErrorRecord = {
-          id: `error${i}`,
-          timestamp: Date.now(),
-          message: `Error ${i}`,
-          severity: "error",
-          errorType: "execution_error",
-          context: { operation: "test" },
-          isRecoverable: i !== 2, // error2 is not recoverable
-        };
-        state.recordError(error);
-      }
-
-      expect(state.canRecoverFromErrors()).toBe(false);
-    });
-  });
-
   describe("getRecommendedRecoveryAction", () => {
     it("should return abort when no errors", () => {
       const action = state.getRecommendedRecoveryAction();

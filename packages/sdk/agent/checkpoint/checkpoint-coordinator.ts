@@ -22,7 +22,6 @@ import type {
   CheckpointErrorStrategy,
   CheckpointErrorContext,
   ExecutionHierarchyMetadata,
-  AgentLoopCheckpointTriggerType,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
@@ -42,7 +41,6 @@ import type { ChildRestoreDependencies } from "../../shared/checkpoint/hierarchy
 import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
 import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
-import { agentTriggerToUnified } from "../../shared/checkpoint/adapters/unified-adapter.js";
 import type { CheckpointTriggerType } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
@@ -315,28 +313,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       entity,
       dependencies,
       enrichedOptions,
-      context,
-    );
-  }
-
-  /**
-   * Create a checkpoint from legacy Agent loop trigger type (backward compatibility)
-   * @deprecated Use createCheckpointWithStrategy with unified CheckpointTriggerType instead
-   */
-  async createCheckpointByAgentTrigger(
-    entity: AgentLoopEntity,
-    legacyTrigger: AgentLoopCheckpointTriggerType,
-    dependencies: CheckpointDependencies,
-    options?: CheckpointOptions,
-    context?: Record<string, unknown>,
-  ): Promise<string | null> {
-    const unifiedTrigger = agentTriggerToUnified(legacyTrigger);
-    return this.createCheckpointWithStrategy(
-      entity,
-      unifiedTrigger,
-      dependencies,
-      this.defaultStrategy,
-      options,
       context,
     );
   }

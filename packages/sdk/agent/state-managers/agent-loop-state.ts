@@ -856,22 +856,30 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     error.id = errorId;
 
     // 2. Build error chain relationships
+    //    Uses explicit parentErrorId if provided (causal link); otherwise falls
+    //    back to sequential ordering (link to last recorded error).
     if (this._errorRecords.length > 0) {
-      const lastError = this._errorRecords[this._errorRecords.length - 1]!;
+      // 2a. Resolve parent: prefer explicit parentErrorId, fall back to last record
+      const parentError = error.parentErrorId
+        ? this._errorRecords.find(e => e.id === error.parentErrorId)
+        : undefined;
+      const parent = parentError ?? this._errorRecords[this._errorRecords.length - 1]!;
 
-      // 2a. Set parent error
-      error.parentErrorId = lastError.id;
+      // Only set parentErrorId if not already explicitly provided
+      if (!error.parentErrorId) {
+        error.parentErrorId = parent.id;
+      }
 
-      // 2b. Build error chain
-      if (lastError.errorChain) {
-        error.errorChain = [...lastError.errorChain, errorId];
+      // 2b. Build error chain from parent's chain or start new chain
+      if (parent.errorChain) {
+        error.errorChain = [...parent.errorChain, errorId];
       } else {
         // First time establishing chain
-        error.errorChain = [lastError.id, errorId];
+        error.errorChain = [parent.id, errorId];
       }
 
       // 2c. Quick reference to root cause
-      error.rootCauseId = lastError.rootCauseId || lastError.id;
+      error.rootCauseId = parent.rootCauseId || parent.id;
     } else {
       // This is the first error, it is the root cause
       error.errorChain = [errorId];
@@ -879,9 +887,6 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     }
 
     // 3. Add to records (unlimited retention for complete error history)
-    // Previous limit: EXECUTION_STATE_MAX_ERROR_RECORDS = 100 (deprecated)
-    // Migration: All errors are now retained, users should implement their own
-    // retention policies at the persistence layer if needed
     this._errorRecords.push(error);
   }
 
@@ -991,17 +996,6 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   }
 
   /**
-   * Check if errors can be recovered from
-   *
-   * Analyzes if the error chain can be recovered through suggested recovery actions.
-   *
-   * @returns true if all errors in chain are recoverable
-   */
-  canRecoverFromErrors(): boolean {
-    return this._errorRecords.every(e => e.isRecoverable);
-  }
-
-  /**
    * Get recommended recovery action for the error chain
    *
    * Based on the error chain, returns the most appropriate recovery action.
@@ -1103,6 +1097,13 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
         `Cannot fail completed execution, current status: ${this._status}`,
         { operation: "fail", field: "status", value: this._status },
       );
+    }
+
+    // Guard: prevent duplicate recording when already in FAILED state.
+    // This prevents double-recording when handleAgentError calls fail()
+    // and the outer coordinator also tries to fail for the same error.
+    if (this._status === AgentLoopStatus.FAILED) {
+      return;
     }
 
     this._status = AgentLoopStatus.FAILED;

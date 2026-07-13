@@ -33,7 +33,6 @@ import type {
   CheckpointErrorStrategy,
   CheckpointErrorContext,
   CheckpointFormatVersion,
-  WorkflowCheckpointTriggerType,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../stores/workflow-registry.js";
@@ -64,7 +63,6 @@ import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import type { ChildCheckpointResolver } from "../../shared/checkpoint/hierarchy/child-resolver.js";
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
 import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
-import { workflowTriggerToUnified } from "../../shared/checkpoint/adapters/unified-adapter.js";
 import type { CheckpointTriggerType } from "@wf-agent/types";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
@@ -314,28 +312,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       entity,
       dependencies,
       enrichedOptions,
-      conversationManager,
-    );
-  }
-
-  /**
-   * Create a checkpoint from legacy Workflow trigger type (backward compatibility)
-   * @deprecated Use createCheckpointWithStrategy with unified CheckpointTriggerType instead
-   */
-  async createCheckpointByWorkflowTrigger(
-    entity: WorkflowExecutionEntity,
-    legacyTrigger: WorkflowCheckpointTriggerType,
-    dependencies: WorkflowCheckpointDependencies,
-    options?: CheckpointOptions,
-    conversationManager?: ConversationSession,
-  ): Promise<string | null> {
-    const unifiedTrigger = workflowTriggerToUnified(legacyTrigger);
-    return this.createCheckpointWithStrategy(
-      entity,
-      unifiedTrigger,
-      dependencies,
-      this.defaultStrategy,
-      options,
       conversationManager,
     );
   }

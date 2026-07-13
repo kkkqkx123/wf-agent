@@ -159,4 +159,20 @@ export interface AgentLoopResult {
     timedOut: boolean;
     fallbackUsed: boolean;
   }>;
+
+  /**
+   * Inner error records from the agent loop execution state.
+   * Provides cross-layer error traceability — when an AGENT_LOOP node fails
+   * in a workflow, this field carries the agent loop's internal error chain
+   * so the workflow's root cause analysis can trace into the agent's errors.
+   */
+  innerErrorRecords?: Array<{
+    id: string;
+    timestamp: number;
+    message: string;
+    errorType: string;
+    severity: string;
+    iteration?: number;
+    context: { operation: string; toolName?: string };
+  }>;
 }

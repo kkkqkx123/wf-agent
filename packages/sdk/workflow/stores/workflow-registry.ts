@@ -208,40 +208,6 @@ export class WorkflowRegistry {
   }
 
   /**
-   * Deprecated: Use register() instead. Maintained for backward compatibility.
-   * @deprecated Use async register() instead
-   */
-  registerSync(workflow: WorkflowTemplate, options?: RegisterOptions): void {
-    // Synchronous registration without preprocessing
-    const validationResult = this.validate(workflow);
-    if (!validationResult.valid) {
-      throw new ConfigurationValidationError(
-        `Workflow validation failed: ${validationResult.errors.join(", ")}`,
-        {
-          configType: "workflow",
-          configPath: "workflow.definition",
-        },
-      );
-    }
-
-    if (this.workflows.has(workflow.id)) {
-      if (options?.skipIfExists) {
-        return;
-      }
-      throw new ConfigurationValidationError(
-        `Workflow with ID '${workflow.id}' already exists.`,
-        {
-          configType: "workflow",
-          configPath: "workflow.id",
-        },
-      );
-    }
-
-    this.workflows.set(workflow.id, workflow);
-    this.updateIndexes(workflow);
-  }
-
-  /**
    * Batch registration workflow definitions asynchronously
    * @param workflows An array of workflow definitions
    * @param options Batch registration options

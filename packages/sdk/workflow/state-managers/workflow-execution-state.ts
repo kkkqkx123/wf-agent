@@ -278,6 +278,14 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * @param error Error message
    */
   fail(error: unknown): void {
+    // Guard: prevent duplicate recording when already in FAILED state.
+    // This can happen when node-level error recording + coordinator-level
+    // fail() + lifecycle-level failWorkflowExecution all fire for the same
+    // failure event. The first fail() call is authoritative.
+    if (this._status === "FAILED") {
+      return;
+    }
+
     this._status = "FAILED";
     this._error = error;
     this._endTime = now();
@@ -427,34 +435,37 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     error.id = errorId;
 
     // 2. Build error chain relationships
+    //    Uses explicit parentErrorId if provided (causal link); otherwise falls
+    //    back to sequential ordering (link to last recorded error).
     if (this._errorRecords.length > 0) {
-      const lastError = this._errorRecords[this._errorRecords.length - 1]!;
+      // 2a. Resolve parent: prefer explicit parentErrorId, fall back to last record
+      const parentError = error.parentErrorId
+        ? this._errorRecords.find(e => e.id === error.parentErrorId)
+        : undefined;
+      const parent = parentError ?? this._errorRecords[this._errorRecords.length - 1]!;
 
-      // 2a. Set parent error
-      error.parentErrorId = lastError.id;
+      // Only set parentErrorId if not already explicitly provided
+      if (!error.parentErrorId) {
+        error.parentErrorId = parent.id;
+      }
 
-      // 2b. Build error chain
-      if (lastError.errorChain) {
-        error.errorChain = [...lastError.errorChain, errorId];
+      // 2b. Build error chain from parent's chain or start new chain
+      if (parent.errorChain) {
+        error.errorChain = [...parent.errorChain, errorId];
       } else {
         // First time establishing chain
-        error.errorChain = [lastError.id, errorId];
+        error.errorChain = [parent.id, errorId];
       }
 
       // 2c. Quick reference to root cause
-      error.rootCauseId = lastError.rootCauseId || lastError.id;
+      error.rootCauseId = parent.rootCauseId || parent.id;
     } else {
       // This is the first error, it is the root cause
       error.errorChain = [errorId];
       error.rootCauseId = errorId;
     }
 
-    // 3. Add to records (unlimited retention for complete error history)
-    // Previous limit: EXECUTION_STATE_MAX_ERROR_RECORDS = 100 (deprecated)
-    // Migration: All errors are now retained, users should implement their own
-    // retention policies at the persistence layer if needed
-
-    // 4. Add to records
+    // 3. Add to records
     this._errorRecords.push(error);
   }
 
@@ -590,17 +601,6 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
         .map(([nodeId, count]) => ({ nodeId, count })),
       severityBreakdown: severityCount,
     };
-  }
-
-  /**
-   * Check if execution can recover from current errors.
-   * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
-   */
-  canRecoverFromErrors(): boolean {
-    if (this._errorRecords.length === 0) return true;
-    const lastError = this._errorRecords[this._errorRecords.length - 1];
-    if (!lastError) return true;
-    return lastError.isRecoverable;
   }
 
   /**

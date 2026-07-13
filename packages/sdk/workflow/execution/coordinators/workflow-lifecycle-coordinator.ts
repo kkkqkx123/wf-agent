@@ -89,6 +89,23 @@ export class WorkflowLifecycleCoordinator {
       workflowExecutionEntity.setMaxPauseDuration(options.maxPauseDuration);
     }
 
+    // Set workflow-level failure strategy from options (if provided)
+    if (options.onFailure !== undefined) {
+      workflowExecutionEntity.setWorkflowOnFailure(options.onFailure);
+    }
+    if (options.maxRetries !== undefined) {
+      workflowExecutionEntity.setWorkflowMaxRetries(options.maxRetries);
+    }
+    if (options.retryDelayMs !== undefined) {
+      workflowExecutionEntity.setWorkflowRetryDelayMs(options.retryDelayMs);
+    }
+    if (options.exponentialBackoff !== undefined) {
+      workflowExecutionEntity.setWorkflowExponentialBackoff(options.exponentialBackoff);
+    }
+    if (options.fallbackOutput !== undefined) {
+      workflowExecutionEntity.setWorkflowFallbackOutput(options.fallbackOutput);
+    }
+
     // Set default node retry from options (if provided)
     if (options.defaultNodeRetry !== undefined) {
       workflowExecutionEntity.setDefaultNodeRetry(options.defaultNodeRetry);
@@ -224,6 +241,10 @@ export class WorkflowLifecycleCoordinator {
           duration: result.metadata?.executionTime ?? Date.now() - (workflowExecutionEntity.getStartTime() ?? Date.now()),
           nodeCount: result.metadata?.nodeCount ?? 0,
           errorType: isSuccess ? undefined : result.errors?.[0]?.type ?? "unknown",
+          // [Issue 9] Pass retry and timeout statistics to metrics
+          retryCount: result.workflowRetryCount ?? result.totalRetryCount,
+          retryDelayTime: result.workflowRetryDelayTime ?? result.totalRetryDelayTime,
+          timeoutCount: result.timeoutCount,
         });
       }
       // Cancel the wall-clock timeout if it was registered

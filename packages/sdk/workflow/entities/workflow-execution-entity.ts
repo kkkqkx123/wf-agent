@@ -113,6 +113,21 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
     exponentialBackoff: boolean;
   };
 
+  /** Workflow-level failure strategy */
+  private _onFailure?: "retry" | "continue" | "fail";
+
+  /** Maximum number of workflow-level retry attempts */
+  private _maxRetries: number = 0;
+
+  /** Base delay between workflow-level retries in milliseconds */
+  private _retryDelayMs: number = 1000;
+
+  /** Whether to use exponential backoff for retry delays */
+  private _exponentialBackoff: boolean = true;
+
+  /** Fallback output for continue strategy */
+  private _fallbackOutput?: { output?: Record<string, unknown>; content?: string };
+
   /** Retry Budget for global retry quota management (Task #8) */
   private _retryBudget?: RetryBudget;
 
@@ -160,6 +175,76 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   getDefaultNodeRetry(): { maxRetries: number; retryDelay: number; exponentialBackoff: boolean } | undefined {
     return this._defaultNodeRetry;
+  }
+
+  /**
+   * Set workflow-level failure strategy
+   */
+  setWorkflowOnFailure(onFailure: "retry" | "continue" | "fail" | undefined): void {
+    this._onFailure = onFailure;
+  }
+
+  /**
+   * Get workflow-level failure strategy
+   */
+  getWorkflowOnFailure(): "retry" | "continue" | "fail" {
+    return this._onFailure ?? "fail";
+  }
+
+  /**
+   * Set workflow-level max retries
+   */
+  setWorkflowMaxRetries(maxRetries: number): void {
+    this._maxRetries = maxRetries;
+  }
+
+  /**
+   * Get workflow-level max retries
+   */
+  getWorkflowMaxRetries(): number {
+    return this._maxRetries;
+  }
+
+  /**
+   * Set workflow-level retry delay
+   */
+  setWorkflowRetryDelayMs(delayMs: number): void {
+    this._retryDelayMs = delayMs;
+  }
+
+  /**
+   * Get workflow-level retry delay
+   */
+  getWorkflowRetryDelayMs(): number {
+    return this._retryDelayMs;
+  }
+
+  /**
+   * Set workflow-level exponential backoff
+   */
+  setWorkflowExponentialBackoff(enabled: boolean): void {
+    this._exponentialBackoff = enabled;
+  }
+
+  /**
+   * Get workflow-level exponential backoff
+   */
+  getWorkflowExponentialBackoff(): boolean {
+    return this._exponentialBackoff;
+  }
+
+  /**
+   * Set workflow-level fallback output
+   */
+  setWorkflowFallbackOutput(fallbackOutput?: { output?: Record<string, unknown>; content?: string }): void {
+    this._fallbackOutput = fallbackOutput;
+  }
+
+  /**
+   * Get workflow-level fallback output
+   */
+  getWorkflowFallbackOutput(): { output?: Record<string, unknown>; content?: string } | undefined {
+    return this._fallbackOutput;
   }
 
   /**
@@ -347,6 +432,13 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
 
   getNodeResults(): NodeExecutionResult[] {
     return this.workflowExecution.nodeResults as NodeExecutionResult[];
+  }
+
+  /**
+   * Clear all node results (used for workflow-level retry)
+   */
+  clearNodeResults(): void {
+    this.workflowExecution.nodeResults = [];
   }
 
   // Error Message

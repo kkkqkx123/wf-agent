@@ -70,6 +70,12 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
       duration: number;
       nodeCount: number;
       errorType?: string;
+      /** [Issue 9] Workflow-level retry count */
+      retryCount?: number;
+      /** [Issue 9] Workflow-level retry delay time */
+      retryDelayTime?: number;
+      /** [Issue 9] Workflow timeout count */
+      timeoutCount?: number;
     },
   ): void {
     if (!workflowId || !executionId) {
@@ -105,11 +111,32 @@ export class WorkflowMetricsCollector extends BaseMetricCollector {
       });
     }
 
+    // [Issue 9] Record retry statistics
+    if (result.retryCount !== undefined && result.retryCount > 0) {
+      this.incrementCounter(WORKFLOW_METRICS.RETRY_COUNT, {
+        workflow_id: workflowId,
+      }, result.retryCount);
+    }
+    if (result.retryDelayTime !== undefined && result.retryDelayTime > 0) {
+      this.observeHistogram(WORKFLOW_METRICS.RETRY_DELAY_TIME, result.retryDelayTime, {
+        workflow_id: workflowId,
+      });
+    }
+
+    // [Issue 9] Record timeout count
+    if (result.timeoutCount !== undefined && result.timeoutCount > 0) {
+      this.incrementCounter(WORKFLOW_METRICS.TIMEOUT_COUNT, {
+        workflow_id: workflowId,
+      }, result.timeoutCount);
+    }
+
     logger.debug("Recorded workflow execution complete", {
       workflowId,
       executionId,
       success: result.success,
       duration: result.duration,
+      retryCount: result.retryCount,
+      timeoutCount: result.timeoutCount,
     });
   }
 

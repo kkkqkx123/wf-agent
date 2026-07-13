@@ -28,6 +28,12 @@ export const WORKFLOW_METRICS = {
   ACTIVE_COUNT: "workflow.execution.active.count" as const,
   /** Error count by type (counter) */
   ERROR_COUNT: "workflow.error.count" as const,
+  /** [Issue 9] Workflow-level retry count (counter) */
+  RETRY_COUNT: "workflow.retry.count" as const,
+  /** [Issue 9] Workflow-level retry delay time (histogram) */
+  RETRY_DELAY_TIME: "workflow.retry.delay_time_ms" as const,
+  /** [Issue 9] Workflow timeout count (counter) */
+  TIMEOUT_COUNT: "workflow.timeout.count" as const,
 } as const;
 
 /**

@@ -73,6 +73,48 @@ export interface WorkflowExecutionOptions {
    * and shared across all node-level retries and FORK branch retries.
    */
   retryBudget?: RetryBudgetOption;
+
+  /**
+   * Workflow-level failure strategy.
+   * Controls what happens when a node fails (after node-level retries are exhausted):
+   * - "fail" (default): Fail the entire workflow immediately.
+   * - "continue": Mark the failed node as SKIPPED and continue execution.
+   * - "retry": Retry the entire workflow execution from the beginning.
+   * @default "fail"
+   */
+  onFailure?: "retry" | "continue" | "fail";
+
+  /**
+   * Maximum number of workflow-level retry attempts.
+   * Only applicable when onFailure === "retry".
+   * @default 0
+   */
+  maxRetries?: number;
+
+  /**
+   * Base delay between workflow-level retries in milliseconds.
+   * Only applicable when onFailure === "retry".
+   * @default 1000
+   */
+  retryDelayMs?: number;
+
+  /**
+   * Whether to use exponential backoff for retry delays.
+   * Only applicable when onFailure === "retry".
+   * @default true
+   */
+  exponentialBackoff?: boolean;
+
+  /**
+   * Fallback output to use when the workflow fails and onFailure === "continue".
+   * This output is returned as the workflow result instead of failing.
+   */
+  fallbackOutput?: {
+    /** Fallback output data */
+    output?: Record<string, unknown>;
+    /** Optional content for result metadata */
+    content?: string;
+  };
 }
 
 /**
@@ -109,6 +151,54 @@ export interface WorkflowExecutionResult {
     message: string;
     /** Error type */
     type?: string;
+  }>;
+
+  // ============ [Issue 4 Fix] Retry & Timeout Statistics ============
+
+  /**
+   * Workflow-level retry count.
+   * Number of times the entire workflow execution was retried.
+   */
+  workflowRetryCount?: number;
+
+  /**
+   * Workflow-level retry delay time in milliseconds.
+   * Total time spent in delays for workflow-level retries.
+   */
+  workflowRetryDelayTime?: number;
+
+  /**
+   * Total number of retry attempts across all levels (workflow + node).
+   */
+  totalRetryCount?: number;
+
+  /**
+   * Total retry delay time across all levels in milliseconds.
+   */
+  totalRetryDelayTime?: number;
+
+  /**
+   * Number of timeouts that occurred during execution.
+   */
+  timeoutCount?: number;
+
+  /**
+   * Error chain from root cause to final error.
+   * Provides full traceability for failure analysis.
+   */
+  errorChain?: Array<{
+    /** Error ID */
+    id: string;
+    /** Error message */
+    message: string;
+    /** Error type */
+    errorType: string;
+    /** Severity level */
+    severity: string;
+    /** Node ID where error occurred */
+    nodeId?: string;
+    /** Timestamp when error occurred */
+    timestamp: number;
   }>;
 }
 

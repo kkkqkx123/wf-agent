@@ -409,15 +409,21 @@ export class AgentExecutionCoordinator {
     const mainLoopRetryDelay = config.mainLoopRetryDelay ?? 1000;
     const mainLoopExponentialBackoff = config.mainLoopExponentialBackoff ?? true;
 
-    // Create retry budget for retry operations
-    // Use timeBudgetMode from retry policy if available, default to 'delay-only'
+    // Create separate retry budgets for iteration-level and main-loop retries
+    // [Issue 2 Fix] Separate budgets prevent shared budget exhaustion and double-counting
     const timeBudgetMode = config.retryPolicy?.timeBudgetMode ?? "delay-only";
-    // Default retry budget: 5 minutes time budget, unlimited retry count
     const retryBudgetMs = 300000;
-    const retryBudget = new RetryBudget({
+
+    const iterationRetryBudget = new RetryBudget({
       timeBudgetMs: retryBudgetMs,
       timeBudgetMode: timeBudgetMode,
-      name: `agent-loop-${agentLoopId}`,
+      name: `iteration-${agentLoopId}`,
+    });
+
+    const mainLoopRetryBudget = new RetryBudget({
+      timeBudgetMs: retryBudgetMs,
+      timeBudgetMode: timeBudgetMode,
+      name: `main-loop-${agentLoopId}`,
     });
 
     return executeAgentLoopWithFailurePolicy(
@@ -448,7 +454,7 @@ export class AgentExecutionCoordinator {
                   ),
                 config.retryPolicy,
                 config.executionTimeout,
-                retryBudget,
+                iterationRetryBudget,  // [Issue 2 Fix] Use iteration-level budget
               );
 
               if (iterationResult.interruption) {
@@ -457,8 +463,6 @@ export class AgentExecutionCoordinator {
                   iterations: entity.state.currentIteration,
                   toolCallCount: entity.state.toolCallCount,
                   error: `Execution ${iterationResult.interruption}`,
-                  // Cross-layer error traceability: include inner error records
-                  // Use safe-call pattern to support test mocks without getErrorRecords()
                   innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
                     ? entity.state.getErrorRecords().map(r => ({
                         id: r.id,
@@ -482,16 +486,15 @@ export class AgentExecutionCoordinator {
 
                 this.recordExecutionComplete(profileId, startTime, true, entity);
 
-                const budgetStats = retryBudget.getState();
+                const iterationBudgetStats = iterationRetryBudget.getState();
                 return {
                   success: true,
                   content: iterationResult.content,
                   iterations: entity.state.currentIteration,
                   toolCallCount: entity.state.toolCallCount,
                   completionData: iterationResult.completionData,
-                  // Add retry/timeout statistics
-                  totalRetryCount: budgetStats.retriesConsumed,
-                  totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
+                  totalRetryCount: iterationBudgetStats.retriesConsumed,
+                  totalRetryDelayTime: iterationBudgetStats.totalDelayConsumedMs,
                   timeoutCount: entity.state.timeoutCount,
                 };
               }
@@ -511,15 +514,14 @@ export class AgentExecutionCoordinator {
             entity.state.complete();
             this.recordExecutionComplete(profileId, startTime, true, entity);
 
-            const budgetStats = retryBudget.getState();
+            const iterationBudgetStats = iterationRetryBudget.getState();
             return {
               success: true,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
               content: "Reached maximum iterations without final answer.",
-              // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retriesConsumed,
-              totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
+              totalRetryCount: iterationBudgetStats.retriesConsumed,
+              totalRetryDelayTime: iterationBudgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
             };
           }, entity.getAbortSignal());
@@ -536,18 +538,15 @@ export class AgentExecutionCoordinator {
 
             this.recordExecutionComplete(profileId, startTime, false, entity);
 
-            const budgetStats = retryBudget.getState();
+            const iterationBudgetStats = iterationRetryBudget.getState();
             return {
               success: false,
               iterations: entity.state.currentIteration,
               toolCallCount: entity.state.toolCallCount,
               error: `Execution ${interruption.type}`,
-              // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retriesConsumed,
-              totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
+              totalRetryCount: iterationBudgetStats.retriesConsumed,
+              totalRetryDelayTime: iterationBudgetStats.totalDelayConsumedMs,
               timeoutCount: entity.state.timeoutCount,
-              // Cross-layer error traceability: include inner error records
-              // Use safe-call pattern to support test mocks without getErrorRecords()
               innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
                 ? entity.state.getErrorRecords().map(r => ({
                     id: r.id,
@@ -564,49 +563,61 @@ export class AgentExecutionCoordinator {
 
           return result.result;
         } catch (error) {
+          this.recordExecutionComplete(profileId, startTime, false, entity);
+
+          const iterationBudgetStats = iterationRetryBudget.getState();
+
+          // [Issue 3 Fix] Handle "continue" strategy without calling state.fail()
+          // This prevents the state inconsistency where state says FAILED but result says success: true
+          if (onFailure === "continue" && config.fallbackOutput) {
+            logger.info("Agent loop failed, using fallback output (onFailure=continue)", {
+              agentLoopId,
+              iterations: entity.state.currentIteration,
+              fallbackContent: config.fallbackOutput.content?.substring(0, 50),
+            });
+
+            // Record the error as a non-fatal warning instead of failing the state
+            if (typeof entity.state.addErrorRecord === 'function') {
+              entity.state.addErrorRecord({
+                id: `error:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+                timestamp: Date.now(),
+                message: (error as Error).message,
+                errorType: "execution_error",
+                severity: "warning",
+                iteration: entity.state.currentIteration,
+                context: { operation: "agent_loop_execution" },
+                isRecoverable: true,
+              });
+            }
+
+            return {
+              success: true,
+              iterations: entity.state.currentIteration,
+              toolCallCount: entity.state.toolCallCount,
+              content: config.fallbackOutput.content,
+              completionData: config.fallbackOutput.data ? { data: config.fallbackOutput.data } : undefined,
+              totalRetryCount: iterationBudgetStats.retriesConsumed,
+              totalRetryDelayTime: iterationBudgetStats.totalDelayConsumedMs,
+              timeoutCount: entity.state.timeoutCount,
+              fallbackCount: 1,
+            };
+          }
+
+          // For "fail" and "retry" strategies, standardize the error via handleAgentError
           const standardizedError = await handleAgentError(
             entity,
             error as Error,
             "agent_loop_execution",
           );
 
-          this.recordExecutionComplete(profileId, startTime, false, entity);
-
-          const budgetStats = retryBudget.getState();
-
-          // Check if fallback is configured for continuation on failure
-          if (onFailure === "continue" && config.fallbackOutput) {
-            logger.info("Agent loop failed, using fallback output", {
-              agentLoopId,
-              iterations: entity.state.currentIteration,
-              fallbackContent: config.fallbackOutput.content?.substring(0, 50),
-            });
-
-            return {
-              success: true,  // Treated as success since we recovered with fallback
-              iterations: entity.state.currentIteration,
-              toolCallCount: entity.state.toolCallCount,
-              content: config.fallbackOutput.content,
-              completionData: config.fallbackOutput.data ? { data: config.fallbackOutput.data } : undefined,
-              // Add retry/timeout statistics
-              totalRetryCount: budgetStats.retriesConsumed,
-              totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
-              timeoutCount: entity.state.timeoutCount,
-              fallbackCount: 1,
-            };
-          }
-
           return {
             success: false,
             iterations: entity.state.currentIteration,
             toolCallCount: entity.state.toolCallCount,
             error: standardizedError,
-            // Add retry/timeout statistics
-            totalRetryCount: budgetStats.retriesConsumed,
-            totalRetryDelayTime: budgetStats.totalDelayConsumedMs,
+            totalRetryCount: iterationBudgetStats.retriesConsumed,
+            totalRetryDelayTime: iterationBudgetStats.totalDelayConsumedMs,
             timeoutCount: entity.state.timeoutCount,
-            // Cross-layer error traceability: include inner error records
-            // Use safe-call pattern to support test mocks without getErrorRecords()
             innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
               ? entity.state.getErrorRecords().map(r => ({
                   id: r.id,
@@ -625,7 +636,7 @@ export class AgentExecutionCoordinator {
       maxMainLoopRetries,
       mainLoopRetryDelay,
       mainLoopExponentialBackoff,
-      retryBudget,
+      mainLoopRetryBudget,  // [Issue 2 Fix] Use main-loop budget
     );
   }
 

@@ -213,6 +213,11 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
        mergedContext['contentConfig'] = contentConfig;
      }
 
+     // [Issue 7 Fix] Pass conversationManager through context for message inclusion in checkpoint
+     if (contentConfig?.includeMessages && dependencies.conversationManager) {
+       mergedContext['conversationManager'] = dependencies.conversationManager;
+     }
+
      const checkpointId = await super.createCheckpoint(
        entity,
        dependencies,
@@ -636,7 +641,7 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    */
   protected extractState(
     entity: AgentLoopEntity,
-    context?: { contentConfig?: AgentCheckpointContentConfig },
+    context?: { contentConfig?: AgentCheckpointContentConfig; conversationManager?: ConversationSession },
   ): AgentLoopStateSnapshot {
     const contentConfig = context?.contentConfig;
 
@@ -672,6 +677,29 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
       }
       if (fullSnapshot.currentIterationRecord) {
         snapshot['currentIterationRecord'] = fullSnapshot.currentIterationRecord;
+      }
+    }
+
+    // [Issue 7 Fix] Include messages from ConversationSession when explicitly configured
+    if (contentConfig?.includeMessages && context?.conversationManager) {
+      try {
+        const allMessages = context.conversationManager.getMessages();
+        const messageLimit = contentConfig.messageLimit;
+        if (messageLimit && messageLimit > 0 && allMessages.length > messageLimit) {
+          snapshot['messages'] = allMessages.slice(-messageLimit);
+        } else {
+          snapshot['messages'] = allMessages;
+        }
+        logger.debug("Included messages in checkpoint snapshot", {
+          agentLoopId: entity.id,
+          totalMessages: allMessages.length,
+          includedMessages: (snapshot['messages'] as unknown[]).length,
+        });
+      } catch (error) {
+        logger.warn("Failed to include messages in checkpoint snapshot", {
+          agentLoopId: entity.id,
+          error: (error as Error).message,
+        });
       }
     }
 

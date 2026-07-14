@@ -4,7 +4,8 @@
 
 import { resolve } from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import { FileNoteStorage, type NoteEntry } from "@wf-agent/storage";
+import { FileNoteStorage } from "./utils/index.js";
+import type { NoteEntry } from "./types.js";
 import type { SessionNoteConfig } from "../../../types.js";
 
 /**

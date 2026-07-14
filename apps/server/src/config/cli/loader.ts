@@ -91,9 +91,6 @@ export async function loadConfigWithEnvOverride(configPath?: string): Promise<CL
     result.output = { ...result.output, dir: process.env["LOG_DIR"] };
   }
   if (process.env["STORAGE_DIR"]) {
-    if (result.storage?.json) {
-      result.storage.json = { ...result.storage.json, baseDir: process.env["STORAGE_DIR"] };
-    }
     if (result.storage?.sqlite) {
       const sqlitePath = result.storage.sqlite.dbPath;
       const dirName = sqlitePath.substring(0, sqlitePath.lastIndexOf("/") + 1) || "./";

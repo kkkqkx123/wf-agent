@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TriggerAction } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { pauseExecutionHandler } from "../pause-execution-handler.js";
-import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../registry/workflow-execution-registry.js";
 
 const mockEntity = {
   id: "exec-1",

@@ -11,9 +11,9 @@
  */
 
 import type { Trigger } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../registry/workflow-registry.js";
+import type { WorkflowGraphRegistry } from "../../registry/workflow-graph-registry.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { TriggerState } from "../../state-managers/trigger-state.js";
 import type { CheckpointState } from "../../checkpoint/checkpoint-state-manager.js";

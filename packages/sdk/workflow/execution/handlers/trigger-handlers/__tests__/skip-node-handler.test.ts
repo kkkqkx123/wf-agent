@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TriggerAction } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import { skipNodeHandler } from "../skip-node-handler.js";
-import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../registry/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../../shared/registry/event-registry.js";
 
 const mockExecution = {

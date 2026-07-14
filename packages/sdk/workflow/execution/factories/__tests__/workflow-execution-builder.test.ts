@@ -6,8 +6,8 @@ import {
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
 import type { WorkflowGraph } from "../../../types/graph/preprocessed-graph.js";
 import type { GlobalContext } from "../../../../shared/global-context.js";
-import type { WorkflowRegistry } from "../../../stores/workflow-registry.js";
-import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
+import type { WorkflowRegistry } from "../../../registry/workflow-registry.js";
+import type { WorkflowGraphRegistry } from "../../../registry/workflow-graph-registry.js";
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
 import type { ExecutionHierarchyRegistry } from "../../../../shared/registry/execution-hierarchy-registry.js";
 

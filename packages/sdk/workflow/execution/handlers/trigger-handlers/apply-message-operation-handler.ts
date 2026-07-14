@@ -4,7 +4,7 @@ import type {
   MessageOperationConfig,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
 import type { WorkflowStateCoordinator } from "../../../state-managers/workflow-state-coordinator.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { createSuccessResult, createFailureResult } from "./trigger-handler-utils.js";

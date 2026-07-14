@@ -20,8 +20,8 @@ import type {
   WorkflowVariableOutput,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import type { StateManager } from "../../shared/types/state-manager.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { StateManager } from "../../../shared/types/state-manager.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "variable-manager" });
 

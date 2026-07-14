@@ -24,7 +24,7 @@ import { WorkflowExecutionStatus } from "@wf-agent/types";
 import { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
 import { WorkflowExecutor } from "../executors/workflow-executor.js";
 import { WorkflowStateTransitor } from "./workflow-state-transitor.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
 import * as Identifiers from "../../../di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execution-hierarchy-registry.js";

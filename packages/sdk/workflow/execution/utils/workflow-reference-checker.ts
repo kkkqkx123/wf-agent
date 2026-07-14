@@ -3,8 +3,8 @@
  * Provides a workflow reference checking feature for secure deletion and update operations.
  */
 
-import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../registry/workflow-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowTrigger } from "@wf-agent/types";
 import type { TriggerReference } from "@wf-agent/types";

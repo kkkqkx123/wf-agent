@@ -16,16 +16,7 @@ export const DEFAULT_CONFIG: CLIConfig = {
   outputFormat: "table",
   maxConcurrentExecutions: 5,
   storage: {
-    type: "json",
-    json: {
-      baseDir: "./storage",
-      enableFileLock: false,
-      compression: {
-        enabled: false,
-        algorithm: "gzip",
-        threshold: 1024,
-      },
-    },
+    type: "sqlite",
     sqlite: {
       dbPath: "./storage/cli-app.db",
       enableWAL: true,

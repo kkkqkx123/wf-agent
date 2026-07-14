@@ -19,18 +19,18 @@
 
 import { now, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
-import type { EventRegistry } from "../../shared/registry/event-registry.js";
-import { emit } from "../../shared/events/emit-event.js";
+import type { EventRegistry } from "../../../shared/registry/event-registry.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import {
   buildAsyncCompletionRegisteredEvent,
   buildAsyncCompletionTriggeredEvent,
   buildAsyncCompletionErrorTriggeredEvent,
   buildAsyncCompletionFailedEvent,
   buildAsyncCompletionCleanedUpEvent,
-} from "../../shared/events/builders/async-completion-events.js";
-import { logError } from "../../shared/utils/error-utils.js";
-import { createContextualLogger } from "../../utils/contextual-logger.js";
-import type { StateManager } from "../../shared/types/state-manager.js";
+} from "../../../shared/events/builders/async-completion-events.js";
+import { logError } from "../../../shared/utils/error-utils.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { StateManager } from "../../../shared/types/state-manager.js";
 
 const logger = createContextualLogger({ component: "AsyncCompletionManager" });
 

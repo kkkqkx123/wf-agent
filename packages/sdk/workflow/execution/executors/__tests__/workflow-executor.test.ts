@@ -7,7 +7,7 @@ import { WorkflowExecutor } from "../workflow-executor.js";
 import type { WorkflowExecutorDependencies } from "../workflow-executor.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../../registry/workflow-graph-registry.js";
 
 const createMockWorkflowGraphRegistry = () => ({
   get: vi.fn(),

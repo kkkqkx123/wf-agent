@@ -19,7 +19,7 @@ import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { AgentLoopStatus } from "@wf-agent/types";
 import { AgentLoopFactory, type AgentLoopEntityOptions } from "../../execution/factories/index.js";
-import { AgentLoopRegistry, type AgentTaskManager } from "../../stores/agent-loop-registry.js";
+import { AgentLoopRegistry, type AgentTaskManager } from "../../registry/agent-loop-registry.js";
 import { AgentLoopExecutor, type AgentLoopStreamEvent } from "../executors/agent-loop-executor.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { GlobalContext } from "../../../shared/global-context.js";

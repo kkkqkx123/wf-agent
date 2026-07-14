@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fork, join, copy, type ForkConfig, type JoinStrategy } from "../workflow-operations.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { WorkflowExecutionBuilder } from "../../factories/workflow-execution-builder.js";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
 import type { WorkflowStateCoordinator } from "../../../state-managers/workflow-state-coordinator.js";
 import { RuntimeValidationError, ExecutionError } from "@wf-agent/types";

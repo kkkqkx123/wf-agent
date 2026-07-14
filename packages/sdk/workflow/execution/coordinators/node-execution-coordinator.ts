@@ -28,7 +28,7 @@ import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
 import type { InterruptionState } from "../../../shared/utils/interruption/interruption-state.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
 import type { ToolRegistry } from "../../../shared/registry/tool-registry.js";
 import type { LLMWrapper } from "../../../services/llm/wrapper.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";

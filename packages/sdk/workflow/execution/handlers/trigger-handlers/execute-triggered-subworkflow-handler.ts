@@ -5,12 +5,12 @@ import {
   WorkflowExecutionNotFoundError,
   WorkflowNotFoundError,
 } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
 import { diffTimestamp, now } from "@wf-agent/common-utils";
 import type { TriggeredSubworkflowTask } from "../../types/triggered-subworkflow.types.js";
 import * as Identifiers from "../../../../di/service-identifiers.js";
 import type { GlobalContext } from "../../../../shared/global-context.js";
-import type { WorkflowGraphRegistry } from "../../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../../registry/workflow-graph-registry.js";
 import type { TriggeredSubworkflowHandler } from "../triggered-subworkflow-handler.js";
 import type { AgentLoopEntity } from "../../../../agent/entities/agent-loop-entity.js";
 import { createFailureResult } from "./trigger-handler-utils.js";

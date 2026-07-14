@@ -17,11 +17,7 @@ export class ConfigValidator {
     const errors: string[] = [];
 
     if (config.storage) {
-      if (config.storage.type === "json") {
-        if (!config.storage.json) {
-          errors.push("JSON storage configuration is required when storage type is 'json'");
-        }
-      } else if (config.storage.type === "sqlite") {
+      if (config.storage.type === "sqlite") {
         if (!config.storage.sqlite) {
           errors.push("SQLite storage configuration is required when storage type is 'sqlite'");
         }

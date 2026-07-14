@@ -7,9 +7,9 @@ import { CheckpointCoordinator } from "../checkpoint-coordinator.js";
 import type { CheckpointDependencies, CheckpointOptions } from "../checkpoint-coordinator.js";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
-import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
-import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../registry/workflow-registry.js";
+import type { WorkflowGraphRegistry } from "../../registry/workflow-graph-registry.js";
 import type { CheckpointState } from "../checkpoint-state-manager.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 

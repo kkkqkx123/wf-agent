@@ -21,6 +21,7 @@ import type {
   ResolvedWorkflowEntry,
   ResolvedNodeTemplateEntry,
   ResolvedScriptEntry,
+  IndexType,
 } from "@wf-agent/types";
 import { INDEX_FILE_NAMES } from "@wf-agent/types";
 import {
@@ -148,7 +149,7 @@ function extractAgentLoopMetadata(config: unknown): Partial<ResolvedIndexEntry> 
 function createIndexResolver<TEntry extends ResolvedIndexEntry>(
   loader: (filePath: string) => Promise<{ config: unknown }>,
   extractMetadata: (config: unknown) => Partial<TEntry>,
-  typeName: string,
+  typeName: IndexType,
 ): (indexPath: string) => Promise<ResolvedIndex<TEntry>> {
   return async (indexPath: string): Promise<ResolvedIndex<TEntry>> => {
     const index = await loadIndexFile(indexPath);

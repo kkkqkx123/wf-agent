@@ -9,8 +9,8 @@ import type { TriggerHandlerContextFactoryConfig } from "../../factories/trigger
 import type { TriggerStatus, WorkflowTrigger, TriggerRuntimeState } from "@wf-agent/types";
 import type { BaseEvent } from "@wf-agent/types";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
-import type { WorkflowRegistry } from "../../../stores/workflow-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../../registry/workflow-registry.js";
 
 // ============================================================================
 // Mock Helpers

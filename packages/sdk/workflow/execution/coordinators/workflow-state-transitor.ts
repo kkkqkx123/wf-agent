@@ -19,7 +19,7 @@
 import { StateManagementError } from "@wf-agent/types";
 import type { WorkflowExecutionStatus, WorkflowExecutionResult } from "@wf-agent/types";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import { validateTransition } from "../utils/workflow-state-validator.js";

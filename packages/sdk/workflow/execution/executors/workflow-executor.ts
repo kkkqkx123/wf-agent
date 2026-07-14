@@ -25,7 +25,7 @@
 
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../registry/workflow-graph-registry.js";
 import type { WorkflowExecutionCoordinator } from "../coordinators/workflow-execution-coordinator.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { ExecutionError } from "@wf-agent/types";

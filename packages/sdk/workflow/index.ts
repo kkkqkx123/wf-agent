@@ -37,7 +37,7 @@ export * from "./execution/index.js";
 export * from "./state-managers/index.js";
 
 // Stores - Registries and persistence
-export * from "./stores/index.js";
+export * from "./registry/index.js";
 
 // Validation - Graph and node validation
 export * from "./validation/index.js";

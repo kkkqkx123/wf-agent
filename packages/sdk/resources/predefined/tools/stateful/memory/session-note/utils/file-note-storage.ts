@@ -1,23 +1,11 @@
 /**
  * File Note Storage Implementation for Session Notes
  * Lightweight storage for session notes using simple file I/O.
- * Replaces the deprecated JsonNoteStorage (removed with JSON backend).
  */
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import { createModuleLogger } from "../logger.js";
-
-const logger = createModuleLogger("note-storage");
-
-/**
- * Note entry structure
- */
-export interface NoteEntry {
-  timestamp: string;
-  category: string;
-  content: string;
-}
+import type { NoteEntry } from "../types.js";
 
 /**
  * File Note Storage
@@ -36,7 +24,6 @@ export class FileNoteStorage {
     if (this.initialized) return;
     await fs.mkdir(this.baseDir, { recursive: true });
     this.initialized = true;
-    logger.debug("FileNoteStorage initialized", { baseDir: this.baseDir });
   }
 
   private getFilePath(sessionId: string): string {
@@ -52,7 +39,6 @@ export class FileNoteStorage {
     if (!this.initialized) await this.initialize();
     const filePath = this.getFilePath(sessionId);
     await fs.writeFile(filePath, JSON.stringify(notes, null, 2), "utf-8");
-    logger.debug("Notes saved", { sessionId, count: notes.length });
   }
 
   /**
@@ -80,7 +66,6 @@ export class FileNoteStorage {
     } catch {
       // File may not exist
     }
-    logger.debug("Notes deleted", { sessionId });
   }
 
   /**

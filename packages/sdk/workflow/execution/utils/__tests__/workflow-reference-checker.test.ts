@@ -4,8 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { checkWorkflowReferences } from "../workflow-reference-checker.js";
-import type { WorkflowRegistry } from "../../../stores/workflow-registry.js";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../../registry/workflow-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { WorkflowTemplate, WorkflowTrigger, TriggerReference } from "@wf-agent/types";
 

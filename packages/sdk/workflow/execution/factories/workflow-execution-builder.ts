@@ -29,11 +29,11 @@ import { ExecutionState } from "../../state-managers/execution-state.js";
 import { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { generateId } from "@wf-agent/common-utils";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
-import type { WorkflowGraphRegistry } from "../../stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../registry/workflow-graph-registry.js";
 import * as Identifiers from "../../../di/service-identifiers.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
-import type { WorkflowRegistry } from "../../stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../../registry/workflow-registry.js";
 import { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import {
   InMemoryMessageContextRegistry,

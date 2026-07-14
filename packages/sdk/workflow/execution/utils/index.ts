@@ -19,10 +19,10 @@ export {
   waitForAnyWorkflowExecutionCompletion,
   waitForNodeCompleted,
   waitForNodeFailed,
-} from "./event/event-waiter.js";
+} from "./event-waiter.js";
 
 // General condition waiting function (re-exported from event-waiter)
-export { WAIT_FOREVER } from "./event/event-waiter.js";
+export { WAIT_FOREVER } from "./event-waiter.js";
 
 // Workflow Operation Tool
 export {

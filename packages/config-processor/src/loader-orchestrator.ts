@@ -44,7 +44,6 @@ import {
 import { validateAgentLoopConfig } from "@wf-agent/sdk/agent";
 import type {
   PresetsConfig,
-  PresetsConfigInput,
   PredefinedToolsPresetConfig,
   CustomResources,
 } from "@wf-agent/sdk/resources";

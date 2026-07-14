@@ -33,5 +33,3 @@ export * from "./postgres/index.js";
 // In-Memory Storage Implementation (for testing)
 export * from "./memory/index.js";
 
-// File Note Storage (replaces deprecated JsonNoteStorage)
-export { FileNoteStorage, type NoteEntry } from "./json/json-note-storage.js";

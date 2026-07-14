@@ -7,7 +7,7 @@
 import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { WorkflowExecutionBuilder } from "../factories/workflow-execution-builder.js";
-import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../registry/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
@@ -26,7 +26,7 @@ import {
   waitForMultipleWorkflowExecutionsCompleted,
   waitForAnyWorkflowExecutionCompleted,
   waitForAnyWorkflowExecutionCompletion,
-} from "./event/event-waiter.js";
+} from "./event-waiter.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "WorkflowOperations" });

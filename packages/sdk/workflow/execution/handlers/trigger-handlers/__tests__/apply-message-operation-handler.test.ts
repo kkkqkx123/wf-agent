@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TriggerAction } from "@wf-agent/types";
 import { applyMessageOperationHandler } from "../apply-message-operation-handler.js";
-import type { WorkflowExecutionRegistry } from "../../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../registry/workflow-execution-registry.js";
 import type { WorkflowStateCoordinator } from "../../../../state-managers/workflow-state-coordinator.js";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 

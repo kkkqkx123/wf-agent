@@ -1,7 +1,7 @@
 import type { TriggerAction, TriggerExecutionResult } from "@wf-agent/types";
 import type { NodeExecutionResult } from "@wf-agent/types";
 import { RuntimeValidationError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../registry/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
 import { buildNodeCompletedEvent } from "../../../../shared/events/builders/index.js";

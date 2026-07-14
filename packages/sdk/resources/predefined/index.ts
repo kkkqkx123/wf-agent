@@ -23,5 +23,15 @@ export * from "./presets-types.js";
 // Export the predefined prompt moduleword templates
 export * from "./prompts/index.js";
 
+// Export the predefined agent templates
+export * from "./agent-templates/index.js";
+
+// Export the predefined starter module
+export * from "./starter/types.js";
+export { BaseStarter } from "./starter/base-starter.js";
+export { StarterRegistry } from "./starter/starter-registry.js";
+export { GoalReviewStarter } from "./starter/starters/goal-review-starter.js";
+export type { GoalReviewConfig } from "./starter/starters/goal-review-starter.js";
+
 // Export the registration tool function
 export { registerPredefinedContent, unregisterPredefinedContent } from "./registration.js";

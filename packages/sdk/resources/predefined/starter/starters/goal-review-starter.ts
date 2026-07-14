@@ -9,7 +9,7 @@ import type {
 } from "@wf-agent/types";
 import type { StarterMetadata, WorkflowBundle } from "../types.js";
 import { BaseStarter } from "../base-starter.js";
-import { executorTemplate, reviewerTemplate } from "../../resources/predefined/agent-templates/index.js";
+import { executorTemplate, reviewerTemplate } from "../../agent-templates/index.js";
 
 export interface GoalReviewConfig extends Record<string, unknown> {
   rootRequirement: string;
@@ -272,7 +272,7 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
       name: "Goal Review Agent Workflow",
       type: "STANDALONE",
       version: "1.0.0",
-      description: "Goal-driven review loop: planner → executor → reviewer → loop check",
+      description: "Goal-driven review loop: planner -> executor -> reviewer -> loop check",
       nodes,
       edges,
       variables,

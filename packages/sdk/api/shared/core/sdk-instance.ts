@@ -539,6 +539,11 @@ export class SDKInstance {
           promptTemplateRegistry: this.globalContext.promptTemplateRegistry,
           fragmentRegistry: this.globalContext.fragmentRegistry,
           toolDescriptionRegistry: this.globalContext.toolDescriptionRegistry,
+          nodeTemplateRegistry: this.globalContext.nodeTemplateRegistry,
+          hookTemplateRegistry: this.globalContext.hookTemplateRegistry,
+          agentLoopRegistry: this.globalContext.container.get(
+            ServiceIdentifiers.AgentLoopRegistry as import("@wf-agent/common-utils").ServiceIdentifier<any>,
+          ),
         },
         presets,
         undefined,

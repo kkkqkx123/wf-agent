@@ -72,6 +72,9 @@ export interface ResourceRegistries {
   promptTemplateRegistry: import("../../shared/registry/prompt-template-registry.js").PromptTemplateRegistry;
   fragmentRegistry: import("../../shared/registry/fragment-registry.js").FragmentRegistry;
   toolDescriptionRegistry: import("../../shared/tools/tool-description-registry.js").ToolDescriptionRegistry;
+  nodeTemplateRegistry: import("../../shared/registry/node-template-registry.js").NodeTemplateRegistry;
+  hookTemplateRegistry: import("../../shared/registry/hook-template-registry.js").HookTemplateRegistry;
+  agentLoopRegistry: import("@sdk/agent/registry/agent-loop-registry.js").AgentLoopRegistry;
 }
 
 /**

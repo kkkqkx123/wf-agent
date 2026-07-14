@@ -19,6 +19,8 @@ import { registerPredefinedContent } from "../predefined/registration.js";
 import { registerAllPredefinedPrompts } from "./prompts-registration.js";
 import { registerAllPredefinedToolDescriptions } from "./tool-descriptions-registration.js";
 import { registerCustomResources } from "../custom/registration.js";
+import { StarterRegistry } from "../predefined/starter/starter-registry.js";
+import { GoalReviewStarter } from "../predefined/starter/starters/goal-review-starter.js";
 
 const logger = createContextualLogger({ component: "ResourcesOrchestrator" });
 
@@ -34,6 +36,7 @@ const logger = createContextualLogger({ component: "ResourcesOrchestrator" });
  * @param customResources Custom resources loaded from config files
  * @param applicationResources Application resources (reserved for future use)
  * @param skipIfExists Whether to skip if already registered
+ * @param starterConfig Optional starter configuration (starter id + config pairs)
  * @returns Result with outcomes from all three pipelines
  */
 export async function registerAllResources(
@@ -42,6 +45,7 @@ export async function registerAllResources(
   customResources?: CustomResources,
   applicationResources?: unknown,
   skipIfExists: boolean = true,
+  starterConfig?: Array<{ id: string; config: Record<string, unknown> }>,
 ): Promise<RegistrationResult> {
   logger.info("Starting resources registration");
 
@@ -158,6 +162,65 @@ export async function registerAllResources(
       logger.info("Application resources registered");
     } catch (error) {
       logger.error("Failed during application resources registration", { error });
+    }
+  }
+
+  // =====================================================================
+  // Pipeline 4: Activate Predefined Starters
+  // =====================================================================
+  if (starterConfig && starterConfig.length > 0) {
+    try {
+      logger.debug("Starting predefined starter activation pipeline");
+
+      // Register built-in starters
+      const registry = new StarterRegistry();
+      registry.register(new GoalReviewStarter());
+
+      // Build StarterRegistries from SDK registries
+      const sdkRegistries = {
+        workflowRegistry: {
+          register: (wf: any) => registries.workflowRegistry.register(wf),
+          unregister: (id: string) => registries.workflowRegistry.unregister(id),
+        },
+        agentLoopRegistry: {
+          register: (loop: any) => registries.agentLoopRegistry.register(loop),
+          unregister: (id: string) => registries.agentLoopRegistry.unregister(id),
+        },
+        nodeTemplateRegistry: {
+          register: (nt: any) => registries.nodeTemplateRegistry.register(nt),
+          unregister: (name: string) => registries.nodeTemplateRegistry.unregister(name),
+        },
+        triggerTemplateRegistry: {
+          register: (tt: any) => registries.triggerRegistry.register(tt),
+          unregister: (name: string) => registries.triggerRegistry.unregister(name),
+        },
+        hookTemplateRegistry: {
+          register: (ht: any) => registries.hookTemplateRegistry.register(ht),
+          unregister: (name: string) => registries.hookTemplateRegistry.unregister(name),
+        },
+        promptTemplateRegistry: {
+          register: (key: string, pt: any) => registries.promptTemplateRegistry.register(key, pt),
+          unregister: (key: string) => registries.promptTemplateRegistry.unregister(key),
+        },
+      };
+
+      for (const sc of starterConfig) {
+        try {
+          await registry.activate(sc.id, sc.config, sdkRegistries);
+          logger.info("Starter activated", { starterId: sc.id });
+        } catch (error) {
+          logger.error("Failed to activate starter", {
+            starterId: sc.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      logger.info("Predefined starter activation completed", {
+        count: starterConfig.length,
+      });
+    } catch (error) {
+      logger.error("Failed during starter activation pipeline", { error });
     }
   }
 

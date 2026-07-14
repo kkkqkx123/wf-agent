@@ -9,7 +9,7 @@
 
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { LLMMessage, ID } from "@wf-agent/types";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 
 /**

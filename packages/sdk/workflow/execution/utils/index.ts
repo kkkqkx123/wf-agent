@@ -4,7 +4,7 @@
  */
 
 // Event Trigger Utility Function (re-exported from core/utils/event)
-export { emit } from "../../../shared/utils/event/emit-event.js";
+export { emit } from "../../../shared/events/emit-event.js";
 
 // Event Waiting Tool Function
 export {

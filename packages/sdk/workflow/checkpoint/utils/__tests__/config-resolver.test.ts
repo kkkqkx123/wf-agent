@@ -13,8 +13,9 @@ import {
 import type {
   CheckpointConfigContext,
   WorkflowCheckpointConfigLayer,
-  WorkflowCheckpointTriggerType,
+  CheckpointTriggerType,
 } from "@wf-agent/types";
+import { CheckpointTrigger } from "@wf-agent/types";
 
 // Mock contextual logger
 vi.mock("../../../../utils/contextual-logger.js", () => ({
@@ -36,7 +37,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
   describe("resolveWorkflowConfig", () => {
     it("should skip checkpoint creation for triggered subworkflow without explicit enable", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
         isTriggeredSubworkflow: true,
         explicitEnableCheckpoint: false,
       };
@@ -49,7 +50,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should create checkpoint for triggered subworkflow with explicit enable", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
         isTriggeredSubworkflow: true,
         explicitEnableCheckpoint: true,
       };
@@ -69,7 +70,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should return shouldCreate false when enabled is false", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -87,7 +88,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should respect trigger-specific config for NODE_BEFORE_EXECUTE", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_BEFORE_EXECUTE",
+        triggerType: CheckpointTrigger.BEFORE_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -107,7 +108,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should respect trigger-specific config for NODE_AFTER_EXECUTE", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -178,7 +179,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should use first layer with explicit enabled as effective source", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -200,7 +201,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should use trigger default when no layer has explicit enabled", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -220,7 +221,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should merge triggers from multiple layers", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -248,8 +249,8 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should build description from context when not provided in config", () => {
       const contexts: Array<{ triggerType: GraphCheckpointTriggerType; expectedPrefix: string }> = [
-        { triggerType: "NODE_BEFORE_EXECUTE", expectedPrefix: "Before node" },
-        { triggerType: "NODE_AFTER_EXECUTE", expectedPrefix: "After node" },
+        { triggerType: CheckpointTrigger.BEFORE_EXECUTE, expectedPrefix: "Before node" },
+        { triggerType: CheckpointTrigger.AFTER_EXECUTE, expectedPrefix: "After node" },
         { triggerType: "TOOL_BEFORE", expectedPrefix: "Before tool" },
         { triggerType: "TOOL_AFTER", expectedPrefix: "After tool" },
         { triggerType: "HOOK", expectedPrefix: "Hook" },
@@ -265,7 +266,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 
     it("should use config description when provided", () => {
       const context: CheckpointConfigContext = {
-        triggerType: "NODE_AFTER_EXECUTE",
+        triggerType: CheckpointTrigger.AFTER_EXECUTE,
       };
 
       const layers: WorkflowCheckpointConfigLayer[] = [
@@ -285,7 +286,7 @@ describe("WorkflowCheckpointConfigResolver", () => {
 describe("buildNodeCheckpointLayers", () => {
   it("should return empty layers when no global config and no node", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_BEFORE_EXECUTE",
+      triggerType: CheckpointTrigger.BEFORE_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers(undefined, undefined, context);
@@ -295,7 +296,7 @@ describe("buildNodeCheckpointLayers", () => {
 
   it("should build layer from node config with higher priority", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_BEFORE_EXECUTE",
+      triggerType: CheckpointTrigger.BEFORE_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers(
@@ -317,7 +318,7 @@ describe("buildNodeCheckpointLayers", () => {
 
   it("should build layer from node config for NODE_AFTER_EXECUTE", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers(
@@ -338,7 +339,7 @@ describe("buildNodeCheckpointLayers", () => {
 
   it("should build layers from both node and global config", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_BEFORE_EXECUTE",
+      triggerType: CheckpointTrigger.BEFORE_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers(
@@ -361,7 +362,7 @@ describe("buildNodeCheckpointLayers", () => {
 
   it("should skip node layer when node checkpoint config is undefined", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_BEFORE_EXECUTE",
+      triggerType: CheckpointTrigger.BEFORE_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers(
@@ -381,7 +382,7 @@ describe("buildNodeCheckpointLayers", () => {
 
   it("should build global layer for NODE_AFTER_EXECUTE", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers = buildNodeCheckpointLayers({ checkpointAfterNode: true }, undefined, context);
@@ -396,7 +397,7 @@ describe("buildNodeCheckpointLayers", () => {
 describe("resolveCheckpointConfig", () => {
   it("should use default resolver to resolve config", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers: GraphCheckpointConfigLayer[] = [
@@ -416,7 +417,7 @@ describe("resolveCheckpointConfig", () => {
 describe("shouldCreateCheckpoint", () => {
   it("should return true when config allows", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers: GraphCheckpointConfigLayer[] = [
@@ -431,7 +432,7 @@ describe("shouldCreateCheckpoint", () => {
 
   it("should return false when config disallows", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers: GraphCheckpointConfigLayer[] = [
@@ -448,7 +449,7 @@ describe("shouldCreateCheckpoint", () => {
 describe("getCheckpointDescription", () => {
   it("should return description from config", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     const layers: GraphCheckpointConfigLayer[] = [
@@ -463,7 +464,7 @@ describe("getCheckpointDescription", () => {
 
   it("should return default description for empty config based on trigger type", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_AFTER_EXECUTE",
+      triggerType: CheckpointTrigger.AFTER_EXECUTE,
     };
 
     expect(getCheckpointDescription([], context)).toBe("After node checkpoint");
@@ -471,7 +472,7 @@ describe("getCheckpointDescription", () => {
 
   it("should generate correct default description for NODE_BEFORE_EXECUTE", () => {
     const context: CheckpointConfigContext = {
-      triggerType: "NODE_BEFORE_EXECUTE",
+      triggerType: CheckpointTrigger.BEFORE_EXECUTE,
     };
 
     expect(getCheckpointDescription([], context)).toBe("Before node checkpoint");

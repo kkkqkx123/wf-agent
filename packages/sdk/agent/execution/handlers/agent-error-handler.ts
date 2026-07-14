@@ -24,7 +24,7 @@ import {
   emitErrorEvent,
   logError,
 } from "../../../shared/utils/error-utils.js";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import { generateId, now } from "@wf-agent/common-utils";
 import type { AgentPausedEvent, AgentCancelledEvent } from "@wf-agent/types";
 import type { ExecutionInterruptionCheckResult } from "../../../shared/utils/interruption/index.js";

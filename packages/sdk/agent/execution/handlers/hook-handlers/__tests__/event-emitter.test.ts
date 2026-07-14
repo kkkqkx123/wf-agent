@@ -10,7 +10,7 @@ import type { AgentLoopEntity } from "../../../../entities/agent-loop-entity.js"
 import type { AgentHookTriggeredEvent } from "@wf-agent/types";
 
 // Mock external dependencies
-vi.mock("../../../../../shared/utils/event/builders/index.js", () => ({
+vi.mock("../../../../../shared/events/builders/index.js", () => ({
   buildAgentHookTriggeredEvent: vi.fn(params => ({
     id: "mock-event-id",
     type: "AGENT_HOOK_TRIGGERED",
@@ -19,12 +19,12 @@ vi.mock("../../../../../shared/utils/event/builders/index.js", () => ({
   })),
 }));
 
-vi.mock("../../../../../shared/utils/event/emit-hook-event.js", () => ({
+vi.mock("../../../../../shared/events/emit-hook-event.js", () => ({
   emitHookEventSafe: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { emitAgentHookEvent } from "../event-emitter.js";
-import { emitHookEventSafe } from "../../../../../shared/utils/event/emit-hook-event.js";
+import { emitHookEventSafe } from "../../../../../shared/events/emit-hook-event.js";
 
 describe("emitAgentHookEvent", () => {
   let mockEntity: AgentLoopEntity;

@@ -11,7 +11,7 @@ import type { WorkflowExecutionRegistry } from "../../stores/workflow-execution-
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { WorkflowStateCoordinator } from "../../state-managers/workflow-state-coordinator.js";
 import { ExecutionError, RuntimeValidationError } from "@wf-agent/types";
-import { MessageArrayUtils } from "../../../shared/utils/messages/message-array-utils.js";
+import { MessageArrayUtils } from "../../../shared/messaging/message-array-utils.js";
 import { getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
 import {
   buildWorkflowExecutionForkStartedEvent,
@@ -20,8 +20,8 @@ import {
   buildWorkflowExecutionJoinConditionMetEvent,
   buildWorkflowExecutionCopyStartedEvent,
   buildWorkflowExecutionCopyCompletedEvent,
-} from "../../../shared/utils/event/builders/index.js";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+} from "../../../shared/events/builders/index.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import {
   waitForMultipleWorkflowExecutionsCompleted,
   waitForAnyWorkflowExecutionCompleted,

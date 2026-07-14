@@ -15,7 +15,7 @@
 
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
 import type { TaskSubmissionResult, ExecutedSubworkflowResult } from "../types/triggered-subworkflow.types.js";
-import { TaskRegistry, type TaskManager } from "../../../shared/stores/task-registry.js";
+import { TaskRegistry, type TaskManager } from "../../../shared/registry/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import { now } from "@wf-agent/common-utils";
@@ -23,8 +23,8 @@ import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../../shared/utils/event/builders/index.js";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+} from "../../../shared/events/builders/index.js";
+import { emit } from "../../../shared/events/emit-event.js";
 
 const logger = createContextualLogger({ component: "TriggeredWorkflowExecutionManager" });
 

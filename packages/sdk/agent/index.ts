@@ -12,7 +12,7 @@
  * - coordinators/     Coordinator layer: Manages the lifecycle
  * - executors/        Executor layer: Core execution logic
  * - checkpoint/       Checkpoint layer: Creation and restoration of incremental snapshots
- * - stores/           Service layer: Registry, etc.
+ * - registry/         Service layer: Registry, etc.
  */
 
 // Entity Layer
@@ -67,11 +67,11 @@ export {
 } from "./checkpoint/index.js";
 
 // Stores layer (export class for direct instantiation, also available via DI)
-export { AgentLoopRegistry } from "./stores/agent-loop-registry.js";
+export { AgentLoopRegistry } from "./registry/agent-loop-registry.js";
 export {
   type IAgentExecutionRegistry,
   type AgentExecutionFilter,
-} from "./stores/agent-execution-registry.js";
+} from "./registry/agent-execution-registry.js";
 
 // Error Handler
 export {

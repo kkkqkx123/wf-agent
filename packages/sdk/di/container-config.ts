@@ -54,8 +54,8 @@ import type {
 } from "./factory-types.js";
 
 // Storage Layer Service
-import { WorkflowGraphRegistry } from "@sdk/workflow/stores/workflow-graph-registry.js";
-import { WorkflowExecutionRegistry } from "@sdk/workflow/stores/workflow-execution-registry.js";
+import { WorkflowGraphRegistry } from "@sdk/workflow/registry/workflow-graph-registry.js";
+import { WorkflowExecutionRegistry } from "@sdk/workflow/registry/workflow-execution-registry.js";
 import { LLMWrapper } from "@sdk/services/llm/wrapper.js";
 
 // Business Layer Services
@@ -69,9 +69,9 @@ import { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-template-r
 import { PromptTemplateRegistry } from "@sdk/shared/registry/prompt-template-registry.js";
 import { FragmentRegistry } from "@sdk/shared/registry/fragment-registry.js";
 
-import { TaskRegistry } from "@sdk/shared/stores/task-registry.js";
-import { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
-import { WorkflowRelationshipRegistry } from "@sdk/workflow/stores/workflow-relationship-registry.js";
+import { TaskRegistry } from "@sdk/shared/registry/task-registry.js";
+import { WorkflowRegistry } from "@sdk/workflow/registry/workflow-registry.js";
+import { WorkflowRelationshipRegistry } from "@sdk/workflow/registry/workflow-relationship-registry.js";
 import { WorkflowExecutionPool } from "@sdk/workflow/execution/workflow-execution-pool.js";
 
 // Execution Layer Services - Core Layer Universal Executor
@@ -81,14 +81,14 @@ import { ToolApprovalCoordinator } from "@sdk/shared/coordinators/tool-approval-
 import { SkillRegistry } from "@sdk/shared/registry/skill-registry.js";
 import { AgentProfileRegistry } from "@sdk/shared/registry/agent-profile-registry.js";
 import { HostSkillLoader } from "@sdk/services/skill-loader/host-skill-loader.js";
-import { emit } from "@sdk/shared/utils/event/emit-event.js";
+import { emit } from "@sdk/shared/events/emit-event.js";
 import { CheckpointCoordinator } from "@sdk/workflow/checkpoint/checkpoint-coordinator.js";
 import {
   buildMessageAddedEvent,
   buildToolCallStartedEvent,
   buildToolCallCompletedEvent,
   buildToolCallFailedEvent,
-} from "@sdk/shared/utils/event/builders/index.js";
+} from "@sdk/shared/events/builders/index.js";
 import { WorkflowStateTransitor } from "@sdk/workflow/execution/coordinators/workflow-state-transitor.js";
 import { WorkflowStateCoordinator } from "@sdk/workflow/state-managers/workflow-state-coordinator.js";
 import { CheckpointState } from "@sdk/workflow/checkpoint/checkpoint-state-manager.js";
@@ -112,12 +112,12 @@ import { WorkflowLifecycleCoordinator } from "@sdk/workflow/execution/coordinato
 
 // Execution Layer - Managers
 import { ConversationSession } from "@sdk/shared/messaging/conversation-session.js";
-import { VariableManager } from "@sdk/workflow/state-managers/variable-manager.js";
+import { VariableManager } from "@sdk/workflow/execution/utils/variable-manager.js";
 import { TriggerState } from "@sdk/workflow/state-managers/trigger-state.js";
 import { InterruptionState } from "@sdk/shared/utils/interruption/interruption-state.js";
 import { AgentLoopExecutor } from "@sdk/agent/execution/executors/agent-loop-executor.js";
-import { AgentLoopRegistry } from "@sdk/agent/stores/agent-loop-registry.js";
-import type { IAgentExecutionRegistry } from "@sdk/agent/stores/agent-execution-registry.js";
+import { AgentLoopRegistry } from "@sdk/agent/registry/agent-loop-registry.js";
+import type { IAgentExecutionRegistry } from "@sdk/agent/registry/agent-execution-registry.js";
 import { ExecutionHierarchyRegistry } from "@sdk/shared/registry/execution-hierarchy-registry.js";
 import { AgentLoopCoordinator } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";
 import { WorkflowExecutionEntity } from "@sdk/workflow/entities/workflow-execution-entity.js";

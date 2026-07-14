@@ -4,7 +4,7 @@
  * Responsible for the registration and deregistration of predefined workflows.
  */
 
-import type { WorkflowRegistry } from "@sdk/workflow/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "@sdk/workflow/registry/workflow-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedWorkflows } from "./registry.js";
 import { LLM_SUMMARY_WORKFLOW_ID } from "./llm-summary.js";

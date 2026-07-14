@@ -7,7 +7,7 @@ import { TriggeredAgentExecutionManager } from "../triggered-agent-execution-man
 import type { AgentExecutorCallback, TriggeredAgentExecutionConfig } from "../triggered-agent-execution-manager.js";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
-import { TaskRegistry } from "../../../../shared/stores/task-registry.js";
+import { TaskRegistry } from "../../../../shared/registry/task-registry.js";
 
 // Mock dependencies
 vi.mock("../../../../utils/contextual-logger.js", () => ({

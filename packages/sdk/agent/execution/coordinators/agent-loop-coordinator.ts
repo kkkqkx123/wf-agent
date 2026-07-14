@@ -8,8 +8,8 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { AgentLoopRuntimeConfig, AgentLoopResult, AgentLoopCheckpointTriggerType } from "@wf-agent/types";
-import { getAvailableTools } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult, CheckpointTriggerType } from "@wf-agent/types";
+import { getAvailableTools, CheckpointTrigger } from "@wf-agent/types";
 import type {
   AgentLoopCheckpointConfig,
   AgentLoopCheckpointConfigContext,
@@ -361,28 +361,28 @@ export class AgentLoopCoordinator implements AgentTaskManager {
    * Map AgentCheckpointTrigger to context trigger type
    * @private
    */
-  private mapTriggerToContextType(trigger: string): AgentLoopCheckpointTriggerType {
+  private mapTriggerToContextType(trigger: string): CheckpointTriggerType {
     switch (trigger) {
       case "on_iteration":
-        return "ITERATION_END";
+        return CheckpointTrigger.ITERATION_END;
       case "on_complete":
-        return "COMPLETE";
+        return CheckpointTrigger.ON_COMPLETE;
       case "on_error":
-        return "ERROR";
+        return CheckpointTrigger.ON_ERROR;
       case "on_pause":
-        return "PAUSE";
+        return CheckpointTrigger.ON_PAUSE;
       case "on_tool_call":
-        return "TOOL_CALL";
+        return CheckpointTrigger.TOOL_BEFORE;
       case "on_tool_result":
-        return "TOOL_RESULT";
+        return CheckpointTrigger.TOOL_AFTER;
       case "on_interval":
-        return "INTERVAL";
+        return CheckpointTrigger.INTERVAL;
       case "manual":
-        return "MANUAL";
+        return CheckpointTrigger.MANUAL;
       case "never":
-        return "NEVER";
+        return CheckpointTrigger.NEVER;
       default:
-        return "ITERATION_END"; // Fallback to default
+        return CheckpointTrigger.ITERATION_END; // Fallback to default
     }
   }
 

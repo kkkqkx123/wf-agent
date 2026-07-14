@@ -187,49 +187,50 @@ const minimalExecution: AgentLoopExecution = {
   currentIteration: 0,
   toolCallCount: 0,
   iterationHistory: [],
-  messages: [],
   startTime: Date.now(),
 };
 
 expectType<AgentLoopExecution>(minimalExecution);
 
 // =============================================================================
-// Test 5: AgentLoopExecutionSnapshot Structure
+// Test 5: AgentLoopExecutionSnapshot Structure (alias for AgentLoopStateSnapshot)
 // =============================================================================
 
+// AgentLoopExecutionSnapshot is now a deprecated type alias for AgentLoopStateSnapshot.
+// Test with AgentLoopStateSnapshot fields directly.
+
 const snapshot: AgentLoopExecutionSnapshot = {
-  id: "exec-123",
+  executionId: "exec-123",
   definitionId: "def-456",
-  status: "PAUSED",
+  status: "PAUSED" as AgentLoopStatus,
   currentIteration: 2,
   toolCallCount: 3,
   iterationHistory: [iterationRecord],
-  messages: [],
   startTime: Date.now(),
+  endTime: null,
+  error: undefined,
   isStreaming: true,
-  pendingToolCalls: ["tool-1", "tool-2"],
+  pendingToolCallIds: ["tool-1", "tool-2"],
 };
 
 expectType<AgentLoopExecutionSnapshot>(snapshot);
-expectType<string>(snapshot.id);
-expectType<string>(snapshot.definitionId);
+expectType<string | undefined>(snapshot.executionId);
+expectType<string | undefined>(snapshot.definitionId);
 expectType<AgentLoopStatus>(snapshot.status);
 expectType<number>(snapshot.currentIteration);
 expectType<number>(snapshot.toolCallCount);
-expectType<IterationRecord[]>(snapshot.iterationHistory);
+expectType<IterationRecord[] | undefined>(snapshot.iterationHistory);
 expectType<boolean | undefined>(snapshot.isStreaming);
-expectType<string[] | undefined>(snapshot.pendingToolCalls);
+expectType<string[] | undefined>(snapshot.pendingToolCallIds);
 
 // Snapshot without optional fields
 const minimalSnapshot: AgentLoopExecutionSnapshot = {
-  id: "snap-1",
-  definitionId: "def-1",
-  status: "COMPLETED",
+  status: "COMPLETED" as AgentLoopStatus,
   currentIteration: 1,
   toolCallCount: 0,
-  iterationHistory: [],
-  messages: [],
   startTime: Date.now(),
+  endTime: Date.now(),
+  error: undefined,
 };
 
 expectType<AgentLoopExecutionSnapshot>(minimalSnapshot);

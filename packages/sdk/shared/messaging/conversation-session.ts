@@ -20,16 +20,16 @@ import { TokenUsageTracker } from "../utils/token/token-usage-tracker.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { StateManager } from "../types/state-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { emit } from "../utils/event/emit-event.js";
+import { emit } from "../events/emit-event.js";
 import { now } from "@wf-agent/common-utils";
 import { createSHA256Algorithm } from "@wf-agent/common-utils";
 import {
   buildTokenLimitExceededEvent,
   buildContextCompressionRequestedEvent,
   buildContextCompressionCompletedEvent,
-} from "../utils/event/builders/index.js";
-import { generateToolListDescription } from "../utils/tools/tool-description-generator.js";
-import { executeOperation } from "../utils/messages/message-operation-utils.js";
+} from "../events/builders/index.js";
+import { generateToolListSummary } from "../tools/tool-description-generator.js";
+import { executeOperation } from "./message-operation-utils.js";
 import type { MessageOperationConfig, MessageOperationResult } from "@wf-agent/types";
 
 const logger = createContextualLogger();
@@ -298,7 +298,7 @@ export class ConversationSession extends MessageHistory implements StateManager<
   getToolDescriptionMessage(tools: Tool[]): LLMMessage {
     return {
       role: "system",
-      content: generateToolListDescription(tools, "list"),
+      content: generateToolListSummary(tools),
     };
   }
 

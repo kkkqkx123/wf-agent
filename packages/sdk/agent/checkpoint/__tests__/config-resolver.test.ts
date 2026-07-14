@@ -7,8 +7,9 @@ import { AgentLoopCheckpointConfigResolver } from "../utils/config-resolver.js";
 import type {
   AgentLoopCheckpointConfigLayer,
   AgentLoopCheckpointConfigContext,
-  AgentLoopCheckpointTriggerType,
+  CheckpointTriggerType,
 } from "@wf-agent/types";
+import { CheckpointTrigger } from "@wf-agent/types";
 
 describe("AgentLoopCheckpointConfigResolver", () => {
   let resolver: AgentLoopCheckpointConfigResolver;
@@ -20,7 +21,7 @@ describe("AgentLoopCheckpointConfigResolver", () => {
   const createContext = (
     overrides?: Partial<AgentLoopCheckpointConfigContext>,
   ): AgentLoopCheckpointConfigContext => ({
-    triggerType: "ITERATION_END" as AgentLoopCheckpointTriggerType,
+    triggerType: CheckpointTrigger.ITERATION_END,
     currentIteration: 1,
     hasError: false,
     ...overrides,
@@ -121,7 +122,7 @@ describe("AgentLoopCheckpointConfigResolver", () => {
 
     it("should return error description when trigger type is ERROR", () => {
       const layers = [createLayer("runtime", { enabled: true })];
-      const context = createContext({ triggerType: "ERROR" as AgentLoopCheckpointTriggerType });
+      const context = createContext({ triggerType: CheckpointTrigger.ON_ERROR });
 
       const result = resolver.resolveAgentConfig(layers, context);
 
@@ -281,7 +282,7 @@ describe("AgentLoopCheckpointConfigResolver", () => {
 
   describe("buildDescription", () => {
     it("should return error description for ERROR trigger", () => {
-      const context = createContext({ triggerType: "ERROR" as AgentLoopCheckpointTriggerType });
+      const context = createContext({ triggerType: CheckpointTrigger.ON_ERROR });
 
       const description = (resolver as any).buildDescription(context);
 

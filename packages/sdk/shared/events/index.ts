@@ -21,3 +21,11 @@ export {
   type EventHandler,
   type AnyEventHandler,
 } from "./execution-event-bus.js";
+
+export { ExecutionEventLogger } from "./execution-event-logger.js";
+
+// Event utility functions
+export * from "./emit-event.js";
+
+// Export all event builders
+export * from "./builders/index.js";

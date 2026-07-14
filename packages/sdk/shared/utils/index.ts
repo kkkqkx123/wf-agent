@@ -4,14 +4,8 @@
  * Provides a unified entry point for exporting various tool functions
  */
 
-// Message Tool
-export * from "./messages/index.js";
-
-// Tool-related utility functions
-export * from "./tools/index.js";
-
-// Event Tool
-export * from "./event/index.js";
+// Message Tool (moved to shared/messaging/)
+// Export moved to messaging module - see shared/messaging/
 
 // Token tool
 export * from "./token/index.js";

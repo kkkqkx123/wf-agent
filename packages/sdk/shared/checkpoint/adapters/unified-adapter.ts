@@ -9,12 +9,15 @@
 
 import { CheckpointTrigger } from '@wf-agent/types';
 import type { CheckpointTrigger as CheckpointTriggerType } from '@wf-agent/types';
+// Legacy types for backward compatibility adapter functions - still used in function signatures
 import type {
   WorkflowCheckpointTriggerType,
   AgentLoopCheckpointTriggerType,
 } from '@wf-agent/types';
 
 /**
+ * @deprecated Use CheckpointTrigger directly. This adapter exists for legacy compatibility.
+ *
  * Convert Workflow checkpoint trigger to unified type
  *
  * Mapping:

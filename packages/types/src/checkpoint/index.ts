@@ -37,6 +37,7 @@ export type {
   CheckpointErrorHandlingConfig,
   UnifiedCheckpointPolicy,
   CheckpointContext,
+  CheckpointStateBase,
 } from "./base.js";
 
 // Export error handling types

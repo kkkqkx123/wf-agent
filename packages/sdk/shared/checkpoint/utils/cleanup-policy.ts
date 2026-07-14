@@ -286,11 +286,16 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
 
 /**
  * Implementation of a storage space cleanup strategy
+ *
+ * Uses `blobSize` from CheckpointInfo.metadata as the single source of truth
+ * for checkpoint sizes. Unlike the previous approach which maintained a
+ * separate in-memory checkpointSizes map, this strategy reads size data
+ * directly from the storage metadata, ensuring consistency even after
+ * process restarts.
  */
 export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(
     private policy: SizeBasedCleanupPolicy,
-    private checkpointSizes: Map<string, number>,
   ) {}
 
   execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
@@ -304,8 +309,8 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     let totalSize = 0;
     const missingSizeIds: string[] = [];
     for (const checkpoint of sorted) {
-      const size = this.checkpointSizes.get(checkpoint.checkpointId);
-      if (size === undefined) {
+      const size = checkpoint.metadata.blobSize;
+      if (size === undefined || size === null) {
         missingSizeIds.push(checkpoint.checkpointId);
       }
       totalSize += size ?? 0;
@@ -313,7 +318,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
 
     if (missingSizeIds.length > 0) {
       logger.warn(
-        `SizeBasedCleanupStrategy: ${missingSizeIds.length} checkpoint(s) have no recorded size and will be treated as 0 bytes`,
+        `SizeBasedCleanupStrategy: ${missingSizeIds.length} checkpoint(s) have no blobSize in metadata and will be treated as 0 bytes`,
         { missingSizeIds },
       );
     }
@@ -330,7 +335,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
       if (!checkpoint) continue;
 
       const checkpointId = checkpoint.checkpointId;
-      const size = this.checkpointSizes.get(checkpointId) ?? 0;
+      const size = checkpoint.metadata.blobSize ?? 0;
 
       if (i < sorted.length - minRetention) {
         toDelete.push(checkpointId);
@@ -390,12 +395,10 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
  * Create a cleanup policy instance
  *
  * @param policy Cleanup policy configuration
- * @param checkpointSizes Checkpoint size mapping (only for space-based policies)
  * @returns Cleanup policy instance
  */
 export function createCleanupStrategy(
   policy: CleanupPolicy,
-  checkpointSizes?: Map<string, number>,
 ): CheckpointCleanupStrategy {
   switch (policy.type) {
     case "time":
@@ -403,10 +406,7 @@ export function createCleanupStrategy(
     case "count":
       return new CountBasedCleanupStrategy(policy);
     case "size":
-      if (!checkpointSizes) {
-        throw new Error("Size-based cleanup policy requires checkpointSizes parameter");
-      }
-      return new SizeBasedCleanupStrategy(policy, checkpointSizes);
+      return new SizeBasedCleanupStrategy(policy);
     case "tiered":
       return new TieredCleanupStrategy(policy);
     default:

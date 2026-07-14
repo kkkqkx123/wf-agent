@@ -18,7 +18,7 @@
 import { describe, it, expect } from "vitest";
 import type { AgentHookTriggeredEvent } from "@wf-agent/types";
 import { MemoryAgentLoopStorage } from "@wf-agent/storage";
-import { AgentLoopRegistry } from "@/agent/stores/agent-loop-registry.js";
+import { AgentLoopRegistry } from "@/agent/registry/agent-loop-registry.js";
 import { AgentLoopCoordinator } from "@/agent/execution/coordinators/agent-loop-coordinator.js";
 import { MockLLMWrapper } from "./__shared/mock-llm-wrapper.js";
 import { LLMExecutor } from "@/services/executors/llm-executor.js";

@@ -17,7 +17,7 @@ vi.mock("../../../utils/contextual-logger.js", () => ({
   }),
 }));
 
-vi.mock("../../../shared/utils/event/builders/index.js", () => ({
+vi.mock("../../../shared/events/builders/index.js", () => ({
   buildCheckpointCreatedEvent: vi.fn(params => ({
     type: "CHECKPOINT_CREATED",
     ...params,

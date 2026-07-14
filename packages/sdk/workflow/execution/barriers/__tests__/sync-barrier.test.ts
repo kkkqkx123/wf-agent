@@ -4,7 +4,7 @@ import type { EventRegistry } from "../../../../shared/registry/event-registry.j
 import type { ExecutionHierarchyRegistry } from "../../../../shared/registry/execution-hierarchy-registry.js";
 
 // Mock the event-waiter module so waitForWorkflowExecutionCompleted is controllable
-vi.mock("../../utils/event/event-waiter.js", () => ({
+vi.mock("../../utils/event-waiter.js", () => ({
   waitForWorkflowExecutionCompleted: vi.fn(),
   WAIT_FOREVER: -1,
 }));
@@ -14,7 +14,7 @@ vi.mock("../../../../shared/utils/timeout/timeout-utils.js", () => ({
   isTimeoutError: vi.fn(),
 }));
 
-import { waitForWorkflowExecutionCompleted } from "../../utils/event/event-waiter.js";
+import { waitForWorkflowExecutionCompleted } from "../../utils/event-waiter.js";
 import { isTimeoutError } from "../../../../shared/utils/timeout/timeout-utils.js";
 
 // ---------- helpers ----------

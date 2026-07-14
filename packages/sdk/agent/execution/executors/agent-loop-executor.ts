@@ -23,7 +23,7 @@
  */
 
 import type { AgentLoopResult, AgentHookTriggeredEvent } from "@wf-agent/types";
-import type { ToolApprovalHandler } from "@wf-agent/types";
+import type { Tool, ToolApprovalHandler } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
@@ -36,7 +36,7 @@ import type { LLMWrapper } from "../../../services/llm/index.js";
 import { ToolCallExecutor } from "../../../services/executors/tool-call-executor.js";
 import type { CheckpointDependencies as WorkflowCheckpointDependencies } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
 import * as Identifiers from "../../../di/service-identifiers.js";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import {
   AgentExecutionCoordinator,
   type AgentLoopStreamEvent,
@@ -44,7 +44,7 @@ import {
 import { AgentIterationCoordinator } from "../coordinators/agent-iteration-coordinator.js";
 import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../../shared/coordinators/llm-execution-coordinator.js";
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
-import { prepareToolSchemas } from "../../../shared/utils/tools/tool-schema-helper.js";
+import { prepareToolSchemas } from "../../../shared/tools/tool-schema-helper.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "AgentLoopExecutor" });
@@ -220,7 +220,8 @@ export class AgentLoopExecutor {
     const toolIds = getAvailableTools(config.availableTools);
     logger.debug("Tool configuration", { totalCount: toolIds.length });
 
-    const toolSchemas = prepareToolSchemas(toolIds, this.toolService);
+    const tools = toolIds.map(id => this.toolService.get(id)).filter((t): t is Tool => t !== undefined);
+    const toolSchemas = prepareToolSchemas(tools);
     if (toolSchemas) {
       logger.debug("Tool schemas prepared", {
         agentLoopId: entity.id,

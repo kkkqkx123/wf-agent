@@ -11,17 +11,17 @@
 import type { ServiceIdentifier } from "@wf-agent/common-utils";
 
 // Import actual service types for type safety (using aliases to avoid naming conflicts)
-import type { WorkflowGraphRegistry as WorkflowGraphRegistryType } from "@sdk/workflow/stores/workflow-graph-registry.js";
-import type { WorkflowExecutionRegistry as WorkflowExecutionRegistryType } from "@sdk/workflow/stores/workflow-execution-registry.js";
+import type { WorkflowGraphRegistry as WorkflowGraphRegistryType } from "@sdk/workflow/registry/workflow-graph-registry.js";
+import type { WorkflowExecutionRegistry as WorkflowExecutionRegistryType } from "@sdk/workflow/registry/workflow-execution-registry.js";
 import type { EventRegistry as EventRegistryType } from "@sdk/shared/registry/event-registry.js";
 import type { ToolRegistry as ToolRegistryType } from "@sdk/shared/registry/tool-registry.js";
 import type { ScriptRegistry as ScriptRegistryType, ScriptExecutionService as ScriptExecutionServiceType } from "@sdk/shared/registry/script-registry.js";
-import type { WorkflowRegistry as WorkflowRegistryType } from "@sdk/workflow/stores/workflow-registry.js";
-import type { WorkflowRelationshipRegistry as WorkflowRelationshipRegistryType } from "@sdk/workflow/stores/workflow-relationship-registry.js";
+import type { WorkflowRegistry as WorkflowRegistryType } from "@sdk/workflow/registry/workflow-registry.js";
+import type { WorkflowRelationshipRegistry as WorkflowRelationshipRegistryType } from "@sdk/workflow/registry/workflow-relationship-registry.js";
 import type { NodeTemplateRegistry as NodeTemplateRegistryType } from "@sdk/shared/registry/node-template-registry.js";
 import type { TriggerTemplateRegistry as TriggerTemplateRegistryType } from "@sdk/shared/registry/trigger-template-registry.js";
 import type { HookTemplateRegistry as HookTemplateRegistryType } from "@sdk/shared/registry/hook-template-registry.js";
-import type { TaskRegistry as TaskRegistryType } from "@sdk/shared/stores/task-registry.js";
+import type { TaskRegistry as TaskRegistryType } from "@sdk/shared/registry/task-registry.js";
 import type { GlobalContext as GlobalContextType } from "@sdk/shared/global-context.js";
 import type { WorkflowExecutionBuilder as WorkflowExecutionBuilderType } from "@sdk/workflow/execution/factories/workflow-execution-builder.js";
 import type { WorkflowExecutor as WorkflowExecutorType } from "@sdk/workflow/execution/executors/workflow-executor.js";
@@ -34,7 +34,7 @@ import type { ToolCallExecutor as ToolCallExecutorType } from "@sdk/services/exe
 import type { ToolApprovalCoordinator as ToolApprovalCoordinatorType } from "@sdk/shared/coordinators/tool-approval-coordinator.js";
 import type { WorkflowExecutionCoordinator as WorkflowExecutionCoordinatorType } from "@sdk/workflow/execution/coordinators/workflow-execution-coordinator.js";
 import type { VariableCoordinator as VariableCoordinatorType } from "@sdk/workflow/execution/coordinators/variable-coordinator.js";
-import type { VariableManager as VariableManagerType } from "@sdk/workflow/state-managers/variable-manager.js";
+import type { VariableManager as VariableManagerType } from "@sdk/workflow/execution/utils/variable-manager.js";
 import type { TriggerCoordinator as TriggerCoordinatorType } from "@sdk/workflow/execution/coordinators/trigger-coordinator.js";
 import type { NodeExecutionCoordinator as NodeExecutionCoordinatorType } from "@sdk/workflow/execution/coordinators/node-execution-coordinator.js";
 import type { LLMExecutionCoordinator as LLMExecutionCoordinatorType } from "@sdk/workflow/execution/coordinators/llm-execution-coordinator.js";
@@ -49,8 +49,8 @@ import type { WorkflowExecutionPool as WorkflowExecutionPoolType } from "@sdk/wo
 import type { TriggeredWorkflowExecutionManager as TriggeredWorkflowExecutionManagerType } from "@sdk/workflow/execution/coordinators/triggered-workflow-execution-manager.js";
 import type { TriggeredAgentExecutionManager as TriggeredAgentExecutionManagerType } from "@sdk/agent/execution/coordinators/triggered-agent-execution-manager.js";
 import type { LLMWrapper as LLMWrapperType } from "@sdk/services/llm/wrapper.js";
-import type { AgentLoopRegistry as AgentLoopRegistryType } from "@sdk/agent/stores/agent-loop-registry.js";
-import type { IAgentExecutionRegistry as AgentExecutionRegistryType } from "@sdk/agent/stores/agent-execution-registry.js";
+import type { AgentLoopRegistry as AgentLoopRegistryType } from "@sdk/agent/registry/agent-loop-registry.js";
+import type { IAgentExecutionRegistry as AgentExecutionRegistryType } from "@sdk/agent/registry/agent-execution-registry.js";
 import type { ExecutionHierarchyRegistry as ExecutionHierarchyRegistryType } from "@sdk/shared/registry/execution-hierarchy-registry.js";
 import type { AgentLoopExecutor as AgentLoopExecutorType } from "@sdk/agent/execution/executors/agent-loop-executor.js";
 import type { AgentLoopCoordinator as AgentLoopCoordinatorType } from "@sdk/agent/execution/coordinators/agent-loop-coordinator.js";

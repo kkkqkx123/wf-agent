@@ -13,6 +13,7 @@ export type {
   CheckpointConfigContext,
   WorkflowCheckpointConfigLayer,
   CheckpointConfigContent,
+  WorkflowCheckpointContentConfig,
 } from "./config.js";
 
 // Re-exporting generic configuration types

@@ -25,7 +25,7 @@ import {
   generateId,
 } from "../../utils/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import type { WorkflowRelationshipRegistry } from "../stores/workflow-relationship-registry.js";
+import type { WorkflowRelationshipRegistry } from "../registry/workflow-relationship-registry.js";
 
 const logger = createContextualLogger({ component: "workflow-graph-builder" });
 

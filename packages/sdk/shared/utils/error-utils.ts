@@ -10,8 +10,8 @@
 
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { SDKError } from "@wf-agent/types";
-import { buildErrorEvent } from "./event/builders/index.js";
-import { emit } from "./event/emit-event.js";
+import { buildErrorEvent } from "../events/builders/index.js";
+import { emit } from "../events/emit-event.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
 
 /**

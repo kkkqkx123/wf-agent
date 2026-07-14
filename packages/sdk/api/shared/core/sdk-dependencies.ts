@@ -12,8 +12,8 @@
  */
 
 import * as Identifiers from "../../../di/service-identifiers.js";
-import type { WorkflowRegistry } from "../../../workflow/stores/workflow-registry.js";
-import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
+import type { WorkflowRegistry } from "../../../workflow/registry/workflow-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { CheckpointState } from "../../../workflow/checkpoint/checkpoint-state-manager.js";
 import type { ToolRegistry } from "../../../shared/registry/tool-registry.js";
@@ -22,12 +22,12 @@ import type { ScriptRegistry, ScriptExecutionService } from "../../../shared/reg
 import type { NodeTemplateRegistry } from "../../../shared/registry/node-template-registry.js";
 import type { TriggerTemplateRegistry } from "../../../shared/registry/trigger-template-registry.js";
 import type { HookTemplateRegistry } from "../../../shared/registry/hook-template-registry.js";
-import type { WorkflowGraphRegistry } from "../../../workflow/stores/workflow-graph-registry.js";
+import type { WorkflowGraphRegistry } from "../../../workflow/registry/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
-import type { TaskRegistry } from "../../../shared/stores/task-registry.js";
+import type { TaskRegistry } from "../../../shared/registry/task-registry.js";
 import type {
   CheckpointStorageAdapter,
   WorkflowStorageAdapter,

@@ -42,7 +42,7 @@ import {
 import { logError, emitErrorEvent } from "../../../shared/utils/error-utils.js";
 import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execution-hierarchy-registry.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
-import type { VariableManager } from "../../state-managers/variable-manager.js";
+import type { VariableManager } from "../utils/variable-manager.js";
 import { ToolPermissionManager } from "../../../shared/coordinators/tool-permission-manager.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });

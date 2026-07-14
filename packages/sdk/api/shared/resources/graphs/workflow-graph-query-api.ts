@@ -73,7 +73,7 @@ export interface NodeNeighbors {
  * WorkflowGraphQueryAPI - Workflow Graph Structure Query API
  */
 export class WorkflowGraphQueryAPI {
-  private graphRegistry: import("../../../../workflow/stores/workflow-graph-registry.js").WorkflowGraphRegistry;
+  private graphRegistry: import("../../../../workflow/registry/workflow-graph-registry.js").WorkflowGraphRegistry;
 
   constructor(deps: APIDependencyManager) {
     this.graphRegistry = deps.getWorkflowGraphRegistry();

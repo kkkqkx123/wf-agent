@@ -4,7 +4,7 @@
  */
 
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
-import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import type { Trigger } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";

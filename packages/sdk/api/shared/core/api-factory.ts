@@ -44,7 +44,7 @@ import { AgentLoopIterationAPI } from "../../agent/resources/agent-loop-iteratio
 import { AgentVariableResourceAPI } from "../../agent/resources/agent-variable-resource-api.js";
 import { AgentUserInteractionResourceAPI } from "../../agent/resources/agent-user-interaction-resource-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
-import { ExecutionEventLogger } from "../../../shared/logging/execution-event-logger.js";
+import { ExecutionEventLogger } from "../../../shared/events/execution-event-logger.js";
 
 /**
  * Collection of all API instances
@@ -437,7 +437,8 @@ export class APIFactory {
       const metricsRegistry = this.dependencies.getGlobalContext().metricsRegistry;
       metricsRegistry.subscribeToEvents();
 
-      ExecutionEventLogger.initialize();
+      const eventLogger = new ExecutionEventLogger();
+      eventLogger.subscribe();
     } catch (error) {
       // If initialization fails, log but don't crash
       console.error("Failed to initialize event-driven systems", error);

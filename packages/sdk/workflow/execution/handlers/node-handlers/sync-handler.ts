@@ -30,8 +30,8 @@ import {
   buildNodeSyncStartedEvent,
   buildNodeSyncCompletedEvent,
   buildNodeSyncFailedEvent,
-} from "../../../../shared/utils/event/builders/index.js";
-import { emit } from "../../../../shared/utils/event/emit-event.js";
+} from "../../../../shared/events/builders/index.js";
+import { emit } from "../../../../shared/events/emit-event.js";
 import { getErrorOrNew } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ component: "sync-handler" });

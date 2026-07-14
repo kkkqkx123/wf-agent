@@ -13,8 +13,8 @@ import type {
   WorkflowCheckpointConfigLayer,
   CheckpointConfigContent,
   CheckpointConfigSource,
-  WorkflowCheckpointTriggerType,
 } from "@wf-agent/types";
+import { CheckpointTrigger } from "@wf-agent/types";
 import { CheckpointConfigResolver } from "../../../api/shared/config/processors/checkpoint-config.js";
 
 /**
@@ -109,17 +109,16 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
     const triggerConfig = config.triggers || {};
 
     switch (context.triggerType) {
-      case "NODE_BEFORE_EXECUTE":
+      case CheckpointTrigger.BEFORE_EXECUTE:
         return triggerConfig.nodeBeforeExecute !== false;
-      case "NODE_AFTER_EXECUTE":
+      case CheckpointTrigger.AFTER_EXECUTE:
         return triggerConfig.nodeAfterExecute !== false;
-      case "TOOL_BEFORE":
+      case CheckpointTrigger.TOOL_BEFORE:
         return triggerConfig.toolBefore !== false;
-      case "TOOL_AFTER":
+      case CheckpointTrigger.TOOL_AFTER:
         return triggerConfig.toolAfter !== false;
-      case "HOOK":
-      case "TRIGGER":
-        return true; // Hook and Trigger are enabled by default.
+      case CheckpointTrigger.MANUAL:
+        return true; // Manual is enabled by default.
       default:
         return false;
     }
@@ -149,13 +148,13 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
       return config.description;
     }
 
-    const triggerDesc: Record<WorkflowCheckpointTriggerType, string> = {
-      NODE_BEFORE_EXECUTE: "Before node",
-      NODE_AFTER_EXECUTE: "After node",
-      TOOL_BEFORE: "Before tool",
-      TOOL_AFTER: "After tool",
-      HOOK: "Hook",
-      TRIGGER: "Trigger",
+    const triggerDesc: Partial<Record<CheckpointTrigger, string>> = {
+      [CheckpointTrigger.BEFORE_EXECUTE]: "Before node",
+      [CheckpointTrigger.AFTER_EXECUTE]: "After node",
+      [CheckpointTrigger.TOOL_BEFORE]: "Before tool",
+      [CheckpointTrigger.TOOL_AFTER]: "After tool",
+      [CheckpointTrigger.MANUAL]: "Manual",
+      [CheckpointTrigger.NEVER]: "Never",
     };
 
     return `${triggerDesc[context.triggerType]} checkpoint`;
@@ -183,7 +182,7 @@ export function buildNodeCheckpointLayers(
   // 1. Node configuration (high priority)
   if (node) {
     const nodeEnabled =
-      context.triggerType === "NODE_BEFORE_EXECUTE"
+      context.triggerType === CheckpointTrigger.BEFORE_EXECUTE
         ? node.checkpointBeforeExecute
         : node.checkpointAfterExecute;
 
@@ -192,7 +191,7 @@ export function buildNodeCheckpointLayers(
         source: "node",
         config: {
           enabled: nodeEnabled,
-          description: `${context.triggerType === "NODE_BEFORE_EXECUTE" ? "Before" : "After"} node: ${node.name}`,
+          description: `${context.triggerType === CheckpointTrigger.BEFORE_EXECUTE ? "Before" : "After"} node: ${node.name}`,
         },
       });
     }
@@ -201,7 +200,7 @@ export function buildNodeCheckpointLayers(
   // 2. Global Configuration (Low Priority)
   if (globalConfig) {
     const globalEnabled =
-      context.triggerType === "NODE_BEFORE_EXECUTE"
+      context.triggerType === CheckpointTrigger.BEFORE_EXECUTE
         ? globalConfig.checkpointBeforeNode
         : globalConfig.checkpointAfterNode;
 
@@ -210,7 +209,7 @@ export function buildNodeCheckpointLayers(
         source: "global",
         config: {
           enabled: globalEnabled,
-          description: `Global checkpoint ${context.triggerType === "NODE_BEFORE_EXECUTE" ? "before" : "after"} node`,
+          description: `Global checkpoint ${context.triggerType === CheckpointTrigger.BEFORE_EXECUTE ? "before" : "after"} node`,
         },
       });
     }

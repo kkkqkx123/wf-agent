@@ -42,7 +42,7 @@ import {
   buildProgressiveToolExecutionEndEvent,
   buildToolQueueUpdateEvent,
   buildToolApprovalAnnotatedEvent,
-} from "../utils/event/builders/interaction-events.js";
+} from "../events/builders/interaction-events.js";
 
 const logger = createContextualLogger();
 

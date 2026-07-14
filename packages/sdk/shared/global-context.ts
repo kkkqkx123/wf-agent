@@ -23,7 +23,7 @@ import type { ExecutionEntityServiceFactory, IdBasedServiceFactory } from "@sdk/
 import { ExecutionPool, type ExecutorFactory } from "./execution/execution-pool.js";
 
 // Import types
-import type { WorkflowRegistry } from "../workflow/stores/workflow-registry.js";
+import type { WorkflowRegistry } from "../workflow/registry/workflow-registry.js";
 import type { ToolRegistry } from "./registry/tool-registry.js";
 import type { ScriptRegistry, ScriptExecutionService } from "./registry/script-registry.js";
 import type { EventRegistry } from "./registry/event-registry.js";
@@ -32,8 +32,7 @@ import type { TriggerTemplateRegistry } from "./registry/trigger-template-regist
 import type { HookTemplateRegistry } from "./registry/hook-template-registry.js";
 import type { PromptTemplateRegistry } from "./registry/prompt-template-registry.js";
 import type { FragmentRegistry } from "./registry/fragment-registry.js";
-import { toolDescriptionRegistry as globalToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
-import type { ToolDescriptionRegistry } from "./utils/tools/tool-description-registry.js";
+import { toolDescriptionRegistry as globalToolDescriptionRegistry, type ToolDescriptionRegistry } from "./tools/tool-description-registry.js";
 import type { LLMExecutor } from "@sdk/services/executors/llm-executor.js";
 import type { ToolCallExecutor } from "@sdk/services/executors/tool-call-executor.js";
 import type { WorkflowExecutor } from "../workflow/execution/executors/workflow-executor.js";

@@ -30,7 +30,7 @@ import {
   TriggerHandlerContextFactory,
   type TriggerHandlerContextFactoryConfig,
 } from "../factories/trigger-handler-context-factory.js";
-import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
+import type { IAgentExecutionRegistry } from "../../../agent/registry/agent-execution-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import * as Identifiers from "../../../di/service-identifiers.js";
 

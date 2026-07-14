@@ -22,7 +22,7 @@ vi.mock("../../../utils/contextual-logger.js", () => ({
 }));
 
 // Mock the event builders
-vi.mock("../../../shared/utils/event/builders/index.js", () => ({
+vi.mock("../../../shared/events/builders/index.js", () => ({
   buildWorkflowExecutionForkStartedEvent: vi.fn(data => ({
     type: "WORKFLOW_EXECUTION_FORK_STARTED",
     ...data,
@@ -50,12 +50,12 @@ vi.mock("../../../shared/utils/event/builders/index.js", () => ({
 }));
 
 // Mock the emit function
-vi.mock("../../../shared/utils/event/emit-event.js", () => ({
+vi.mock("../../../shared/events/emit-event.js", () => ({
   emit: vi.fn(),
 }));
 
 // Mock the message array utils
-vi.mock("../../../shared/utils/messages/message-array-utils.js", () => ({
+vi.mock("../../../../shared/messaging/message-array-utils.js", () => ({
   MessageArrayUtils: {
     cloneMessages: vi.fn(messages => messages.map((m: unknown) => ({ ...(m as object) }))),
   },

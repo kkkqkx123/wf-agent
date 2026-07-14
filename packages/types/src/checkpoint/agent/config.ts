@@ -6,7 +6,7 @@ import type { IterationRecord } from "../../agent-execution/types.js";
 import type {
   DeltaStorageConfig,
   CheckpointConfigSource,
-  AgentLoopCheckpointTriggerType,
+  CheckpointTriggerType,
 } from "../base.js";
 
 /**
@@ -30,8 +30,8 @@ export interface AgentCheckpointContentConfig {
  * Agent Loop Checkpoint Configuration Context
  */
 export interface AgentLoopCheckpointConfigContext {
-  /** Trigger timing */
-  triggerType: AgentLoopCheckpointTriggerType;
+  /** Trigger timing (using unified CheckpointTrigger enum) */
+  triggerType: CheckpointTriggerType;
   /** Current number of iterations */
   currentIteration: number;
   /** Is there an error */

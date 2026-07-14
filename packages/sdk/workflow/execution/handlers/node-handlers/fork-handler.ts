@@ -22,13 +22,13 @@ import type { ForkHandlerContext } from "../../types/fork.types.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
-import { emit } from "../../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../../shared/events/emit-event.js";
 import {
   buildForkStartedEvent,
   buildForkBranchStartedEvent,
   buildForkBranchCompletedEvent,
   buildForkCompletedEvent,
-} from "../../../../shared/utils/event/builders/index.js";
+} from "../../../../shared/events/builders/index.js";
 import * as Identifiers from "../../../../di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
 

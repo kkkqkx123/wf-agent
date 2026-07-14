@@ -388,15 +388,9 @@ describe("createCleanupStrategy", () => {
     expect(strategy).toBeInstanceOf(CountBasedCleanupStrategy);
   });
 
-  it("should create SizeBasedCleanupStrategy with sizes", () => {
-    const strategy = createCleanupStrategy({ type: "size", maxSizeBytes: 1000 }, new Map());
+  it("should create SizeBasedCleanupStrategy", () => {
+    const strategy = createCleanupStrategy({ type: "size", maxSizeBytes: 1000 });
     expect(strategy).toBeInstanceOf(SizeBasedCleanupStrategy);
-  });
-
-  it("should throw when SizeBasedCleanupStrategy is created without sizes", () => {
-    expect(() => createCleanupStrategy({ type: "size", maxSizeBytes: 1000 })).toThrow(
-      "Size-based cleanup policy requires checkpointSizes parameter",
-    );
   });
 
   it("should throw for unknown policy type", () => {

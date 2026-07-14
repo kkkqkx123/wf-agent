@@ -29,7 +29,7 @@ vi.mock("../../../../shared/utils/error-utils.js", () => ({
 }));
 
 // Mock emit to forward calls to eventManager.emit for verification
-vi.mock("../../../../shared/utils/event/emit-event.js", () => ({
+vi.mock("../../../../shared/events/emit-event.js", () => ({
   emit: vi.fn(async (eventManager: any, event: any) => {
     if (eventManager) {
       await eventManager.emit(event);

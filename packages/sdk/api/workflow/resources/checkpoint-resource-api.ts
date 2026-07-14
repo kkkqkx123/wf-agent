@@ -11,7 +11,7 @@ import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { Timestamp } from "@wf-agent/types";
 import { WorkflowExecutionStatus } from "@wf-agent/types";
-import { buildCheckpointRestoredEvent } from "../../../shared/utils/event/builders/index.js";
+import { buildCheckpointRestoredEvent } from "../../../shared/events/builders/index.js";
 
 /**
  * Checkpoint Filter

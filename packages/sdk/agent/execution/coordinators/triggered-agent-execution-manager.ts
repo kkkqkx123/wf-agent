@@ -15,7 +15,7 @@
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import type { TaskSubmissionResult } from "../../../workflow/execution/types/triggered-subworkflow.types.js";
-import { TaskRegistry, type TaskManager } from "../../../shared/stores/task-registry.js";
+import { TaskRegistry, type TaskManager } from "../../../shared/registry/task-registry.js";
 import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 

@@ -7,6 +7,8 @@
  */
 
 import type { ID, Timestamp } from "../common.js";
+import type { ExecutionErrorRecord, ExecutionInterruptionRecord, ExecutionEventRecord } from "./execution-events.js";
+import type { ExecutionHierarchyMetadata } from "../execution/hierarchy.js";
 
 // =============================================================================
 // Snapshot Types
@@ -86,6 +88,49 @@ export interface CheckpointOptions {
    * Default: 30000 (30 seconds)
    */
   syncTimeout?: number;
+}
+
+// =============================================================================
+// Unified Checkpoint State Base
+// =============================================================================
+
+/**
+ * Base interface for all checkpoint state snapshots.
+ *
+ * Provides common fields shared across AgentLoop and Workflow execution types.
+ * Both AgentLoopStateSnapshot and WorkflowExecutionStateSnapshot extend this base.
+ *
+ * ## Design Principles
+ *
+ * 1. **Common fields only**: Only fields present in both Agent and Workflow snapshots.
+ * 2. **Optional**: All fields are optional to allow minimal snapshot creation.
+ * 3. **Backward compatible**: Existing snapshots without these fields are still valid.
+ *
+ * @since 2.0.0
+ */
+export interface CheckpointStateBase {
+  /** Execution status */
+  status?: string;
+  /** Execution start timestamp (ms) */
+  startTime?: number | null;
+  /** Execution end timestamp (ms) */
+  endTime?: number | null;
+  /** Error data (if execution failed) */
+  error?: unknown;
+
+  // ========== Execution Event Tracking ==========
+
+  /** Errors that occurred during execution (atomic with state) */
+  errorRecords?: ExecutionErrorRecord[];
+  /** Interruptions (pauses/stops) that occurred during execution */
+  interruptionRecords?: ExecutionInterruptionRecord[];
+  /** Recent execution events for timeline view */
+  eventRecords?: ExecutionEventRecord[];
+
+  // ========== Hierarchy ==========
+
+  /** Execution hierarchy metadata (parent, children, depth, root info) */
+  hierarchy?: ExecutionHierarchyMetadata;
 }
 
 // =============================================================================
@@ -301,8 +346,8 @@ export interface CheckpointConfigResult {
   description?: string;
   /** The actual source of the effective configuration */
   effectiveSource: CheckpointConfigSource;
-  /** Triggering timing */
-  triggerType?: WorkflowCheckpointTriggerType | AgentLoopCheckpointTriggerType;
+  /** Triggering timing (using unified CheckpointTriggerType) */
+  triggerType?: CheckpointTriggerType;
 }
 
 // =============================================================================

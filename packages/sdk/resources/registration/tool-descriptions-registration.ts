@@ -7,7 +7,7 @@
  */
 
 import type { ToolDescriptionData } from "@wf-agent/types";
-import type { ToolDescriptionRegistry as ToolDescriptionRegistryType } from "../../shared/utils/tools/tool-description-registry.js";
+import type { ToolDescriptionRegistry as ToolDescriptionRegistryType } from "../../shared/tools/tool-description-registry.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { ResourceRegistrationResult } from "./types.js";
 

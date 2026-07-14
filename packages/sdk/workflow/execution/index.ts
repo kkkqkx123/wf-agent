@@ -24,7 +24,7 @@ export {
 } from "./utils/workflow-state-validator.js";
 
 // Workflow Execution Registry
-export { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
+export { WorkflowExecutionRegistry } from "../registry/workflow-execution-registry.js";
 
 // Variable Coordinator and State Manager
 export { VariableCoordinator } from "./coordinators/variable-coordinator.js";
@@ -32,7 +32,7 @@ export { VariableCoordinator } from "./coordinators/variable-coordinator.js";
 export {
   VariableManager,
   type VariableManagerSnapshot,
-} from "../state-managers/variable-manager.js";
+} from "./utils/variable-manager.js";
 
 // LLM Execution-related - Re-exporting from the General Execution Core
 export {

@@ -24,7 +24,7 @@ import type {
   AgentLoopStateSnapshot,
 } from "@wf-agent/types";
 import { getAvailableTools, AgentLoopStatus } from "@wf-agent/types";
-import type { WorkflowExecutionRegistry } from "../../../workflow/stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import * as Identifiers from "../../../di/service-identifiers.js";

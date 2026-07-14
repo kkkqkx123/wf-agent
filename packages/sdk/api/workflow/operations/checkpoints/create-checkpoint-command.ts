@@ -15,7 +15,7 @@ import type { CheckpointMetadata } from "@wf-agent/types";
 import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
-import type { WorkflowExecutionRegistry } from "../../../../workflow/stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../../../../workflow/registry/workflow-execution-registry.js";
 
 /**
  * Create Checkpoint Command Parameters

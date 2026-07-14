@@ -13,10 +13,10 @@ import type {
   LLMToolCall,
   ToolCallFormat,
 } from "@wf-agent/types";
-import type { ToolSchema } from "@wf-agent/types";
+import type { Tool, ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
 import { convertToolsToOpenAIFormat } from "./tool-converter.js";
-import { ToolDeclarationFormatter } from "@sdk/shared/utils/tools/index.js";
+import { ToolDeclarationFormatter } from "@sdk/shared/tools/index.js";
 import { getToolCallParserOptions } from "./tool-format-selector.js";
 import { ToolCallParser } from "./tool-call-parser.js";
 import { HistoryConverter } from "@sdk/shared/messaging/history-converter.js";
@@ -357,12 +357,9 @@ You can use multiple tools in one response by including multiple blocks.`;
     const format = this.getToolCallFormat(config);
 
     // 1. Generate tool declarations
-    const toolDeclarations = ToolDeclarationFormatter.formatTools(request.tools || [], {
-      format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
-      xmlTags: config.toolCallFormat?.xmlTags,
-      markers: config.toolCallFormat?.markers,
-      includeDescription: config.toolCallFormat?.includeDescription,
-    });
+    const toolDeclarations = ToolDeclarationFormatter.formatTools(
+      (request.tools || []) as Tool[],
+    ).join("\n\n");
 
     // 2. Convert history to text mode (if needed)
     const convertedMessages = HistoryConverter.convertToTextMode(request.messages, format, {

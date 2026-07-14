@@ -28,12 +28,12 @@ import { generateId } from "../../../utils/index.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
 import { ExecutionError } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
-import { TimeoutManager } from "../../../shared/state-managers/timeout-manager.js";
+import { TimeoutManager } from "../../../shared/protection/timeout-manager.js";
 import { InterruptionDetectorImpl, type InterruptionDetector } from "../interruption-detector.js";
 import { getWorkflowInterruptionDescription } from "../utils/workflow-interruption-utils.js";
 import type { WorkflowInterruptionCheckResult } from "../utils/workflow-interruption-utils.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import { buildToolApprovalRequestedEvent } from "../../../shared/utils/event/builders/index.js";
+import { buildToolApprovalRequestedEvent } from "../../../shared/events/builders/index.js";
 import {
   LLMContextFactory,
   type LLMContextFactoryConfig,

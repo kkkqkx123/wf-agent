@@ -9,9 +9,8 @@ import type { TriggerRuntimeState } from "../../trigger/index.js";
 import type { TokenUsageStats } from "../../llm/index.js";
 import type { MessageMarkMap } from "../../message/index.js";
 import type { CheckpointVariableState } from "../variable-state.js";
+import type { CheckpointStateBase } from "../base.js";
 import type { ExecutionErrorRecord, ExecutionInterruptionRecord, ExecutionEventRecord } from "../execution-events.js";
-
-import type { ExecutionHierarchyMetadata } from "../../execution/hierarchy.js";
 
 /**
  * Operation-level execution state
@@ -51,7 +50,7 @@ export interface OperationState {
 /**
  * Workflow Execution state snapshot type
  */
-export interface WorkflowExecutionStateSnapshot {
+export interface WorkflowExecutionStateSnapshot extends CheckpointStateBase {
   /** Execution Status */
   status: WorkflowExecutionStatus;
   /** Current node ID */
@@ -79,6 +78,32 @@ export interface WorkflowExecutionStateSnapshot {
     /** The current request token is in use. */
     currentRequestUsage: TokenUsageStats | null;
   };
+
+  // ========== Incremental Message Storage (P1) ==========
+
+  /**
+   * Checkpoint ID that contains the base message history.
+   * When set, `conversationState.messages` contains only the messages
+   * added since the base checkpoint. On restore, messages from the base
+   * checkpoint are merged with the delta messages.
+   *
+   * This significantly reduces FULL checkpoint size by avoiding
+   * duplication of the full message history.
+   */
+  messageBaseCheckpointId?: string;
+
+  /**
+   * Number of messages in the base checkpoint's conversation state.
+   * Used to verify message chain integrity during restoration.
+   */
+  messageBaseCount?: number;
+
+  /**
+   * Total number of messages in the full reconstructed message history.
+   * Used for validation and reconstruction.
+   */
+  messageTotalCount?: number;
+
   /** Tool Approval Status (used to resume tool calls that are waiting for approval) */
   toolApprovalState?: {
     /** The tool call that is currently awaiting approval. */
@@ -107,9 +132,6 @@ export interface WorkflowExecutionStateSnapshot {
   /** Current operation state (for mid-node resume) */
   currentOperation?: OperationState;
 
-  /** Execution hierarchy metadata (contains parent, children, depth, root info) */
-  hierarchy?: ExecutionHierarchyMetadata;
-
   /** Hook execution context for condition evaluation after restore */
   hookExecutionContext?: {
     workflowInput: Record<string, unknown>;
@@ -117,17 +139,6 @@ export interface WorkflowExecutionStateSnapshot {
     variables: Record<string, unknown>;
     messages: unknown[];
   };
-
-  // ========== Plan C: Execution Event Tracking ==========
-
-  /** Errors that occurred during execution (atomic with state) */
-  errorRecords?: ExecutionErrorRecord[];
-
-  /** Interruptions (pauses/stops) that occurred during execution */
-  interruptionRecords?: ExecutionInterruptionRecord[];
-
-  /** Recent execution events for timeline view (limited to prevent state bloat) */
-  eventRecords?: ExecutionEventRecord[];
 
   /** FORK/JOIN aggregation state for JOIN node result merging */
   forkJoinAggregationState?: {

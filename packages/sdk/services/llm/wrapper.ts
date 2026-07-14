@@ -24,7 +24,7 @@ import { isAbortError } from "@sdk/shared/utils/error-utils.js";
 import {
   buildLLMStreamAbortedEvent,
   buildLLMStreamErrorEvent,
-} from "@sdk/shared/utils/event/builders/index.js";
+} from "@sdk/shared/events/builders/index.js";
 
 /**
  * LLM Wrapper Class

@@ -46,7 +46,7 @@ import {
   buildAgentToolExecutionCompletedEvent,
   buildMessageAddedEvent,
   buildAttemptCompletionEvent,
-} from "../../../shared/utils/event/builders/index.js";
+} from "../../../shared/events/builders/index.js";
 import { ToolExecutionCoordinator } from "./tool-execution-coordinator.js";
 import { executeAgentTriggers } from "../handlers/trigger-handlers/index.js";
 

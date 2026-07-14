@@ -37,7 +37,7 @@ vi.mock("../../handlers/agent-error-handler.js", () => ({
 }));
 
 // Mock event builders
-vi.mock("../../../../shared/utils/event/builders/agent-events.js", () => ({
+vi.mock("../../../../shared/events/builders/agent-events.js", () => ({
   buildAgentStartedEvent: vi.fn(() => ({ type: "AGENT_STARTED" })),
   buildAgentCompletedEvent: vi.fn(() => ({ type: "AGENT_COMPLETED" })),
   buildAgentIterationCompletedEvent: vi.fn(() => ({ type: "AGENT_ITERATION_COMPLETED" })),

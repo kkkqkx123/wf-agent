@@ -45,7 +45,7 @@ export type { InterruptionType } from "../../types/interruption-types.js";
 // See docs/architecture/interruption-event-driven.md for migration guide.
 
 // NOTE: InterruptionTimeoutManager has been removed.
-// Use TimeoutManager from s../shared/state-managers/timeout-manager.js instead.
+// Use TimeoutManager from shared/protection/timeout-manager.js instead.
 // See docs/refactoring/phase2-migration-guide.md for migration guide.
 
 // NOTE: InterruptionHistoryManager has been removed (Phase 8 cleanup).

@@ -23,6 +23,7 @@ import type {
   CheckpointConfig,
   UserInteractionHandler,
 } from "@wf-agent/types";
+import { CheckpointTrigger } from "@wf-agent/types";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
@@ -41,7 +42,7 @@ import { SDKError } from "@wf-agent/types";
 import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../shared/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import { getNodeHandler } from "../handlers/node-handlers/index.js";
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
@@ -55,7 +56,7 @@ import {
   buildNodeStartedEvent,
   buildNodeCompletedEvent,
   buildNodeFailedEvent,
-} from "../../../shared/utils/event/builders/index.js";
+} from "../../../shared/events/builders/index.js";
 import type { InterruptionDetector } from "../interruption-detector.js";
 import { executeWithInterruptionHandling } from "../../../shared/utils/interruption/index.js";
 import {
@@ -383,7 +384,7 @@ export class NodeExecutionCoordinator {
         // Step 2: Create a checkpoint before node execution (if configured)
         if (this.checkpointDependencies) {
           const context = {
-            triggerType: "NODE_BEFORE_EXECUTE" as const,
+            triggerType: CheckpointTrigger.BEFORE_EXECUTE,
             nodeId,
           };
           // Convert to StaticNode for checkpoint config resolution
@@ -678,7 +679,7 @@ export class NodeExecutionCoordinator {
         // Step 7: Create a checkpoint after the node has executed (if configured).
         if (this.checkpointDependencies) {
           const context = {
-            triggerType: "NODE_AFTER_EXECUTE" as const,
+            triggerType: CheckpointTrigger.AFTER_EXECUTE,
             nodeId,
           };
           // Convert to StaticNode for checkpoint config resolution

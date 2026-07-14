@@ -123,6 +123,8 @@ export class ChildCheckpointRestorer {
        const orderedChildren = [...workflowChildren, ...agentChildren];
 
        const restoreTasks = orderedChildren.map(async (childRef) => {
+         // [Cycle Race Fix] Add to visited BEFORE async operation starts
+         // to prevent concurrent operations from restoring the same child.
          if (visited.has(childRef.childId)) {
            const cyclePath = [...restorationPath, childRef.childId].join(" -> ");
            logger.warn("Cycle detected in hierarchy", {
@@ -137,6 +139,7 @@ export class ChildCheckpointRestorer {
              error: `Cycle detected: already visited at path [${cyclePath}]`,
            } as ChildRestoreResult;
          }
+         visited.add(childRef.childId);
 
          await semaphore.acquire();
 
@@ -146,7 +149,6 @@ export class ChildCheckpointRestorer {
              current.parentEntity,
              childRef,
              effectiveDeps,
-             visited,
              rootStack,
              current.depth + 1,
              maxDepth,
@@ -174,6 +176,24 @@ export class ChildCheckpointRestorer {
        }
       }
 
+     // [M1.3 Fix] Sync hierarchy metadata: remove failed children from parent metadata
+     const failedResults = allResults.filter(r => !r.success);
+     if (failedResults.length > 0) {
+       const parentHierarchy = parentEntity.getHierarchyMetadata();
+       if (parentHierarchy) {
+         const failedChildIds = new Set(failedResults.map(r => r.childId));
+         parentHierarchy.children = parentHierarchy.children.filter(
+           child => !failedChildIds.has(child.childId),
+         );
+         logger.info("Hierarchy metadata updated after partial restoration", {
+           parentId: parentEntity.id,
+           removedFailedChildren: failedResults.length,
+           remainingChildren: parentHierarchy.children.length,
+           failedChildIds: Array.from(failedChildIds),
+         });
+       }
+     }
+
      logger.info("Child restoration completed", {
        parentId: parentEntity.id,
        totalChildrenRestored,
@@ -190,7 +210,6 @@ export class ChildCheckpointRestorer {
      parentEntity: IExecutionEntity,
      childRef: ChildExecutionReference,
      deps: ChildRestoreDependencies,
-     visited: Set<ID>,
      rootStack: Array<{ parentEntity: IExecutionEntity; childRefs: ChildExecutionReference[]; depth: number }>,
      depth: number,
      maxDepth: number,
@@ -268,7 +287,8 @@ export class ChildCheckpointRestorer {
 
        deps.transactionManager?.completeOperation(childRef.childId);
 
-       visited.add(childRef.childId);
+       // Note: visited.add is done in the caller (restoreChildren) before the async operation,
+       // so it's not needed here. This prevents race conditions with concurrent restores.
 
        const grandChildRefs = childEntity.getChildReferences();
        if (grandChildRefs.length > 0 && depth < maxDepth) {
@@ -292,7 +312,7 @@ export class ChildCheckpointRestorer {
          entity: childEntity,
        };
      } catch (error) {
-       visited.add(childRef.childId);
+       // visited.add already done in caller (restoreChildren)
 
        deps.transactionManager?.failOperation(
          childRef.childId,

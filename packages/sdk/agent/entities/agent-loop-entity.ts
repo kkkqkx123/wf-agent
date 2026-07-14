@@ -45,11 +45,11 @@ import { AgentLoopState } from "../state-managers/agent-loop-state.js";
 import { ExecutionHierarchyManager } from "../../shared/execution/execution-hierarchy-manager.js";
 import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution-hierarchy-registry.js";
 import { createAgentInterruptionAbortReason } from "../execution/utils/index.js";
-import { ToolFailureProtectionState } from "../../shared/state-managers/tool-failure-protection-state.js";
-import type { ToolFailureProtectionConfig } from "../../shared/state-managers/tool-failure-protection-types.js";
+import { ToolFailureProtectionState } from "../../shared/protection/tool-failure-protection-state.js";
+import type { ToolFailureProtectionConfig } from "../../shared/protection/tool-failure-protection-types.js";
 import type { InterruptionState } from "../../shared/utils/interruption/interruption-state.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { TimeoutManager } from "../../shared/state-managers/timeout-manager.js";
+import { TimeoutManager } from "../../shared/protection/timeout-manager.js";
 import { TriggerStateManager } from "../../shared/triggers/trigger-state-manager.js";
 
 const logger = createContextualLogger({ component: "AgentLoopEntity" });

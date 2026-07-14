@@ -6,8 +6,8 @@
 
 import type { HookExecutionContext } from "./hook-handler.js";
 import type { NodeCustomEvent } from "@wf-agent/types";
-import { buildNodeCustomEvent } from "../../../../shared/utils/event/builders/custom-events.js";
-import { emitHookEventSafe } from "../../../../shared/utils/event/emit-hook-event.js";
+import { buildNodeCustomEvent } from "../../../../shared/events/builders/custom-events.js";
+import { emitHookEventSafe } from "../../../../shared/events/emit-hook-event.js";
 
 /**
  * Emit Hook custom event

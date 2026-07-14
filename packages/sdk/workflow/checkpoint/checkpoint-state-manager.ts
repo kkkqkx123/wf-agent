@@ -11,7 +11,7 @@ import {
   buildCheckpointCreatedEvent,
   buildCheckpointDeletedEvent,
   buildCheckpointFailedEvent,
-} from "../../shared/utils/event/builders/index.js";
+} from "../../shared/events/builders/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "checkpoint-state-manager" });

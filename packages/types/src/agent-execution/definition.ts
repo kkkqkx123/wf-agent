@@ -24,10 +24,10 @@
  */
 
 import type { ID, Timestamp } from "../common.js";
-import type { Message } from "../message/index.js";
 import { AgentLoopStatus } from "./types.js";
 import type { IterationRecord } from "./types.js";
 import type { ExecutionHierarchyMetadata } from "../execution/hierarchy.js";
+import type { AgentLoopStateSnapshot } from "../checkpoint/agent/snapshot.js";
 
 /**
  * Agent Loop Execution
@@ -61,11 +61,6 @@ export interface AgentLoopExecution {
 
   /** Complete iteration history */
   iterationHistory: IterationRecord[];
-
-  // ========== Message State ==========
-
-  /** Conversation messages */
-  messages: Message[];
 
   // ========== Timestamps ==========
 
@@ -120,32 +115,11 @@ export interface AgentLoopExecution {
 /**
  * Agent Loop Execution State Snapshot
  *
- * A simplified snapshot of execution state for checkpoint purposes.
- * This is what gets serialized to checkpoints.
+ * @deprecated Use `AgentLoopStateSnapshot` from `@wf-agent/types/checkpoint/agent/snapshot` instead.
+ * This type alias exists for backwards compatibility and will be removed in a future version.
+ * `AgentLoopStateSnapshot` provides richer state capture (streaming state, trigger state,
+ * variable snapshots, execution event tracking) and separates concerns:
+ * - Messages are managed by ConversationSession, not in the snapshot
+ * - Config is not serialized (must be re-provided by application)
  */
-export interface AgentLoopExecutionSnapshot {
-  /** Execution ID */
-  id: ID;
-  /** Definition ID */
-  definitionId: ID;
-  /** Status */
-  status: AgentLoopStatus;
-  /** Current iteration */
-  currentIteration: number;
-  /** Tool call count */
-  toolCallCount: number;
-  /** Iteration history */
-  iterationHistory: IterationRecord[];
-  /** Messages */
-  messages: Message[];
-  /** Start time */
-  startTime: Timestamp;
-  /** End time */
-  endTime?: Timestamp;
-  /** Error */
-  error?: unknown;
-  /** Streaming flag */
-  isStreaming?: boolean;
-  /** Pending tool call IDs */
-  pendingToolCalls?: string[];
-}
+export type AgentLoopExecutionSnapshot = AgentLoopStateSnapshot;

@@ -19,6 +19,7 @@
 
 import type {
   LLMMessage,
+  Tool,
   ToolSchema,
   LLMUsage,
   TransformContextFn,
@@ -40,7 +41,7 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { LLMExecutor, type LLMExecutionResult } from "../../services/executors/llm-executor.js";
 import { LLMWrapper } from "../../services/llm/wrapper.js";
 import { ToolCallExecutor } from "../../services/executors/tool-call-executor.js";
-import { prepareToolSchemasFromTools } from "../utils/tools/tool-schema-helper.js";
+import { prepareToolSchemasFromTools } from "../tools/tool-schema-helper.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import type { TokenMetricsCollector } from "../../metrics/token-collector.js";
 import type { MessageStream } from "../../services/llm/message-stream.js";
@@ -48,8 +49,8 @@ import {
   buildMessageAddedEvent,
   buildTokenUsageWarningEvent,
   buildConversationStateChangedEvent,
-} from "../utils/event/builders/index.js";
-import type { TimeoutManager } from "../state-managers/timeout-manager.js";
+} from "../events/builders/index.js";
+import type { TimeoutManager } from "../protection/timeout-manager.js";
 import type { TimeoutHandle } from "../types/timeout.js";
 
 const logger = createContextualLogger();
@@ -476,7 +477,7 @@ export class LLMExecutionCoordinator {
       let availableToolSchemas = tools;
       if (tools && tools.length > 0) {
         availableToolSchemas = prepareToolSchemasFromTools(
-          tools as Array<{ id: string; description: string; parameters: unknown }>,
+          tools as Tool[],
         );
       }
 

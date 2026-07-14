@@ -6,7 +6,7 @@
  */
 
 import type { LLMMessage, ToolCallFormat } from "@wf-agent/types";
-import { ToolDeclarationFormatter } from "../utils/tools/index.js";
+import { ToolDeclarationFormatter } from "../tools/index.js";
 import { DEFAULT_XML_TAGS, DEFAULT_JSON_MARKERS } from "@wf-agent/types";
 
 export interface HistoryConversionOptions {
@@ -60,7 +60,7 @@ export class HistoryConverter {
 
     const toolCallText = ToolDeclarationFormatter.formatToolCalls(message.toolCalls, {
       format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
-      xmlTags,
+      xmlTags: xmlTags as unknown as Record<string, string>,
       markers,
     });
 
@@ -87,11 +87,14 @@ export class HistoryConverter {
     const xmlTags = options?.xmlTags || DEFAULT_XML_TAGS;
     const markers = options?.markers || DEFAULT_JSON_MARKERS;
 
-    const resultText = ToolDeclarationFormatter.formatToolResult(message, {
-      format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
-      xmlTags,
-      markers,
-    });
+    const resultText = ToolDeclarationFormatter.formatToolResult(
+      message as unknown as { toolCallId?: string; content: string },
+      {
+        format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
+        xmlTags: xmlTags as unknown as Record<string, string>,
+        markers,
+      },
+    );
 
     // Tool results become user messages in text mode
     return {

@@ -4,6 +4,7 @@
  * Implements the specific configuration parsing logic for Agent Loop based on the sdk/shared/checkpoint common framework.
  */
 
+import { CheckpointTrigger } from "@wf-agent/types";
 import { CheckpointConfigResolver } from "../../../api/shared/config/processors/checkpoint-config.js";
 import type {
   AgentLoopCheckpointConfig,
@@ -122,7 +123,7 @@ export class AgentLoopCheckpointConfigResolver extends CheckpointConfigResolver 
    * Construct a checkpoint description
    */
   private buildDescription(context: AgentLoopCheckpointConfigContext): string {
-    if (context.triggerType === "ERROR") {
+    if (context.triggerType === CheckpointTrigger.ON_ERROR) {
       return "Error checkpoint";
     }
     return `Iteration ${context.currentIteration} checkpoint`;

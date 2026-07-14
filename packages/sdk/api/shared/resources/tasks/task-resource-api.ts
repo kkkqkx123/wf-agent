@@ -74,7 +74,7 @@ export interface TaskStats {
  * TaskResourceAPI - Task Resource Management API
  */
 export class TaskResourceAPI extends SimplifiedCrudResourceAPI<TaskInfo, string, TaskFilter> {
-  private registry: import("../../../../shared/stores/task-registry.js").TaskRegistry;
+  private registry: import("../../../../shared/registry/task-registry.js").TaskRegistry;
 
   constructor(deps: APIDependencyManager) {
     super();

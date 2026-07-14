@@ -75,11 +75,11 @@ vi.mock("../../../../services/executors/tool-call-executor.js", () => ({
   ToolCallExecutor: vi.fn(),
 }));
 
-vi.mock("../../../../shared/utils/tools/tool-schema-helper.js", () => ({
+vi.mock("../../../../shared/tools/tool-schema-helper.js", () => ({
   prepareToolSchemas: mockPrepareToolSchemas,
 }));
 
-vi.mock("../../../../shared/utils/event/emit-event.js", () => ({
+vi.mock("../../../../shared/events/emit-event.js", () => ({
   emit: mockEmit,
 }));
 

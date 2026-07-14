@@ -14,7 +14,7 @@
  * - Unified use of AbortSignal as the primary interrupt mechanism
  */
 
-import type { WorkflowExecutionRegistry } from "../stores/workflow-execution-registry.js";
+import type { WorkflowExecutionRegistry } from "../registry/workflow-execution-registry.js";
 import type { InterruptionType } from "../../shared/types/interruption-types.js";
 import { isAborted } from "../../shared/utils/interruption/index.js";
 import {

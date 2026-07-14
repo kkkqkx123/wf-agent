@@ -9,7 +9,7 @@ import {
   generateToolListDescription,
   generateToolAvailabilitySection,
   type ToolDescriptionFormat,
-} from "../../../../shared/utils/tools/tool-description-generator.js";
+} from "../../../../shared/tools/tool-description-generator.js";
 
 export type { ToolDescriptionFormat };
 

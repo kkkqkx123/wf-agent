@@ -21,12 +21,12 @@
  */
 
 import type { Tool } from "@wf-agent/types";
-import type { ToolDescriptionFormat } from "@sdk/shared/utils/tools/tool-description-generator.js";
+import type { ToolDescriptionFormat } from "@sdk/shared/tools/tool-description-generator.js";
 import type { GlobalContext } from "../../../../shared/global-context.js";
 import {
   generateToolAvailabilitySection,
   toolDescriptionRegistry,
-} from "../../../../shared/utils/tools/index.js";
+} from "../../../../shared/tools/index.js";
 import {
   buildCompleteSystemPrompt,
   ASSISTANT_SYSTEM_PROMPT_FRAGMENTS,

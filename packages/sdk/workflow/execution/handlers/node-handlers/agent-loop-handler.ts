@@ -20,11 +20,11 @@ import type { ConversationSession } from "../../../../shared/messaging/conversat
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
 import { AgentLoopCoordinator, AgentLoopExecutor } from "../../../../agent/index.js";
 import type { AgentLoopRegistry } from "../../../../agent/index.js";
-import { emit } from "../../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../../shared/events/emit-event.js";
 import {
   buildMessageAddedEvent,
   buildConversationStateChangedEvent,
-} from "../../../../shared/utils/event/builders/index.js";
+} from "../../../../shared/events/builders/index.js";
 import { LLMExecutor } from "../../../../services/executors/llm-executor.js";
 import { ToolRegistry } from "../../../../shared/registry/tool-registry.js";
 import type { SkillRegistry } from "../../../../shared/registry/skill-registry.js";

@@ -225,7 +225,13 @@ export class PostgresCheckpointStorage
       previousCheckpointId = checkpoint.previousCheckpointId ?? null;
       const executionState = checkpoint.executionState;
       messageCount = executionState?.conversationState?.messages?.length ?? null;
-      variableCount = executionState?.variables?.length ?? null;
+      // variables is a Record<string, unknown>, use Object.keys to count
+      if (executionState?.variableState?.variables && typeof executionState.variableState.variables === 'object') {
+        variableCount = Object.keys(executionState.variableState.variables).length;
+      } else if (executionState?.variables && typeof executionState.variables === 'object') {
+        // Fallback for older checkpoint formats
+        variableCount = Object.keys(executionState.variables).length;
+      }
     } catch {
       // Ignore parsing errors, use null defaults
     }

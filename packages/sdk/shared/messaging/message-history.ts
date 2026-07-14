@@ -17,7 +17,7 @@
 
 import type { LLMMessage, LLMToolCall, MessageRole, MessageMarkMap } from "@wf-agent/types";
 import type { CheckpointStorageAdapter } from "@wf-agent/storage";
-import { MessageArrayUtils } from "../utils/messages/message-array-utils.js";
+import { MessageArrayUtils } from "./message-array-utils.js";
 import {
   startNewBatch,
   startNewBatchWithCheckpoint,
@@ -29,7 +29,7 @@ import {
   getBatchCheckpointId,
   isBatchInMemory,
   rebuildIndicesAfterRelease,
-} from "../utils/messages/batch-management-utils.js";
+} from "./batch-management-utils.js";
 import {
   getVisibleMessages,
   getVisibleMessageCount,
@@ -37,14 +37,14 @@ import {
   getInvisibleMessageCount,
   isMessageVisible,
   getCurrentBoundary,
-} from "../utils/messages/visible-range-calculator.js";
+} from "./visible-range-calculator.js";
 import {
   getIndicesByRole,
   getCountByRole,
   getVisibleIndicesByRole,
   getVisibleRecentIndicesByRole,
   getVisibleCountByRole,
-} from "../utils/messages/message-index-utils.js";
+} from "./message-index-utils.js";
 
 /**
  * Message History Configuration

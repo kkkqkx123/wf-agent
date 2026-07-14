@@ -27,23 +27,23 @@ import type {
   ChildExecutionConfig,
 } from "../factories/workflow-execution-builder.js";
 import { getErrorOrNew, now } from "@wf-agent/common-utils";
-import { TaskRegistry, type TaskManager } from "../../../shared/stores/task-registry.js";
+import { TaskRegistry, type TaskManager } from "../../../shared/registry/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
-import { AsyncCompletionManager } from "../../state-managers/async-completion-manager.js";
+import { AsyncCompletionManager } from "../utils/async-completion-manager.js";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
-import type { IAgentExecutionRegistry } from "../../../agent/stores/agent-execution-registry.js";
+import type { IAgentExecutionRegistry } from "../../../agent/registry/agent-execution-registry.js";
 import {
   type TriggeredSubworkflowTask,
   type ExecutedSubworkflowResult,
   type TaskSubmissionResult,
   type ResolvedDataSource,
 } from "../types/triggered-subworkflow.types.js";
-import { emit } from "../../../shared/utils/event/emit-event.js";
+import { emit } from "../../../shared/events/emit-event.js";
 import {
   buildTriggeredSubgraphStartedEvent,
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../../shared/utils/event/builders/index.js";
+} from "../../../shared/events/builders/index.js";
 import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../shared/utils/error-utils.js";
 import { cleanupChildExecution } from "../utils/child-execution-cleanup.js";

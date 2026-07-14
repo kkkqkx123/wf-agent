@@ -15,7 +15,7 @@ import type {
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { expressionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
-import type { VariableManager } from "../../../state-managers/variable-manager.js";
+import type { VariableManager } from "../../utils/variable-manager.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger();

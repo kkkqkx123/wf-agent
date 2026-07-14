@@ -18,7 +18,7 @@
 
 import { ExecutionError } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
-import type { TimeoutManager } from "../../../shared/state-managers/timeout-manager.js";
+import type { TimeoutManager } from "../../../shared/protection/timeout-manager.js";
 import type { InterruptionStateReference } from "../../../shared/types/timeout.js";
 
 const logger = createContextualLogger({ component: "TimeoutWrapper" });

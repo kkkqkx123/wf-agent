@@ -27,7 +27,6 @@ export abstract class BaseCheckpointStateManager<
   protected eventManager?: EventRegistry;
   protected cleanupPolicy?: CleanupPolicy;
   protected codec: StateCodec;
-  protected checkpointSizes: Map<string, number> = new Map();
   private diffCalculator: BaseDiffCalculator = new BaseDiffCalculator();
   private metricsCollector?: CheckpointMetricsCollector;
   private cleanupLocks = new Map<string, Promise<void>>();
@@ -62,8 +61,6 @@ export abstract class BaseCheckpointStateManager<
       metadata.blobSize = serializedData.length;
 
       await this.storageAdapter.save(checkpoint.id, serializedData, metadata);
-
-      this.checkpointSizes.set(checkpoint.id, serializedData.length);
 
       if (this.eventManager) {
         const emitter = this.eventManager.getEmitter(
@@ -175,7 +172,6 @@ export abstract class BaseCheckpointStateManager<
 
     try {
       const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
-      this.checkpointSizes.set(checkpointId, data.length);
 
       const entityId = (checkpoint as unknown as Record<string, string>)['executionId'] || (checkpoint as unknown as Record<string, string>)['agentLoopId'] || "unknown";
 
@@ -216,7 +212,6 @@ export abstract class BaseCheckpointStateManager<
   ): Promise<void> {
     try {
       await this.storageAdapter.delete(checkpointId);
-      this.checkpointSizes.delete(checkpointId);
 
       logger.info("Checkpoint deleted", { checkpointId, reason });
 
@@ -252,7 +247,6 @@ export abstract class BaseCheckpointStateManager<
       if (data) {
         try {
           const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
-          this.checkpointSizes.set(id, data.length);
           map.set(id, checkpoint);
           successCount++;
         } catch {
@@ -340,14 +334,6 @@ export abstract class BaseCheckpointStateManager<
       });
     }
 
-    for (const info of checkpointInfoArray) {
-      const metadata = info.metadata as CheckpointStorageMetadata;
-      const size = metadata.blobSize ?? 0;
-      if (size > 0) {
-        this.checkpointSizes.set(info.id, size);
-      }
-    }
-
     const checkpointInfo: CheckpointInfo[] = checkpointInfoArray
       .filter(info => info.id !== excludeCheckpointId)
       .map(info => ({
@@ -357,7 +343,7 @@ export abstract class BaseCheckpointStateManager<
 
      const dependencyGraph = buildDependencyGraph(checkpointInfoArray);
 
-     const strategy = createCleanupStrategy(targetPolicy, this.checkpointSizes);
+     const strategy = createCleanupStrategy(targetPolicy);
      const candidateDeleteIds = strategy.execute(checkpointInfo, dependencyGraph);
 
      const candidateSet = new Set(candidateDeleteIds);
@@ -412,11 +398,18 @@ export abstract class BaseCheckpointStateManager<
      });
 
     let freedSpaceBytes = 0;
+    // Build a size lookup from checkpoint metadata for freed space tracking
+    const sizeByCpId = new Map<string, number>();
+    for (const cp of checkpointInfoArray) {
+      const blobSize = (cp.metadata as CheckpointStorageMetadata).blobSize;
+      if (blobSize !== undefined && blobSize > 0) {
+        sizeByCpId.set(cp.id, blobSize);
+      }
+    }
     for (const checkpointId of toDeleteIds) {
       try {
-        const size = this.checkpointSizes.get(checkpointId) || 0;
+        const size = sizeByCpId.get(checkpointId) || 0;
         await this.storageAdapter.delete(checkpointId);
-        this.checkpointSizes.delete(checkpointId);
         freedSpaceBytes += size;
       } catch (error) {
         logger.warn("Failed to delete checkpoint during cleanup", {
@@ -563,7 +556,6 @@ export abstract class BaseCheckpointStateManager<
       const updatedMetadata = this.extractStorageMetadata(cps[0]!);
       updatedMetadata.blobSize = updatedData.length;
       await this.storageAdapter.save(anchor.id, updatedData, updatedMetadata);
-      this.checkpointSizes.set(anchor.id, updatedData.length);
 
       const successor = checkpoints.find(
         cp => cp.metadata.previousCheckpointId === lastMerged.cp.id && cp.id !== anchor.id,
@@ -578,13 +570,11 @@ export abstract class BaseCheckpointStateManager<
           const updatedSuccMetadata = this.extractStorageMetadata(successorCp);
           updatedSuccMetadata.blobSize = updatedSuccData.length;
           await this.storageAdapter.save(successor.id, updatedSuccData, updatedSuccMetadata);
-          this.checkpointSizes.set(successor.id, updatedSuccData.length);
         }
       }
 
       for (const { cp } of toMerge) {
         await this.storageAdapter.delete(cp.id);
-        this.checkpointSizes.delete(cp.id);
         deletedCount++;
       }
 

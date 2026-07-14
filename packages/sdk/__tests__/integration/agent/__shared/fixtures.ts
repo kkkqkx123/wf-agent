@@ -11,7 +11,7 @@
 
 import type { AgentLoopRuntimeConfig, Tool, AgentHookTriggeredEvent } from "@wf-agent/types";
 import { AgentLoopStatus } from "@wf-agent/types";
-import { AgentLoopRegistry } from "@/agent/stores/agent-loop-registry.js";
+import { AgentLoopRegistry } from "@/agent/registry/agent-loop-registry.js";
 import { AgentLoopCoordinator } from "@/agent/execution/coordinators/agent-loop-coordinator.js";
 import { MemoryAgentLoopStorage } from "@wf-agent/storage";
 import { MockLLMService } from "../../__shared/mock-llm-service.js";

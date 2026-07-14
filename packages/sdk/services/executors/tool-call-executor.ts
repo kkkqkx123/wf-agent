@@ -38,16 +38,11 @@ import { MessageBuilder } from "@sdk/shared/messaging/message-builder.js";
 import type { CheckpointDependencies } from "../../workflow/checkpoint/checkpoint-coordinator.js";
 import type { GlobalContext } from "@sdk/shared/global-context.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import type { ToolFailureProtectionState } from "@sdk/shared/state-managers/tool-failure-protection-state.js";
+import type { ToolFailureProtectionState } from "@sdk/shared/protection/tool-failure-protection-state.js";
 import type { ToolMetricsCollector } from "@sdk/metrics/tool-collector.js";
 import { isAbortError } from "@sdk/shared/utils/error-utils.js";
 import { InterruptedException } from "@sdk/shared/types/interruption-types.js";
-import {
-  createToolExecutionSignal,
-  isToolExecutionTimeout,
-  isToolExecutionExternalAbort,
-  getToolExecutionTimeoutMs,
-} from "@sdk/shared/utils/tools/tool-execution-signal.js";
+import { createToolExecutionSignal } from "@sdk/shared/tools/tool-execution-signal.js";
 
 const logger = createContextualLogger({ component: "ToolCallExecutor" });
 
@@ -647,10 +642,20 @@ export class ToolCallExecutor {
 
     // Build execution options that support reading from tool configuration.
     const timeout = (toolConfig?.config as { timeout?: number })?.timeout || 30000;
-    const { signal: executionSignal, cleanup: cleanupSignal } = createToolExecutionSignal(
+    const executionSignal = createToolExecutionSignal({
+      toolId: toolCall.id,
+      toolName: toolCall.name,
+      executionId: executionId || "",
+      timeout,
+    });
+
+    // Create a combined AbortSignal from external abort signal and timeout
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(new Error("Tool execution timeout")), timeout);
+    const combinedSignal = combineAbortSignals([
       options?.abortSignal,
-      timeout
-    );
+      timeoutController.signal,
+    ]);
 
     const executionOptions: {
       timeout: number;
@@ -661,7 +666,7 @@ export class ToolCallExecutor {
       timeout: 0, // Let combined signal handle timeout
       retries: (toolConfig?.config as { maxRetries?: number })?.maxRetries || 0,
       retryDelay: (toolConfig?.config as { retryDelay?: number })?.retryDelay || 1000,
-      signal: executionSignal, // Use combined signal
+      signal: combinedSignal, // Use combined signal
     };
 
     // Check if this is an interactive tool
@@ -982,16 +987,14 @@ export class ToolCallExecutor {
     } catch (error) {
       // Enhanced error handling for timeout vs external abort
       if (isAbortError(error)) {
-        const reasonError = executionSignal.reason as Error & { source?: string };
-
-        if (isToolExecutionTimeout(reasonError)) {
+        if (executionSignal.isTimedOut) {
           logger.warn("Tool execution timeout", {
             toolName: toolCall.name,
-            timeoutMs: getToolExecutionTimeoutMs(reasonError),
+            timeoutMs: timeout,
             toolCallId: toolCall.id,
             executionId,
           });
-        } else if (isToolExecutionExternalAbort(reasonError)) {
+        } else if (executionSignal.isCancelled) {
           logger.info("Tool execution interrupted externally", {
             toolName: toolCall.name,
             toolCallId: toolCall.id,
@@ -1016,8 +1019,8 @@ export class ToolCallExecutor {
       }
       throw error;
     } finally {
-      // Clean up combined signal resources
-      cleanupSignal();
+      // Clean up timeout
+      clearTimeout(timeoutId);
     }
   }
 }

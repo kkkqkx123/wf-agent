@@ -37,7 +37,7 @@ import {
   buildSkillLoadStartedEvent,
   buildSkillLoadCompletedEvent,
   buildSkillLoadFailedEvent,
-} from "../utils/event/builders/index.js";
+} from "../events/builders/index.js";
 import {
   generateSkillMetadataListPrompt,
   generateSkillContentPrompt,

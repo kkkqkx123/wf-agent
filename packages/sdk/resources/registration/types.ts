@@ -67,11 +67,11 @@ export interface RegistrationResult {
  */
 export interface ResourceRegistries {
   triggerRegistry: import("@sdk/shared/registry/trigger-template-registry.js").TriggerTemplateRegistry;
-  workflowRegistry: import("@sdk/workflow/stores/workflow-registry.js").WorkflowRegistry;
+  workflowRegistry: import("@sdk/workflow/registry/workflow-registry.js").WorkflowRegistry;
   toolRegistry: import("@sdk/shared/registry/tool-registry.js").ToolRegistry;
   promptTemplateRegistry: import("../../shared/registry/prompt-template-registry.js").PromptTemplateRegistry;
   fragmentRegistry: import("../../shared/registry/fragment-registry.js").FragmentRegistry;
-  toolDescriptionRegistry: import("../../shared/utils/tools/tool-description-registry.js").ToolDescriptionRegistry;
+  toolDescriptionRegistry: import("../../shared/tools/tool-description-registry.js").ToolDescriptionRegistry;
 }
 
 /**

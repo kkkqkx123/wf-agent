@@ -9,7 +9,7 @@
 
 import { now } from "@wf-agent/common-utils";
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { NotFoundError, SDKError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";

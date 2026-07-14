@@ -19,7 +19,7 @@
 
 import { AgentLoopStatus } from "../../agent-execution/types.js";
 import type { IterationRecord } from "../../agent-execution/types.js";
-import type { ExecutionErrorRecord, ExecutionInterruptionRecord, ExecutionEventRecord } from "../execution-events.js";
+import type { CheckpointStateBase } from "../base.js";
 
 /**
  * Agent Loop Status Snapshot
@@ -40,7 +40,14 @@ import type { ExecutionErrorRecord, ExecutionInterruptionRecord, ExecutionEventR
  * This eliminates the separate ExecutionHistoryAPI storage and ensures data
  * consistency and disaster recovery.
  */
-export interface AgentLoopStateSnapshot {
+export interface AgentLoopStateSnapshot extends CheckpointStateBase {
+  // ========== Execution metadata (optional, for checkpoint context) ==========
+
+  /** Execution ID (optional, for checkpoint context) */
+  executionId?: string;
+  /** Definition ID (optional, for checkpoint context) */
+  definitionId?: string;
+
   /** Execution status */
   status: AgentLoopStatus;
   /** Current iteration number */
@@ -55,17 +62,6 @@ export interface AgentLoopStateSnapshot {
   endTime: number | null;
   /** Error data (if execution failed) - DEPRECATED: use errors array */
   error: unknown;
-
-  // ========== Plan C: Execution Event Tracking ==========
-
-  /** Errors that occurred during execution (atomic with state) */
-  errorRecords?: ExecutionErrorRecord[];
-
-  /** Interruptions (pauses/stops) that occurred during execution */
-  interruptionRecords?: ExecutionInterruptionRecord[];
-
-  /** Recent execution events for timeline view (limited to prevent state bloat) */
-  eventRecords?: ExecutionEventRecord[];
 
   // ========== Extended fields for complete state capture ==========
 

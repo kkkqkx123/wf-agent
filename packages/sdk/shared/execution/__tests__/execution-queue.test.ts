@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ExecutionQueue } from "../execution-queue.js";
 import { ExecutionPool, type Executor, type ExecutorFactory } from "../execution-pool.js";
 import type { ExecutionInstance } from "../../types/index.js";
-import type { TaskRegistry } from "../../../shared/stores/task-registry.js";
+import type { TaskRegistry } from "../../../shared/registry/task-registry.js";
 import type { EventRegistry } from "../../registry/event-registry.js";
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  */
 
 // Event Trigger Tool Function (re-exported from core)
-export { emit } from "../../../../shared/utils/event/emit-event.js";
+export { emit } from "../../../../shared/events/emit-event.js";
 
 // Event Waiting Tool Function
 export {
@@ -22,4 +22,4 @@ export {
   waitForAnyWorkflowExecutionCompletion,
   waitForNodeCompleted,
   waitForNodeFailed,
-} from "./event-waiter.js";
+} from "../event-waiter.js";

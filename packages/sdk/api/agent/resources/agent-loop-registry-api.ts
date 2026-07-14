@@ -9,7 +9,7 @@
  */
 
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { AgentLoopStatus, type ID } from "@wf-agent/types";
 import type { ToolCallRecord } from "@wf-agent/types";

@@ -3,7 +3,7 @@
  * Ensures all active workflows are checkpointed before process termination
  */
 
-import { WorkflowExecutionRegistry } from "../../workflow/stores/workflow-execution-registry.js";
+import { WorkflowExecutionRegistry } from "../../workflow/registry/workflow-execution-registry.js";
 import {
   CheckpointCoordinator,
   type CheckpointDependencies,

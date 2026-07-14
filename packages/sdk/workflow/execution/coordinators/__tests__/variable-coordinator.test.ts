@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { VariableCoordinator } from "../variable-coordinator.js";
-import { VariableManager } from "../../../state-managers/variable-manager.js";
+import { VariableManager } from "../../utils/variable-manager.js";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import type { EventRegistry } from "../../../../shared/registry/event-registry.js";
 import type { ExecutionEventEmitter } from "../../../../shared/registry/event-emitter.js";

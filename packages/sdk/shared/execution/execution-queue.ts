@@ -13,7 +13,7 @@
  * - Automatically handles coordination between the queue and the execution pool
  */
 
-import { TaskRegistry } from "../stores/task-registry.js";
+import { TaskRegistry } from "../registry/task-registry.js";
 import { ExecutionPool, type Executor } from "./execution-pool.js";
 import type { EventRegistry } from "../registry/event-registry.js";
 import {
@@ -27,11 +27,11 @@ import type { WorkflowExecutionResult } from "@wf-agent/types";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../utils/error-utils.js";
-import { emit } from "../utils/event/emit-event.js";
+import { emit } from "../events/emit-event.js";
 import {
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../utils/event/builders/index.js";
+} from "../events/builders/index.js";
 
 /**
  * Queue task interface

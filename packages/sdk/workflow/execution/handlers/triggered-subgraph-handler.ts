@@ -28,7 +28,7 @@ import {
   buildTriggeredSubgraphStartedEvent,
   buildTriggeredSubgraphCompletedEvent,
   buildTriggeredSubgraphFailedEvent,
-} from "../../../shared/utils/event/builders/subgraph-events.js";
+} from "../../../shared/events/builders/subgraph-events.js";
 
 /**
  * Sub-workflow Executor Interface

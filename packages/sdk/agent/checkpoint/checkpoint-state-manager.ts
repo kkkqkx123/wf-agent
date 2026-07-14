@@ -19,7 +19,7 @@ import {
   buildCheckpointCreatedEvent,
   buildCheckpointDeletedEvent,
   buildCheckpointFailedEvent,
-} from "../../shared/utils/event/builders/index.js";
+} from "../../shared/events/builders/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointStateManager" });
@@ -147,6 +147,12 @@ export class AgentLoopCheckpointStateManager extends BaseCheckpointStateManager<
      // Use checkpoint's agentLoopId if present, otherwise fall back to manager's
      // This is safe because we validated above that if present, they match
      const effectiveAgentLoopId = checkpointAgentLoopId ?? this.agentLoopId;
+     if (!checkpointAgentLoopId) {
+       logger.warn("Checkpoint missing agentLoopId, falling back to manager's agentLoopId", {
+         checkpointId: checkpoint.id,
+         managerAgentLoopId: this.agentLoopId,
+       });
+     }
 
      const record: CheckpointStorageMetadata = {
        entityType: "agent",

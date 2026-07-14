@@ -1,5 +1,6 @@
 // Registry exports
 export { ToolRegistry } from "./tool-registry.js";
+export { TaskRegistry, type TaskManager, type TaskRegistryConfig } from "./task-registry.js";
 export { ScriptRegistry, ScriptExecutionService } from "./script-registry.js";
 export { AgentProfileRegistry } from "./agent-profile-registry.js";
 export type { AgentProfileMeta } from "./agent-profile-registry.js";

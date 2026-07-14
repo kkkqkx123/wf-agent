@@ -4,7 +4,7 @@
  */
 
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
-import type { AgentLoopRegistry } from "../../../agent/stores/agent-loop-registry.js";
+import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentTrigger } from "@wf-agent/types";
 import { NotFoundError, type ID } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";

@@ -25,8 +25,8 @@ export * from "./messaging/prompt/index.js";
 // Registry - Entity registration and discovery
 export * from "./registry/index.js";
 
-// State Managers - State management
-export * from "./state-managers/index.js";
+// Protection - Execution protection mechanisms (tool failure, timeout)
+export * from "./protection/index.js";
 
 // Triggers - Trigger processing
 export * from "./triggers/index.js";
@@ -36,6 +36,9 @@ export * from "./types/index.js";
 
 // Utils - Shared utilities
 export * from "./utils/index.js";
+
+// Tools - Tool utilities
+export * from "./tools/index.js";
 
 // Validation - Schema and runtime validation
 export * from "./validation/index.js";

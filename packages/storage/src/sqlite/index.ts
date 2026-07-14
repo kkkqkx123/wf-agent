@@ -27,3 +27,6 @@ export {
   type CompressionResult,
   DEFAULT_COMPRESSION_CONFIG,
 } from "@wf-agent/common-utils";
+
+// Note storage
+export { SqliteNoteStorage, type SqliteNoteStorageConfig, type NoteEntryResult, type NoteCategorySummary } from "./sqlite-note-storage.js";

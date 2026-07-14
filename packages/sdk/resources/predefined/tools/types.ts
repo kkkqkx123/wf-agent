@@ -215,10 +215,14 @@ export interface RunShellConfig {
  * Session Notes Tool Configuration
  */
 export interface SessionNoteConfig {
-  /** Working directory */
+  /** Working directory for resolving relative dbPath */
   workspaceDir?: string;
-  /** Memory file path */
-  memoryFile?: string;
+  /** Database file path for SQLite storage (relative to workspaceDir or absolute) */
+  dbPath?: string;
+  /** Session identifier */
+  sessionId?: string;
+  /** Maximum number of notes per session (0 = unlimited, default 1000) */
+  maxNotes?: number;
 }
 
 /**

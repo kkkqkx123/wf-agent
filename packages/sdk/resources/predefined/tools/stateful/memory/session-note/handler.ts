@@ -4,128 +4,106 @@
 
 import { resolve } from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import { FileNoteStorage } from "./utils/index.js";
-import type { NoteEntry } from "./types.js";
+import { SqliteNoteStorage } from "@wf-agent/storage";
+import type { NoteEntry, NoteCategorySummary } from "./types.js";
 import type { SessionNoteConfig } from "../../../types.js";
+import { estimateTokens } from "@sdk/utils/token-estimator.js";
 
 /**
- * Session note instance using FileNoteStorage
+ * Resolve the database path from SessionNoteConfig.
+ * If dbPath is relative, resolve it against the workspace directory.
  */
-class SessionNoteInstance {
-  private storage: FileNoteStorage;
-  private sessionId: string;
-  private notes: NoteEntry[] = [];
-  private loaded: boolean = false;
+function resolveDbPath(config: SessionNoteConfig): string {
+  const workspaceDir = config.workspaceDir ?? process.cwd();
+  return resolve(workspaceDir, config.dbPath ?? "data/session-notes.db");
+}
 
-  constructor(storage: FileNoteStorage, sessionId: string) {
-    this.storage = storage;
-    this.sessionId = sessionId;
-  }
+/**
+ * Get the session identifier from config.
+ */
+function resolveSessionId(config: SessionNoteConfig): string {
+  return config.sessionId ?? "default";
+}
 
-  /**
-   * Load notes from storage
-   */
-  private async loadNotes(): Promise<void> {
-    if (this.loaded) return;
-
-    this.notes = await this.storage.loadNotes(this.sessionId);
-    this.loaded = true;
-  }
-
-  /**
-   * Save notes to storage
-   */
-  private async saveNotes(): Promise<void> {
-    await this.storage.saveNotes(this.sessionId, this.notes);
-  }
-
-  /**
-   * Take notes.
-   */
-  async record(content: string, category: string = "general"): Promise<ToolOutput> {
-    try {
-      await this.loadNotes();
-
-      const note: NoteEntry = {
-        timestamp: new Date().toISOString(),
-        category,
-        content,
-      };
-      this.notes.push(note);
-
-      await this.saveNotes();
-
-      return {
-        success: true,
-        content: `Recorded note: ${content} (category: ${category})`,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        content: "",
-        error: `Failed to record note: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-  }
-
-  /**
-   * Recall Notes
-   */
-  async recall(category?: string): Promise<ToolOutput> {
-    try {
-      await this.loadNotes();
-
-      if (this.notes.length === 0) {
-        return {
-          success: true,
-          content: "No notes recorded yet.",
-        };
+/**
+ * Format notes into a human-readable string
+ */
+function formatNotes(notes: NoteEntry[]): string {
+  return notes
+    .map((note, index) => {
+      let line = `${index + 1}. [${note.category}]`;
+      if (note.summary) {
+        line += ` ${note.summary}`;
+      } else {
+        line += ` ${note.content.length > 100 ? note.content.slice(0, 100) + "..." : note.content}`;
       }
+      line += ` (${note.tokenCount} tokens, ${note.timestamp})`;
+      return line;
+    })
+    .join("\n");
+}
 
-      let filteredNotes = this.notes;
-      if (category) {
-        filteredNotes = this.notes.filter(n => n.category === category);
-        if (filteredNotes.length === 0) {
-          return {
-            success: true,
-            content: `No notes found in category: ${category}`,
-          };
-        }
-      }
+/**
+ * Format categories summary into a human-readable string
+ */
+function formatCategories(categories: NoteCategorySummary[], totalNotes: number, totalTokens: number): string {
+  const lines = [
+    `Session Notes Summary: ${totalNotes} notes, ${totalTokens} total tokens`,
+    "",
+  ];
 
-      const formatted = filteredNotes.map((note, index) => {
-        return `${index + 1}. [${note.category}] ${note.content}\n   (recorded at ${note.timestamp})`;
-      });
-
-      return {
-        success: true,
-        content: "Recorded Notes:\n" + formatted.join("\n"),
-      };
-    } catch (error) {
-      return {
-        success: false,
-        content: "",
-        error: `Failed to recall notes: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
+  for (const cat of categories) {
+    lines.push(`  [${cat.category}] ${cat.count} notes, ${cat.totalTokens} tokens`);
   }
+
+  return lines.join("\n");
 }
 
 /**
  * Create a record_note tool factory
  */
 export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
-  const workspaceDir = resolve(config.workspaceDir ?? process.cwd());
-  const sessionId = (config.memoryFile ?? "session-notes").replace(/\.json$/, "");
+  const dbPath = resolveDbPath(config);
+  const sessionId = resolveSessionId(config);
+
+  const storage = new SqliteNoteStorage({
+    dbPath,
+    maxNotesPerSession: config.maxNotes ?? 1000,
+  });
+  storage.initialize();
 
   return () => {
-    const storage = new FileNoteStorage(resolve(workspaceDir, "notes"));
-
     return {
-      execute: async (params: Record<string, unknown>) => {
-        await storage.initialize();
-        const instance = new SessionNoteInstance(storage, sessionId);
-        return instance.record(params["content"] as string, params["category"] as string);
+      execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
+        try {
+          const content = params["content"] as string;
+          const category = (params["category"] as string) || "general";
+          const summary = (params["summary"] as string) || "";
+          const tokenCount = estimateTokens(content + (summary ? ` ${summary}` : ""));
+
+          storage.saveNote(sessionId, {
+            category,
+            content,
+            summary,
+            tokenCount,
+            timestamp: new Date().toISOString(),
+          });
+
+          const parts = [`Recorded note: ${content} (category: ${category}, ${tokenCount} tokens)`];
+          if (summary) {
+            parts.push(`Summary: ${summary}`);
+          }
+          return {
+            success: true,
+            content: parts.join("\n"),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            content: "",
+            error: `Failed to record note: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
       },
     };
   };
@@ -135,17 +113,98 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
  * Create a recall_notes tool factory
  */
 export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
-  const workspaceDir = resolve(config.workspaceDir ?? process.cwd());
-  const sessionId = (config.memoryFile ?? "session-notes").replace(/\.json$/, "");
+  const dbPath = resolveDbPath(config);
+  const sessionId = resolveSessionId(config);
+
+  const storage = new SqliteNoteStorage({
+    dbPath,
+    maxNotesPerSession: config.maxNotes ?? 1000,
+  });
+  storage.initialize();
 
   return () => {
-    const storage = new FileNoteStorage(resolve(workspaceDir, "notes"));
-
     return {
-      execute: async (params: Record<string, unknown>) => {
-        await storage.initialize();
-        const instance = new SessionNoteInstance(storage, sessionId);
-        return instance.recall(params["category"] as string | undefined);
+      execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
+        try {
+          const category = params["category"] as string | undefined;
+
+          const notes = storage.listNotes(sessionId, category ? { category } : undefined);
+
+          if (notes.length === 0) {
+            const msg = category
+              ? `No notes found in category: ${category}`
+              : "No notes recorded yet.";
+            return { success: true, content: msg };
+          }
+
+          const entries: NoteEntry[] = notes.map((n) => ({
+            id: n.id,
+            timestamp: n.timestamp,
+            category: n.category,
+            content: n.content,
+            summary: n.summary,
+            tokenCount: n.tokenCount,
+          }));
+
+          const header = category
+            ? `Recorded Notes (category: ${category}):\n`
+            : "Recorded Notes:\n";
+          return {
+            success: true,
+            content: header + formatNotes(entries),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            content: "",
+            error: `Failed to recall notes: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
+      },
+    };
+  };
+}
+
+/**
+ * Create a list_categories tool factory
+ */
+export function createListCategoriesFactory(config: SessionNoteConfig = {}) {
+  const dbPath = resolveDbPath(config);
+  const sessionId = resolveSessionId(config);
+
+  const storage = new SqliteNoteStorage({
+    dbPath,
+    maxNotesPerSession: config.maxNotes ?? 1000,
+  });
+  storage.initialize();
+
+  return () => {
+    return {
+      execute: async (): Promise<ToolOutput> => {
+        try {
+          const stats = storage.getStats(sessionId);
+
+          if (stats.total_notes === 0) {
+            return { success: true, content: "No notes recorded yet." };
+          }
+
+          const categories: NoteCategorySummary[] = stats.categories.map((c) => ({
+            category: c.category,
+            count: c.count,
+            totalTokens: c.total_tokens,
+          }));
+
+          return {
+            success: true,
+            content: formatCategories(categories, stats.total_notes, stats.total_tokens),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            content: "",
+            error: `Failed to list categories: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
       },
     };
   };

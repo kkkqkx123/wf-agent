@@ -112,7 +112,9 @@ export interface PresetsConfigInput {
       };
       sessionNote?: {
         workspaceDir?: string;
-        memoryFile?: string;
+        dbPath?: string;
+        sessionId?: string;
+        maxNotes?: number;
       };
       backendShell?: {
         workspaceDir?: string;

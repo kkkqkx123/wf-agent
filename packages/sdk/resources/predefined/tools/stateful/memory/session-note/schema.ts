@@ -19,6 +19,11 @@ export const recordNoteSchema: ToolParameterSchema = {
       description:
         "Optional category/tag for this note (e.g., 'user_preference', 'project_info', 'decision')",
     },
+    summary: {
+      type: "string",
+      description:
+        "Optional brief summary of the note content for quick review. The AI agent should provide a concise one-line summary.",
+    },
   },
   required: ["content"],
 };
@@ -34,5 +39,14 @@ export const recallNotesSchema: ToolParameterSchema = {
       description: "Optional: filter notes by category",
     },
   },
+  required: [],
+};
+
+/**
+ * list_categories tool parameters Schema
+ */
+export const listCategoriesSchema: ToolParameterSchema = {
+  type: "object",
+  properties: {},
   required: [],
 };

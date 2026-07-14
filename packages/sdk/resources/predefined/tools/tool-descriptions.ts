@@ -30,6 +30,7 @@ export { USE_MCP_TOOL_DESCRIPTION } from "./builtin/use-mcp/index.js";
 export {
   RECORD_NOTE_TOOL_DESCRIPTION,
   RECALL_NOTES_TOOL_DESCRIPTION,
+  LIST_CATEGORIES_TOOL_DESCRIPTION,
 } from "./stateful/memory/session-note/index.js";
 
 // Stateful - Shell tools

@@ -45,6 +45,7 @@ export const TOOL_RISK_CLASSIFICATION: Record<string, ToolRiskLevel> = {
   // === STATEFUL - Memory ===
   record_note: "WRITE",
   recall_notes: "READ_ONLY",
+  list_categories: "READ_ONLY",
 
   // === STATEFUL - Shell ===
   backend_shell: "EXECUTE",

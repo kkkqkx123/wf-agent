@@ -77,10 +77,13 @@ import { getMcpManager } from "@sdk/services/executors/mcp/index.js";
 import {
   recordNoteSchema,
   recallNotesSchema,
+  listCategoriesSchema,
   createRecordNoteFactory,
   createRecallNotesFactory,
+  createListCategoriesFactory,
   RECORD_NOTE_TOOL_DESCRIPTION,
   RECALL_NOTES_TOOL_DESCRIPTION,
+  LIST_CATEGORIES_TOOL_DESCRIPTION,
 } from "./stateful/memory/session-note/index.js";
 import {
   backendShellSchema,
@@ -151,7 +154,7 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       description: renderToolDescription(RECORD_NOTE_TOOL_DESCRIPTION),
       parameters: recordNoteSchema,
       factory: createRecordNoteFactory(
-        config?.sessionNote ?? { workspaceDir: process.cwd(), memoryFile: ".session-notes.json" },
+        config?.sessionNote ?? { dbPath: "data/session-notes.db", maxNotes: 1000 },
       ),
     });
   }
@@ -164,7 +167,20 @@ export function createPredefinedTools(options?: PredefinedToolsOptions): ToolDef
       description: renderToolDescription(RECALL_NOTES_TOOL_DESCRIPTION),
       parameters: recallNotesSchema,
       factory: createRecallNotesFactory(
-        config?.sessionNote ?? { workspaceDir: process.cwd(), memoryFile: ".session-notes.json" },
+        config?.sessionNote ?? { dbPath: "data/session-notes.db", maxNotes: 1000 },
+      ),
+    });
+  }
+
+  // list_categories
+  if (!isResourceDisabled("list_categories", options)) {
+    tools.push({
+      id: "list_categories",
+      type: "STATEFUL",
+      description: renderToolDescription(LIST_CATEGORIES_TOOL_DESCRIPTION),
+      parameters: listCategoriesSchema,
+      factory: createListCategoriesFactory(
+        config?.sessionNote ?? { dbPath: "data/session-notes.db", maxNotes: 1000 },
       ),
     });
   }

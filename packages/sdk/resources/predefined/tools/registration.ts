@@ -18,6 +18,7 @@ export const PREDEFINED_TOOL_IDS = [
   "run_shell",
   "record_note",
   "recall_notes",
+  "list_categories",
   "backend_shell",
   "shell_output",
   "shell_kill",
@@ -48,7 +49,7 @@ export function registerPredefinedTools(
         maxTimeout?: number;
         shellPolicy?: import("@wf-agent/types").ShellPolicy;
       };
-      sessionNote?: { workspaceDir?: string; memoryFile?: string };
+      sessionNote?: { workspaceDir?: string; dbPath?: string; sessionId?: string; maxNotes?: number };
       backendShell?: {
         workspaceDir?: string;
         maxBackgroundTimeout?: number;

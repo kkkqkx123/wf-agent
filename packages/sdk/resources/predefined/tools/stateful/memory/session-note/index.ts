@@ -2,7 +2,15 @@
  * session-note tool export
  */
 
-export { recordNoteSchema, recallNotesSchema } from "./schema.js";
-export { createRecordNoteFactory, createRecallNotesFactory } from "./handler.js";
-export type { NoteEntry, SessionNoteState } from "./types.js";
-export { RECORD_NOTE_TOOL_DESCRIPTION, RECALL_NOTES_TOOL_DESCRIPTION } from "./description.js";
+export { recordNoteSchema, recallNotesSchema, listCategoriesSchema } from "./schema.js";
+export {
+  createRecordNoteFactory,
+  createRecallNotesFactory,
+  createListCategoriesFactory,
+} from "./handler.js";
+export type { NoteEntry, NoteCategorySummary, SessionNoteState } from "./types.js";
+export {
+  RECORD_NOTE_TOOL_DESCRIPTION,
+  RECALL_NOTES_TOOL_DESCRIPTION,
+  LIST_CATEGORIES_TOOL_DESCRIPTION,
+} from "./description.js";

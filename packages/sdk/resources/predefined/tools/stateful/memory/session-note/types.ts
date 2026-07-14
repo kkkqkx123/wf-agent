@@ -6,16 +6,27 @@
  * Note entry
  */
 export interface NoteEntry {
+  id: string;
   timestamp: string;
   category: string;
   content: string;
+  summary: string;
+  tokenCount: number;
+}
+
+/**
+ * Category summary with aggregated statistics
+ */
+export interface NoteCategorySummary {
+  category: string;
+  count: number;
+  totalTokens: number;
 }
 
 /**
  * Session note instance status
  */
 export interface SessionNoteState {
-  memoryFile: string;
   notes: NoteEntry[];
   loaded: boolean;
 }

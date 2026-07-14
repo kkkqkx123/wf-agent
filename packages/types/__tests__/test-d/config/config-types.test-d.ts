@@ -12,7 +12,6 @@ import type {
   // Storage Config
   StorageConfig,
   StorageType,
-  JsonStorageConfig,
   SqliteStorageConfig,
   CompressionConfig,
   CompressionAlgorithm,
@@ -42,7 +41,7 @@ import {
  * Test StorageType union
  */
 declare const storageType: StorageType;
-expectType<"json" | "sqlite" | "memory" | "postgres">(storageType);
+expectType<"sqlite" | "postgres" | "memory">(storageType);
 
 /**
  * Test CompressionAlgorithm union
@@ -63,34 +62,6 @@ expectType<CompressionConfig>(compression);
 expectType<boolean>(compression.enabled);
 expectType<CompressionAlgorithm>(compression.algorithm);
 expectType<number>(compression.threshold);
-
-/**
- * Test JsonStorageConfig interface
- */
-const jsonConfig: JsonStorageConfig = {
-  baseDir: "/path/to/storage",
-  enableFileLock: true,
-  compression: {
-    enabled: true,
-    algorithm: "brotli",
-    threshold: 2048,
-  },
-};
-
-expectType<JsonStorageConfig>(jsonConfig);
-expectType<string>(jsonConfig.baseDir);
-expectType<boolean>(jsonConfig.enableFileLock);
-expectType<CompressionConfig | undefined>(jsonConfig.compression);
-
-/**
- * Test JsonStorageConfig without optional compression
- */
-const jsonConfigNoCompression: JsonStorageConfig = {
-  baseDir: "/data",
-  enableFileLock: false,
-};
-
-expectType<JsonStorageConfig>(jsonConfigNoCompression);
 
 /**
  * Test SqliteStorageConfig interface
@@ -115,14 +86,6 @@ expectType<number>(sqliteConfig.timeout);
 /**
  * Test StorageConfig discriminated union
  */
-const jsonStorage: StorageConfig = {
-  type: "json",
-  json: {
-    baseDir: "/data",
-    enableFileLock: true,
-  },
-};
-
 const sqliteStorage: StorageConfig = {
   type: "sqlite",
   sqlite: {
@@ -139,17 +102,12 @@ const memoryStorage: StorageConfig = {
   type: "memory",
 };
 
-expectType<StorageConfig>(jsonStorage);
 expectType<StorageConfig>(sqliteStorage);
 expectType<StorageConfig>(memoryStorage);
 
 /**
  * Test StorageConfig type narrowing
  */
-if (jsonStorage.type === "json") {
-  expectType<JsonStorageConfig | undefined>(jsonStorage.json);
-}
-
 if (sqliteStorage.type === "sqlite") {
   expectType<SqliteStorageConfig | undefined>(sqliteStorage.sqlite);
 }
@@ -354,10 +312,6 @@ if (isStorageConfig(unknownValue)) {
   expectAssignable<StorageConfig>(unknownValue);
   expectAssignable<StorageType>(unknownValue.type);
   
-  if (unknownValue.type === "json") {
-    expectType<JsonStorageConfig | undefined>(unknownValue.json);
-  }
-  
   if (unknownValue.type === "sqlite") {
     expectAssignable<SqliteStorageConfig | undefined>(unknownValue.sqlite);
   }
@@ -445,34 +399,6 @@ expectType<PresetsConfig>(appConfig.presets);
 expectType<OutputConfig>(appConfig.output);
 
 /**
- * Test configuration with JSON storage
- */
-const jsonAppConfig: AppConfig = {
-  storage: {
-    type: "json",
-    json: {
-      baseDir: "./data/json",
-      enableFileLock: true,
-      compression: {
-        enabled: true,
-        algorithm: "gzip",
-        threshold: 4096,
-      },
-    },
-  },
-  presets: {},
-  output: {
-    dir: "./logs",
-    logFilePattern: "app.log",
-    enableLogTerminal: false,
-    enableSDKLogs: false,
-    sdkLogLevel: "error",
-  },
-};
-
-expectType<AppConfig>(jsonAppConfig);
-
-/**
  * Test configuration with memory storage (simplest)
  */
 const memoryAppConfig: AppConfig = {
@@ -512,20 +438,6 @@ const partialPresets: PresetsConfig = {
 expectType<PresetsConfig>(partialPresets);
 
 /**
- * Test storage config with optional fields omitted
- */
-const minimalJsonStorage: StorageConfig = {
-  type: "json",
-  json: {
-    baseDir: "/tmp",
-    enableFileLock: false,
-    // compression is optional
-  },
-};
-
-expectType<StorageConfig>(minimalJsonStorage);
-
-/**
  * Test tools preset with nested optional configs
  */
 const toolsWithPartialConfig: PredefinedToolsPresetConfig = {
@@ -548,14 +460,6 @@ expectType<PredefinedToolsPresetConfig>(toolsWithPartialConfig);
 /**
  * Test that specific storage types are assignable to StorageConfig
  */
-expectAssignable<StorageConfig>({
-  type: "json",
-  json: {
-    baseDir: "/data",
-    enableFileLock: true,
-  },
-});
-
 expectAssignable<StorageConfig>({
   type: "sqlite",
   sqlite: {

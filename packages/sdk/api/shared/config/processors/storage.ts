@@ -12,23 +12,9 @@
 
 import type {
   StorageConfig,
-  JsonStorageConfig,
   SqliteStorageConfig,
   PostgresStorageConfig,
 } from "@wf-agent/types";
-
-/**
- * Default JSON storage configuration
- */
-const DEFAULT_JSON_STORAGE: JsonStorageConfig = {
-  baseDir: "./storage",
-  enableFileLock: true,
-  compression: {
-    enabled: true,
-    algorithm: "gzip",
-    threshold: 1024,
-  },
-};
 
 /**
  * Default SQLite storage configuration
@@ -62,8 +48,8 @@ const DEFAULT_POSTGRES_STORAGE: PostgresStorageConfig = {
  * Default storage configuration
  */
 const DEFAULT_STORAGE_CONFIG: StorageConfig = {
-  type: "json",
-  json: DEFAULT_JSON_STORAGE,
+  type: "sqlite",
+  sqlite: DEFAULT_SQLITE_STORAGE,
 };
 
 /**
@@ -76,12 +62,7 @@ const DEFAULT_STORAGE_CONFIG: StorageConfig = {
 export function mergeStorageWithDefaults(userConfig: Partial<StorageConfig>): StorageConfig {
   const type = userConfig.type ?? DEFAULT_STORAGE_CONFIG.type;
 
-  const merged: StorageConfig = {
-    type,
-    json: userConfig.json
-      ? deepMergeJsonStorage(DEFAULT_JSON_STORAGE, userConfig.json)
-      : DEFAULT_JSON_STORAGE,
-  };
+  const merged: StorageConfig = { type };
 
   if (type === "sqlite" || userConfig.sqlite) {
     merged.sqlite = userConfig.sqlite
@@ -99,31 +80,15 @@ export function mergeStorageWithDefaults(userConfig: Partial<StorageConfig>): St
 }
 
 /**
- * Deep merge JSON storage config (handles nested compression object)
- */
-function deepMergeJsonStorage(
-  defaults: JsonStorageConfig,
-  user: Partial<JsonStorageConfig>,
-): JsonStorageConfig {
-  return {
-    ...defaults,
-    ...user,
-    compression: user.compression
-      ? { ...defaults.compression!, ...user.compression }
-      : defaults.compression,
-  };
-}
-
-/**
  * Get environment-specific defaults for storage.
  */
 export function getStorageEnvironmentDefaults(env: "development" | "production"): StorageConfig {
   if (env === "development") {
     return {
-      type: "json",
-      json: {
-        ...DEFAULT_JSON_STORAGE,
-        baseDir: "./dev-storage",
+      type: "sqlite",
+      sqlite: {
+        ...DEFAULT_SQLITE_STORAGE,
+        dbPath: "./dev-storage/wf-agent.db",
       },
     };
   }

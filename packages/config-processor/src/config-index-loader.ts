@@ -140,6 +140,55 @@ function extractAgentLoopMetadata(config: unknown): Partial<ResolvedIndexEntry> 
   };
 }
 
+/**
+ * Generic factory for index resolvers.
+ * Each index resolver follows the same pattern: load the index file,
+ * expand paths, load each config file, extract metadata, and collect failures.
+ */
+function createIndexResolver<TEntry extends ResolvedIndexEntry>(
+  loader: (filePath: string) => Promise<{ config: unknown }>,
+  extractMetadata: (config: unknown) => Partial<TEntry>,
+  typeName: string,
+): (indexPath: string) => Promise<ResolvedIndex<TEntry>> {
+  return async (indexPath: string): Promise<ResolvedIndex<TEntry>> => {
+    const index = await loadIndexFile(indexPath);
+    const indexDir = path.dirname(indexPath);
+    const filePaths = await expandIndexPaths(index, indexDir);
+
+    const entries: TEntry[] = [];
+    const failures: Array<{ path: string; error: string }> = [];
+
+    for (const filePath of filePaths) {
+      try {
+        const parsed = await loader(filePath);
+        const metadata = extractMetadata(parsed.config);
+        const ext = path.extname(filePath).toLowerCase();
+
+        entries.push({
+          ...metadata,
+          filePath,
+          format: ext === ".json" ? "json" : "toml",
+        } as TEntry);
+      } catch (error) {
+        failures.push({
+          path: filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return {
+      type: typeName,
+      entries,
+      metadata: {
+        resolvedAt: new Date().toISOString(),
+        totalCount: entries.length,
+        failures,
+      },
+    };
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Index File Loading
 // ---------------------------------------------------------------------------
@@ -209,260 +258,56 @@ export async function indexFileExists(indexPath: string): Promise<boolean> {
  * Resolve an LLM Profile index.
  * Loads all config files and extracts metadata.
  */
-export async function resolveLLMProfileIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedLLMProfileEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedLLMProfileEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadLLMProfileConfig(filePath);
-      const metadata = extractLLMProfileMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedLLMProfileEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "llm_profiles",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolveLLMProfileIndex = createIndexResolver<ResolvedLLMProfileEntry>(
+  loadLLMProfileConfig,
+  extractLLMProfileMetadata,
+  "llm_profiles",
+);
 
 /**
  * Resolve a Workflow index.
  */
-export async function resolveWorkflowIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedWorkflowEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedWorkflowEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadNodeTemplateConfig(filePath);
-      const metadata = extractWorkflowMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedWorkflowEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "workflows",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolveWorkflowIndex = createIndexResolver<ResolvedWorkflowEntry>(
+  loadNodeTemplateConfig,
+  extractWorkflowMetadata,
+  "workflows",
+);
 
 /**
  * Resolve a Node Template index.
  */
-export async function resolveNodeTemplateIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedNodeTemplateEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedNodeTemplateEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadNodeTemplateConfig(filePath);
-      const metadata = extractNodeTemplateMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedNodeTemplateEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "node_templates",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolveNodeTemplateIndex = createIndexResolver<ResolvedNodeTemplateEntry>(
+  loadNodeTemplateConfig,
+  extractNodeTemplateMetadata,
+  "node_templates",
+);
 
 /**
  * Resolve a Script index.
  */
-export async function resolveScriptIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedScriptEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedScriptEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadScriptConfig(filePath);
-      const metadata = extractScriptMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedScriptEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "scripts",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolveScriptIndex = createIndexResolver<ResolvedScriptEntry>(
+  loadScriptConfig,
+  extractScriptMetadata,
+  "scripts",
+);
 
 /**
  * Resolve a Prompt Template index.
  */
-export async function resolvePromptTemplateIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedIndexEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedIndexEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadPromptTemplateConfig(filePath);
-      const metadata = extractPromptTemplateMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedIndexEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "prompt_templates",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolvePromptTemplateIndex = createIndexResolver<ResolvedIndexEntry>(
+  loadPromptTemplateConfig,
+  extractPromptTemplateMetadata,
+  "prompt_templates",
+);
 
 /**
  * Resolve an Agent Loop index.
  */
-export async function resolveAgentLoopIndex(
-  indexPath: string,
-): Promise<ResolvedIndex<ResolvedIndexEntry>> {
-  const index = await loadIndexFile(indexPath);
-  const indexDir = path.dirname(indexPath);
-  const filePaths = await expandIndexPaths(index, indexDir);
-
-  const entries: ResolvedIndexEntry[] = [];
-  const failures: Array<{ path: string; error: string }> = [];
-
-  for (const filePath of filePaths) {
-    try {
-      const parsed = await loadAgentLoopConfig(filePath);
-      const metadata = extractAgentLoopMetadata(parsed.config);
-      const ext = path.extname(filePath).toLowerCase();
-
-      entries.push({
-        ...metadata,
-        filePath,
-        format: ext === ".json" ? "json" : "toml",
-      } as ResolvedIndexEntry);
-    } catch (error) {
-      failures.push({
-        path: filePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return {
-    type: "agent_loops",
-    entries,
-    metadata: {
-      resolvedAt: new Date().toISOString(),
-      totalCount: entries.length,
-      failures,
-    },
-  };
-}
+export const resolveAgentLoopIndex = createIndexResolver<ResolvedIndexEntry>(
+  loadAgentLoopConfig,
+  extractAgentLoopMetadata,
+  "agent_loops",
+);
 
 // ---------------------------------------------------------------------------
 // Filtering Utilities

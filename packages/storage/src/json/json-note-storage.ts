@@ -1,9 +1,11 @@
 /**
- * JSON Note Storage Implementation for Session Notes
- * Lightweight storage for session notes using JSON file backend
+ * File Note Storage Implementation for Session Notes
+ * Lightweight storage for session notes using simple file I/O.
+ * Replaces the deprecated JsonNoteStorage (removed with JSON backend).
  */
 
-import { BaseJsonStorage, type BaseJsonStorageConfig } from "./base-json-storage.js";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { createModuleLogger } from "../logger.js";
 
 const logger = createModuleLogger("note-storage");
@@ -18,88 +20,88 @@ export interface NoteEntry {
 }
 
 /**
- * Note metadata
+ * File Note Storage
+ * Stores session notes as individual JSON files per session.
+ * Simple, lightweight, no external dependencies beyond fs.
  */
-export interface NoteMetadata {
-  /** Number of notes */
-  count: number;
-  /** Last updated timestamp */
-  updatedAt: number;
-}
+export class FileNoteStorage {
+  private baseDir: string;
+  private initialized = false;
 
-/**
- * JSON Note Storage
- * Specialized storage for session notes with simple array-based data model
- */
-export class JsonNoteStorage extends BaseJsonStorage<NoteMetadata> {
-  constructor(config: BaseJsonStorageConfig) {
-    super(config);
+  constructor(baseDir: string = "./storage/notes") {
+    this.baseDir = baseDir;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    await fs.mkdir(this.baseDir, { recursive: true });
+    this.initialized = true;
+    logger.debug("FileNoteStorage initialized", { baseDir: this.baseDir });
+  }
+
+  private getFilePath(sessionId: string): string {
+    // Sanitize sessionId to prevent path traversal
+    const safeId = sessionId.replace(/[/\\:*?"<>|]/g, "_");
+    return path.join(this.baseDir, `${safeId}.json`);
   }
 
   /**
    * Save notes for a session
-   * @param sessionId Session identifier
-   * @param notes Array of note entries
    */
   async saveNotes(sessionId: string, notes: NoteEntry[]): Promise<void> {
-    const data = new TextEncoder().encode(JSON.stringify(notes));
-    const metadata: NoteMetadata = {
-      count: notes.length,
-      updatedAt: Date.now(),
-    };
-
-    await this.save(sessionId, data, metadata);
-
+    if (!this.initialized) await this.initialize();
+    const filePath = this.getFilePath(sessionId);
+    await fs.writeFile(filePath, JSON.stringify(notes, null, 2), "utf-8");
     logger.debug("Notes saved", { sessionId, count: notes.length });
   }
 
   /**
    * Load notes for a session
-   * @param sessionId Session identifier
-   * @returns Array of note entries, empty array if not found
    */
   async loadNotes(sessionId: string): Promise<NoteEntry[]> {
-    const data = await this.load(sessionId);
-
-    if (!data) {
-      logger.debug("No notes found for session", { sessionId });
-      return [];
-    }
-
+    if (!this.initialized) await this.initialize();
+    const filePath = this.getFilePath(sessionId);
     try {
-      const notes = JSON.parse(new TextDecoder().decode(data)) as NoteEntry[];
-      logger.debug("Notes loaded", { sessionId, count: notes.length });
-      return notes;
-    } catch (error) {
-      logger.error("Failed to parse notes", { sessionId, error: (error as Error).message });
+      const content = await fs.readFile(filePath, "utf-8");
+      return JSON.parse(content) as NoteEntry[];
+    } catch {
       return [];
     }
   }
 
   /**
    * Delete notes for a session
-   * @param sessionId Session identifier
    */
   async deleteNotes(sessionId: string): Promise<void> {
-    await this.delete(sessionId);
+    if (!this.initialized) await this.initialize();
+    const filePath = this.getFilePath(sessionId);
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      // File may not exist
+    }
     logger.debug("Notes deleted", { sessionId });
   }
 
   /**
    * Check if notes exist for a session
-   * @param sessionId Session identifier
    */
   async hasNotes(sessionId: string): Promise<boolean> {
-    return await this.exists(sessionId);
+    if (!this.initialized) await this.initialize();
+    const filePath = this.getFilePath(sessionId);
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
    * Get note count for a session
-   * @param sessionId Session identifier
-   * @returns Note count, 0 if not found
    */
   async getNoteCount(sessionId: string): Promise<number> {
-    const metadata = await this.getMetadata(sessionId);
-    return metadata?.count ?? 0;
+    const notes = await this.loadNotes(sessionId);
+    return notes.length;
   }
 }

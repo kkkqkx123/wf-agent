@@ -4,19 +4,19 @@
 
 import { resolve } from "path";
 import type { ToolOutput } from "@wf-agent/types";
-import { JsonNoteStorage, type NoteEntry } from "@wf-agent/storage";
+import { FileNoteStorage, type NoteEntry } from "@wf-agent/storage";
 import type { SessionNoteConfig } from "../../../types.js";
 
 /**
- * Session note instance using JsonNoteStorage
+ * Session note instance using FileNoteStorage
  */
 class SessionNoteInstance {
-  private storage: JsonNoteStorage;
+  private storage: FileNoteStorage;
   private sessionId: string;
   private notes: NoteEntry[] = [];
   private loaded: boolean = false;
 
-  constructor(storage: JsonNoteStorage, sessionId: string) {
+  constructor(storage: FileNoteStorage, sessionId: string) {
     this.storage = storage;
     this.sessionId = sessionId;
   }
@@ -118,10 +118,7 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
   const sessionId = (config.memoryFile ?? "session-notes").replace(/\.json$/, "");
 
   return () => {
-    const storage = new JsonNoteStorage({
-      baseDir: workspaceDir,
-      enableFileLock: true,
-    });
+    const storage = new FileNoteStorage(resolve(workspaceDir, "notes"));
 
     return {
       execute: async (params: Record<string, unknown>) => {
@@ -141,10 +138,7 @@ export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
   const sessionId = (config.memoryFile ?? "session-notes").replace(/\.json$/, "");
 
   return () => {
-    const storage = new JsonNoteStorage({
-      baseDir: workspaceDir,
-      enableFileLock: true,
-    });
+    const storage = new FileNoteStorage(resolve(workspaceDir, "notes"));
 
     return {
       execute: async (params: Record<string, unknown>) => {

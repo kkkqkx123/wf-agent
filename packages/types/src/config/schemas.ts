@@ -37,15 +37,6 @@ export const CompressionConfigSchema = z.object({
 });
 
 /**
- * JSON Storage Configuration Schema
- */
-export const JsonStorageConfigSchema = z.object({
-  baseDir: z.string().min(1, "Base directory is required"),
-  enableFileLock: z.boolean(),
-  compression: CompressionConfigSchema.optional(),
-});
-
-/**
  * SQLite Storage Configuration Schema
  */
 export const SqliteStorageConfigSchema = z.object({
@@ -60,15 +51,27 @@ export const SqliteStorageConfigSchema = z.object({
 /**
  * Storage Type Schema
  */
-export const StorageTypeSchema = z.enum(["json", "sqlite", "memory"]);
+export const StorageTypeSchema = z.enum(["sqlite", "memory", "postgres"]);
 
 /**
  * Storage Configuration Schema
  */
 export const StorageConfigSchema = z.object({
   type: StorageTypeSchema,
-  json: JsonStorageConfigSchema.optional(),
   sqlite: SqliteStorageConfigSchema.optional(),
+  postgres: z.object({
+    host: z.string(),
+    port: z.number().optional(),
+    username: z.string(),
+    password: z.string(),
+    database: z.string(),
+    ssl: z.boolean().optional(),
+    poolSize: z.number().positive().optional(),
+    minConnections: z.number().positive().optional(),
+    idleTimeout: z.number().positive().optional(),
+    connectionTimeout: z.number().positive().optional(),
+    maxUses: z.number().positive().optional(),
+  }).optional(),
 });
 
 // ============================================================================

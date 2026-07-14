@@ -9,21 +9,20 @@
 #
 # The storage path is dynamically set via the STORAGE_DIR environment variable
 # by CLIRunner.setStorageDir() in each test's beforeEach hook.
-# The default baseDir here is used as a fallback when STORAGE_DIR is not set.
+# The default dbPath here is used as a fallback when STORAGE_DIR is not set.
 
 [storage]
-type = "json"
+type = "sqlite"
 
-[storage.json]
+[storage.sqlite]
 # Default storage directory (fallback when STORAGE_DIR env var is not set)
 # Each test uses its own subdirectory under __tests__/outputs/{test-name}/
-baseDir = "./__tests__/storage"
-enableFileLock = false
-
-[storage.json.compression]
-enabled = false
-algorithm = "gzip"
-threshold = 1024
+dbPath = "./__tests__/storage/test.db"
+enableWAL = false
+enableLogging = false
+readonly = false
+fileMustExist = false
+timeout = 5000
 
 [output]
 dir = "./__tests__/outputs"

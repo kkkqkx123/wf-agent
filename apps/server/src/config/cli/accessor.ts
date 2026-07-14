@@ -36,13 +36,6 @@ export class CLIConfigAccessor {
   }
 
   /**
-   * Get JSON storage configuration.
-   */
-  getJsonStorageConfig() {
-    return this.accessor.get().storage?.json;
-  }
-
-  /**
    * Get SQLite storage configuration.
    */
   getSqliteStorageConfig() {
@@ -54,9 +47,6 @@ export class CLIConfigAccessor {
    */
   getStorageBaseDir(): string {
     const config = this.accessor.get();
-    if (config.storage?.type === "json" && config.storage.json) {
-      return config.storage.json.baseDir;
-    }
     if (config.storage?.type === "sqlite" && config.storage.sqlite) {
       const dbPath = config.storage.sqlite.dbPath;
       return dbPath.substring(0, dbPath.lastIndexOf("/") + 1);

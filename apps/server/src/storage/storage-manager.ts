@@ -18,18 +18,6 @@ import type {
 } from "@wf-agent/storage";
 import type { SDKOptions } from "@wf-agent/sdk/api";
 import {
-  JsonCheckpointStorage,
-  JsonWorkflowStorage,
-  JsonWorkflowExecutionStorage,
-  JsonTaskStorage,
-  JsonAgentLoopStorage,
-  JsonTriggerStorage,
-  JsonToolStorage,
-  JsonScriptStorage,
-  JsonNodeTemplateStorage,
-  JsonHookTemplateStorage,
-  JsonAgentProfileStorage,
-  type BaseJsonStorageConfig,
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
   SqliteWorkflowExecutionStorage,
@@ -80,69 +68,14 @@ export class StorageManager {
       return;
     }
 
-    if (storageConfig.type === "json") {
-      await this.initializeJsonStorage(storageConfig.json);
-    } else if (storageConfig.type === "sqlite") {
+    if (storageConfig.type === "sqlite") {
       await this.initializeSQLiteStorage(storageConfig.sqlite);
     } else {
-      throw new Error(`Unknown storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`);
+      throw new Error(`Unsupported storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`);
     }
 
     this.initialized = true;
     logger.info("StorageManager initialized successfully");
-  }
-
-  private async initializeJsonStorage(config?: BaseJsonStorageConfig): Promise<void> {
-    const baseDir = config?.baseDir ?? "./storage";
-    const enableFileLock = config?.enableFileLock ?? false;
-    const compression = config?.compression;
-
-    const baseConfig: BaseJsonStorageConfig = {
-      baseDir,
-      enableFileLock,
-      compression: compression
-        ? {
-            enabled: compression.enabled,
-            algorithm: compression.algorithm,
-            threshold: compression.threshold,
-          }
-        : undefined,
-    };
-
-    this.workflowStorage = new JsonWorkflowStorage(baseConfig);
-    await this.workflowStorage.initialize();
-
-    this.workflowExecutionStorage = new JsonWorkflowExecutionStorage(baseConfig);
-    await this.workflowExecutionStorage.initialize();
-
-    this.checkpointStorage = new JsonCheckpointStorage(baseConfig);
-    await this.checkpointStorage.initialize();
-
-    this.taskStorage = new JsonTaskStorage(baseConfig);
-    await this.taskStorage.initialize();
-
-    this.agentLoopStorage = new JsonAgentLoopStorage(baseConfig);
-    await this.agentLoopStorage.initialize();
-
-    this.triggerStorage = new JsonTriggerStorage(baseConfig);
-    await this.triggerStorage.initialize();
-
-    this.toolStorage = new JsonToolStorage(baseConfig);
-    await this.toolStorage.initialize();
-
-    this.scriptStorage = new JsonScriptStorage(baseConfig);
-    await this.scriptStorage.initialize();
-
-    this.nodeTemplateStorage = new JsonNodeTemplateStorage(baseConfig);
-    await this.nodeTemplateStorage.initialize();
-
-    this.hookTemplateStorage = new JsonHookTemplateStorage(baseConfig);
-    await this.hookTemplateStorage.initialize();
-
-    this.agentProfileStorage = new JsonAgentProfileStorage(baseConfig);
-    await this.agentProfileStorage.initialize();
-
-    logger.info("JSON storage initialized", { baseDir });
   }
 
   private async initializeSQLiteStorage(config?: BaseSqliteStorageConfig): Promise<void> {

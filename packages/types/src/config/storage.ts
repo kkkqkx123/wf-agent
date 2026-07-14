@@ -18,15 +18,6 @@ export interface CompressionConfig {
 }
 
 /**
- * JSON Storage Configuration
- */
-export interface JsonStorageConfig {
-  baseDir: string;
-  enableFileLock: boolean;
-  compression?: CompressionConfig;
-}
-
-/**
  * SQLite Storage Configuration
  */
 export interface SqliteStorageConfig {
@@ -77,14 +68,13 @@ export interface PostgresStorageConfig {
 /**
  * Storage Type
  */
-export type StorageType = "json" | "sqlite" | "postgres" | "memory";
+export type StorageType = "sqlite" | "postgres" | "memory";
 
 /**
  * Storage Configuration
  */
 export interface StorageConfig {
   type: StorageType;
-  json?: JsonStorageConfig;
   sqlite?: SqliteStorageConfig;
   postgres?: PostgresStorageConfig;
 }

@@ -91,48 +91,32 @@ async function tryLoadRawConfig(
   return parsed as Record<string, unknown>;
 }
 
+/**
+ * Generic factory for domain-specific config loaders.
+ * Each domain loader follows the same pattern: try each file path,
+ * parse and merge with defaults on first success, or return pure defaults.
+ */
+function createConfigLoader<T>(
+  mergeFn: (partial: Partial<T>) => T,
+): (configPaths: string[]) => Promise<T> {
+  return async (configPaths: string[]): Promise<T> => {
+    for (const filePath of configPaths) {
+      const raw = await tryLoadRawConfig(filePath);
+      if (raw !== null) {
+        return mergeFn(raw as Partial<T>);
+      }
+    }
+    return mergeFn({} as Partial<T>);
+  };
+}
+
 // -----------------------------------------------------------------------
 // Domain-specific loaders
 // -----------------------------------------------------------------------
 
-/**
- * Load metrics config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged MetricsConfig (with defaults applied).
- */
-export async function loadMetricsConfig(
-  configPaths: string[],
-): Promise<MetricsConfig> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return mergeMetricsWithDefaults(raw as Partial<MetricsConfig>);
-    }
-  }
+export const loadMetricsConfig = createConfigLoader<MetricsConfig>(mergeMetricsWithDefaults);
 
-  // No file found — return pure defaults
-  return mergeMetricsWithDefaults({});
-}
-
-/**
- * Load timeout config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged TimeoutConfig (with defaults applied).
- */
-export async function loadTimeoutConfig(
-  configPaths: string[],
-): Promise<Required<TimeoutConfig>> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return mergeTimeoutWithDefaults(raw as Partial<TimeoutConfig>);
-    }
-  }
-
-  return mergeTimeoutWithDefaults({});
-}
+export const loadTimeoutConfig = createConfigLoader<Required<TimeoutConfig>>(mergeTimeoutWithDefaults);
 
 /**
  * Load file-checkpoint config from the first existing file in `configPaths`.
@@ -155,62 +139,11 @@ export async function loadFileCheckpointConfig(
   return mergeFileCheckpointConfig({}, workspaceRoot);
 }
 
-/**
- * Load storage config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged StorageConfig (with defaults applied).
- */
-export async function loadStorageConfig(
-  configPaths: string[],
-): Promise<StorageConfig> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return mergeStorageWithDefaults(raw as Partial<StorageConfig>);
-    }
-  }
+export const loadStorageConfig = createConfigLoader<StorageConfig>(mergeStorageWithDefaults);
 
-  return mergeStorageWithDefaults({});
-}
+export const loadOutputConfig = createConfigLoader<Required<OutputConfig>>(mergeOutputWithDefaults);
 
-/**
- * Load output config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged OutputConfig (with defaults applied).
- */
-export async function loadOutputConfig(
-  configPaths: string[],
-): Promise<Required<OutputConfig>> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return mergeOutputWithDefaults(raw as Partial<OutputConfig>);
-    }
-  }
-
-  return mergeOutputWithDefaults({});
-}
-
-/**
- * Load presets config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged PresetsConfig (with defaults applied).
- */
-export async function loadPresetsConfig(
-  configPaths: string[],
-): Promise<PresetsConfig> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return transformPresetsConfig(raw as PresetsConfigInput);
-    }
-  }
-
-  return transformPresetsConfig({});
-}
+export const loadPresetsConfig = createConfigLoader<PresetsConfig>(transformPresetsConfig as (partial: Partial<PresetsConfig>) => PresetsConfig);
 
 /**
  * Load tool-specific configurations (readFile, writeFile, etc.).
@@ -610,24 +543,7 @@ export interface InfrastructureConfigBundle {
   sandbox: SandboxGlobalConfig;
 }
 
-/**
- * Load sandbox config from the first existing file in `configPaths`.
- *
- * @param configPaths - Ordered list of candidate file paths.
- * @returns The merged SandboxGlobalConfig (with defaults applied).
- */
-export async function loadSandboxConfig(
-  configPaths: string[],
-): Promise<SandboxGlobalConfig> {
-  for (const filePath of configPaths) {
-    const raw = await tryLoadRawConfig(filePath);
-    if (raw !== null) {
-      return mergeSandboxWithDefaults(raw as Partial<SandboxGlobalConfig>);
-    }
-  }
-
-  return mergeSandboxWithDefaults({});
-}
+export const loadSandboxConfig = createConfigLoader<SandboxGlobalConfig>(mergeSandboxWithDefaults);
 
 /**
  * Load all infrastructure configs with preset support.

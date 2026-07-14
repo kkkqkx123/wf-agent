@@ -32,7 +32,6 @@ export type {
   StorageType,
   CompressionAlgorithm,
   CompressionConfig,
-  JsonStorageConfig,
   SqliteStorageConfig,
   StorageConfig,
   OutputConfig,

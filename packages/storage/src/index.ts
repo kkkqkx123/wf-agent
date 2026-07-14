@@ -14,7 +14,6 @@
  * - Task
  *
  * Supported storage backends:
- * - JSON file storage
  * - SQLite database storage
  * - PostgreSQL database storage
  */
@@ -25,9 +24,6 @@ export { logger, createModuleLogger } from "./logger.js";
 // Core Type Definition
 export * from "./types/index.js";
 
-// JSON File Storage Implementation
-export * from "./json/index.js";
-
 // SQLite Storage Implementation
 export * from "./sqlite/index.js";
 
@@ -37,5 +33,5 @@ export * from "./postgres/index.js";
 // In-Memory Storage Implementation (for testing)
 export * from "./memory/index.js";
 
-// Utility Functions
-// (No utility exports currently)
+// File Note Storage (replaces deprecated JsonNoteStorage)
+export { FileNoteStorage, type NoteEntry } from "./json/json-note-storage.js";

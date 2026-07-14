@@ -9,6 +9,6 @@
 export interface ToolRegistryConfig {
   /** Working directory */
   workspaceDir?: string;
-  /** Memory file path */
-  memoryFile?: string;
+  /** Database file path for session notes storage (relative to workspaceDir or absolute) */
+  dbPath?: string;
 }

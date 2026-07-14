@@ -164,8 +164,8 @@ export class StatefulExecutor extends BaseExecutor {
       return executionMap.get(toolName)!.instance;
     }
 
-    // Create a new instance
-    const instance = factory.create();
+    // Create a new instance with execution context
+    const instance = factory.create(executionId);
     executionMap.set(toolName, {
       instance,
       createdAt: now(),

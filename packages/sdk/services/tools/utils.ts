@@ -33,7 +33,7 @@ export interface ToolDefinitionLike {
   /** Execute the function (stateless tool) */
   execute?: (parameters: Record<string, unknown>) => Promise<ToolOutput>;
   /** Factory function (stateful utility) */
-  factory?: () => { execute: (parameters: Record<string, unknown>) => Promise<ToolOutput> };
+  factory?: (executionId?: string) => { execute: (parameters: Record<string, unknown>) => Promise<ToolOutput> };
   /** Configuration (REST tool) */
   config?: RestToolConfig;
   /** Tool metadata (optional) */
@@ -64,7 +64,7 @@ export function toSdkTool(toolDef: ToolDefinitionLike): Tool {
   } else if (toolDef.type === "STATEFUL" && toolDef.factory) {
     tool.config = {
       factory: {
-        create: toolDef.factory,
+        create: (executionId?: string) => toolDef.factory!(executionId),
       },
     };
   } else if (toolDef.type === "REST" && toolDef.config) {

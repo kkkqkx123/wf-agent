@@ -31,6 +31,7 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+**/__tests__/**/storage
 
 # 覆盖率报告
 coverage/

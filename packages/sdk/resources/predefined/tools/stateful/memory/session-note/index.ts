@@ -7,6 +7,8 @@ export {
   createRecordNoteFactory,
   createRecallNotesFactory,
   createListCategoriesFactory,
+  closeStorage,
+  cleanupSessionNotes,
 } from "./handler.js";
 export type { NoteEntry, NoteCategorySummary, SessionNoteState } from "./types.js";
 export {

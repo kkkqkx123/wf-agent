@@ -10,7 +10,7 @@ import {
   toSdkTool,
   type ToolDefinitionLike,
 } from "@wf-agent/sdk/services";
-import { createPredefinedTools, type PredefinedToolsOptions, type SkillHandlerConfig } from "@wf-agent/sdk/resources";
+import { createPredefinedTools, closeStorage, cleanupSessionNotes, type PredefinedToolsOptions, type SkillHandlerConfig } from "@wf-agent/sdk/resources";
 import type { ToolRegistryConfig } from "./types.js";
 import { getOutput } from "../utils/output.js";
 
@@ -33,7 +33,7 @@ export class ToolRegistry {
   constructor(config: ToolRegistryConfig = {}) {
     this.config = {
       workspaceDir: config.workspaceDir || process.cwd(),
-      memoryFile: config.memoryFile || "./workspace/.agent_memory.json",
+      dbPath: config.dbPath || ".agent_memory.db",
     };
 
     // Initialize the tool-executors components
@@ -65,7 +65,7 @@ export class ToolRegistry {
         editFile: { workspaceDir: this.config.workspaceDir! },
         sessionNote: {
           workspaceDir: this.config.workspaceDir!,
-          memoryFile: this.config.memoryFile!,
+          dbPath: this.config.dbPath!,
         },
         skill: skillConfig,
       },
@@ -166,6 +166,7 @@ export class ToolRegistry {
    */
   cleanupWorkflowExecution(executionId: string): void {
     this.statefulExecutor.cleanupExecution(executionId);
+    cleanupSessionNotes(executionId);
   }
 
   /**
@@ -174,6 +175,7 @@ export class ToolRegistry {
   async cleanup(): Promise<void> {
     await this.statefulExecutor.cleanup();
     this.tools.clear();
+    closeStorage();
   }
 }
 

@@ -38,7 +38,7 @@ export interface StatefulToolInstance {
  */
 export interface StatefulToolFactory {
   /** Creating a Tool Example */
-  create(): StatefulToolInstance;
+  create(executionId?: string): StatefulToolInstance;
 }
 
 /**

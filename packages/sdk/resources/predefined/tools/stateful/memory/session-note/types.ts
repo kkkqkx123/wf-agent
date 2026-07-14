@@ -12,6 +12,8 @@ export interface NoteEntry {
   content: string;
   summary: string;
   tokenCount: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**

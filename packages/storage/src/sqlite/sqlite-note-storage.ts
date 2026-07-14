@@ -54,6 +54,8 @@ export interface NoteEntryResult {
   content: string;
   summary: string;
   tokenCount: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface SqliteNoteStorageConfig {
@@ -68,8 +70,6 @@ export interface SqliteNoteStorageConfig {
 export class SqliteNoteStorage {
   private db: Database.Database | null = null;
   private config: SqliteNoteStorageConfig;
-  private readonly insertStmtCache = new Map<string, Database.Statement>();
-
   constructor(config: SqliteNoteStorageConfig) {
     this.config = {
       maxNotesPerSession: 1000,
@@ -98,13 +98,12 @@ export class SqliteNoteStorage {
     if (this.db) {
       this.db.close();
       this.db = null;
-      this.insertStmtCache.clear();
       logger.info("SQLite note storage closed");
     }
   }
 
   /**
-   * Save a note. Returns the full saved NoteEntryResult with generated id.
+   * Save a note. Returns the full saved NoteEntryResult with a generated id.
    * Enforces maxNotesPerSession by trimming oldest notes when the limit is exceeded.
    */
   saveNote(
@@ -125,7 +124,7 @@ export class SqliteNoteStorage {
     const db = this.db!;
 
     const insertTransaction = db.transaction(() => {
-      // Enforce max notes limit
+      // Enforce max notes limit (only for new inserts, not upserts)
       const maxNotes = this.config.maxNotesPerSession!;
       if (maxNotes > 0) {
         const count = (
@@ -140,7 +139,7 @@ export class SqliteNoteStorage {
           db.prepare(
             `DELETE FROM session_notes WHERE id IN (
               SELECT id FROM session_notes WHERE session_id = ?
-              ORDER BY created_at ASC LIMIT ?
+              ORDER BY created_at ASC, id ASC LIMIT ?
             )`,
           ).run(sessionId, overflow);
         }
@@ -161,6 +160,8 @@ export class SqliteNoteStorage {
       content: note.content,
       summary: note.summary,
       tokenCount: note.tokenCount,
+      createdAt: now,
+      updatedAt: now,
     };
   }
 
@@ -178,12 +179,70 @@ export class SqliteNoteStorage {
   }
 
   /**
+   * Update an existing note. Returns the updated NoteEntryResult, or null if the note does not exist.
+   * Only the provided fields are updated; omitted fields retain their original values.
+   */
+  updateNote(
+    sessionId: string,
+    noteId: string,
+    note: {
+      category?: string;
+      content?: string;
+      summary?: string;
+      tokenCount?: number;
+      timestamp?: string;
+    },
+  ): NoteEntryResult | null {
+    this.ensureInitialized();
+
+    const now = Math.floor(Date.now() / 1000);
+    const db = this.db!;
+
+    const sets: string[] = ["updated_at = ?"];
+    const params: unknown[] = [now];
+
+    if (note.category !== undefined) {
+      sets.push("category = ?");
+      params.push(note.category);
+    }
+    if (note.content !== undefined) {
+      sets.push("content = ?");
+      params.push(note.content);
+    }
+    if (note.summary !== undefined) {
+      sets.push("summary = ?");
+      params.push(note.summary);
+    }
+    if (note.tokenCount !== undefined) {
+      sets.push("token_count = ?");
+      params.push(note.tokenCount);
+    }
+    if (note.timestamp !== undefined) {
+      sets.push("timestamp = ?");
+      params.push(note.timestamp);
+    }
+
+    params.push(sessionId, noteId);
+
+    const result = db
+      .prepare(
+        `UPDATE session_notes SET ${sets.join(", ")} WHERE session_id = ? AND id = ?`,
+      )
+      .run(...params);
+
+    if (result.changes === 0) return null;
+
+    return this.getNote(sessionId, noteId);
+  }
+
+  /**
    * List notes for a session, optionally filtered by category.
-   * Ordered by created_at descending (newest first).
+   * Ordered by created_at descending (newest first) by default.
+   * Use sortBy 'updatedAt' to order by last updated time.
    */
   listNotes(
     sessionId: string,
-    options?: { category?: string; limit?: number; offset?: number },
+    options?: { category?: string; limit?: number; offset?: number; sortBy?: "createdAt" | "updatedAt" },
   ): NoteEntryResult[] {
     this.ensureInitialized();
 
@@ -195,7 +254,8 @@ export class SqliteNoteStorage {
       params.push(options.category);
     }
 
-    sql += " ORDER BY created_at DESC";
+    const sortColumn = options?.sortBy === "updatedAt" ? "updated_at" : "created_at";
+    sql += ` ORDER BY ${sortColumn} DESC`;
 
     if (options?.limit) {
       sql += " LIMIT ?";
@@ -293,14 +353,14 @@ export class SqliteNoteStorage {
         updated_at  INTEGER NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_sn_session_id
-        ON session_notes(session_id);
-
       CREATE INDEX IF NOT EXISTS idx_sn_session_category
         ON session_notes(session_id, category);
 
       CREATE INDEX IF NOT EXISTS idx_sn_session_created
         ON session_notes(session_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_sn_session_updated
+        ON session_notes(session_id, updated_at DESC);
     `);
   }
 
@@ -312,6 +372,8 @@ export class SqliteNoteStorage {
       content: row.content,
       summary: row.summary,
       tokenCount: row.token_count,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 }

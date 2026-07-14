@@ -132,10 +132,13 @@ expectType<(parameters: ToolRuntimeParameters) => Promise<unknown>>(instance.exe
 expectType<(() => void) | undefined>(instance.destroy);
 
 declare const factory: StatefulToolFactory;
-expectType<() => StatefulToolInstance>(factory.create);
+expectType<(executionId?: string) => StatefulToolInstance>(factory.create);
 
 const createdInstance = factory.create();
 expectType<StatefulToolInstance>(createdInstance);
+
+const createdInstanceWithId = factory.create("exec-123");
+expectType<StatefulToolInstance>(createdInstanceWithId);
 
 // ============================================================================
 // Test 7: StatefulToolConfig

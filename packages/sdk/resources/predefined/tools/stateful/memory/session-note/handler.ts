@@ -9,6 +9,58 @@ import type { NoteEntry, NoteCategorySummary } from "./types.js";
 import type { SessionNoteConfig } from "../../../types.js";
 import { estimateTokens } from "@sdk/utils/token-estimator.js";
 
+/** Module-level shared storage singleton */
+let storageInstance: SqliteNoteStorage | null = null;
+let storageDbPath: string | null = null;
+let storageMaxNotes: number = 1000;
+
+/**
+ * Get or create the shared SqliteNoteStorage instance.
+ * Reuses the existing instance if the dbPath and maxNotes match.
+ */
+function getOrCreateStorage(config: SessionNoteConfig): SqliteNoteStorage {
+  const dbPath = resolveDbPath(config);
+  const maxNotes = config.maxNotes ?? 1000;
+
+  if (storageInstance && storageDbPath === dbPath && storageMaxNotes === maxNotes) {
+    return storageInstance;
+  }
+
+  // Close existing instance if config changed
+  if (storageInstance) {
+    storageInstance.close();
+  }
+
+  storageInstance = new SqliteNoteStorage({ dbPath, maxNotesPerSession: maxNotes });
+  storageInstance.initialize();
+  storageDbPath = dbPath;
+  storageMaxNotes = maxNotes;
+  return storageInstance;
+}
+
+/**
+ * Close the shared storage singleton.
+ * Safe to call multiple times — no-op when already closed.
+ */
+export function closeStorage(): void {
+  if (storageInstance) {
+    storageInstance.close();
+    storageInstance = null;
+    storageDbPath = null;
+    storageMaxNotes = 1000;
+  }
+}
+
+/**
+ * Clean up session notes for a specific execution.
+ * Deletes all notes associated with the given executionId from the storage.
+ * No-op if the storage has not been initialized yet.
+ */
+export function cleanupSessionNotes(executionId: string): void {
+  if (!storageInstance) return;
+  storageInstance.clearSession(executionId);
+}
+
 /**
  * Resolve the database path from SessionNoteConfig.
  * If dbPath is relative, resolve it against the workspace directory.
@@ -63,16 +115,11 @@ function formatCategories(categories: NoteCategorySummary[], totalNotes: number,
  * Create a record_note tool factory
  */
 export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
-  const dbPath = resolveDbPath(config);
-  const sessionId = resolveSessionId(config);
+  const storage = getOrCreateStorage(config);
+  const defaultSessionId = resolveSessionId(config);
 
-  const storage = new SqliteNoteStorage({
-    dbPath,
-    maxNotesPerSession: config.maxNotes ?? 1000,
-  });
-  storage.initialize();
-
-  return () => {
+  return (executionId?: string) => {
+    const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
         try {
@@ -81,7 +128,7 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
           const summary = (params["summary"] as string) || "";
           const tokenCount = estimateTokens(content + (summary ? ` ${summary}` : ""));
 
-          storage.saveNote(sessionId, {
+          const result = storage.saveNote(sessionId, {
             category,
             content,
             summary,
@@ -89,7 +136,10 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
             timestamp: new Date().toISOString(),
           });
 
-          const parts = [`Recorded note: ${content} (category: ${category}, ${tokenCount} tokens)`];
+          const parts = [
+            `Recorded note: ${content} (category: ${category}, ${tokenCount} tokens)`,
+            `Note ID: ${result.id}`,
+          ];
           if (summary) {
             parts.push(`Summary: ${summary}`);
           }
@@ -105,6 +155,11 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
           };
         }
       },
+      destroy: () => {
+        if (executionId) {
+          storage.clearSession(sessionId);
+        }
+      },
     };
   };
 }
@@ -113,16 +168,11 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
  * Create a recall_notes tool factory
  */
 export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
-  const dbPath = resolveDbPath(config);
-  const sessionId = resolveSessionId(config);
+  const storage = getOrCreateStorage(config);
+  const defaultSessionId = resolveSessionId(config);
 
-  const storage = new SqliteNoteStorage({
-    dbPath,
-    maxNotesPerSession: config.maxNotes ?? 1000,
-  });
-  storage.initialize();
-
-  return () => {
+  return (executionId?: string) => {
+    const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
         try {
@@ -144,6 +194,8 @@ export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
             content: n.content,
             summary: n.summary,
             tokenCount: n.tokenCount,
+            createdAt: n.createdAt,
+            updatedAt: n.updatedAt,
           }));
 
           const header = category
@@ -161,6 +213,11 @@ export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
           };
         }
       },
+      destroy: () => {
+        if (executionId) {
+          storage.clearSession(sessionId);
+        }
+      },
     };
   };
 }
@@ -169,16 +226,11 @@ export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
  * Create a list_categories tool factory
  */
 export function createListCategoriesFactory(config: SessionNoteConfig = {}) {
-  const dbPath = resolveDbPath(config);
-  const sessionId = resolveSessionId(config);
+  const storage = getOrCreateStorage(config);
+  const defaultSessionId = resolveSessionId(config);
 
-  const storage = new SqliteNoteStorage({
-    dbPath,
-    maxNotesPerSession: config.maxNotes ?? 1000,
-  });
-  storage.initialize();
-
-  return () => {
+  return (executionId?: string) => {
+    const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (): Promise<ToolOutput> => {
         try {
@@ -204,6 +256,11 @@ export function createListCategoriesFactory(config: SessionNoteConfig = {}) {
             content: "",
             error: `Failed to list categories: ${error instanceof Error ? error.message : String(error)}`,
           };
+        }
+      },
+      destroy: () => {
+        if (executionId) {
+          storage.clearSession(sessionId);
         }
       },
     };

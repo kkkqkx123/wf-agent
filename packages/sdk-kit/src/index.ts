@@ -110,3 +110,12 @@ export type {
 
 // Predefined resources have been migrated to @wf-agent/sdk/resources/predefined/
 // Import from @wf-agent/sdk/resources instead.
+
+// Plugin system
+export {
+  PluginManager,
+} from './plugin/index.js';
+
+export type {
+  PluginInfo,
+} from './plugin/index.js';

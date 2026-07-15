@@ -15,6 +15,7 @@ import { ResourceManager } from './managers/resource.manager.js';
 import { EventManager } from './managers/event.manager.js';
 import { ComparisonAnalysis, ProgressAnalysis } from './analysis/index.js';
 import { KitError, KitErrorCode } from './converters/error.converter.js';
+import { PluginManager } from './plugin/plugin.manager.js';
 import type { WorkflowAPI } from './api/workflow.api.js';
 import type { ExecutionAPI } from './api/execution.api.js';
 import type { QueryAPI } from './api/query.api.js';
@@ -48,6 +49,7 @@ export class SDKKit {
   private cachedExecuteCommand: ExecuteWorkflowCommandConstructor;
   private sdk: SDK;
   private config: Required<SDKKitOptions>;
+  private _pluginManager?: PluginManager;
 
   constructor(sdk: any, options?: SDKKitOptions) {
     // Validate SDK instance before using it
@@ -343,6 +345,29 @@ export class SDKKit {
       comparison: this.comparisonAnalysis,
       progress: this.progressAnalysis,
     };
+  }
+
+  /**
+   * Access the plugin manager.
+   * Only available if the SDK was created with plugins enabled.
+   *
+   * @example
+   * ```typescript
+   * const sdk = createSDK({ plugins: { enabled: true } });
+   * const kit = new SDKKit(sdk);
+   *
+   * // Load a plugin
+   * await kit.plugins().loadPlugin('@scope/my-plugin');
+   *
+   * // List active plugins
+   * const active = kit.plugins().list().filter(p => p.status === 'active');
+   * ```
+   */
+  plugins(): PluginManager {
+    if (!this._pluginManager) {
+      this._pluginManager = new PluginManager(this.sdk);
+    }
+    return this._pluginManager;
   }
 
   /**

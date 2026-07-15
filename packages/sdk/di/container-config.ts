@@ -134,6 +134,7 @@ import {
   getTimeoutEnvironmentDefaults,
 } from "@sdk/api/shared/config/index.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
+import { ContributionManager } from "../plugin/contributions/manager.js";
 
 const logger = createContextualLogger({ component: "ContainerConfig" });
 
@@ -1354,6 +1355,29 @@ export function configureContainerBindings(
       return new TriggeredAgentExecutionManager(
         c.get(Identifiers.TaskRegistry) as TaskRegistry,
         executorCallback,
+      );
+    })
+    .inSingletonScope();
+
+  // ============================================================
+  // Plugin System Bindings
+  // ============================================================
+
+  // ContributionManager - Singleton for managing plugin contributions
+  // Created once as a singleton. PluginEngine will receive this instance
+  // via its constructor to avoid state duplication.
+  // Note: toConstantValue already sets singleton scope — no need for .inSingletonScope().
+  container
+    .bind(Identifiers.ContributionManager)
+    .toConstantValue(new ContributionManager());
+
+  // PluginEngine - Plugin Engine (lazy initialization)
+  // The PluginEngine is created during SDKInstance bootstrap when plugins are enabled
+  container
+    .bind(Identifiers.PluginEngine)
+    .toDynamicValue(() => {
+      throw new Error(
+        "PluginEngine is not initialized. Enable plugins in SDK options.",
       );
     })
     .inSingletonScope();

@@ -19,6 +19,7 @@ import type { SDKOptions } from "../types/core-types.js";
 import { APIFactory } from "./api-factory.js";
 import { sdkLogger as logger, configureSDKLogger } from "../../../utils/logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
+import { createRequire } from "node:module";
 import { createIsolatedContainer, ContainerManager } from "../../../di/container-manager.js";
 import type { FileCheckpointStorageAdapter } from "@wf-agent/common-utils";
 import {
@@ -46,6 +47,12 @@ import type { BaseCommand } from "../types/command.js";
 import type { ExecutionResult } from "../types/execution-result.js";
 import { failure } from "../types/execution-result.js";
 import { GracefulShutdownManager } from "../../../services/shutdown/graceful-shutdown-manager.js";
+import { PluginEngine } from "../../../plugin/engine.js";
+import type { SDKRegistries } from "../../../plugin/contributions/bridge.js";
+import { formatterRegistry } from "../../../services/llm/formatters/registry.js";
+
+const _require = createRequire(import.meta.url);
+const SDK_VERSION: string = _require("../../../../package.json").version;
 
 /**
  * SDK Instance Class
@@ -59,6 +66,9 @@ export class SDKInstance {
   private isBootstrapped: boolean = false;
   private containerId: string;
   private shutdownManager?: GracefulShutdownManager;
+
+  /** Plugin engine instance. Available when plugins are enabled. */
+  pluginEngine?: PluginEngine;
 
   /**
    * Create an SDK instance
@@ -559,6 +569,54 @@ export class SDKInstance {
     // 3. Mark as bootstrapped
     this.isBootstrapped = true;
 
+    // Initialize plugin engine if enabled
+    if (this.config?.plugins?.enabled) {
+      try {
+        // Get the shared ContributionManager singleton from the DI container
+        // so PluginEngine doesn't create a separate instance.
+        let contributionManager: import("../../../plugin/contributions/manager.js").ContributionManager | undefined;
+        try {
+          contributionManager = this.globalContext.container.get(
+            ServiceIdentifiers.ContributionManager,
+          ) as import("../../../plugin/contributions/manager.js").ContributionManager;
+        } catch {
+          // Container not yet configured with ContributionManager — engine will create one
+        }
+
+        const pluginEngine = new PluginEngine(
+          this.globalContext.container,
+          {
+            plugins: this.config.plugins,
+            sdkVersion: SDK_VERSION,
+          },
+          {
+            nodeTemplateRegistry: this.globalContext.nodeTemplateRegistry,
+            toolRegistry: this.globalContext.toolRegistry,
+            formatterRegistry,
+            eventRegistry: this.globalContext.eventRegistry,
+            hookTemplateRegistry: this.globalContext.hookTemplateRegistry,
+          } satisfies SDKRegistries,
+          contributionManager,
+        );
+        await pluginEngine.initialize();
+
+        // Store plugin engine on the instance for SDK-Kit access
+        (this as SDKInstance).pluginEngine = pluginEngine;
+
+        // Bind the plugin engine to the container for access by other services
+        this.globalContext.container
+          .bind(ServiceIdentifiers.PluginEngine)
+          .toConstantValue(pluginEngine);
+
+        logger.info("Plugin engine initialized", {
+          pluginsEnabled: true,
+        });
+      } catch (error) {
+        logger.error(`Failed to initialize plugin engine: ${getErrorMessage(error)}`);
+        // Don't fail bootstrap - SDK can still work without plugins
+      }
+    }
+
     // Initialize Graceful Shutdown Manager if enabled
     const gracefulShutdownConfig = this.config?.gracefulShutdown;
     const enableGracefulShutdown = gracefulShutdownConfig?.enabled ?? true;
@@ -1049,6 +1107,16 @@ export class SDKInstance {
 
     // Clean up factory instances
     this.apiFactory.reset();
+
+    // Shutdown plugin engine if initialized
+    try {
+      if (this.pluginEngine?.isInitialized()) {
+        await this.pluginEngine.shutdown();
+        logger.info("Plugin engine shut down");
+      }
+    } catch (error) {
+      logger.error("Failed to shutdown plugin engine", { error: getErrorMessage(error) });
+    }
 
     logger.info("SDK instance destroyed");
   }

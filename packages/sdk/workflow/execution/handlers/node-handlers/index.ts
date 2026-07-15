@@ -1,5 +1,10 @@
 /**
  * Node handlers export
+ *
+ * getNodeHandler resolves node handlers with the following priority:
+ * 1. Built-in handlers (hardcoded, highest priority)
+ * 2. Plugin-contributed handlers (via ContributionManager, resolved at call site)
+ * 3. Template-based handlers (via NodeTemplateRegistry)
  */
 
 import type { RuntimeNode, WorkflowExecution } from "@wf-agent/types";
@@ -55,94 +60,115 @@ export type NodeHandlerFn = (
   context?: unknown,
 ) => Promise<unknown>;
 
+// Built-in handlers map
+const builtinHandlers: Record<string, NodeHandlerFn> = {
+  // Handlers that need globalContext as first param
+  AGENT_LOOP: (globalContext, workflowExecutionEntity, node, context) =>
+    agentLoopHandler(
+      globalContext,
+      workflowExecutionEntity as unknown as AgentLoopExecutionEntity,
+      node,
+      context as AgentLoopHandlerContext,
+    ),
+  SCRIPT: (globalContext, workflowExecutionEntity, node, _context) =>
+    scriptHandler(globalContext, workflowExecutionEntity, node),
+  INTERACTIVE_SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>
+    interactiveScriptHandler(
+      globalContext,
+      workflowExecutionEntity,
+      node,
+      context as InteractiveScriptHandlerContext,
+    ),
+
+  // Handlers that don't use globalContext (ignore it)
+  CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
+    contextProcessorHandler(
+      workflowExecutionEntity,
+      node,
+      context as ContextProcessorHandlerContext,
+    ),
+  CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
+    continueFromTriggerHandler(workflowExecutionEntity, node),
+  END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
+  FORK: (globalContext, workflowExecutionEntity, node, context) =>
+    forkHandler(
+      globalContext,
+      workflowExecutionEntity,
+      node,
+      context as ForkHandlerContext | undefined,
+    ),
+  JOIN: (globalContext, workflowExecutionEntity, node, _ctx) =>
+    joinHandler(globalContext, workflowExecutionEntity, node),
+  LLM: (_gc, workflowExecutionEntity, node, context) =>
+    llmHandler(workflowExecutionEntity.getWorkflowExecutionData(), node, context as LLMHandlerContext),
+  LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) =>
+    loopEndHandler(workflowExecutionEntity, node),
+  LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) =>
+    loopStartHandler(workflowExecutionEntity, node),
+  ROUTE: (_gc, workflowExecutionEntity, node, _ctx) =>
+    routeHandler(workflowExecutionEntity, node),
+  START_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, context) =>
+    startFromTriggerHandler(
+      workflowExecutionEntity,
+      node,
+      context as StartFromTriggerHandlerContext,
+    ),
+  START: (_gc, workflowExecutionEntity, node, _ctx) =>
+    startHandler(workflowExecutionEntity, node),
+  SUBGRAPH: (globalContext, workflowExecutionEntity, node, context) =>
+    subgraphHandler(
+      globalContext,
+      workflowExecutionEntity,
+      node,
+      context as SubgraphHandlerContext,
+    ),
+  EMBED_START: (_gc, workflowExecutionEntity, node, _ctx) =>
+    embedStartHandler(workflowExecutionEntity, node),
+  EMBED_END: (_gc, workflowExecutionEntity, node, _ctx) =>
+    embedEndHandler(workflowExecutionEntity, node),
+  USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
+    userInteractionHandler(
+      workflowExecutionEntity.getWorkflowExecutionData(),
+      node,
+      context as UserInteractionHandlerContext,
+      workflowExecutionEntity,
+    ),
+  VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) =>
+    variableHandler(workflowExecutionEntity, node),
+  TOOL_VISIBILITY: (_gc, _we, node, context) =>
+    toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
+  SYNC: (globalContext, workflowExecutionEntity, node, _ctx) =>
+    syncHandler(globalContext, workflowExecutionEntity, node),
+};
+
+/**
+ * Get a node handler by node type.
+ *
+ * Resolution order:
+ * 1. Built-in handlers (hardcoded)
+ * 2. Plugin-contributed handlers (via ContributionManager - resolved at call site)
+ * 3. Template-based handlers (via NodeTemplateRegistry - resolved at call site)
+ *
+ * @throws Error if no handler is found for the given node type
+ */
 export function getNodeHandler(nodeType: string): NodeHandlerFn {
-  const handlers: Record<string, NodeHandlerFn> = {
-    // Handlers that need globalContext as first param
-    AGENT_LOOP: (globalContext, workflowExecutionEntity, node, context) =>
-      agentLoopHandler(
-        globalContext,
-        workflowExecutionEntity as unknown as AgentLoopExecutionEntity,
-        node,
-        context as AgentLoopHandlerContext,
-      ),
-    SCRIPT: (globalContext, workflowExecutionEntity, node, _context) =>
-      scriptHandler(globalContext, workflowExecutionEntity, node),
-    INTERACTIVE_SCRIPT: (globalContext, workflowExecutionEntity, node, context) =>
-      interactiveScriptHandler(
-        globalContext,
-        workflowExecutionEntity,
-        node,
-        context as InteractiveScriptHandlerContext,
-      ),
+  // 1. Check built-in handlers (highest priority)
+  const builtin = builtinHandlers[nodeType];
+  if (builtin) return builtin;
 
-    // Handlers that don't use globalContext (ignore it)
-    CONTEXT_PROCESSOR: (_gc, workflowExecutionEntity, node, context) =>
-      contextProcessorHandler(
-        workflowExecutionEntity,
-        node,
-        context as ContextProcessorHandlerContext,
-      ),
-    CONTINUE_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, _ctx) =>
-      continueFromTriggerHandler(workflowExecutionEntity, node),
-    END: (_gc, workflowExecutionEntity, node, _ctx) => endHandler(workflowExecutionEntity, node),
-    FORK: (globalContext, workflowExecutionEntity, node, context) =>
-      forkHandler(
-        globalContext,
-        workflowExecutionEntity,
-        node,
-        context as ForkHandlerContext | undefined,
-      ),
-    JOIN: (globalContext, workflowExecutionEntity, node, _ctx) =>
-      joinHandler(globalContext, workflowExecutionEntity, node),
-    LLM: (_gc, workflowExecutionEntity, node, context) =>
-      llmHandler(workflowExecutionEntity.getWorkflowExecutionData(), node, context as LLMHandlerContext),
-    LOOP_END: (_gc, workflowExecutionEntity, node, _ctx) =>
-      loopEndHandler(workflowExecutionEntity, node),
-    LOOP_START: (_gc, workflowExecutionEntity, node, _ctx) =>
-      loopStartHandler(workflowExecutionEntity, node),
-    ROUTE: (_gc, workflowExecutionEntity, node, _ctx) =>
-      routeHandler(workflowExecutionEntity, node),
-    START_FROM_TRIGGER: (_gc, workflowExecutionEntity, node, context) =>
-      startFromTriggerHandler(
-        workflowExecutionEntity,
-        node,
-        context as StartFromTriggerHandlerContext,
-      ),
-    START: (_gc, workflowExecutionEntity, node, _ctx) =>
-      startHandler(workflowExecutionEntity, node),
-    SUBGRAPH: (globalContext, workflowExecutionEntity, node, context) =>
-      subgraphHandler(
-        globalContext,
-        workflowExecutionEntity,
-        node,
-        context as SubgraphHandlerContext,
-      ),
-    EMBED_START: (_gc, workflowExecutionEntity, node, _ctx) =>
-      embedStartHandler(workflowExecutionEntity, node),
-    EMBED_END: (_gc, workflowExecutionEntity, node, _ctx) =>
-      embedEndHandler(workflowExecutionEntity, node),
-    USER_INTERACTION: (_gc, workflowExecutionEntity, node, context) =>
-      userInteractionHandler(
-        workflowExecutionEntity.getWorkflowExecutionData(),
-        node,
-        context as UserInteractionHandlerContext,
-        workflowExecutionEntity,
-      ),
-    VARIABLE: (_gc, workflowExecutionEntity, node, _ctx) =>
-      variableHandler(workflowExecutionEntity, node),
-    TOOL_VISIBILITY: (_gc, _we, node, context) =>
-      toolVisibilityHandler(node, context as ToolVisibilityHandlerContext),
-    SYNC: (globalContext, workflowExecutionEntity, node, _ctx) =>
-      syncHandler(globalContext, workflowExecutionEntity, node),
-  };
+  // 2. Plugin-contributed and template-based handlers are resolved at the
+  //    call site (NodeExecutionCoordinator) which has access to GlobalContext
+  //    and can query the ContributionManager and NodeTemplateRegistry.
+  //    This function returns the built-in handler; the caller falls back to
+  //    plugin/template resolution if this throws.
 
-  const handler = handlers[nodeType];
-  if (!handler) {
-    throw new Error(`Unknown node type: ${nodeType}`);
-  }
-  return handler;
+  throw new Error(
+    `Unknown node type: '${nodeType}'. No built-in handler found. ` +
+    `Plugin-contributed handlers are resolved at the execution coordinator level.`,
+  );
 }
 
+// Export individual handlers and types
 export {
   agentLoopHandler,
   contextProcessorHandler,

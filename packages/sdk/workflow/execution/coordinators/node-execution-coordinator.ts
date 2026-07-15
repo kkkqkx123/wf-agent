@@ -43,7 +43,9 @@ import { executeHook } from "../handlers/hook-handlers/hook-handler.js";
 import { handleErrorWithContext } from "../../../shared/utils/error-utils.js";
 import { now, diffTimestamp, getErrorOrNew } from "@wf-agent/common-utils";
 import { emit } from "../../../shared/events/emit-event.js";
-import { getNodeHandler } from "../handlers/node-handlers/index.js";
+import { getNodeHandler, type NodeHandlerFn } from "../handlers/node-handlers/index.js";
+import type { ContributionManager } from "../../../plugin/contributions/manager.js";
+import * as ServiceIdentifiers from "../../../di/service-identifiers.js";
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import {
@@ -881,8 +883,43 @@ export class NodeExecutionCoordinator {
       } as NodeExecutionResult;
     }
 
-    // 1. Execute using the Node Handler function (the configuration has been statically verified during workflow registration).
-    const handler = getNodeHandler(node.type);
+    // 1. Resolve node handler with fallback chain:
+    //    Built-in handlers → Plugin-contributed handlers (via ContributionManager) → Template-based handlers (via NodeTemplateRegistry)
+    let handler: NodeHandlerFn;
+    try {
+      handler = getNodeHandler(node.type);
+    } catch {
+      // 2. Fallback to plugin-contributed handlers via ContributionManager
+      let contributionManager: ContributionManager | undefined;
+      try {
+        contributionManager = this.globalContext.container.get(
+          ServiceIdentifiers.ContributionManager as unknown as symbol,
+        ) as ContributionManager | undefined;
+      } catch {
+        contributionManager = undefined;
+      }
+
+      if (contributionManager?.hasNodeHandler(node.type)) {
+        handler = contributionManager.getNodeHandler(node.type)!;
+      } else {
+        // 3. Fallback to template-based handlers via NodeTemplateRegistry
+        const nodeTemplateRegistry = this.globalContext.nodeTemplateRegistry;
+        const template = nodeTemplateRegistry.get(node.type);
+        if (template) {
+          // Template-based handlers are handled by the execution engine via the template's config
+          handler = async (_gc, _we, _node, _ctx) => {
+            throw new Error(
+              `Node type '${node.type}' has a registered template but no built-in handler. ` +
+              `Plugin-contributed custom node types require a corresponding handler registration.`,
+            );
+          };
+        } else {
+          throw new Error(
+            `Unknown node type: '${node.type}'. No built-in handler, plugin contribution, or template found.`,
+          );
+        }
+      }
+    }
 
     // 2. Use the factory to create the processor context.
     const handlerContext: Record<string, unknown> = {

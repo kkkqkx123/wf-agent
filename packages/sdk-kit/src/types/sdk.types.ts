@@ -10,6 +10,8 @@
  * - Clearer API contracts
  */
 
+import type { PluginEngine } from "@wf-agent/sdk/plugin";
+
 /**
  * SDK Feature support detection
  */
@@ -188,5 +190,8 @@ export interface SDK {
 
   /** SDK options/configuration (optional) */
   options?: Record<string, unknown>;
+
+  /** Plugin engine instance. Available when plugins are enabled. */
+  pluginEngine?: PluginEngine;
 }
 

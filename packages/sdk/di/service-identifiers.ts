@@ -599,6 +599,26 @@ export const RejectionMessageBuilder: ServiceIdentifier<RejectionMessageBuilderT
 // Persistence Layer Services
 // ============================================================
 
+// ============================================================
+// Plugin System Services
+// ============================================================
+
+/**
+ * PluginEngine - Plugin Engine
+ * Central orchestrator for the plugin lifecycle management
+ */
+export const PluginEngine: ServiceIdentifier<
+  import("../plugin/engine.js").PluginEngine
+> = Symbol("PluginEngine");
+
+/**
+ * ContributionManager - Contribution Manager
+ * Manages plugin contributions (node types, tool types, LLM providers, etc.)
+ */
+export const ContributionManager: ServiceIdentifier<
+  import("../plugin/contributions/manager.js").ContributionManager
+> = Symbol("ContributionManager");
+
 /**
  * PersistenceLayer - Persistence Layer
  * Provides unified persistence interface for execution states, metrics, and events

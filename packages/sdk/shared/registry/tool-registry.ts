@@ -73,6 +73,9 @@ class ToolRegistry
   private builtinExecutor: BuiltinExecutor;
   private restExecutorConfig: RestExecutorConfig;
 
+  // Plugin-contributed executor constructors (registered via contribution manager)
+  private pluginExecutorConstructors: Map<string, { executor: new (...args: unknown[]) => IToolExecutor; pluginId: string }> = new Map();
+
   // Tool availability management for execution-level scoping
   private toolAvailability: Map<string, {
     available: boolean;
@@ -109,6 +112,31 @@ class ToolRegistry
     this.executors.set("REST", new RestExecutor(this.restExecutorConfig));
     this.executors.set("BUILTIN", this.builtinExecutor);
     this.executors.set("MCP", new McpExecutor());
+  }
+
+  /**
+   * Register a plugin-contributed executor constructor.
+   * The executor will be instantiated lazily when first needed.
+   */
+  registerPluginExecutor(type: string, executorConstructor: new (...args: unknown[]) => IToolExecutor, pluginId: string): void {
+    this.pluginExecutorConstructors.set(type, { executor: executorConstructor, pluginId });
+  }
+
+  /**
+   * Initialize executors from plugin-contributed constructors.
+   * Called after all plugins are loaded and activated.
+   */
+  initializePluginExecutors(): void {
+    for (const [type, entry] of this.pluginExecutorConstructors) {
+      if (!this.executors.has(type)) {
+        try {
+          this.executors.set(type, new entry.executor());
+        } catch (error) {
+          // Log error but continue with other executors
+          console.error(`Failed to instantiate plugin executor '${type}' from plugin '${entry.pluginId}':`, error);
+        }
+      }
+    }
   }
 
   // ============================================================

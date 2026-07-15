@@ -37,6 +37,10 @@
     "./utils": {
       "types": "./dist/utils/index.d.ts",
       "import": "./dist/utils/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "import": "./dist/plugin/index.js"
     }
   },
   "files": [
@@ -83,10 +87,12 @@
     "isbinaryfile": "^6.0.0",
     "lru-cache": "^11.5.2",
     "minimatch": "^10.2.5",
+    "semver": "^7.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/semver": "^7.5.0",
     "tsc-alias": "^1.9.0",
     "tsd": "^0.33.0"
   },

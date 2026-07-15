@@ -26,7 +26,6 @@ export enum OverridePolicy {
 export const DEFAULT_PLUGIN_OPTIONS: PluginSystemOptions = {
   enabled: false,
   paths: ['./plugins'],
-  autoLoad: true,
   autoActivate: true,
   guardTimeout: 10000,
   overridePolicy: OverridePolicy.FORBID,

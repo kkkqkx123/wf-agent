@@ -115,7 +115,3 @@ export type {
 export {
   PluginManager,
 } from './plugin/index.js';
-
-export type {
-  PluginInfo,
-} from './plugin/index.js';

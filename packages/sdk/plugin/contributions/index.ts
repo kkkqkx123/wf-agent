@@ -3,7 +3,7 @@
  */
 
 export { ContributionManager } from "./manager.js";
-export { ContributionRegistrarImpl } from "./registrar.js";
+export { ContributionRegistrarImpl } from "./registration.js";
 export type {
   NodeTypeRegistrar,
   ToolTypeRegistrar,
@@ -13,7 +13,7 @@ export type {
   HookHandlerRegistrar,
   MiddlewareRegistrar,
   ContributionRegistrar,
-} from "./registrar.js";
+} from "./registration.js";
 export type {
   PluginNodeHandler,
   PluginToolExecutor,
@@ -40,5 +40,5 @@ export type {
   EventHandler,
 } from "./types.js";
 
-// Re-export ContributionRegistrar from registrar.ts (the new combined interface)
-export type { ContributionRegistrar } from "./registrar.js";
+// Re-export ContributionRegistrar from registration.ts (plugin-facing adapter)
+export type { ContributionRegistrar } from "./registration.js";

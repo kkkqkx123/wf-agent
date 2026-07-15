@@ -375,6 +375,9 @@ export class NodeExecutionCoordinator {
       // - All embedded nodes run in the same execution context as parent
       // - No special boundary handling needed
 
+      // Resolve plugin middleware contribution manager (shared across try/catch)
+      let contributionManager: ContributionManager | undefined;
+
       try {
         // Step 1: Trigger the node start event
         const nodeStartedEvent = workflowExecutionEntity.buildEvent(buildNodeStartedEvent, {
@@ -479,6 +482,23 @@ export class NodeExecutionCoordinator {
         const exponentialBackoff =
           nodeExponentialBackoff ?? typeBasedRetry?.exponentialBackoff ?? globalDefault?.exponentialBackoff ?? true;
         const fallbackOutput = nodeFallbackOutput;
+
+        // Plugin middleware: before-node-execution
+        try {
+          contributionManager = this.globalContext.container.get(
+            ServiceIdentifiers.ContributionManager as unknown as symbol,
+          ) as ContributionManager | undefined;
+          if (contributionManager?.hasMiddleware('before-node-execution')) {
+            await contributionManager.runMiddleware('before-node-execution', {
+              nodeId,
+              nodeType,
+              executionId,
+              workflowId,
+            });
+          }
+        } catch {
+          // Non-fatal: middleware failure should not block node execution
+        }
 
         // Execute node logic with retry loop
         let nodeResult = await this.executeNodeLogic(
@@ -655,6 +675,22 @@ export class NodeExecutionCoordinator {
         // Step 5: Record the results of node execution
         workflowExecutionEntity.addNodeResult(nodeResult);
 
+        // Plugin middleware: after-node-execution
+        if (contributionManager?.hasMiddleware('after-node-execution')) {
+          try {
+            await contributionManager.runMiddleware('after-node-execution', {
+              nodeId,
+              nodeType,
+              executionId,
+              workflowId,
+              status: nodeResult.status,
+              output: nodeResult.output,
+            });
+          } catch {
+            // Non-fatal: middleware failure should not block node execution
+          }
+        }
+
         // Step 6: Execute the Hook of type AFTER_EXECUTE
         if (node.hooks && node.hooks.length > 0) {
           logger.debug("Executing AFTER_EXECUTE hooks", {
@@ -817,6 +853,21 @@ export class NodeExecutionCoordinator {
               nodeId,
               error: cpError,
             });
+          }
+        }
+
+        // Plugin middleware: on-error
+        if (contributionManager?.hasMiddleware('on-error')) {
+          try {
+            await contributionManager.runMiddleware('on-error', {
+              nodeId,
+              nodeType,
+              executionId,
+              workflowId,
+              error: enhancedError.message,
+            });
+          } catch {
+            // Non-fatal: middleware failure should not block error handling
           }
         }
 

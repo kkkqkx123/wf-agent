@@ -1,11 +1,8 @@
 /**
- * Contribution Manager - Central manager for all plugin contributions.
+ * Contribution Manager - Central facade for all plugin contribution registries.
  *
- * Responsibilities:
- * - Register contributions from plugins
- * - Unregister contributions when a plugin is deactivated
- * - Query contributions by type
- * - Handle override policies for conflicting contributions
+ * Manages specialized per-type registries and handles cross-cutting concerns
+ * such as override policy conflict resolution.
  */
 
 import type { BaseFormatter } from "../../services/llm/formatters/base.js";
@@ -15,34 +12,274 @@ import type { ExecutionMiddleware, MiddlewarePhase } from "./middleware.types.js
 import { OverridePolicy } from "../config.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 
+// ============================================================
+// Internal Registry Types & Classes
+// ============================================================
+
+interface NodeTypeEntry {
+  handler: NodeHandlerFn;
+  pluginId: string;
+  template?: Record<string, unknown>;
+}
+
+class NodeTypeRegistry {
+  private handlers = new Map<string, NodeTypeEntry>();
+
+  register(pluginId: string, nodeType: string, handler: NodeHandlerFn, template?: Record<string, unknown>): void {
+    this.handlers.set(nodeType, { handler, pluginId, template });
+  }
+
+  getHandler(nodeType: string): NodeHandlerFn | undefined {
+    return this.handlers.get(nodeType)?.handler;
+  }
+
+  hasHandler(nodeType: string): boolean {
+    return this.handlers.has(nodeType);
+  }
+
+  getAllNodeTypes(): string[] {
+    return Array.from(this.handlers.keys());
+  }
+
+  getOwner(nodeType: string): string | undefined {
+    return this.handlers.get(nodeType)?.pluginId;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.handlers) {
+      if (value.pluginId === pluginId) {
+        this.handlers.delete(key);
+      }
+    }
+  }
+}
+
+interface ToolTypeEntry {
+  executor: IToolExecutorConstructor;
+  pluginId: string;
+}
+
+class ToolTypeRegistry {
+  private executors = new Map<string, ToolTypeEntry>();
+
+  register(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
+    this.executors.set(type, { executor, pluginId });
+  }
+
+  getExecutor(type: string): IToolExecutorConstructor | undefined {
+    return this.executors.get(type)?.executor;
+  }
+
+  getAllExecutors(): Map<string, ToolTypeEntry> {
+    return new Map(this.executors);
+  }
+
+  getAllToolTypes(): string[] {
+    return Array.from(this.executors.keys());
+  }
+
+  getOwner(type: string): string | undefined {
+    return this.executors.get(type)?.pluginId;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.executors) {
+      if (value.pluginId === pluginId) {
+        this.executors.delete(key);
+      }
+    }
+  }
+}
+
+interface LLMProviderEntry {
+  formatter: BaseFormatter;
+  pluginId: string;
+}
+
+class LLMProviderRegistry {
+  private providers = new Map<string, LLMProviderEntry>();
+
+  register(pluginId: string, provider: string, formatter: BaseFormatter): void {
+    this.providers.set(provider, { formatter, pluginId });
+  }
+
+  getFormatter(provider: string): BaseFormatter | undefined {
+    return this.providers.get(provider)?.formatter;
+  }
+
+  getAllProviders(): string[] {
+    return Array.from(this.providers.keys());
+  }
+
+  getOwner(provider: string): string | undefined {
+    return this.providers.get(provider)?.pluginId;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.providers) {
+      if (value.pluginId === pluginId) {
+        this.providers.delete(key);
+      }
+    }
+  }
+}
+
+interface FormatterEntry {
+  formatter: BaseFormatter;
+  pluginId: string;
+}
+
+class FormatterRegistry {
+  private formatters = new Map<string, FormatterEntry>();
+
+  register(pluginId: string, name: string, formatter: BaseFormatter): void {
+    this.formatters.set(name, { formatter, pluginId });
+  }
+
+  getFormatter(name: string): BaseFormatter | undefined {
+    return this.formatters.get(name)?.formatter;
+  }
+
+  getOwner(name: string): string | undefined {
+    return this.formatters.get(name)?.pluginId;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.formatters) {
+      if (value.pluginId === pluginId) {
+        this.formatters.delete(key);
+      }
+    }
+  }
+}
+
+interface EventHandlerEntry {
+  handler: EventHandler;
+  pluginId: string;
+  priority?: number;
+}
+
+class EventHandlerRegistry {
+  private handlers = new Map<string, EventHandlerEntry>();
+
+  register(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
+    this.handlers.set(eventType, { handler, pluginId, priority });
+  }
+
+  getAllHandlers(): Map<string, EventHandler> {
+    const result = new Map<string, EventHandler>();
+    for (const [key, value] of this.handlers) {
+      result.set(key, value.handler);
+    }
+    return result;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.handlers) {
+      if (value.pluginId === pluginId) {
+        this.handlers.delete(key);
+      }
+    }
+  }
+}
+
+interface HookHandlerEntry {
+  handler: HookHandler;
+  pluginId: string;
+}
+
+class HookHandlerRegistry {
+  private handlers = new Map<string, HookHandlerEntry>();
+
+  register(pluginId: string, hookType: string, handler: HookHandler): void {
+    this.handlers.set(hookType, { handler, pluginId });
+  }
+
+  getAllHandlers(): Map<string, HookHandler> {
+    const result = new Map<string, HookHandler>();
+    for (const [key, value] of this.handlers) {
+      result.set(key, value.handler);
+    }
+    return result;
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [key, value] of this.handlers) {
+      if (value.pluginId === pluginId) {
+        this.handlers.delete(key);
+      }
+    }
+  }
+}
+
+class MiddlewareRegistry {
+  private middleware = new Map<MiddlewarePhase, ExecutionMiddleware[]>();
+
+  register(phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
+    if (!this.middleware.has(phase)) {
+      this.middleware.set(phase, []);
+    }
+    this.middleware.get(phase)!.push(mw);
+    this.middleware.get(phase)!.sort((a, b) => a.priority - b.priority);
+  }
+
+  getMiddleware(phase: MiddlewarePhase): ExecutionMiddleware[] {
+    return this.middleware.get(phase) || [];
+  }
+
+  hasMiddleware(phase: MiddlewarePhase): boolean {
+    const mw = this.middleware.get(phase);
+    return mw !== undefined && mw.length > 0;
+  }
+
+  /**
+   * Execute all middleware for a given phase in sequence (onion model).
+   * Each middleware calls next() to proceed to the next in the pipeline.
+   */
+  async runMiddleware(phase: MiddlewarePhase, context: Record<string, unknown>): Promise<void> {
+    const mwList = this.middleware.get(phase);
+    if (!mwList || mwList.length === 0) return;
+
+    let index = 0;
+    const next = async (): Promise<void> => {
+      if (index >= mwList.length) return;
+      const mw = mwList[index]!;
+      index++;
+      await mw.handler(context, next);
+    };
+    await next();
+  }
+
+  unregisterByPluginId(pluginId: string): void {
+    for (const [phase, mwList] of this.middleware) {
+      const filtered = mwList.filter(mw => (mw as unknown as Record<string, unknown>)['_pluginId'] !== pluginId);
+      if (filtered.length === 0) {
+        this.middleware.delete(phase);
+      } else {
+        this.middleware.set(phase, filtered);
+      }
+    }
+  }
+}
+
+// ============================================================
+// Contribution Manager
+// ============================================================
+
 /**
- * Contribution Manager
+ * Contribution Manager - Central facade for all plugin contribution registries.
  */
 export class ContributionManager {
   private logger = createContextualLogger({ component: 'ContributionManager' });
 
-  // Node type contributions
-  private nodeTypeHandlers: Map<string, { handler: NodeHandlerFn; pluginId: string; template?: Record<string, unknown> }> = new Map();
+  private nodeTypeRegistry = new NodeTypeRegistry();
+  private toolTypeRegistry = new ToolTypeRegistry();
+  private llmProviderRegistry = new LLMProviderRegistry();
+  private formatterRegistry = new FormatterRegistry();
+  private eventHandlerRegistry = new EventHandlerRegistry();
+  private hookHandlerRegistry = new HookHandlerRegistry();
+  private middlewareRegistry = new MiddlewareRegistry();
 
-  // Tool type executor constructors
-  private toolTypeExecutors: Map<string, { executor: IToolExecutorConstructor; pluginId: string }> = new Map();
-
-  // LLM provider formatters
-  private llmProviders: Map<string, { formatter: BaseFormatter; pluginId: string }> = new Map();
-
-  // Formatter registry
-  private formatters: Map<string, { formatter: BaseFormatter; pluginId: string }> = new Map();
-
-  // Event handlers
-  private eventHandlers: Map<string, { handler: EventHandler; pluginId: string; priority?: number }> = new Map();
-
-  // Hook handlers
-  private hookHandlers: Map<string, { handler: HookHandler; pluginId: string }> = new Map();
-
-  // Middleware pipeline
-  private middleware: Map<MiddlewarePhase, ExecutionMiddleware[]> = new Map();
-
-  // Override policy
   private overridePolicy: OverridePolicy = OverridePolicy.FORBID;
 
   /**
@@ -74,9 +311,6 @@ export class ContributionManager {
   // Registration
   // ============================================================
 
-  /**
-   * Register a node type handler.
-   */
   registerNodeType(
     pluginId: string,
     nodeType: string,
@@ -84,61 +318,38 @@ export class ContributionManager {
     template?: Record<string, unknown>,
   ): void {
     this.handleConflict('node-type', nodeType, pluginId, () => {
-      this.nodeTypeHandlers.set(nodeType, { handler, pluginId, template });
+      this.nodeTypeRegistry.register(pluginId, nodeType, handler, template);
     });
   }
 
-  /**
-   * Register a tool executor type.
-   */
   registerToolType(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
     this.handleConflict('tool-type', type, pluginId, () => {
-      this.toolTypeExecutors.set(type, { executor, pluginId });
+      this.toolTypeRegistry.register(pluginId, type, executor);
     });
   }
 
-  /**
-   * Register an LLM provider formatter.
-   */
   registerLLMProvider(pluginId: string, provider: string, formatter: BaseFormatter): void {
     this.handleConflict('llm-provider', provider, pluginId, () => {
-      this.llmProviders.set(provider, { formatter, pluginId });
+      this.llmProviderRegistry.register(pluginId, provider, formatter);
     });
   }
 
-  /**
-   * Register a formatter by name.
-   */
   registerFormatter(pluginId: string, name: string, formatter: BaseFormatter): void {
     this.handleConflict('formatter', name, pluginId, () => {
-      this.formatters.set(name, { formatter, pluginId });
+      this.formatterRegistry.register(pluginId, name, formatter);
     });
   }
 
-  /**
-   * Register an event handler.
-   */
   registerEventHandler(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
-    this.eventHandlers.set(eventType, { handler, pluginId, priority });
+    this.eventHandlerRegistry.register(pluginId, eventType, handler, priority);
   }
 
-  /**
-   * Register a hook handler.
-   */
-  registerHookHandler(_pluginId: string, hookType: string, handler: HookHandler): void {
-    this.hookHandlers.set(hookType, { handler, pluginId: _pluginId });
+  registerHookHandler(pluginId: string, hookType: string, handler: HookHandler): void {
+    this.hookHandlerRegistry.register(pluginId, hookType, handler);
   }
 
-  /**
-   * Register middleware for a specific phase.
-   */
   registerMiddleware(_pluginId: string, phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
-    if (!this.middleware.has(phase)) {
-      this.middleware.set(phase, []);
-    }
-    this.middleware.get(phase)!.push(mw);
-    // Sort by priority (lower = earlier)
-    this.middleware.get(phase)!.sort((a, b) => a.priority - b.priority);
+    this.middlewareRegistry.register(phase, mw);
   }
 
   // ============================================================
@@ -149,57 +360,13 @@ export class ContributionManager {
    * Unregister all contributions from a plugin.
    */
   unregisterAll(pluginId: string): void {
-    // Remove node type handlers
-    for (const [key, value] of this.nodeTypeHandlers) {
-      if (value.pluginId === pluginId) {
-        this.nodeTypeHandlers.delete(key);
-      }
-    }
-
-    // Remove tool type executors
-    for (const [key, value] of this.toolTypeExecutors) {
-      if (value.pluginId === pluginId) {
-        this.toolTypeExecutors.delete(key);
-      }
-    }
-
-    // Remove LLM providers
-    for (const [key, value] of this.llmProviders) {
-      if (value.pluginId === pluginId) {
-        this.llmProviders.delete(key);
-      }
-    }
-
-    // Remove formatters
-    for (const [key, value] of this.formatters) {
-      if (value.pluginId === pluginId) {
-        this.formatters.delete(key);
-      }
-    }
-
-    // Remove event handlers
-    for (const [key, value] of this.eventHandlers) {
-      if (value.pluginId === pluginId) {
-        this.eventHandlers.delete(key);
-      }
-    }
-
-    // Remove hook handlers
-    for (const [key, value] of this.hookHandlers) {
-      if (value.pluginId === pluginId) {
-        this.hookHandlers.delete(key);
-      }
-    }
-
-    // Remove middleware — filter out entries from this plugin
-    for (const [phase, mwList] of this.middleware) {
-      const filtered = mwList.filter(mw => (mw as unknown as Record<string, unknown>)['_pluginId'] !== pluginId);
-      if (filtered.length === 0) {
-        this.middleware.delete(phase);
-      } else {
-        this.middleware.set(phase, filtered);
-      }
-    }
+    this.nodeTypeRegistry.unregisterByPluginId(pluginId);
+    this.toolTypeRegistry.unregisterByPluginId(pluginId);
+    this.llmProviderRegistry.unregisterByPluginId(pluginId);
+    this.formatterRegistry.unregisterByPluginId(pluginId);
+    this.eventHandlerRegistry.unregisterByPluginId(pluginId);
+    this.hookHandlerRegistry.unregisterByPluginId(pluginId);
+    this.middlewareRegistry.unregisterByPluginId(pluginId);
 
     this.logger.info(`Unregistered all contributions for plugin: ${pluginId}`);
   }
@@ -208,113 +375,70 @@ export class ContributionManager {
   // Query Methods
   // ============================================================
 
-  /**
-   * Get a node handler by node type.
-   */
   getNodeHandler(nodeType: string): NodeHandlerFn | undefined {
-    return this.nodeTypeHandlers.get(nodeType)?.handler;
+    return this.nodeTypeRegistry.getHandler(nodeType);
   }
 
-  /**
-   * Get a tool executor constructor by type.
-   */
   getToolExecutor(type: string): IToolExecutorConstructor | undefined {
-    return this.toolTypeExecutors.get(type)?.executor;
+    return this.toolTypeRegistry.getExecutor(type);
   }
 
-  /**
-   * Get all tool executor entries.
-   */
   getAllToolExecutors(): Map<string, { executor: IToolExecutorConstructor; pluginId: string }> {
-    return new Map(this.toolTypeExecutors);
+    return this.toolTypeRegistry.getAllExecutors() as Map<string, { executor: IToolExecutorConstructor; pluginId: string }>;
   }
 
-  /**
-   * Get an LLM provider formatter.
-   */
   getLLMProvider(provider: string): BaseFormatter | undefined {
-    return this.llmProviders.get(provider)?.formatter;
+    return this.llmProviderRegistry.getFormatter(provider);
   }
 
-  /**
-   * Get a formatter by name.
-   */
   getFormatter(name: string): BaseFormatter | undefined {
-    return this.formatters.get(name)?.formatter;
+    return this.formatterRegistry.getFormatter(name);
   }
 
-  /**
-   * Check if a node type handler exists.
-   */
   hasNodeHandler(nodeType: string): boolean {
-    return this.nodeTypeHandlers.has(nodeType);
+    return this.nodeTypeRegistry.hasHandler(nodeType);
   }
 
-  /**
-   * Get all registered node types.
-   */
   getAllNodeTypes(): string[] {
-    return Array.from(this.nodeTypeHandlers.keys());
+    return this.nodeTypeRegistry.getAllNodeTypes();
   }
 
-  /**
-   * Get all registered LLM providers.
-   */
   getAllLLMProviders(): string[] {
-    return Array.from(this.llmProviders.keys());
+    return this.llmProviderRegistry.getAllProviders();
   }
 
-  /**
-   * Get all registered tool types.
-   */
   getAllToolTypes(): string[] {
-    return Array.from(this.toolTypeExecutors.keys());
+    return this.toolTypeRegistry.getAllToolTypes();
   }
 
-  /**
-   * Get all registered event handlers.
-   */
   getAllEventHandlers(): Map<string, EventHandler> {
-    const handlers = new Map<string, EventHandler>();
-    for (const [key, value] of this.eventHandlers) {
-      handlers.set(key, value.handler);
-    }
-    return handlers;
+    return this.eventHandlerRegistry.getAllHandlers();
   }
 
-  /**
-   * Get all registered hook handlers.
-   */
   getAllHookHandlers(): Map<string, HookHandler> {
-    const handlers = new Map<string, HookHandler>();
-    for (const [key, value] of this.hookHandlers) {
-      handlers.set(key, value.handler);
-    }
-    return handlers;
+    return this.hookHandlerRegistry.getAllHandlers();
   }
 
-  /**
-   * Get middleware for a specific phase.
-   */
   getMiddleware(phase: MiddlewarePhase): ExecutionMiddleware[] {
-    return this.middleware.get(phase) || [];
+    return this.middlewareRegistry.getMiddleware(phase);
+  }
+
+  hasMiddleware(phase: MiddlewarePhase): boolean {
+    return this.middlewareRegistry.hasMiddleware(phase);
   }
 
   /**
-   * Check if there are any middleware for a given phase.
+   * Execute all middleware for a given phase in sequence (onion model).
+   * Silently skips if no middleware is registered for the phase.
    */
-  hasMiddleware(phase: MiddlewarePhase): boolean {
-    const mw = this.middleware.get(phase);
-    return mw !== undefined && mw.length > 0;
+  async runMiddleware(phase: MiddlewarePhase, context: Record<string, unknown>): Promise<void> {
+    await this.middlewareRegistry.runMiddleware(phase, context);
   }
 
   // ============================================================
   // Conflict Handling
   // ============================================================
 
-  /**
-   * Handle a contribution conflict according to the override policy.
-   */
   private handleConflict(
     type: ContributionType,
     key: string,
@@ -336,10 +460,7 @@ export class ContributionManager {
           registerFn();
           return;
         case OverridePolicy.ALLOW:
-          registerFn();
-          return;
         case OverridePolicy.PRIORITY:
-          // Last registered wins with priority
           registerFn();
           return;
       }
@@ -347,19 +468,16 @@ export class ContributionManager {
     registerFn();
   }
 
-  /**
-   * Get the plugin ID that owns an existing entry, if any.
-   */
   private getExistingEntry(type: ContributionType, key: string): string | undefined {
     switch (type) {
       case 'node-type':
-        return this.nodeTypeHandlers.get(key)?.pluginId;
+        return this.nodeTypeRegistry.getOwner(key);
       case 'tool-type':
-        return this.toolTypeExecutors.get(key)?.pluginId;
+        return this.toolTypeRegistry.getOwner(key);
       case 'llm-provider':
-        return this.llmProviders.get(key)?.pluginId;
+        return this.llmProviderRegistry.getOwner(key);
       case 'formatter':
-        return this.formatters.get(key)?.pluginId;
+        return this.formatterRegistry.getOwner(key);
       default:
         return undefined;
     }

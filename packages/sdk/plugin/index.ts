@@ -41,9 +41,6 @@ export { PluginLoader, PluginLoadError } from "./loader.js";
 // Dependency Resolver
 export { PluginDependencyResolver } from "./dependency-resolver.js";
 
-// Lifecycle
-export { PluginLifecycleManager } from "./lifecycle.js";
-
 // Event Bus
 export { PluginEventBus } from "./event-bus.js";
 export type { PluginEventType, PluginEvent, PluginEventListener } from "./event-bus.js";
@@ -57,7 +54,7 @@ export { OverridePolicy, mergePluginOptions, DEFAULT_PLUGIN_OPTIONS } from "./co
 
 // Contributions
 export { ContributionManager } from "./contributions/manager.js";
-export { ContributionRegistrarImpl } from "./contributions/registrar.js";
+export { ContributionRegistrarImpl } from "./contributions/registration.js";
 export { isValidContributionType } from "./contributions/validation.js";
 
 export type {
@@ -69,7 +66,7 @@ export type {
   EventHandlerRegistrar,
   HookHandlerRegistrar,
   MiddlewareRegistrar,
-} from "./contributions/registrar.js";
+} from "./contributions/registration.js";
 
 export type {
   PluginNodeHandler,

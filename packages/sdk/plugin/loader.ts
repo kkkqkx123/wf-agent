@@ -60,6 +60,47 @@ export class PluginLoader {
   }
 
   /**
+   * Scan a single filesystem path for a plugin manifest.
+   * Returns null if the path does not contain a valid plugin.
+   */
+  async scanSinglePlugin(targetPath: string): Promise<DiscoveredPlugin | null> {
+    try {
+      const resolvedPath = path.resolve(targetPath);
+      const stat = await fs.stat(resolvedPath);
+
+      if (stat.isDirectory()) {
+        // Check for plugin.json or package.json with wfAgentPlugin field
+        const pluginJsonPath = path.join(resolvedPath, 'plugin.json');
+        try {
+          await fs.stat(pluginJsonPath);
+          const manifest = await this.loadManifestFromFile(pluginJsonPath);
+          if (manifest) {
+            manifest._basePath = resolvedPath;
+            return { manifest, sourcePath: resolvedPath };
+          }
+        } catch {
+          // No plugin.json, try package.json
+        }
+        const manifest = await this.loadManifestFromPackageJson(resolvedPath);
+        if (manifest) {
+          return { manifest, sourcePath: resolvedPath };
+        }
+        return null;
+      } else if (stat.isFile()) {
+        // Single plugin.json file
+        const manifest = await this.loadManifestFromFile(resolvedPath);
+        if (manifest) {
+          return { manifest, sourcePath: resolvedPath };
+        }
+        return null;
+      }
+    } catch {
+      // Path doesn't exist or can't be accessed
+    }
+    return null;
+  }
+
+  /**
    * Load a plugin module by its manifest.
    * Uses dynamic import() and verifies the exports.
    * @param bustCache - If true, clears the module cache before loading (for hot-reload)

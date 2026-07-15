@@ -8,7 +8,6 @@
  * - Update plugin configuration at runtime
  */
 
-import type { PluginInfo, ContributionType } from "./types.js";
 import type { SDK } from "../types/sdk.types.js";
 import type { PluginEngine, PluginRecord } from "@wf-agent/sdk/plugin";
 import { KitError, KitErrorCode } from "../converters/error.converter.js";
@@ -30,18 +29,52 @@ export class PluginManager {
   }
 
   /**
-   * Load and optionally activate a plugin by source identifier.
+   * Load a plugin from a filesystem path.
    *
-   * Discovers all configured plugins, then finds the one matching the given
-   * source (by id, name, or entryPoint). If auto-activate is enabled, the
-   * plugin is activated after loading.
+   * Loads a single plugin directly from the given path without triggering a full
+   * discovery scan. The plugin is validated and registered. If auto-activate is
+   * enabled, the plugin is activated after loading.
    *
-   * NOTE: This does NOT load a single plugin in isolation — it triggers a full
-   * discovery scan of all configured plugin paths (results are cached to avoid
-   * repeated filesystem scans). To activate an already-loaded plugin by ID,
-   * use `activate(pluginId)` instead.
+   * Use `findPlugin(id)` to look up an already-registered plugin by ID.
    */
-  async loadPlugin(source: string): Promise<PluginInfo> {
+  async loadPluginFromPath(pluginPath: string): Promise<PluginRecord> {
+    try {
+      const record = await this.engine.loadSingle(pluginPath);
+      if (!record) {
+        throw new KitError(
+          `No valid plugin found at '${pluginPath}'`,
+          KitErrorCode.RESOURCE_NOT_FOUND,
+          { pluginPath },
+        );
+      }
+
+      // Activate if auto-activate is enabled
+      if (this.isAutoActivateEnabled()) {
+        await this.engine.activate(record.manifest.id);
+      }
+
+      return record;
+    } catch (error) {
+      if (error instanceof KitError) throw error;
+      throw new KitError(
+        `Failed to load plugin from '${pluginPath}': ${error instanceof Error ? error.message : String(error)}`,
+        KitErrorCode.INTERNAL_ERROR,
+        { pluginPath },
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
+
+  /**
+   * Find a plugin by ID, name, or entryPoint from the discovered set.
+   *
+   * Triggers a discovery scan of all configured plugin paths (results are cached
+   * to avoid repeated filesystem scans). If the plugin is found and auto-activate
+   * is enabled, it is activated.
+   *
+   * For loading a plugin from a specific filesystem path, use `loadPluginFromPath()`.
+   */
+  async findPlugin(source: string): Promise<PluginRecord> {
     try {
       const records = await this.engine.discover();
 
@@ -65,16 +98,31 @@ export class PluginManager {
         await this.engine.activate(record.manifest.id);
       }
 
-      return this.toPluginInfo(record);
+      return record;
     } catch (error) {
       if (error instanceof KitError) throw error;
       throw new KitError(
-        `Failed to load plugin '${source}': ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to find plugin '${source}': ${error instanceof Error ? error.message : String(error)}`,
         KitErrorCode.INTERNAL_ERROR,
         { source },
         error instanceof Error ? error : undefined,
       );
     }
+  }
+
+  /**
+   * Load a plugin — convenience method that delegates to the correct path.
+   *
+   * If `source` looks like a filesystem path (contains `/` or `\`), it calls
+   * `loadPluginFromPath()`; otherwise it calls `findPlugin()` for ID-based lookup.
+   *
+   * @deprecated Use `loadPluginFromPath(path)` or `findPlugin(id)` explicitly.
+   */
+  async loadPlugin(source: string): Promise<PluginRecord> {
+    if (source.includes('/') || source.includes('\\')) {
+      return this.loadPluginFromPath(source);
+    }
+    return this.findPlugin(source);
   }
 
   /**
@@ -110,12 +158,28 @@ export class PluginManager {
   }
 
   /**
+   * Fully remove a plugin: deactivate, then clear its registry entry.
+   * The plugin must be re-discovered and re-loaded to be activated again.
+   */
+  async unload(pluginId: string): Promise<void> {
+    try {
+      await this.engine.unload(pluginId);
+    } catch (error) {
+      throw new KitError(
+        `Failed to unload plugin '${pluginId}': ${error instanceof Error ? error.message : String(error)}`,
+        KitErrorCode.INTERNAL_ERROR,
+        { pluginId },
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
+
+  /**
    * List all plugins.
    */
-  list(): PluginInfo[] {
+  list(): PluginRecord[] {
     try {
-      const records = this.engine.getPluginRegistry().list();
-      return records.map(r => this.toPluginInfo(r));
+      return this.engine.getPluginRegistry().list();
     } catch (error) {
       return [];
     }
@@ -124,10 +188,9 @@ export class PluginManager {
   /**
    * Get plugin details by ID.
    */
-  get(pluginId: string): PluginInfo | undefined {
+  get(pluginId: string): PluginRecord | undefined {
     try {
-      const record = this.engine.getPluginRegistry().get(pluginId);
-      return record ? this.toPluginInfo(record) : undefined;
+      return this.engine.getPluginRegistry().get(pluginId);
     } catch {
       return undefined;
     }
@@ -195,20 +258,5 @@ export class PluginManager {
    */
   private isAutoActivateEnabled(): boolean {
     return this.engine.isAutoActivateEnabled();
-  }
-
-  /**
-   * Convert a PluginRecord to a PluginInfo object.
-   */
-  private toPluginInfo(record: PluginRecord): PluginInfo {
-    return {
-      id: record.manifest.id,
-      version: record.manifest.version,
-      name: record.manifest.name || record.manifest.id,
-      status: record.status,
-      contributions: (record.manifest.contributions || []) as ContributionType[],
-      error: record.error?.message,
-      activatedAt: record.activatedAt,
-    };
   }
 }

@@ -5,7 +5,7 @@
  */
 
 import type { Container } from "@wf-agent/common-utils";
-import type { ContributionRegistrar } from "./contributions/registrar.js";
+import type { ContributionRegistrar } from "./contributions/registration.js";
 import type { ContributionType } from "./contributions/types.js";
 
 export type { ContributionType }; // re-export for backward compatibility
@@ -105,11 +105,8 @@ export interface Plugin {
   onConfigChange?(config: Record<string, unknown>): Promise<void>;
 
   /**
-   * Contribution registration (called during onLoad).
-   *
-   * @deprecated Use the new sub-interfaces via `registrar.nodeTypes` etc.
-   *             Instead of `registrar.registerNodeType(...)`, use
-   *             `registrar.nodeTypes?.registerNodeType(...)`.
+   * Contribution registration (called during activation).
+   * Use the sub-registrars via `registrar.nodeTypes.registerNodeType(...)` etc.
    */
   registerContributions?(registrar: ContributionRegistrar): void;
 }
@@ -178,8 +175,6 @@ export interface PluginSystemOptions {
   enabled: boolean;
   /** Directories to scan for plugins */
   paths?: string[];
-  /** Auto-load discovered plugins (default: true) */
-  autoLoad?: boolean;
   /** Auto-activate after loading (default: true) */
   autoActivate?: boolean;
   /** Max execution time per lifecycle hook (ms, 0 = no limit, default 10000) */

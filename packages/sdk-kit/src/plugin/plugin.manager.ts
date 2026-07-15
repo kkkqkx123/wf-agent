@@ -111,21 +111,6 @@ export class PluginManager {
   }
 
   /**
-   * Load a plugin — convenience method that delegates to the correct path.
-   *
-   * If `source` looks like a filesystem path (contains `/` or `\`), it calls
-   * `loadPluginFromPath()`; otherwise it calls `findPlugin()` for ID-based lookup.
-   *
-   * @deprecated Use `loadPluginFromPath(path)` or `findPlugin(id)` explicitly.
-   */
-  async loadPlugin(source: string): Promise<PluginRecord> {
-    if (source.includes('/') || source.includes('\\')) {
-      return this.loadPluginFromPath(source);
-    }
-    return this.findPlugin(source);
-  }
-
-  /**
    * Activate a loaded plugin.
    */
   async activate(pluginId: string): Promise<void> {

@@ -14,7 +14,6 @@ import { PluginLoader } from "./loader.js";
 import { PluginDependencyResolver } from "./dependency-resolver.js";
 import { PluginGuard } from "./guard.js";
 import { ContributionManager } from "./contributions/manager.js";
-import { ContributionRegistrarImpl } from "./contributions/registration.js";
 import { ContributionBridge, type SDKRegistries } from "./contributions/bridge.js";
 import { PluginEventBus } from "./event-bus.js";
 import { OverridePolicy, mergePluginOptions } from "./config.js";
@@ -382,9 +381,9 @@ export class PluginEngine {
 
       // Step 2: Then register contributions (plugin is initialized)
       if (plugin.registerContributions) {
-        const registrar = new ContributionRegistrarImpl(pluginId, this.contributionManager, this.options.overridePolicy || OverridePolicy.FORBID);
+        this.contributionManager.setPluginContext(pluginId, this.options.overridePolicy || OverridePolicy.FORBID);
         await this.guard.execute(pluginId, async () => {
-          plugin.registerContributions!(registrar);
+          plugin.registerContributions!(this.contributionManager);
         });
       }
 

@@ -8,7 +8,7 @@ import type { Container } from "@wf-agent/common-utils";
 import type { ContributionRegistrar } from "./contributions/registration.js";
 import type { ContributionType } from "./contributions/types.js";
 
-export type { ContributionType }; // re-export for backward compatibility
+export type { ContributionType };
 import type { ContributionManager } from "./contributions/manager.js";
 import type { OverridePolicy } from "./config.js";
 

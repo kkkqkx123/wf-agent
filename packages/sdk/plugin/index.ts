@@ -54,7 +54,6 @@ export { OverridePolicy, mergePluginOptions, DEFAULT_PLUGIN_OPTIONS } from "./co
 
 // Contributions
 export { ContributionManager } from "./contributions/manager.js";
-export { ContributionRegistrarImpl } from "./contributions/registration.js";
 export { isValidContributionType } from "./contributions/validation.js";
 
 export type {

@@ -357,7 +357,7 @@ export class SDKKit {
    * const kit = new SDKKit(sdk);
    *
    * // Load a plugin
-   * await kit.plugins().loadPlugin('@scope/my-plugin');
+   * await kit.plugins().findPlugin('@scope/my-plugin');
    *
    * // List active plugins
    * const active = kit.plugins().list().filter(p => p.status === 'active');

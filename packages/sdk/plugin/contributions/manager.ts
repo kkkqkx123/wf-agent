@@ -2,264 +2,309 @@
  * Contribution Manager - Central facade for all plugin contribution registries.
  *
  * Manages specialized per-type registries and handles cross-cutting concerns
- * such as override policy conflict resolution.
+ * such as override policy conflict resolution. Implements ContributionRegistrar
+ * directly, eliminating the need for separate adapter classes.
  */
 
 import type { BaseFormatter } from "../../services/llm/formatters/base.js";
 import type { NodeHandlerFn } from "../../workflow/execution/handlers/node-handlers/index.js";
 import type { IToolExecutorConstructor, EventHandler, HookHandler, ContributionType } from "./types.js";
 import type { ExecutionMiddleware, MiddlewarePhase } from "./middleware.types.js";
+import type {
+  PluginNodeHandler,
+  PluginToolExecutor,
+  PluginLLMFormatter,
+  PluginEventHandler,
+  PluginHookHandler,
+  PluginExecutionMiddleware,
+  PluginLLMRequest,
+  PluginLLMResponse,
+} from "./abstractions.js";
+import type {
+  NodeTypeRegistrar,
+  ToolTypeRegistrar,
+  LLMProviderRegistrar,
+  FormatterRegistrar,
+  EventHandlerRegistrar,
+  HookHandlerRegistrar,
+  MiddlewareRegistrar,
+  ContributionRegistrar,
+} from "./registration.js";
 import { OverridePolicy } from "../config.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import type { IToolExecutor } from "../../services/tools/core/interfaces.js";
+import type { Tool, ToolExecutionOptions, ToolExecutionResult } from "@wf-agent/types";
 
 // ============================================================
-// Internal Registry Types & Classes
+// Internal Registry Implementations
 // ============================================================
 
 interface NodeTypeEntry {
-  handler: NodeHandlerFn;
   pluginId: string;
+  handler: NodeHandlerFn;
   template?: Record<string, unknown>;
 }
 
 class NodeTypeRegistry {
-  private handlers = new Map<string, NodeTypeEntry>();
+  private entries = new Map<string, NodeTypeEntry>();
 
   register(pluginId: string, nodeType: string, handler: NodeHandlerFn, template?: Record<string, unknown>): void {
-    this.handlers.set(nodeType, { handler, pluginId, template });
+    this.entries.set(nodeType, { pluginId, handler, template });
   }
 
   getHandler(nodeType: string): NodeHandlerFn | undefined {
-    return this.handlers.get(nodeType)?.handler;
+    return this.entries.get(nodeType)?.handler;
   }
 
   hasHandler(nodeType: string): boolean {
-    return this.handlers.has(nodeType);
+    return this.entries.has(nodeType);
   }
 
   getAllNodeTypes(): string[] {
-    return Array.from(this.handlers.keys());
+    return Array.from(this.entries.keys());
   }
 
   getOwner(nodeType: string): string | undefined {
-    return this.handlers.get(nodeType)?.pluginId;
+    return this.entries.get(nodeType)?.pluginId;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.handlers) {
-      if (value.pluginId === pluginId) {
-        this.handlers.delete(key);
+    for (const [nodeType, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(nodeType);
       }
     }
   }
 }
 
 interface ToolTypeEntry {
-  executor: IToolExecutorConstructor;
   pluginId: string;
+  executor: IToolExecutorConstructor;
 }
 
 class ToolTypeRegistry {
-  private executors = new Map<string, ToolTypeEntry>();
+  private entries = new Map<string, ToolTypeEntry>();
 
   register(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
-    this.executors.set(type, { executor, pluginId });
+    this.entries.set(type, { pluginId, executor });
   }
 
   getExecutor(type: string): IToolExecutorConstructor | undefined {
-    return this.executors.get(type)?.executor;
+    return this.entries.get(type)?.executor;
   }
 
   getAllExecutors(): Map<string, ToolTypeEntry> {
-    return new Map(this.executors);
+    return new Map(this.entries);
   }
 
   getAllToolTypes(): string[] {
-    return Array.from(this.executors.keys());
+    return Array.from(this.entries.keys());
   }
 
   getOwner(type: string): string | undefined {
-    return this.executors.get(type)?.pluginId;
+    return this.entries.get(type)?.pluginId;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.executors) {
-      if (value.pluginId === pluginId) {
-        this.executors.delete(key);
+    for (const [type, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(type);
       }
     }
   }
 }
 
 interface LLMProviderEntry {
-  formatter: BaseFormatter;
   pluginId: string;
+  formatter: BaseFormatter;
 }
 
 class LLMProviderRegistry {
-  private providers = new Map<string, LLMProviderEntry>();
+  private entries = new Map<string, LLMProviderEntry>();
 
   register(pluginId: string, provider: string, formatter: BaseFormatter): void {
-    this.providers.set(provider, { formatter, pluginId });
+    this.entries.set(provider, { pluginId, formatter });
   }
 
   getFormatter(provider: string): BaseFormatter | undefined {
-    return this.providers.get(provider)?.formatter;
+    return this.entries.get(provider)?.formatter;
   }
 
   getAllProviders(): string[] {
-    return Array.from(this.providers.keys());
+    return Array.from(this.entries.keys());
   }
 
   getOwner(provider: string): string | undefined {
-    return this.providers.get(provider)?.pluginId;
+    return this.entries.get(provider)?.pluginId;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.providers) {
-      if (value.pluginId === pluginId) {
-        this.providers.delete(key);
+    for (const [provider, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(provider);
       }
     }
   }
 }
 
 interface FormatterEntry {
-  formatter: BaseFormatter;
   pluginId: string;
+  formatter: BaseFormatter;
 }
 
 class FormatterRegistry {
-  private formatters = new Map<string, FormatterEntry>();
+  private entries = new Map<string, FormatterEntry>();
 
   register(pluginId: string, name: string, formatter: BaseFormatter): void {
-    this.formatters.set(name, { formatter, pluginId });
+    this.entries.set(name, { pluginId, formatter });
   }
 
   getFormatter(name: string): BaseFormatter | undefined {
-    return this.formatters.get(name)?.formatter;
+    return this.entries.get(name)?.formatter;
   }
 
   getOwner(name: string): string | undefined {
-    return this.formatters.get(name)?.pluginId;
+    return this.entries.get(name)?.pluginId;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.formatters) {
-      if (value.pluginId === pluginId) {
-        this.formatters.delete(key);
+    for (const [name, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(name);
       }
     }
   }
 }
 
 interface EventHandlerEntry {
-  handler: EventHandler;
   pluginId: string;
+  handler: EventHandler;
   priority?: number;
 }
 
 class EventHandlerRegistry {
-  private handlers = new Map<string, EventHandlerEntry>();
+  private entries = new Map<string, EventHandlerEntry>();
 
   register(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
-    this.handlers.set(eventType, { handler, pluginId, priority });
+    this.entries.set(eventType, { pluginId, handler, priority });
   }
 
   getAllHandlers(): Map<string, EventHandler> {
     const result = new Map<string, EventHandler>();
-    for (const [key, value] of this.handlers) {
-      result.set(key, value.handler);
+    for (const [eventType, entry] of this.entries) {
+      result.set(eventType, entry.handler);
     }
     return result;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.handlers) {
-      if (value.pluginId === pluginId) {
-        this.handlers.delete(key);
+    for (const [eventType, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(eventType);
       }
     }
   }
 }
 
 interface HookHandlerEntry {
-  handler: HookHandler;
   pluginId: string;
+  handler: HookHandler;
 }
 
 class HookHandlerRegistry {
-  private handlers = new Map<string, HookHandlerEntry>();
+  private entries = new Map<string, HookHandlerEntry>();
 
   register(pluginId: string, hookType: string, handler: HookHandler): void {
-    this.handlers.set(hookType, { handler, pluginId });
+    this.entries.set(hookType, { pluginId, handler });
   }
 
   getAllHandlers(): Map<string, HookHandler> {
     const result = new Map<string, HookHandler>();
-    for (const [key, value] of this.handlers) {
-      result.set(key, value.handler);
+    for (const [hookType, entry] of this.entries) {
+      result.set(hookType, entry.handler);
     }
     return result;
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [key, value] of this.handlers) {
-      if (value.pluginId === pluginId) {
-        this.handlers.delete(key);
+    for (const [hookType, entry] of this.entries) {
+      if (entry.pluginId === pluginId) {
+        this.entries.delete(hookType);
       }
     }
   }
 }
 
+interface MiddlewareItem {
+  pluginId: string;
+  mw: ExecutionMiddleware;
+}
+
 class MiddlewareRegistry {
-  private middleware = new Map<MiddlewarePhase, ExecutionMiddleware[]>();
+  private entries = new Map<MiddlewarePhase, MiddlewareItem[]>();
 
   register(phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
-    if (!this.middleware.has(phase)) {
-      this.middleware.set(phase, []);
+    if (!this.entries.has(phase)) {
+      this.entries.set(phase, []);
     }
-    this.middleware.get(phase)!.push(mw);
-    this.middleware.get(phase)!.sort((a, b) => a.priority - b.priority);
+    this.entries.get(phase)!.push({ pluginId: '', mw });
+    // Sort by priority (lower number = higher priority)
+    this.entries.get(phase)!.sort((a, b) => (a.mw.priority ?? 0) - (b.mw.priority ?? 0));
   }
 
   getMiddleware(phase: MiddlewarePhase): ExecutionMiddleware[] {
-    return this.middleware.get(phase) || [];
+    return this.entries.get(phase)?.map(item => item.mw) ?? [];
   }
 
   hasMiddleware(phase: MiddlewarePhase): boolean {
-    const mw = this.middleware.get(phase);
-    return mw !== undefined && mw.length > 0;
+    const items = this.entries.get(phase);
+    return items !== undefined && items.length > 0;
   }
 
-  /**
-   * Execute all middleware for a given phase in sequence (onion model).
-   * Each middleware calls next() to proceed to the next in the pipeline.
-   */
   async runMiddleware(phase: MiddlewarePhase, context: Record<string, unknown>): Promise<void> {
-    const mwList = this.middleware.get(phase);
-    if (!mwList || mwList.length === 0) return;
+    const items = this.entries.get(phase);
+    if (!items || items.length === 0) return;
 
     let index = 0;
     const next = async (): Promise<void> => {
-      if (index >= mwList.length) return;
-      const mw = mwList[index]!;
-      index++;
-      await mw.handler(context, next);
+      if (index < items.length) {
+        const item = items[index++]!;
+        await item.mw.handler(context, next);
+      }
     };
     await next();
   }
 
   unregisterByPluginId(pluginId: string): void {
-    for (const [phase, mwList] of this.middleware) {
-      const filtered = mwList.filter(mw => (mw as unknown as Record<string, unknown>)['_pluginId'] !== pluginId);
-      if (filtered.length === 0) {
-        this.middleware.delete(phase);
+    const phasesToDelete: MiddlewarePhase[] = [];
+    for (const [phase, items] of this.entries) {
+      const remaining = items.filter(item => item.pluginId !== pluginId);
+      if (remaining.length === 0) {
+        phasesToDelete.push(phase);
       } else {
-        this.middleware.set(phase, filtered);
+        items.length = 0;
+        items.push(...remaining);
       }
     }
+    for (const phase of phasesToDelete) {
+      this.entries.delete(phase);
+    }
   }
+}
+
+// ============================================================
+// Type Conversion Helpers
+// ============================================================
+
+/**
+ * Convert a PluginLLMFormatter to a BaseFormatter.
+ */
+function toBaseFormatter(formatter: PluginLLMFormatter): BaseFormatter {
+  return {
+    format: async (request: PluginLLMRequest): Promise<PluginLLMResponse> => {
+      return formatter.format(request);
+    },
+  } as unknown as BaseFormatter;
 }
 
 // ============================================================
@@ -267,9 +312,12 @@ class MiddlewareRegistry {
 // ============================================================
 
 /**
- * Contribution Manager - Central facade for all plugin contribution registries.
+ * ContributionManager - Central manager for all plugin contributions.
+ *
+ * Implements ContributionRegistrar directly, so plugins interact with
+ * this single instance through the registrar interface.
  */
-export class ContributionManager {
+export class ContributionManager implements ContributionRegistrar {
   private logger = createContextualLogger({ component: 'ContributionManager' });
 
   private nodeTypeRegistry = new NodeTypeRegistry();
@@ -281,6 +329,22 @@ export class ContributionManager {
   private middlewareRegistry = new MiddlewareRegistry();
 
   private overridePolicy: OverridePolicy = OverridePolicy.FORBID;
+  private currentPluginId: string = '';
+
+  // ============================================================
+  // Context Management
+  // ============================================================
+
+  /**
+   * Set the plugin context for the current registration session.
+   * Called by PluginEngine before invoking plugin.registerContributions().
+   */
+  setPluginContext(pluginId: string, overridePolicy?: OverridePolicy): void {
+    this.currentPluginId = pluginId;
+    if (overridePolicy !== undefined) {
+      this.overridePolicy = overridePolicy;
+    }
+  }
 
   /**
    * Set the override policy for contribution conflicts.
@@ -308,10 +372,135 @@ export class ContributionManager {
   }
 
   // ============================================================
-  // Registration
+  // ContributionRegistrar Implementation
   // ============================================================
 
-  registerNodeType(
+  get nodeTypes(): NodeTypeRegistrar | undefined {
+    return this.supportsType('node-type') ? this : undefined;
+  }
+
+  get toolTypes(): ToolTypeRegistrar | undefined {
+    return this.supportsType('tool-type') ? this : undefined;
+  }
+
+  get llmProviders(): LLMProviderRegistrar | undefined {
+    return this.supportsType('llm-provider') ? this : undefined;
+  }
+
+  get formatters(): FormatterRegistrar | undefined {
+    return this.supportsType('formatter') ? this : undefined;
+  }
+
+  get eventHandlers(): EventHandlerRegistrar | undefined {
+    return this.supportsType('event-handler') ? this : undefined;
+  }
+
+  get hookHandlers(): HookHandlerRegistrar | undefined {
+    return this.supportsType('hook-handler') ? this : undefined;
+  }
+
+  get middleware(): MiddlewareRegistrar | undefined {
+    return this.supportsType('middleware') ? this : undefined;
+  }
+
+  // ============================================================
+  // NodeTypeRegistrar Implementation
+  // ============================================================
+
+  registerNodeType(type: string, handler: PluginNodeHandler): void {
+    const nodeHandlerFn: NodeHandlerFn = async (_globalContext, _workflowExecutionEntity, _node, _context) => {
+      const context = _context as Record<string, unknown> | undefined;
+      const node = _node as unknown as Record<string, unknown> | undefined;
+      const result = await handler.execute({
+        nodeId: (node?.['id'] as string) ?? '',
+        inputs: (context?.['inputs'] as Record<string, unknown>) ?? {},
+        config: (node?.['config'] as Record<string, unknown>) ?? {},
+      });
+      return result.outputs;
+    };
+    this.registerNodeTypeInternal(this.currentPluginId, type, nodeHandlerFn);
+  }
+
+  // ============================================================
+  // ToolTypeRegistrar Implementation
+  // ============================================================
+
+  registerToolType(type: string, executor: PluginToolExecutor): void {
+    const executorConstructor = class implements IToolExecutor {
+      async execute(
+        _tool: Tool,
+        parameters: Record<string, unknown>,
+        _options?: ToolExecutionOptions,
+        _executionId?: string,
+        _context?: Record<string, unknown>,
+      ): Promise<ToolExecutionResult> {
+        const result = await executor.execute({ args: parameters ?? {} });
+        return { result: result.result } as ToolExecutionResult;
+      }
+      getExecutorType(): string {
+        return type;
+      }
+    };
+    this.registerToolTypeInternal(this.currentPluginId, type, executorConstructor as unknown as IToolExecutorConstructor);
+  }
+
+  // ============================================================
+  // LLMProviderRegistrar Implementation
+  // ============================================================
+
+  registerLLMProvider(provider: string, formatter: PluginLLMFormatter): void {
+    this.registerLLMProviderInternal(this.currentPluginId, provider, toBaseFormatter(formatter));
+  }
+
+  // ============================================================
+  // FormatterRegistrar Implementation
+  // ============================================================
+
+  registerFormatter(name: string, formatter: PluginLLMFormatter): void {
+    this.registerFormatterInternal(this.currentPluginId, name, toBaseFormatter(formatter));
+  }
+
+  // ============================================================
+  // EventHandlerRegistrar Implementation
+  // ============================================================
+
+  registerEventHandler(eventType: string, handler: PluginEventHandler): void {
+    const eventHandler: EventHandler = (event: Record<string, unknown>) => {
+      return handler.handle({ type: eventType, data: event });
+    };
+    this.registerEventHandlerInternal(this.currentPluginId, eventType, eventHandler);
+  }
+
+  // ============================================================
+  // HookHandlerRegistrar Implementation
+  // ============================================================
+
+  registerHookHandler(hookType: string, handler: PluginHookHandler): void {
+    const hookHandler: HookHandler = (context: Record<string, unknown>) => {
+      return handler.handle(context);
+    };
+    this.registerHookHandlerInternal(this.currentPluginId, hookType, hookHandler);
+  }
+
+  // ============================================================
+  // MiddlewareRegistrar Implementation
+  // ============================================================
+
+  registerMiddleware(_phase: string, middleware: PluginExecutionMiddleware): void {
+    const phaseKey = middleware.phase as MiddlewarePhase;
+    const executionMw: ExecutionMiddleware = {
+      phase: phaseKey,
+      handler: middleware.handler,
+      priority: middleware.priority,
+    };
+    this.registerMiddlewareInternal(this.currentPluginId, phaseKey, executionMw);
+  }
+
+  // ============================================================
+  // Internal Registration Methods
+  // ============================================================
+
+  private registerNodeTypeInternal(
     pluginId: string,
     nodeType: string,
     handler: NodeHandlerFn,
@@ -322,33 +511,33 @@ export class ContributionManager {
     });
   }
 
-  registerToolType(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
+  private registerToolTypeInternal(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
     this.handleConflict('tool-type', type, pluginId, () => {
       this.toolTypeRegistry.register(pluginId, type, executor);
     });
   }
 
-  registerLLMProvider(pluginId: string, provider: string, formatter: BaseFormatter): void {
+  private registerLLMProviderInternal(pluginId: string, provider: string, formatter: BaseFormatter): void {
     this.handleConflict('llm-provider', provider, pluginId, () => {
       this.llmProviderRegistry.register(pluginId, provider, formatter);
     });
   }
 
-  registerFormatter(pluginId: string, name: string, formatter: BaseFormatter): void {
+  private registerFormatterInternal(pluginId: string, name: string, formatter: BaseFormatter): void {
     this.handleConflict('formatter', name, pluginId, () => {
       this.formatterRegistry.register(pluginId, name, formatter);
     });
   }
 
-  registerEventHandler(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
+  private registerEventHandlerInternal(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
     this.eventHandlerRegistry.register(pluginId, eventType, handler, priority);
   }
 
-  registerHookHandler(pluginId: string, hookType: string, handler: HookHandler): void {
+  private registerHookHandlerInternal(pluginId: string, hookType: string, handler: HookHandler): void {
     this.hookHandlerRegistry.register(pluginId, hookType, handler);
   }
 
-  registerMiddleware(_pluginId: string, phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
+  private registerMiddlewareInternal(_pluginId: string, phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
     this.middlewareRegistry.register(phase, mw);
   }
 

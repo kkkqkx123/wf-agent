@@ -30,6 +30,7 @@
 import type {
   ID,
   LLMMessage,
+  ToolCallFormatConfig,
   AgentLoopRuntimeConfig,
   AgentLoopStateSnapshot,
 } from "@wf-agent/types";
@@ -148,6 +149,15 @@ export class AgentLoopEntity implements IExecutionEntity {
 
   /** Default warning threshold (can be configured) */
   private warningThreshold: number = 10;
+
+  // ========== Tool Call Format Locking ==========
+
+  /**
+   * Locked tool call format configuration.
+   * Set at execution start; remains immutable for the duration of this execution.
+   * Used by LLMClient to enforce protocol consistency.
+   */
+  private lockedToolCallFormat?: ToolCallFormatConfig;
 
   /**
    * Constructor
@@ -778,6 +788,31 @@ export class AgentLoopEntity implements IExecutionEntity {
    */
   resetWarnings(): void {
     this.warningCount = 0;
+  }
+
+  // ========== Tool Call Format Locking ==========
+
+  /**
+   * Lock the tool call format for this execution.
+   *
+   * Called at execution start by AgentLoopExecutor.prepareExecution().
+   * Once locked, the format is immutable for the duration of this execution.
+   *
+   * @param config The resolved tool call format config to lock
+   */
+  lockToolCallFormat(config: ToolCallFormatConfig): void {
+    this.lockedToolCallFormat = config;
+  }
+
+  /**
+   * Get the locked tool call format.
+   *
+   * Returns the format locked at execution start, or undefined if not yet locked.
+   *
+   * @returns The locked ToolCallFormatConfig or undefined
+   */
+  getLockedToolCallFormat(): ToolCallFormatConfig | undefined {
+    return this.lockedToolCallFormat;
   }
 
   /**

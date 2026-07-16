@@ -3,6 +3,7 @@
  */
 
 import type { ID } from '../../common.js';
+import type { ToolCallFormatConfig } from '../../llm/tool-call-format.js';
 
 /**
  * LLM Node Output
@@ -48,4 +49,12 @@ export interface LLMNodeConfig {
 
   /** Maximum number of tool calls returned by a single LLM call (default 3, error thrown if exceeded) */
   maxToolCallsPerRequest?: number;
+
+  /**
+   * Tool call format configuration.
+   * Declares the expected tool call protocol for this LLM node.
+   * If set, must be compatible with the referenced LLMProfile.toolCallFormat.
+   * If not set, inherits from LLMProfile.toolCallFormat.
+   */
+  toolCallFormat?: ToolCallFormatConfig;
 }

@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import { ToolCallFormatConfigSchema } from "../llm/tool-call-format.js";
 
 /**
  * Agent Hook Configuration File Schema
@@ -101,6 +102,7 @@ export const AgentLoopDefinitionSchema = z.object({
   
   stream: z.boolean().optional(),
   checkpoint: AgentLoopCheckpointConfigSchema.optional(),
+  toolCallFormat: ToolCallFormatConfigSchema.optional(),
   hooks: z.array(AgentHookConfigFileSchema).optional(),
   triggers: z.array(AgentTriggerConfigFileSchema).optional(),
   metadata: AgentLoopMetadataSchema.optional(),

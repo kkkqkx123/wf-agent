@@ -19,7 +19,8 @@
  * - Does not depend on the implementation of any specific module
  */
 
-import type { LLMMessage, LLMResult, ToolSchema } from "@wf-agent/types";
+import type { LLMMessage, LLMResult, ToolSchema, ToolCallFormatConfig } from "@wf-agent/types";
+import { resolveToolCallFormatConfig } from "../llm/formatters/tool-format-selector.js";
 import { LLMWrapper } from "../llm/wrapper.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
@@ -45,6 +46,11 @@ export interface LLMExecutionRequestData {
   /** The maximum number of tool calls returned per LLM invocation (default is 3) */
   maxToolCallsPerRequest?: number;
   stream?: boolean;
+  /**
+   * Locked tool call format for this execution.
+   * Set by the executor at execution start for protocol enforcement.
+   */
+  lockedToolCallFormat?: ToolCallFormatConfig;
 }
 
 /**
@@ -70,6 +76,32 @@ export interface LLMExecutionResult {
  */
 export class LLMExecutor {
   constructor(private llmWrapper: LLMWrapper) {}
+
+  /**
+   * Resolve the tool call format configuration for a given profile ID.
+   * Combines the entity-level config with the profile's toolCallFormat.
+   *
+   * @param profileId Profile ID to resolve for
+   * @param configOverride Optional entity-level tool call format override
+   * @returns Resolved ToolCallFormatConfig
+   */
+  resolveToolCallFormat(
+    profileId?: string,
+    configOverride?: ToolCallFormatConfig,
+  ): ToolCallFormatConfig {
+    try {
+      const profile = this.llmWrapper.getProfile(profileId);
+      const profileFormat = profile?.toolCallFormat;
+      return resolveToolCallFormatConfig({
+        toolCallFormat: configOverride ?? profileFormat,
+      });
+    } catch {
+      // Profile not found, use config override or default
+      return resolveToolCallFormatConfig({
+        toolCallFormat: configOverride,
+      });
+    }
+  }
 
   /**
    * Execute a single LLM call
@@ -108,6 +140,7 @@ export class LLMExecutor {
       parameters: requestData.parameters,
       stream: requestData.stream || false,
       signal: options?.abortSignal, // Pass the AbortSignal
+      lockedToolCallFormat: requestData.lockedToolCallFormat,
     };
 
     // Perform an LLM call.

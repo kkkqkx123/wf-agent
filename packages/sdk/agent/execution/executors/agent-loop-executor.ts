@@ -22,7 +22,7 @@
  * - Consistent architecture with WorkflowExecutor
  */
 
-import type { AgentLoopResult, AgentHookTriggeredEvent } from "@wf-agent/types";
+import type { AgentLoopResult, AgentHookTriggeredEvent, ToolCallFormatConfig } from "@wf-agent/types";
 import type { Tool, ToolApprovalHandler } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -204,16 +204,25 @@ export class AgentLoopExecutor {
     toolSchemas: ReturnType<typeof prepareToolSchemas>;
     maxIterations: number;
     profileId: string;
+    lockedToolCallFormat?: ToolCallFormatConfig;
   } {
     const config = entity.config;
     const maxIterations = config.maxIterations ?? 10;
     const profileId = config.profileId || "DEFAULT";
+
+    // Resolve and lock tool call format protocol
+    const resolvedProtocol = this.llmExecutor.resolveToolCallFormat(
+      profileId,
+      config.toolCallFormat,
+    );
+    entity.lockToolCallFormat(resolvedProtocol);
 
     logger.info(`Agent Loop ${mode} execution started`, {
       agentLoopId: entity.id,
       maxIterations,
       toolsCount: getAvailableTools(config.availableTools).length,
       profileId,
+      toolCallFormat: resolvedProtocol.format,
       initialMessageCount: stateCoordinator.getMessageCount(),
     });
 
@@ -229,7 +238,7 @@ export class AgentLoopExecutor {
       });
     }
 
-    return { toolSchemas, maxIterations, profileId };
+    return { toolSchemas, maxIterations, profileId, lockedToolCallFormat: resolvedProtocol };
   }
 
   /**

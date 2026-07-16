@@ -16,6 +16,11 @@ import type {
 import { HttpClient, HttpSseTransport as SseTransport } from "../../services/index.js";
 import { BaseFormatter, type FormatterConfig } from "./formatters/index.js";
 import { AnthropicFormatter } from "./formatters/anthropic.js";
+import {
+  handleProtocolViolation,
+  type ProtocolViolationContext,
+} from "./formatters/tool-format-selector.js";
+import { DEFAULT_TOOL_CALL_PROTOCOL_CONFIG } from "@wf-agent/types";
 
 /**
  * LLM Client Implementation
@@ -45,12 +50,42 @@ export class LLMClientImpl implements LLMClient {
   /**
    * Get the Formatter configuration
    * Merges request-level toolCallFormat over profile-level configuration.
+   * Enforces locked tool call format if set on the request.
    */
   protected getFormatterConfig(request: LLMRequest, stream: boolean = false): FormatterConfig {
+    const effectiveFormat = request.toolCallFormat ?? this.profile.toolCallFormat;
+
+    // If the request has a locked tool call format, enforce it
+    if (request.lockedToolCallFormat) {
+      // Check if the effective format differs from the locked format
+      const lockedFormat = request.lockedToolCallFormat;
+      const attemptedFormat = effectiveFormat;
+
+      if (attemptedFormat && lockedFormat.format !== attemptedFormat.format) {
+        const violationContext: ProtocolViolationContext = {
+          lockedFormat,
+          attemptedFormat,
+          executionId: "",
+          profileId: this.profile.id,
+        };
+        handleProtocolViolation(
+          violationContext,
+          DEFAULT_TOOL_CALL_PROTOCOL_CONFIG.violationPolicy,
+        );
+      }
+
+      // Always use the locked format
+      return {
+        profile: this.profile,
+        stream,
+        toolCallFormat: lockedFormat,
+      };
+    }
+
     return {
       profile: this.profile,
       stream,
-      toolCallFormat: request.toolCallFormat ?? this.profile.toolCallFormat,
+      toolCallFormat: effectiveFormat,
     };
   }
 

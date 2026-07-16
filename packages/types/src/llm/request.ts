@@ -44,6 +44,14 @@ export interface LLMRequest {
    * Overrides the profile-level toolCallFormat for this specific request.
    */
   toolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Locked tool call format for this execution.
+   * Set by the executor at execution start.
+   * Overrides profile-level toolCallFormat.
+   * The LLMClient must use this format regardless of profile changes.
+   */
+  lockedToolCallFormat?: ToolCallFormatConfig;
   /** Streaming or not */
   stream?: boolean;
   /** AbortSignal for interrupt requests */

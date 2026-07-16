@@ -31,6 +31,7 @@ import type { Message } from "../message/index.js";
 import type { AgentHookStatic, AgentTriggerStatic, AgentCheckpointConfig, AgentLoopMetadata } from "./static-config.js";
 import type { AgentToolConfig } from "./tool-config.js";
 import type { DynamicContextConfig } from "../dynamic-context.js";
+import type { ToolCallFormatConfig } from "../llm/tool-call-format.js";
 
 /**
  * Agent Loop Definition
@@ -113,6 +114,20 @@ export interface AgentLoopDefinition {
 
   /** Checkpoint configuration */
   checkpoint?: AgentCheckpointConfig;
+
+  // ========== Tool Call Format Configuration ==========
+
+  /**
+   * Tool call format configuration.
+   *
+   * Specifies the expected tool call protocol for this agent.
+   * If set, must be compatible with the referenced LLMProfile.toolCallFormat.
+   * If not set, inherits from LLMProfile.toolCallFormat.
+   *
+   * Purpose: allows static definition to declare the expected protocol,
+   * enabling pre-check at load time and locking at runtime.
+   */
+  toolCallFormat?: ToolCallFormatConfig;
 
   // ========== Metadata ==========
 

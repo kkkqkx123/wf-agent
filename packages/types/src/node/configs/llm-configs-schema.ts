@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { ToolCallFormatConfigSchema } from "../../llm/tool-call-format.js";
 
 /**
  * LLM node configuration schema
@@ -17,6 +18,7 @@ export const LLMNodeConfigSchema = z.object({
     .number()
     .min(1, "Max tool calls per request must be at least 1")
     .optional(),
+  toolCallFormat: ToolCallFormatConfigSchema.optional(),
 });
 
 /**

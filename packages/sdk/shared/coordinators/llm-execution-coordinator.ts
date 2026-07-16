@@ -21,6 +21,7 @@ import type {
   LLMMessage,
   Tool,
   ToolSchema,
+  ToolCallFormatConfig,
   LLMUsage,
   TransformContextFn,
   DynamicPromptContext,
@@ -360,6 +361,7 @@ export class LLMExecutionCoordinator {
       profileId: string;
       parameters: Record<string, unknown>;
       tools?: ToolSchema[];
+      lockedToolCallFormat?: ToolCallFormatConfig;
     },
     options: {
       abortSignal?: AbortSignal;
@@ -412,6 +414,7 @@ export class LLMExecutionCoordinator {
         profileId: config.profileId || "DEFAULT",
         parameters: config.parameters || {},
         tools: config.tools,
+        lockedToolCallFormat: config.lockedToolCallFormat,
       },
       { abortSignal, executionId, nodeId },
     );

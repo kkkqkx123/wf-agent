@@ -5,7 +5,7 @@
  * based on the configured tool call format.
  */
 
-import type { ToolCallFormat, ToolCallFormatConfig, ToolCallFormatMarkers } from "@wf-agent/types";
+import type { ToolCallFormat, ToolCallFormatConfig, ToolCallFormatMarkers, ToolCallProtocolViolationPolicy } from "@wf-agent/types";
 import { DEFAULT_JSON_MARKERS, getDefaultFormatConfig, validateToolCallFormatConfig } from "@wf-agent/types";
 import type { PromptTemplate } from "@wf-agent/types";
 import {
@@ -276,4 +276,87 @@ export function getAvailableToolFormats(): Array<{
     name: getToolFormatDisplayName(format),
     description: getToolFormatDescription(format),
   }));
+}
+
+/**
+ * Context for a protocol violation event.
+ */
+export interface ProtocolViolationContext {
+  /** The locked format that should be used */
+  lockedFormat: ToolCallFormatConfig;
+  /** The format that was attempted (from profile or request) */
+  attemptedFormat?: ToolCallFormatConfig;
+  /** Execution ID for tracing */
+  executionId: string;
+  /** Entity ID (optional) */
+  entityId?: string;
+  /** Profile ID that triggered the violation */
+  profileId: string;
+  /** Current iteration number (optional) */
+  iteration?: number;
+}
+
+/**
+ * Error thrown when a protocol violation is detected with the "fail" policy.
+ */
+export class ProtocolViolationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProtocolViolationError";
+  }
+}
+
+/**
+ * Handle a tool call protocol violation.
+ *
+ * Called when the locked tool call format differs from the format
+ * requested by the current LLM profile or request.
+ *
+ * @param context - Context information about the violation
+ * @param policy - The policy to apply
+ * @throws {ProtocolViolationError} When policy is "fail"
+ */
+export function handleProtocolViolation(
+  context: ProtocolViolationContext,
+  policy: ToolCallProtocolViolationPolicy,
+): void {
+  switch (policy) {
+    case "ignore":
+      // Silently use the locked protocol, no logging
+      return;
+
+    case "warn":
+      logger.warn("Tool call protocol violation detected", {
+        lockedFormat: context.lockedFormat.format,
+        attemptedFormat: context.attemptedFormat?.format,
+        executionId: context.executionId,
+        entityId: context.entityId,
+        profileId: context.profileId,
+        iteration: context.iteration,
+      });
+      // Continue with locked protocol
+      return;
+
+    case "fail":
+      logger.error("Tool call protocol violation \u2014 interrupting execution", {
+        lockedFormat: context.lockedFormat.format,
+        attemptedFormat: context.attemptedFormat?.format,
+        executionId: context.executionId,
+      });
+      throw new ProtocolViolationError(
+        `Tool call protocol conflict: locked "${context.lockedFormat.format}" ` +
+        `but profile "${context.profileId}" attempted "${context.attemptedFormat?.format}". ` +
+        "Execution interrupted per fail policy.",
+      );
+
+    case "auto_convert":
+      logger.info("Auto-converting tool call protocol", {
+        from: context.attemptedFormat?.format,
+        to: context.lockedFormat.format,
+        executionId: context.executionId,
+      });
+      // The locked format is already enforced by the formatter.
+      // HistoryConverter will handle the conversion on the next request.
+      return;
+  }
 }

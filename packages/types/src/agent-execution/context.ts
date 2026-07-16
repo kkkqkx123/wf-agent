@@ -30,6 +30,7 @@ import type { AgentToolConfig } from "../agent/tool-config.js";
 import type { DynamicContextConfig } from "../dynamic-context.js";
 import type { DynamicRuntimeContext } from "../dynamic-context.js";
 import type { AgentTrigger } from "./triggers.js";
+import type { ToolCallFormatConfig } from "../llm/tool-call-format.js";
 
 // =============================================================================
 // Dynamic Prompt Injection (Two-Layer Design)
@@ -210,6 +211,17 @@ export interface AgentLoopRuntimeConfig {
    * @default 0 (no periodic checkpoint)
    */
   checkpointIntervalMs?: number;
+
+  // ========== Tool Call Format Configuration ==========
+
+  /**
+   * Tool call format configuration.
+   *
+   * Specifies the expected tool call protocol for this agent at runtime.
+   * Typically resolved from AgentLoopDefinition.toolCallFormat or LLMProfile.toolCallFormat.
+   * Once locked at execution start, this becomes immutable via the entity's lock mechanism.
+   */
+  toolCallFormat?: ToolCallFormatConfig;
 
   /** Hook configuration list (with parsed Condition objects) */
   hooks?: AgentHook[];

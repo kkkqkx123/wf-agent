@@ -16,7 +16,7 @@ describe("HistoryConverter", () => {
           toolCalls: [{ id: "c1", type: "function", function: { name: "test", arguments: "{}" } }],
         },
       ];
-      const result = HistoryConverter.convertToTextMode(messages, "function_call");
+      const result = HistoryConverter.convertToTextMode(messages, "native");
       expect(result).toBe(messages);
     });
 
@@ -167,7 +167,7 @@ describe("HistoryConverter", () => {
         content: "Hi",
         toolCalls: [{ id: "c1", type: "function", function: { name: "test", arguments: "{}" } }],
       };
-      expect(HistoryConverter.needsConversion(message, "function_call")).toBe(false);
+      expect(HistoryConverter.needsConversion(message, "native")).toBe(false);
     });
 
     it("should return true for assistant messages with tool calls in xml format", () => {

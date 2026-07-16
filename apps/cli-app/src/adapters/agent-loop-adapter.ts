@@ -75,14 +75,15 @@ export class AgentLoopAdapter extends BaseAdapter {
       config.transformContext = async (context) => {
         const staticSystem = await buildSystemContextPrompt(mergedConfig);
 
-        // Build DynamicRuntimeContext from execution metadata
+        // Build DynamicRuntimeContext from config.runtimeContext (primary) and context.metadata (fallback)
+        const configRuntime = config.runtimeContext ?? {};
         const metadata = context.metadata ?? {};
         const runtimeContext: DynamicRuntimeContext = {
           currentTime: mergedConfig.includeCurrentTime ? Date.now() : undefined,
-          todoList: metadata["todoList"] as DynamicRuntimeContext["todoList"],
-          pinnedFiles: metadata["pinnedFiles"] as DynamicRuntimeContext["pinnedFiles"],
-          workspaceFileTree: metadata["workspaceFileTree"] as string | undefined,
-          customData: metadata["customData"] as Record<string, unknown> | undefined,
+          todoList: configRuntime.todoList ?? (metadata["todoList"] as DynamicRuntimeContext["todoList"]),
+          pinnedFiles: configRuntime.pinnedFiles ?? (metadata["pinnedFiles"] as DynamicRuntimeContext["pinnedFiles"]),
+          workspaceFileTree: configRuntime.workspaceFileTree ?? (metadata["workspaceFileTree"] as string | undefined),
+          customData: configRuntime.customData ?? (metadata["customData"] as Record<string, unknown> | undefined),
         };
 
         const dynamicUserContext = await buildUserContextContent(runtimeContext);
@@ -99,50 +100,6 @@ export class AgentLoopAdapter extends BaseAdapter {
         "Dynamic context not configured: " +
           (error instanceof Error ? error.message : String(error)),
       );
-    }
-  }
-
-  /**
-   * Apply skills integration to the agent loop runtime config.
-   */
-  applySkillsToConfig(): void {
-    try {
-      this.output.infoLog("Skills integration not configured in CLI adapter");
-    } catch {
-      this.output.infoLog("Skills not configured, running without skill support");
-    }
-  }
-
-  /**
-   * Apply workflows integration to the agent loop runtime config.
-   */
-  async applyWorkflowsToConfig(): Promise<void> {
-    try {
-      this.output.infoLog("Workflow integration not configured in CLI adapter");
-    } catch {
-      this.output.infoLog("Workflows not configured, running without workflow support");
-    }
-  }
-
-  /**
-   * Apply agent integration to the agent loop runtime config.
-   */
-  applyAgentsToConfig(): void {
-    try {
-      this.output.infoLog("Agent integration not configured in CLI adapter");
-    } catch {
-      this.output.infoLog("Agent integration not configured, running without agent profile injection");
-    }
-  }
-
-  /**
-   * Create a SkillHandlerConfig from the SkillRegistry in the DI container.
-   */
-  createSkillHandlerConfig(): unknown {
-    try {
-      return null;
-    } catch {
-      return null;
     }
   }
 

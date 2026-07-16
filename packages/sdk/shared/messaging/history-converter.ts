@@ -5,7 +5,7 @@
  * and text-based formats (XML/JSON).
  */
 
-import type { LLMMessage, ToolCallFormat } from "@wf-agent/types";
+import type { LLMMessage, ToolCallFormat, ToolCallXmlTags } from "@wf-agent/types";
 import { ToolDeclarationFormatter } from "../tools/index.js";
 import { DEFAULT_XML_TAGS, DEFAULT_JSON_MARKERS } from "@wf-agent/types";
 
@@ -13,7 +13,7 @@ export interface HistoryConversionOptions {
   /** Target format */
   targetFormat: ToolCallFormat;
   /** Custom XML tags */
-  xmlTags?: typeof DEFAULT_XML_TAGS;
+  xmlTags?: ToolCallXmlTags;
   /** Custom markers */
   markers?: typeof DEFAULT_JSON_MARKERS;
 }
@@ -28,7 +28,7 @@ export class HistoryConverter {
     options?: Partial<HistoryConversionOptions>,
   ): LLMMessage[] {
     // No conversion needed for native mode
-    if (format === "function_call") {
+    if (format === "native") {
       return messages;
     }
 
@@ -60,7 +60,7 @@ export class HistoryConverter {
 
     const toolCallText = ToolDeclarationFormatter.formatToolCalls(message.toolCalls, {
       format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
-      xmlTags: xmlTags as unknown as Record<string, string>,
+      xmlTags,
       markers,
     });
 
@@ -91,7 +91,7 @@ export class HistoryConverter {
       message as unknown as { toolCallId?: string; content: string },
       {
         format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
-        xmlTags: xmlTags as unknown as Record<string, string>,
+        xmlTags,
         markers,
       },
     );
@@ -107,7 +107,7 @@ export class HistoryConverter {
    * Check if message needs conversion
    */
   static needsConversion(message: LLMMessage, targetFormat: ToolCallFormat): boolean {
-    if (targetFormat === "function_call") {
+    if (targetFormat === "native") {
       return false;
     }
 

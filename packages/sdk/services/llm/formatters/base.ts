@@ -441,7 +441,7 @@ export abstract class BaseFormatter {
    * Check if using text-based tool format (XML/JSON)
    */
   protected isTextBasedToolMode(config: FormatterConfig): boolean {
-    const format = config.toolCallFormat?.format || "function_call";
+    const format = config.toolCallFormat?.format || "native";
     return format === "xml" || format === "json_wrapped" || format === "json_raw";
   }
 
@@ -449,7 +449,52 @@ export abstract class BaseFormatter {
    * Get tool call format from config
    */
   protected getToolCallFormat(config: FormatterConfig): ToolCallFormat {
-    return config.toolCallFormat?.format || "function_call";
+    return config.toolCallFormat?.format || "native";
+  }
+
+  /**
+   * Get tool usage instructions based on text format
+   *
+   * Generates provider-agnostic instructions for LLM to format tool calls
+   * in XML or wrapped JSON format. Returns empty string for native function_call format.
+   *
+   * @param format Tool call format
+   * @returns Usage instructions string
+   */
+  protected getToolUsageInstructions(format: ToolCallFormat): string {
+    if (format === "xml") {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<tool_use>
+  <tool_name>tool_name_here</tool_name>
+  <parameters>
+    <param1>value1</param1>
+    <param2>value2</param2>
+  </parameters>
+</tool_use>
+
+You can use multiple tools in one response by including multiple <tool_use> blocks.`;
+    } else if (format === "json_wrapped") {
+      return `## Tool Usage Instructions
+
+When you need to use a tool, format your response as follows:
+
+<<<TOOL_CALL>>>
+{
+  "tool": "tool_name_here",
+  "parameters": {
+    "param1": "value1",
+    "param2": "value2"
+  }
+}
+<<<END_TOOL_CALL>>>
+
+You can use multiple tools in one response by including multiple blocks.`;
+    }
+
+    return "";
   }
 
   /**

@@ -10,7 +10,6 @@ import type {
   LLMResult,
   LLMMessage,
   LLMToolCall,
-  ToolCallFormat,
 } from "@wf-agent/types";
 import type { Tool, ToolSchema } from "@wf-agent/types";
 import type { FormatterConfig, BuildRequestResult, ParseStreamChunkResult } from "./types.js";
@@ -235,45 +234,6 @@ export class AnthropicFormatter extends BaseFormatter {
       },
       reasoningContent: thinkingContent,
     };
-  }
-
-  /**
-   * Get tool usage instructions based on format
-   */
-  private getToolUsageInstructions(format: ToolCallFormat): string {
-    if (format === "xml") {
-      return `## Tool Usage Instructions
-
-When you need to use a tool, format your response as follows:
-
-<tool_use>
-  <tool_name>tool_name_here</tool_name>
-  <parameters>
-    <param1>value1</param1>
-    <param2>value2</param2>
-  </parameters>
-</tool_use>
-
-You can use multiple tools in one response by including multiple <tool_use> blocks.`;
-    } else if (format === "json_wrapped") {
-      return `## Tool Usage Instructions
-
-When you need to use a tool, format your response as follows:
-
-<<<TOOL_CALL>>>
-{
-  "tool": "tool_name_here",
-  "parameters": {
-    "param1": "value1",
-    "param2": "value2"
-  }
-}
-<<<END_TOOL_CALL>>>
-
-You can use multiple tools in one response by including multiple blocks.`;
-    }
-
-    return "";
   }
 
   parseStreamChunk(data: unknown): ParseStreamChunkResult {

@@ -16,7 +16,7 @@
  */
 
 import type { Tool } from "@wf-agent/types";
-import type { ToolCallFormatMarkers } from "@wf-agent/types";
+import type { ToolCallXmlTags, ToolCallFormatMarkers } from "@wf-agent/types";
 import { generateToolParametersDescription } from "./tool-parameters-describer.js";
 
 /**
@@ -97,14 +97,14 @@ export class ToolDeclarationFormatter {
    */
   static formatToolCalls(
     toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>,
-    options: { format: "xml" | "json"; xmlTags: Record<string, string>; markers: ToolCallFormatMarkers },
+    options: { format: "xml" | "json"; xmlTags: ToolCallXmlTags; markers: ToolCallFormatMarkers },
   ): string {
     if (options.format === "xml") {
       const { xmlTags } = options;
       return toolCalls
         .map(tc => {
           const args = tc.function.arguments;
-          return `<${xmlTags["toolCallTag"]}>\n<${xmlTags["toolNameTag"]}>${tc.function.name}</${xmlTags["toolNameTag"]}>\n<${xmlTags["toolArgsTag"]}>${args}</${xmlTags["toolArgsTag"]}>\n</${xmlTags["toolCallTag"]}>`;
+          return `<${xmlTags.toolCall}>\n<${xmlTags.toolName}>${tc.function.name}</${xmlTags.toolName}>\n<${xmlTags.toolArgs}>${args}</${xmlTags.toolArgs}>\n</${xmlTags.toolCall}>`;
         })
         .join("\n");
     }
@@ -135,11 +135,11 @@ export class ToolDeclarationFormatter {
 
   static formatToolResult(
     message: { toolCallId?: string; content: string },
-    options: { format: "xml" | "json"; xmlTags: Record<string, string>; markers: ToolCallFormatMarkers },
+    options: { format: "xml" | "json"; xmlTags: ToolCallXmlTags; markers: ToolCallFormatMarkers },
   ): string {
     if (options.format === "xml") {
       const { xmlTags } = options;
-      return `<${xmlTags["toolResultTag"]}>\n<${xmlTags["toolIdTag"]}>${message.toolCallId}</${xmlTags["toolIdTag"]}>\n<${xmlTags["toolOutputTag"]}>${message.content}</${xmlTags["toolOutputTag"]}>\n</${xmlTags["toolResultTag"]}>`;
+      return `<${xmlTags.toolResult}>\n<${xmlTags.toolCallId}>${message.toolCallId}</${xmlTags.toolCallId}>\n<${xmlTags.toolOutput}>${message.content}</${xmlTags.toolOutput}>\n</${xmlTags.toolResult}>`;
     }
     return `${options.markers.start}\n${JSON.stringify({ tool_call_id: message.toolCallId, output: message.content })}\n${options.markers.end}`;
   }

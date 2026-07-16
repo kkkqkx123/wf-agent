@@ -241,6 +241,11 @@ export class McpToolsDynamicContextProvider {
    * This function can be used as the transformContext callback to automatically
    * inject MCP tools context into LLM prompts.
    *
+   * @deprecated Use {@link createDynamicPromptInjectionFn} instead, which integrates
+   * with the standard TransformContextFn pipeline (AgentLoopRuntimeConfig.transformContext).
+   * The new API returns `DynamicPromptInjection` and is compatible with the core
+   * dynamic injection system via `injectDynamicPrompts`.
+   *
    * @param options - Context generation options
    * @returns TransformContextFn implementation
    */

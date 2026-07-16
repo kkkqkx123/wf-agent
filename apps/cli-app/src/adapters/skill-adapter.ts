@@ -215,26 +215,6 @@ export class SkillAdapter extends BaseAdapter {
   }
 
   /**
-   * Inject Skill metadata into system prompt
-   * Replace {SKILLS_METADATA} placeholder
-   *
-   * @param systemPrompt Original system prompt
-   * @returns Injected system prompt
-   */
-  injectSkillsMetadata(systemPrompt: string): string {
-    const metadataPrompt = this.generateMetadataPrompt();
-
-    if (metadataPrompt) {
-      const result = systemPrompt.replace("{SKILLS_METADATA}", metadataPrompt);
-      this.output.infoLog("Skill metadata has been injected into the system prompt");
-      return result;
-    }
-
-    // No Skill, remove placeholder
-    return systemPrompt.replace("{SKILLS_METADATA}", "");
-  }
-
-  /**
    * Enable a Skill by name
    * @param name Skill name
    */

@@ -5,6 +5,7 @@
 import type { ID } from "../common.js";
 import type { Message } from "../message/index.js";
 import type { ToolSchema } from "../tool/index.js";
+import type { ToolCallFormatConfig } from "./tool-call-format.js";
 
 /**
  * Dead loop detection configuration for LLM requests
@@ -38,6 +39,11 @@ export interface LLMRequest {
   parameters?: Record<string, unknown>;
   /** Definition of available tools */
   tools?: ToolSchema[];
+  /**
+   * Tool call format configuration override.
+   * Overrides the profile-level toolCallFormat for this specific request.
+   */
+  toolCallFormat?: ToolCallFormatConfig;
   /** Streaming or not */
   stream?: boolean;
   /** AbortSignal for interrupt requests */

@@ -6,7 +6,7 @@
  */
 
 import type { ToolCallFormat, ToolCallFormatConfig, ToolCallFormatMarkers } from "@wf-agent/types";
-import { DEFAULT_JSON_MARKERS, getDefaultFormatConfig } from "@wf-agent/types";
+import { DEFAULT_JSON_MARKERS, getDefaultFormatConfig, validateToolCallFormatConfig } from "@wf-agent/types";
 import type { PromptTemplate } from "@wf-agent/types";
 import {
   TOOLS_XML_LIST_TEMPLATE,
@@ -22,6 +22,7 @@ import {
   TOOL_RAW_PARAMETER_LINE_TEMPLATE,
 } from "../../../resources/predefined/prompt-templates/tool-format-templates.js";
 import type { ToolCallParseOptions } from "./types.js";
+import { sdkLogger as logger } from "../../../utils/logger.js";
 
 /**
  * Tool format template set
@@ -48,7 +49,7 @@ export function getToolFormatTemplates(
   compact: boolean = false,
 ): ToolFormatTemplateSet {
   switch (format) {
-    case "function_call":
+    case "native":
       // Native function call: tools are passed via API's tools parameter,
       // but we still include raw-style templates as a fallback for
       // text-mode scenarios (e.g. prompt injection for non-native providers).
@@ -108,7 +109,7 @@ export function getToolCallParserOptions(
   customMarkers?: ToolCallFormatMarkers,
 ): ToolCallParseOptions {
   switch (format) {
-    case "function_call":
+    case "native":
       // Native format uses API's built-in parsing
       return {
         preferredFormats: ["raw"],
@@ -152,14 +153,25 @@ export function resolveToolCallFormatConfig(
 ): ToolCallFormatConfig {
   // If toolCallFormat is provided, use it directly
   if (config.toolCallFormat) {
-    return {
+    const resolved: ToolCallFormatConfig = {
       ...getDefaultFormatConfig(config.toolCallFormat.format),
       ...config.toolCallFormat,
     };
+
+    // Validate the resolved configuration
+    const validation = validateToolCallFormatConfig(resolved);
+    if (!validation.valid) {
+      logger.warn("Invalid tool call format configuration", {
+        errors: validation.errors,
+        config: config.toolCallFormat,
+      });
+    }
+
+    return resolved;
   }
 
-  // Default to function_call
-  return getDefaultFormatConfig("function_call");
+  // Default to native
+  return getDefaultFormatConfig("native");
 }
 
 /**
@@ -169,7 +181,7 @@ export function resolveToolCallFormatConfig(
  * @returns Whether tool descriptions should be included in prompt
  */
 export function requiresPromptToolDescriptions(format: ToolCallFormat): boolean {
-  return format !== "function_call";
+  return format !== "native";
 }
 
 /**
@@ -179,7 +191,7 @@ export function requiresPromptToolDescriptions(format: ToolCallFormat): boolean 
  * @returns Whether custom parsing is needed
  */
 export function requiresCustomParsing(format: ToolCallFormat): boolean {
-  return format !== "function_call";
+  return format !== "native";
 }
 
 /**
@@ -223,7 +235,7 @@ export function validateToolFormatCompatibility(
  */
 export function getToolFormatDisplayName(format: ToolCallFormat): string {
   const names: Record<ToolCallFormat, string> = {
-    function_call: "Native Function Call",
+    native: "Native Function Call",
     xml: "XML Format",
     json_wrapped: "Wrapped JSON Format",
     json_raw: "Raw JSON Format",
@@ -239,7 +251,7 @@ export function getToolFormatDisplayName(format: ToolCallFormat): string {
  */
 export function getToolFormatDescription(format: ToolCallFormat): string {
   const descriptions: Record<ToolCallFormat, string> = {
-    function_call: "Uses the LLM provider's native function calling API (OpenAI, Anthropic, etc.)",
+    native: "Uses the LLM provider's native function calling API (OpenAI, Anthropic, etc.)",
     xml: "Tools described in XML format, LLM outputs XML tool calls",
     json_wrapped: "Tools described in JSON, LLM outputs JSON wrapped with custom markers",
     json_raw: "Tools described in JSON, LLM outputs raw JSON without markers",
@@ -257,7 +269,7 @@ export function getAvailableToolFormats(): Array<{
   name: string;
   description: string;
 }> {
-  const formats: ToolCallFormat[] = ["function_call", "xml", "json_wrapped", "json_raw"];
+  const formats: ToolCallFormat[] = ["native", "xml", "json_wrapped", "json_raw"];
 
   return formats.map(format => ({
     value: format,

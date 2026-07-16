@@ -12,7 +12,7 @@ import { z } from "zod";
  * Defines how tools are described in prompts and how LLM should format tool calls
  */
 export type ToolCallFormat =
-  | "function_call" // Native API function calling (OpenAI, Anthropic, etc.)
+  | "native" // Native API function calling (OpenAI, Anthropic, etc.)
   | "xml" // XML format for non-function-calling models
   | "json_wrapped" // JSON wrapped with custom markers (e.g., <<<TOOL_CALL>>>)
   | "json_raw"; // Raw JSON without markers
@@ -29,15 +29,24 @@ export interface ToolCallFormatMarkers {
 
 /**
  * XML tag configuration for XML format
+ *
+ * Defines the XML tag names used for tool call and tool result formatting.
+ * All tags are required except `item` (used for array items in tool parameters).
  */
 export interface ToolCallXmlTags {
-  /** Root tag for tool use */
-  toolUse: string;
-  /** Tag for tool name */
+  /** Root tag for a tool call invocation (e.g. "tool_use") */
+  toolCall: string;
+  /** Tag for tool name (e.g. "tool_name") */
   toolName: string;
-  /** Tag for parameters section */
-  parameters: string;
-  /** Tag for array items */
+  /** Tag for tool arguments/parameters (e.g. "parameters") */
+  toolArgs: string;
+  /** Root tag for a tool result (e.g. "tool_result") */
+  toolResult: string;
+  /** Tag for tool call ID in result (e.g. "tool_call_id") */
+  toolCallId: string;
+  /** Tag for tool output/content (e.g. "tool_output") */
+  toolOutput: string;
+  /** Tag for array items in parameters (e.g. "item") */
   item?: string;
 }
 
@@ -55,11 +64,11 @@ export interface ToolCallFormatConfig {
   /** XML tag names for XML format (only used when format is "xml") */
   xmlTags?: ToolCallXmlTags;
 
-  /** Whether to include tool description in prompt */
-  includeDescription: boolean;
+  /** Whether to include tool description in prompt (default: true) */
+  includeDescription?: boolean;
 
-  /** Tool description format style */
-  descriptionStyle: "detailed" | "compact" | "minimal";
+  /** Tool description format style (default: "detailed") */
+  descriptionStyle?: "detailed" | "compact" | "minimal";
 
   /** Whether to include tool usage examples in prompt */
   includeExamples?: boolean;
@@ -72,7 +81,7 @@ export interface ToolCallFormatConfig {
  * Default tool call format configuration
  */
 export const DEFAULT_TOOL_CALL_FORMAT_CONFIG: ToolCallFormatConfig = {
-  format: "function_call",
+  format: "native",
   includeDescription: true,
   descriptionStyle: "detailed",
   includeExamples: true,
@@ -91,40 +100,14 @@ export const DEFAULT_JSON_MARKERS: ToolCallFormatMarkers = {
  * Default XML tags for XML format
  */
 export const DEFAULT_XML_TAGS: ToolCallXmlTags = {
-  toolUse: "tool_use",
+  toolCall: "tool_use",
   toolName: "tool_name",
-  parameters: "parameters",
+  toolArgs: "parameters",
+  toolResult: "tool_result",
+  toolCallId: "tool_call_id",
+  toolOutput: "tool_output",
   item: "item",
 };
-
-/**
- * Migration helper: Convert legacy toolMode to ToolCallFormatConfig
- * @param toolMode Legacy tool mode string
- * @returns ToolCallFormatConfig or undefined if toolMode is not provided
- */
-export function migrateToolMode(toolMode?: string): ToolCallFormatConfig | undefined {
-  if (!toolMode) return undefined;
-
-  const formatMap: Record<string, ToolCallFormat> = {
-    function_call: "function_call",
-    xml: "xml",
-    json: "json_wrapped",
-    raw: "json_raw",
-  };
-
-  const format = formatMap[toolMode];
-  if (!format) return undefined;
-
-  return {
-    format,
-    markers: format === "json_wrapped" ? DEFAULT_JSON_MARKERS : undefined,
-    xmlTags: format === "xml" ? DEFAULT_XML_TAGS : undefined,
-    includeDescription: true,
-    descriptionStyle: "detailed",
-    includeExamples: true,
-    includeRules: true,
-  };
-}
 
 /**
  * Get default format configuration for a specific format
@@ -176,7 +159,7 @@ export function validateToolCallFormatConfig(config: ToolCallFormatConfig): {
  * Tool Call Format Schema
  */
 export const ToolCallFormatSchema: z.ZodType<ToolCallFormat> = z.enum([
-  "function_call",
+  "native",
   "xml",
   "json_wrapped",
   "json_raw",
@@ -194,9 +177,12 @@ export const ToolCallFormatMarkersSchema: z.ZodType<ToolCallFormatMarkers> = z.o
  * Tool Call XML Tags Schema
  */
 export const ToolCallXmlTagsSchema: z.ZodType<ToolCallXmlTags> = z.object({
-  toolUse: z.string().min(1, { message: "Tool use tag is required" }),
+  toolCall: z.string().min(1, { message: "Tool call tag is required" }),
   toolName: z.string().min(1, { message: "Tool name tag is required" }),
-  parameters: z.string().min(1, { message: "Parameters tag is required" }),
+  toolArgs: z.string().min(1, { message: "Tool args tag is required" }),
+  toolResult: z.string().min(1, { message: "Tool result tag is required" }),
+  toolCallId: z.string().min(1, { message: "Tool call ID tag is required" }),
+  toolOutput: z.string().min(1, { message: "Tool output tag is required" }),
   item: z.string().optional(),
 });
 
@@ -207,8 +193,8 @@ export const ToolCallFormatConfigSchema: z.ZodType<ToolCallFormatConfig> = z.obj
   format: ToolCallFormatSchema,
   markers: ToolCallFormatMarkersSchema.optional(),
   xmlTags: ToolCallXmlTagsSchema.optional(),
-  includeDescription: z.boolean(),
-  descriptionStyle: z.enum(["detailed", "compact", "minimal"]),
+  includeDescription: z.boolean().optional(),
+  descriptionStyle: z.enum(["detailed", "compact", "minimal"]).optional(),
   includeExamples: z.boolean().optional(),
   includeRules: z.boolean().optional(),
 });

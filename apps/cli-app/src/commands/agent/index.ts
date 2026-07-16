@@ -107,9 +107,6 @@ export function createAgentCommands(): Command {
 
           const adapter = new AgentLoopAdapter();
 
-          // Apply skills integration: inject metadata into system prompt
-          adapter.applySkillsToConfig();
-
           // Apply dynamic context injection
           // All dynamic context is disabled by default; only agent config or explicit CLI
           // options can enable specific features

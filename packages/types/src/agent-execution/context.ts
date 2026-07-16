@@ -28,6 +28,7 @@ import type { AgentHook } from "./hooks.js";
 import type { AgentLoopStatus, AgentLoopResult } from "./types.js";
 import type { AgentToolConfig } from "../agent/tool-config.js";
 import type { DynamicContextConfig } from "../dynamic-context.js";
+import type { DynamicRuntimeContext } from "../dynamic-context.js";
 import type { AgentTrigger } from "./triggers.js";
 
 // =============================================================================
@@ -251,6 +252,28 @@ export interface AgentLoopRuntimeConfig {
    * CLI options can override these settings.
    */
   dynamicContextConfig?: DynamicContextConfig;
+
+  /**
+   * Runtime context data for dynamic user context injection
+   *
+   * Provides runtime data (TODO list, pinned files, workspace tree, custom data)
+   * that is injected into the last user message before each LLM call.
+   * This data is consumed by `buildUserContextContent()` to generate
+   * the dynamic user context section of the prompt.
+   *
+   * When provided via the CLI adapter, this data is combined with
+   * any metadata from the DynamicPromptContext at runtime.
+   *
+   * @example
+   * ```typescript
+   * config.runtimeContext = {
+   *   todoList: [{ content: "Fix bug", status: "pending" }],
+   *   pinnedFiles: [{ path: "/path/to/file.ts" }],
+   *   workspaceFileTree: "src/\n  index.ts",
+   * };
+   * ```
+   */
+  runtimeContext?: DynamicRuntimeContext;
 
   // ========== Failure Handling Policy (Problem #5 enhancement) ==========
 

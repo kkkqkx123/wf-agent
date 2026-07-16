@@ -12,7 +12,7 @@ import {
 describe("ToolFormatSelector", () => {
   describe("getToolFormatTemplates", () => {
     it("should return raw templates for function_call format", () => {
-      const templates = getToolFormatTemplates("function_call");
+      const templates = getToolFormatTemplates("native");
       expect(templates.listTemplate).toBeDefined();
       expect(templates.singleTemplate).toBeDefined();
       expect(templates.parameterTemplate).toBeDefined();
@@ -49,7 +49,7 @@ describe("ToolFormatSelector", () => {
 
   describe("getToolFormatDisplayName", () => {
     it("should return display name for function_call", () => {
-      expect(getToolFormatDisplayName("function_call")).toBe("Native Function Call");
+      expect(getToolFormatDisplayName("native")).toBe("Native Function Call");
     });
 
     it("should return display name for xml", () => {
@@ -71,7 +71,7 @@ describe("ToolFormatSelector", () => {
 
   describe("getToolFormatDescription", () => {
     it("should return description for function_call", () => {
-      expect(getToolFormatDescription("function_call")).toBe(
+      expect(getToolFormatDescription("native")).toBe(
         "Uses the LLM provider's native function calling API (OpenAI, Anthropic, etc.)",
       );
     });
@@ -107,7 +107,7 @@ describe("ToolFormatSelector", () => {
 
     it("should include function_call format", () => {
       const formats = getAvailableToolFormats();
-      expect(formats.find(f => f.value === "function_call")).toBeDefined();
+      expect(formats.find(f => f.value === "native")).toBeDefined();
     });
 
     it("should include xml format", () => {

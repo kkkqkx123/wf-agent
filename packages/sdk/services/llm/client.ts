@@ -44,11 +44,13 @@ export class LLMClientImpl implements LLMClient {
 
   /**
    * Get the Formatter configuration
+   * Merges request-level toolCallFormat over profile-level configuration.
    */
-  protected getFormatterConfig(stream: boolean = false): FormatterConfig {
+  protected getFormatterConfig(request: LLMRequest, stream: boolean = false): FormatterConfig {
     return {
       profile: this.profile,
       stream,
+      toolCallFormat: request.toolCallFormat ?? this.profile.toolCallFormat,
     };
   }
 
@@ -56,7 +58,7 @@ export class LLMClientImpl implements LLMClient {
    * Non-streaming generation
    */
   async generate(request: LLMRequest): Promise<LLMResult> {
-    const config = this.getFormatterConfig(false);
+    const config = this.getFormatterConfig(request, false);
     const { httpRequest } = this.formatter.buildRequest(request, config);
 
     const response = await this.httpClient.post(httpRequest.url, httpRequest.body, {
@@ -71,7 +73,7 @@ export class LLMClientImpl implements LLMClient {
    * Stream generation
    */
   async *generateStream(request: LLMRequest): AsyncIterable<LLMResult> {
-    const config = this.getFormatterConfig(true);
+    const config = this.getFormatterConfig(request, true);
     const { httpRequest } = this.formatter.buildRequest(request, config);
 
     // Create an SseTransport instance
@@ -165,7 +167,7 @@ export class LLMClientImpl implements LLMClient {
     }
 
     const formatter = this.formatter as AnthropicFormatter;
-    const config = this.getFormatterConfig(false);
+    const config = this.getFormatterConfig(request, false);
     const { httpRequest } = formatter.buildCountTokensRequest(request, config);
 
     const response = await this.httpClient.post<Record<string, unknown>>(

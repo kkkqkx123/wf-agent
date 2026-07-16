@@ -11,7 +11,7 @@
 
 import { BaseMetricCollector } from "./base-collector.js";
 import type { MetricCollectorConfig, MetricFilter, MetricQueryResult } from "./types.js";
-import { AGENT_LOOP_METRICS } from "./constants.js";
+import { AGENT_LOOP_METRICS, PROTOCOL_METRICS } from "./constants.js";
 import { PrometheusFormatter, type PrometheusMetric } from "./utils/prometheus-formatter.js";
 
 /**
@@ -188,6 +188,84 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
   }
 
   /**
+   * Record protocol locked at execution start.
+   *
+   * Tracks the tool call format that was resolved and locked for this execution.
+   * The `source` indicates where the format came from: "definition", "profile", or "default".
+   *
+   * @param format The locked tool call format (e.g. "native", "xml", "json_wrapped")
+   * @param agentLoopId Agent Loop ID
+   * @param profileId Profile ID used for resolution
+   * @param source Source of the protocol: "definition" | "profile" | "default"
+   */
+  recordProtocolLocked(
+    format: string,
+    agentLoopId: string,
+    profileId: string,
+    source: "definition" | "profile" | "default",
+  ): void {
+    this.incrementCounter(PROTOCOL_METRICS.LOCKED_COUNT, {
+      format,
+      agent_loop_id: agentLoopId,
+      profile_id: profileId,
+      source,
+    });
+  }
+
+  /**
+   * Record protocol violation detected.
+   *
+   * A violation occurs when the locked tool call format differs from
+   * the format requested by the current LLM profile or request.
+   *
+   * @param lockedFormat The locked format
+   * @param attemptedFormat The format that was attempted
+   * @param policy The policy applied ("ignore", "warn", "fail", "auto_convert")
+   * @param agentLoopId Agent Loop ID
+   * @param profileId Profile ID that triggered the violation
+   */
+  recordProtocolViolation(
+    lockedFormat: string,
+    attemptedFormat: string,
+    policy: string,
+    agentLoopId: string,
+    profileId: string,
+  ): void {
+    this.incrementCounter(PROTOCOL_METRICS.VIOLATION_COUNT, {
+      locked_format: lockedFormat,
+      attempted_format: attemptedFormat,
+      policy,
+      agent_loop_id: agentLoopId,
+      profile_id: profileId,
+    });
+  }
+
+  /**
+   * Record cross-boundary protocol conversion.
+   *
+   * A conversion occurs when execution crosses from one context to another
+   * (e.g., sub-agent spawn, workflow fork) and the protocols differ.
+   *
+   * @param fromFormat Source protocol format
+   * @param toFormat Target protocol format
+   * @param boundaryType Type of boundary crossed
+   * @param agentLoopId Agent Loop ID
+   */
+  recordProtocolConversion(
+    fromFormat: string,
+    toFormat: string,
+    boundaryType: "sub_agent" | "workflow_fork" | "triggered_subworkflow" | "workflow_to_agent",
+    agentLoopId: string,
+  ): void {
+    this.incrementCounter(PROTOCOL_METRICS.CONVERSION_COUNT, {
+      from_format: fromFormat,
+      to_format: toFormat,
+      boundary_type: boundaryType,
+      agent_loop_id: agentLoopId,
+    });
+  }
+
+  /**
    * Get agent loop-specific statistics
    * @param agentLoopId Optional agent loop ID filter
    * @returns Aggregated statistics
@@ -252,6 +330,9 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
     let totalResumes = 0;
     let successCount = 0;
     let failureCount = 0;
+    let protocolLockedCount = 0;
+    let protocolViolationCount = 0;
+    let protocolConversionCount = 0;
 
     for (const [metricName, aggregated] of result.metrics.entries()) {
       switch (metricName) {
@@ -272,6 +353,12 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
             successCount += aggregated.value;
           } else if (metricName === `${AGENT_LOOP_METRICS.SUCCESS_RATE}.failure`) {
             failureCount += aggregated.value;
+          } else if (metricName === PROTOCOL_METRICS.LOCKED_COUNT) {
+            protocolLockedCount += aggregated.value;
+          } else if (metricName === PROTOCOL_METRICS.VIOLATION_COUNT) {
+            protocolViolationCount += aggregated.value;
+          } else if (metricName === PROTOCOL_METRICS.CONVERSION_COUNT) {
+            protocolConversionCount += aggregated.value;
           }
           break;
       }
@@ -337,6 +424,32 @@ export class AgentLoopMetricsCollector extends BaseMetricCollector {
         type: "counter",
         help: "Total agent loop resumes",
         samples: [{ value: totalResumes }],
+      });
+    }
+
+    // Protocol metrics
+    if (protocolLockedCount > 0) {
+      metrics.push({
+        name: "agent_loop_protocol_locked_total",
+        type: "counter",
+        help: "Total tool call protocol locks",
+        samples: [{ value: protocolLockedCount }],
+      });
+    }
+    if (protocolViolationCount > 0) {
+      metrics.push({
+        name: "agent_loop_protocol_violation_total",
+        type: "counter",
+        help: "Total tool call protocol violations",
+        samples: [{ value: protocolViolationCount }],
+      });
+    }
+    if (protocolConversionCount > 0) {
+      metrics.push({
+        name: "agent_loop_protocol_conversion_total",
+        type: "counter",
+        help: "Total cross-boundary protocol conversions",
+        samples: [{ value: protocolConversionCount }],
       });
     }
 

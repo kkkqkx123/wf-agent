@@ -22,7 +22,7 @@
  * - Consistent architecture with WorkflowExecutor
  */
 
-import type { AgentLoopResult, AgentHookTriggeredEvent, ToolCallFormatConfig } from "@wf-agent/types";
+import type { AgentLoopResult, AgentHookTriggeredEvent, ToolCallFormatConfig, LLMProfile } from "@wf-agent/types";
 import type { Tool, ToolApprovalHandler } from "@wf-agent/types";
 import { getAvailableTools } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../entities/agent-loop-entity.js";
@@ -46,6 +46,8 @@ import { LLMExecutionCoordinator as CoreLLMExecutionCoordinator } from "../../..
 import { ToolExecutionCoordinator } from "../coordinators/tool-execution-coordinator.js";
 import { prepareToolSchemas } from "../../../shared/tools/tool-schema-helper.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import { validateAgentToolCallProtocol } from "../../validation/agent-loop-validator.js";
+import type { AgentLoopConfigFile } from "../../../api/shared/config/types.js";
 
 const logger = createContextualLogger({ component: "AgentLoopExecutor" });
 
@@ -216,6 +218,65 @@ export class AgentLoopExecutor {
       config.toolCallFormat,
     );
     entity.lockToolCallFormat(resolvedProtocol);
+
+    // Determine the protocol source for logging/metrics
+    // Priority: definition > profile > default
+    const protocolSource: "definition" | "profile" | "default" =
+      config.toolCallFormat !== undefined
+        ? "definition"
+        : this.llmExecutor["llmWrapper"]?.getProfile(profileId)?.toolCallFormat
+          ? "profile"
+          : "default";
+
+    // Log protocol lock event
+    logger.info("Tool call protocol locked", {
+      agentLoopId: entity.id,
+      profileId,
+      format: resolvedProtocol.format,
+      source: protocolSource,
+    });
+
+    // Record protocol lock metric
+    const metricsCollector = this.metricsRegistry?.getAgentLoopCollector();
+    if (metricsCollector) {
+      metricsCollector.recordProtocolLocked(
+        resolvedProtocol.format,
+        entity.id,
+        profileId,
+        protocolSource,
+      );
+    }
+
+    // Static pre-check: validate tool call protocol compatibility between definition and profile
+    const profileResolver = (id: string): LLMProfile | undefined => {
+      try {
+        return this.llmExecutor["llmWrapper"]?.getProfile(id);
+      } catch {
+        return undefined;
+      }
+    };
+    // Construct a minimal definition-like object for validation
+    const validationDefinition: AgentLoopConfigFile = {
+      id: entity.id,
+      profileId: config.profileId,
+      toolCallFormat: config.toolCallFormat,
+    } as AgentLoopConfigFile;
+    const validationResult = validateAgentToolCallProtocol(
+      validationDefinition,
+      profileResolver,
+    );
+    if (!validationResult.valid) {
+      logger.warn("Agent tool call protocol validation failed", {
+        agentLoopId: entity.id,
+        errors: validationResult.errors,
+      });
+    }
+    if (validationResult.warnings.length > 0) {
+      logger.debug("Agent tool call protocol validation warnings", {
+        agentLoopId: entity.id,
+        warnings: validationResult.warnings,
+      });
+    }
 
     logger.info(`Agent Loop ${mode} execution started`, {
       agentLoopId: entity.id,

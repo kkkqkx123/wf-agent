@@ -36,6 +36,7 @@ export {
   CONFIG_METRICS,
   SUBGRAPH_METRICS,
   RETRY_METRICS,
+  PROTOCOL_METRICS,
 } from "./constants.js";
 
 // Factory functions

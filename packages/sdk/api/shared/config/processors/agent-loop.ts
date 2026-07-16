@@ -4,7 +4,7 @@
  * Handles the parsing and transformation of AgentLoopConfigFile to AgentLoopRuntimeConfig
  */
 
-import type { AgentLoopRuntimeConfig, AgentHook, AgentHookType } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentHook, AgentHookType, ToolCallFormatConfig } from "@wf-agent/types";
 import type { Condition } from "@wf-agent/types";
 import type { AgentLoopConfigFile, AgentHookConfigFile } from "../types.js";
 
@@ -26,6 +26,7 @@ export function transformToAgentLoopConfig(
     stream: configFile.stream,
     createCheckpointOnEnd: configFile.checkpoint?.createOnEnd,
     createCheckpointOnError: configFile.checkpoint?.createOnError,
+    toolCallFormat: configFile.toolCallFormat as ToolCallFormatConfig | undefined,
   };
 
   // Handle availableTools configuration

@@ -9,6 +9,9 @@ export {
 export { MessageArrayManager } from "./message-array-manager.js";
 export { HistoryConverter, type HistoryConversionOptions } from "./history-converter.js";
 
+// Cross-Boundary Protocol Converter
+export { CrossBoundaryConverter, type BoundaryType, type CrossBoundaryConversionOptions } from "./cross-boundary-converter.js";
+
 // Base State Coordinator (shared by Agent/Workflow state coordinators)
 export {
   BaseStateCoordinator,

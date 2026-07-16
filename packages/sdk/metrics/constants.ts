@@ -238,3 +238,27 @@ export const RETRY_METRICS = {
  * Type for retry metric names
  */
 export type RetryMetricName = keyof typeof RETRY_METRICS;
+
+/**
+ * Standard metric names for tool call protocol events.
+ *
+ * These metrics track protocol locking, violations, and conversions
+ * for observability of tool call format behavior across executions.
+ */
+export const PROTOCOL_METRICS = {
+  /** Protocol locked at execution start (counter) */
+  LOCKED_COUNT: "protocol.locked.count" as const,
+  /** Protocol violation detected (counter) */
+  VIOLATION_COUNT: "protocol.violation.count" as const,
+  /** Cross-boundary protocol conversion (counter) */
+  CONVERSION_COUNT: "protocol.conversion.count" as const,
+  /** Static pre-check mismatch (counter) */
+  STATIC_MISMATCH_COUNT: "protocol.static_mismatch.count" as const,
+  /** Workflow protocol inconsistency (counter) */
+  WORKFLOW_INCONSISTENCY_COUNT: "protocol.workflow_inconsistency.count" as const,
+} as const;
+
+/**
+ * Type for protocol metric names
+ */
+export type ProtocolMetricName = keyof typeof PROTOCOL_METRICS;

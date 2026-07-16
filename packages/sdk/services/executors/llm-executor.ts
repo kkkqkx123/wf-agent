@@ -141,6 +141,7 @@ export class LLMExecutor {
       stream: requestData.stream || false,
       signal: options?.abortSignal, // Pass the AbortSignal
       lockedToolCallFormat: requestData.lockedToolCallFormat,
+      executionId: options?.executionId,
     };
 
     // Perform an LLM call.

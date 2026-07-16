@@ -32,6 +32,7 @@ export * from "./tool-call-format.js";
 
 // Export Tool Call Protocol Configuration
 export * from "./protocol-config.js";
+export { type CrossBoundaryMismatchStrategy, type CrossBoundaryConfig, DEFAULT_CROSS_BOUNDARY_CONFIG } from "./protocol-config.js";
 
 // Export Message Stream Event Types
 export * from "./message-stream-events.js";

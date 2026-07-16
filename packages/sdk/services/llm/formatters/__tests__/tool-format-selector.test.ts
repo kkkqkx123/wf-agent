@@ -1,12 +1,15 @@
 /**
  * Unit tests for Tool Format Selector
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   getToolFormatTemplates,
   getToolFormatDisplayName,
   getToolFormatDescription,
   getAvailableToolFormats,
+  handleProtocolViolation,
+  ProtocolViolationError,
+  type ProtocolViolationContext,
 } from "../tool-format-selector.js";
 
 describe("ToolFormatSelector", () => {
@@ -123,6 +126,92 @@ describe("ToolFormatSelector", () => {
     it("should include json_raw format", () => {
       const formats = getAvailableToolFormats();
       expect(formats.find(f => f.value === "json_raw")).toBeDefined();
+    });
+  });
+
+  describe("handleProtocolViolation", () => {
+    const baseContext: ProtocolViolationContext = {
+      lockedFormat: { format: "native", markers: { start: "<tool>", end: "</tool>" } },
+      attemptedFormat: { format: "xml", markers: { start: "<tool>", end: "</tool>" } },
+      executionId: "exec-123",
+      entityId: "entity-456",
+      profileId: "profile-789",
+      iteration: 3,
+    };
+
+    describe("ignore policy", () => {
+      it("should silently return without errors when policy is 'ignore'", () => {
+        expect(() => handleProtocolViolation(baseContext, "ignore")).not.toThrow();
+      });
+
+      it("should call metrics recorder when provided", () => {
+        const metricsRecorder = vi.fn();
+        const ctx = { ...baseContext, recordMetrics: metricsRecorder };
+        handleProtocolViolation(ctx, "ignore");
+        expect(metricsRecorder).toHaveBeenCalledWith("ignore");
+      });
+    });
+
+    describe("warn policy", () => {
+      it("should not throw error when policy is 'warn'", () => {
+        expect(() => handleProtocolViolation(baseContext, "warn")).not.toThrow();
+      });
+
+      it("should call metrics recorder when provided", () => {
+        const metricsRecorder = vi.fn();
+        const ctx = { ...baseContext, recordMetrics: metricsRecorder };
+        handleProtocolViolation(ctx, "warn");
+        expect(metricsRecorder).toHaveBeenCalledWith("warn");
+      });
+    });
+
+    describe("fail policy", () => {
+      it("should throw ProtocolViolationError when policy is 'fail'", () => {
+        expect(() => handleProtocolViolation(baseContext, "fail")).toThrow(ProtocolViolationError);
+      });
+
+      it("should include format details in error message", () => {
+        expect(() => handleProtocolViolation(baseContext, "fail")).toThrow(
+          /locked "native".*profile "profile-789".*"xml"/,
+        );
+      });
+
+      it("should call metrics recorder before throwing", () => {
+        const metricsRecorder = vi.fn();
+        const ctx = { ...baseContext, recordMetrics: metricsRecorder };
+        expect(() => handleProtocolViolation(ctx, "fail")).toThrow(ProtocolViolationError);
+        expect(metricsRecorder).toHaveBeenCalledWith("fail");
+      });
+    });
+
+    describe("auto_convert policy", () => {
+      it("should not throw error when policy is 'auto_convert'", () => {
+        expect(() => handleProtocolViolation(baseContext, "auto_convert")).not.toThrow();
+      });
+
+      it("should call metrics recorder when provided", () => {
+        const metricsRecorder = vi.fn();
+        const ctx = { ...baseContext, recordMetrics: metricsRecorder };
+        handleProtocolViolation(ctx, "auto_convert");
+        expect(metricsRecorder).toHaveBeenCalledWith("auto_convert");
+      });
+    });
+
+    describe("edge cases", () => {
+      it("should handle undefined attemptedFormat", () => {
+        const ctx = { ...baseContext, attemptedFormat: undefined };
+        expect(() => handleProtocolViolation(ctx, "warn")).not.toThrow();
+      });
+
+      it("should handle undefined iteration", () => {
+        const ctx = { ...baseContext, iteration: undefined };
+        expect(() => handleProtocolViolation(ctx, "warn")).not.toThrow();
+      });
+
+      it("should handle undefined entityId", () => {
+        const ctx = { ...baseContext, entityId: undefined };
+        expect(() => handleProtocolViolation(ctx, "warn")).not.toThrow();
+      });
     });
   });
 });

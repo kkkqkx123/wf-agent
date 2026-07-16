@@ -294,6 +294,11 @@ export interface ProtocolViolationContext {
   profileId: string;
   /** Current iteration number (optional) */
   iteration?: number;
+  /**
+   * Optional callback to record protocol violation metrics.
+   * Called with the applied policy after the violation is handled.
+   */
+  recordMetrics?: (policy: ToolCallProtocolViolationPolicy) => void;
 }
 
 /**
@@ -323,6 +328,7 @@ export function handleProtocolViolation(
   switch (policy) {
     case "ignore":
       // Silently use the locked protocol, no logging
+      context.recordMetrics?.(policy);
       return;
 
     case "warn":
@@ -334,6 +340,7 @@ export function handleProtocolViolation(
         profileId: context.profileId,
         iteration: context.iteration,
       });
+      context.recordMetrics?.(policy);
       // Continue with locked protocol
       return;
 
@@ -343,6 +350,7 @@ export function handleProtocolViolation(
         attemptedFormat: context.attemptedFormat?.format,
         executionId: context.executionId,
       });
+      context.recordMetrics?.(policy);
       throw new ProtocolViolationError(
         `Tool call protocol conflict: locked "${context.lockedFormat.format}" ` +
         `but profile "${context.profileId}" attempted "${context.attemptedFormat?.format}". ` +
@@ -355,6 +363,7 @@ export function handleProtocolViolation(
         to: context.lockedFormat.format,
         executionId: context.executionId,
       });
+      context.recordMetrics?.(policy);
       // The locked format is already enforced by the formatter.
       // HistoryConverter will handle the conversion on the next request.
       return;

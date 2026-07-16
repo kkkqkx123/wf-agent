@@ -130,4 +130,67 @@ describe("AgentLoopMetricsCollector", () => {
       expect(json).toHaveProperty("averageIterations");
     });
   });
+
+  // ===========================================================================
+  // Protocol Metrics Tests
+  // ===========================================================================
+  describe("recordProtocolLocked", () => {
+    it("should record protocol locked event", () => {
+      collector.recordProtocolLocked("native", "agent-1", "profile-1", "default");
+      const result = collector.query({ metricName: "protocol.locked.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record protocol locked with source=definition", () => {
+      collector.recordProtocolLocked("xml", "agent-1", "profile-1", "definition");
+      const result = collector.query({ metricName: "protocol.locked.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record protocol locked with source=profile", () => {
+      collector.recordProtocolLocked("json_wrapped", "agent-1", "profile-1", "profile");
+      const result = collector.query({ metricName: "protocol.locked.count" });
+      expect(result.totalCount).toBe(1);
+    });
+  });
+
+  describe("recordProtocolViolation", () => {
+    it("should record protocol violation event", () => {
+      collector.recordProtocolViolation("native", "xml", "warn", "agent-1", "profile-1");
+      const result = collector.query({ metricName: "protocol.violation.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record violation with fail policy", () => {
+      collector.recordProtocolViolation("native", "xml", "fail", "agent-1", "profile-1");
+      const result = collector.query({ metricName: "protocol.violation.count" });
+      expect(result.totalCount).toBe(1);
+    });
+  });
+
+  describe("recordProtocolConversion", () => {
+    it("should record protocol conversion for sub_agent boundary", () => {
+      collector.recordProtocolConversion("native", "xml", "sub_agent", "agent-1");
+      const result = collector.query({ metricName: "protocol.conversion.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record protocol conversion for workflow_fork boundary", () => {
+      collector.recordProtocolConversion("native", "xml", "workflow_fork", "agent-1");
+      const result = collector.query({ metricName: "protocol.conversion.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record protocol conversion for triggered_subworkflow boundary", () => {
+      collector.recordProtocolConversion("xml", "native", "triggered_subworkflow", "agent-1");
+      const result = collector.query({ metricName: "protocol.conversion.count" });
+      expect(result.totalCount).toBe(1);
+    });
+
+    it("should record protocol conversion for workflow_to_agent boundary", () => {
+      collector.recordProtocolConversion("xml", "native", "workflow_to_agent", "agent-1");
+      const result = collector.query({ metricName: "protocol.conversion.count" });
+      expect(result.totalCount).toBe(1);
+    });
+  });
 });

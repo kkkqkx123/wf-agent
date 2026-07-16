@@ -14,3 +14,6 @@ export * from "./script-config-validator.js";
 // Configuration validation functions (convenient wrappers)
 export * from "./workflow-config-validation.js";
 export * from "./node-template-validation.js";
+
+// Protocol consistency validator
+export * from "./protocol-consistency-validator.js";

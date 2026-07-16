@@ -105,13 +105,20 @@ describe("AgentLoopExecutor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockLLMExecutor = {} as LLMExecutor;
-    mockToolService = {} as ToolRegistry;
+    mockLLMExecutor = {
+      resolveToolCallFormat: vi.fn().mockReturnValue({ format: "native" }),
+    } as unknown as LLMExecutor;
+    mockToolService = {
+      get: vi.fn((id: string) => ({ id, execute: vi.fn() })),
+    } as unknown as ToolRegistry;
     mockEventManager = { emit: vi.fn().mockResolvedValue(undefined) } as unknown as EventRegistry;
     mockMetricsRegistry = {
       getAgentCollector: vi.fn().mockReturnValue({
         recordExecutionStart: vi.fn(),
         recordExecutionComplete: vi.fn(),
+      }),
+      getAgentLoopCollector: vi.fn().mockReturnValue({
+        recordProtocolLocked: vi.fn(),
       }),
     } as unknown as MetricsRegistry;
     mockGlobalContext = {
@@ -142,6 +149,7 @@ describe("AgentLoopExecutor", () => {
       conversationManager: mockConversationManager,
       getConversationManager: vi.fn(() => mockConversationManager),
       getAbortSignal: vi.fn().mockReturnValue(new AbortController().signal),
+      lockToolCallFormat: vi.fn(),
     };
 
     mockStateCoordinator = {
@@ -253,7 +261,9 @@ describe("AgentLoopExecutor", () => {
 
       const result = await executor.execute(mockEntity, mockStateCoordinator);
 
-      expect(mockPrepareToolSchemas).toHaveBeenCalledWith(["tool1", "tool2"], mockToolService);
+      expect(mockPrepareToolSchemas).toHaveBeenCalledWith(
+        [{ id: "tool1", execute: expect.any(Function) }, { id: "tool2", execute: expect.any(Function) }],
+      );
       expect(MockAgentExecutionCoordinator).toHaveBeenCalledTimes(1);
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         mockEntity,
@@ -316,7 +326,7 @@ describe("AgentLoopExecutor", () => {
 
       await executor.execute(entityNoTools, mockStateCoordinator);
 
-      expect(mockPrepareToolSchemas).toHaveBeenCalledWith([], mockToolService);
+      expect(mockPrepareToolSchemas).toHaveBeenCalledWith([]);
       expect(mockCoordinatorExecute).toHaveBeenCalledWith(
         expect.any(Object),
         mockConversationManager,
@@ -355,7 +365,7 @@ describe("AgentLoopExecutor", () => {
 
       await executor.execute(entityEmptyTools, mockStateCoordinator);
 
-      expect(mockPrepareToolSchemas).toHaveBeenCalledWith([], mockToolService);
+      expect(mockPrepareToolSchemas).toHaveBeenCalledWith([]);
     });
 
     it("should return the exact result from coordinator", async () => {
@@ -400,7 +410,9 @@ describe("AgentLoopExecutor", () => {
         events.push(event);
       }
 
-      expect(mockPrepareToolSchemas).toHaveBeenCalledWith(["tool1", "tool2"], mockToolService);
+      expect(mockPrepareToolSchemas).toHaveBeenCalledWith(
+        [{ id: "tool1", execute: expect.any(Function) }, { id: "tool2", execute: expect.any(Function) }],
+      );
       expect(mockCoordinatorExecuteStream).toHaveBeenCalledWith(
         mockEntity,
         mockConversationManager,

@@ -28,7 +28,7 @@
  * - Verification of node reachability.
  */
 
-import type { WorkflowTemplate } from "@wf-agent/types";
+import type { WorkflowTemplate, LLMProfile } from "@wf-agent/types";
 import type { StaticNode } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
@@ -43,6 +43,7 @@ import {
   SubgraphNodeConfigSchema,
   isSubgraphNode,
 } from "@wf-agent/types";
+import { validateWorkflowToolCallProtocolConsistency } from "./protocol-consistency-validator.js";
 
 /**
  * Workflow Validator Class
@@ -623,6 +624,53 @@ export class WorkflowValidator {
           }),
         );
       }
+    }
+
+    return errors;
+  }
+
+  /**
+   * Validate tool call protocol consistency across all nodes in the workflow.
+   *
+   * Checks that all nodes referencing LLM profiles (LLM nodes, AGENT_LOOP nodes)
+   * use a consistent tool call format, and that node-level toolCallFormat
+   * configurations are compatible with their referenced profile.
+   *
+   * @param workflow Workflow definition
+   * @param profileResolver Function to resolve an LLM profile by ID
+   * @returns Validation errors (empty array if consistent)
+   */
+  validateProtocolConsistency(
+    workflow: WorkflowTemplate,
+    profileResolver: (profileId: string) => LLMProfile | undefined,
+  ): ConfigurationValidationError[] {
+    const errors: ConfigurationValidationError[] = [];
+    const warnings: ConfigurationValidationError[] = [];
+
+    const result = validateWorkflowToolCallProtocolConsistency(
+      workflow.nodes,
+      profileResolver,
+    );
+
+    if (!result.consistent) {
+      for (const error of result.errors) {
+        errors.push(
+          new ConfigurationValidationError(error, {
+            configType: "workflow",
+            configPath: "workflow.nodes",
+          }),
+        );
+      }
+    }
+
+    // Log warnings (non-blocking)
+    for (const warning of result.warnings) {
+      warnings.push(
+        new ConfigurationValidationError(warning, {
+          configType: "workflow",
+          configPath: "workflow.nodes",
+        }),
+      );
     }
 
     return errors;

@@ -6,6 +6,7 @@ import type { ID } from "../common.js";
 import type { Message } from "../message/index.js";
 import type { ToolSchema } from "../tool/index.js";
 import type { ToolCallFormatConfig } from "./tool-call-format.js";
+import type { ToolCallProtocolViolationPolicy } from "./protocol-config.js";
 
 /**
  * Dead loop detection configuration for LLM requests
@@ -52,6 +53,21 @@ export interface LLMRequest {
    * The LLMClient must use this format regardless of profile changes.
    */
   lockedToolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Execution ID for tracing and correlation.
+   * Set by the executor to correlate log entries and metrics
+   * across the full LLM call chain.
+   */
+  executionId?: string;
+
+  /**
+   * Per-request protocol violation policy override.
+   * When set, overrides the global default policy for this request only.
+   * Resolution order: request-level > agent-level > global default.
+   */
+  violationPolicy?: ToolCallProtocolViolationPolicy;
+
   /** Streaming or not */
   stream?: boolean;
   /** AbortSignal for interrupt requests */

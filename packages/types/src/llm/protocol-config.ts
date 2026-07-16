@@ -46,3 +46,66 @@ export const DEFAULT_TOOL_CALL_PROTOCOL_CONFIG: ToolCallProtocolConfig = {
   lockProtocol: true,
   enableCrossBoundaryConversion: true,
 };
+
+// ============================================================================
+// Cross-Boundary Protocol Handling
+// ============================================================================
+
+/**
+ * Strategy for handling protocol mismatches across execution boundaries.
+ *
+ * Determines how the system behaves when a parent execution and child execution
+ * (sub-agent, workflow fork, triggered sub-workflow) use different tool call protocols.
+ */
+export type CrossBoundaryMismatchStrategy =
+  /**
+   * Automatically convert messages between protocols (default).
+   * The parent's message history is converted to the child's protocol format.
+   */
+  | "convert"
+  /**
+   * Force child to inherit parent's protocol ignoring child's own config.
+   * The child effectively uses the same protocol as the parent.
+   */
+  | "inherit"
+  /**
+   * Reject if protocols differ (throw error).
+   * Ensures all executions in a hierarchy use the same protocol.
+   */
+  | "strict"
+  /**
+   * Log a warning, then accept the mismatch.
+   * Only safe when both protocols are text-based and compatible.
+   */
+  | "warn_and_continue";
+
+/**
+ * Cross-boundary protocol configuration.
+ *
+ * Controls how protocol mismatches are handled when execution crosses
+ * boundaries between different execution contexts (e.g., sub-agent spawn,
+ * workflow fork, triggered sub-workflow).
+ */
+export interface CrossBoundaryConfig {
+  /**
+   * How to handle protocol mismatches across execution boundaries.
+   * @default "convert"
+   */
+  mismatchStrategy: CrossBoundaryMismatchStrategy;
+
+  /**
+   * Whether to lock the child's protocol at creation time.
+   * When true, the child execution's protocol is locked immediately
+   * (before any LLM calls), preventing mid-execution changes.
+   * @default true
+   */
+  lockChildProtocol: boolean;
+}
+
+/**
+ * Default cross-boundary configuration
+ */
+export const DEFAULT_CROSS_BOUNDARY_CONFIG: CrossBoundaryConfig = {
+  mismatchStrategy: "convert",
+  lockChildProtocol: true,
+};

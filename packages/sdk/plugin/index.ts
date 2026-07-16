@@ -27,7 +27,7 @@ export type {
 } from "./types.js";
 
 export { PluginStatus, type PluginLifecycleHook } from "./types.js";
-export type { ContributionType } from "./contributions/types.js";
+export type { ContributionType } from "./contributions/contribution-type.js";
 
 // Core engine
 export { PluginEngine } from "./engine.js";
@@ -87,8 +87,5 @@ export type {
 
 export type { MiddlewarePhase, ExecutionMiddleware } from "./contributions/middleware.types.js";
 
-export type {
-  IToolExecutorConstructor,
-  HookHandler,
-  EventHandler,
-} from "./contributions/types.js";
+// IToolExecutorConstructor, HookHandler, EventHandler are @internal types
+// moved to contribregistry files and not exported from here.

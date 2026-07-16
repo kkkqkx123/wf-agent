@@ -2,7 +2,7 @@
  * Contribution Validation - Validation utilities for plugin contributions.
  */
 
-import type { ContributionType } from "./types.js";
+import type { ContributionType } from "./contribution-type.js";
 
 /**
  * Validate that a contribution type is recognized.

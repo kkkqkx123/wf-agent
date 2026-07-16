@@ -6,7 +6,7 @@
 
 import type { Container } from "@wf-agent/common-utils";
 import type { ContributionRegistrar } from "./contributions/registration.js";
-import type { ContributionType } from "./contributions/types.js";
+import type { ContributionType } from "./contributions/contribution-type.js";
 
 export type { ContributionType };
 import type { ContributionManager } from "./contributions/manager.js";

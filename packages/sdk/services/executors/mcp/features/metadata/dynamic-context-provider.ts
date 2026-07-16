@@ -14,7 +14,7 @@
  * - Making all content customizable
  */
 
-import type { LLMMessage } from "@wf-agent/types";
+import type { LLMMessage, TransformContextFn, DynamicPromptInjection } from "@wf-agent/types";
 import type { McpConnectionManager } from "../../core/connection-manager.js";
 import { McpToolMetadataExporter } from "./tool-metadata-exporter.js";
 import { createContextualLogger } from "../../../../../utils/contextual-logger.js";
@@ -273,6 +273,31 @@ export class McpToolsDynamicContextProvider {
         }
         return [contextMessage, ...messages];
       }
+    };
+  }
+
+  /**
+   * Create a TransformContextFn-compatible injection function
+   *
+   * Returns a function compatible with AgentLoopRuntimeConfig.transformContext,
+   * allowing MCP context to be injected through the standard dynamic injection pipeline.
+   * The MCP context content is returned as staticSystem (stable across iterations).
+   *
+   * @param options - Context options
+   * @returns TransformContextFn that returns DynamicPromptInjection
+   */
+  createDynamicPromptInjectionFn(options?: McpToolsContextOptions): TransformContextFn {
+    return async (_context): Promise<DynamicPromptInjection> => {
+      const mcpContext = this.generateContext(options);
+
+      if (!mcpContext.hasServers) {
+        return { staticSystem: undefined, dynamicUserContext: undefined };
+      }
+
+      return {
+        staticSystem: mcpContext.content,
+        dynamicUserContext: undefined,
+      };
     };
   }
 

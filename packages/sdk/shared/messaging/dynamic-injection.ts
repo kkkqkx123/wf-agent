@@ -7,7 +7,7 @@
  * 2. dynamicUserContext: Appended to last user message (variable content, not cached)
  */
 
-import type { LLMMessage } from "@wf-agent/types";
+import type { LLMMessage, DynamicPromptInjection } from "@wf-agent/types";
 
 export interface DynamicPromptInjectionResult {
   messages: LLMMessage[];
@@ -95,5 +95,36 @@ export function injectDynamicPrompts(
     messages: result,
     systemInjected,
     userContextInjected,
+  };
+}
+
+/**
+ * Merge multiple DynamicPromptInjection results into one
+ *
+ * Combines multiple injection sources (MCP, system context, user context)
+ * into a single DynamicPromptInjection with deterministic ordering.
+ * Order: [skill metadata, system context, MCP context]
+ *
+ * @param injections Array of DynamicPromptInjection results
+ * @returns Merged DynamicPromptInjection
+ */
+export function mergeDynamicInjections(
+  injections: DynamicPromptInjection[],
+): DynamicPromptInjection {
+  const staticParts: string[] = [];
+  const userParts: string[] = [];
+
+  for (const injection of injections) {
+    if (injection.staticSystem) {
+      staticParts.push(injection.staticSystem);
+    }
+    if (injection.dynamicUserContext) {
+      userParts.push(injection.dynamicUserContext);
+    }
+  }
+
+  return {
+    staticSystem: staticParts.length > 0 ? staticParts.join("\n\n---\n\n") : undefined,
+    dynamicUserContext: userParts.length > 0 ? userParts.join("\n\n") : undefined,
   };
 }

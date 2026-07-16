@@ -23,22 +23,33 @@ import { cleanupEmptyLines } from "./fragments/utils.js";
  * Note: Tool documentation should be injected by the application layer
  * when tools are available, as it's configuration-dependent.
  *
- * @param _config Dynamic context configuration (reserved for future use)
+ * @param config Dynamic context configuration (controls which sections are included)
  * @returns System context prompt string
  */
 export async function buildSystemContextPrompt(
-  _config?: DynamicContextConfig,
+  config?: DynamicContextConfig,
 ): Promise<string> {
   const sections: string[] = [];
 
-  // 1. Add current time (always stable)
-  sections.push(generateCurrentTimeSection());
+  // 1. Add current time (disabled by default, see DynamicContextConfig)
+  if (config?.includeCurrentTime === true) {
+    sections.push(generateCurrentTimeSection());
+  }
 
-  // 2. Add environment information (mostly static)
-  const envInfo = getDefaultEnvironmentInfo();
-  const envSection = generateEnvironmentSection(envInfo);
-  if (envSection) {
-    sections.push(envSection);
+  // 2. Add environment information (disabled by default, see DynamicContextConfig)
+  if (config?.includeEnvironmentInfo === true) {
+    const envInfo = getDefaultEnvironmentInfo();
+    const envSection = generateEnvironmentSection(envInfo);
+    if (envSection) {
+      sections.push(envSection);
+    }
+  }
+
+  // 3. Custom sections
+  if (config?.customSections) {
+    for (const value of Object.values(config.customSections)) {
+      sections.push(value);
+    }
   }
 
   // Combine all sections

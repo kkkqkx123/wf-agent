@@ -25,6 +25,7 @@ import type {
   AgentStreamEvent,
   MessageStreamEvent,
   DynamicContextConfig,
+  DynamicRuntimeContext,
 } from "@wf-agent/types";
 
 /**
@@ -73,9 +74,18 @@ export class AgentLoopAdapter extends BaseAdapter {
       // Create the transformContext function
       config.transformContext = async (context) => {
         const staticSystem = await buildSystemContextPrompt(mergedConfig);
-        const dynamicUserContext = context.metadata
-          ? await buildUserContextContent(context.metadata as Record<string, unknown>)
-          : undefined;
+
+        // Build DynamicRuntimeContext from execution metadata
+        const metadata = context.metadata ?? {};
+        const runtimeContext: DynamicRuntimeContext = {
+          currentTime: mergedConfig.includeCurrentTime ? Date.now() : undefined,
+          todoList: metadata["todoList"] as DynamicRuntimeContext["todoList"],
+          pinnedFiles: metadata["pinnedFiles"] as DynamicRuntimeContext["pinnedFiles"],
+          workspaceFileTree: metadata["workspaceFileTree"] as string | undefined,
+          customData: metadata["customData"] as Record<string, unknown> | undefined,
+        };
+
+        const dynamicUserContext = await buildUserContextContent(runtimeContext);
 
         return {
           staticSystem: staticSystem || undefined,

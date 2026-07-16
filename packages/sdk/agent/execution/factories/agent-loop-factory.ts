@@ -34,6 +34,9 @@ import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execut
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import { AgentStateCoordinator } from "../../state-managers/agent-state-coordinator.js";
+import { resolveSystemPrompt } from "../../../shared/messaging/prompt/system-prompt-resolver.js";
+import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
+import type { PromptTemplateRegistry } from "../../../shared/registry/prompt-template-registry.js";
 
 const logger = createContextualLogger({ component: "AgentLoopFactory" });
 
@@ -170,11 +173,46 @@ export class AgentLoopFactory {
     // Build initial messages if config provides them
     const initialMessages: LLMMessage[] = [];
 
+    // Resolve system prompt (supports template rendering and skill injection)
+    let systemPromptContent: string | undefined;
+
+    if (config.systemPrompt || config.systemPromptTemplateId || config.systemPromptTemplateVariables) {
+      // Phase 1: Resolve template from registry if systemPromptTemplateId is provided
+      const promptRegistry = config.systemPromptTemplateId
+        ? (globalContext.container.get(
+            Identifiers.PromptTemplateRegistry,
+          ) as PromptTemplateRegistry | undefined)
+        : undefined;
+
+      systemPromptContent = resolveSystemPrompt(
+        {
+          systemPrompt: config.systemPrompt,
+          systemPromptTemplateId: config.systemPromptTemplateId,
+          systemPromptTemplateVariables: config.systemPromptTemplateVariables,
+        },
+        promptRegistry,
+      );
+
+      // Phase 2: Inject skill metadata if {SKILLS_METADATA} placeholder exists
+      if (systemPromptContent) {
+        try {
+          const skillRegistry = globalContext.container.get(
+            Identifiers.SkillRegistry,
+          ) as SkillRegistry | undefined;
+          if (skillRegistry) {
+            systemPromptContent = skillRegistry.injectSkillMetadata(systemPromptContent);
+          }
+        } catch {
+          // Skill registry not available, skip skill injection
+        }
+      }
+    }
+
     // Add system prompt if provided
-    if (config.systemPrompt) {
+    if (systemPromptContent) {
       initialMessages.push({
         role: "system",
-        content: config.systemPrompt,
+        content: systemPromptContent,
       });
     }
 

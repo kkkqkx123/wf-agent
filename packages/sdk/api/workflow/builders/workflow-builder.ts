@@ -10,9 +10,6 @@ import type {
   WorkflowConfig,
   WorkflowMetadata,
   Metadata,
-  SubgraphNodeConfig,
-  WorkflowStartConfig,
-  LoopStartNodeConfig,
   TriggerConfigOverride,
 } from "@wf-agent/types";
 import type { StaticNode, StaticNodeType } from "@wf-agent/types";
@@ -25,6 +22,7 @@ import { generateId } from "../../../utils/id-utils.js";
 import { parseWorkflow, ConfigFormat, getConfigFormatFromPath } from "../../shared/config/index.js";
 import * as fs from "fs/promises";
 import { NodeBuilder } from "./node-builder.js";
+import { WorkflowValidator } from "./workflow-validator.js";
 import { BaseBuilder } from "../../shared/base-builder.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
 
@@ -397,7 +395,14 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
    */
   build(): WorkflowTemplate {
     // Validating workflows
-    this.validate();
+    const validator = new WorkflowValidator({
+      nodes: this.nodes,
+      edges: this.edges,
+      variables: this.variables,
+      triggers: this.triggers,
+      triggerTemplateRegistry: this.globalContext.triggerTemplateRegistry,
+    });
+    validator.validate();
 
     // Building a complete workflow definition
     const workflow: WorkflowTemplate = {
@@ -417,116 +422,6 @@ export class WorkflowBuilder extends BaseBuilder<WorkflowTemplate> {
     } as unknown as WorkflowTemplate;
 
     return workflow;
-  }
-
-  /**
-   * Validating workflows
-   */
-  private validate(): void {
-    const errors: string[] = [];
-
-    // Check for nodes
-    if (this.nodes.size === 0) {
-      errors.push("The workflow must have at least one node.");
-    }
-
-    // Check for duplicate node IDs (defensive: Map keys are unique by design,
-    // but this check verifies no corruption via internal code paths)
-    const nodeIds = Array.from(this.nodes.keys());
-    if (nodeIds.length !== new Set(nodeIds).size) {
-      errors.push("Node IDs must be unique within the workflow.");
-    }
-
-    // Check for START nodes
-    const startNodes = Array.from(this.nodes.values()).filter(n => n.type === "START");
-    if (startNodes.length === 0) {
-      errors.push("The workflow must have a START node.");
-    } else if (startNodes.length > 1) {
-      errors.push("The workflow can only have one START node.");
-    }
-
-    // Check for END nodes
-    const endNodes = Array.from(this.nodes.values()).filter(n => n.type === "END");
-    if (endNodes.length === 0) {
-      errors.push("The workflow must have an END node.");
-    } else if (endNodes.length > 1) {
-      errors.push("The workflow can only have one END node.");
-    }
-
-    // Checking the validity of edges
-    for (const edge of this.edges) {
-      if (!this.nodes.has(edge.sourceNodeId)) {
-        errors.push(`Source node of edge does not exist: ${edge.sourceNodeId}`);
-      }
-      if (!this.nodes.has(edge.targetNodeId)) {
-        errors.push(`Target node of edge does not exist: ${edge.targetNodeId}`);
-      }
-    }
-
-    // Validating Trigger References
-    const triggerTemplateRegistry = this.globalContext.triggerTemplateRegistry;
-    for (const trigger of this.triggers) {
-      if ("templateName" in trigger) {
-        const reference = trigger as TriggerReference;
-        if (!triggerTemplateRegistry.has(reference.templateName)) {
-          errors.push(`Trigger template '${reference.templateName}' does not exist`);
-        }
-      }
-    }
-
-    // Validate subgraph variable mappings
-    for (const node of Array.from(this.nodes.values())) {
-      if (node.type === "SUBGRAPH") {
-        const config = node.config as SubgraphNodeConfig;
-
-        // Check that variableInputs reference valid parent variables
-        if (config.variableInputs && config.variableInputs.length > 0) {
-          for (const input of config.variableInputs) {
-            const parentVar = this.variables.find(v => v.name === input.externalName);
-            if (!parentVar && input.required && input.defaultValue === undefined) {
-              errors.push(
-                `Subgraph '${node.id}' requires variable '${input.externalName}' which is not defined in parent workflow`,
-              );
-            }
-          }
-        }
-      }
-
-      if (node.type === "START") {
-        const config = node.config as WorkflowStartConfig;
-
-        // Validate START node variable declarations
-        if (config.variableInputs) {
-          // Ensure no duplicate internal names
-          const internalNames = config.variableInputs.map(i => i.internalName);
-          const uniqueNames = new Set(internalNames);
-          if (uniqueNames.size !== internalNames.length) {
-            errors.push(`START node has duplicate internal variable names`);
-          }
-        }
-      }
-
-      if (node.type === "LOOP_START") {
-        const config = node.config as LoopStartNodeConfig;
-
-        // Validate LOOP_START variable inputs
-        if (config.variableInputs && config.variableInputs.length > 0) {
-          for (const input of config.variableInputs) {
-            const parentVar = this.variables.find(v => v.name === input.externalName);
-            if (!parentVar && input.required && input.defaultValue === undefined) {
-              errors.push(
-                `Loop '${config.loopId}' requires variable '${input.externalName}' which is not defined in parent workflow`,
-              );
-            }
-          }
-        }
-      }
-    }
-
-    // Throw an exception if there is an error
-    if (errors.length > 0) {
-      throw new Error(`Workflow validation failed:\n${errors.join("\n")}`);
-    }
   }
 
   /**

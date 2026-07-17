@@ -6,7 +6,7 @@
  */
 
 import { WorkflowGraph } from "../workflow-graph.js";
-import { WorkflowGraphStructure } from "../workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../workflow-graph-structure.js";
 import { WorkflowGraphMetadata } from "../workflow-graph-metadata.js";
 import type { WorkflowNode, WorkflowEdge, RuntimeNodeType } from "@wf-agent/types";
 

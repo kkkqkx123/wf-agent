@@ -30,6 +30,7 @@ import type {
 import type { WorkflowExecutionStateSnapshot } from "@wf-agent/types";
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
+import { ForkJoinState } from "../state-managers/fork-join-state.js";
 import { WorkflowExecutionState } from "../state-managers/workflow-execution-state.js";
 import { VariableManager } from "../execution/utils/variable-manager.js";
 import { ExecutionHierarchyManager } from "../../shared/execution/execution-hierarchy-manager.js";
@@ -273,6 +274,9 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   /** Execution Hierarchy Registry reference (for SyncBarrier initialization) */
   private readonly hierarchyRegistry?: ExecutionHierarchyRegistry;
 
+  /** Fork/Join state management (extracted sub-component) */
+  private readonly forkJoinState: ForkJoinState;
+
   /**
    * Interruption State Manager (optional, should be set by coordinator)
    * This ensures that getAbortSignal() returns the same signal used by the coordinator
@@ -337,6 +341,9 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
 
     // Store registry reference for SyncBarrier initialization
     this.hierarchyRegistry = registry;
+
+    // Initialize Fork/Join state management
+    this.forkJoinState = new ForkJoinState();
   }
 
   // Basic Property Access ============
@@ -484,17 +491,11 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   // ========== Fork/Join Context ----------
 
   setForkId(forkId: string): void {
-    if (!this.workflowExecution.forkJoinContext) {
-      this.workflowExecution.forkJoinContext = { forkId, forkPathId: "" };
-    }
-    this.workflowExecution.forkJoinContext.forkId = forkId;
+    this.forkJoinState.setForkId(forkId);
   }
 
   setForkPathId(forkPathId: string): void {
-    if (!this.workflowExecution.forkJoinContext) {
-      this.workflowExecution.forkJoinContext = { forkId: "", forkPathId };
-    }
-    this.workflowExecution.forkJoinContext.forkPathId = forkPathId;
+    this.forkJoinState.setForkPathId(forkPathId);
   }
 
   // Triggering Sub-workflow Context ============
@@ -1217,17 +1218,10 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   /**
    * FORK/JOIN aggregation state for JOIN node result merging
    * Persisted in checkpoints to enable accurate state recovery
-   */
-  private forkJoinAggregationState?: WorkflowExecutionStateSnapshot["forkJoinAggregationState"];
-
-  /**
-   * Get FORK/JOIN aggregation state for checkpoint serialization
-   * Only populated when the current node is a JOIN node
-   *
-   * @returns Aggregation state or undefined
+   * Delegated to ForkJoinState.
    */
   getForkJoinAggregationState(): WorkflowExecutionStateSnapshot["forkJoinAggregationState"] {
-    return this.forkJoinAggregationState;
+    return this.forkJoinState.getAggregationState();
   }
 
   /**
@@ -1240,7 +1234,7 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   setForkJoinAggregationState(
     state: NonNullable<WorkflowExecutionStateSnapshot["forkJoinAggregationState"]>,
   ): void {
-    this.forkJoinAggregationState = state;
+    this.forkJoinState.setAggregationState(state);
   }
 
   /**
@@ -1253,6 +1247,6 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
   restoreForkJoinAggregationState(
     state: WorkflowExecutionStateSnapshot["forkJoinAggregationState"],
   ): void {
-    this.forkJoinAggregationState = state;
+    this.forkJoinState.restoreAggregationState(state);
   }
 }

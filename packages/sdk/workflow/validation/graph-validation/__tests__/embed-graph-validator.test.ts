@@ -11,7 +11,7 @@ import {
   validateEmbedGraphExistence,
   validateEmbedGraphConstraints,
 } from "../embed-graph-validator.js";
-import { WorkflowGraphStructure } from "../../../entities/workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../../../entities/workflow-graph-structure.js";
 import type { WorkflowNode, WorkflowEdge } from "@wf-agent/types";
 
 describe("validateEmbedGraphExistence", () => {

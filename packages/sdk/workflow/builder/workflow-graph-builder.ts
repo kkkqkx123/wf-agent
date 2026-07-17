@@ -11,11 +11,12 @@ import type {
   ID,
   WorkflowNode,
   WorkflowEdge,
+  WorkflowGraphStructure,
 } from "@wf-agent/types";
 import type { SubgraphMergeOptions, SubgraphMergeResult } from "../types/graph/merge.js";
 
 
-import { WorkflowGraphStructure } from "../entities/workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../entities/workflow-graph-structure.js";
 import { WorkflowGraphMetadata } from "../entities/workflow-graph-metadata.js";
 import { WorkflowGraph } from "../entities/workflow-graph.js";
 import { GraphValidator } from "../validation/graph-validation/graph-validator.js";
@@ -37,8 +38,8 @@ export class WorkflowGraphBuilder {
   /**
    * Constructing a workflow graph from workflow template
    */
-  static build(workflow: WorkflowTemplate, existingGraph?: WorkflowGraphStructure): WorkflowGraphStructure {
-    const graph = existingGraph ?? new WorkflowGraphStructure();
+  static build(workflow: WorkflowTemplate, existingGraph?: WorkflowGraphStructureImpl): WorkflowGraphStructureImpl {
+    const graph = existingGraph ?? new WorkflowGraphStructureImpl();
 
     // Build nodes
     for (const node of workflow.nodes) {
@@ -98,7 +99,7 @@ export class WorkflowGraphBuilder {
     errors: string[];
   } {
     // Build a graph structure
-    const structure = new WorkflowGraphStructure();
+    const structure = new WorkflowGraphStructureImpl();
     this.build(workflow, structure);
 
     // Create metadata and set workflow info
@@ -297,7 +298,7 @@ export class WorkflowGraphBuilder {
         }
 
         // Perform graph expansion
-        const mergeResult = this.mergeGraph(graph as unknown as WorkflowGraphStructure, subgraphGraph, node.id, {
+        const mergeResult = this.mergeGraph(graph as unknown as WorkflowGraphStructureImpl, subgraphGraph, node.id, {
           nodeIdPrefix: `${node.id}_`,
           edgeIdPrefix: `${node.id}_`,
           subworkflowId,
@@ -404,7 +405,7 @@ export class WorkflowGraphBuilder {
    * @returns: The merged result
    */
   private static mergeGraph(
-    mainGraph: WorkflowGraphStructure,
+    mainGraph: WorkflowGraphStructureImpl,
     subgraph: WorkflowGraph,
     subgraphNodeId: ID,
     options: SubgraphMergeOptions & {

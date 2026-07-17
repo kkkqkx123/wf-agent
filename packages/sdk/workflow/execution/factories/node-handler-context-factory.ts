@@ -66,7 +66,7 @@ export interface NodeHandlerContextFactoryConfig {
  * - Ensures that all necessary dependencies are in place.
  */
 export class NodeHandlerContextFactory {
-  constructor(private config: NodeHandlerContextFactoryConfig) {}
+  constructor(public config: NodeHandlerContextFactoryConfig) {}
 
   /**
    * Create a node processor context

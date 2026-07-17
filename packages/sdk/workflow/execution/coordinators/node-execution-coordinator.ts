@@ -23,7 +23,6 @@ import type {
   CheckpointConfig,
   UserInteractionHandler,
 } from "@wf-agent/types";
-import { CheckpointTrigger } from "@wf-agent/types";
 import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 import type { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { GlobalContext } from "../../../shared/global-context.js";
@@ -48,10 +47,7 @@ import type { ContributionManager } from "../../../plugin/contributions/manager.
 import * as ServiceIdentifiers from "../../../di/service-identifiers.js";
 import type { CheckpointDependencies } from "../../checkpoint/checkpoint-coordinator.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
-import {
-  resolveCheckpointConfig,
-  buildNodeCheckpointLayers,
-} from "../../checkpoint/utils/config-resolver.js";
+import { NodeCheckpointStrategy } from "./node-checkpoint-strategy.js";
 import {
   buildWorkflowExecutionPausedEvent,
   buildWorkflowExecutionCancelledEvent,
@@ -135,9 +131,10 @@ export class NodeExecutionCoordinator {
   private conversationManager: ConversationSession;
   private interruptionManager: InterruptionState;
 
-  // Checkpoint-related (optional)
+  // Checkpoint-related (optional) - delegated to NodeCheckpointStrategy
   private checkpointDependencies?: CheckpointDependencies;
-  private globalCheckpointConfig?: CheckpointConfig;
+  /** Delegated checkpoint strategy */
+  private checkpointStrategy: NodeCheckpointStrategy;
 
   // Interrupt detection-related (optional)
   private workflowExecutionRegistry?: WorkflowExecutionRegistry;
@@ -161,7 +158,11 @@ export class NodeExecutionCoordinator {
 
     // Checkpoint-related
     this.checkpointDependencies = config.checkpointDependencies;
-    this.globalCheckpointConfig = config.globalCheckpointConfig;
+    this.checkpointStrategy = new NodeCheckpointStrategy(
+      config.checkpointDependencies,
+      config.globalCheckpointConfig,
+      config.eventManager,
+    );
 
     // Interrupt detection-related
     this.workflowExecutionRegistry = config.workflowExecutionRegistry;
@@ -330,15 +331,10 @@ export class NodeExecutionCoordinator {
     const signal = options?.abortSignal ?? this.interruptionManager.getAbortSignal();
     const workflowId = workflowExecutionEntity.getWorkflowId();
 
-    // Set permission manager on LLM coordinator for this execution (NEW ARCHITECTURE)
+    // Set permission manager on LLM coordinator for this execution
     if (this.permissionManager) {
       try {
-        // Access llmCoordinator from handlerContextFactory's config
-        const llmCoordinator = (
-          this.handlerContextFactory as unknown as {
-            config?: { llmCoordinator?: { setPermissionManager: (pm: unknown) => void } };
-          }
-        ).config?.llmCoordinator;
+        const llmCoordinator = this.handlerContextFactory.config.llmCoordinator;
         if (llmCoordinator && typeof llmCoordinator.setPermissionManager === "function") {
           llmCoordinator.setPermissionManager(this.permissionManager);
         }
@@ -387,49 +383,11 @@ export class NodeExecutionCoordinator {
         await emit(this.eventManager, nodeStartedEvent);
 
         // Step 2: Create a checkpoint before node execution (if configured)
-        if (this.checkpointDependencies) {
-          const context = {
-            triggerType: CheckpointTrigger.BEFORE_EXECUTE,
-            nodeId,
-          };
-          // Convert to StaticNode for checkpoint config resolution
-          const staticNode = (
-            "originalNode" in node ? (node as WorkflowNode).originalNode : node
-          ) as StaticNode | undefined;
-          const layers = buildNodeCheckpointLayers(
-            this.globalCheckpointConfig,
-            staticNode,
-            context,
-          );
-          const configResult = resolveCheckpointConfig(layers, context);
-
-          if (configResult.shouldCreate) {
-            logger.debug("Creating checkpoint before node execution", { executionId, nodeId });
-            try {
-              const coordinator = new CheckpointCoordinator();
-              await coordinator.createWorkflowCheckpoint(
-                workflowExecutionEntity,
-                this.checkpointDependencies!,
-                {
-                  nodeId,
-                  metadata: {
-                    description:
-                      configResult.description ||
-                      `Before node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
-                  },
-                },
-              );
-            } catch (error) {
-              await handleErrorWithContext(
-                this.eventManager,
-                getErrorOrNew(error) as SDKError,
-                workflowExecutionEntity,
-                "CREATE_CHECKPOINT",
-              );
-              throw error;
-            }
-          }
-        }
+        await this.checkpointStrategy.createBeforeNodeCheckpoint(
+          workflowExecutionEntity,
+          node,
+          nodeId,
+        );
 
         // Step 3: Execute the BEFORE_EXECUTE type of Hook
         if (node.hooks && node.hooks.length > 0) {
@@ -486,7 +444,7 @@ export class NodeExecutionCoordinator {
         // Plugin middleware: before-node-execution
         try {
           contributionManager = this.globalContext.container.get(
-            ServiceIdentifiers.ContributionManager as unknown as symbol,
+            ServiceIdentifiers.ContributionManager,
           ) as ContributionManager | undefined;
           if (contributionManager?.hasMiddleware('before-node-execution')) {
             await contributionManager.runMiddleware('before-node-execution', {
@@ -605,34 +563,12 @@ export class NodeExecutionCoordinator {
 
         // [Problem #3 Fix] Create a failure checkpoint when node ultimately fails
         // This ensures the failure state is persisted even if the SDK crashes after this point.
-        if (nodeResult.status === "FAILED" && this.checkpointDependencies) {
-          try {
-            const coordinator = new CheckpointCoordinator();
-            await coordinator.createWorkflowCheckpoint(
-              workflowExecutionEntity,
-              this.checkpointDependencies,
-              {
-                nodeId,
-                metadata: {
-                  description: `Node failed: ${nodeId} (${nodeType})`,
-                  customFields: {
-                    failureType: "node_execution_failure",
-                    failedAt: now(),
-                    retryCount,
-                  },
-                },
-              },
-            );
-            logger.info("Failure checkpoint created for node", { executionId, nodeId, retryCount });
-          } catch (cpError) {
-            // Non-fatal: checkpoint creation failure should not mask the original node failure
-            logger.warn("Failed to create failure checkpoint, continuing", {
-              executionId,
-              nodeId,
-              error: cpError,
-            });
-          }
-        }
+        await this.checkpointStrategy.createFailureCheckpoint(
+          workflowExecutionEntity,
+          nodeId,
+          nodeType,
+          retryCount,
+        );
 
         const nodeDuration = diffTimestamp(nodeStartTime, now());
 
@@ -715,49 +651,11 @@ export class NodeExecutionCoordinator {
         }
 
         // Step 7: Create a checkpoint after the node has executed (if configured).
-        if (this.checkpointDependencies) {
-          const context = {
-            triggerType: CheckpointTrigger.AFTER_EXECUTE,
-            nodeId,
-          };
-          // Convert to StaticNode for checkpoint config resolution
-          const staticNode = (
-            "originalNode" in node ? (node as WorkflowNode).originalNode : node
-          ) as StaticNode | undefined;
-          const layers = buildNodeCheckpointLayers(
-            this.globalCheckpointConfig,
-            staticNode,
-            context,
-          );
-          const configResult = resolveCheckpointConfig(layers, context);
-
-          if (configResult.shouldCreate) {
-            logger.debug("Creating checkpoint after node execution", { executionId, nodeId });
-            try {
-              const coordinator = new CheckpointCoordinator();
-              await coordinator.createWorkflowCheckpoint(
-                workflowExecutionEntity,
-                this.checkpointDependencies,
-                {
-                  nodeId,
-                  metadata: {
-                    description:
-                      configResult.description ||
-                      `After node: ${(node as WorkflowNode).name || (node as RuntimeNode as WorkflowNode).originalNode?.name}`,
-                  },
-                },
-              );
-            } catch (error) {
-              await handleErrorWithContext(
-                this.eventManager,
-                getErrorOrNew(error) as SDKError,
-                workflowExecutionEntity,
-                "CREATE_CHECKPOINT_AFTER",
-              );
-              throw error;
-            }
-          }
-        }
+        await this.checkpointStrategy.createAfterNodeCheckpoint(
+          workflowExecutionEntity,
+          node,
+          nodeId,
+        );
 
         // Step 8: Trigger the node completion event
         if (nodeResult.status === "COMPLETED") {
@@ -829,32 +727,11 @@ export class NodeExecutionCoordinator {
         });
 
         // [Problem #3 Fix] Create failure checkpoint in catch block to persist error state
-        if (this.checkpointDependencies) {
-          try {
-            const coordinator = new CheckpointCoordinator();
-            await coordinator.createWorkflowCheckpoint(
-              workflowExecutionEntity,
-              this.checkpointDependencies,
-              {
-                nodeId,
-                metadata: {
-                  description: `Node execution threw: ${nodeId} (${nodeType})`,
-                  customFields: {
-                    failureType: "node_execution_exception",
-                    failedAt: now(),
-                  },
-                },
-              },
-            );
-            logger.info("Failure checkpoint created in catch block", { executionId, nodeId });
-          } catch (cpError) {
-            logger.warn("Failed to create failure checkpoint in catch block, continuing", {
-              executionId,
-              nodeId,
-              error: cpError,
-            });
-          }
-        }
+        await this.checkpointStrategy.createExceptionCheckpoint(
+          workflowExecutionEntity,
+          nodeId,
+          nodeType,
+        );
 
         // Plugin middleware: on-error
         if (contributionManager?.hasMiddleware('on-error')) {
@@ -944,7 +821,7 @@ export class NodeExecutionCoordinator {
       let contributionManager: ContributionManager | undefined;
       try {
         contributionManager = this.globalContext.container.get(
-          ServiceIdentifiers.ContributionManager as unknown as symbol,
+          ServiceIdentifiers.ContributionManager,
         ) as ContributionManager | undefined;
       } catch {
         contributionManager = undefined;

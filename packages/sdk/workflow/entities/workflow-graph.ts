@@ -35,7 +35,7 @@ import type {
   SubgraphMergeLog,
   PreprocessValidationResult,
 } from "../types/preprocess.js";
-import { WorkflowGraphStructure } from "./workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "./workflow-graph-structure.js";
 import { WorkflowGraphMetadata } from "./workflow-graph-metadata.js";
 
 /**
@@ -44,13 +44,13 @@ import { WorkflowGraphMetadata } from "./workflow-graph-metadata.js";
  */
 export class WorkflowGraph implements WorkflowGraphStructureType {
   /** Immutable graph structure */
-  public readonly structure: WorkflowGraphStructure;
+  public readonly structure: WorkflowGraphStructureImpl;
 
   /** Mutable metadata for preprocessing and analysis */
   public readonly metadata: WorkflowGraphMetadata;
 
-  constructor(structure?: WorkflowGraphStructure, metadata?: WorkflowGraphMetadata) {
-    this.structure = structure ?? new WorkflowGraphStructure();
+  constructor(structure?: WorkflowGraphStructureImpl, metadata?: WorkflowGraphMetadata) {
+    this.structure = structure ?? new WorkflowGraphStructureImpl();
     this.metadata = metadata ?? new WorkflowGraphMetadata();
   }
 
@@ -351,7 +351,7 @@ export class WorkflowGraph implements WorkflowGraphStructureType {
   /**
    * Create a copy of the graph with new structure (for transformations)
    */
-  withStructure(newStructure: WorkflowGraphStructure): WorkflowGraph {
+  withStructure(newStructure: WorkflowGraphStructureImpl): WorkflowGraph {
     return new WorkflowGraph(newStructure, this.metadata);
   }
 

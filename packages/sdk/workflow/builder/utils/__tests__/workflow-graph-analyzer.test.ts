@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { analyzeWorkflowGraph, collectForkJoinPairs } from "../workflow-graph-analyzer.js";
-import { WorkflowGraphStructure } from "../../../entities/workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../../../entities/workflow-graph-structure.js";
 import type { WorkflowNode, WorkflowEdge } from "@wf-agent/types";
 
 // Helper function to create a simple node

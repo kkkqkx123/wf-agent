@@ -15,27 +15,27 @@ export type TriggerHandlerFn = (
   ...dependencies: unknown[]
 ) => Promise<TriggerExecutionResult>;
 
-const triggerHandlersMap = {
-  apply_message_operation: applyMessageOperationHandler,
-  execute_script: executeScriptHandler,
-  execute_triggered_subworkflow: executeTriggeredSubworkflowHandler,
-  pause_workflow_execution: pauseExecutionHandler,
-  resume_workflow_execution: resumeExecutionHandler,
-  send_notification: sendNotificationHandler,
-  set_variable: setVariableHandler,
-  skip_node: skipNodeHandler,
-  stop_workflow_execution: stopExecutionHandler,
-} as const;
+// Explicitly typed map avoids `as const` + `as unknown as` casts
+const triggerHandlersMap: Record<string, TriggerHandlerFn> = {
+  apply_message_operation: applyMessageOperationHandler as TriggerHandlerFn,
+  execute_script: executeScriptHandler as TriggerHandlerFn,
+  execute_triggered_subworkflow: executeTriggeredSubworkflowHandler as TriggerHandlerFn,
+  pause_workflow_execution: pauseExecutionHandler as TriggerHandlerFn,
+  resume_workflow_execution: resumeExecutionHandler as TriggerHandlerFn,
+  send_notification: sendNotificationHandler as TriggerHandlerFn,
+  set_variable: setVariableHandler as TriggerHandlerFn,
+  skip_node: skipNodeHandler as TriggerHandlerFn,
+  stop_workflow_execution: stopExecutionHandler as TriggerHandlerFn,
+};
 
-export const triggerHandlers: Record<string, TriggerHandlerFn> =
-  triggerHandlersMap as unknown as Record<string, TriggerHandlerFn>;
+export const triggerHandlers: Record<string, TriggerHandlerFn> = triggerHandlersMap;
 
 export function getTriggerHandler(actionType: string): TriggerHandlerFn {
-  const handler = triggerHandlersMap[actionType as keyof typeof triggerHandlersMap];
+  const handler = triggerHandlersMap[actionType];
   if (!handler) {
     throw new Error(`Unknown trigger action type: ${actionType}`);
   }
-  return handler as unknown as TriggerHandlerFn;
+  return handler;
 }
 
 export {

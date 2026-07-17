@@ -13,7 +13,7 @@
 
 import type { ID, StaticNodeType, SyncNodeConfig } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
-import type { WorkflowGraphStructure } from "../../entities/workflow-graph-structure.js";
+import type { WorkflowGraphStructure } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "SyncNodeValidator" });

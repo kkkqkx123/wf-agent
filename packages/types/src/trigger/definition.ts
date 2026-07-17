@@ -7,14 +7,13 @@ import type { TriggerStatus } from "./state.js";
 import type { TriggerCondition, TriggerAction } from "./config.js";
 
 /**
- * Trigger Definition Interface
+ * Trigger Definition Interface (compile-time only)
  *
- * Design Notes:
- * - Used both at definition time (Workflow definition) and at runtime.
- * - Definition time use: provide id, name, condition, action, enabled and other basic fields.
- * - Runtime use: add status, triggerCount, createdAt, updatedAt and other runtime fields.
+ * Contains only the fields that are specified at definition time.
+ * Used for workflow definitions, templates, and configuration.
+ * Runtime fields (status, triggerCount, etc.) are excluded.
  */
-export interface Trigger {
+export interface TriggerDefinition {
   /** Trigger Unique Identifier */
   id: ID;
   /** Trigger Name */
@@ -34,6 +33,23 @@ export interface Trigger {
   /** Checkpoint Description */
   checkpointDescription?: string;
 
+  /**
+   * Enable or not (used when defining)
+   * - Default true
+   * - Maps to status when converted to a Trigger.
+   */
+  enabled?: boolean;
+}
+
+/**
+ * Trigger Interface (definition + runtime fields)
+ *
+ * Design Notes:
+ * - Used both at definition time (Workflow definition) and at runtime.
+ * - Definition time use: provide id, name, condition, action, enabled and other basic fields.
+ * - Runtime use: add status, triggerCount, createdAt, updatedAt and other runtime fields.
+ */
+export interface Trigger extends TriggerDefinition {
   // ==========================================================================
   // Runtime fields (may not be provided at definition time, automatically populated at runtime)
   // ==========================================================================
@@ -44,13 +60,6 @@ export interface Trigger {
    * - Runtime: maintained by the system
    */
   status?: TriggerStatus;
-
-  /**
-   * Enable or not (used when defining)
-   * - Default true
-   * - Maps to status when converted to a Trigger.
-   */
-  enabled?: boolean;
 
   /** Associated workflow ID (runtime) */
   workflowId?: ID;
@@ -67,5 +76,6 @@ export interface Trigger {
 /**
  * Workflow Trigger Type Alias
  * Used to denote a fully defined trigger in a workflow (as opposed to a TriggerReference)
+ * At definition time, this contains only compile-time fields.
  */
-export type WorkflowTrigger = Trigger;
+export type WorkflowTrigger = TriggerDefinition;

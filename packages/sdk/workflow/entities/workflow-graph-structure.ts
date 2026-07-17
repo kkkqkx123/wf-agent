@@ -38,7 +38,7 @@ import type { ID } from "@wf-agent/types";
  * Core Responsibilities: Store and manage the nodes, edges, and adjacency relationships of a graph.
  * Does not include complex algorithms or preprocessing data; only provides basic graph operations.
  */
-export class WorkflowGraphStructure {
+export class WorkflowGraphStructureImpl {
   /** Node set */
   public nodes: NodeMap;
   /** Edge Set */
@@ -51,6 +51,21 @@ export class WorkflowGraphStructure {
   public startNodeId?: ID;
   /** End node ID set */
   public endNodeIds: Set<ID>;
+  /**
+   * Outgoing edges indexed by source node ID (built during construction for O(degree) lookup).
+   *
+   * SYNC REQUIREMENT: When addEdge() is called, this index is updated alongside edges,
+   * adjacencyList, and reverseAdjacencyList. If edge removal is ever added, ALL four
+   * structures must be kept in sync.
+   */
+  public _outgoingEdgeMap: Map<ID, WorkflowEdge[]>;
+  /**
+   * Incoming edges indexed by target node ID (built during construction for O(degree) lookup).
+   *
+   * SYNC REQUIREMENT: Same as _outgoingEdgeMap — must be kept in sync with all other
+   * edge-related structures whenever edges are added or removed.
+   */
+  public _incomingEdgeMap: Map<ID, WorkflowEdge[]>;
 
   constructor() {
     this.nodes = new Map();
@@ -58,6 +73,8 @@ export class WorkflowGraphStructure {
     this.adjacencyList = new Map();
     this.reverseAdjacencyList = new Map();
     this.endNodeIds = new Set();
+    this._outgoingEdgeMap = new Map();
+    this._incomingEdgeMap = new Map();
   }
 
   /**
@@ -92,6 +109,18 @@ export class WorkflowGraphStructure {
       this.reverseAdjacencyList.set(edge.targetNodeId, new Set());
     }
     this.reverseAdjacencyList.get(edge.targetNodeId)!.add(edge.sourceNodeId);
+
+    // Update outgoing edge index
+    if (!this._outgoingEdgeMap.has(edge.sourceNodeId)) {
+      this._outgoingEdgeMap.set(edge.sourceNodeId, []);
+    }
+    this._outgoingEdgeMap.get(edge.sourceNodeId)!.push(edge);
+
+    // Update incoming edge index
+    if (!this._incomingEdgeMap.has(edge.targetNodeId)) {
+      this._incomingEdgeMap.set(edge.targetNodeId, []);
+    }
+    this._incomingEdgeMap.get(edge.targetNodeId)!.push(edge);
   }
 
   /**
@@ -124,42 +153,28 @@ export class WorkflowGraphStructure {
 
   /**
    * Get the outgoing edges of a node
+   * Uses the pre-built outgoing edge index for O(degree) performance.
    */
   getOutgoingEdges(nodeId: ID): WorkflowEdge[] {
-    const neighbors = this.getOutgoingNeighbors(nodeId);
-    const edges: WorkflowEdge[] = [];
-    for (const edge of this.edges.values()) {
-      if (edge.sourceNodeId === nodeId && neighbors.has(edge.targetNodeId)) {
-        edges.push(edge);
-      }
-    }
-    return edges;
+    return this._outgoingEdgeMap.get(nodeId) || [];
   }
 
   /**
-   * Get the in-degree of a node
+   * Get the incoming edges of a node
+   * Uses the pre-built incoming edge index for O(degree) performance.
    */
   getIncomingEdges(nodeId: ID): WorkflowEdge[] {
-    const neighbors = this.getIncomingNeighbors(nodeId);
-    const edges: WorkflowEdge[] = [];
-    for (const edge of this.edges.values()) {
-      if (edge.targetNodeId === nodeId && neighbors.has(edge.sourceNodeId)) {
-        edges.push(edge);
-      }
-    }
-    return edges;
+    return this._incomingEdgeMap.get(nodeId) || [];
   }
 
   /**
    * Get the edge between two nodes
+   * Uses the outgoing edge index for O(degree) performance.
    */
   getEdgeBetween(sourceNodeId: ID, targetNodeId: ID): WorkflowEdge | undefined {
-    for (const edge of this.edges.values()) {
-      if (edge.sourceNodeId === sourceNodeId && edge.targetNodeId === targetNodeId) {
-        return edge;
-      }
-    }
-    return undefined;
+    const outgoing = this._outgoingEdgeMap.get(sourceNodeId);
+    if (!outgoing) return undefined;
+    return outgoing.find(edge => edge.targetNodeId === targetNodeId);
   }
 
   /**

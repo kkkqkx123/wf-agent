@@ -6,7 +6,7 @@
  */
 
 import { WorkflowGraphBuilder } from "../workflow-graph-builder.js";
-import { WorkflowGraphStructure } from "../../entities/workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../../entities/workflow-graph-structure.js";
 import { WorkflowGraphMetadata } from "../../entities/workflow-graph-metadata.js";
 import type { WorkflowTemplate, WorkflowTemplateType } from "@wf-agent/types";
 

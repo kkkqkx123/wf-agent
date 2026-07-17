@@ -14,7 +14,7 @@
 
 import type { ID, StaticNodeType } from "@wf-agent/types";
 import { ConfigurationValidationError } from "@wf-agent/types";
-import type { WorkflowGraphStructure } from "../../entities/workflow-graph-structure.js";
+import type { WorkflowGraphStructure } from "@wf-agent/types";
 import { getReachableNodes } from "../../builder/utils/workflow-traversal.js";
 
 /**

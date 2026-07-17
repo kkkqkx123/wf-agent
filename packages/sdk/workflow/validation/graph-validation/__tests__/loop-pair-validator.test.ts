@@ -11,7 +11,7 @@
 
 import { describe, it, expect } from "vitest";
 import { validateLoopPairs } from "../loop-pair-validator.js";
-import { WorkflowGraphStructure } from "../../../entities/workflow-graph-structure.js";
+import { WorkflowGraphStructureImpl } from "../../../entities/workflow-graph-structure.js";
 import type { WorkflowNode, WorkflowEdge } from "@wf-agent/types";
 
 describe("validateLoopPairs", () => {

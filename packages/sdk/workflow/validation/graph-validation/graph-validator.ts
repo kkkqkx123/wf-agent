@@ -42,7 +42,7 @@ import type { WorkflowGraphAnalysis } from "../../types/graph/analysis.js";
 import { ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import type { WorkflowGraphStructure } from "../../entities/workflow-graph-structure.js";
+import type { WorkflowGraphStructure } from "@wf-agent/types";
 import { analyzeWorkflowGraph } from "../../builder/utils/workflow-graph-analyzer.js";
 import { detectCycles } from "../../builder/utils/workflow-cycle-detector.js";
 import { analyzeReachability } from "../../builder/utils/workflow-reachability-analyzer.js";

@@ -797,11 +797,19 @@ export class AgentLoopEntity implements IExecutionEntity {
    *
    * Called at execution start by AgentLoopExecutor.prepareExecution().
    * Once locked, the format is immutable for the duration of this execution.
+   * Throws if called more than once to enforce immutability.
    *
    * @param config The resolved tool call format config to lock
+   * @throws Error if already locked
    */
   lockToolCallFormat(config: ToolCallFormatConfig): void {
-    this.lockedToolCallFormat = config;
+    if (this.lockedToolCallFormat) {
+      throw new Error(
+        `Tool call format already locked: ${this.lockedToolCallFormat.format}. ` +
+          "Cannot re-lock during the same execution.",
+      );
+    }
+    this.lockedToolCallFormat = Object.freeze({ ...config });
   }
 
   /**
@@ -942,6 +950,14 @@ export class AgentLoopEntity implements IExecutionEntity {
 
     // Invalidate cache after restoration to ensure fresh computation
     entity.cachedAvailableTools = undefined;
+
+    // Re-lock the tool call format from restored state
+    // This ensures the locked protocol survives checkpoint restore
+    const restoredFormat = state.lockedToolCallFormat;
+    if (restoredFormat) {
+      // Bypass immutability guard since this is a fresh entity from snapshot
+      entity.lockedToolCallFormat = Object.freeze({ ...restoredFormat });
+    }
 
     return entity;
   }

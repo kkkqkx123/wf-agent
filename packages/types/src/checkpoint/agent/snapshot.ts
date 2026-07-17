@@ -20,6 +20,7 @@
 import { AgentLoopStatus } from "../../agent-execution/types.js";
 import type { IterationRecord } from "../../agent-execution/types.js";
 import type { CheckpointStateBase } from "../base.js";
+import type { ToolCallFormatConfig } from "../../llm/tool-call-format.js";
 
 /**
  * Agent Loop Status Snapshot
@@ -108,6 +109,15 @@ export interface AgentLoopStateSnapshot extends CheckpointStateBase {
     /** Tool call ID if snapshot was taken after a tool call */
     toolCallId?: string;
   }>;
+
+  // ========== Tool Call Format Locking ==========
+
+  /**
+   * Locked tool call format configuration.
+   * Set at execution start, persisted to ensure the same protocol is used
+   * on checkpoint resume, even if the profile has changed.
+   */
+  lockedToolCallFormat?: ToolCallFormatConfig;
 }
 
 /**

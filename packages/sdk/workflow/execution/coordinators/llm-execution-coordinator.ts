@@ -19,6 +19,8 @@ import type {
   LLMToolCall,
   WorkflowConfig,
   TransformContextFn,
+  ToolCallFormatConfig,
+  ToolCallProtocolViolationPolicy,
 } from "@wf-agent/types";
 import { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import type { ToolPermissionManager } from "../../../shared/coordinators/tool-permission-manager.js";
@@ -66,6 +68,19 @@ export interface LLMExecutionParams {
   workflowConfig?: WorkflowConfig;
   /** Transform context function (for dynamic context injection, message compression, etc.) */
   transformContext?: TransformContextFn;
+
+  /**
+   * Locked tool call format for protocol enforcement.
+   * When set, the core coordinator will use this format regardless of the profile's
+   * toolCallFormat. Protocol violations are handled according to violationPolicy.
+   */
+  lockedToolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Per-request protocol violation policy override.
+   * When set, overrides the global default policy for this request only.
+   */
+  violationPolicy?: ToolCallProtocolViolationPolicy;
 }
 
 /**
@@ -240,7 +255,8 @@ export class LLMExecutionCoordinator {
     | { content: string; toolCalls?: Array<{ id: string; name: string; arguments: unknown }> }
     | WorkflowInterruptionCheckResult
   > {
-    const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId } =
+    const { prompt, profileId, parameters, tools, maxToolCallsPerRequest, executionId, nodeId,
+      lockedToolCallFormat, violationPolicy } =
       params;
 
     // Get the AbortSignal
@@ -317,6 +333,8 @@ export class LLMExecutionCoordinator {
           nodeId,
           executeTools: false, // Don't execute tools, we'll handle them with approval
           transformContext: params.transformContext, // Pass through transformContext (dynamic context injection, message compression)
+          lockedToolCallFormat, // Pass through protocol locking
+          violationPolicy, // Pass through protocol violation policy
         },
         conversationState,
       );

@@ -76,14 +76,23 @@ export class HistoryConverter {
     format: ToolCallFormat,
     options?: Partial<HistoryConversionOptions>,
   ): LLMMessage {
-    if (!message.toolCalls || message.toolCalls.length === 0) {
+    // Use preserved original tool calls from metadata when available.
+    // This provides lossless conversion: the original structured tool calls
+    // (stored by toNative()) are preserved regardless of heuristic parsing.
+    const metadata = message.metadata as Record<string, unknown> | undefined;
+    const originalToolCalls = metadata?.["originalToolCalls"] as
+      | Array<{ id: string; type: string; function: { name: string; arguments: string } }>
+      | undefined;
+    const toolCalls = originalToolCalls ?? message.toolCalls;
+
+    if (!toolCalls || toolCalls.length === 0) {
       return message;
     }
 
     const xmlTags = options?.xmlTags || DEFAULT_XML_TAGS;
     const markers = options?.markers || DEFAULT_JSON_MARKERS;
 
-    const toolCallText = ToolDeclarationFormatter.formatToolCalls(message.toolCalls, {
+    const toolCallText = ToolDeclarationFormatter.formatToolCalls(toolCalls, {
       format: format === "json_wrapped" || format === "json_raw" ? "json" : "xml",
       xmlTags,
       markers,
@@ -188,7 +197,7 @@ export class HistoryConverter {
           const result: LLMMessage = {
             role: "assistant",
             content: stripToolCallText
-              ? HistoryConverter.stripToolCallText(contentStr, sourceFormat.format, sourceFormat.markers)
+              ? HistoryConverter.stripToolCallText(contentStr, sourceFormat.format, sourceFormat.xmlTags, sourceFormat.markers)
               : contentStr,
             toolCalls: toolCalls.map(tc => ({
               id: tc.id,
@@ -199,6 +208,26 @@ export class HistoryConverter {
               },
             })),
           };
+
+          // Preserve original structured tool calls in metadata for lossless reverse conversion.
+          // This allows fromNative() to reconstruct the exact tool calls when converting back,
+          // avoiding information loss from the heuristic parsing of text-based formats.
+          const originalToolCalls = result.toolCalls?.map(tc => ({
+            id: tc.id,
+            type: tc.type,
+            function: {
+              name: tc.function.name,
+              arguments: tc.function.arguments,
+            },
+          }));
+
+          if (originalToolCalls && originalToolCalls.length > 0) {
+            result.metadata = {
+              ...(result.metadata || {}),
+              originalToolCalls,
+            };
+          }
+
           return result;
         }
         return msg;
@@ -244,11 +273,14 @@ export class HistoryConverter {
   private static stripToolCallText(
     content: string,
     format: ToolCallFormat,
+    xmlTags?: ToolCallXmlTags,
     markers?: { start: string; end: string },
   ): string {
     if (format === "xml") {
-      // Remove XML tool call blocks
-      return content.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, "").trim();
+      // Remove XML tool call blocks using configurable tag names
+      const toolCallTag = xmlTags?.toolCall || "tool_use";
+      const regex = new RegExp(`<${toolCallTag}>[\\s\\S]*?<\\/${toolCallTag}>`, "g");
+      return content.replace(regex, "").trim();
     }
     if (format === "json_wrapped" && markers) {
       // Remove JSON marker blocks
@@ -258,10 +290,62 @@ export class HistoryConverter {
       return content.replace(regex, "").trim();
     }
     if (format === "json_raw") {
-      // Remove raw JSON tool call blocks (heuristic: match {...} with "tool" or "function" key)
-      return content.replace(/\{[^}]*"tool"[^}]*\}/g, "").trim();
+      // Remove raw JSON tool call blocks.
+      // Heuristic: match JSON objects containing tool call identifiers (tool, function, name keys).
+      // Uses a simple balanced-brace approach to handle single-level nesting.
+      return HistoryConverter.removeRawJsonToolCalls(content);
     }
     return content.trim();
+  }
+
+  /**
+   * Remove raw JSON tool call objects from text using heuristic detection.
+   * Handles single-level nesting of JSON objects.
+   */
+  private static removeRawJsonToolCalls(content: string): string {
+    const toolCallKeyPattern = /"tool"\s*:|"function"\s*:|"name"\s*:/;
+    const result: string[] = [];
+    let i = 0;
+    while (i < content.length) {
+      const braceStart = content.indexOf("{", i);
+      if (braceStart === -1) {
+        // No more JSON objects, append remaining text
+        result.push(content.slice(i));
+        break;
+      }
+      // Try to find the matching closing brace with nesting support
+      let depth = 0;
+      let braceEnd = -1;
+      for (let j = braceStart; j < content.length; j++) {
+        if (content[j] === "{") {
+          depth++;
+        } else if (content[j] === "}") {
+          depth--;
+          if (depth === 0) {
+            braceEnd = j;
+            break;
+          }
+        }
+      }
+      if (braceEnd === -1) {
+        // Unmatched brace, append remaining text
+        result.push(content.slice(i));
+        break;
+      }
+      const candidate = content.slice(braceStart, braceEnd + 1);
+      // Check if this JSON object looks like a tool call
+      if (toolCallKeyPattern.test(candidate)) {
+        // It's a tool call — skip it (strip)
+        // Append text before the brace
+        result.push(content.slice(i, braceStart));
+        i = braceEnd + 1;
+      } else {
+        // Not a tool call — keep it
+        result.push(content.slice(i, braceEnd + 1));
+        i = braceEnd + 1;
+      }
+    }
+    return result.join("").trim();
   }
 
   /**
@@ -289,7 +373,7 @@ export class HistoryConverter {
       return null;
     }
 
-    if (format.format === "json_wrapped" || format.format === "json_raw") {
+    if (format.format === "json_wrapped") {
       const markers = format.markers || DEFAULT_JSON_MARKERS;
       const escapedStart = ToolCallParser.escapeRegExp(markers.start);
       const escapedEnd = ToolCallParser.escapeRegExp(markers.end);
@@ -316,6 +400,60 @@ export class HistoryConverter {
       return null;
     }
 
+    if (format.format === "json_raw") {
+      // json_raw has no markers — look for raw JSON objects containing tool result keys
+      return HistoryConverter.parseRawJsonToolResult(content);
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse a raw JSON tool result from text (no markers).
+   * Searches for JSON objects containing tool_call_id and output/content keys.
+   * Uses balanced-brace matching to handle nested objects.
+   */
+  private static parseRawJsonToolResult(content: string): { toolCallId: string; content: string } | null {
+    const toolResultKeyPattern = /"tool_call_id"\s*:/;
+    let i = 0;
+    while (i < content.length) {
+      const braceStart = content.indexOf("{", i);
+      if (braceStart === -1) {
+        return null;
+      }
+      // Find matching closing brace with nesting support
+      let depth = 0;
+      let braceEnd = -1;
+      for (let j = braceStart; j < content.length; j++) {
+        if (content[j] === "{") {
+          depth++;
+        } else if (content[j] === "}") {
+          depth--;
+          if (depth === 0) {
+            braceEnd = j;
+            break;
+          }
+        }
+      }
+      if (braceEnd === -1) {
+        return null;
+      }
+      const candidate = content.slice(braceStart, braceEnd + 1);
+      if (toolResultKeyPattern.test(candidate)) {
+        try {
+          const parsed = JSON.parse(candidate);
+          return {
+            toolCallId: parsed.tool_call_id || "",
+            content: parsed.output || parsed.content || "",
+          };
+        } catch {
+          // Invalid JSON, try next object
+          i = braceEnd + 1;
+          continue;
+        }
+      }
+      i = braceEnd + 1;
+    }
     return null;
   }
 }

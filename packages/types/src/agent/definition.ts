@@ -32,6 +32,7 @@ import type { AgentHookStatic, AgentTriggerStatic, AgentCheckpointConfig, AgentL
 import type { AgentToolConfig } from "./tool-config.js";
 import type { DynamicContextConfig } from "../dynamic-context.js";
 import type { ToolCallFormatConfig } from "../llm/tool-call-format.js";
+import type { ToolCallProtocolViolationPolicy } from "../llm/protocol-config.js";
 
 /**
  * Agent Loop Definition
@@ -128,6 +129,13 @@ export interface AgentLoopDefinition {
    * enabling pre-check at load time and locking at runtime.
    */
   toolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Protocol violation policy for this agent definition.
+   * Overrides the global default policy.
+   * Resolution order: request-level > agent-level > global default.
+   */
+  violationPolicy?: ToolCallProtocolViolationPolicy;
 
   // ========== Metadata ==========
 

@@ -20,6 +20,7 @@ import type {
   WorkflowConfig,
   MessageContextRegistry,
   VariableDefinition,
+  ToolCallFormatConfig,
 } from "@wf-agent/types";
 import type { WorkflowGraph } from "../../types/graph/preprocessed-graph.js";
 import { AvailableTools, resolveSchemaTools, resolveInitialTools } from "@wf-agent/types";
@@ -44,6 +45,7 @@ import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execut
 import type { GlobalContext } from "../../../shared/global-context.js";
 import type { VariableManager } from "../utils/variable-manager.js";
 import { ToolPermissionManager } from "../../../shared/coordinators/tool-permission-manager.js";
+import { CrossBoundaryConverter, type BoundaryType } from "../../../shared/messaging/cross-boundary-converter.js";
 
 const logger = createContextualLogger({ operation: "workflow-execution-builder" });
 
@@ -562,6 +564,42 @@ export class WorkflowExecutionBuilder {
       parent,
       options.parentStateCoordinator,
     );
+
+    // Step 6a: Cross-boundary protocol conversion
+    // When the parent execution has a locked tool call format that differs from
+    // the child's resolved protocol, convert the conversation history to match.
+    // This ensures the child receives messages in its expected protocol format.
+    // Note: Only AgentLoopEntity currently implements getLockedToolCallFormat().
+    // WorkflowExecutionEntity does not have protocol locking, so this conversion
+    // only applies when the parent is an agent loop entity.
+    const parentWithLock = parent as { getLockedToolCallFormat?: () => ToolCallFormatConfig | undefined };
+    const childWithLock = childEntity as { getLockedToolCallFormat?: () => ToolCallFormatConfig | undefined };
+    const parentLockedFormat = parentWithLock.getLockedToolCallFormat?.();
+    const childResolvedFormat = childWithLock.getLockedToolCallFormat?.();
+    if (parentLockedFormat && childResolvedFormat && parentLockedFormat.format !== childResolvedFormat.format) {
+      const boundaryType: BoundaryType =
+        type === "FORK_BRANCH" ? "workflow_fork" : "workflow_to_agent";
+      const convertedMessages = CrossBoundaryConverter.convert(
+        conversationManager.getMessages(),
+        parentLockedFormat,
+        childResolvedFormat,
+        undefined,
+        boundaryType,
+      );
+      // Replace the child's conversation messages with the converted ones
+      conversationManager.clear();
+      for (const msg of convertedMessages) {
+        conversationManager.addMessage(msg);
+      }
+      logger.info("Cross-boundary protocol conversion applied to child execution", {
+        parentExecutionId: parent.id,
+        childExecutionId: childEntity.id,
+        childType: type,
+        from: parentLockedFormat.format,
+        to: childResolvedFormat.format,
+        messageCount: convertedMessages.length,
+      });
+    }
 
     // Step 7: Create state coordinator
     const stateCoordinator = new WorkflowStateCoordinator({

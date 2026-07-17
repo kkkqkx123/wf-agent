@@ -140,6 +140,15 @@ export interface FormatterConfig {
    * custom markers, XML tags, and description style.
    */
   toolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Indicates that the tool call protocol was auto-converted due to a mismatch
+   * between the locked format and the profile format.
+   * When true, the formatter should log the conversion for observability.
+   * The actual conversion is handled by the formatter's normal operation
+   * (buildTextModeRequest / buildNativeRequest) based on the toolCallFormat.
+   */
+  protocolAutoConverted?: boolean;
 }
 
 /**

@@ -153,6 +153,7 @@ export class AgentIterationCoordinator {
         parameters: {},
         tools: toolSchemas,
         lockedToolCallFormat: entity.getLockedToolCallFormat(),
+        violationPolicy: entity.config.violationPolicy,
       },
       {
         abortSignal,

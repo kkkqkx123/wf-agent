@@ -64,6 +64,7 @@ import {
   EXECUTION_STATE_MAX_EVENTS,
 } from "@wf-agent/types";
 import type { LLMMessage } from "@wf-agent/types";
+import type { ToolCallFormatConfig } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { StateManager } from "../../shared/types/state-manager.js";
 
@@ -193,6 +194,15 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     variables: Record<string, { value: unknown; type: string; size?: number; updated: boolean; source: 'user' | 'tool' | 'system' }>;
     toolCallId?: string;
   }> = [];
+
+  // ========== Tool Call Format Locking ==========
+
+  /**
+   * Locked tool call format configuration.
+   * Set at execution start, persisted in checkpoints to ensure
+   * the same protocol is used on resume even if the profile has changed.
+   */
+  private _lockedToolCallFormat?: ToolCallFormatConfig;
 
   /**
    * Get the current status
@@ -810,6 +820,22 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
   }
 
   /**
+   * Get the locked tool call format configuration.
+   * Returns the format locked at execution start, or undefined if not yet locked.
+   */
+  get lockedToolCallFormat(): ToolCallFormatConfig | undefined {
+    return this._lockedToolCallFormat;
+  }
+
+  /**
+   * Set the locked tool call format configuration.
+   * Called at execution start and during checkpoint restore.
+   */
+  set lockedToolCallFormat(config: ToolCallFormatConfig | undefined) {
+    this._lockedToolCallFormat = config;
+  }
+
+  /**
    * Get variable history for a specific variable
    * @param variableName Name of the variable to track
    * @returns Array of snapshots containing this variable
@@ -1221,6 +1247,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._interruptionRecords = [];
     this._eventRecords = [];
     this._status = AgentLoopStatus.CREATED;
+    this._lockedToolCallFormat = undefined;
   }
 
   /**
@@ -1246,6 +1273,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     cloned._interruptionRecords = [...this._interruptionRecords];
     cloned._eventRecords = [...this._eventRecords];
     cloned._variableSnapshots = [...this._variableSnapshots];
+    cloned._lockedToolCallFormat = this._lockedToolCallFormat
+      ? { ...this._lockedToolCallFormat }
+      : undefined;
     // Note: Runtime-only fields are not cloned (isStreaming, pendingToolCalls, streamMessage)
     return cloned;
   }
@@ -1299,6 +1329,10 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       eventRecords: this._eventRecords.length > 0 ? [...this._eventRecords] : undefined,
       // Variable history tracking
       variableSnapshots: this._variableSnapshots.length > 0 ? [...this._variableSnapshots] : undefined,
+      // Tool call format locking
+      lockedToolCallFormat: this._lockedToolCallFormat
+        ? { ...this._lockedToolCallFormat }
+        : undefined,
     };
   }
 
@@ -1360,6 +1394,11 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
     // Restore variable snapshots for debugging
     this._variableSnapshots = snapshot.variableSnapshots ? [...snapshot.variableSnapshots] : [];
+
+    // Restore locked tool call format if present in snapshot
+    this._lockedToolCallFormat = snapshot.lockedToolCallFormat
+      ? { ...snapshot.lockedToolCallFormat }
+      : undefined;
 
     // Reset runtime state that cannot be restored
     this._shouldPause = false;

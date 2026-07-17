@@ -324,12 +324,12 @@ export class ProtocolViolationError extends Error {
 export function handleProtocolViolation(
   context: ProtocolViolationContext,
   policy: ToolCallProtocolViolationPolicy,
-): void {
+): boolean {
   switch (policy) {
     case "ignore":
       // Silently use the locked protocol, no logging
       context.recordMetrics?.(policy);
-      return;
+      return false;
 
     case "warn":
       logger.warn("Tool call protocol violation detected", {
@@ -342,7 +342,7 @@ export function handleProtocolViolation(
       });
       context.recordMetrics?.(policy);
       // Continue with locked protocol
-      return;
+      return false;
 
     case "fail":
       logger.error("Tool call protocol violation \u2014 interrupting execution", {
@@ -362,10 +362,13 @@ export function handleProtocolViolation(
         from: context.attemptedFormat?.format,
         to: context.lockedFormat.format,
         executionId: context.executionId,
+        profileId: context.profileId,
       });
       context.recordMetrics?.(policy);
-      // The locked format is already enforced by the formatter.
-      // HistoryConverter will handle the conversion on the next request.
-      return;
+      // The locked format is enforced by the formatter (see FormatterConfig.toolCallFormat).
+      // HistoryConverter will handle the actual message conversion in the formatter's
+      // buildTextModeRequest/buildNativeRequest based on the locked format.
+      // The protocolAutoConverted flag on FormatterConfig enables observability logging.
+      return true;
   }
 }

@@ -31,6 +31,7 @@ import type { DynamicContextConfig } from "../dynamic-context.js";
 import type { DynamicRuntimeContext } from "../dynamic-context.js";
 import type { AgentTrigger } from "./triggers.js";
 import type { ToolCallFormatConfig } from "../llm/tool-call-format.js";
+import type { ToolCallProtocolViolationPolicy } from "../llm/protocol-config.js";
 
 // =============================================================================
 // Dynamic Prompt Injection (Two-Layer Design)
@@ -222,6 +223,13 @@ export interface AgentLoopRuntimeConfig {
    * Once locked at execution start, this becomes immutable via the entity's lock mechanism.
    */
   toolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Protocol violation policy for this agent.
+   * Overrides the global default policy for this agent's execution.
+   * Resolution order: request-level > agent-level > global default.
+   */
+  violationPolicy?: ToolCallProtocolViolationPolicy;
 
   /** Hook configuration list (with parsed Condition objects) */
   hooks?: AgentHook[];

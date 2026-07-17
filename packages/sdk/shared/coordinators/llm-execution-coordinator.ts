@@ -22,6 +22,7 @@ import type {
   Tool,
   ToolSchema,
   ToolCallFormatConfig,
+  ToolCallProtocolViolationPolicy,
   LLMUsage,
   TransformContextFn,
   DynamicPromptContext,
@@ -85,6 +86,20 @@ export interface LLMExecutionParams {
    * messages from the conversation state and before passing them to the LLM executor.
    */
   transformContext?: TransformContextFn;
+
+  /**
+   * Locked tool call format for protocol enforcement.
+   * When set, the LLMExecutor will use this format regardless of the profile's
+   * toolCallFormat. Protocol violations are handled according to violationPolicy.
+   */
+  lockedToolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Per-request protocol violation policy override.
+   * When set, overrides the global default policy for this request only.
+   * Resolution order: request-level > agent-level > global default.
+   */
+  violationPolicy?: ToolCallProtocolViolationPolicy;
 
   // ========== TimeoutManager Integration (Phase 4) ==========
 
@@ -362,6 +377,7 @@ export class LLMExecutionCoordinator {
       parameters: Record<string, unknown>;
       tools?: ToolSchema[];
       lockedToolCallFormat?: ToolCallFormatConfig;
+      violationPolicy?: ToolCallProtocolViolationPolicy;
     },
     options: {
       abortSignal?: AbortSignal;
@@ -415,6 +431,7 @@ export class LLMExecutionCoordinator {
         parameters: config.parameters || {},
         tools: config.tools,
         lockedToolCallFormat: config.lockedToolCallFormat,
+        violationPolicy: config.violationPolicy,
       },
       { abortSignal, executionId, nodeId },
     );
@@ -451,6 +468,8 @@ export class LLMExecutionCoordinator {
       nodeId,
       executeTools = true,
       transformContext,
+      lockedToolCallFormat,
+      violationPolicy,
     } = params;
 
     const {
@@ -522,6 +541,8 @@ export class LLMExecutionCoordinator {
           profileId: profileId || "DEFAULT",
           parameters: parameters || {},
           tools: availableToolSchemas as ToolSchema[],
+          lockedToolCallFormat,
+          violationPolicy,
         },
         { abortSignal: signal, executionId: contextId, nodeId },
       );

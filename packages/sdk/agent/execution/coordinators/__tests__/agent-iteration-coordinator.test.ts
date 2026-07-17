@@ -85,6 +85,7 @@ let mockCoreCoordinator: CoreLLMExecutionCoordinator;
       nodeId: "node-1",
       config: {
         transformContext: undefined,
+        violationPolicy: undefined,
       },
       state: {
         currentIteration: 0,
@@ -96,6 +97,7 @@ let mockCoreCoordinator: CoreLLMExecutionCoordinator;
         recordToolCallEnd: vi.fn(),
       },
       getAbortSignal: vi.fn().mockReturnValue(new AbortController().signal),
+      getLockedToolCallFormat: vi.fn().mockReturnValue(undefined),
       addMessage: vi.fn(),
     };
 
@@ -227,7 +229,13 @@ let mockCoreCoordinator: CoreLLMExecutionCoordinator;
 
       expect(mockCoreCoordinator.executeLLMCallWithMessages).toHaveBeenCalledWith(
         [],
-        { parameters: {}, profileId: "profile-1", tools: undefined },
+        expect.objectContaining({
+          parameters: {},
+          profileId: "profile-1",
+          tools: undefined,
+          lockedToolCallFormat: undefined,
+          violationPolicy: undefined,
+        }),
         expect.objectContaining({
           executionId: "agent-loop-1",
           nodeId: "node-1",

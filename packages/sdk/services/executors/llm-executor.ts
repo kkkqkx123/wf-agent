@@ -51,6 +51,13 @@ export interface LLMExecutionRequestData {
    * Set by the executor at execution start for protocol enforcement.
    */
   lockedToolCallFormat?: ToolCallFormatConfig;
+
+  /**
+   * Per-request protocol violation policy override.
+   * When set, overrides the global default policy for this request only.
+   * Resolution order: request-level > agent-level > global default.
+   */
+  violationPolicy?: import("@wf-agent/types").ToolCallProtocolViolationPolicy;
 }
 
 /**
@@ -141,6 +148,7 @@ export class LLMExecutor {
       stream: requestData.stream || false,
       signal: options?.abortSignal, // Pass the AbortSignal
       lockedToolCallFormat: requestData.lockedToolCallFormat,
+      violationPolicy: requestData.violationPolicy,
       executionId: options?.executionId,
     };
 

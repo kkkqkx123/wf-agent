@@ -42,7 +42,13 @@ export interface LLMRequest {
   tools?: ToolSchema[];
   /**
    * Tool call format configuration override.
-   * Overrides the profile-level toolCallFormat for this specific request.
+   *
+   * @deprecated This field is currently not used in the execution path.
+   * Use `lockedToolCallFormat` instead, which is set by the executor at execution start
+   * and provides protocol locking and enforcement. The `toolCallFormat` field on
+   * `LLMProfile` is the source of truth for the profile-level format.
+   * If you need per-request overrides, set the profile's toolCallFormat or use
+   * the AgentLoopDefinition's toolCallFormat.
    */
   toolCallFormat?: ToolCallFormatConfig;
 

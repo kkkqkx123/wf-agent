@@ -15,7 +15,6 @@ export type {
   RegistrationResult,
   ResourceRegistrationResult,
   ResourceRegistries,
-  ResourceRegistrationOptions,
 } from "./types.js";
 
 export { registerAllResources } from "./orchestrator.js";

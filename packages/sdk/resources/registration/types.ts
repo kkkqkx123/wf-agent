@@ -76,12 +76,3 @@ export interface ResourceRegistries {
   hookTemplateRegistry: import("../../shared/registry/hook-template-registry.js").HookTemplateRegistry;
   agentLoopRegistry: import("@sdk/agent/registry/agent-loop-registry.js").AgentLoopRegistry;
 }
-
-/**
- * Options for resource registration
- */
-export interface ResourceRegistrationOptions {
-  skipIfExists: boolean;
-  promptsEnabled: boolean;
-  toolDescriptionsEnabled: boolean;
-}

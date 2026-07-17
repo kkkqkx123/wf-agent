@@ -18,11 +18,6 @@ import type { ResourceRegistrationResult } from "./types.js";
 const logger = createContextualLogger({ component: "PromptRegistration" });
 
 /**
- * All predefined prompt templates
- */
-const ALL_PREDEFINED_PROMPT_TEMPLATES: PromptTemplate[] = [];
-
-/**
  * All predefined fragments
  */
 import {
@@ -52,6 +47,15 @@ import {
 } from "../predefined/prompts/fragments/tool-usage/summary.js";
 
 import { CODE_REVIEW_FRAGMENT, DATA_ANALYSIS_FRAGMENT } from "../predefined/prompts/user-commands/index.js";
+
+// Import system prompt templates that should be registered
+import { ASSISTANT_SYSTEM_TEMPLATE, CODER_SYSTEM_TEMPLATE } from "../predefined/prompts/system/index.js";
+
+// All predefined prompt templates (populated from imports above)
+const ALL_PREDEFINED_PROMPT_TEMPLATES: PromptTemplate[] = [
+  ASSISTANT_SYSTEM_TEMPLATE,
+  CODER_SYSTEM_TEMPLATE,
+];
 
 const ALL_PREDEFINED_FRAGMENTS = [
   ASSISTANT_ROLE_FRAGMENT,

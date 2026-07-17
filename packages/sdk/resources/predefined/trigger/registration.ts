@@ -8,6 +8,7 @@ import type { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-templ
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedTriggers } from "./registry.js";
 import type { PredefinedTriggersOptions } from "./types.js";
+import type { ResourceRegistrationResult } from "../../registration/types.js";
 
 const logger = createContextualLogger({ component: "PredefinedTriggers" });
 
@@ -23,10 +24,7 @@ export function registerPredefinedTriggers(
   registry: TriggerTemplateRegistry,
   options?: PredefinedTriggersOptions,
   skipIfExists: boolean = true,
-): {
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-} {
+): ResourceRegistrationResult {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 
@@ -74,10 +72,7 @@ export function registerPredefinedTriggers(
 export async function unregisterPredefinedTriggers(
   registry: TriggerTemplateRegistry,
   triggerNames?: string[],
-): Promise<{
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-}> {
+): Promise<ResourceRegistrationResult> {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 

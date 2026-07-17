@@ -19,6 +19,7 @@ import type { TriggerTemplateRegistry } from "@sdk/shared/registry/trigger-templ
 import type { WorkflowRegistry } from "@sdk/workflow/registry/workflow-registry.js";
 import type { ToolRegistry } from "@sdk/shared/registry/tool-registry.js";
 import type { PresetsConfig } from "@wf-agent/sdk/resources";
+import type { ResourceRegistrationResult } from "../registration/types.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { LLM_SUMMARY_WORKFLOW_ID } from "./workflow/llm-summary.js";
 import { CONTEXT_COMPRESSION_TRIGGER_NAME } from "./trigger/context-compression.js";
@@ -30,18 +31,9 @@ import { registerPredefinedTools, unregisterPredefinedTools } from "./tools/regi
 const logger = createContextualLogger({ component: "PredefinedRegistration" });
 
 export interface PredefinedRegistrationResult {
-  triggers: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
-  workflows: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
-  tools: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
+  triggers: ResourceRegistrationResult;
+  workflows: ResourceRegistrationResult;
+  tools: ResourceRegistrationResult;
 }
 
 /**
@@ -71,7 +63,7 @@ export async function registerPredefinedContent(
   if (presets?.contextCompression?.enabled !== false) {
     try {
       const cc = presets?.contextCompression;
-      results.workflows = registerPredefinedWorkflows(
+      results.workflows = await registerPredefinedWorkflows(
         workflowRegistry,
         cc ? { config: { llmSummary: { compressionPrompt: cc.prompt, timeout: cc.timeout, maxTriggers: cc.maxTriggers } } } : undefined,
         skipIfExists,

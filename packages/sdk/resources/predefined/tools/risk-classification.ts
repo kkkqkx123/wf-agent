@@ -56,6 +56,18 @@ export const TOOL_RISK_CLASSIFICATION: Record<string, ToolRiskLevel> = {
   execute_workflow: "SYSTEM",
   cancel_workflow: "SYSTEM",
   query_workflow_status: "READ_ONLY",
+
+  // === BUILTIN - Agent ===
+  call_agent: "SYSTEM",
+
+  // === BUILTIN - Interaction ===
+  attempt_completion: "INTERACTION",
+
+  // Builtin tool aliases (prefixed IDs used by createBuiltinTools)
+  builtin_execute_workflow: "SYSTEM",
+  builtin_cancel_workflow: "SYSTEM",
+  builtin_query_workflow_status: "READ_ONLY",
+  builtin_call_agent: "SYSTEM",
 };
 
 /**

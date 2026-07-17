@@ -8,13 +8,14 @@ import type { ToolRegistry } from "@sdk/shared/registry/tool-registry.js";
 import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedTools } from "./registry.js";
 import { toSdkTool } from "@sdk/services/tools/utils.js";
+import type { ResourceRegistrationResult } from "../../registration/types.js";
 
 const logger = createContextualLogger({ component: "PredefinedTools" });
 
 export const PREDEFINED_TOOL_IDS = [
   "read_file",
   "write_file",
-  "edit_file",
+  "edit",
   "run_shell",
   "record_note",
   "recall_notes",
@@ -22,6 +23,14 @@ export const PREDEFINED_TOOL_IDS = [
   "backend_shell",
   "shell_output",
   "shell_kill",
+  "apply_patch",
+  "apply_diff",
+  "list_files",
+  "grep",
+  "glob",
+  "skill",
+  "update_todo_list",
+  "use_mcp",
 ];
 
 /**
@@ -58,10 +67,7 @@ export function registerPredefinedTools(
     };
   },
   skipIfExists: boolean = true,
-): {
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-} {
+): ResourceRegistrationResult {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 
@@ -110,10 +116,7 @@ export function registerPredefinedTools(
 export async function unregisterPredefinedTools(
   toolService: ToolRegistry,
   toolIds?: string[],
-): Promise<{
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-}> {
+): Promise<ResourceRegistrationResult> {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 

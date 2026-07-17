@@ -9,6 +9,7 @@ import { createContextualLogger } from "@sdk/utils/contextual-logger.js";
 import { createPredefinedWorkflows } from "./registry.js";
 import { LLM_SUMMARY_WORKFLOW_ID } from "./llm-summary.js";
 import type { PredefinedWorkflowsOptions } from "./types.js";
+import type { ResourceRegistrationResult } from "../../registration/types.js";
 
 const logger = createContextualLogger({ component: "PredefinedWorkflows" });
 
@@ -20,14 +21,11 @@ const logger = createContextualLogger({ component: "PredefinedWorkflows" });
  * @param skipIfExists: Whether to skip the registration if the workflow already exists (instead of reporting an error)
  * @returns: The registration result
  */
-export function registerPredefinedWorkflows(
+export async function registerPredefinedWorkflows(
   registry: WorkflowRegistry,
   options?: PredefinedWorkflowsOptions,
   skipIfExists: boolean = true,
-): {
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-} {
+): Promise<ResourceRegistrationResult> {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 
@@ -45,7 +43,7 @@ export function registerPredefinedWorkflows(
         }
 
         // Register the workflow.
-        registry.register(workflow);
+        await registry.register(workflow);
         success.push(workflow.id);
         logger.info(`Registered predefined workflow: ${workflow.id}`);
       } catch (error) {
@@ -75,10 +73,7 @@ export function registerPredefinedWorkflows(
 export async function unregisterPredefinedWorkflows(
   registry: WorkflowRegistry,
   workflowIds?: string[],
-): Promise<{
-  success: string[];
-  failures: Array<{ id: string; error: string }>;
-}> {
+): Promise<ResourceRegistrationResult> {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 

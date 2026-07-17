@@ -12,3 +12,7 @@ export {
   type SystemPromptType,
   type SystemPromptBuildOptions,
 } from "./system-prompt-builder.js";
+
+// System prompt templates (for registration in prompts-registration.ts)
+export { ASSISTANT_SYSTEM_TEMPLATE } from "./assistant.js";
+export { CODER_SYSTEM_TEMPLATE } from "./coder.js";

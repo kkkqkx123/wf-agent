@@ -22,26 +22,9 @@ import type {
   CustomResources,
 } from "./types.js";
 import type { PromptTemplate, PromptVariableDefinition } from "@wf-agent/types";
+import type { CustomResourcesRegistrationResult } from "../registration/types.js";
 
 const logger = createContextualLogger({ component: "CustomResourcesRegistration" });
-
-/**
- * Result type for custom resources registration
- */
-export interface CustomResourcesRegistrationResult {
-  tools: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
-  triggers: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
-  prompts: {
-    success: string[];
-    failures: Array<{ id: string; error: string }>;
-  };
-}
 
 /**
  * Register custom tools from loaded definitions

@@ -11,7 +11,7 @@ import type {
   WorkflowExecution,
 } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { now } from "@wf-agent/common-utils";
+
 import type { ConversationSession } from "../../../../shared/messaging/conversation-session.js";
 
 /**
@@ -215,15 +215,6 @@ export async function startFromTriggerHandler(
   if (triggerInput.conversationHistory && context?.conversationManager) {
     context.conversationManager.addMessages(...triggerInput.conversationHistory);
   }
-
-  // Record execution history
-  workflowExecutionEntity.addNodeResult({
-    step: workflowExecutionEntity.getNodeResults().length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
 
   // Return the execution results
   return {

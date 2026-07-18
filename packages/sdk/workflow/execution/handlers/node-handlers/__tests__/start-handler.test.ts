@@ -41,9 +41,6 @@ describe("startHandler", () => {
 
     expect(mockEntity.state.start).toHaveBeenCalled();
     expect(mockEntity.setCurrentNodeId).toHaveBeenCalledWith("start-node-1");
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "start-node-1", status: "COMPLETED" }),
-    );
     expect(result).toEqual({
       message: "Workflow started",
       input: {},

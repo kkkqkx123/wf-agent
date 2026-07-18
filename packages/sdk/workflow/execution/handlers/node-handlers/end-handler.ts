@@ -5,7 +5,7 @@
 
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { now, diffTimestamp } from "@wf-agent/common-utils";
+import { diffTimestamp } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed (idempotency check — status check is handled centrally).
@@ -61,16 +61,6 @@ export async function endHandler(
 
   // Set the WorkflowExecution output (without modifying the status; the status is managed by the WorkflowLifecycleCoordinator).
   workflowExecutionEntity.setOutput(output);
-
-  // Record the execution history.
-  workflowExecutionEntity.addNodeResult({
-    step: workflowExecutionEntity.getNodeResults().length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-    executionTime: diffTimestamp(now(), now()),
-  });
 
   // Return the execution result.
   return {

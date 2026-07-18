@@ -1,17 +1,24 @@
 /**
  * Workflow Navigator
- * Used to navigate through the nodes of a workflow graph during execution, determining the next node to be processed.
+ *
+ * Provides topology queries and edge-based routing fallback for workflow graphs.
+ *
+ * Responsibility Division:
+ * - Topology queries: getNextNode, getOutgoingEdges, getPathTo, canReach, etc.
+ * - Edge-based routing fallback: routeNextNode (used when handler doesn't specify nextNodeId)
+ * - Path analysis: getAllExecutionPaths, getReachableNodes
+ *
+ * Smart nodes (ROUTE, LOOP_END) make routing decisions in their handlers and return
+ * nextNodeId. The coordinator consumes this value directly. Navigator's routeNextNode()
+ * serves only as a fallback for multi-edge nodes without handler-driven routing.
  *
  * Design Principles:
- * - Stateless Execution: Does not cache the execution flow state (such as currentNodeId); all methods pass the required data through parameters.
- * - Stateful Definition: Holds an immutable workflow definition (WorkflowGraphStructure), which is managed by the parent container (WorkflowExecutionContext) throughout its lifecycle.
- * - Pure Functions: All methods are pure functions and do not have any side effects.
- *
- * Creation Method: Instances of WorkflowNavigator are created and cached uniformly by WorkflowExecutionContext, initialized using the graph object within the WorkflowExecution.
+ * - Stateless Execution: Does not cache execution state; all methods pass data via parameters.
+ * - Stateful Definition: Holds an immutable workflow graph structure.
+ * - Pure Functions: All methods are pure functions without side effects.
  */
 
-import type { ID, StaticNodeType, Condition, Edge, WorkflowGraphStructure } from "@wf-agent/types";
-import { conditionEvaluator } from "../../services/evaluation/index.js";
+import type { ID, StaticNodeType, Condition, WorkflowGraphStructure } from "@wf-agent/types";
 import { getReachableNodes } from "./utils/workflow-traversal.js";
 
 /**
@@ -145,10 +152,16 @@ export class WorkflowNavigator {
   }
 
   /**
-   * Evaluate conditions to select the next node
-   * @param currentNodeId: The ID of the current node
-   * @param conditionEvaluator: The function used to evaluate the conditions
-   * @returns: The routing decision result; returns null if no edge meets the conditions
+   * Evaluate edge conditions to select the next node (fallback routing).
+   *
+   * This is a fallback used by the coordinator when:
+   * - The current node has multiple outgoing edges
+   * - The node handler did not specify nextNodeId
+   *
+   * Sort by weight (descending), evaluate CONDITIONAL edges first, then DEFAULT.
+   * @param currentNodeId The ID of the current node
+   * @param conditionEvaluator The function used to evaluate the conditions
+   * @returns The routing decision result; returns null if no edge meets the conditions
    */
   routeNextNode(
     currentNodeId: ID,
@@ -195,142 +208,11 @@ export class WorkflowNavigator {
   }
 
   /**
-   * Select the next node based on the WorkflowExecution context
-   * @param currentNodeId: The ID of the current node
-   * @param workflowExecution: A WorkflowExecution instance that provides context information such as variables, inputs, and outputs
-   * @param currentNodeType: The type of the current node, used for handling special logic in ROUTE nodes
-   * @param lastNodeResult: The execution result of the previous node, used for decision-making in ROUTE nodes
-   * @returns: The ID of the next node; returns null if no available route is found
+   * Check if targetNodeId is a valid navigation target from sourceNodeId.
+   * Used by the coordinator to validate handler-returned nextNodeId.
    */
-  async selectNextNodeWithContext(
-    currentNodeId: ID,
-    workflowExecution: {
-      variableScopes: { workflowExecution: Record<string, unknown> };
-      input: unknown;
-      output: unknown;
-    },
-    currentNodeType: StaticNodeType,
-    lastNodeResult?: { nodeId?: string; selectedNode?: string },
-  ): Promise<string | null> {
-    // Handling special logic for the ROUTE node
-    if (currentNodeType === ("ROUTE" as StaticNodeType)) {
-      // The ROUTE node uses its own routing decisions to get selectedNode from the output returned by the processor
-      // Route processor returns: { status: 'COMPLETED', selectedNode: nodeId }
-      if (
-        lastNodeResult &&
-        lastNodeResult.nodeId === currentNodeId &&
-        typeof lastNodeResult.selectedNode === "string"
-      ) {
-        return lastNodeResult.selectedNode;
-      }
-      return null;
-    }
-
-    const outgoingEdges = this.graph.getOutgoingEdges(currentNodeId);
-
-    if (outgoingEdges.length === 0) {
-      return null;
-    }
-
-    // Filter edges that meet the criteria.
-    const satisfiedEdges = await this.filterEdgesWithContext(outgoingEdges, workflowExecution);
-
-    // If no edge meets the conditions, select the default edge.
-    if (satisfiedEdges.length === 0) {
-      const defaultEdge = outgoingEdges.find(e => e.type === "DEFAULT");
-      return defaultEdge ? defaultEdge.targetNodeId : null;
-    }
-
-    // Sort edges by weight.
-    const sortedEdges = this.sortEdges(satisfiedEdges);
-
-    // Select the first edge.
-    const nextEdge = sortedEdges[0];
-    return nextEdge ? nextEdge.targetNodeId : null;
-  }
-
-  /**
-   * Filter edges that meet the conditions based on the WorkflowExecution context
-   * @param edges: Array of edges
-   * @param workflowExecution: WorkflowExecution instance
-   * @returns: Array of edges that meet the conditions
-   */
-  private async filterEdgesWithContext(
-    edges: Edge[],
-    workflowExecution: {
-      variableScopes: { workflowExecution: Record<string, unknown> };
-      input: unknown;
-      output: unknown;
-    },
-  ): Promise<Edge[]> {
-    const results = await Promise.all(
-      edges.map(async edge => ({
-        edge,
-        satisfied: await this.evaluateEdgeConditionWithContext(edge, workflowExecution),
-      })),
-    );
-    return results.filter(r => r.satisfied).map(r => r.edge);
-  }
-
-  /**
-   * Evaluate the condition of an edge based on the WorkflowExecution context
-   * @param edge: The edge in question
-   * @param workflowExecution: The WorkflowExecution instance
-   * @returns: Whether the condition is met or not
-   */
-  private async evaluateEdgeConditionWithContext(
-    edge: Edge,
-    workflowExecution: {
-      variableScopes: { workflowExecution: Record<string, unknown> };
-      input: unknown;
-      output: unknown;
-    },
-  ): Promise<boolean> {
-    // The default edges always satisfy the conditions.
-    if (edge.type === "DEFAULT") {
-      return true;
-    }
-
-    // Conditional edges must have conditions.
-    if (!edge.condition) {
-      return false;
-    }
-
-    // Build an evaluation context
-    const context = {
-      variables: workflowExecution.variableScopes.workflowExecution,
-      input: workflowExecution.input as Record<string, unknown>,
-      output: workflowExecution.output as Record<string, unknown>,
-    };
-
-    // Generate a cache key for the edge condition
-    const conditionRecord = edge.condition as unknown as Record<string, unknown>;
-    const conditionType = (conditionRecord['type'] as string) ?? "expression";
-    const cacheKey = conditionType === "expression"
-      ? `edge:${edge.id}:${conditionRecord['expression'] as string}`
-      : `edge:${edge.id}:${conditionType}:${JSON.stringify(conditionRecord)}`;
-
-    return conditionEvaluator.evaluate(edge.condition, context, cacheKey);
-  }
-
-  /**
-   * Sort edges
-   * @param edges: An array of edges
-   * @returns: A sorted array of edges
-   */
-  private sortEdges(edges: Edge[]): Edge[] {
-    return [...edges].sort((a, b) => {
-      // Sort in descending order of weight (higher weights take precedence).
-      const weightA = a.weight || 0;
-      const weightB = b.weight || 0;
-
-      if (weightA !== weightB) {
-        return weightB - weightA;
-      }
-
-      // If the weights are the same, sort in ascending order by id (to ensure certainty).
-      return a.id.localeCompare(b.id);
-    });
+  isValidTarget(sourceNodeId: ID, targetNodeId: ID): boolean {
+    return this.graph.hasEdgeBetween(sourceNodeId, targetNodeId);
   }
 
   /**

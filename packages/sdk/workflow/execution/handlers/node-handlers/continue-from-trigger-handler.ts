@@ -11,7 +11,7 @@ import type {
   WorkflowExecution,
   WorkflowEndConfig,
 } from "@wf-agent/types";
-import { now } from "@wf-agent/common-utils";
+
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 
 /**
@@ -119,18 +119,6 @@ export async function continueFromTriggerHandler(
     }
     workflowExecutionEntity.setOutput(output);
   }
-
-  // Note: Message context handling has been migrated to the unified reference architecture.
-  // The conversationHistoryCallback and callbackOptions fields have been removed from ContinueFromTriggerNodeConfig.
-
-  // Record execution history
-  workflowExecutionEntity.addNodeResult({
-    step: workflowExecutionEntity.getNodeResults().length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
 
   // Return the execution result
   return {

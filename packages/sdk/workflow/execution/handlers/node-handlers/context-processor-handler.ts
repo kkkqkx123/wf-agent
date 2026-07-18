@@ -207,15 +207,6 @@ async function handleVariableOperation(
 
     const executionTime = now() - startTime;
 
-    // Record execution history
-    executionEntity.addNodeResult({
-      step: executionEntity.getNodeResults().length + 1,
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "COMPLETED",
-      timestamp: now(),
-    });
-
     return {
       operation: operation.operation,
       modifiedVariables: result.modified,
@@ -236,16 +227,6 @@ async function handleVariableOperation(
     logger.error("Variable operation failed", {
       nodeId: node.id,
       operation: operation.operation,
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    // Record failure
-    executionEntity.addNodeResult({
-      step: executionEntity.getNodeResults().length + 1,
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "FAILED",
-      timestamp: now(),
       error: error instanceof Error ? error.message : String(error),
     });
 

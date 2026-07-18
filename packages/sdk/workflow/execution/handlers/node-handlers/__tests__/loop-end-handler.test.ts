@@ -15,6 +15,7 @@ const mockEntity = {
   getNodeResults: vi.fn().mockReturnValue([]),
   getWorkflowExecutionData: vi.fn(),
   variableStateManager: mockManager,
+  getGraph: vi.fn(),
 } as unknown as WorkflowExecutionEntity;
 
 const mockExecution = {
@@ -46,6 +47,10 @@ beforeEach(() => {
 
 describe("loopEndHandler", () => {
   it("should continue loop when condition met and no break", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([{ targetNodeId: "loop-start-1" }]),
+    });
+
     const config: LoopEndNodeConfig = { loopId: "loop-1", loopStartNodeId: "loop-start-1" };
     const node = { id: "loop-end-1", type: "LOOP_END", config } as RuntimeNode;
 
@@ -56,10 +61,15 @@ describe("loopEndHandler", () => {
       breakTriggered: false,
       iterationCount: 1,
       nextIteration: true,
+      nextNodeId: "loop-start-1",
     });
   });
 
   it("should not continue when break condition is true", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([{ targetNodeId: "node-after-loop" }]),
+    });
+
     const config: LoopEndNodeConfig = {
       loopId: "loop-1",
       loopStartNodeId: "loop-start-1",
@@ -74,10 +84,15 @@ describe("loopEndHandler", () => {
       breakTriggered: true,
       iterationCount: 0,
       nextIteration: false,
+      nextNodeId: "node-after-loop",
     });
   });
 
   it("should not continue when maxIterations reached", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([{ targetNodeId: "node-after-loop" }]),
+    });
+
     const endedState = { ...loopState, maxIterations: 1, iterationCount: 1 };
     mockManager.getVariable.mockReturnValue(endedState);
 
@@ -88,6 +103,59 @@ describe("loopEndHandler", () => {
 
     expect((result as any).nextIteration).toBe(false);
     expect((result as any).breakTriggered).toBe(false);
+    expect((result as any).nextNodeId).toBe("node-after-loop");
+  });
+
+  it("should set nextNodeId to undefined when no outgoing edges on loop exit", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([]),
+    });
+
+    const endedState = { ...loopState, maxIterations: 1, iterationCount: 1 };
+    mockManager.getVariable.mockReturnValue(endedState);
+
+    const config: LoopEndNodeConfig = { loopId: "loop-1", loopStartNodeId: "loop-start-1" };
+    const node = { id: "loop-end-1", type: "LOOP_END", config } as RuntimeNode;
+
+    const result = await loopEndHandler(mockEntity, node);
+
+    expect((result as any).nextIteration).toBe(false);
+    expect((result as any).nextNodeId).toBeUndefined();
+  });
+
+  it("should prefer non-loopback edge when exiting loop with multiple edges", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([
+        { targetNodeId: "loop-start-1" },
+        { targetNodeId: "node-after-loop" },
+      ]),
+    });
+
+    const endedState = { ...loopState, maxIterations: 1, iterationCount: 1 };
+    mockManager.getVariable.mockReturnValue(endedState);
+
+    const config: LoopEndNodeConfig = { loopId: "loop-1", loopStartNodeId: "loop-start-1" };
+    const node = { id: "loop-end-1", type: "LOOP_END", config } as RuntimeNode;
+
+    const result = await loopEndHandler(mockEntity, node);
+
+    expect((result as any).nextNodeId).toBe("node-after-loop");
+  });
+
+  it("should fallback to single loopback edge when no forward edge exists", async () => {
+    (mockEntity.getGraph as any).mockReturnValue({
+      getOutgoingEdges: vi.fn().mockReturnValue([{ targetNodeId: "loop-start-1" }]),
+    });
+
+    const endedState = { ...loopState, maxIterations: 1, iterationCount: 1 };
+    mockManager.getVariable.mockReturnValue(endedState);
+
+    const config: LoopEndNodeConfig = { loopId: "loop-1", loopStartNodeId: "loop-start-1" };
+    const node = { id: "loop-end-1", type: "LOOP_END", config } as RuntimeNode;
+
+    const result = await loopEndHandler(mockEntity, node);
+
+    expect((result as any).nextNodeId).toBe("loop-start-1");
   });
 
   it("should return SKIPPED when loop state not found (canExecute returns false)", async () => {

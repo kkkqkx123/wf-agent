@@ -10,7 +10,7 @@
 
 import type { RuntimeNode, InteractiveScriptNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { now, getErrorMessage } from "@wf-agent/common-utils";
+
 import type { GlobalContext } from "../../../../shared/global-context.js";
 import {
   ScriptInteractionCoordinator,
@@ -61,25 +61,8 @@ export async function interactiveScriptHandler(
       throw new Error(result.error || "Interactive script execution failed");
     }
 
-    workflowExecutionEntity.addNodeResult({
-      step: workflowExecutionEntity.getNodeResults().length + 1,
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "COMPLETED",
-      timestamp: now(),
-    });
-
     return result;
   } catch (error) {
-    workflowExecutionEntity.addNodeResult({
-      step: workflowExecutionEntity.getNodeResults().length + 1,
-      nodeId: node.id,
-      nodeType: node.type,
-      status: "FAILED",
-      timestamp: now(),
-      error: getErrorMessage(error),
-    });
-
     throw error;
   }
 }

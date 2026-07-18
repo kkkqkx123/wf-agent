@@ -34,7 +34,7 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "node-c" });
+    expect(result).toMatchObject({ nextNodeId: "node-c" });
   });
 
   it("should use defaultTargetNodeId when no routes match", async () => {
@@ -46,7 +46,7 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "default-node" });
+    expect(result).toMatchObject({ nextNodeId: "default-node" });
   });
 
   it("should throw ExecutionError when no route matches and no default", async () => {
@@ -70,7 +70,7 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "node-b" });
+    expect(result).toMatchObject({ nextNodeId: "node-b" });
   });
 
   it("should select schema condition route when variable matches schema", async () => {
@@ -97,7 +97,7 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "node-b" });
+    expect(result).toMatchObject({ nextNodeId: "node-b" });
   });
 
   it("should select script condition route when script returns true", async () => {
@@ -112,7 +112,7 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "node-b" });
+    expect(result).toMatchObject({ nextNodeId: "node-b" });
   });
 
   it("should maintain deterministic order for routes with equal priority", async () => {
@@ -127,6 +127,6 @@ describe("routeHandler", () => {
 
     const result = await routeHandler(mockEntity, node);
 
-    expect(result).toMatchObject({ selectedRoute: "node-d" });
+    expect(result).toMatchObject({ nextNodeId: "node-d" });
   });
 });

@@ -27,9 +27,6 @@ describe("embedStartHandler", () => {
     const result = await embedStartHandler(mockEntity, mockNode);
 
     expect(mockEntity.setCurrentNodeId).toHaveBeenCalledWith("embed-start-1");
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "embed-start-1", status: "COMPLETED" }),
-    );
     expect(result).toEqual({
       nodeId: "embed-start-1",
       nodeType: "EMBED_START",

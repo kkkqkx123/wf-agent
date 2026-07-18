@@ -73,7 +73,7 @@ export async function routeHandler(
     });
     if (result) {
       return {
-        selectedRoute: route.targetNodeId,
+        nextNodeId: route.targetNodeId,
         evaluatedConditions,
       };
     }
@@ -82,7 +82,7 @@ export async function routeHandler(
   // No matching routes found; use the default target.
   if (config.defaultTargetNodeId) {
     return {
-      selectedRoute: config.defaultTargetNodeId,
+      nextNodeId: config.defaultTargetNodeId,
       evaluatedConditions,
     };
   }

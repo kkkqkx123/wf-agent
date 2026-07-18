@@ -28,9 +28,6 @@ describe("endHandler", () => {
     const result = await endHandler(mockEntity, mockNode);
 
     expect(mockEntity.setOutput).toHaveBeenCalledWith({ result: "done" });
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "end-node-1", status: "COMPLETED" }),
-    );
     expect(result).toEqual({
       nodeId: "end-node-1",
       nodeType: "END",

@@ -454,8 +454,12 @@ export class NodeExecutionCoordinator {
               workflowId,
             });
           }
-        } catch {
-          // Non-fatal: middleware failure should not block node execution
+        } catch (middlewareError) {
+          logger.warn("before-node-execution middleware failed", {
+            executionId,
+            nodeId,
+            error: middlewareError instanceof Error ? middlewareError.message : String(middlewareError),
+          });
         }
 
         // Execute node logic with retry loop
@@ -622,8 +626,12 @@ export class NodeExecutionCoordinator {
               status: nodeResult.status,
               output: nodeResult.output,
             });
-          } catch {
-            // Non-fatal: middleware failure should not block node execution
+          } catch (middlewareError) {
+            logger.warn("after-node-execution middleware failed", {
+              executionId,
+              nodeId,
+              error: middlewareError instanceof Error ? middlewareError.message : String(middlewareError),
+            });
           }
         }
 
@@ -743,8 +751,12 @@ export class NodeExecutionCoordinator {
               workflowId,
               error: enhancedError.message,
             });
-          } catch {
-            // Non-fatal: middleware failure should not block error handling
+          } catch (middlewareError) {
+            logger.warn("on-error middleware failed", {
+              executionId,
+              nodeId,
+              error: middlewareError instanceof Error ? middlewareError.message : String(middlewareError),
+            });
           }
         }
 

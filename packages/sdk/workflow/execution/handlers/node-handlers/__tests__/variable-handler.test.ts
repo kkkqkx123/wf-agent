@@ -41,9 +41,6 @@ describe("variableHandler", () => {
     const result = await variableHandler(mockEntity, node);
 
     expect(mockManager.setVariable).toHaveBeenCalledWith("myVar", "hello");
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "var-node-1", status: "COMPLETED" }),
-    );
     expect(result).toEqual({
       variableName: "myVar",
       value: "hello",

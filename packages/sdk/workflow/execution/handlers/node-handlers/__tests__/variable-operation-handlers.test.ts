@@ -115,7 +115,7 @@ describe("DATA_PROCESSOR - Variable Operations", () => {
       expect(result.executionTime).toBeGreaterThanOrEqual(0);
     });
 
-    it("should record execution history for aggregate operation", async () => {
+    it("should return without self-recording (recording is coordinator's responsibility)", async () => {
       const entity = createMockExecutionEntity({
         var_a: 1,
         var_b: 2,
@@ -144,10 +144,7 @@ describe("DATA_PROCESSOR - Variable Operations", () => {
         {} as ContextProcessorHandlerContext
       );
 
-      expect(entity.addNodeResult).toHaveBeenCalled();
-      const addedResult = (entity.addNodeResult as any).mock.calls[0][0];
-      expect(addedResult.nodeId).toBe("agg-node");
-      expect(addedResult.status).toBe("COMPLETED");
+      expect(entity.addNodeResult).not.toHaveBeenCalled();
     });
   });
 
@@ -324,10 +321,8 @@ describe("DATA_PROCESSOR - Variable Operations", () => {
         contextProcessorHandler(entity, node, {} as ContextProcessorHandlerContext)
       ).rejects.toThrow("Source variable not found");
 
-      // Verify failure was recorded
-      expect(entity.addNodeResult).toHaveBeenCalled();
-      const failedResult = (entity.addNodeResult as any).mock.calls[0][0];
-      expect(failedResult.status).toBe("FAILED");
+      // Handler no longer self-records; recording is coordinator's responsibility
+      expect(entity.addNodeResult).not.toHaveBeenCalled();
     });
   });
 

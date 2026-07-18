@@ -142,12 +142,14 @@ export interface LoopStartNodeConfig {
  * - breakTriggered: boolean - Whether the break condition was met
  * - iterationCount: number - Current iteration number
  * - nextIteration: boolean - Whether to proceed to next iteration
+ * - nextNodeId: Routing hint for next navigation target
  */
 export interface LoopEndNodeOutput {
   loopId: string;
   breakTriggered: boolean;
   iterationCount: number;
   nextIteration: boolean;
+  nextNodeId?: string;
 }
 
 /**
@@ -162,6 +164,10 @@ export interface LoopEndNodeConfig {
   loopId: string;
   /** Interrupt condition expression (optional, exits the loop as soon as it is satisfied) */
   breakCondition?: Condition;
-  /** LOOP_START node ID (for jumping to the next iteration) */
+  /**
+   * LOOP_START node ID (required for loop continuation).
+   * Used by the handler to determine the next node when iterating,
+   * and to distinguish the loop-back edge from the forward edge when exiting.
+   */
   loopStartNodeId?: string;
 }

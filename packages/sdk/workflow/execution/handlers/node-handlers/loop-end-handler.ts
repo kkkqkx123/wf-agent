@@ -9,7 +9,7 @@ import type { WorkflowExecutionEntity } from "../../../entities/workflow-executi
 import type { Condition, EvaluationContext } from "@wf-agent/types";
 import { ExecutionError, NotFoundError } from "@wf-agent/types";
 import { conditionEvaluator } from "../../../../services/evaluation/index.js";
-import { now, getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
+import { getErrorMessage, getErrorOrUndefined } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "loop-end-handler" });
@@ -270,14 +270,19 @@ export async function loopEndHandler(
     clearLoopState(workflowExecutionEntity);
   }
 
-  // Record execution history
-  workflowExecution.nodeResults.push({
-    step: workflowExecution.nodeResults.length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
+  // Resolve nextNodeId: loop back to LOOP_START or forward to next node
+  let nextNodeId: string | undefined;
+  if (shouldContinue) {
+    nextNodeId = config.loopStartNodeId;
+  } else {
+    // Find the forward (non-loop-back) outgoing edge
+    const outgoingEdges = workflowExecutionEntity.getGraph().getOutgoingEdges(node.id);
+    if (outgoingEdges.length > 0) {
+      // Prefer the edge that doesn't point back to LOOP_START
+      const forwardEdge = outgoingEdges.find(e => e.targetNodeId !== config.loopStartNodeId);
+      nextNodeId = forwardEdge?.targetNodeId ?? outgoingEdges[0].targetNodeId;
+    }
+  }
 
   // Return the execution results.
   return {
@@ -285,5 +290,6 @@ export async function loopEndHandler(
     breakTriggered: shouldBreak,
     iterationCount: loopState.iterationCount,
     nextIteration: shouldContinue,
+    nextNodeId,
   };
 }

@@ -6,7 +6,6 @@
 
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { now } from "@wf-agent/common-utils";
 
 /**
  * EmbedStart node processing function
@@ -31,14 +30,6 @@ export async function embedStartHandler(
   }
 
   workflowExecutionEntity.setCurrentNodeId(node.id);
-
-  workflowExecutionEntity.addNodeResult({
-    step: workflowExecutionEntity.getNodeResults().length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
 
   return {
     nodeId: node.id,

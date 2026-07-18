@@ -10,11 +10,11 @@ import type { Condition } from "../../condition.js";
 
 /**
  * Route Node Output
- * - selectedRoute: string - The target node ID of the selected route
+ * - nextNodeId: The target node ID selected by route evaluation
  * - evaluatedConditions: Array<{ condition: string, result: boolean, targetNodeId: string }>
  */
 export interface RouteNodeOutput {
-  selectedRoute: string;
+  nextNodeId: string;
   evaluatedConditions: Array<{
     condition: string;
     result: boolean;

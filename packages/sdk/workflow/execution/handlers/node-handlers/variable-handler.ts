@@ -6,7 +6,6 @@
 import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { now } from "@wf-agent/common-utils";
 import { conditionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
 
 /**
@@ -164,15 +163,6 @@ export async function variableHandler(
 
   // Use VariableManager to set the variable (handles all scope logic internally)
   executionEntity.variableStateManager.setVariable(config.variableName, typedResult);
-
-  // Record execution history
-  executionEntity.addNodeResult({
-    step: executionEntity.getNodeResults().length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
 
   // Return the execution results
   return {

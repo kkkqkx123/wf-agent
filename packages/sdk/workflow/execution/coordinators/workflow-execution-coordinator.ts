@@ -4,7 +4,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/workflow-execution-entity.js";
-import type { WorkflowExecutionResult, Condition, EvaluationContext } from "@wf-agent/types";
+import type { WorkflowExecutionResult, Condition, EvaluationContext, NodeExecutionResult } from "@wf-agent/types";
 import type { InterruptionState } from "../../../shared/utils/interruption/interruption-state.js";
 import type { NodeExecutionCoordinator } from "./node-execution-coordinator.js";
 import type { WorkflowNavigator } from "../../builder/workflow-navigator.js";
@@ -110,28 +110,14 @@ export class WorkflowExecutionCoordinator {
               executionId: this.workflowExecutionEntity.id,
               nodeId: currentNodeId,
             });
-            // Advance to next node and continue the outer loop
-            const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
-            if (outgoingEdges.length <= 1) {
-              const nextNode = this.navigator.getNextNode(currentNodeId);
-              if (nextNode && nextNode.nextNodeId) {
-                this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-              } else {
-                break;
-              }
-            } else {
-              const evalContext = this.buildRoutingEvaluationContext();
-              const routingResult = this.navigator.routeNextNode(
-                currentNodeId,
-                (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
-              );
-              if (routingResult) {
-                this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
-              } else {
-                break;
-              }
+            // Retrieve the completed node's result to reuse its routing hint
+            const completedResult = this.workflowExecutionEntity
+              .getNodeResults()
+              .find(r => r.nodeId === currentNodeId);
+            if (!completedResult || !this.navigateToNextNode(currentNodeId, completedResult)) {
+              break;
             }
-            continue; // Re-check the outer loop with the new node
+            continue;
           }
 
           // Get the node object from the graph (already a RuntimeNode after preprocessing)
@@ -183,27 +169,8 @@ export class WorkflowExecutionCoordinator {
 
           // Update the current node ID based on result
           if (nodeResult.status === "COMPLETED") {
-            const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
-            if (outgoingEdges.length <= 1) {
-              // Single outgoing edge: use simple navigation
-              const nextNode = this.navigator.getNextNode(currentNodeId);
-              if (nextNode && nextNode.nextNodeId) {
-                this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-              } else {
-                break;
-              }
-            } else {
-              // Multiple outgoing edges: use conditional routing
-              const evalContext = this.buildRoutingEvaluationContext();
-              const routingResult = this.navigator.routeNextNode(
-                currentNodeId,
-                (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
-              );
-              if (routingResult) {
-                this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
-              } else {
-                break;
-              }
+            if (!this.navigateToNextNode(currentNodeId, nodeResult)) {
+              break;
             }
           } else if (nodeResult.status === "FAILED") {
             // Node execution failed
@@ -216,26 +183,8 @@ export class WorkflowExecutionCoordinator {
                 nodeId: currentNodeId,
                 error: errorMessage,
               });
-              // Advance to next node as if the node was skipped
-              const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
-              if (outgoingEdges.length <= 1) {
-                const nextNode = this.navigator.getNextNode(currentNodeId);
-                if (nextNode && nextNode.nextNodeId) {
-                  this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-                } else {
-                  break;
-                }
-              } else {
-                const evalContext = this.buildRoutingEvaluationContext();
-                const routingResult = this.navigator.routeNextNode(
-                  currentNodeId,
-                  (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
-                );
-                if (routingResult) {
-                  this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
-                } else {
-                  break;
-                }
+              if (!this.navigateToNextNode(currentNodeId, nodeResult)) {
+                break;
               }
             } else {
               // "fail" or "retry" strategy: fail the workflow and stop
@@ -263,26 +212,8 @@ export class WorkflowExecutionCoordinator {
               reason: skipReason,
             });
 
-            // Continue to next node after skipped node
-            const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
-            if (outgoingEdges.length <= 1) {
-              const nextNode = this.navigator.getNextNode(currentNodeId);
-              if (nextNode && nextNode.nextNodeId) {
-                this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-              } else {
-                break;
-              }
-            } else {
-              const evalContext = this.buildRoutingEvaluationContext();
-              const routingResult = this.navigator.routeNextNode(
-                currentNodeId,
-                (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
-              );
-              if (routingResult) {
-                this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
-              } else {
-                break;
-              }
+            if (!this.navigateToNextNode(currentNodeId, nodeResult)) {
+              break;
             }
           } else {
             // Unknown node status - stop execution
@@ -389,20 +320,14 @@ export class WorkflowExecutionCoordinator {
     const type = interruption.type === "paused" ? "PAUSE" : "STOP";
     const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
 
-    // Delegate to node coordinator for checkpoint creation and event emission
+    // Delegate to node coordinator for checkpoint creation, state transition, and event emission.
+    // The node coordinator handles state.pause()/state.cancel() internally — do NOT duplicate here.
     if (currentNodeId) {
       await this.nodeExecutionCoordinator.handleInterruption(
         this.workflowExecutionEntity.id,
         currentNodeId,
         type,
       );
-    }
-
-    // Update status via state lifecycle method
-    if (type === "PAUSE") {
-      this.workflowExecutionEntity.state.pause(currentNodeId);
-    } else {
-      this.workflowExecutionEntity.state.cancel(currentNodeId);
     }
 
     // [Problem #4 Fix] Collect error details from node results
@@ -523,6 +448,70 @@ export class WorkflowExecutionCoordinator {
       totalRetryDelayTime: workflowRetryDelayTime > 0 ? workflowRetryDelayTime : undefined,
       errorChain,
     };
+  }
+
+  /**
+   * Navigate to the next node after the current node completes.
+   *
+   * Navigation priority:
+   * 1. Handler-specified nextNodeId (from smart nodes like ROUTE, LOOP_END)
+   * 2. Single outgoing edge: linear navigation
+   * 3. Multiple outgoing edges: edge-condition-based routing (fallback)
+   *
+   * @param currentNodeId Current node ID
+   * @param nodeResult Execution result of the current node
+   * @returns true if navigation succeeded, false if workflow end reached
+   */
+  private navigateToNextNode(currentNodeId: string, nodeResult: NodeExecutionResult): boolean {
+    // Priority 1: handler explicitly specified nextNodeId (extracted from output)
+    const handlerNextId = this.extractRoutingHint(nodeResult);
+    if (handlerNextId) {
+      if (this.navigator.isValidTarget(currentNodeId, handlerNextId)) {
+        this.workflowExecutionEntity.setCurrentNodeId(handlerNextId);
+        return true;
+      }
+      logger.warn("Handler-specified nextNodeId is not a valid edge target, falling back to edge routing", {
+        executionId: this.workflowExecutionEntity.id,
+        currentNodeId,
+        handlerNextId,
+      });
+    }
+
+    const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
+
+    if (outgoingEdges.length <= 1) {
+      // Single outgoing edge or no edges: linear navigation
+      const nextNode = this.navigator.getNextNode(currentNodeId);
+      if (nextNode && nextNode.nextNodeId) {
+        this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
+        return true;
+      }
+      return false;
+    }
+
+    // Multiple outgoing edges: edge-condition-based routing (fallback)
+    const evalContext = this.buildRoutingEvaluationContext();
+    const routingResult = this.navigator.routeNextNode(
+      currentNodeId,
+      (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+    );
+    if (routingResult) {
+      this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Extract routing hint (nextNodeId) from a node's execution output.
+   * Smart nodes (ROUTE, LOOP_END) set this field to declare their next target.
+   */
+  private extractRoutingHint(nodeResult: NodeExecutionResult): string | undefined {
+    const output = nodeResult.output;
+    if (output && typeof output === "object" && "nextNodeId" in output) {
+      return (output as { nextNodeId?: string }).nextNodeId;
+    }
+    return undefined;
   }
 
   /**

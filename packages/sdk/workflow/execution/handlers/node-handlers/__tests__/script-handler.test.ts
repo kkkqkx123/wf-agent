@@ -37,9 +37,6 @@ describe("scriptHandler", () => {
     const result = await scriptHandler(mockGlobalContext, mockEntity, node);
 
     expect(mockScriptService.execute).toHaveBeenCalledWith("my-script", {}, mockScriptService);
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ nodeId: "script-node-1", status: "COMPLETED" }),
-    );
     expect(result).toBe("script result");
   });
 
@@ -56,9 +53,6 @@ describe("scriptHandler", () => {
     await expect(scriptHandler(mockGlobalContext, mockEntity, node)).rejects.toThrow(
       "Script failed",
     );
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "FAILED" }),
-    );
   });
 
   it("should handle script service throwing error", async () => {
@@ -69,9 +63,6 @@ describe("scriptHandler", () => {
 
     await expect(scriptHandler(mockGlobalContext, mockEntity, node)).rejects.toThrow(
       "Service error",
-    );
-    expect(mockEntity.addNodeResult).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "FAILED" }),
     );
   });
 });

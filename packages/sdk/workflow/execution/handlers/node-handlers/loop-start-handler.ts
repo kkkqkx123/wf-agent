@@ -7,7 +7,7 @@ import type { RuntimeNode, LoopStartNodeConfig } from "@wf-agent/types";
 import type { WorkflowExecution } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { ExecutionError, ValidationError, RuntimeValidationError } from "@wf-agent/types";
-import { now, getErrorMessage } from "@wf-agent/common-utils";
+import { getErrorMessage } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "loop-start-handler" });
@@ -404,15 +404,6 @@ export async function loopStartHandler(
 
   // Save the updated loop state to the scope.
   setLoopState(executionEntity, loopState);
-
-  // Record execution history
-  workflowExecution.nodeResults.push({
-    step: workflowExecution.nodeResults.length + 1,
-    nodeId: node.id,
-    nodeType: node.type,
-    status: "COMPLETED",
-    timestamp: now(),
-  });
 
   // Return the execution results
   return {

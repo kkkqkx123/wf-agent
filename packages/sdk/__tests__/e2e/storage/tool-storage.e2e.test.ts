@@ -75,7 +75,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
     it("should register and retrieve a tool from SQLite", async () => {
       const tool = createTool({ id: "auth-tool", name: "auth-handler" });
 
-      await registry.registerTool(tool);
+      await registry.register(tool);
       const retrieved = registry.get("auth-handler");
 
       expect(retrieved).toBeDefined();
@@ -87,10 +87,10 @@ describe("Tool Storage E2E Integration with SQLite", () => {
 
     it("should update a tool with SQLite persistence", async () => {
       const tool = createTool({ id: "update-tool", name: "data-processor" });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       const updates = { description: "Updated tool description" };
-      await registry.updateTool("data-processor", updates);
+      await registry.update("data-processor", updates);
 
       const updated = registry.get("data-processor");
       expect(updated?.description).toBe("Updated tool description");
@@ -100,20 +100,20 @@ describe("Tool Storage E2E Integration with SQLite", () => {
 
     it("should unregister and remove a tool from SQLite", async () => {
       const tool = createTool({ id: "remove-tool", name: "cleanup-tool" });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       expect(registry.has("cleanup-tool")).toBe(true);
 
-      await registry.unregisterTool("cleanup-tool");
+      await registry.unregister("cleanup-tool");
       expect(registry.has("cleanup-tool")).toBe(false);
       expect(await storage.exists("cleanup-tool")).toBe(false);
     });
 
     it("should throw when registering duplicate tool", async () => {
       const tool = createTool({ id: "dup-tool", name: "duplicate-test" });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
-      await expect(registry.registerTool(tool)).rejects.toThrow();
+      await expect(registry.register(tool)).rejects.toThrow();
     });
   });
 
@@ -126,7 +126,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
       ];
 
       for (const tool of tools) {
-        await registry.registerTool(tool);
+        await registry.register(tool);
       }
 
       const listed = registry.list();
@@ -142,7 +142,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
         createTool({ id: "b2", name: "batch-2" }),
       ];
 
-      await registry.registerTools(tools);
+      await registry.registers(tools);
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
@@ -151,7 +151,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
   describe("Storage Persistence and Recovery", () => {
     it("should recover tools from SQLite on reinitialization", async () => {
       const tool = createTool({ id: "recover", name: "recovery-test" });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       await storage.close();
 
@@ -178,7 +178,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
         },
       });
 
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       const retrieved = registry.get("integrity-test");
       expect(retrieved?.metadata?.tags).toEqual(["critical", "verified"]);
@@ -192,7 +192,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
   describe("Storage Metrics", () => {
     it("should track storage metrics with SQLite", async () => {
       const tool = createTool({ id: "metrics", name: "metrics-test" });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       const metrics = await storage.getMetrics();
       expect(metrics.saveCount).toBeGreaterThan(0);
@@ -211,7 +211,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
         id: "special",
         name: "tool-with-special_chars.v1",
       });
-      await registry.registerTool(tool);
+      await registry.register(tool);
 
       expect(registry.has("tool-with-special_chars.v1")).toBe(true);
       expect(await storage.exists("tool-with-special_chars.v1")).toBe(true);

@@ -21,81 +21,7 @@ import { generateToolDescription } from "./tool-description-generator.js";
 const logger = createContextualLogger({ component: "ToolDescriptionRegistry" });
 
 /**
- * In-memory cache for tool descriptions, keyed by tool ID
- */
-const descriptionCache = new Map<string, string>();
-
-/**
- * Register a tool's description in the cache
- *
- * @param tool - The tool to register
- * @returns The generated description
- */
-export function registerToolDescription(tool: Tool): string {
-  const { id } = tool;
-
-  logger.debug(`Registering tool description for tool: ${id}`);
-
-  if (descriptionCache.has(id)) {
-    logger.debug(`Found existing description for tool: ${id}`);
-    return descriptionCache.get(id)!;
-  }
-
-  const description = generateToolDescription(tool);
-  descriptionCache.set(id, description);
-  logger.debug(`Registered new description for tool: ${id}`);
-  return description;
-}
-
-/**
- * Get a tool's description from the cache
- *
- * @param toolId - The tool ID to look up
- * @returns The cached description, or undefined if not found
- */
-export function getToolDescription(toolId: string): string | undefined {
-  return descriptionCache.get(toolId);
-}
-
-/**
- * Check if a tool description exists in the cache
- *
- * @param toolId - The tool ID to check
- * @returns True if the description exists in the cache
- */
-export function hasToolDescription(toolId: string): boolean {
-  return descriptionCache.has(toolId);
-}
-
-/**
- * Clear the tool description cache
- */
-export function clearToolDescriptionCache(): void {
-  logger.debug("Clearing tool description cache");
-  descriptionCache.clear();
-}
-
-/**
- * Get the size of the tool description cache
- *
- * @returns The number of cached tool descriptions
- */
-export function getToolDescriptionCacheSize(): number {
-  return descriptionCache.size;
-}
-
-/**
- * Register a batch of tool descriptions
- *
- * @param tools - The tools to register
- * @returns An array of generated descriptions
- */
-export function registerToolDescriptions(tools: Tool[]): string[] {
-  return tools.map(tool => registerToolDescription(tool));
-}
-
-/**
- * Tool Description Registry type
+ * Tool Description Registry interface
  */
 export interface ToolDescriptionRegistry {
   register(tool: Tool | ToolDescriptionData): string;
@@ -107,13 +33,120 @@ export interface ToolDescriptionRegistry {
 }
 
 /**
- * Global tool description registry instance
+ * Tool Description Registry Class
+ *
+ * In-memory cache for tool descriptions, keyed by tool ID.
+ * Can be instantiated as a standalone instance or obtained via the global singleton.
  */
-export const toolDescriptionRegistry: ToolDescriptionRegistry = {
-  register: (tool) => registerToolDescription(tool as Tool),
-  has: (toolId) => hasToolDescription(toolId),
-  get: (toolId) => getToolDescription(toolId),
-  clear: () => clearToolDescriptionCache(),
-  size: () => getToolDescriptionCacheSize(),
-  registerAll: (tools) => registerToolDescriptions(tools),
-};
+export class ToolDescriptionRegistryImpl implements ToolDescriptionRegistry {
+  private cache = new Map<string, string>();
+
+  /**
+   * Register a tool's description in the cache.
+   *
+   * @param tool - The tool to register
+   * @returns The generated description
+   */
+  register(tool: Tool | ToolDescriptionData): string {
+    const { id } = tool;
+
+    logger.debug(`Registering tool description for tool: ${id}`);
+
+    if (this.cache.has(id)) {
+      logger.debug(`Found existing description for tool: ${id}`);
+      return this.cache.get(id)!;
+    }
+
+    const description = generateToolDescription(tool as Tool);
+    this.cache.set(id, description);
+    logger.debug(`Registered new description for tool: ${id}`);
+    return description;
+  }
+
+  /**
+   * Get a tool's description from the cache.
+   *
+   * @param toolId - The tool ID to look up
+   * @returns The cached description, or undefined if not found
+   */
+  get(toolId: string): string | undefined {
+    return this.cache.get(toolId);
+  }
+
+  /**
+   * Check if a tool description exists in the cache.
+   *
+   * @param toolId - The tool ID to check
+   * @returns True if the description exists in the cache
+   */
+  has(toolId: string): boolean {
+    return this.cache.has(toolId);
+  }
+
+  /**
+   * Clear the tool description cache.
+   */
+  clear(): void {
+    logger.debug("Clearing tool description cache");
+    this.cache.clear();
+  }
+
+  /**
+   * Get the number of cached tool descriptions.
+   *
+   * @returns The number of cached tool descriptions
+   */
+  size(): number {
+    return this.cache.size;
+  }
+
+  /**
+   * Register a batch of tool descriptions.
+   *
+   * @param tools - The tools to register
+   * @returns An array of generated descriptions
+   */
+  registerAll(tools: Tool[]): string[] {
+    return tools.map(tool => this.register(tool));
+  }
+}
+
+/**
+ * Global tool description registry singleton instance.
+ */
+export const toolDescriptionRegistry: ToolDescriptionRegistry = new ToolDescriptionRegistryImpl();
+
+/**
+ * @deprecated Use `ToolDescriptionRegistryImpl` class directly instead.
+ * These standalone functions operate on the global singleton for backward compatibility.
+ */
+
+/** @deprecated Use `toolDescriptionRegistry.register()` instead. */
+export function registerToolDescription(tool: Tool): string {
+  return toolDescriptionRegistry.register(tool);
+}
+
+/** @deprecated Use `toolDescriptionRegistry.get()` instead. */
+export function getToolDescription(toolId: string): string | undefined {
+  return toolDescriptionRegistry.get(toolId);
+}
+
+/** @deprecated Use `toolDescriptionRegistry.has()` instead. */
+export function hasToolDescription(toolId: string): boolean {
+  return toolDescriptionRegistry.has(toolId);
+}
+
+/** @deprecated Use `toolDescriptionRegistry.clear()` instead. */
+export function clearToolDescriptionCache(): void {
+  toolDescriptionRegistry.clear();
+}
+
+/** @deprecated Use `toolDescriptionRegistry.size()` instead. */
+export function getToolDescriptionCacheSize(): number {
+  return toolDescriptionRegistry.size();
+}
+
+/** @deprecated Use `toolDescriptionRegistry.registerAll()` instead. */
+export function registerToolDescriptions(tools: Tool[]): string[] {
+  return toolDescriptionRegistry.registerAll(tools);
+}

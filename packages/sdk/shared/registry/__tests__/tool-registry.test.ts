@@ -23,70 +23,70 @@ describe("ToolRegistry", () => {
     registry = new ToolRegistry();
   });
 
-  describe("registerTool", () => {
+  describe("register", () => {
     it("should register a valid tool", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       expect(registry.has("test_tool")).toBe(true);
     });
 
     it("should throw if tool id already exists", async () => {
-      await registry.registerTool(createValidTool());
-      await expect(registry.registerTool(createValidTool())).rejects.toThrow("already exists");
+      await registry.register(createValidTool());
+      await expect(registry.register(createValidTool())).rejects.toThrow("already exists");
     });
 
     it("should skip if skipIfExists option is set", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       await expect(
-        registry.registerTool(createValidTool(), { skipIfExists: true }),
+        registry.register(createValidTool(), { skipIfExists: true }),
       ).resolves.toBeUndefined();
     });
 
     it("should throw on invalid tool id pattern", async () => {
-      await expect(registry.registerTool(createValidTool({ id: "Invalid-ID" }))).rejects.toThrow();
+      await expect(registry.register(createValidTool({ id: "Invalid-ID" }))).rejects.toThrow();
     });
 
     it("should throw on missing description", async () => {
-      await expect(registry.registerTool(createValidTool({ description: "" }))).rejects.toThrow();
+      await expect(registry.register(createValidTool({ description: "" }))).rejects.toThrow();
     });
 
     it("should throw on invalid tool type", async () => {
       await expect(
-        registry.registerTool(createValidTool({ type: "UNKNOWN" as any })),
+        registry.register(createValidTool({ type: "UNKNOWN" as any })),
       ).rejects.toThrow();
     });
   });
 
-  describe("registerTools", () => {
+  describe("registerBatch", () => {
     it("should register multiple tools", async () => {
       const t1 = createValidTool({ id: "tool_1" });
       const t2 = createValidTool({ id: "tool_2" });
-      await registry.registerTools([t1, t2]);
+      await registry.registerBatch([t1, t2]);
       expect(registry.size).toBe(2);
     });
 
     it("should throw on duplicate in batch", async () => {
       const t1 = createValidTool({ id: "tool_1" });
       const dup = createValidTool({ id: "tool_1" });
-      await expect(registry.registerTools([t1, dup])).rejects.toThrow("already exists");
+      await expect(registry.registerBatch([t1, dup])).rejects.toThrow("already exists");
     });
 
     it("should skip duplicates with skipIfExists option", async () => {
-      await registry.registerTool(createValidTool({ id: "tool_1" }));
+      await registry.register(createValidTool({ id: "tool_1" }));
       await expect(
-        registry.registerTools([createValidTool({ id: "tool_1" })], { skipIfExists: true }),
+        registry.registerBatch([createValidTool({ id: "tool_1" })], { skipIfExists: true }),
       ).resolves.toBeUndefined();
     });
   });
 
-  describe("unregisterTool", () => {
+  describe("unregister", () => {
     it("should delete a tool", async () => {
-      await registry.registerTool(createValidTool());
-      await registry.unregisterTool("test_tool");
+      await registry.register(createValidTool());
+      await registry.unregister("test_tool");
       expect(registry.has("test_tool")).toBe(false);
     });
 
     it("should throw if tool does not exist", async () => {
-      await expect(registry.unregisterTool("non_existent")).rejects.toThrow("not found");
+      await expect(registry.unregister("non_existent")).rejects.toThrow("not found");
     });
   });
 
@@ -104,7 +104,7 @@ describe("ToolRegistry", () => {
 
   describe("has / hasTool", () => {
     it("should return true if tool exists", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       expect(registry.has("test_tool")).toBe(true);
       expect(registry.hasTool("test_tool")).toBe(true);
     });
@@ -116,16 +116,16 @@ describe("ToolRegistry", () => {
 
   describe("listTools", () => {
     it("should return all tools", async () => {
-      await registry.registerTool(createValidTool({ id: "tool_1" }));
-      await registry.registerTool(createValidTool({ id: "tool_2" }));
+      await registry.register(createValidTool({ id: "tool_1" }));
+      await registry.register(createValidTool({ id: "tool_2" }));
       expect(registry.listTools()).toHaveLength(2);
     });
   });
 
   describe("listToolsByType", () => {
     it("should filter by type", async () => {
-      await registry.registerTool(createValidTool({ id: "tool_1", type: "REST" }));
-      await registry.registerTool(
+      await registry.register(createValidTool({ id: "tool_1", type: "REST" }));
+      await registry.register(
         createValidTool({ id: "tool_2", type: "BUILTIN", config: { execute: vi.fn() } }),
       );
       expect(registry.listToolsByType("REST")).toHaveLength(1);
@@ -134,10 +134,10 @@ describe("ToolRegistry", () => {
 
   describe("listToolsByCategory", () => {
     it("should filter by category", async () => {
-      await registry.registerTool(
+      await registry.register(
         createValidTool({ id: "tool_1", metadata: { category: "data" } }),
       );
-      await registry.registerTool(
+      await registry.register(
         createValidTool({ id: "tool_2", metadata: { category: "util" } }),
       );
       expect(registry.listToolsByCategory("data")).toHaveLength(1);
@@ -146,37 +146,37 @@ describe("ToolRegistry", () => {
 
   describe("searchTools", () => {
     it("should search by id", async () => {
-      await registry.registerTool(createValidTool({ id: "file_reader" }));
+      await registry.register(createValidTool({ id: "file_reader" }));
       expect(registry.searchTools("reader")).toHaveLength(1);
     });
 
     it("should search by description", async () => {
-      await registry.registerTool(createValidTool({ id: "t1", description: "data transformer" }));
+      await registry.register(createValidTool({ id: "t1", description: "data transformer" }));
       expect(registry.searchTools("transformer")).toHaveLength(1);
     });
 
     it("should search by tag", async () => {
-      await registry.registerTool(createValidTool({ id: "t1", metadata: { tags: ["important"] } }));
+      await registry.register(createValidTool({ id: "t1", metadata: { tags: ["important"] } }));
       expect(registry.searchTools("important")).toHaveLength(1);
     });
 
     it("should search by category", async () => {
-      await registry.registerTool(
+      await registry.register(
         createValidTool({ id: "t1", metadata: { category: "machine-learning" } }),
       );
       expect(registry.searchTools("machine")).toHaveLength(1);
     });
 
     it("should return empty for no match", async () => {
-      await registry.registerTool(createValidTool({ id: "t1" }));
+      await registry.register(createValidTool({ id: "t1" }));
       expect(registry.searchTools("nonexistent")).toHaveLength(0);
     });
   });
 
   describe("clear", () => {
     it("should remove all tools", async () => {
-      await registry.registerTool(createValidTool({ id: "tool_1" }));
-      await registry.registerTool(createValidTool({ id: "tool_2" }));
+      await registry.register(createValidTool({ id: "tool_1" }));
+      await registry.register(createValidTool({ id: "tool_2" }));
       registry.clear();
       expect(registry.size).toBe(0);
     });
@@ -185,14 +185,14 @@ describe("ToolRegistry", () => {
   describe("size", () => {
     it("should return correct count", async () => {
       expect(registry.size).toBe(0);
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       expect(registry.size).toBe(1);
     });
   });
 
   describe("updateTool", () => {
     it("should update existing tool fields", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       await registry.updateTool("test_tool", { description: "Updated description" });
       expect(registry.getTool("test_tool").description).toBe("Updated description");
     });
@@ -204,14 +204,14 @@ describe("ToolRegistry", () => {
     });
 
     it("should re-validate updated tool", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       await expect(registry.updateTool("test_tool", { type: "UNKNOWN" as any })).rejects.toThrow();
     });
   });
 
   describe("validateParameters", () => {
     it("should return valid for tool with no required params", async () => {
-      await registry.registerTool(createValidTool());
+      await registry.register(createValidTool());
       const result = registry.validateParameters("test_tool", {});
       expect(result.valid).toBe(true);
     });

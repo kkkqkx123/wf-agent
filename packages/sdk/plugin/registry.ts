@@ -9,12 +9,18 @@
  */
 
 import type { Plugin, PluginManifest, PluginRecord, ContributionRecord, ContributionType, PluginStatus } from "./types.js";
+import { createRegistry } from "../shared/registry/utils/registry-internals.js";
+import type { MutableRegistry } from "../shared/registry/types.js";
 
 /**
  * Plugin Registry - Central registry for all plugin records.
  */
 export class PluginRegistry {
-  private plugins: Map<string, PluginRecord> = new Map();
+  private plugins: MutableRegistry<PluginRecord>;
+
+  constructor() {
+    this.plugins = createRegistry<PluginRecord>();
+  }
 
   /**
    * Register a plugin with its manifest and instance.
@@ -50,14 +56,14 @@ export class PluginRegistry {
    * List all registered plugin records.
    */
   list(): PluginRecord[] {
-    return Array.from(this.plugins.values());
+    return this.plugins.list();
   }
 
   /**
    * List all plugin IDs.
    */
   listIds(): string[] {
-    return Array.from(this.plugins.keys());
+    return this.plugins.keys();
   }
 
   /**

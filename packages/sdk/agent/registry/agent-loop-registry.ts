@@ -16,6 +16,7 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { generateId } from "../../utils/index.js";
 import type { TaskStatus } from "@wf-agent/types";
+import { BaseExecutionRegistry } from "../../shared/registry/execution-registry-base.js";
 
 const logger = createContextualLogger({ component: "AgentLoopRegistry" });
 
@@ -68,17 +69,16 @@ export interface AgentTaskStats {
  * - Workflow-execution-safe (Map operations)
  * - Support for cleaning up expired instances
  */
-export class AgentLoopRegistry implements IAgentExecutionRegistry {
-  /** Instance Storage */
-  private entities: Map<ID, AgentLoopEntity> = new Map();
-  /** State Coordinator Storage */
-  private stateCoordinatorMap: Map<ID, AgentStateCoordinator> = new Map();
-
-  /** Task Storage (for async execution) - NEW */
+export class AgentLoopRegistry extends BaseExecutionRegistry<
+  AgentLoopEntity,
+  AgentStateCoordinator,
+  AgentLoopStorageAdapter
+> implements IAgentExecutionRegistry {
+  /** Task Storage (for async execution) */
   private tasks: Map<string, AgentTaskInfo> = new Map();
-  /** Task Manager Routing (for async execution) - NEW */
+  /** Task Manager Routing (for async execution) */
   private taskManagers: Map<string, AgentTaskManager> = new Map();
-  /** Task Statistics - NEW */
+  /** Task Statistics */
   private taskStats: {
     completed: number;
     failed: number;
@@ -91,30 +91,20 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     timeout: 0,
   };
 
-  private storageAdapter?: AgentLoopStorageAdapter;
-
   /**
    * Constructor
    * @param options Configuration options
    */
   constructor(options?: { storageAdapter?: AgentLoopStorageAdapter }) {
-    this.storageAdapter = options?.storageAdapter;
+    super(options);
   }
 
   /**
    * Register AgentLoopEntity
    * @param entity The Agent Loop entity
    */
-  register(entity: AgentLoopEntity): void {
-    this.entities.set(entity.id, entity);
-
-    // Persist to storage (async, non-blocking)
-    this.persistToStorage(entity).catch(error => {
-      logger.error("Failed to persist agent loop to storage during register", {
-        agentLoopId: entity.id,
-        error: getErrorMessage(error),
-      });
-    });
+  override register(entity: AgentLoopEntity): void {
+    super.register(entity);
   }
 
   /**
@@ -127,14 +117,9 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
 
     // Also clean up associated state coordinator
     if (result) {
-      this.stateCoordinatorMap.delete(id);
+      this.coordinators.delete(id);
       // Remove from storage (async, non-blocking)
-      this.removeFromStorage(id).catch(error => {
-        logger.error("Failed to remove agent loop from storage during unregister", {
-          agentLoopId: id,
-          error: getErrorMessage(error),
-        });
-      });
+      this.removeFromStorage(id);
     }
 
     return result;
@@ -146,7 +131,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    * @param stateCoordinator AgentStateCoordinator instance
    */
   registerStateCoordinator(agentLoopId: ID, stateCoordinator: AgentStateCoordinator): void {
-    this.stateCoordinatorMap.set(agentLoopId, stateCoordinator);
+    this.registerCoordinator(agentLoopId, stateCoordinator);
   }
 
   /**
@@ -155,7 +140,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    * @returns AgentStateCoordinator instance or null
    */
   getStateCoordinator(agentLoopId: ID): AgentStateCoordinator | null {
-    return this.stateCoordinatorMap.get(agentLoopId) || null;
+    return this.getCoordinator(agentLoopId);
   }
 
   /**
@@ -193,32 +178,17 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   }
 
   /**
-   * Checking if an instance exists
-   * @param id instance ID
-   */
-  has(id: ID): boolean {
-    return this.entities.has(id);
-  }
-
-  /**
    * Get all active instances
    */
-  getAll(): AgentLoopEntity[] {
-    return Array.from(this.entities.values());
+  override getAll(): AgentLoopEntity[] {
+    return super.getAll();
   }
 
   /**
    * Get all instance IDs
    */
-  getAllIds(): ID[] {
-    return Array.from(this.entities.keys());
-  }
-
-  /**
-   * Get the number of instances
-   */
-  size(): number {
-    return this.entities.size;
+  override getAllIds(): ID[] {
+    return super.getAllIds();
   }
 
   /**
@@ -302,26 +272,6 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     return terminatedEntities.length;
   }
 
-  /**
-   * Clear all instances
-   * Calls the cleanup method of each entity before clearing.
-   */
-  clear(): void {
-    for (const entity of this.entities.values()) {
-      entity.cleanup();
-    }
-    this.entities.clear();
-    this.stateCoordinatorMap.clear();
-  }
-
-  /**
-   * Enable await using pattern support
-   * Delegates to clear() for resource release
-   */
-  async [Symbol.asyncDispose](): Promise<void> {
-    this.clear();
-  }
-
   // ============================================================
   // Storage Persistence Methods
   // ============================================================
@@ -330,14 +280,12 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    * Persist agent loop to storage (if adapter is available)
    * @param entity Agent loop entity to persist
    */
-  private async persistToStorage(entity: AgentLoopEntity): Promise<void> {
+  protected override async persistToStorage(entity: AgentLoopEntity): Promise<void> {
     if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping agent loop persistence");
       return;
     }
 
     try {
-      // Serialize agent loop state to bytes
       const encoder = new TextEncoder();
       const agentData = {
         id: entity.id,
@@ -350,7 +298,6 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
       };
       const data = encoder.encode(JSON.stringify(agentData));
 
-      // Create metadata matching AgentEntityMetadata interface
       const metadata: AgentEntityMetadata = {
         agentLoopId: entity.id,
         status: entity.getStatus(),
@@ -366,12 +313,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
       };
 
       await this.storageAdapter.save(entity.id, data, metadata);
-      logger.debug("Agent loop persisted to storage", {
-        agentLoopId: entity.id,
-        status: entity.getStatus(),
-      });
     } catch (error) {
-      // Log error but don't throw - storage failure should not affect core functionality
       logger.error("Failed to persist agent loop to storage", {
         agentLoopId: entity.id,
         error: getErrorMessage(error),
@@ -383,17 +325,14 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
    * Remove agent loop from storage (if adapter is available)
    * @param agentLoopId Agent loop ID to remove
    */
-  private async removeFromStorage(agentLoopId: string): Promise<void> {
+  protected override async removeFromStorage(agentLoopId: string): Promise<void> {
     if (!this.storageAdapter) {
-      logger.debug("No storage adapter configured, skipping agent loop removal from storage");
       return;
     }
 
     try {
       await this.storageAdapter.delete(agentLoopId);
-      logger.debug("Agent loop removed from storage", { agentLoopId });
     } catch (error) {
-      // Log error but don't throw - storage failure should not affect core functionality
       logger.error("Failed to remove agent loop from storage", {
         agentLoopId,
         error: getErrorMessage(error),
@@ -457,10 +396,6 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     try {
       const agentLoopIds = await this.storageAdapter.list();
       logger.info("Found agent loops in storage", { count: agentLoopIds.length });
-
-      // Note: We don't automatically load all agent loops into memory
-      // Agent loops are typically loaded on-demand when needed
-      // This method can be extended to implement caching strategies if needed
     } catch (error) {
       logger.error("Failed to initialize agent loop registry from storage", {
         error: getErrorMessage(error),
@@ -469,7 +404,7 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
   }
 
   // ============================================================
-  // Task Management Methods (for async execution) - NEW
+  // Task Management Methods (for async execution)
   // ============================================================
 
   /**
@@ -634,7 +569,6 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     let cleanedCount = 0;
 
     for (const [taskId, taskInfo] of this.tasks.entries()) {
-      // Only clean up completed tasks
       if (
         (taskInfo.status === "COMPLETED" ||
           taskInfo.status === "FAILED" ||

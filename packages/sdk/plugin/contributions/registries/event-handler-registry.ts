@@ -4,20 +4,19 @@
  * @internal - Used internally by ContributionManager.
  */
 
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
+
 /**
  * @internal - SDK-internal event handler callback signature.
  */
 export type EventHandler = (event: Record<string, unknown>) => void | Promise<void>;
 
-interface EventHandlerEntry {
-  pluginId: string;
+interface EventHandlerEntry extends ContributionEntry {
   handler: EventHandler;
   priority?: number;
 }
 
-export class EventHandlerRegistry {
-  private entries = new Map<string, EventHandlerEntry>();
-
+export class EventHandlerRegistry extends BaseContributionRegistry<EventHandlerEntry> {
   register(pluginId: string, eventType: string, handler: EventHandler, priority?: number): void {
     this.entries.set(eventType, { pluginId, handler, priority });
   }
@@ -28,13 +27,5 @@ export class EventHandlerRegistry {
       result.set(eventType, entry.handler);
     }
     return result;
-  }
-
-  unregisterByPluginId(pluginId: string): void {
-    for (const [eventType, entry] of this.entries) {
-      if (entry.pluginId === pluginId) {
-        this.entries.delete(eventType);
-      }
-    }
   }
 }

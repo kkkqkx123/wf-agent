@@ -4,19 +4,18 @@
  * @internal - Used internally by ContributionManager.
  */
 
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
+
 /**
  * @internal - SDK-internal hook handler callback signature.
  */
 export type HookHandler = (context: Record<string, unknown>) => Promise<void>;
 
-interface HookHandlerEntry {
-  pluginId: string;
+interface HookHandlerEntry extends ContributionEntry {
   handler: HookHandler;
 }
 
-export class HookHandlerRegistry {
-  private entries = new Map<string, HookHandlerEntry>();
-
+export class HookHandlerRegistry extends BaseContributionRegistry<HookHandlerEntry> {
   register(pluginId: string, hookType: string, handler: HookHandler): void {
     this.entries.set(hookType, { pluginId, handler });
   }
@@ -27,13 +26,5 @@ export class HookHandlerRegistry {
       result.set(hookType, entry.handler);
     }
     return result;
-  }
-
-  unregisterByPluginId(pluginId: string): void {
-    for (const [hookType, entry] of this.entries) {
-      if (entry.pluginId === pluginId) {
-        this.entries.delete(hookType);
-      }
-    }
   }
 }

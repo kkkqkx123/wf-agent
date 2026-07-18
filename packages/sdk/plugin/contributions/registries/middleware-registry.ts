@@ -5,35 +5,39 @@
  */
 
 import type { ExecutionMiddleware, MiddlewarePhase } from "../middleware.types.js";
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
 
-interface MiddlewareItem {
-  pluginId: string;
+interface MiddlewareItem extends ContributionEntry {
   mw: ExecutionMiddleware;
 }
 
-export class MiddlewareRegistry {
-  private entries = new Map<MiddlewarePhase, MiddlewareItem[]>();
+export class MiddlewareRegistry extends BaseContributionRegistry<MiddlewareItem> {
+  /**
+   * Middleware entries grouped by phase (maintaining insertion order within each phase).
+   * Override the base class to use phase-based grouping.
+   */
+  private phaseEntries = new Map<MiddlewarePhase, MiddlewareItem[]>();
 
   register(phase: MiddlewarePhase, mw: ExecutionMiddleware): void {
-    if (!this.entries.has(phase)) {
-      this.entries.set(phase, []);
+    if (!this.phaseEntries.has(phase)) {
+      this.phaseEntries.set(phase, []);
     }
-    this.entries.get(phase)!.push({ pluginId: '', mw });
+    this.phaseEntries.get(phase)!.push({ pluginId: '', mw });
     // Sort by priority (lower number = higher priority)
-    this.entries.get(phase)!.sort((a, b) => (a.mw.priority ?? 0) - (b.mw.priority ?? 0));
+    this.phaseEntries.get(phase)!.sort((a, b) => (a.mw.priority ?? 0) - (b.mw.priority ?? 0));
   }
 
   getMiddleware(phase: MiddlewarePhase): ExecutionMiddleware[] {
-    return this.entries.get(phase)?.map(item => item.mw) ?? [];
+    return this.phaseEntries.get(phase)?.map(item => item.mw) ?? [];
   }
 
   hasMiddleware(phase: MiddlewarePhase): boolean {
-    const items = this.entries.get(phase);
+    const items = this.phaseEntries.get(phase);
     return items !== undefined && items.length > 0;
   }
 
   async runMiddleware(phase: MiddlewarePhase, context: Record<string, unknown>): Promise<void> {
-    const items = this.entries.get(phase);
+    const items = this.phaseEntries.get(phase);
     if (!items || items.length === 0) return;
 
     let index = 0;
@@ -46,9 +50,9 @@ export class MiddlewareRegistry {
     await next();
   }
 
-  unregisterByPluginId(pluginId: string): void {
+  override unregisterByPluginId(pluginId: string): void {
     const phasesToDelete: MiddlewarePhase[] = [];
-    for (const [phase, items] of this.entries) {
+    for (const [phase, items] of this.phaseEntries) {
       const remaining = items.filter(item => item.pluginId !== pluginId);
       if (remaining.length === 0) {
         phasesToDelete.push(phase);
@@ -58,7 +62,11 @@ export class MiddlewareRegistry {
       }
     }
     for (const phase of phasesToDelete) {
-      this.entries.delete(phase);
+      this.phaseEntries.delete(phase);
     }
+  }
+
+  override clear(): void {
+    this.phaseEntries.clear();
   }
 }

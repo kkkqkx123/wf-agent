@@ -12,6 +12,7 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { createRegistry } from "./utils/index.js";
 import { renderTemplate } from "../utils/template-renderer/index.js";
 import type { MutableRegistry } from "./types.js";
+import { RegistryAlreadyExistsError } from "./types.js";
 import { validateFragment } from "./utils/index.js";
 
 const logger = createContextualLogger({ component: "FragmentRegistry" });
@@ -51,7 +52,7 @@ export class FragmentRegistry {
       if (options?.skipIfExists) {
         return;
       }
-      throw new Error(`Item '${key}' already exists`);
+      throw new RegistryAlreadyExistsError(key, "Fragment");
     }
 
     validateFragment(fragment, logger);

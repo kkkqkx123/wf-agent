@@ -5,15 +5,13 @@
  */
 
 import type { BaseFormatter } from "../../../services/llm/formatters/base.js";
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
 
-interface LLMProviderEntry {
-  pluginId: string;
+interface LLMProviderEntry extends ContributionEntry {
   formatter: BaseFormatter;
 }
 
-export class LLMProviderRegistry {
-  private entries = new Map<string, LLMProviderEntry>();
-
+export class LLMProviderRegistry extends BaseContributionRegistry<LLMProviderEntry> {
   register(pluginId: string, provider: string, formatter: BaseFormatter): void {
     this.entries.set(provider, { pluginId, formatter });
   }
@@ -24,17 +22,5 @@ export class LLMProviderRegistry {
 
   getAllProviders(): string[] {
     return Array.from(this.entries.keys());
-  }
-
-  getOwner(provider: string): string | undefined {
-    return this.entries.get(provider)?.pluginId;
-  }
-
-  unregisterByPluginId(pluginId: string): void {
-    for (const [provider, entry] of this.entries) {
-      if (entry.pluginId === pluginId) {
-        this.entries.delete(provider);
-      }
-    }
   }
 }

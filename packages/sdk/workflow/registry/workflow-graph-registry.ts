@@ -8,20 +8,26 @@
 
 import type { ID } from "@wf-agent/types";
 import type { WorkflowGraph } from "../entities/workflow-graph.js";
+import { createRegistry } from "../../shared/registry/utils/registry-internals.js";
+import type { MutableRegistry } from "../../shared/registry/types.js";
 
 /**
  * WorkflowGraph Registry Class
  * Responsible for managing the pre-processed workflow graph data
  */
 export class WorkflowGraphRegistry {
-  private workflowGraphs: Map<ID, WorkflowGraph> = new Map();
+  private items: MutableRegistry<WorkflowGraph>;
+
+  constructor() {
+    this.items = createRegistry<WorkflowGraph>();
+  }
 
   /**
    * Register the preprocessed workflow graph
    * @param workflowGraph The preprocessed workflow graph
    */
   register(workflowGraph: WorkflowGraph): void {
-    this.workflowGraphs.set(workflowGraph.workflowId, workflowGraph);
+    this.items.set(workflowGraph.workflowId, workflowGraph);
   }
 
   /**
@@ -30,7 +36,7 @@ export class WorkflowGraphRegistry {
    * @returns: The preprocessed workflow graph; returns undefined if it does not exist
    */
   get(workflowId: ID): WorkflowGraph | undefined {
-    return this.workflowGraphs.get(workflowId);
+    return this.items.get(workflowId);
   }
 
   /**
@@ -39,7 +45,7 @@ export class WorkflowGraphRegistry {
    * @returns: Whether the workflow graph exists or not
    */
   has(workflowId: ID): boolean {
-    return this.workflowGraphs.has(workflowId);
+    return this.items.has(workflowId);
   }
 
   /**
@@ -47,14 +53,14 @@ export class WorkflowGraphRegistry {
    * @param workflowId Workflow ID
    */
   unregister(workflowId: ID): void {
-    this.workflowGraphs.delete(workflowId);
+    this.items.delete(workflowId);
   }
 
   /**
    * Clear all workflow graphs.
    */
   clear(): void {
-    this.workflowGraphs.clear();
+    this.items.clear();
   }
 
   /**
@@ -62,7 +68,7 @@ export class WorkflowGraphRegistry {
    * @returns Array of workflow IDs
    */
   getAllWorkflowIds(): ID[] {
-    return Array.from(this.workflowGraphs.keys());
+    return this.items.keys();
   }
 
   /**
@@ -70,7 +76,7 @@ export class WorkflowGraphRegistry {
    * @returns Number of workflow graphs
    */
   size(): number {
-    return this.workflowGraphs.size;
+    return this.items.size;
   }
 
   /**

@@ -52,6 +52,7 @@ function createMockEntity(
     getParentContext: vi.fn(() => parentContext),
     getHierarchyMetadata: vi.fn(() => undefined),
     getNodeResults: vi.fn(() => []),
+    getWorkflowVersion: vi.fn(() => "1.0"),
     cleanup: vi.fn(),
     state: {
       startTime: Date.now(),

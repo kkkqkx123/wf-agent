@@ -125,7 +125,7 @@ export async function unregisterPredefinedTools(
 
   for (const toolId of predefinedToolIds) {
     try {
-      await toolService.unregisterTool(toolId);
+      await toolService.unregister(toolId);
       success.push(toolId);
       logger.info(`Unregistered predefined tool: ${toolId}`);
     } catch (error) {

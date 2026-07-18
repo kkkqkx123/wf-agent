@@ -105,7 +105,7 @@ async function createAgentLoopTestContext(): Promise<AgentLoopTestContext> {
 
   // Register mock tool for tool execution tests
   const toolRegistry = sdk.getFactory().getDependencies().getToolService();
-  toolRegistry.registerTool(mockEchoTool);
+  toolRegistry.register(mockEchoTool);
 
   return { sdk, mockClient };
 }

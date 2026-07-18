@@ -120,7 +120,7 @@ export class ToolRegistryAPI extends SimplifiedCrudResourceAPI<Tool, string, Too
    * @param tool Tool Definition
    */
   protected async createResource(tool: Tool): Promise<void> {
-    this.dependencies.getToolService().registerTool(tool);
+    this.dependencies.getToolService().register(tool);
   }
 
   /**
@@ -150,7 +150,7 @@ export class ToolRegistryAPI extends SimplifiedCrudResourceAPI<Tool, string, Too
    * @param id Tool ID
    */
   protected async deleteResource(id: string): Promise<void> {
-    this.dependencies.getToolService().unregisterTool(id);
+    this.dependencies.getToolService().unregister(id);
   }
 
   /**

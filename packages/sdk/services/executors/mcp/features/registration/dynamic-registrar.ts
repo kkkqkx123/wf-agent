@@ -89,7 +89,7 @@ export class McpToolsRegistrar {
         const sdkTool = this.createSdkTool(toolId, mcpTool);
 
         // Register tool
-        await toolRegistry.registerTool(sdkTool);
+        await toolRegistry.register(sdkTool);
 
         // Track registration
         this.registeredToolIds.add(toolId);

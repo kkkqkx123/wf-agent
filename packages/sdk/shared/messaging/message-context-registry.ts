@@ -8,6 +8,7 @@
 import type { NamedMessageContext, MessageContextRegistry } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { RegistryNotFoundError } from "../registry/types.js";
 
 const logger = createContextualLogger();
 
@@ -64,9 +65,7 @@ export class InMemoryMessageContextRegistry implements MessageContextRegistry {
     const context = this.contexts.get(id);
 
     if (!context) {
-      throw new Error(
-        `Context '${id}' not found. Available contexts: ${this.listIds().join(", ")}`,
-      );
+      throw new RegistryNotFoundError(id, "Message context");
     }
 
     context.messages = messages;

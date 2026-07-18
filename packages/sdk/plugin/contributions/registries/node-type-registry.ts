@@ -5,16 +5,14 @@
  */
 
 import type { NodeHandlerFn } from "../../../workflow/execution/handlers/node-handlers/index.js";
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
 
-interface NodeTypeEntry {
-  pluginId: string;
+interface NodeTypeEntry extends ContributionEntry {
   handler: NodeHandlerFn;
   template?: Record<string, unknown>;
 }
 
-export class NodeTypeRegistry {
-  private entries = new Map<string, NodeTypeEntry>();
-
+export class NodeTypeRegistry extends BaseContributionRegistry<NodeTypeEntry> {
   register(pluginId: string, nodeType: string, handler: NodeHandlerFn, template?: Record<string, unknown>): void {
     this.entries.set(nodeType, { pluginId, handler, template });
   }
@@ -29,17 +27,5 @@ export class NodeTypeRegistry {
 
   getAllNodeTypes(): string[] {
     return Array.from(this.entries.keys());
-  }
-
-  getOwner(nodeType: string): string | undefined {
-    return this.entries.get(nodeType)?.pluginId;
-  }
-
-  unregisterByPluginId(pluginId: string): void {
-    for (const [nodeType, entry] of this.entries) {
-      if (entry.pluginId === pluginId) {
-        this.entries.delete(nodeType);
-      }
-    }
   }
 }

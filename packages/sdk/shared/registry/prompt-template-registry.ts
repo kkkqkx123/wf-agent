@@ -12,6 +12,7 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import type { FragmentRegistry } from "./fragment-registry.js";
 import { createRegistry } from "./utils/index.js";
 import type { MutableRegistry } from "./types.js";
+import { RegistryAlreadyExistsError } from "./types.js";
 import { renderTemplate } from "../utils/template-renderer/index.js";
 import { validatePromptTemplate } from "./utils/index.js";
 
@@ -73,7 +74,7 @@ export class PromptTemplateRegistry {
       if (options?.skipIfExists) {
         return;
       }
-      throw new Error(`Item '${key}' already exists`);
+      throw new RegistryAlreadyExistsError(key, "Prompt template");
     }
 
     validatePromptTemplate(template);

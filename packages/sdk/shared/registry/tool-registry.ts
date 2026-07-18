@@ -197,33 +197,6 @@ class ToolRegistry
   // ============================================================
 
   /**
-   * Register tool (memory-only, no persistence).
-   * Used for predefined content registration during bootstrap.
-   *
-   * @param tool - Tool definition
-   * @param options - Registration options
-   * @throws ConfigurationValidationError If the tool definition is invalid
-   * @throws RegistryAlreadyExistsError If the tool ID already exists
-   */
-  register(tool: Tool, options?: { skipIfExists?: boolean }): void {
-    const result = this.staticValidator.validateTool(tool);
-    if (result.isErr()) {
-      throw result.error[0];
-    }
-
-    if (this.items.has(tool.id)) {
-      if (options?.skipIfExists) {
-        logger.info("Tool already exists, skipping", { toolId: tool.id });
-        return;
-      }
-      throw new RegistryAlreadyExistsError(tool.id, "Tool");
-    }
-
-    this.items.set(tool.id, tool);
-    logger.info("Tool registered (memory-only)", { toolId: tool.id, toolType: tool.type });
-  }
-
-  /**
    * Register tool with storage persistence (write-through).
    *
    * @param tool - Tool definition
@@ -231,7 +204,7 @@ class ToolRegistry
    * @throws ConfigurationValidationError If the tool definition is invalid
    * @throws RegistryAlreadyExistsError If the tool ID already exists
    */
-  async registerTool(tool: Tool, options?: { skipIfExists?: boolean }): Promise<void> {
+  async register(tool: Tool, options?: { skipIfExists?: boolean }): Promise<void> {
     const result = this.staticValidator.validateTool(tool);
     if (result.isErr()) {
       throw result.error[0];
@@ -304,26 +277,12 @@ class ToolRegistry
   }
 
   /**
-   * Unregister tool (memory-only).
-   *
-   * @param toolId - Tool ID
-   * @throws RegistryNotFoundError If the tool does not exist
-   */
-  unregister(toolId: string): void {
-    if (!this.items.has(toolId)) {
-      throw new RegistryNotFoundError(toolId, "Tool");
-    }
-    this.items.delete(toolId);
-    logger.info("Tool unregistered", { toolId });
-  }
-
-  /**
    * Unregister tool with storage persistence (write-through).
    *
    * @param toolId - Tool ID
    * @throws RegistryNotFoundError If the tool does not exist
    */
-  async unregisterTool(toolId: string): Promise<void> {
+  async unregister(toolId: string): Promise<void> {
     if (!this.items.has(toolId)) {
       throw new RegistryNotFoundError(toolId, "Tool");
     }
@@ -342,37 +301,25 @@ class ToolRegistry
   // ============================================================
 
   /**
-   * Batch register tools (memory-only).
+   * Batch register tools with storage persistence.
    *
    * @param tools - Array of tool definitions
    * @param options - Registration options
    */
   async registerBatch(tools: Tool[], options?: { skipIfExists?: boolean }): Promise<void> {
     for (const tool of tools) {
-      this.register(tool, options);
+      await this.register(tool, options);
     }
   }
 
   /**
-   * Batch unregister tools (memory-only).
+   * Batch unregister tools with storage persistence.
    *
    * @param keys - Array of tool IDs
    */
   async unregisterBatch(keys: string[]): Promise<void> {
     for (const key of keys) {
-      this.unregister(key);
-    }
-  }
-
-  /**
-   * Batch register tools with storage persistence.
-   *
-   * @param tools - Array of tool definitions
-   * @param options - Registration options
-   */
-  async registerTools(tools: Tool[], options?: { skipIfExists?: boolean }): Promise<void> {
-    for (const tool of tools) {
-      await this.registerTool(tool, options);
+      await this.unregister(key);
     }
   }
 

@@ -5,20 +5,18 @@
  */
 
 import type { IToolExecutor } from "../../../services/tools/core/interfaces.js";
+import { BaseContributionRegistry, type ContributionEntry } from "./base-contribution-registry.js";
 
 /**
  * @internal - Constructor type for IToolExecutor implementations.
  */
 export type IToolExecutorConstructor = new (...args: unknown[]) => IToolExecutor;
 
-interface ToolTypeEntry {
-  pluginId: string;
+interface ToolTypeEntry extends ContributionEntry {
   executor: IToolExecutorConstructor;
 }
 
-export class ToolTypeRegistry {
-  private entries = new Map<string, ToolTypeEntry>();
-
+export class ToolTypeRegistry extends BaseContributionRegistry<ToolTypeEntry> {
   register(pluginId: string, type: string, executor: IToolExecutorConstructor): void {
     this.entries.set(type, { pluginId, executor });
   }
@@ -33,17 +31,5 @@ export class ToolTypeRegistry {
 
   getAllToolTypes(): string[] {
     return Array.from(this.entries.keys());
-  }
-
-  getOwner(type: string): string | undefined {
-    return this.entries.get(type)?.pluginId;
-  }
-
-  unregisterByPluginId(pluginId: string): void {
-    for (const [type, entry] of this.entries) {
-      if (entry.pluginId === pluginId) {
-        this.entries.delete(type);
-      }
-    }
   }
 }

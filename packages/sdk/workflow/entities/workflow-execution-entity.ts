@@ -41,7 +41,6 @@ import type { InterruptionState } from "../../shared/utils/interruption/interrup
 import { createWorkflowInterruptionAbortReason } from "../execution/utils/workflow-interruption-utils.js";
 import type { EventRegistry } from "../../shared/registry/event-registry.js";
 import type { IExecutionEntity } from "../../shared/types/execution-entity.js";
-import { DependencyManager } from "../../services/evaluation/index.js";
 import { SyncBarrier } from "../execution/barriers/sync-barrier.js";
 import { TimeoutManager } from "../../shared/protection/timeout-manager.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -332,8 +331,6 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    * Manages path-to-execution mappings and provides waiting mechanisms
    */
   private syncBarrier?: SyncBarrier;
-
-  private _depManager?: DependencyManager;
 
   private _hookExecutionContext?: {
     workflowInput: Record<string, unknown>;
@@ -1224,20 +1221,6 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
       }
     | undefined {
     return this._hookExecutionContext;
-  }
-
-  /**
-   * Get the DependencyManager instance for caching compiled expressions
-   * across route conditions, loop break conditions, etc.
-   * Lazily initialized on first access.
-   *
-   * @returns DependencyManager instance
-   */
-  getDepManager(): DependencyManager {
-    if (!this._depManager) {
-      this._depManager = new DependencyManager();
-    }
-    return this._depManager;
   }
 
   /**

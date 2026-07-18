@@ -303,7 +303,14 @@ export class WorkflowNavigator {
       output: workflowExecution.output as Record<string, unknown>,
     };
 
-    return conditionEvaluator.evaluate(edge.condition, context);
+    // Generate a cache key for the edge condition
+    const conditionRecord = edge.condition as unknown as Record<string, unknown>;
+    const conditionType = (conditionRecord['type'] as string) ?? "expression";
+    const cacheKey = conditionType === "expression"
+      ? `edge:${edge.id}:${conditionRecord['expression'] as string}`
+      : `edge:${edge.id}:${conditionType}:${JSON.stringify(conditionRecord)}`;
+
+    return conditionEvaluator.evaluate(edge.condition, context, cacheKey);
   }
 
   /**

@@ -165,7 +165,7 @@ export class StorageDiagnosticsAPI {
 
     const workflows = workflowRegistry.size();
     const executions = executionRegistry.getAll().length;
-    const graphs = graphRegistry.size();
+    const graphs = graphRegistry.size;
 
     // Get task stats using getStats() (not getStats() from TaskStorageAdapter)
     // TaskRegistry.getStats() returns in-memory stats

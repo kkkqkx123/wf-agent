@@ -36,13 +36,7 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { createBuiltinTools } from "../../resources/predefined/tools/builtin/index.js";
 import type { ToolStorageAdapter } from "@wf-agent/storage";
 import { persistTool, removeTool, initializeToolsFromStorage } from "./utils/storage/index.js";
-import { createRegistry } from "./utils/index.js";
-import type {
-  Registry,
-  MutableRegistry,
-  BatchOperations,
-  SearchableRegistry,
-} from "./types.js";
+import { RegistryImpl } from "./utils/index.js";
 import {
   RegistryNotFoundError,
   RegistryAlreadyExistsError,
@@ -53,20 +47,10 @@ const logger = createContextualLogger({ component: "ToolRegistry" });
 /**
  * Tool Registry Class
  *
- * Implements:
- * - Registry<Tool>: Read operations (get, has, list, keys, size, clear)
- * - MutableRegistry<Tool>: Write operations (set, delete)
- * - BatchOperations<Tool>: Batch register/unregister
- * - SearchableRegistry<Tool>: Search and filter
+ * Extends RegistryImpl<Tool> for base CRUD operations.
+ * Adds tool execution, validation, availability management, and search.
  */
-class ToolRegistry
-  implements
-    Registry<Tool>,
-    MutableRegistry<Tool>,
-    BatchOperations<Tool>,
-    SearchableRegistry<Tool>
-{
-  private items = createRegistry<Tool>();
+class ToolRegistry extends RegistryImpl<Tool> {
   private executors: Map<string, IToolExecutor> = new Map();
   private staticValidator: StaticValidator;
   private runtimeValidator: RuntimeValidator;
@@ -96,6 +80,7 @@ class ToolRegistry
     restExecutorConfig: RestExecutorConfig = {},
     private readonly storageAdapter: ToolStorageAdapter | null = null,
   ) {
+    super();
     this.staticValidator = new StaticValidator();
     this.runtimeValidator = new RuntimeValidator();
     this.builtinExecutor = new BuiltinExecutor();
@@ -139,57 +124,14 @@ class ToolRegistry
     }
   }
 
-  // ============================================================
-  // Registry Interface Implementation (Read Operations)
-  // ============================================================
-
-  /** Get tool by ID, returns undefined if not found */
-  get(key: string): Tool | undefined {
-    return this.items.get(key);
-  }
-
-  /** Check if tool exists */
-  has(key: string): boolean {
-    return this.items.has(key);
-  }
-
-  /** List all tools */
-  list(): Tool[] {
-    return this.items.list();
-  }
-
-  /** Get all tool IDs */
-  keys(): string[] {
-    return this.items.keys();
-  }
-
-  /** Get the number of tools */
-  get size(): number {
-    return this.items.size;
-  }
-
   /** Clear all tools */
-  async clear(): Promise<void> {
-    const count = this.items.size;
-    this.items.clear();
+  override async clear(): Promise<void> {
+    const count = this.size;
+    super.clear();
     if (this.storageAdapter) {
       await this.storageAdapter.clear();
     }
     logger.info("All tools cleared", { count });
-  }
-
-  // ============================================================
-  // MutableRegistry Interface Implementation (Write Operations)
-  // ============================================================
-
-  /** Set a tool by ID */
-  set(key: string, value: Tool): void {
-    this.items.set(key, value);
-  }
-
-  /** Delete a tool by ID, returns true if deleted */
-  delete(key: string): boolean {
-    return this.items.delete(key);
   }
 
   // ============================================================

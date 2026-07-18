@@ -11,7 +11,7 @@
  */
 
 // Core registry factory
-export { createRegistry } from "./registry-internals.js";
+export { createRegistry, RegistryImpl, PersistentRegistryImpl } from "./registry-internals.js";
 export type { Registry, MutableRegistry } from "./registry-internals.js";
 
 // Hierarchy operations

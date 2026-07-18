@@ -27,15 +27,18 @@ import {
   removeTrigger,
   initializeTriggersFromStorage,
 } from "./utils/storage/index.js";
-import { createRegistry, validateTriggerTemplateRegistry } from "./utils/index.js";
+import { RegistryImpl, validateTriggerTemplateRegistry } from "./utils/index.js";
 
 /**
  * Trigger Template Registry Class
+ *
+ * Extends RegistryImpl<TriggerTemplate> for base CRUD operations.
+ * Adds trigger template validation, search, export/import, and storage persistence.
  */
-class TriggerTemplateRegistry {
-  private items = createRegistry<TriggerTemplate>();
-
-  constructor(private readonly storageAdapter: TriggerStorageAdapter | null = null) {}
+class TriggerTemplateRegistry extends RegistryImpl<TriggerTemplate> {
+  constructor(private readonly storageAdapter: TriggerStorageAdapter | null = null) {
+    super();
+  }
 
   /**
    * Register trigger template (only for new triggers)
@@ -168,24 +171,6 @@ class TriggerTemplateRegistry {
   }
 
   /**
-   * Get trigger template
-   * @param name Name of the trigger template
-   * @returns The trigger template; returns undefined if it does not exist
-   */
-  get(name: string): TriggerTemplate | undefined {
-    return this.items.get(name);
-  }
-
-  /**
-   * Check if the trigger template exists
-   * @param name Name of the trigger template
-   * @returns Whether it exists
-   */
-  has(name: string): boolean {
-    return this.items.has(name);
-  }
-
-  /**
    * Delete trigger template
    * @param name Name of the trigger template
    * @param options Options for deletion (force, checkReferences)
@@ -234,12 +219,12 @@ class TriggerTemplateRegistry {
     }
   }
 
-  /**
-   * List all trigger templates
-   * @returns Array of trigger templates
-   */
-  list(): TriggerTemplate[] {
-    return this.items.list();
+  /** Clear all trigger templates */
+  override async clear(): Promise<void> {
+    super.clear();
+    if (this.storageAdapter) {
+      await this.storageAdapter.clear();
+    }
   }
 
   /**
@@ -264,24 +249,6 @@ class TriggerTemplateRegistry {
 
       return summary;
     });
-  }
-
-  /**
-   * Clear all trigger templates.
-   */
-  async clear(): Promise<void> {
-    this.items.clear();
-    if (this.storageAdapter) {
-      await this.storageAdapter.clear();
-    }
-  }
-
-  /**
-   * Get the number of trigger templates
-   * @returns The number of trigger templates
-   */
-  size(): number {
-    return this.items.size;
   }
 
   /**

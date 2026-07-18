@@ -79,13 +79,13 @@ describe("NodeTemplateRegistry", () => {
       expect(registry.size).toBe(2);
     });
 
-    it("should throw on first invalid template", () => {
-      expect(() =>
+    it("should throw on first invalid template", async () => {
+      await expect(() =>
         registry.registerBatch([
           createValidStartTemplate({ name: "t1" }),
           createValidStartTemplate({ name: "" }),
         ]),
-      ).toThrow();
+      ).rejects.toThrow();
     });
   });
 
@@ -158,9 +158,9 @@ describe("NodeTemplateRegistry", () => {
       expect(registry.size).toBe(0);
     });
 
-    it("should throw on first non-existent template", () => {
+    it("should throw on first non-existent template", async () => {
       registry.register(createValidStartTemplate({ name: "t1" }));
-      expect(() => registry.unregisterBatch(["t1", "non-existent"])).toThrow("not found");
+      await expect(() => registry.unregisterBatch(["t1", "non-existent"])).rejects.toThrow("not found");
     });
   });
 

@@ -20,14 +20,7 @@ import { getErrorMessage, now } from "@wf-agent/common-utils";
 import type { HookTemplateStorageAdapter } from "@wf-agent/storage";
 import { persistHookTemplate, removeHookTemplate } from "./utils/storage/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { createRegistry } from "./utils/index.js";
-import type {
-  Registry,
-  MutableRegistry,
-  BatchOperations,
-  SearchableRegistry,
-  ExportableRegistry,
-} from "./types.js";
+import { RegistryImpl } from "./utils/index.js";
 import {
   RegistryNotFoundError,
   RegistryAlreadyExistsError,
@@ -38,74 +31,20 @@ import { validateHookTemplate } from "./utils/index.js";
 /**
  * Hook Template Registry Class
  *
- * Implements:
- * - Registry<HookTemplate>: Read operations (get, has, list, keys, size, clear)
- * - MutableRegistry<HookTemplate>: Write operations (set, delete)
- * - BatchOperations<HookTemplate>: Batch register/unregister
- * - SearchableRegistry<HookTemplate>: Search and filter
- * - ExportableRegistry<HookTemplate>: Export/import
+ * Extends RegistryImpl<HookTemplate> for base CRUD operations.
+ * Adds hook template validation, search, export/import, and storage persistence.
  */
-class HookTemplateRegistry
-  implements
-    Registry<HookTemplate>,
-    MutableRegistry<HookTemplate>,
-    BatchOperations<HookTemplate>,
-    SearchableRegistry<HookTemplate>,
-    ExportableRegistry<HookTemplate>
-{
-  private items = createRegistry<HookTemplate>();
-
-  constructor(private readonly storageAdapter: HookTemplateStorageAdapter | null = null) {}
-
-  // ============================================================
-  // Registry Interface Implementation (Read Operations)
-  // ============================================================
-
-  /** Get hook template by name, returns undefined if not found */
-  get(name: string): HookTemplate | undefined {
-    return this.items.get(name);
-  }
-
-  /** Check if hook template exists */
-  has(name: string): boolean {
-    return this.items.has(name);
-  }
-
-  /** List all hook templates */
-  list(): HookTemplate[] {
-    return this.items.list();
-  }
-
-  /** Get all hook template names */
-  keys(): string[] {
-    return this.items.keys();
-  }
-
-  /** Get the number of hook templates */
-  get size(): number {
-    return this.items.size;
+class HookTemplateRegistry extends RegistryImpl<HookTemplate> {
+  constructor(private readonly storageAdapter: HookTemplateStorageAdapter | null = null) {
+    super();
   }
 
   /** Clear all hook templates */
-  async clear(): Promise<void> {
-    this.items.clear();
+  override async clear(): Promise<void> {
+    super.clear();
     if (this.storageAdapter) {
       await this.storageAdapter.clear();
     }
-  }
-
-  // ============================================================
-  // MutableRegistry Interface Implementation (Write Operations)
-  // ============================================================
-
-  /** Set a hook template by name */
-  set(name: string, value: HookTemplate): void {
-    this.items.set(name, value);
-  }
-
-  /** Delete a hook template by name, returns true if deleted */
-  delete(name: string): boolean {
-    return this.items.delete(name);
   }
 
   // ============================================================

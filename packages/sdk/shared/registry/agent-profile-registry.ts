@@ -20,7 +20,7 @@ import {
   removeAgentProfile,
   initializeAgentProfilesFromStorage,
 } from "./utils/storage/index.js";
-import { createRegistry } from "./utils/index.js";
+import { RegistryImpl } from "./utils/index.js";
 import { validateRequiredString } from "./utils/index.js";
 
 /**
@@ -37,11 +37,13 @@ export interface AgentProfileMeta {
 
 /**
  * Agent Profile Registry Class
+ *
+ * Extends RegistryImpl<AgentProfileMeta> for base CRUD operations.
  */
-export class AgentProfileRegistry {
-  private items = createRegistry<AgentProfileMeta>();
-
-  constructor(private readonly storageAdapter: AgentProfileStorageAdapter | null = null) {}
+export class AgentProfileRegistry extends RegistryImpl<AgentProfileMeta> {
+  constructor(private readonly storageAdapter: AgentProfileStorageAdapter | null = null) {
+    super();
+  }
 
   /**
    * Register an agent profile (memory-only, no persistence).
@@ -50,7 +52,7 @@ export class AgentProfileRegistry {
    */
   register(profile: AgentProfileMeta): void {
     this.validateProfile(profile);
-    this.items.set(profile.id, { ...profile });
+    this.set(profile.id, { ...profile });
   }
 
   /**
@@ -66,26 +68,7 @@ export class AgentProfileRegistry {
       await persistAgentProfile(profile, this.storageAdapter);
     }
 
-    this.items.set(profile.id, { ...profile });
-  }
-
-  /**
-   * Get an agent profile by ID
-   *
-   * @param id Profile ID
-   * @returns Agent profile metadata or undefined if not found
-   */
-  get(id: string): AgentProfileMeta | undefined {
-    return this.items.get(id);
-  }
-
-  /**
-   * List all registered agent profiles
-   *
-   * @returns Array of agent profile metadata
-   */
-  list(): AgentProfileMeta[] {
-    return this.items.list();
+    this.set(profile.id, { ...profile });
   }
 
   /**
@@ -94,7 +77,7 @@ export class AgentProfileRegistry {
    * @param id Profile ID to remove
    */
   remove(id: string): void {
-    this.items.delete(id);
+    this.delete(id);
   }
 
   /**
@@ -108,33 +91,14 @@ export class AgentProfileRegistry {
       await removeAgentProfile(id, this.storageAdapter);
     }
 
-    this.items.delete(id);
-  }
-
-  /**
-   * Check if an agent profile exists
-   *
-   * @param id Profile ID
-   * @returns Whether the profile exists
-   */
-  has(id: string): boolean {
-    return this.items.has(id);
-  }
-
-  /**
-   * Get the number of registered agent profiles
-   *
-   * @returns Number of profiles
-   */
-  size(): number {
-    return this.items.size;
+    this.delete(id);
   }
 
   /**
    * Clear all registered agent profiles
    */
-  async clear(): Promise<void> {
-    this.items.clear();
+  override async clear(): Promise<void> {
+    super.clear();
     if (this.storageAdapter) {
       await this.storageAdapter.clear();
     }
@@ -153,7 +117,7 @@ export class AgentProfileRegistry {
       return;
     }
 
-    await initializeAgentProfilesFromStorage(this.storageAdapter, this.items);
+    await initializeAgentProfilesFromStorage(this.storageAdapter, this);
   }
 
   /**

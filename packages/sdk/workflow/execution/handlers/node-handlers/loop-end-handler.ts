@@ -69,6 +69,27 @@ function clearLoopState(executionEntity: WorkflowExecutionEntity): void {
 }
 
 /**
+ * Generate a cache key for a break condition
+ */
+function generateBreakCacheKey(condition: Record<string, unknown>, loopId?: string): string {
+  const type = (condition['type'] as string) ?? "expression";
+  const prefix = `loopBreak:${loopId || ""}`;
+  switch (type) {
+    case "expression":
+      return `${prefix}:expr:${condition['expression'] as string}`;
+    case "predicate":
+      return `${prefix}:pred:${condition['predicateType'] as string}:${condition['variable'] as string}`;
+    case "schema":
+      return `${prefix}:schema:${condition['variable'] as string}`;
+    case "script":
+      // Script type is not cached
+      return "";
+    default:
+      return `${prefix}:${type}:${JSON.stringify(condition)}`;
+  }
+}
+
+/**
  * Evaluating interrupt conditions
  */
 function evaluateBreakCondition(
@@ -86,25 +107,10 @@ function evaluateBreakCondition(
       output: workflowExecution.output || {},
     };
 
-    // Handle discriminated union Condition type
+    // Use unified conditionEvaluator with cache key for all condition types
     const conditionRecord = (breakCondition as unknown) as Record<string, unknown>;
-    const conditionType = (conditionRecord['type'] as string) ?? "expression";
-
-    // For expression conditions, use the cached evaluator for backward compatibility
-    if (conditionType === "expression" && executionEntity) {
-      const depManager = executionEntity.getDepManager();
-      const key = `loopBreak:${loopId || ""}`;
-      const expression = conditionRecord['expression'] as string;
-      const cached = depManager.getTrackedExpression(key);
-      if (cached) {
-        return Boolean(depManager.evaluateIfChanged(key, context));
-      }
-      depManager.register(key, expression, context);
-      return Boolean(depManager.getTrackedExpression(key)?.lastResult);
-    }
-
-    // For other condition types or no executionEntity, use unified evaluator
-    return conditionEvaluator.evaluate(breakCondition, context);
+    const cacheKey = generateBreakCacheKey(conditionRecord, loopId);
+    return conditionEvaluator.evaluate(breakCondition, context, cacheKey || undefined);
   } catch (error) {
     throw new ExecutionError(
       `Failed to evaluate break condition: ${getErrorMessage(error)}`,

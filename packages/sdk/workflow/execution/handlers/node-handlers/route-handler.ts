@@ -10,6 +10,26 @@ import { ExecutionError } from "@wf-agent/types";
 import { conditionEvaluator } from "../../../../services/evaluation/index.js";
 
 /**
+ * Generate a cache key for a route condition
+ */
+function generateRouteCacheKey(condition: Record<string, unknown>): string {
+  const type = (condition['type'] as string) ?? "expression";
+  switch (type) {
+    case "expression":
+      return `route:expr:${condition['expression'] as string}`;
+    case "predicate":
+      return `route:pred:${condition['predicateType'] as string}:${condition['variable'] as string}`;
+    case "schema":
+      return `route:schema:${condition['variable'] as string}`;
+    case "script":
+      // Script type is not cached, return empty string
+      return "";
+    default:
+      return `route:${type}:${JSON.stringify(condition)}`;
+  }
+}
+
+/**
  * Evaluating routing conditions
  */
 function evaluateRouteCondition(
@@ -24,24 +44,10 @@ function evaluateRouteCondition(
       output: workflowExecutionEntity.getOutput(),
     };
 
-    // Handle discriminated union Condition type
+    // Use unified conditionEvaluator with cache key for all condition types
     const conditionRecord = (condition as unknown) as Record<string, unknown>;
-    const conditionType = (conditionRecord['type'] as string) ?? "expression";
-
-    // For expression conditions, use the cached evaluator for backward compatibility
-    if (conditionType === "expression") {
-      const depManager = workflowExecutionEntity.getDepManager();
-      const expression = conditionRecord['expression'] as string;
-      const cached = depManager.getTrackedExpression(expression);
-      if (cached) {
-        return Boolean(depManager.evaluateIfChanged(expression, context));
-      }
-      depManager.register(expression, expression, context);
-      return Boolean(depManager.getTrackedExpression(expression)?.lastResult);
-    } else {
-      // For other condition types, use the unified conditionEvaluator
-      return conditionEvaluator.evaluate(condition, context);
-    }
+    const cacheKey = generateRouteCacheKey(conditionRecord);
+    return conditionEvaluator.evaluate(condition, context, cacheKey || undefined);
   } catch (error) {
     const conditionRecord = (condition as unknown) as Record<string, unknown>;
     const errorMsg =

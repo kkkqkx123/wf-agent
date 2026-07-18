@@ -14,7 +14,10 @@ import type { WorkflowExecutionStorageMetadata } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage } from "@wf-agent/common-utils";
 import type { WorkflowStateCoordinator } from "../state-managers/workflow-state-coordinator.js";
-import { BaseExecutionRegistry } from "../../shared/registry/execution-registry-base.js";
+import {
+  ExecutionStore,
+  CoordinatorStore,
+} from "../../shared/registry/execution-registry-base.js";
 
 const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" });
 
@@ -29,21 +32,36 @@ const logger = createContextualLogger({ component: "WorkflowExecutionRegistry" }
  * - Support resource cleanup.
  *
  * Design Principles:
+ * - Composes ExecutionStore for entities and CoordinatorStore for coordinators.
  * - Simple memory storage.
  * - Workflow-execution-safe (Map operations).
  * - Support for cleaning up expired instances.
  */
-export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
-  WorkflowExecutionEntity,
-  WorkflowStateCoordinator,
-  WorkflowExecutionStorageAdapter
-> {
+export class WorkflowExecutionRegistry {
+  /** Entity storage */
+  private store = new ExecutionStore<WorkflowExecutionEntity>();
+  /** State coordinator storage */
+  private coordinatorStore = new CoordinatorStore<WorkflowStateCoordinator>();
+  /** Storage adapter (optional) */
+  private storageAdapter?: WorkflowExecutionStorageAdapter;
+
   /**
    * Constructor
    * @param options Configuration options
    */
   constructor(options?: { storageAdapter?: WorkflowExecutionStorageAdapter }) {
-    super(options);
+    this.storageAdapter = options?.storageAdapter;
+  }
+
+  /**
+   * Register WorkflowExecutionEntity
+   * @param entity Workflow execution entity
+   */
+  register(entity: WorkflowExecutionEntity): void {
+    this.store.register(entity);
+    this.persistToStorage(entity).catch(() => {
+      // Persistence errors are handled internally
+    });
   }
 
   /**
@@ -52,7 +70,7 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * @param stateCoordinator WorkflowStateCoordinator instance
    */
   registerStateCoordinator(executionId: string, stateCoordinator: WorkflowStateCoordinator): void {
-    this.registerCoordinator(executionId, stateCoordinator);
+    this.coordinatorStore.register(executionId, stateCoordinator);
   }
 
   /**
@@ -61,7 +79,7 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * @returns WorkflowStateCoordinator instance or null
    */
   getStateCoordinator(executionId: string): WorkflowStateCoordinator | null {
-    return this.getCoordinator(executionId);
+    return this.coordinatorStore.get(executionId);
   }
 
   /**
@@ -70,7 +88,35 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * @returns: An instance of WorkflowExecutionEntity or null
    */
   get(executionId: string): WorkflowExecutionEntity | null {
-    return this.entities.get(executionId) || null;
+    return this.store.get(executionId) || null;
+  }
+
+  /**
+   * Check if an entity exists.
+   */
+  has(executionId: string): boolean {
+    return this.store.has(executionId);
+  }
+
+  /**
+   * Get all registered entities.
+   */
+  getAll(): WorkflowExecutionEntity[] {
+    return this.store.getAll();
+  }
+
+  /**
+   * Get all registered entity IDs.
+   */
+  getAllIds(): string[] {
+    return this.store.getAllIds();
+  }
+
+  /**
+   * Get the number of registered entities.
+   */
+  size(): number {
+    return this.store.size();
   }
 
   /**
@@ -78,8 +124,8 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * @param executionId Workflow Execution ID
    */
   delete(executionId: string): void {
-    this.entities.delete(executionId);
-    this.coordinators.delete(executionId);
+    this.store.delete(executionId);
+    this.coordinatorStore.delete(executionId);
 
     // Remove from storage (async, non-blocking)
     this.removeFromStorage(executionId);
@@ -166,9 +212,17 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
     ];
     for (const entity of terminatedEntities) {
       entity.cleanup();
-      this.entities.delete(entity.id);
+      this.store.delete(entity.id);
     }
     return terminatedEntities.length;
+  }
+
+  /**
+   * Clear all entities and coordinators.
+   */
+  clear(): void {
+    this.store.clear();
+    this.coordinatorStore.clear();
   }
 
   // ========== Hierarchy-Aware Methods ==========
@@ -205,7 +259,7 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * Persist workflow execution to storage (if adapter is available)
    * @param entity Workflow execution entity to persist
    */
-  protected override async persistToStorage(entity: WorkflowExecutionEntity): Promise<void> {
+  private async persistToStorage(entity: WorkflowExecutionEntity): Promise<void> {
     if (!this.storageAdapter) {
       return;
     }
@@ -256,7 +310,7 @@ export class WorkflowExecutionRegistry extends BaseExecutionRegistry<
    * Remove workflow execution from storage (if adapter is available)
    * @param executionId Execution ID to remove
    */
-  protected override async removeFromStorage(executionId: string): Promise<void> {
+  private async removeFromStorage(executionId: string): Promise<void> {
     if (!this.storageAdapter) {
       return;
     }

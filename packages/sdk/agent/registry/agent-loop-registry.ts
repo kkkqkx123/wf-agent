@@ -2,7 +2,7 @@
  * AgentLoopRegistry - Agent Loop Registry
  *
  * Manages all active AgentLoopEntity instances.
- * Refer to the WorkflowExecutionRegistry design pattern.
+ * Uses ExecutionStore for entity storage and CoordinatorStore for state coordinator storage.
  */
 
 import type { ID } from "@wf-agent/types";
@@ -16,7 +16,10 @@ import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { generateId } from "../../utils/index.js";
 import type { TaskStatus } from "@wf-agent/types";
-import { BaseExecutionRegistry } from "../../shared/registry/execution-registry-base.js";
+import {
+  ExecutionStore,
+  CoordinatorStore,
+} from "../../shared/registry/execution-registry-base.js";
 
 const logger = createContextualLogger({ component: "AgentLoopRegistry" });
 
@@ -65,15 +68,19 @@ export interface AgentTaskStats {
  * - Store AgentStateCoordinator alongside entities
  *
  * Design Principles:
+ * - Composes ExecutionStore for entities and CoordinatorStore for coordinators
  * - Singleton model (managed via DI container)
  * - Workflow-execution-safe (Map operations)
  * - Support for cleaning up expired instances
  */
-export class AgentLoopRegistry extends BaseExecutionRegistry<
-  AgentLoopEntity,
-  AgentStateCoordinator,
-  AgentLoopStorageAdapter
-> implements IAgentExecutionRegistry {
+export class AgentLoopRegistry implements IAgentExecutionRegistry {
+  /** Entity storage */
+  private store = new ExecutionStore<AgentLoopEntity>();
+  /** State coordinator storage */
+  private coordinatorStore = new CoordinatorStore<AgentStateCoordinator>();
+  /** Storage adapter (optional) */
+  private storageAdapter?: AgentLoopStorageAdapter;
+
   /** Task Storage (for async execution) */
   private tasks: Map<string, AgentTaskInfo> = new Map();
   /** Task Manager Routing (for async execution) */
@@ -96,15 +103,18 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * @param options Configuration options
    */
   constructor(options?: { storageAdapter?: AgentLoopStorageAdapter }) {
-    super(options);
+    this.storageAdapter = options?.storageAdapter;
   }
 
   /**
    * Register AgentLoopEntity
    * @param entity The Agent Loop entity
    */
-  override register(entity: AgentLoopEntity): void {
-    super.register(entity);
+  register(entity: AgentLoopEntity): void {
+    this.store.register(entity);
+    this.persistToStorage(entity).catch(() => {
+      // Persistence errors are handled internally
+    });
   }
 
   /**
@@ -113,16 +123,14 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * @returns Whether the logout was successful
    */
   unregister(id: ID): boolean {
-    const result = this.entities.delete(id);
+    const entity = this.store.get(id);
+    if (!entity) return false;
 
-    // Also clean up associated state coordinator
-    if (result) {
-      this.coordinators.delete(id);
-      // Remove from storage (async, non-blocking)
-      this.removeFromStorage(id);
-    }
+    this.store.delete(id);
+    this.coordinatorStore.delete(id);
+    this.removeFromStorage(id);
 
-    return result;
+    return true;
   }
 
   /**
@@ -131,7 +139,7 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * @param stateCoordinator AgentStateCoordinator instance
    */
   registerStateCoordinator(agentLoopId: ID, stateCoordinator: AgentStateCoordinator): void {
-    this.registerCoordinator(agentLoopId, stateCoordinator);
+    this.coordinatorStore.register(agentLoopId, stateCoordinator);
   }
 
   /**
@@ -140,7 +148,7 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * @returns AgentStateCoordinator instance or null
    */
   getStateCoordinator(agentLoopId: ID): AgentStateCoordinator | null {
-    return this.getCoordinator(agentLoopId);
+    return this.coordinatorStore.get(agentLoopId);
   }
 
   /**
@@ -151,7 +159,7 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    */
   async get(id: ID): Promise<AgentLoopEntity | undefined> {
     // Try memory first
-    const cached = this.entities.get(id);
+    const cached = this.store.get(id);
     if (cached) {
       return cached;
     }
@@ -178,17 +186,31 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
   }
 
   /**
+   * Check if an entity exists.
+   */
+  has(id: ID): boolean {
+    return this.store.has(id);
+  }
+
+  /**
    * Get all active instances
    */
-  override getAll(): AgentLoopEntity[] {
-    return super.getAll();
+  getAll(): AgentLoopEntity[] {
+    return this.store.getAll();
   }
 
   /**
    * Get all instance IDs
    */
-  override getAllIds(): ID[] {
-    return super.getAllIds();
+  getAllIds(): ID[] {
+    return this.store.getAllIds();
+  }
+
+  /**
+   * Get the number of registered entities.
+   */
+  size(): number {
+    return this.store.size();
   }
 
   /**
@@ -272,6 +294,14 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
     return terminatedEntities.length;
   }
 
+  /**
+   * Clear all entities and coordinators.
+   */
+  clear(): void {
+    this.store.clear();
+    this.coordinatorStore.clear();
+  }
+
   // ============================================================
   // Storage Persistence Methods
   // ============================================================
@@ -280,7 +310,7 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * Persist agent loop to storage (if adapter is available)
    * @param entity Agent loop entity to persist
    */
-  protected override async persistToStorage(entity: AgentLoopEntity): Promise<void> {
+  private async persistToStorage(entity: AgentLoopEntity): Promise<void> {
     if (!this.storageAdapter) {
       return;
     }
@@ -325,7 +355,7 @@ export class AgentLoopRegistry extends BaseExecutionRegistry<
    * Remove agent loop from storage (if adapter is available)
    * @param agentLoopId Agent loop ID to remove
    */
-  protected override async removeFromStorage(agentLoopId: string): Promise<void> {
+  private async removeFromStorage(agentLoopId: string): Promise<void> {
     if (!this.storageAdapter) {
       return;
     }

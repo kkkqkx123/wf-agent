@@ -9,9 +9,8 @@
 
 import type { SystemPromptFragment } from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { createRegistry } from "./utils/index.js";
+import { RegistryImpl } from "./utils/index.js";
 import { renderTemplate } from "../utils/template-renderer/index.js";
-import type { MutableRegistry } from "./types.js";
 import { RegistryAlreadyExistsError } from "./types.js";
 import { validateFragment } from "./utils/index.js";
 
@@ -29,15 +28,12 @@ export interface UnregisterResult {
  * - Dependency tracking: Records which templates reference each fragment
  * - Validation: Ensures fragment ID and content are non-empty
  * - Unregister with cascade info: Reports affected dependent templates
+ *
+ * Extends RegistryImpl<SystemPromptFragment> for base CRUD operations.
  */
-export class FragmentRegistry {
-  private items: MutableRegistry<SystemPromptFragment>;
+export class FragmentRegistry extends RegistryImpl<SystemPromptFragment> {
   /** Tracks which templates reference each fragment (fragmentId → Set<templateId>) */
   private dependents = new Map<string, Set<string>>();
-
-  constructor() {
-    this.items = createRegistry<SystemPromptFragment>();
-  }
 
   /**
    * Register a fragment with validation.
@@ -48,7 +44,7 @@ export class FragmentRegistry {
    * @throws Error if fragment already exists and skipIfExists is not set
    */
   register(key: string, fragment: SystemPromptFragment, options?: { skipIfExists?: boolean }): void {
-    if (this.items.has(key)) {
+    if (this.has(key)) {
       if (options?.skipIfExists) {
         return;
       }
@@ -56,7 +52,7 @@ export class FragmentRegistry {
     }
 
     validateFragment(fragment, logger);
-    this.items.set(key, fragment);
+    this.set(key, fragment);
   }
 
   /**
@@ -68,47 +64,6 @@ export class FragmentRegistry {
     for (const item of items) {
       this.register(item.id, item, options);
     }
-  }
-
-  /**
-   * Get a fragment by ID.
-   * @param key Fragment ID
-   * @returns The fragment or undefined if not found
-   */
-  get(key: string): SystemPromptFragment | undefined {
-    return this.items.get(key);
-  }
-
-  /**
-   * Check if a fragment exists.
-   * @param key Fragment ID
-   * @returns Whether the fragment exists
-   */
-  has(key: string): boolean {
-    return this.items.has(key);
-  }
-
-  /**
-   * Get all fragments.
-   * @returns Array of all fragments
-   */
-  list(): SystemPromptFragment[] {
-    return this.items.list();
-  }
-
-  /**
-   * Get all fragment IDs.
-   * @returns Array of all fragment IDs
-   */
-  keys(): string[] {
-    return this.items.keys();
-  }
-
-  /**
-   * Get the number of registered fragments.
-   */
-  get size(): number {
-    return this.items.size;
   }
 
   /**
@@ -170,8 +125,8 @@ export class FragmentRegistry {
   /**
    * Clear all fragments and dependency tracking.
    */
-  clear(): void {
-    this.items.clear();
+  override clear(): void {
+    super.clear();
     this.dependents.clear();
   }
 

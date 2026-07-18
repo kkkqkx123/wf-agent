@@ -6,40 +6,9 @@ const { mockConditionEvaluatorEvaluate } = vi.hoisted(() => {
   return { mockConditionEvaluatorEvaluate: evaluate };
 });
 
-vi.mock("../../../workflow/evaluation/index.js", () => ({
+vi.mock("../../../services/evaluation/index.js", () => ({
   conditionEvaluator: { evaluate: mockConditionEvaluatorEvaluate },
-  DependencyManager: class {
-    private store = new Map<
-      string,
-      { expression: string; lastResult: boolean; lastEvaluatedAt: number }
-    >();
-    register(key: string, _expression: string, ctx: any) {
-      const result = Boolean(mockConditionEvaluatorEvaluate({ expression: _expression }, ctx));
-      const tracked = {
-        expression: _expression,
-        dependencies: [],
-        lastResult: result,
-        lastEvaluatedAt: Date.now(),
-      };
-      this.store.set(key, tracked);
-      return tracked;
-    }
-    getTrackedExpression(key: string) {
-      return this.store.get(key);
-    }
-    evaluateIfChanged(key: string, _ctx: any) {
-      return this.store.get(key)?.lastResult ?? false;
-    }
-    clear() {
-      this.store.clear();
-    }
-    unregister(key: string) {
-      this.store.delete(key);
-    }
-    hasDependenciesChanged(_key: string, _ctx: any) {
-      return false;
-    }
-  },
+  cacheManager: { clear: vi.fn() },
 }));
 
 vi.mock("@wf-agent/common-utils", () => ({

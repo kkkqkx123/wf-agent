@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { loopEndHandler } from "../loop-end-handler.js";
-import { DependencyManager } from "../../../../services/evaluation/index.js";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import type { RuntimeNode, LoopEndNodeConfig } from "@wf-agent/types";
 
 const mockManager = {
   getVariable: vi.fn(),
+  setVariable: vi.fn(),
   deleteVariable: vi.fn(),
   getAllVariables: vi.fn().mockReturnValue({}),
 };
@@ -15,7 +15,6 @@ const mockEntity = {
   getNodeResults: vi.fn().mockReturnValue([]),
   getWorkflowExecutionData: vi.fn(),
   variableStateManager: mockManager,
-  getDepManager: vi.fn().mockReturnValue(new DependencyManager()),
 } as unknown as WorkflowExecutionEntity;
 
 const mockExecution = {

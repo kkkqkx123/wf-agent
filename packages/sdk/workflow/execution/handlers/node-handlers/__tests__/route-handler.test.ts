@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { routeHandler } from "../route-handler.js";
-import { DependencyManager } from "../../../../services/evaluation/index.js";
 import type { WorkflowExecutionEntity } from "../../../../entities/workflow-execution-entity.js";
 import type { RuntimeNode, RouteNodeConfig } from "@wf-agent/types";
 
@@ -12,7 +11,6 @@ const mockEntity = {
   getOutput: vi.fn().mockReturnValue({}),
   getCurrentNodeId: vi.fn().mockReturnValue("route-node-1"),
   getWorkflowId: vi.fn().mockReturnValue("workflow-1"),
-  getDepManager: vi.fn().mockReturnValue(new DependencyManager()),
 } as unknown as WorkflowExecutionEntity;
 
 beforeEach(() => {

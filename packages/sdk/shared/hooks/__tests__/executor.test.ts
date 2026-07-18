@@ -24,7 +24,6 @@ import {
 
 const {
   mockConditionEvaluatorEvaluate,
-  mockExpressionEvaluatorEvaluate,
   mockNow,
   mockGetErrorMessage,
   mockBuildHookExecutedEvent,
@@ -34,7 +33,6 @@ const {
   mockShouldContinueExecution,
 } = vi.hoisted(() => {
   const condEval = vi.fn();
-  const exprEval = vi.fn();
   const nowFn = vi.fn();
   const getErrMsg = vi.fn((e: unknown) => (e instanceof Error ? e.message : String(e)));
   const buildEvent = vi.fn((params: unknown) => ({
@@ -53,7 +51,6 @@ const {
   const shouldContinue = vi.fn();
   return {
     mockConditionEvaluatorEvaluate: condEval,
-    mockExpressionEvaluatorEvaluate: exprEval,
     mockNow: nowFn,
     mockGetErrorMessage: getErrMsg,
     mockBuildHookExecutedEvent: buildEvent,
@@ -64,21 +61,22 @@ const {
   };
 });
 
-vi.mock("../../../workflow/evaluation/index.js", () => ({
+vi.mock("../../../services/evaluation/index.js", () => ({
   conditionEvaluator: { evaluate: mockConditionEvaluatorEvaluate },
-  expressionEvaluator: { evaluate: mockExpressionEvaluatorEvaluate },
+  cacheManager: { clear: vi.fn() },
 }));
 
 vi.mock("@wf-agent/common-utils", () => ({
   getGlobalLogger: () => ({ child: () => mockChildLogger }),
   getErrorMessage: (error: unknown) => mockGetErrorMessage(error),
   now: (...args: any[]) => mockNow(...args),
+  generateId: () => "test-id-123",
   createPackageLogger: vi.fn(),
   registerLogger: vi.fn(),
   getLogLevelFromEnv: vi.fn(() => "silent"),
 }));
 
-vi.mock("../../utils/event/builders/index.js", () => ({
+vi.mock("../../events/builders/index.js", () => ({
   buildHookExecutedEvent: (params: Record<string, unknown>) => mockBuildHookExecutedEvent(params),
 }));
 
@@ -125,7 +123,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockNow.mockReturnValue(100);
   mockConditionEvaluatorEvaluate.mockReturnValue(true);
-  mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `resolved:${path}`);
   mockCheckExecutionInterruption.mockReturnValue({ type: "continue" });
   mockShouldContinueExecution.mockReturnValue(true);
 });
@@ -210,7 +207,7 @@ describe("evaluateHookCondition", () => {
       variables: {},
       input: {},
       output: { result: 42 },
-    });
+    }, "hook:expr:output.result > 0");
   });
 
   it("should return false when condition evaluation fails", () => {
@@ -332,7 +329,7 @@ describe("executeSingleHook", () => {
       eventName: "e1",
       eventPayload: { custom: "{{variables.foo}}" },
     };
-    mockExpressionEvaluatorEvaluate.mockReturnValue("resolved_value");
+    mockConditionEvaluatorEvaluate.mockReturnValue("resolved_value");
 
     const handler = vi.fn().mockResolvedValue(undefined);
     const emitEvent = createEventEmitterMock();
@@ -561,8 +558,8 @@ describe("resolvePayloadTemplate", () => {
     expect(result).toHaveProperty("foo");
   });
 
-  it("should resolve string templates via expressionEvaluator", () => {
-    mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `value:${path}`);
+  it("should resolve string templates via conditionEvaluator", () => {
+    mockConditionEvaluatorEvaluate.mockImplementation((_condition: unknown, _ctx: unknown, _cacheKey?: string) => `value:${(_condition as Record<string, string>).expression}`);
     const payload = { msg: "{{output.result}}" };
     const result = resolvePayloadTemplate(payload, {
       output: { result: "hello" },
@@ -577,7 +574,7 @@ describe("resolvePayloadTemplate", () => {
   });
 
   it("should recursively resolve nested objects", () => {
-    mockExpressionEvaluatorEvaluate.mockImplementation((path: string) => `v:${path}`);
+    mockConditionEvaluatorEvaluate.mockImplementation((_condition: unknown, _ctx: unknown, _cacheKey?: string) => `v:${(_condition as Record<string, string>).expression}`);
     const payload = {
       nested: {
         deep: "{{variables.x}}",
@@ -600,7 +597,7 @@ describe("resolvePayloadTemplate", () => {
         value: "{{variables.x}}",
       },
     };
-    mockExpressionEvaluatorEvaluate.mockReturnValue("resolved");
+    mockConditionEvaluatorEvaluate.mockReturnValue("resolved");
     const result = resolvePayloadTemplate(payload, { variables: { x: "y" } });
     expect(result).toEqual({
       config: {

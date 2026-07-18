@@ -40,7 +40,7 @@ export {
 } from "./types.js";
 
 // Registry Utilities
-export { createRegistry } from "./utils/index.js";
+export { createRegistry, RegistryImpl, PersistentRegistryImpl } from "./utils/index.js";
 export { HierarchyTraversalService } from "./utils/index.js";
 
 // Consolidated Entity Storage Utilities

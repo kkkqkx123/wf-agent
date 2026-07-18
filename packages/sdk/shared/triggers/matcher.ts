@@ -8,16 +8,31 @@
 
 import type { BaseTriggerCondition, BaseEventData, TriggerMatcher } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { DependencyManager, conditionEvaluator } from "../../services/evaluation/index.js";
+import { conditionEvaluator, cacheManager } from "../../services/evaluation/index.js";
 import { canTrigger } from "./limiter.js";
 import type { BaseTriggerDefinition } from "./types.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 
 const logger = getGlobalLogger().child("TriggerMatcher", { module: "core/triggers" });
 
-// Module-level dependency manager for caching compiled trigger conditions.
-// Conditions are static per trigger definition, so caching across events yields performance improvements.
-const depManager = new DependencyManager();
+/**
+ * Generate a cache key for a trigger condition
+ */
+function generateTriggerCacheKey(condition: Record<string, unknown>): string {
+  const type = (condition['type'] as string) ?? "expression";
+  switch (type) {
+    case "expression":
+      return `trigger:expr:${condition['expression'] as string}`;
+    case "predicate":
+      return `trigger:pred:${condition['predicateType'] as string}:${condition['variable'] as string}`;
+    case "schema":
+      return `trigger:schema:${condition['variable'] as string}`;
+    case "script":
+      return "";
+    default:
+      return `trigger:${type}:${JSON.stringify(condition)}`;
+  }
+}
 
 /**
  * Build an EvaluationContext from a BaseEventData and optional execution context.
@@ -85,32 +100,14 @@ export const defaultTriggerMatcher: TriggerMatcher = (
   if (condition.condition) {
     const ctx = buildEvalContext(event, executionContext);
     try {
-      // Handle discriminated union Condition type
+      // Use unified conditionEvaluator with cache key for all condition types
       const conditionRecord = (condition.condition as unknown) as Record<string, unknown>;
-      const conditionType = (conditionRecord['type'] as string) ?? "expression";
-
-      let passed: boolean;
-
-      if (conditionType === "expression") {
-        // Use DependencyManager for expression conditions (backward compatibility)
-        const exprKey = conditionRecord['expression'] as string;
-        const tracked = depManager.getTrackedExpression(exprKey);
-        if (tracked) {
-          const result = depManager.evaluateIfChanged(exprKey, ctx);
-          passed = Boolean(result);
-        } else {
-          depManager.register(exprKey, conditionRecord['expression'] as string, ctx);
-          const tracked = depManager.getTrackedExpression(exprKey);
-          passed = Boolean(tracked?.lastResult);
-        }
-      } else {
-        // Use unified conditionEvaluator for other condition types
-        passed = conditionEvaluator.evaluate(condition.condition, ctx);
-      }
+      const cacheKey = generateTriggerCacheKey(conditionRecord);
+      const passed = conditionEvaluator.evaluate(condition.condition, ctx, cacheKey || undefined);
 
       if (!passed) {
         logger.debug("Match failed: condition evaluated to false", {
-          type: conditionType,
+          type: (conditionRecord['type'] as string) ?? "expression",
           eventType: event.type,
         });
         return false;
@@ -133,11 +130,11 @@ export const defaultTriggerMatcher: TriggerMatcher = (
 };
 
 /**
- * Clear the dependency manager cache.
+ * Clear the condition evaluation cache.
  * Useful for testing or when trigger definitions change at runtime.
  */
 export function clearConditionCache(): void {
-  depManager.clear();
+  cacheManager.clear();
 }
 
 /**

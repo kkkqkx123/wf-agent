@@ -21,14 +21,7 @@ import { getErrorMessage, now } from "@wf-agent/common-utils";
 import type { NodeTemplateStorageAdapter } from "@wf-agent/storage";
 import { persistNodeTemplate, removeNodeTemplate } from "./utils/storage/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
-import { createRegistry } from "./utils/index.js";
-import type {
-  Registry,
-  MutableRegistry,
-  SearchableRegistry,
-  ExportableRegistry,
-  BatchOperations,
-} from "./types.js";
+import { RegistryImpl } from "./utils/index.js";
 import {
   RegistryNotFoundError,
   RegistryAlreadyExistsError,
@@ -41,74 +34,20 @@ const logger = createContextualLogger({ component: "NodeTemplateRegistry" });
 /**
  * Node Template Registry Class
  *
- * Implements:
- * - Registry<NodeTemplate>: Read operations (get, has, list, keys, size, clear)
- * - MutableRegistry<NodeTemplate>: Write operations (set, delete)
- * - BatchOperations<NodeTemplate>: Batch register/unregister
- * - SearchableRegistry<NodeTemplate>: Search and filter
- * - ExportableRegistry<NodeTemplate>: Export/import
+ * Extends RegistryImpl<NodeTemplate> for base CRUD operations.
+ * Adds node template validation, search, export/import, and storage persistence.
  */
-class NodeTemplateRegistry
-  implements
-    Registry<NodeTemplate>,
-    MutableRegistry<NodeTemplate>,
-    BatchOperations<NodeTemplate>,
-    SearchableRegistry<NodeTemplate>,
-    ExportableRegistry<NodeTemplate>
-{
-  private items = createRegistry<NodeTemplate>();
-
-  constructor(private readonly storageAdapter: NodeTemplateStorageAdapter | null = null) {}
-
-  // ============================================================
-  // Registry Interface Implementation (Read Operations)
-  // ============================================================
-
-  /** Get node template by name, returns undefined if not found */
-  get(name: string): NodeTemplate | undefined {
-    return this.items.get(name);
-  }
-
-  /** Check if node template exists */
-  has(name: string): boolean {
-    return this.items.has(name);
-  }
-
-  /** List all node templates */
-  list(): NodeTemplate[] {
-    return this.items.list();
-  }
-
-  /** Get all node template names */
-  keys(): string[] {
-    return this.items.keys();
-  }
-
-  /** Get the number of node templates */
-  get size(): number {
-    return this.items.size;
+class NodeTemplateRegistry extends RegistryImpl<NodeTemplate> {
+  constructor(private readonly storageAdapter: NodeTemplateStorageAdapter | null = null) {
+    super();
   }
 
   /** Clear all node templates */
-  async clear(): Promise<void> {
-    this.items.clear();
+  override async clear(): Promise<void> {
+    super.clear();
     if (this.storageAdapter) {
       await this.storageAdapter.clear();
     }
-  }
-
-  // ============================================================
-  // MutableRegistry Interface Implementation (Write Operations)
-  // ============================================================
-
-  /** Set a node template by name */
-  set(name: string, value: NodeTemplate): void {
-    this.items.set(name, value);
-  }
-
-  /** Delete a node template by name, returns true if deleted */
-  delete(name: string): boolean {
-    return this.items.delete(name);
   }
 
   // ============================================================

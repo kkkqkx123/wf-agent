@@ -19,7 +19,7 @@ import type {
   ContextBuilder,
 } from "./types.js";
 import type { EvaluationContext } from "@wf-agent/types";
-import { conditionEvaluator, expressionEvaluator } from "../../services/evaluation/index.js";
+import { conditionEvaluator } from "../../services/evaluation/index.js";
 import { getErrorMessage, now } from "@wf-agent/common-utils";
 import { buildHookExecutedEvent } from "../events/builders/index.js";
 import { sdkLogger as logger } from "../../utils/logger.js";
@@ -84,7 +84,15 @@ export function evaluateHookCondition(
       input: (evalContext["input"] || {}) as Record<string, unknown>,
       output: (evalContext["output"] || {}) as Record<string, unknown>,
     };
-    return conditionEvaluator.evaluate(condition, evaluationContext);
+
+    // Generate a cache key for the hook condition for result caching
+    const conditionRecord = condition as unknown as Record<string, unknown>;
+    const conditionType = (conditionRecord['type'] as string) ?? "expression";
+    const cacheKey = conditionType === "expression"
+      ? `hook:expr:${conditionRecord['expression'] as string}`
+      : `hook:${conditionType}:${JSON.stringify(conditionRecord)}`;
+
+    return conditionEvaluator.evaluate(condition, evaluationContext, cacheKey);
   } catch (error) {
     if (warnOnFailure) {
       logger.warn(
@@ -355,7 +363,7 @@ function resolveTemplateVariable(template: string, context: Record<string, unkno
       return "";
     }
     try {
-      const value = expressionEvaluator.evaluate(path, evalContext);
+      const value = conditionEvaluator.evaluate({ type: "expression", expression: path }, evalContext);
       return value !== undefined && value !== null ? value : "";
     } catch {
       return "";
@@ -369,7 +377,7 @@ function resolveTemplateVariable(template: string, context: Record<string, unkno
       return "";
     }
     try {
-      const value = expressionEvaluator.evaluate(trimmedPath, evalContext);
+      const value = conditionEvaluator.evaluate({ type: "expression", expression: trimmedPath }, evalContext);
       return value !== undefined && value !== null ? String(value) : "";
     } catch {
       return "";

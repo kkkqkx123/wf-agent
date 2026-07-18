@@ -26,13 +26,7 @@ import {
   removeScript,
   initializeScriptsFromStorage,
 } from "./utils/storage/index.js";
-import { createRegistry } from "./utils/index.js";
-import type {
-  Registry,
-  MutableRegistry,
-  BatchOperations,
-  SearchableRegistry,
-} from "./types.js";
+import { RegistryImpl } from "./utils/index.js";
 import {
   RegistryNotFoundError,
   RegistryAlreadyExistsError,
@@ -68,57 +62,20 @@ const logger = createContextualLogger({ component: "ScriptRegistry" });
 /**
  * Script Registry Class
  *
- * Implements:
- * - Registry<Script>: Read operations (get, has, list, keys, size, clear)
- * - MutableRegistry<Script>: Write operations (set, delete)
- * - BatchOperations<Script>: Batch register/unregister
- * - SearchableRegistry<Script>: Search and filter
+ * Extends RegistryImpl<Script> for base CRUD operations.
+ * Adds script execution, flow management, validation, and search.
  */
-class ScriptRegistry
-  implements
-    Registry<Script>,
-    MutableRegistry<Script>,
-    BatchOperations<Script>,
-    SearchableRegistry<Script>
-{
-  private scripts = createRegistry<Script>();
+class ScriptRegistry extends RegistryImpl<Script> {
   private flows: Map<string, ScriptFlow> = new Map();
 
-  constructor(private readonly storageAdapter: ScriptStorageAdapter | null = null) {}
-
-  // ============================================================
-  // Registry Interface Implementation (Read Operations)
-  // ============================================================
-
-  /** Get script by name, returns undefined if not found */
-  get(key: string): Script | undefined {
-    return this.scripts.get(key);
-  }
-
-  /** Check if script exists */
-  has(key: string): boolean {
-    return this.scripts.has(key);
-  }
-
-  /** List all scripts */
-  list(): Script[] {
-    return this.scripts.list();
-  }
-
-  /** Get all script names */
-  keys(): string[] {
-    return this.scripts.keys();
-  }
-
-  /** Get the number of scripts */
-  get size(): number {
-    return this.scripts.size;
+  constructor(private readonly storageAdapter: ScriptStorageAdapter | null = null) {
+    super();
   }
 
   /** Clear all scripts from memory and storage */
-  async clear(): Promise<void> {
-    const count = this.scripts.size;
-    this.scripts.clear();
+  override async clear(): Promise<void> {
+    const count = this.size;
+    super.clear();
 
     // Also clear storage to maintain consistency
     if (this.storageAdapter) {
@@ -126,20 +83,6 @@ class ScriptRegistry
     }
 
     logger.info("All scripts cleared (memory and storage)", { count });
-  }
-
-  // ============================================================
-  // MutableRegistry Interface Implementation (Write Operations)
-  // ============================================================
-
-  /** Set a script by name */
-  set(key: string, value: Script): void {
-    this.scripts.set(key, value);
-  }
-
-  /** Delete a script by name, returns true if deleted */
-  delete(key: string): boolean {
-    return this.scripts.delete(key);
   }
 
   // ============================================================
@@ -162,11 +105,11 @@ class ScriptRegistry
       enabled: script.enabled !== undefined ? script.enabled : true,
     };
 
-    if (this.scripts.has(script.name)) {
+    if (this.items.has(script.name)) {
       throw new RegistryAlreadyExistsError(script.name, "Script");
     }
 
-    this.scripts.set(script.name, scriptWithDefaults);
+    this.items.set(script.name, scriptWithDefaults);
     logger.info("Script registered (memory-only)", { scriptName: script.name });
   }
 
@@ -185,7 +128,7 @@ class ScriptRegistry
       enabled: script.enabled !== undefined ? script.enabled : true,
     };
 
-    if (this.scripts.has(script.name)) {
+    if (this.items.has(script.name)) {
       throw new RegistryAlreadyExistsError(script.name, "Script");
     }
 
@@ -194,7 +137,7 @@ class ScriptRegistry
       await persistScript(scriptWithDefaults, this.storageAdapter);
     }
 
-    this.scripts.set(script.name, scriptWithDefaults);
+    this.items.set(script.name, scriptWithDefaults);
     logger.info("Script registered", { scriptName: script.name });
   }
 
@@ -206,7 +149,7 @@ class ScriptRegistry
    * @throws RegistryNotFoundError If the script does not exist
    */
   update(scriptName: string, updates: Partial<Script>): void {
-    const script = this.scripts.get(scriptName);
+    const script = this.items.get(scriptName);
     if (!script) {
       throw new RegistryNotFoundError(scriptName, "Script");
     }
@@ -218,7 +161,7 @@ class ScriptRegistry
     };
 
     this.validateScript(updatedScript);
-    this.scripts.set(scriptName, updatedScript);
+    this.items.set(scriptName, updatedScript);
     logger.info("Script updated", { scriptName });
   }
 
@@ -230,7 +173,7 @@ class ScriptRegistry
    * @throws RegistryNotFoundError If the script does not exist
    */
   async updateScript(scriptName: string, updates: Partial<Script>): Promise<void> {
-    const script = this.scripts.get(scriptName);
+    const script = this.items.get(scriptName);
     if (!script) {
       throw new RegistryNotFoundError(scriptName, "Script");
     }
@@ -248,7 +191,7 @@ class ScriptRegistry
       await persistScript(updatedScript, this.storageAdapter);
     }
 
-    this.scripts.set(scriptName, updatedScript);
+    this.items.set(scriptName, updatedScript);
     logger.info("Script updated", { scriptName });
   }
 
@@ -259,10 +202,10 @@ class ScriptRegistry
    * @throws RegistryNotFoundError If the script does not exist
    */
   unregister(scriptName: string): void {
-    if (!this.scripts.has(scriptName)) {
+    if (!this.items.has(scriptName)) {
       throw new RegistryNotFoundError(scriptName, "Script");
     }
-    this.scripts.delete(scriptName);
+    this.items.delete(scriptName);
     logger.info("Script unregistered", { scriptName });
   }
 
@@ -273,7 +216,7 @@ class ScriptRegistry
    * @throws RegistryNotFoundError If the script does not exist
    */
   async unregisterScript(scriptName: string): Promise<void> {
-    if (!this.scripts.has(scriptName)) {
+    if (!this.items.has(scriptName)) {
       throw new RegistryNotFoundError(scriptName, "Script");
     }
 
@@ -282,7 +225,7 @@ class ScriptRegistry
       await removeScript(scriptName, this.storageAdapter);
     }
 
-    this.scripts.delete(scriptName);
+    this.items.delete(scriptName);
     logger.info("Script unregistered", { scriptName });
   }
 
@@ -380,7 +323,7 @@ class ScriptRegistry
    * @throws ScriptNotFoundError If the script does not exist
    */
   getScript(scriptName: string): Script {
-    const script = this.scripts.get(scriptName);
+    const script = this.items.get(scriptName);
     if (!script) {
       throw new ScriptNotFoundError(`Script '${scriptName}' not found`, scriptName);
     }
@@ -394,7 +337,7 @@ class ScriptRegistry
    * @returns Script definition or undefined
    */
   findScript(scriptName: string): Script | undefined {
-    return this.scripts.get(scriptName);
+    return this.items.get(scriptName);
   }
 
   /**
@@ -454,7 +397,7 @@ class ScriptRegistry
    * @returns The number of scripts
    */
   scriptCount(): number {
-    return this.scripts.size;
+    return this.items.size;
   }
 
   /**
@@ -574,7 +517,7 @@ class ScriptRegistry
       return;
     }
 
-    await initializeScriptsFromStorage(this.storageAdapter, this.scripts);
+    await initializeScriptsFromStorage(this.storageAdapter, this.items);
   }
 
   // ============================================================
@@ -722,7 +665,7 @@ class ScriptExecutionService {
       this.scriptEngine = new ScriptEngine();
     }
     if (!this.flowEngine) {
-      this.flowEngine = new ScriptFlowEngine(this.scriptEngine, registry["scripts"] as unknown as Map<string, Script>);
+      this.flowEngine = new ScriptFlowEngine(this.scriptEngine, new Map(registry.list().map(s => [s.name, s])));
     }
 
     return this.flowEngine.execute(flow);

@@ -14,7 +14,7 @@ import type {
   EvaluationContext,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { expressionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
+import { conditionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
 import type { VariableManager } from "../../utils/variable-manager.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
@@ -103,7 +103,7 @@ function applyFilter(items: unknown[], filterExpression: string): unknown[] {
   return items.filter((item) => {
     const context: EvaluationContext = { variables: { item }, input: {} as Record<string, unknown>, output: {} as Record<string, unknown> };
     try {
-      const result = expressionEvaluator.evaluate(filterExpression, context);
+      const result = conditionEvaluator.evaluate({ type: "expression", expression: filterExpression }, context);
       return Boolean(result);
     } catch (error) {
       throw new RuntimeValidationError(
@@ -268,8 +268,8 @@ export function executeTransform(
   // Evaluate transform expression
   try {
     const context = { variables: allVariables };
-    const transformed = expressionEvaluator.evaluate(
-      operation.transformExpression,
+    const transformed = conditionEvaluator.evaluate(
+      { type: "expression", expression: operation.transformExpression },
       context as EvaluationContext
     );
 
@@ -323,7 +323,7 @@ export function executeBatchUpdate(
     // Evaluate expression
     try {
       const context = { variables: allVariables };
-      const value = expressionEvaluator.evaluate(update.expression, context as EvaluationContext);
+      const value = conditionEvaluator.evaluate({ type: "expression", expression: update.expression }, context as EvaluationContext);
 
       // Type conversion if specified
       const typedValue = convertType(value, update.type);

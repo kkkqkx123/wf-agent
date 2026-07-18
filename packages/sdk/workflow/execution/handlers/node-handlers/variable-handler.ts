@@ -7,7 +7,7 @@ import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-age
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 import { now } from "@wf-agent/common-utils";
-import { expressionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
+import { conditionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
 
 /**
  * Evaluate the expression using ExpressionEvaluator (AST-based, safe)
@@ -36,7 +36,7 @@ function evaluateExpression(
     };
 
     // Use AST-based evaluator (safe, preserves types)
-    const result = expressionEvaluator.evaluate(expression, context);
+    const result = conditionEvaluator.evaluate({ type: "expression", expression }, context);
 
     return result;
   } catch (error) {

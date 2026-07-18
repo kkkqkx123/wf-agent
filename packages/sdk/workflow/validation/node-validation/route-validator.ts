@@ -7,8 +7,54 @@ import type { StaticNode } from "@wf-agent/types";
 import { RouteNodeConfigSchema, ConfigurationValidationError } from "@wf-agent/types";
 import type { Result } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
-import { dslParseWithErrors } from "../../../services/evaluation/index.js";
+import { dslParseWithErrors, scriptCompiler } from "../../../services/evaluation/index.js";
 import { validateNodeType, validateNodeConfig } from "../../../shared/validation/utils.js";
+
+/**
+ * Validate a single route condition based on its type.
+ * Expression conditions are validated via DSL parsing.
+ * Script conditions are validated via compilation attempt.
+ * Predicate and schema conditions are structurally validated by Zod schema.
+ */
+function validateRouteCondition(
+  condition: Record<string, unknown>,
+  nodeId: string,
+  routeIndex: number,
+): ConfigurationValidationError | null {
+  const type = condition["type"] as string;
+
+  if (type === "expression") {
+    const result = dslParseWithErrors(condition["expression"] as string);
+    if (result.errors.length > 0) {
+      return new ConfigurationValidationError(
+        `Invalid route condition expression: ${result.errors.map(e => e.message).join("; ")}`,
+        {
+          configType: "node",
+          configPath: `node.${nodeId}.config.routes[${routeIndex}].condition.expression`,
+        },
+      );
+    }
+    return null;
+  }
+
+  if (type === "script") {
+    try {
+      scriptCompiler.compile(condition["script"] as string);
+    } catch (error) {
+      return new ConfigurationValidationError(
+        `Invalid route condition script: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          configType: "node",
+          configPath: `node.${nodeId}.config.routes[${routeIndex}].condition.script`,
+        },
+      );
+    }
+    return null;
+  }
+
+  // predicate and schema conditions are validated by Zod schema structurally
+  return null;
+}
 
 /**
  * Verify Route node configuration
@@ -29,27 +75,19 @@ export function validateRouteNode(
   }
 
   const config = configResult.value;
-  const expressionErrors: ConfigurationValidationError[] = [];
+  const conditionErrors: ConfigurationValidationError[] = [];
 
   for (let i = 0; i < config.routes.length; i++) {
     const route = config.routes[i];
     if (!route) continue;
-    const result = dslParseWithErrors(route.condition.expression);
-    if (result.errors.length > 0) {
-      expressionErrors.push(
-        new ConfigurationValidationError(
-          `Invalid route condition expression: ${result.errors.map(e => e.message).join("; ")}`,
-          {
-            configType: "node",
-            configPath: `node.${node.id}.config.routes[${i}].condition.expression`,
-          },
-        ),
-      );
+    const error = validateRouteCondition(route.condition as Record<string, unknown>, node.id, i);
+    if (error) {
+      conditionErrors.push(error);
     }
   }
 
-  if (expressionErrors.length > 0) {
-    return err(expressionErrors);
+  if (conditionErrors.length > 0) {
+    return err(conditionErrors);
   }
 
   return ok(node);

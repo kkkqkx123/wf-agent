@@ -10,50 +10,26 @@ import { ExecutionError } from "@wf-agent/types";
 import { conditionEvaluator } from "../../../../services/evaluation/index.js";
 
 /**
- * Generate a cache key for a route condition
- */
-function generateRouteCacheKey(condition: Record<string, unknown>): string {
-  const type = (condition['type'] as string) ?? "expression";
-  switch (type) {
-    case "expression":
-      return `route:expr:${condition['expression'] as string}`;
-    case "predicate":
-      return `route:pred:${condition['predicateType'] as string}:${condition['variable'] as string}`;
-    case "schema":
-      return `route:schema:${condition['variable'] as string}`;
-    case "script":
-      // Script type is not cached, return empty string
-      return "";
-    default:
-      return `route:${type}:${JSON.stringify(condition)}`;
-  }
-}
-
-/**
  * Evaluating routing conditions
  */
 function evaluateRouteCondition(
   condition: Condition,
   workflowExecutionEntity: WorkflowExecutionEntity,
 ): boolean {
-  try {
-    // Constructing the evaluation context
-    const context: EvaluationContext = {
-      variables: workflowExecutionEntity.getAllVariables(),
-      input: workflowExecutionEntity.getInput(),
-      output: workflowExecutionEntity.getOutput(),
-    };
+  const context: EvaluationContext = {
+    variables: workflowExecutionEntity.getAllVariables(),
+    input: workflowExecutionEntity.getInput(),
+    output: workflowExecutionEntity.getOutput(),
+  };
 
-    // Use unified conditionEvaluator with cache key for all condition types
-    const conditionRecord = (condition as unknown) as Record<string, unknown>;
-    const cacheKey = generateRouteCacheKey(conditionRecord);
-    return conditionEvaluator.evaluate(condition, context, cacheKey || undefined);
+  try {
+    return conditionEvaluator.evaluate(condition, context);
   } catch (error) {
-    const conditionRecord = (condition as unknown) as Record<string, unknown>;
+    const type = condition.type;
     const errorMsg =
-      ((conditionRecord['type'] as string) === "expression") || !conditionRecord['type']
-        ? `Failed to evaluate route condition: ${conditionRecord['expression']}`
-        : `Failed to evaluate route condition of type ${conditionRecord['type']}`;
+      type === "expression"
+        ? `Failed to evaluate route condition: ${condition.expression}`
+        : `Failed to evaluate route condition of type ${type}`;
     throw new ExecutionError(
       errorMsg,
       workflowExecutionEntity.getCurrentNodeId(),
@@ -76,8 +52,14 @@ export async function routeHandler(
 ): Promise<unknown> {
   const config = node.config as RouteNodeConfig;
 
-  // Sort routing rules by priority.
-  const sortedRoutes = [...config.routes].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  // Sort routing rules by priority (descending), with original index as tiebreaker for determinism
+  const sortedRoutes = config.routes
+    .map((route, index) => ({ route, index }))
+    .sort((a, b) => {
+      const priorityDiff = (b.route.priority || 0) - (a.route.priority || 0);
+      return priorityDiff !== 0 ? priorityDiff : a.index - b.index;
+    })
+    .map(({ route }) => route);
 
   // Evaluate all routing conditions for the output record
   const evaluatedConditions: Array<{ condition: string; result: boolean; targetNodeId: string }> =

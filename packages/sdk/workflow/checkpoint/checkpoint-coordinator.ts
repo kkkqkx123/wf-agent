@@ -30,14 +30,13 @@ import type {
   FullCheckpoint,
   DeltaCheckpoint,
   CheckpointDelta,
-  CheckpointErrorStrategy,
-  CheckpointErrorContext,
   CheckpointFormatVersion,
 } from "@wf-agent/types";
 import type { WorkflowExecutionRegistry } from "../registry/workflow-execution-registry.js";
 import type { WorkflowRegistry } from "../registry/workflow-registry.js";
 import type { WorkflowGraphRegistry } from "../registry/workflow-graph-registry.js";
 import type { JoinNodeConfig } from "@wf-agent/types";
+import { CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { CheckpointState } from "./checkpoint-state-manager.js";
 import { ConversationSession } from "../../shared/messaging/conversation-session.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
@@ -52,9 +51,6 @@ import type { ExecutionHierarchyRegistry } from "../../shared/registry/execution
 import type { AnyExecutionEntity } from "../../shared/registry/execution-hierarchy-registry.js";
 import type { FileCheckpointManager } from "@wf-agent/common-utils";
 import { HierarchyIntegrityService } from "../../shared/execution/hierarchy-integrity-service.js";
-import { CheckpointErrorHandler } from "../../shared/checkpoint/hierarchy/error-handler.js";
-import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
-import { CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { getExecutionEventBus } from "../../shared/events/index.js";
 import { ChildCheckpointRestorer } from "../../shared/checkpoint/hierarchy/child-restorer.js";
 import type { ChildRestoreDependencies } from "../../shared/checkpoint/hierarchy/child-restorer.js";
@@ -64,6 +60,7 @@ import type { ChildCheckpointResolver } from "../../shared/checkpoint/hierarchy/
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
 import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
 import type { CheckpointTriggerType } from "@wf-agent/types";
+import { handleFileCheckpointError } from "../../shared/checkpoint/utils/error-handler-utils.js";
 
 const logger = createContextualLogger({ component: "CheckpointCoordinator" });
 
@@ -151,13 +148,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
   WorkflowExecutionEntity,
   WorkflowExecutionStateSnapshot
 > {
-  private checkpointErrorHandler?: CheckpointErrorHandler;
-  private checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
-  /**
-   * Version manager for format compatibility and migration
-   */
-  private versionManager: CheckpointVersionManager;
-
   /**
    * Default checkpoint strategy (P2 enhancement)
    * Uses STANDARD policy by default for balanced checkpoint creation
@@ -172,7 +162,6 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
 
   constructor() {
     super();
-    this.versionManager = new CheckpointVersionManager(logger);
     this.defaultStrategy = createCheckpointStrategy('STANDARD');
   }
 
@@ -606,6 +595,15 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       });
     }
 
+    // Restore execution configuration (timeout, retry, failure policy)
+    if (workflowExecutionState.executionConfig) {
+      entity.setExecutionConfig(workflowExecutionState.executionConfig);
+      logger.debug("Restored execution configuration from checkpoint", {
+        executionId: entity.id,
+        nodeTimeout: workflowExecutionState.executionConfig.nodeTimeout,
+      });
+    }
+
     return {
       entity,
       conversationManager,
@@ -736,6 +734,9 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
         }
       : undefined;
 
+    // Capture execution configuration for checkpoint restore
+    const executionConfig = entity.getExecutionConfig();
+
     // Build the initial snapshot
     const snapshot: WorkflowExecutionStateSnapshot = {
       status: entity.getStatus(),
@@ -766,6 +767,7 @@ export class CheckpointCoordinator extends BaseCheckpointCoordinator<
       eventRecords,
       forkJoinAggregationState,
       hookExecutionContext,
+      executionConfig,
     };
 
     // ============================================================================
@@ -1421,84 +1423,6 @@ protected async buildCheckpoint(
        };
      }
 
-   // ============================================================================
-   // Private Helpers
-   // ============================================================================
-
-  /**
-   * Set checkpoint error handling configuration
-   *
-   * Enable custom error handling strategy for checkpoint operations.
-   * Supports multiple strategies: silent, warn, strict, callback.
-   *
-   * @param errorStrategy Error handling strategy
-   * @param onError Optional callback for "callback" strategy
-   */
-  setCheckpointErrorHandling(
-    errorStrategy: CheckpointErrorStrategy,
-    onError?: (error: Error, context: CheckpointErrorContext) => void | Promise<void>,
-  ): void {
-    this.checkpointErrorStrategy = errorStrategy;
-    this.checkpointErrorHandler = new CheckpointErrorHandler(
-      { strategy: errorStrategy, onError },
-      logger,
-    );
-
-    logger.debug("Workflow checkpoint error handling configured", {
-      strategy: errorStrategy,
-      hasCallback: !!onError,
-    });
-  }
-
-  /**
-   * Set checkpoint error handling strategy at runtime
-   * @param strategy Error handling strategy
-   */
-  setCheckpointErrorStrategy(strategy: CheckpointErrorStrategy): void {
-    this.checkpointErrorStrategy = strategy;
-
-    if (!this.checkpointErrorHandler) {
-      this.checkpointErrorHandler = new CheckpointErrorHandler(
-        { strategy },
-        logger,
-      );
-    } else {
-      this.checkpointErrorHandler.setStrategy(strategy);
-    }
-
-    logger.debug("Workflow checkpoint error strategy updated", { strategy });
-  }
-
-  /**
-   * Get current checkpoint error handling strategy
-   */
-  getCheckpointErrorStrategy(): CheckpointErrorStrategy {
-    return this.checkpointErrorStrategy;
-  }
-
-  /**
-   * Get checkpoint error handler (for advanced usage)
-   */
-  getCheckpointErrorHandler(): CheckpointErrorHandler | undefined {
-    return this.checkpointErrorHandler;
-  }
-
-  /**
-   * Get version manager for compatibility checks and migrations
-   */
-  getVersionManager(): CheckpointVersionManager {
-    return this.versionManager;
-  }
-
-  /**
-   * Check if checkpoint needs version migration
-   */
-  needsVersionMigration(checkpoint: Checkpoint): boolean {
-    const formatVersion = (checkpoint.metadata?.customFields?.["formatVersion"] as CheckpointFormatVersion) || CURRENT_CHECKPOINT_FORMAT_VERSION;
-    const compatibility = this.versionManager.checkCompatibility(formatVersion);
-    return compatibility.requiresMigration;
-  }
-
   // ============================================================================
   // Private Helpers
   // ============================================================================
@@ -1547,37 +1471,15 @@ protected async buildCheckpoint(
     entityId: string,
     checkpointId?: string,
   ): Promise<void> {
-    if (this.checkpointErrorHandler) {
-      const result = await this.checkpointErrorHandler.handleError(error, {
-        operation: "create",
-        checkpointId: checkpointId || "unknown",
-        entityId,
-        triggerEvent: `file_checkpoint_${operation}`,
-        timestamp: Date.now(),
-      });
-      if (result.shouldRethrow) {
-        throw error;
-      }
-      return;
-    }
-
-    // Fallback: use fileCheckpointManager's failureBehavior config
     const manager = this.deps?.fileCheckpointManager;
-    if (!manager) return;
+    const fallbackBehavior = (manager as unknown as { config?: { failureBehavior?: "error" | "warn" | "ignore" } })?.config?.failureBehavior ?? "warn";
 
-    const behavior = (manager as unknown as { config?: { failureBehavior?: string } }).config?.failureBehavior ?? "warn";
-
-    if (behavior === "error") {
-      throw error;
-    }
-    if (behavior === "warn") {
-      const operationText = operation === "create" ? "creation" : "restore";
-      logger.warn(`File checkpoint ${operationText} failed (non-fatal)`, {
-        executionId: entityId,
-        error: error.message,
-      });
-    }
-    // "ignore" behavior: silently continue
+    await handleFileCheckpointError(error, operation, entityId, {
+      checkpointErrorHandler: this.checkpointErrorHandler,
+      checkpointId,
+      fallbackBehavior,
+      entityLabel: "workflow execution",
+    });
   }
 
 

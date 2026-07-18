@@ -18,7 +18,6 @@
  * - Clear responsibility boundaries
  */
 
-import type { LLMMessage } from "@wf-agent/types";
 import {
   BaseStateCoordinator,
   type StateCoordinatorSnapshot,
@@ -56,34 +55,8 @@ export class WorkflowStateCoordinator extends BaseStateCoordinator<WorkflowState
   constructor(config: WorkflowStateCoordinatorConfig) {
     super(config);
   }
-
-  // ============================================================
-  // Parent-Child Execution Message Passing (Workflow-specific)
-  // ============================================================
-
-  /**
-   * Export messages for child execution
-   * Used when creating child executions (fork, subgraph, triggered workflow)
-   * @returns Array of messages to pass to child execution
-   */
-  exportMessagesForChild(): LLMMessage[] {
-    return this.conversationManager.getMessages();
-  }
-
-  /**
-   * Import messages from child execution
-   * Used when merging child execution results back to parent
-   * @param messages Messages from child execution
-   */
-  importMessagesFromChild(messages: LLMMessage[]): void {
-    this.conversationManager.addMessages(...messages);
-  }
-
-  /**
-   * Export all messages (including invisible) for checkpoint
-   * @returns Array of all messages
-   */
-  exportAllMessagesForCheckpoint(): LLMMessage[] {
-    return this.conversationManager.getAllMessages();
-  }
+  // Parent-child message passing methods inherited from BaseStateCoordinator:
+  // - exportMessagesForChild()
+  // - importMessagesFromChild()
+  // - exportAllMessagesForCheckpoint()
 }

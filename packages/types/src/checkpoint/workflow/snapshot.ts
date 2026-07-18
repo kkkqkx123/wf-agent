@@ -157,6 +157,37 @@ export interface WorkflowExecutionStateSnapshot extends CheckpointStateBase {
     /** Error messages from failed branches */
     failedBranchErrors?: Array<{ pathId: string; error: string }>;
   };
+
+  /** Execution configuration (timeout, retry, failure policy) */
+  executionConfig?: WorkflowExecutionConfig;
+}
+
+/**
+ * Workflow Execution configuration for checkpoint persistence
+ * Ensures that workflow-level config (timeout, retry, failure policy) is
+ * preserved across checkpoint save/restore cycles.
+ */
+export interface WorkflowExecutionConfig {
+  /** Node execution timeout in milliseconds */
+  nodeTimeout: number;
+  /** Maximum pause duration in milliseconds (0 = no limit) */
+  maxPauseDuration: number;
+  /** Default node retry configuration */
+  defaultNodeRetry?: {
+    maxRetries: number;
+    retryDelay: number;
+    exponentialBackoff: boolean;
+  };
+  /** Workflow-level failure strategy */
+  onFailure?: "retry" | "continue" | "fail";
+  /** Maximum number of workflow-level retry attempts */
+  maxRetries: number;
+  /** Base delay between workflow-level retries in milliseconds */
+  retryDelayMs: number;
+  /** Whether to use exponential backoff for retry delays */
+  exponentialBackoff: boolean;
+  /** Fallback output for continue strategy */
+  fallbackOutput?: { output?: Record<string, unknown>; content?: string };
 }
 
 /**
@@ -175,4 +206,6 @@ export interface WorkflowExecutionStateManagerSnapshot {
   errorRecords: ExecutionErrorRecord[];
   interruptionRecords: ExecutionInterruptionRecord[];
   eventRecords: ExecutionEventRecord[];
+  /** Execution configuration (timeout, retry, failure policy) */
+  executionConfig?: WorkflowExecutionConfig;
 }

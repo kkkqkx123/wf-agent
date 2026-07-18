@@ -53,4 +53,8 @@ export class AgentStateCoordinator extends BaseStateCoordinator<AgentStateSnapsh
   constructor(config: AgentStateCoordinatorConfig) {
     super(config);
   }
+  // Parent-child message passing methods inherited from BaseStateCoordinator:
+  // - exportMessagesForChild()
+  // - importMessagesFromChild()
+  // - exportAllMessagesForCheckpoint()
 }

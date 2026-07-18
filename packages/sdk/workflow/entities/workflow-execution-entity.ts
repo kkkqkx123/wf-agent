@@ -27,7 +27,7 @@ import type {
   ChildExecutionReference,
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
-import type { WorkflowExecutionStateSnapshot } from "@wf-agent/types";
+import type { WorkflowExecutionStateSnapshot, WorkflowExecutionConfig } from "@wf-agent/types";
 import type { SubgraphContext } from "../state-managers/execution-state.js";
 import { ExecutionState } from "../state-managers/execution-state.js";
 import { ForkJoinState } from "../state-managers/fork-join-state.js";
@@ -58,6 +58,16 @@ const logger = createContextualLogger({ operation: "WorkflowExecutionEntity" });
  * - Encapsulates all data of the execution instance
  * - Provides data access interfaces (getter/setter)
  * - Holds an instance of the state manager
+ *
+ * Entity vs StateManager Boundary Convention:
+ * - StateManager (WorkflowExecutionState, ExecutionState, ForkJoinState, etc.):
+ *   Manages runtime state that changes during execution (status, subgraph stack,
+ *   fork/join context, error records, interruptions, events).
+ * - Entity: Configuration and coordination (timeouts, retry policy, failure strategy,
+ *   abort controller, hierarchy manager). These are set once during construction
+ *   and act as wiring between coordinators and state managers.
+ * - Data Object (workflowExecution): Persisted/serialized data (input, output,
+ *   nodeResults, graph metadata).
  *
  * Design Principles:
  * - Pure data entity: Contains only data and access methods
@@ -263,6 +273,40 @@ export class WorkflowExecutionEntity implements IExecutionEntity {
    */
   getRetryBudget(): RetryBudget | undefined {
     return this._retryBudget;
+  }
+
+  /**
+   * Get the full execution configuration as a snapshot object.
+   * Used for checkpoint serialization to preserve config across save/restore.
+   * @returns Execution configuration snapshot
+   */
+  getExecutionConfig(): WorkflowExecutionConfig {
+    return {
+      nodeTimeout: this._nodeTimeout,
+      maxPauseDuration: this._maxPauseDuration,
+      defaultNodeRetry: this._defaultNodeRetry,
+      onFailure: this._onFailure,
+      maxRetries: this._maxRetries,
+      retryDelayMs: this._retryDelayMs,
+      exponentialBackoff: this._exponentialBackoff,
+      fallbackOutput: this._fallbackOutput,
+    };
+  }
+
+  /**
+   * Restore execution configuration from a snapshot.
+   * Used during checkpoint restore to reapply config fields.
+   * @param config Execution configuration snapshot
+   */
+  setExecutionConfig(config: WorkflowExecutionConfig): void {
+    this._nodeTimeout = config.nodeTimeout;
+    this._maxPauseDuration = config.maxPauseDuration;
+    this._defaultNodeRetry = config.defaultNodeRetry;
+    this._onFailure = config.onFailure;
+    this._maxRetries = config.maxRetries;
+    this._retryDelayMs = config.retryDelayMs;
+    this._exponentialBackoff = config.exponentialBackoff;
+    this._fallbackOutput = config.fallbackOutput;
   }
 
   /** Trigger Management */

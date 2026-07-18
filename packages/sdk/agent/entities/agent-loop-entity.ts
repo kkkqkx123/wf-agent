@@ -82,6 +82,14 @@ export type FollowUpMode = "one-at-a-time" | "all";
  * - Holds the state manager instance
  * - Manages steering and follow-up queues
  *
+ * Entity vs StateManager Boundary Convention:
+ * - StateManager (AgentLoopState): Manages runtime state that changes during
+ *   execution (status, iteration, tool calls, streaming, error records,
+ *   interruptions, variable snapshots).
+ * - Entity: Coordination and I/O (steering/follow-up queues, warning tracking,
+ *   tool call format locking, abort controller, hierarchy manager).
+ *   These are wiring between coordinators and state managers.
+ *
  * Design Principles:
  * - Pure data entity: contains only data and access methods.
  * - No factory methods: handled by AgentLoopFactory.

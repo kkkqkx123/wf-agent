@@ -19,16 +19,12 @@ import type {
   AgentLoopDelta,
   AgentCheckpointContentConfig,
   CheckpointFormatVersion,
-  CheckpointErrorStrategy,
-  CheckpointErrorContext,
   ExecutionHierarchyMetadata,
 } from "@wf-agent/types";
 import { AgentCheckpointError, CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { BaseCheckpointCoordinator } from "../../shared/checkpoint/core/base-coordinator.js";
 import type { CheckpointDependencies as BaseCheckpointDependencies } from "../../shared/checkpoint/types.js";
 import { BaseDeltaRestorer } from "../../shared/checkpoint/core/base-delta-restorer.js";
-import { CheckpointVersionManager } from "../../shared/checkpoint/checkpoint-version-manager.js";
-import { CheckpointErrorHandler } from "../../shared/checkpoint/hierarchy/error-handler.js";
 import { buildCheckpointMetadata } from "../../shared/checkpoint/utils/metadata-builder.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { getExecutionEventBus } from "../../shared/events/index.js";
@@ -42,6 +38,7 @@ import type { CheckpointCoordinator, WorkflowCheckpointDependencies } from "../.
 import { RestoreStrategyRegistry } from "../../shared/checkpoint/hierarchy/restore-strategy.js";
 import { CheckpointStrategy, createCheckpointStrategy } from "../../shared/checkpoint/strategy.js";
 import type { CheckpointTriggerType } from "@wf-agent/types";
+import { handleFileCheckpointError } from "../../shared/checkpoint/utils/error-handler-utils.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCheckpointCoordinator" });
 
@@ -122,21 +119,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
    private childRestoreComponent?: ChildCheckpointRestorer;
 
   /**
-    * Version manager for format compatibility and migration
-    */
-  private versionManager: CheckpointVersionManager;
-
-  /**
-   * Error handler for checkpoint operations
-   */
-  private checkpointErrorHandler?: CheckpointErrorHandler;
-
-  /**
-   * Error handling strategy
-   */
-  private checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
-
-  /**
    * Default checkpoint strategy (P2 enhancement)
    * Uses STANDARD policy by default for balanced checkpoint creation
    */
@@ -148,7 +130,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   constructor(config?: AgentLoopRuntimeConfig) {
     super();
     this.restoreConfig = config;
-    this.versionManager = new CheckpointVersionManager(logger);
     this.defaultStrategy = createCheckpointStrategy('STANDARD');
   }
 
@@ -964,80 +945,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
   }
 
   /**
-   * Get version manager for compatibility checks and migrations
-   */
-  getVersionManager(): CheckpointVersionManager {
-    return this.versionManager;
-  }
-
-  /**
-   * Check if checkpoint needs version migration
-   */
-  needsVersionMigration(checkpoint: AgentLoopCheckpoint): boolean {
-    const formatVersion = (checkpoint.metadata?.customFields?.["formatVersion"] as CheckpointFormatVersion) || CURRENT_CHECKPOINT_FORMAT_VERSION;
-    const compatibility = this.versionManager.checkCompatibility(formatVersion);
-    return compatibility.requiresMigration;
-  }
-
-  /**
-   * Set checkpoint error handling configuration
-   *
-   * Enable custom error handling strategy for checkpoint operations.
-   * Supports multiple strategies: silent, warn, strict, callback.
-   *
-   * @param errorStrategy Error handling strategy
-   * @param onError Optional callback for "callback" strategy
-   */
-  setCheckpointErrorHandling(
-    errorStrategy: CheckpointErrorStrategy,
-    onError?: (error: Error, context: CheckpointErrorContext) => void | Promise<void>,
-  ): void {
-    this.checkpointErrorStrategy = errorStrategy;
-    this.checkpointErrorHandler = new CheckpointErrorHandler(
-      { strategy: errorStrategy, onError },
-      logger,
-    );
-
-    logger.debug("Agent checkpoint error handling configured", {
-      strategy: errorStrategy,
-      hasCallback: !!onError,
-    });
-  }
-
-  /**
-   * Set checkpoint error handling strategy at runtime
-   * @param strategy Error handling strategy
-   */
-  setCheckpointErrorStrategy(strategy: CheckpointErrorStrategy): void {
-    this.checkpointErrorStrategy = strategy;
-
-    if (!this.checkpointErrorHandler) {
-      this.checkpointErrorHandler = new CheckpointErrorHandler(
-        { strategy },
-        logger,
-      );
-    } else {
-      this.checkpointErrorHandler.setStrategy(strategy);
-    }
-
-    logger.debug("Agent checkpoint error strategy updated", { strategy });
-  }
-
-  /**
-   * Get current checkpoint error handling strategy
-   */
-  getCheckpointErrorStrategy(): CheckpointErrorStrategy {
-    return this.checkpointErrorStrategy;
-  }
-
-  /**
-   * Get checkpoint error handler (for advanced usage)
-   */
-  getCheckpointErrorHandler(): CheckpointErrorHandler | undefined {
-    return this.checkpointErrorHandler;
-  }
-
-  /**
    * Handle file checkpoint error using configured error handler or fallback to warn
    */
   private async handleFileCheckpointError(
@@ -1046,24 +953,11 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
     entityId: string,
     checkpointId?: string,
   ): Promise<void> {
-    if (this.checkpointErrorHandler) {
-      const result = await this.checkpointErrorHandler.handleError(error, {
-        operation: "create",
-        checkpointId: checkpointId || "unknown",
-        entityId,
-        triggerEvent: `file_checkpoint_${operation}`,
-        timestamp: Date.now(),
-      });
-      if (result.shouldRethrow) {
-        throw error;
-      }
-      return;
-    }
-
-    const operationText = operation === "create" ? "creation" : "restore";
-    logger.warn(`File checkpoint ${operationText} failed (non-fatal, agent checkpoint saved)`, {
-      agentLoopId: entityId,
-      error: error.message,
+    await handleFileCheckpointError(error, operation, entityId, {
+      checkpointErrorHandler: this.checkpointErrorHandler,
+      checkpointId,
+      fallbackBehavior: "warn",
+      entityLabel: "agent loop",
     });
   }
 }

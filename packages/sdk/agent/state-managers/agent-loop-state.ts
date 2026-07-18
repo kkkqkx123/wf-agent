@@ -60,13 +60,13 @@ import {
   type ExecutionErrorRecord,
   type ExecutionInterruptionRecord,
   type ExecutionEventRecord,
-  EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
-  EXECUTION_STATE_MAX_EVENTS,
 } from "@wf-agent/types";
 import type { LLMMessage } from "@wf-agent/types";
 import type { ToolCallFormatConfig } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
 import type { StateManager } from "../../shared/types/state-manager.js";
+import { ErrorChainManager } from "../../shared/errors/error-chain-manager.js";
+import { ExecutionRecordManager } from "../../shared/records/execution-record-manager.js";
 
 // ============================================================================
 // Error Chain Analysis Types
@@ -170,17 +170,8 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    */
   private _errorRecords: ExecutionErrorRecord[] = [];
 
-  /**
-   * Interruption records during execution
-   * Stores all pauses and stops, persisted with state
-   */
-  private _interruptionRecords: ExecutionInterruptionRecord[] = [];
-
-  /**
-   * Event records during execution
-   * Stores significant events for timeline tracking
-   */
-  private _eventRecords: ExecutionEventRecord[] = [];
+  /** Execution record manager (interruptions, events) */
+  private readonly _recordManager: ExecutionRecordManager = new ExecutionRecordManager();
 
   // ========== Variable History Tracking ==========
 
@@ -522,13 +513,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @param record Interruption record to add
    */
   addInterruptionRecord(record: ExecutionInterruptionRecord): void {
-    this._interruptionRecords.push(record);
-    // Keep only the latest N records to prevent state bloat
-    if (this._interruptionRecords.length > EXECUTION_STATE_MAX_INTERRUPTION_RECORDS) {
-      this._interruptionRecords = this._interruptionRecords.slice(
-        -EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
-      );
-    }
+    this._recordManager.addInterruptionRecord(record);
   }
 
   /**
@@ -633,13 +618,9 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     checkpointId?: string,
   ): void {
     // Find the latest PAUSE interruption record
-    let pauseRecord: ExecutionInterruptionRecord | undefined;
-    for (let i = this._interruptionRecords.length - 1; i >= 0; i--) {
-      if (this._interruptionRecords[i]?.type === 'PAUSE' && this._interruptionRecords[i]?.status === 'pending') {
-        pauseRecord = this._interruptionRecords[i];
-        break;
-      }
-    }
+    const pauseRecord = this._recordManager.getInterruptionRecords()
+      .reverse()
+      .find(r => r.type === 'PAUSE' && r.status === 'pending');
 
     // If found, enrich it with resume information
     if (pauseRecord) {
@@ -659,11 +640,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @param record Event record to add
    */
   addEventRecord(record: ExecutionEventRecord): void {
-    this._eventRecords.push(record);
-    // Keep only the latest N records to prevent state bloat
-    if (this._eventRecords.length > EXECUTION_STATE_MAX_EVENTS) {
-      this._eventRecords = this._eventRecords.slice(-EXECUTION_STATE_MAX_EVENTS);
-    }
+    this._recordManager.addEventRecord(record);
   }
 
   /**
@@ -677,7 +654,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * Get interruption records
    */
   getInterruptionRecords(): ExecutionInterruptionRecord[] {
-    return [...this._interruptionRecords];
+    return this._recordManager.getInterruptionRecords();
   }
 
   /**
@@ -686,10 +663,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns Filtered interruption records
    */
   getInterruptionHistory(filter?: 'PAUSE' | 'STOP'): ExecutionInterruptionRecord[] {
-    if (!filter) {
-      return this.getInterruptionRecords();
-    }
-    return this._interruptionRecords.filter(record => record.type === filter);
+    return this._recordManager.getInterruptionHistory(filter);
   }
 
   /**
@@ -704,60 +678,14 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     successfulRecoveries: number;
     recoveryRate: number;
   } {
-    if (this._interruptionRecords.length === 0) {
-      return {
-        total: 0,
-        byType: {},
-        recoveryAttempts: 0,
-        successfulRecoveries: 0,
-        recoveryRate: 0,
-      };
-    }
-
-    const records = this._interruptionRecords;
-    const byType: Record<string, number> = {};
-    let totalDuration = 0;
-    let durationCount = 0;
-    let recoveryAttempts = 0;
-    let successfulRecoveries = 0;
-
-    records.forEach(record => {
-      // Count by type
-      byType[record.type] = (byType[record.type] ?? 0) + 1;
-
-      // Calculate duration if available
-      if (record.resumedAt && record.timestamp) {
-        const duration = record.resumedAt - record.timestamp;
-        totalDuration += duration;
-        durationCount++;
-      }
-
-      // Track recovery attempts
-      if (record.type === 'PAUSE') {
-        recoveryAttempts++;
-      }
-
-      // Track successful recoveries
-      if (record.status === 'resumed') {
-        successfulRecoveries++;
-      }
-    });
-
-    return {
-      total: records.length,
-      byType,
-      averageDuration: durationCount > 0 ? totalDuration / durationCount : undefined,
-      recoveryAttempts,
-      successfulRecoveries,
-      recoveryRate: recoveryAttempts > 0 ? (successfulRecoveries / recoveryAttempts) * 100 : 0,
-    };
+    return this._recordManager.getInterruptionStatistics();
   }
 
   /**
    * Get event records
    */
   getEventRecords(): ExecutionEventRecord[] {
-    return [...this._eventRecords];
+    return this._recordManager.getEventRecords();
   }
 
   // ========== Variable History Tracking ==========
@@ -877,43 +805,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @param error Error record to add
    */
   recordError(error: ExecutionErrorRecord): void {
-    // 1. Standardize error ID if not provided
-    const errorId = error.id || `error:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
-    error.id = errorId;
-
-    // 2. Build error chain relationships
-    //    Uses explicit parentErrorId if provided (causal link); otherwise falls
-    //    back to sequential ordering (link to last recorded error).
-    if (this._errorRecords.length > 0) {
-      // 2a. Resolve parent: prefer explicit parentErrorId, fall back to last record
-      const parentError = error.parentErrorId
-        ? this._errorRecords.find(e => e.id === error.parentErrorId)
-        : undefined;
-      const parent = parentError ?? this._errorRecords[this._errorRecords.length - 1]!;
-
-      // Only set parentErrorId if not already explicitly provided
-      if (!error.parentErrorId) {
-        error.parentErrorId = parent.id;
-      }
-
-      // 2b. Build error chain from parent's chain or start new chain
-      if (parent.errorChain) {
-        error.errorChain = [...parent.errorChain, errorId];
-      } else {
-        // First time establishing chain
-        error.errorChain = [parent.id, errorId];
-      }
-
-      // 2c. Quick reference to root cause
-      error.rootCauseId = parent.rootCauseId || parent.id;
-    } else {
-      // This is the first error, it is the root cause
-      error.errorChain = [errorId];
-      error.rootCauseId = errorId;
-    }
-
-    // 3. Add to records (unlimited retention for complete error history)
-    this._errorRecords.push(error);
+    ErrorChainManager.recordError(this._errorRecords, error);
   }
 
   /**
@@ -926,24 +818,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns Array of errors in chain order
    */
   getErrorChain(fromErrorId?: string): ExecutionErrorRecord[] {
-    if (this._errorRecords.length === 0) {
-      return [];
-    }
-
-    const targetErrorId = fromErrorId || this._errorRecords[this._errorRecords.length - 1]!.id;
-    const targetError = this._errorRecords.find(e => e.id === targetErrorId);
-
-    if (!targetError) {
-      return [];
-    }
-
-    if (!targetError.errorChain) {
-      return [targetError];
-    }
-
-    return targetError.errorChain
-      .map(id => this._errorRecords.find(e => e.id === id))
-      .filter((e): e is ExecutionErrorRecord => Boolean(e));
+    return ErrorChainManager.getErrorChain(this._errorRecords, fromErrorId);
   }
 
   /**
@@ -954,17 +829,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns Root cause error, or null if no errors
    */
   getRootCauseError(): ExecutionErrorRecord | null {
-    if (this._errorRecords.length === 0) {
-      return null;
-    }
-
-    const lastError = this._errorRecords[this._errorRecords.length - 1];
-    if (!lastError) {
-      return null;
-    }
-
-    const rootCauseId = lastError.rootCauseId || lastError.id;
-    return this._errorRecords.find(e => e.id === rootCauseId) || lastError;
+    return ErrorChainManager.getRootCauseError(this._errorRecords);
   }
 
   /**
@@ -979,46 +844,11 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns Error pattern analysis
    */
   analyzeErrorPattern(): ErrorPattern {
-    if (this._errorRecords.length === 0) {
-      return {
-        type: 'none',
-        count: 0,
-        errors: [],
-        typeDistribution: {},
-        toolProblems: [],
-        severityBreakdown: {},
-      };
-    }
-
-    const errors = this._errorRecords;
-    const typeCount: Record<string, number> = {};
-    const toolCount: Record<string, number> = {};
-    const severityCount: Record<string, number> = {};
-
-    errors.forEach(err => {
-      // Count by error type
-      typeCount[err.errorType] = (typeCount[err.errorType] ?? 0) + 1;
-
-      // Count by tool
-      if (err.context.toolName) {
-        toolCount[err.context.toolName] = (toolCount[err.context.toolName] ?? 0) + 1;
-      }
-
-      // Count by severity
-      severityCount[err.severity] = (severityCount[err.severity] ?? 0) + 1;
-    });
-
-    return {
-      type: errors.length > 1 ? 'chain' : 'single',
-      count: errors.length,
-      errors,
-      typeDistribution: typeCount,
-      toolProblems: Object.entries(toolCount)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([name, count]) => ({ name, count })),
-      severityBreakdown: severityCount,
-    };
+    return ErrorChainManager.analyzeErrorPattern(this._errorRecords, {
+      itemKey: "toolProblems",
+      getItemKey: (err) => err.context?.toolName,
+      buildItem: (key, count) => ({ name: key, count }),
+    }) as ErrorPattern;
   }
 
   /**
@@ -1029,27 +859,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns Recommended action: 'retry' | 'fallback' | 'manual_intervention' | 'abort'
    */
   getRecommendedRecoveryAction(): "retry" | "fallback" | "manual_intervention" | "abort" {
-    if (this._errorRecords.length === 0) {
-      return 'abort';
-    }
-
-    // Check if all recoverable errors suggest the same action
-    const retryCount = this._errorRecords.filter(e => e.recoveryAction === 'retry').length;
-    const fallbackCount = this._errorRecords.filter(e => e.recoveryAction === 'fallback').length;
-    const skipCount = this._errorRecords.filter(e => e.recoveryAction === 'skip').length;
-
-    // Prefer the most common recovery action
-    if (retryCount >= fallbackCount && retryCount >= skipCount) {
-      return 'retry';
-    }
-    if (fallbackCount >= skipCount) {
-      return 'fallback';
-    }
-    if (skipCount > 0) {
-      return 'retry'; // Use retry as fallback for skip
-    }
-
-    return 'manual_intervention';
+    return ErrorChainManager.getRecommendedRecoveryActionAgent(this._errorRecords);
   }
 
   /**
@@ -1201,8 +1011,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._pendingToolCalls.clear();
     this._isStreaming = false;
     this._errorRecords = [];
-    this._interruptionRecords = [];
-    this._eventRecords = [];
+    this._recordManager.cleanup();
     this._variableSnapshots = [];
     this._timeoutCount = 0;
   }
@@ -1244,8 +1053,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
     this._pendingToolCalls.clear();
     this._isStreaming = false;
     this._errorRecords = [];
-    this._interruptionRecords = [];
-    this._eventRecords = [];
+    this._recordManager.reset();
     this._status = AgentLoopStatus.CREATED;
     this._lockedToolCallFormat = undefined;
   }
@@ -1270,8 +1078,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
       toolCalls: record.toolCalls.map(tc => ({ ...tc })),
     }));
     cloned._errorRecords = [...this._errorRecords];
-    cloned._interruptionRecords = [...this._interruptionRecords];
-    cloned._eventRecords = [...this._eventRecords];
+    cloned._recordManager.restoreFromSnapshot(this._recordManager.createSnapshot());
     cloned._variableSnapshots = [...this._variableSnapshots];
     cloned._lockedToolCallFormat = this._lockedToolCallFormat
       ? { ...this._lockedToolCallFormat }
@@ -1298,6 +1105,7 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
    * @returns State snapshot
    */
   createSnapshot(): AgentLoopStateSnapshot {
+    const recordSnapshot = this._recordManager.createSnapshot();
     return {
       status: this._status,
       currentIteration: this._currentIteration,
@@ -1325,8 +1133,8 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
         this._pendingToolCalls.size > 0 ? Array.from(this._pendingToolCalls) : undefined,
       // Execution records (Plan C)
       errorRecords: this._errorRecords.length > 0 ? [...this._errorRecords] : undefined,
-      interruptionRecords: this._interruptionRecords.length > 0 ? [...this._interruptionRecords] : undefined,
-      eventRecords: this._eventRecords.length > 0 ? [...this._eventRecords] : undefined,
+      interruptionRecords: recordSnapshot.interruptionRecords.length > 0 ? recordSnapshot.interruptionRecords : undefined,
+      eventRecords: recordSnapshot.eventRecords.length > 0 ? recordSnapshot.eventRecords : undefined,
       // Variable history tracking
       variableSnapshots: this._variableSnapshots.length > 0 ? [...this._variableSnapshots] : undefined,
       // Tool call format locking
@@ -1389,8 +1197,10 @@ export class AgentLoopState implements StateManager<AgentLoopStateSnapshot> {
 
     // Restore execution records (Plan C)
     this._errorRecords = snapshot.errorRecords ? [...snapshot.errorRecords] : [];
-    this._interruptionRecords = snapshot.interruptionRecords ? [...snapshot.interruptionRecords] : [];
-    this._eventRecords = snapshot.eventRecords ? [...snapshot.eventRecords] : [];
+    this._recordManager.restoreFromSnapshot({
+      interruptionRecords: snapshot.interruptionRecords ?? [],
+      eventRecords: snapshot.eventRecords ?? [],
+    });
 
     // Restore variable snapshots for debugging
     this._variableSnapshots = snapshot.variableSnapshots ? [...snapshot.variableSnapshots] : [];

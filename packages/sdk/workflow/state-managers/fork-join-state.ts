@@ -3,9 +3,11 @@
  *
  * Extracted from WorkflowExecutionEntity to reduce its responsibilities.
  * Handles fork path tracking, child execution references, and aggregation state.
+ * Implements StateManager for unified checkpoint serialization.
  */
 
 import type { WorkflowExecutionStateSnapshot } from "@wf-agent/types";
+import type { StateManager } from "../../shared/types/state-manager.js";
 
 /**
  * Fork/join context for tracking branch execution
@@ -18,9 +20,20 @@ export interface ForkJoinContext {
 }
 
 /**
- * Manages fork/join state for a single workflow execution.
+ * Snapshot type for ForkJoinState
  */
-export class ForkJoinState {
+export interface ForkJoinStateSnapshot {
+  /** Fork/join branch context */
+  forkJoinContext?: ForkJoinContext;
+  /** FORK/JOIN aggregation state for JOIN node result merging */
+  forkJoinAggregationState?: WorkflowExecutionStateSnapshot["forkJoinAggregationState"];
+}
+
+/**
+ * Manages fork/join state for a single workflow execution.
+ * Implements StateManager for unified checkpoint serialization.
+ */
+export class ForkJoinState implements StateManager<ForkJoinStateSnapshot> {
   /** Fork/join context for tracking branch execution */
   private forkJoinContext?: ForkJoinContext;
 
@@ -98,5 +111,66 @@ export class ForkJoinState {
    */
   isForkBranch(): boolean {
     return this.forkJoinContext !== undefined && this.forkJoinContext.forkId !== "";
+  }
+
+  // ============================================================
+  // StateManager Implementation
+  // ============================================================
+
+  /**
+   * Clean up resources
+   */
+  cleanup(): void {
+    this.forkJoinContext = undefined;
+    this.forkJoinAggregationState = undefined;
+  }
+
+  /**
+   * Create a snapshot of the current fork/join state
+   * @returns ForkJoinState snapshot
+   */
+  createSnapshot(): ForkJoinStateSnapshot {
+    return {
+      forkJoinContext: this.forkJoinContext ? { ...this.forkJoinContext } : undefined,
+      forkJoinAggregationState: this.forkJoinAggregationState
+        ? { ...this.forkJoinAggregationState }
+        : undefined,
+    };
+  }
+
+  /**
+   * Restore fork/join state from a snapshot
+   * @param snapshot The state snapshot
+   */
+  restoreFromSnapshot(snapshot: ForkJoinStateSnapshot): void {
+    this.forkJoinContext = snapshot.forkJoinContext
+      ? { ...snapshot.forkJoinContext }
+      : undefined;
+    this.forkJoinAggregationState = snapshot.forkJoinAggregationState
+      ? { ...snapshot.forkJoinAggregationState }
+      : undefined;
+  }
+
+  /**
+   * Get the number of state items managed
+   * @returns 1 if any state exists, 0 otherwise
+   */
+  size(): number {
+    return this.forkJoinContext || this.forkJoinAggregationState ? 1 : 0;
+  }
+
+  /**
+   * Check if the fork/join state is empty
+   * @returns true if no fork/join state exists
+   */
+  isEmpty(): boolean {
+    return !this.forkJoinContext && !this.forkJoinAggregationState;
+  }
+
+  /**
+   * Reset to initial state
+   */
+  reset(): void {
+    this.cleanup();
   }
 }

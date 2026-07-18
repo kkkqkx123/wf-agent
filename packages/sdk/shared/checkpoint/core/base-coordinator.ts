@@ -1,4 +1,5 @@
-import type { BaseCheckpoint, CheckpointMetadata, DeltaStorageConfig } from "@wf-agent/types";
+import type { BaseCheckpoint, CheckpointMetadata, DeltaStorageConfig, CheckpointErrorStrategy, CheckpointErrorContext, CheckpointFormatVersion } from "@wf-agent/types";
+import { CURRENT_CHECKPOINT_FORMAT_VERSION } from "@wf-agent/types";
 import { DEFAULT_DELTA_STORAGE_CONFIG } from "../utils/constants.js";
 import { BaseDiffCalculator } from "./base-diff-calculator.js";
 import { BaseDeltaRestorer } from "./base-delta-restorer.js";
@@ -6,6 +7,8 @@ import type { CheckpointableEntity, CheckpointDependencies } from "../types.js";
 export type { CheckpointDependencies } from "../types.js";
 import { generateId } from "../../../utils/id-utils.js";
 import { now } from "@wf-agent/common-utils";
+import { CheckpointErrorHandler } from "../hierarchy/error-handler.js";
+import { CheckpointVersionManager } from "../checkpoint-version-manager.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "BaseCheckpointCoordinator" });
@@ -22,6 +25,15 @@ export abstract class BaseCheckpointCoordinator<
   TState,
 > {
   protected diffCalculator: BaseDiffCalculator;
+
+  /** Checkpoint error handler for configurable error handling */
+  protected checkpointErrorHandler?: CheckpointErrorHandler;
+
+  /** Checkpoint error handling strategy */
+  protected checkpointErrorStrategy: CheckpointErrorStrategy = "warn";
+
+  /** Version manager for format compatibility and migration */
+  protected versionManager: CheckpointVersionManager = new CheckpointVersionManager(logger);
 
   constructor(diffCalculator?: BaseDiffCalculator) {
     this.diffCalculator = diffCalculator ?? new BaseDiffCalculator();
@@ -212,4 +224,82 @@ export abstract class BaseCheckpointCoordinator<
     parentId: string,
     snapshot: TState,
   ): TEntity;
+
+  // ============================================================
+  // Checkpoint Error Handling
+  // ============================================================
+
+  /**
+   * Set checkpoint error handling configuration
+   *
+   * Enable custom error handling strategy for checkpoint operations.
+   * Supports multiple strategies: silent, warn, strict, callback.
+   *
+   * @param errorStrategy Error handling strategy
+   * @param onError Optional callback for "callback" strategy
+   */
+  setCheckpointErrorHandling(
+    errorStrategy: CheckpointErrorStrategy,
+    onError?: (error: Error, context: CheckpointErrorContext) => void | Promise<void>,
+  ): void {
+    this.checkpointErrorStrategy = errorStrategy;
+    this.checkpointErrorHandler = new CheckpointErrorHandler(
+      { strategy: errorStrategy, onError },
+      logger,
+    );
+
+    logger.debug("Checkpoint error handling configured", {
+      strategy: errorStrategy,
+      hasCallback: !!onError,
+    });
+  }
+
+  /**
+   * Set checkpoint error handling strategy at runtime
+   * @param strategy Error handling strategy
+   */
+  setCheckpointErrorStrategy(strategy: CheckpointErrorStrategy): void {
+    this.checkpointErrorStrategy = strategy;
+
+    if (!this.checkpointErrorHandler) {
+      this.checkpointErrorHandler = new CheckpointErrorHandler(
+        { strategy },
+        logger,
+      );
+    } else {
+      this.checkpointErrorHandler.setStrategy(strategy);
+    }
+
+    logger.debug("Checkpoint error strategy updated", { strategy });
+  }
+
+  /**
+   * Get current checkpoint error handling strategy
+   */
+  getCheckpointErrorStrategy(): CheckpointErrorStrategy {
+    return this.checkpointErrorStrategy;
+  }
+
+  /**
+   * Get checkpoint error handler (for advanced usage)
+   */
+  getCheckpointErrorHandler(): CheckpointErrorHandler | undefined {
+    return this.checkpointErrorHandler;
+  }
+
+  /**
+   * Get version manager for compatibility checks and migrations
+   */
+  getVersionManager(): CheckpointVersionManager {
+    return this.versionManager;
+  }
+
+  /**
+   * Check if checkpoint needs version migration
+   */
+  needsVersionMigration(checkpoint: TCheckpoint): boolean {
+    const formatVersion = (checkpoint.metadata?.customFields?.["formatVersion"] as CheckpointFormatVersion) || CURRENT_CHECKPOINT_FORMAT_VERSION;
+    const compatibility = this.versionManager.checkCompatibility(formatVersion);
+    return compatibility.requiresMigration;
+  }
 }

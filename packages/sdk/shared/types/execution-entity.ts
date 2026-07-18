@@ -55,8 +55,18 @@ export interface Abortable {
  * Unified execution status type
  *
  * Combines statuses from both AgentLoopEntity and WorkflowExecutionEntity.
- * Agent uses CANCELLED for both user-cancel and forced-stop scenarios,
- * while Workflow distinguishes between CANCELLED and STOPPED.
+ * This is a superset of all possible statuses across both domains.
+ *
+ * Semantic Differences:
+ * - Agent uses CANCELLED for both user-cancel and forced-stop scenarios,
+ *   while Workflow distinguishes between CANCELLED (user-initiated) and
+ *   STOPPED (system-initiated, e.g., timeout or error).
+ * - STOPPED is only used in the Workflow domain; Agent domain does not
+ *   emit this status.
+ * - TIMEOUT is reserved for future use across both domains.
+ *
+ * When adding cross-domain cascade logic (e.g., a workflow cancelling a
+ * child agent loop), the caller must map between these statuses explicitly.
  */
 export type ExecutionStatus =
   | "CREATED"

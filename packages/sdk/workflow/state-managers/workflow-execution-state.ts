@@ -14,10 +14,10 @@ import type {
 } from "@wf-agent/types";
 import {
   RuntimeValidationError,
-  EXECUTION_STATE_MAX_INTERRUPTION_RECORDS,
-  EXECUTION_STATE_MAX_EVENTS,
 } from "@wf-agent/types";
 import type { StateManager } from "../../shared/types/state-manager.js";
+import { ErrorChainManager } from "../../shared/errors/error-chain-manager.js";
+import { ExecutionRecordManager } from "../../shared/records/execution-record-manager.js";
 
 // ============================================================================
 // Error Chain Analysis Types
@@ -133,11 +133,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   /** Error records accumulated during execution */
   private _errorRecords: ExecutionErrorRecord[] = [];
 
-  /** Interruption records accumulated during execution */
-  private _interruptionRecords: ExecutionInterruptionRecord[] = [];
-
-  /** Event records accumulated during execution */
-  private _eventRecords: ExecutionEventRecord[] = [];
+  /** Execution record manager (interruptions, events) */
+  private readonly _recordManager: ExecutionRecordManager = new ExecutionRecordManager();
 
   /**
    * Get the current status
@@ -230,15 +227,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._status = "PAUSED";
     this._shouldPause = false;
 
-    // [P4 Fix] Record interruption for history tracking and checkpoint consistency
-    this.recordInterruption({
-      id: `interrupt:${now()}:${Math.random().toString(36).slice(2, 9)}`,
-      timestamp: now(),
-      type: "PAUSE",
-      reason: "Workflow execution paused",
-      nodeId,
-      status: "pending",
-    });
+    // Record pause interruption with enriched context
+    this.recordPauseInterruption("Workflow execution paused", undefined, "system", nodeId);
   }
 
   /**
@@ -255,14 +245,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._shouldPause = false;
 
     // Update the last PAUSE interruption record to mark it as resumed
-    for (let i = this._interruptionRecords.length - 1; i >= 0; i--) {
-      const record = this._interruptionRecords[i];
-      if (record && record.type === "PAUSE" && record.status === "pending") {
-        record.status = "resumed";
-        record.resumedAt = now();
-        break;
-      }
-    }
+    this.recordResumeInterruption();
   }
 
   /**
@@ -309,15 +292,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._status = "CANCELLED";
     this._endTime = now();
 
-    // [P4 Fix] Record interruption for history tracking and checkpoint consistency
-    this.recordInterruption({
-      id: `interrupt:${now()}:${Math.random().toString(36).slice(2, 9)}`,
-      timestamp: now(),
-      type: "STOP",
-      reason: "Workflow execution cancelled",
-      nodeId,
-      status: "abandoned",
-    });
+    // Record stop interruption with enriched context
+    this.recordStopInterruption("Workflow execution cancelled", undefined, "system", nodeId);
   }
 
   /**
@@ -419,7 +395,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._currentOperation = null;
   }
 
-  // ========== Error Chain Tracking ==========
+  // ========== Execution Record Management ==========
 
   /**
    * Record an error with automatic error chain building
@@ -430,43 +406,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * - Identifies root cause
    */
   recordError(error: ExecutionErrorRecord): void {
-    // 1. Standardize error ID if not provided
-    const errorId = error.id || `error:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
-    error.id = errorId;
-
-    // 2. Build error chain relationships
-    //    Uses explicit parentErrorId if provided (causal link); otherwise falls
-    //    back to sequential ordering (link to last recorded error).
-    if (this._errorRecords.length > 0) {
-      // 2a. Resolve parent: prefer explicit parentErrorId, fall back to last record
-      const parentError = error.parentErrorId
-        ? this._errorRecords.find(e => e.id === error.parentErrorId)
-        : undefined;
-      const parent = parentError ?? this._errorRecords[this._errorRecords.length - 1]!;
-
-      // Only set parentErrorId if not already explicitly provided
-      if (!error.parentErrorId) {
-        error.parentErrorId = parent.id;
-      }
-
-      // 2b. Build error chain from parent's chain or start new chain
-      if (parent.errorChain) {
-        error.errorChain = [...parent.errorChain, errorId];
-      } else {
-        // First time establishing chain
-        error.errorChain = [parent.id, errorId];
-      }
-
-      // 2c. Quick reference to root cause
-      error.rootCauseId = parent.rootCauseId || parent.id;
-    } else {
-      // This is the first error, it is the root cause
-      error.errorChain = [errorId];
-      error.rootCauseId = errorId;
-    }
-
-    // 3. Add to records
-    this._errorRecords.push(error);
+    ErrorChainManager.recordError(this._errorRecords, error);
   }
 
   /**
@@ -477,22 +417,162 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
   }
 
   /**
-   * Record an interruption
+   * Record an interruption (basic method)
+   * Delegates to the shared ExecutionRecordManager.
    * @param record Interruption record
    */
   recordInterruption(record: ExecutionInterruptionRecord): void {
-    const MAX_INTERRUPTIONS = EXECUTION_STATE_MAX_INTERRUPTION_RECORDS;
-    if (this._interruptionRecords.length >= MAX_INTERRUPTIONS) {
-      this._interruptionRecords.shift();
+    this._recordManager.addInterruptionRecord(record);
+  }
+
+  /**
+   * Record a pause interruption with enriched context
+   * Captures the execution context at the time of pause for better debugging and recovery.
+   *
+   * @param reason Reason for pausing
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the pause (user, system, timeout, error)
+   * @param nodeId Optional node ID where the pause occurred
+   */
+  recordPauseInterruption(
+    reason: string,
+    userId?: string,
+    source: 'user' | 'system' | 'timeout' | 'error' = 'system',
+    nodeId?: string,
+  ): void {
+    const record: ExecutionInterruptionRecord = {
+      id: `pause:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: 'PAUSE',
+      reason,
+      nodeId,
+
+      // Trigger information
+      triggeredBy: {
+        source,
+        userId,
+        reason,
+      },
+
+      // Execution context snapshot
+      executionContext: {
+        iteration: 0,
+        status: this._status,
+        lastSuccessfulToolCall: this._currentOperation?.operationId,
+      },
+
+      // Initial pause status
+      status: 'pending',
+    };
+
+    this._recordManager.addInterruptionRecord(record);
+  }
+
+  /**
+   * Record a stop interruption with enriched context
+   * Captures the execution context at the time of stop for recovery purposes.
+   *
+   * @param reason Reason for stopping
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the stop (user, system, timeout, error)
+   * @param nodeId Optional node ID where the stop occurred
+   */
+  recordStopInterruption(
+    reason: string,
+    userId?: string,
+    source: 'user' | 'system' | 'timeout' | 'error' = 'system',
+    nodeId?: string,
+  ): void {
+    const record: ExecutionInterruptionRecord = {
+      id: `stop:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`,
+      timestamp: now(),
+      type: 'STOP',
+      reason,
+      nodeId,
+
+      // Trigger information
+      triggeredBy: {
+        source,
+        userId,
+        reason,
+      },
+
+      // Execution context snapshot
+      executionContext: {
+        iteration: 0,
+        status: this._status,
+        lastSuccessfulToolCall: this._currentOperation?.operationId,
+      },
+
+      // Stop is typically final
+      status: 'abandoned',
+    };
+
+    this._recordManager.addInterruptionRecord(record);
+  }
+
+  /**
+   * Record resumption of a paused execution
+   * Updates the latest pause record with resume information.
+   *
+   * @param reason Optional reason for resuming
+   * @param userId Optional user ID if user-initiated
+   * @param source Source of the resume (user, system, automatic)
+   * @param checkpointId Optional checkpoint ID used for resuming
+   */
+  recordResumeInterruption(
+    reason?: string,
+    userId?: string,
+    source: 'user' | 'system' | 'automatic' = 'system',
+    checkpointId?: string,
+  ): void {
+    // Find the latest PAUSE interruption record
+    const pauseRecord = this._recordManager.getInterruptionRecords()
+      .reverse()
+      .find(r => r.type === 'PAUSE' && r.status === 'pending');
+
+    // If found, enrich it with resume information
+    if (pauseRecord) {
+      pauseRecord.resumedAt = now();
+      pauseRecord.resumedReason = reason;
+      pauseRecord.resumedBy = {
+        source,
+        userId,
+      };
+      pauseRecord.status = 'resumed';
+      pauseRecord.resumedFromCheckpointId = checkpointId;
     }
-    this._interruptionRecords.push(record);
   }
 
   /**
    * Get all interruption records
    */
   getInterruptionRecords(): ExecutionInterruptionRecord[] {
-    return [...this._interruptionRecords];
+    return this._recordManager.getInterruptionRecords();
+  }
+
+  /**
+   * Get interruption history with optional filtering
+   * @param filter Optional filter: 'PAUSE' | 'STOP'
+   * @returns Filtered interruption records
+   */
+  getInterruptionHistory(filter?: 'PAUSE' | 'STOP'): ExecutionInterruptionRecord[] {
+    return this._recordManager.getInterruptionHistory(filter);
+  }
+
+  /**
+   * Get interruption statistics
+   * @returns Statistics about interruptions: frequency, duration, recovery rate
+   */
+  getInterruptionStatistics(): {
+    total: number;
+    byType: Record<string, number>;
+    averageDuration?: number;
+    recoveryAttempts: number;
+    successfulRecoveries: number;
+    recoveryRate: number;
+  } {
+    return this._recordManager.getInterruptionStatistics();
   }
 
   /**
@@ -500,18 +580,14 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * @param record Event record
    */
   recordEvent(record: ExecutionEventRecord): void {
-    const MAX_EVENTS = EXECUTION_STATE_MAX_EVENTS;
-    if (this._eventRecords.length >= MAX_EVENTS) {
-      this._eventRecords.shift();
-    }
-    this._eventRecords.push(record);
+    this._recordManager.addEventRecord(record);
   }
 
   /**
    * Get all event records
    */
   getEventRecords(): ExecutionEventRecord[] {
-    return [...this._eventRecords];
+    return this._recordManager.getEventRecords();
   }
 
   /**
@@ -521,24 +597,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * up to and including the specified error.
    */
   getErrorChain(fromErrorId?: string): ExecutionErrorRecord[] {
-    if (this._errorRecords.length === 0) {
-      return [];
-    }
-
-    const targetErrorId = fromErrorId || this._errorRecords[this._errorRecords.length - 1]!.id;
-    const targetError = this._errorRecords.find(e => e.id === targetErrorId);
-
-    if (!targetError) {
-      return [];
-    }
-
-    if (!targetError.errorChain) {
-      return [targetError];
-    }
-
-    return targetError.errorChain
-      .map(id => this._errorRecords.find(e => e.id === id))
-      .filter((e): e is ExecutionErrorRecord => Boolean(e));
+    return ErrorChainManager.getErrorChain(this._errorRecords, fromErrorId);
   }
 
   /**
@@ -547,17 +606,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * Returns the first error in the chain that triggered all subsequent errors.
    */
   getRootCauseError(): ExecutionErrorRecord | null {
-    if (this._errorRecords.length === 0) {
-      return null;
-    }
-
-    const lastError = this._errorRecords[this._errorRecords.length - 1];
-    if (!lastError) {
-      return null;
-    }
-
-    const rootCauseId = lastError.rootCauseId || lastError.id;
-    return this._errorRecords.find(e => e.id === rootCauseId) || lastError;
+    return ErrorChainManager.getRootCauseError(this._errorRecords);
   }
 
   /**
@@ -566,41 +615,11 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
    */
   analyzeErrorPattern(): ErrorPattern {
-    if (this._errorRecords.length === 0) {
-      return {
-        type: 'none',
-        count: 0,
-        errors: [],
-        typeDistribution: {},
-        nodeProblems: [],
-        severityBreakdown: {},
-      };
-    }
-
-    const errors = this._errorRecords;
-    const typeCount: Record<string, number> = {};
-    const nodeCount: Record<string, number> = {};
-    const severityCount: Record<string, number> = {};
-
-    errors.forEach(err => {
-      typeCount[err.errorType] = (typeCount[err.errorType] ?? 0) + 1;
-      if (err.nodeId) {
-        nodeCount[err.nodeId] = (nodeCount[err.nodeId] ?? 0) + 1;
-      }
-      severityCount[err.severity] = (severityCount[err.severity] ?? 0) + 1;
-    });
-
-    return {
-      type: errors.length > 1 ? 'chain' : 'single',
-      count: errors.length,
-      errors,
-      typeDistribution: typeCount,
-      nodeProblems: Object.entries(nodeCount)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([nodeId, count]) => ({ nodeId, count })),
-      severityBreakdown: severityCount,
-    };
+    return ErrorChainManager.analyzeErrorPattern(this._errorRecords, {
+      itemKey: "nodeProblems",
+      getItemKey: (err) => err.nodeId,
+      buildItem: (key, count) => ({ nodeId: key, count }),
+    }) as ErrorPattern;
   }
 
   /**
@@ -608,32 +627,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * [P8 Fix] Ported from AgentLoopState for cross-layer consistency.
    */
   getRecommendedRecoveryAction(): "retry" | "fallback" | "manual_intervention" | "abort" {
-    if (this._errorRecords.length === 0) return "retry";
-
-    const lastError = this._errorRecords[this._errorRecords.length - 1];
-    if (!lastError) return "retry";
-
-    // If the last error is recoverable, suggest retry
-    if (lastError.isRecoverable) return "retry";
-
-    // If recovery action was specified in the error, use it
-    if (lastError.recoveryAction) return lastError.recoveryAction as "retry" | "fallback" | "manual_intervention" | "abort";
-
-    // Check error chain patterns
-    if (this._errorRecords.length >= 3) {
-      // Multiple errors in chain suggests deeper issues
-      return "manual_intervention";
-    }
-
-    // Check for repeated tool errors
-    const toolErrors = this._errorRecords.filter(
-      e => e.errorType === "tool_error" || e.context?.toolName,
-    );
-    if (toolErrors.length >= 2) {
-      return "fallback";
-    }
-
-    return "abort";
+    return ErrorChainManager.getRecommendedRecoveryActionWorkflow(this._errorRecords);
   }
 
   /**
@@ -655,6 +649,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    */
   cleanup(): void {
     this._error = null;
+    this._recordManager.cleanup();
   }
 
   /**
@@ -662,6 +657,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
    * @returns Snapshot containing all state fields
    */
   createSnapshot(): WorkflowExecutionStateSnapshot {
+    const recordSnapshot = this._recordManager.createSnapshot();
     return {
       status: this._status,
       shouldPause: this._shouldPause,
@@ -672,8 +668,8 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
       interrupted: this._interrupted,
       currentOperation: this._currentOperation ? { ...this._currentOperation } : null,
       errorRecords: [...this._errorRecords],
-      interruptionRecords: [...this._interruptionRecords],
-      eventRecords: [...this._eventRecords],
+      interruptionRecords: recordSnapshot.interruptionRecords,
+      eventRecords: recordSnapshot.eventRecords,
     };
   }
 
@@ -691,8 +687,10 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._interrupted = snapshot.interrupted;
     this._currentOperation = snapshot.currentOperation ? { ...snapshot.currentOperation } : null;
     this._errorRecords = [...(snapshot.errorRecords ?? [])];
-    this._interruptionRecords = [...(snapshot.interruptionRecords ?? [])];
-    this._eventRecords = [...(snapshot.eventRecords ?? [])];
+    this._recordManager.restoreFromSnapshot({
+      interruptionRecords: snapshot.interruptionRecords ?? [],
+      eventRecords: snapshot.eventRecords ?? [],
+    });
   }
 
   /**
@@ -724,8 +722,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     this._interrupted = false;
     this._currentOperation = null;
     this._errorRecords = [];
-    this._interruptionRecords = [];
-    this._eventRecords = [];
+    this._recordManager.reset();
   }
 
   /**
@@ -742,8 +739,7 @@ export class WorkflowExecutionState implements StateManager<WorkflowExecutionSta
     cloned._interrupted = this._interrupted;
     cloned._currentOperation = this._currentOperation ? { ...this._currentOperation } : null;
     cloned._errorRecords = [...this._errorRecords];
-    cloned._interruptionRecords = [...this._interruptionRecords];
-    cloned._eventRecords = [...this._eventRecords];
+    cloned._recordManager.restoreFromSnapshot(this._recordManager.createSnapshot());
     return cloned;
   }
 }

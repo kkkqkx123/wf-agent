@@ -9,6 +9,7 @@
 import type { ID } from "../common.js";
 import type { StaticNode, RuntimeNode } from "../node/index.js";
 import type { Edge, EdgeType } from "../workflow/edge.js";
+import type { Condition } from "../condition.js";
 
 /**
  * Workflow Node Type
@@ -42,21 +43,14 @@ export type WorkflowNode = RuntimeNode & {
  * Edge representations for graph validation and analysis
  */
 export interface WorkflowEdge {
-  /** edge unique identifier */
   id: ID;
-  /** Source node ID */
   sourceNodeId: ID;
-  /** Target Node ID */
   targetNodeId: ID;
-  /** side type */
   type: EdgeType;
-  /** Optional side labels */
   label?: string;
-  /** Optional side descriptions */
   description?: string;
-  /** Edge weights for sorting when multiple conditional edges are satisfied simultaneously */
   weight?: number;
-  /** Raw edge reference (for accessing the full edge configuration) */
+  condition?: Condition;
   originalEdge?: Edge;
 }
 

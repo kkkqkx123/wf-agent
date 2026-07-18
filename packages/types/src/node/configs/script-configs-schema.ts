@@ -6,6 +6,16 @@
 import { z } from "zod";
 
 /**
+ * Script output mapping schema
+ */
+export const ScriptOutputMappingSchema = z.object({
+  target: z.enum(["variable", "output"]),
+  key: z.string().min(1, "Key is required"),
+  path: z.string().optional(),
+  description: z.string().optional(),
+});
+
+/**
  * Script node configuration schema
  */
 export const ScriptNodeConfigSchema = z.object({
@@ -27,6 +37,7 @@ export const ScriptNodeConfigSchema = z.object({
   }).optional(),
   flowId: z.string().optional(),
   arguments: z.record(z.string(), z.unknown()).optional(),
+  outputMapping: z.union([ScriptOutputMappingSchema, z.array(ScriptOutputMappingSchema)]).optional(),
 });
 
 /**
@@ -61,6 +72,7 @@ export const InteractiveScriptNodeConfigSchema = z.object({
   promptPatterns: z.array(z.string()).optional(),
   maxRounds: z.number().int().positive().optional(),
   roundTimeout: z.number().positive().optional(),
+  outputMapping: z.union([ScriptOutputMappingSchema, z.array(ScriptOutputMappingSchema)]).optional(),
 });
 
 export const isInteractiveScriptNodeConfig = (config: unknown): config is z.infer<typeof InteractiveScriptNodeConfigSchema> => {

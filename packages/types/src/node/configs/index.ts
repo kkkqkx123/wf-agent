@@ -83,6 +83,7 @@ export {
 
 export {
   ScriptNodeConfigSchema,
+  ScriptOutputMappingSchema,
   InteractiveScriptNodeConfigSchema,
   isScriptNodeConfig,
   isInteractiveScriptNodeConfig,

@@ -173,26 +173,30 @@ export class WorkflowNavigator {
       return null;
     }
 
-    // Sort by weight (with higher weights taking precedence)
     const sortedEdges = [...outgoingEdges].sort((a, b) => {
-      return (b.weight || 0) - (a.weight || 0);
+      return (b.weight ?? 0) - (a.weight ?? 0);
     });
 
-    // First pass: Try to find a CONDITIONAL edge that matches (respecting weight priority)
     for (const edge of sortedEdges) {
       if (edge.type === "CONDITIONAL") {
-        const condition = edge.originalEdge?.condition;
-        if (condition && conditionEvaluator(condition)) {
-          return {
-            selectedNodeId: edge.targetNodeId,
-            edgeId: edge.id,
-            reason: "CONDITION_MATCHED",
-          };
+        const condition = edge.condition ?? edge.originalEdge?.condition;
+        if (!condition) {
+          continue;
+        }
+        try {
+          if (conditionEvaluator(condition)) {
+            return {
+              selectedNodeId: edge.targetNodeId,
+              edgeId: edge.id,
+              reason: "CONDITION_MATCHED",
+            };
+          }
+        } catch {
+          continue;
         }
       }
     }
 
-    // Second pass: If no CONDITIONAL edge matched, use DEFAULT edge (if exists)
     for (const edge of sortedEdges) {
       if (edge.type === "DEFAULT") {
         return {
@@ -203,7 +207,6 @@ export class WorkflowNavigator {
       }
     }
 
-    // No edge meets the conditions.
     return null;
   }
 

@@ -31,6 +31,60 @@ describe("validateScriptNode", () => {
         expect(result.value).toEqual(validNode);
       }
     });
+
+    it("should validate SCRIPT node with single outputMapping", () => {
+      const node: StaticNode = {
+        id: "script-om-1",
+        name: "Output Mapping",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: { target: "variable", key: "myVar", description: "test" },
+        },
+      } as StaticNode;
+
+      const result = validateScriptNode(node);
+
+      expect(result.isOk()).toBe(true);
+    });
+
+    it("should validate SCRIPT node with outputMapping array", () => {
+      const node: StaticNode = {
+        id: "script-om-2",
+        name: "Output Mapping Array",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: [
+            { target: "variable", key: "var1" },
+            { target: "output", key: "out1", path: "result.data" },
+          ],
+        },
+      } as StaticNode;
+
+      const result = validateScriptNode(node);
+
+      expect(result.isOk()).toBe(true);
+    });
+
+    it("should validate SCRIPT node with outputMapping with path", () => {
+      const node: StaticNode = {
+        id: "script-om-3",
+        name: "Path Mapping",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: { target: "variable", key: "extracted", path: "deeply.nested.value" },
+        },
+      } as StaticNode;
+
+      const result = validateScriptNode(node);
+
+      expect(result.isOk()).toBe(true);
+    });
   });
 
   describe("invalid SCRIPT nodes", () => {
@@ -68,6 +122,60 @@ describe("validateScriptNode", () => {
       const result = validateScriptNode(missingScriptNode);
 
       // Assert
+      expect(result.isErr()).toBe(true);
+    });
+
+    it("should reject outputMapping with invalid target", () => {
+      const node: StaticNode = {
+        id: "script-inv-1",
+        name: "Invalid Target",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: { target: "invalid", key: "myVar" },
+        },
+      } as any as StaticNode;
+
+      const result = validateScriptNode(node);
+
+      expect(result.isErr()).toBe(true);
+    });
+
+    it("should reject outputMapping with empty key", () => {
+      const node: StaticNode = {
+        id: "script-inv-2",
+        name: "Empty Key",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: { target: "variable", key: "" },
+        },
+      } as any as StaticNode;
+
+      const result = validateScriptNode(node);
+
+      expect(result.isErr()).toBe(true);
+    });
+
+    it("should reject outputMapping array with invalid entry", () => {
+      const node: StaticNode = {
+        id: "script-inv-3",
+        name: "Invalid Array Entry",
+        type: "SCRIPT",
+        config: {
+          scriptName: "test-script",
+          risk: "low",
+          outputMapping: [
+            { target: "variable", key: "valid" },
+            { target: "output", key: "" },
+          ],
+        },
+      } as any as StaticNode;
+
+      const result = validateScriptNode(node);
+
       expect(result.isErr()).toBe(true);
     });
   });

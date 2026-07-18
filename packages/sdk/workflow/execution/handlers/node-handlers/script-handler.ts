@@ -22,6 +22,23 @@ import type { ScriptRegistry, ScriptExecutionService } from "../../../../shared/
 import type { GlobalContext } from "../../../../shared/global-context.js";
 
 /**
+ * Extract a nested value from an object using a dot-separated path expression.
+ * e.g. extractPath({ a: { b: 1 } }, "a.b") => 1
+ */
+export function extractPath(obj: unknown, path: string): unknown {
+  if (!path) return obj;
+  const keys = path.split(".");
+  let current: unknown = obj;
+  for (const key of keys) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
  * Script Node Processing Function
  * @param globalContext Global context for accessing DI container
  * @param workflowExecutionEntity WorkflowExecutionEntity instance
@@ -89,6 +106,31 @@ export async function scriptHandler(
         throw result.error;
       }
       result = result.value;
+    }
+
+    // Apply output mappings to persist script result to workflow data
+    if (config.outputMapping) {
+      const mappings = Array.isArray(config.outputMapping)
+        ? config.outputMapping
+        : [config.outputMapping];
+
+      for (const mapping of mappings) {
+        let value: unknown = result;
+
+        if (mapping.path) {
+          value = extractPath(result, mapping.path);
+        }
+
+        if (mapping.target === "variable") {
+          workflowExecutionEntity.setVariable(mapping.key, value);
+        } else {
+          const currentOutput = workflowExecutionEntity.getOutput();
+          workflowExecutionEntity.setOutput({
+            ...currentOutput,
+            [mapping.key]: value,
+          });
+        }
+      }
     }
 
     return result;

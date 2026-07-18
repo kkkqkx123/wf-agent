@@ -34,9 +34,9 @@ const logger = createContextualLogger({ component: "WorkflowExecutionCoordinator
  * - Flow orchestration: call the components in the right order
  */
 export class WorkflowExecutionCoordinator {
-  // [Issue 4 Fix] Track workflow-level retry statistics
   private _workflowRetryCount: number = 0;
   private _workflowRetryDelays: number[] = [];
+  private _navigationCount: number = 0;
 
   constructor(
     private readonly workflowExecutionEntity: WorkflowExecutionEntity,
@@ -88,11 +88,17 @@ export class WorkflowExecutionCoordinator {
 
       // Use unified interruption handling wrapper
       const result = await executeWithInterruptionHandling(async _signal => {
-        // Execution process orchestration
+        const nodeCount = this.navigator.getGraph().getNodeCount();
         while (true) {
-          // Get the current node
           const currentNodeId = this.workflowExecutionEntity.getCurrentNodeId();
           if (!currentNodeId) {
+            break;
+          }
+
+          if (this._navigationCount > nodeCount) {
+            this.workflowExecutionEntity.state.fail(
+              new Error(`Cycle detected: exceeded maximum navigation count (${nodeCount})`),
+            );
             break;
           }
 
@@ -463,33 +469,46 @@ export class WorkflowExecutionCoordinator {
    * @returns true if navigation succeeded, false if workflow end reached
    */
   private navigateToNextNode(currentNodeId: string, nodeResult: NodeExecutionResult): boolean {
-    // Priority 1: handler explicitly specified nextNodeId (extracted from output)
+    this._navigationCount++;
+
     const handlerNextId = this.extractRoutingHint(nodeResult);
     if (handlerNextId) {
       if (this.navigator.isValidTarget(currentNodeId, handlerNextId)) {
         this.workflowExecutionEntity.setCurrentNodeId(handlerNextId);
         return true;
       }
-      logger.warn("Handler-specified nextNodeId is not a valid edge target, falling back to edge routing", {
-        executionId: this.workflowExecutionEntity.id,
-        currentNodeId,
-        handlerNextId,
-      });
+      this.workflowExecutionEntity.state.fail(
+        new Error(
+          `Handler-specified nextNodeId '${handlerNextId}' is not a valid edge target from node '${currentNodeId}'`,
+        ),
+      );
+      return false;
     }
 
     const outgoingEdges = this.navigator.getGraph().getOutgoingEdges(currentNodeId);
 
-    if (outgoingEdges.length <= 1) {
-      // Single outgoing edge or no edges: linear navigation
-      const nextNode = this.navigator.getNextNode(currentNodeId);
-      if (nextNode && nextNode.nextNodeId) {
-        this.workflowExecutionEntity.setCurrentNodeId(nextNode.nextNodeId);
-        return true;
-      }
+    if (outgoingEdges.length === 0) {
       return false;
     }
 
-    // Multiple outgoing edges: edge-condition-based routing (fallback)
+    if (outgoingEdges.length === 1) {
+      const singleEdge = outgoingEdges[0]!;
+      if (singleEdge.type === "CONDITIONAL") {
+        const evalContext = this.buildRoutingEvaluationContext();
+        const routingResult = this.navigator.routeNextNode(
+          currentNodeId,
+          (condition: Condition) => conditionEvaluator.evaluate(condition, evalContext),
+        );
+        if (routingResult) {
+          this.workflowExecutionEntity.setCurrentNodeId(routingResult.selectedNodeId);
+          return true;
+        }
+        return false;
+      }
+      this.workflowExecutionEntity.setCurrentNodeId(singleEdge.targetNodeId);
+      return true;
+    }
+
     const evalContext = this.buildRoutingEvaluationContext();
     const routingResult = this.navigator.routeNextNode(
       currentNodeId,

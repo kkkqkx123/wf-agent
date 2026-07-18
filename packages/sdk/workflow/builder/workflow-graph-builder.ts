@@ -82,6 +82,7 @@ export class WorkflowGraphBuilder {
         label: edge.label,
         description: edge.description,
         weight: edge.weight,
+        condition: edge.condition,
         originalEdge: edge,
       };
       graph.addEdge(workflowEdge);

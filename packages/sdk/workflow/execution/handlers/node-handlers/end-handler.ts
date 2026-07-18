@@ -5,7 +5,6 @@
 
 import type { RuntimeNode } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
-import { diffTimestamp } from "@wf-agent/common-utils";
 
 /**
  * Check whether the node can be executed (idempotency check — status check is handled centrally).

@@ -280,7 +280,7 @@ export async function loopEndHandler(
     if (outgoingEdges.length > 0) {
       // Prefer the edge that doesn't point back to LOOP_START
       const forwardEdge = outgoingEdges.find(e => e.targetNodeId !== config.loopStartNodeId);
-      nextNodeId = forwardEdge?.targetNodeId ?? outgoingEdges[0].targetNodeId;
+      nextNodeId = forwardEdge?.targetNodeId ?? outgoingEdges[0]!.targetNodeId;
     }
   }
 

@@ -16,6 +16,7 @@ import {
   ScriptInteractionCoordinator,
   type InputProvider,
 } from "../../coordinators/script-interaction-coordinator.js";
+import { extractPath } from "./script-handler.js";
 
 /**
  * Context for INTERACTIVE_SCRIPT node handler
@@ -59,6 +60,31 @@ export async function interactiveScriptHandler(
 
     if (!result.success) {
       throw new Error(result.error || "Interactive script execution failed");
+    }
+
+    // Apply output mappings to persist script output to workflow data
+    if (config.outputMapping) {
+      const mappings = Array.isArray(config.outputMapping)
+        ? config.outputMapping
+        : [config.outputMapping];
+
+      for (const mapping of mappings) {
+        let value: unknown = result.output;
+
+        if (mapping.path) {
+          value = extractPath(result, mapping.path);
+        }
+
+        if (mapping.target === "variable") {
+          workflowExecutionEntity.setVariable(mapping.key, value);
+        } else {
+          const currentOutput = workflowExecutionEntity.getOutput();
+          workflowExecutionEntity.setOutput({
+            ...currentOutput,
+            [mapping.key]: value,
+          });
+        }
+      }
     }
 
     return result;

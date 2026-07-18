@@ -37,6 +37,23 @@ export interface ScriptNodeConfig {
   arguments?: Record<string, unknown>;
   /** Sandbox configuration for script isolation */
   sandboxConfig?: import("../../script/script-sandbox.js").SandboxConfig;
+  /** Optional: map script output to workflow data */
+  outputMapping?: ScriptOutputMapping | ScriptOutputMapping[];
+}
+
+/**
+ * Script output mapping configuration
+ * Defines how script execution result should be persisted to workflow data
+ */
+export interface ScriptOutputMapping {
+  /**Target type: 'variable' writes to runtime variables, 'output' writes to workflow output */
+  target: 'variable' | 'output';
+  /** Variable name or output key */
+  key: string;
+  /** Optional DSL expression to extract/transform a sub-value from the result */
+  path?: string;
+  /** Optional description for documentation purposes */
+  description?: string;
 }
 
 /**
@@ -71,4 +88,6 @@ export interface InteractiveScriptNodeConfig {
   roundTimeout?: number;
   /** Sandbox configuration for script isolation */
   sandboxConfig?: import("../../script/script-sandbox.js").SandboxConfig;
+  /** Optional: map script output to workflow data */
+  outputMapping?: ScriptOutputMapping | ScriptOutputMapping[];
 }

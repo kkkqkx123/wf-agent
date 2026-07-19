@@ -1,11 +1,11 @@
 /**
- * Metrics System - SDK Type Definitions
+ * Metrics Module - Shared Types and Interfaces
  *
- * Re-exports core metric types from @wf-agent/common-utils and adds
- * SDK-specific type extensions.
+ * Provides generic, domain-agnostic metric types and collector interfaces
+ * that can be used across all packages in the monorepo.
  */
 
-// Core types re-exported from shared common-utils/metrics module
+// Core metric types
 export {
   type MetricType,
   type BaseMetric,
@@ -24,6 +24,16 @@ export {
   type TrendDataPoint,
   type MetricTrend,
   type MetricReport,
+} from "./types.js";
+
+// Collector interfaces
+export {
   type MetricCollector,
   type MetricExporter,
-} from "@wf-agent/common-utils";
+} from "./collector.js";
+
+// Data point types (cross-package persistence contract)
+export {
+  type MetricDataPoint,
+  type MetricsQuery,
+} from "./data-point.js";

@@ -5,45 +5,10 @@
  * All storage implementations must be located in packages/storage.
  */
 
-/**
- * Metric data point structure
- */
-export interface MetricDataPoint {
-  /** Metric name (e.g., "workflow.execution.count") */
-  metricName: string;
-  /** Metric type */
-  metricType: 'counter' | 'gauge' | 'histogram';
-  /** Metric value */
-  value: number;
-  /** Timestamp in milliseconds */
-  timestamp: number;
-  /** Optional labels for filtering */
-  labels?: Record<string, string>;
-  /** Collector name that generated this metric */
-  collectorName: string;
-}
+import type { MetricDataPoint, MetricsQuery } from "@wf-agent/common-utils";
 
-/**
- * Metrics query parameters
- */
-export interface MetricsQuery {
-  /** Filter by metric name */
-  metricName?: string;
-  /** Filter by metric type */
-  metricType?: 'counter' | 'gauge' | 'histogram';
-  /** Time range start (Unix timestamp in milliseconds) */
-  startTime?: number;
-  /** Time range end (Unix timestamp in milliseconds) */
-  endTime?: number;
-  /** Filter by labels (all must match) */
-  labels?: Record<string, string>;
-  /** Filter by collector name */
-  collectorName?: string;
-  /** Maximum number of results */
-  limit?: number;
-  /** Sort order: 'asc' (oldest first) or 'desc' (newest first) */
-  sortOrder?: 'asc' | 'desc';
-}
+// Re-export data point types so existing storage-internal imports continue to work
+export { type MetricDataPoint, type MetricsQuery } from "@wf-agent/common-utils";
 
 /**
  * Metrics storage adapter interface

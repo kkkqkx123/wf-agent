@@ -31,6 +31,9 @@ export * from "./file-monitoring/index.js";
 // Cache Module (generic caching solution)
 export * from "./cache/index.js";
 
+// Metrics Module (shared metric types, collector interfaces, data point structures)
+export * from "./metrics/index.js";
+
 // Log system (selective export to avoid naming conflicts)
 export {
   createLogger,

@@ -6,6 +6,14 @@ import type {
   CheckpointChainLengthMetric,
   CheckpointMetricsEvent,
 } from "@wf-agent/types";
+import type {
+  MetricCollector,
+  Metric,
+  MetricFilter,
+  MetricQueryResult,
+  MetricReportCallback,
+  AggregatedMetric,
+} from "@wf-agent/common-utils";
 
 interface Logger {
   debug(msg: string, context?: Record<string, unknown>): void;
@@ -18,7 +26,7 @@ interface EventEmitter {
   (eventType: string, payload: unknown): Promise<void>;
 }
 
-export class CheckpointMetricsCollector {
+export class CheckpointMetricsCollector implements MetricCollector {
   private logger: Logger;
   private metrics = new Map<string, any>();
   private runningAverages: {
@@ -187,6 +195,91 @@ export class CheckpointMetricsCollector {
       creationSize: [],
     };
   }
+
+  // ============ MetricCollector Interface Implementation ============
+
+  /**
+   * Record a metric into the collector.
+   * For checkpoint metrics, this is a pass-through — use the
+   * specialized recordCreation/recordLoad/recordCleanup methods instead.
+   */
+  record(metric: Metric): void {
+    this.logger.debug("CheckpointMetricsCollector.record called", {
+      metricName: metric.metricName,
+      metricType: metric.metricType,
+    });
+  }
+
+  incrementCounter(metricName: string, _labels?: Record<string, string>, _increment?: number): void {
+    this.logger.debug("CheckpointMetricsCollector.incrementCounter", { metricName });
+  }
+
+  setGauge(metricName: string, value: number, _labels?: Record<string, string>): void {
+    this.logger.debug("CheckpointMetricsCollector.setGauge", { metricName, value });
+  }
+
+  observeHistogram(metricName: string, value: number, _labels?: Record<string, string>): void {
+    this.logger.debug("CheckpointMetricsCollector.observeHistogram", { metricName, value });
+  }
+
+  observeSummary(metricName: string, value: number, _labels?: Record<string, string>): void {
+    this.logger.debug("CheckpointMetricsCollector.observeSummary", { metricName, value });
+  }
+
+  async flush(): Promise<void> {
+    // Checkpoint metrics are in-memory only; no-op flush.
+  }
+
+  query(_filter: MetricFilter): MetricQueryResult {
+    return {
+      totalCount: this.metrics.size,
+      metrics: new Map<string, AggregatedMetric>(),
+      queryTime: 0,
+    };
+  }
+
+  onReport(_callback: MetricReportCallback, _options?: { interval?: number }): () => void {
+    // No periodic reporting for checkpoint metrics
+    return () => {};
+  }
+
+  clear(): void {
+    this.reset();
+  }
+
+  dispose(): void {
+    this.reset();
+    this.listeners = [];
+  }
+
+  toPrometheus(): string[] {
+    const lines: string[] = [];
+    for (const [key, value] of this.metrics.entries()) {
+      if (typeof value.lastCreationDuration === "number") {
+        lines.push(`checkpoint_creation_duration_ms{entity="${key}"} ${value.lastCreationDuration}`);
+      }
+      if (typeof value.lastLoadDuration === "number") {
+        lines.push(`checkpoint_load_duration_ms{entity="${key}"} ${value.lastLoadDuration}`);
+      }
+      if (typeof value.totalCreations === "number") {
+        lines.push(`checkpoint_creations_total{entity="${key}"} ${value.totalCreations}`);
+      }
+      if (typeof value.totalLoads === "number") {
+        lines.push(`checkpoint_loads_total{entity="${key}"} ${value.totalLoads}`);
+      }
+    }
+    return lines;
+  }
+
+  toJSON(): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of this.metrics.entries()) {
+      result[key] = value;
+    }
+    return result;
+  }
+
+  // ============ Private Helpers ============
 
   private emitEvent(
     type: CheckpointMetricsEvent["type"],

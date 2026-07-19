@@ -23,11 +23,20 @@ import type { LLMMessage } from "../message/index.js";
  * Defines how external variables are mapped into the workflow's internal scope
  */
 export interface WorkflowVariableInput {
-  /** External variable name (used by caller/parent workflow) */
+  /** External variable name (used by caller/parent workflow) - flat name lookup */
   externalName: string;
 
   /** Internal variable name (used within this workflow) */
   internalName: string;
+
+  /**
+   * Source path expression (optional, takes precedence over externalName).
+   * Supports nested access and array wildcards:
+   * - "user.name" - nested property
+   * - "items[0].title" - array index
+   * - "docs[*].content" - array wildcard (returns array of values)
+   */
+  sourcePath?: string;
 
   /** Whether this input is required */
   required?: boolean;
@@ -47,8 +56,16 @@ export interface WorkflowVariableOutput {
   /** Internal variable name (source within this workflow) */
   internalName: string;
 
-  /** External variable name (target for caller/parent workflow) */
+  /** External variable name (target for caller/parent workflow) - flat name */
   externalName: string;
+
+  /**
+   * Target path expression (optional, takes precedence over externalName).
+   * Supports nested path writing:
+   * - "output.result.answer" - write to nested path
+   * - "data.items[0].score" - write to array index
+   */
+  targetPath?: string;
 
   /** Description for documentation */
   description?: string;

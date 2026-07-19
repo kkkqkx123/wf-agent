@@ -12,6 +12,7 @@ import { z } from "zod";
 export const WorkflowVariableInputSchema = z.object({
   externalName: z.string().min(1, "External name (caller variable) is required"),
   internalName: z.string().min(1, "Internal name (workflow variable) is required"),
+  sourcePath: z.string().optional(),
   required: z.boolean().optional(),
   defaultValue: z.any().optional(),
   description: z.string().optional(),
@@ -24,6 +25,7 @@ export const WorkflowVariableInputSchema = z.object({
 export const WorkflowVariableOutputSchema = z.object({
   internalName: z.string().min(1, "Internal name (workflow variable) is required"),
   externalName: z.string().min(1, "External name (caller variable) is required"),
+  targetPath: z.string().optional(),
   description: z.string().optional(),
 });
 

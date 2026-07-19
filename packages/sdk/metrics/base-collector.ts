@@ -21,7 +21,8 @@ import type {
   MetricReportCallback,
   MetricReport,
 } from "./types.js";
-import type { MetricsStorageAdapter, MetricDataPoint } from "@wf-agent/storage";
+import type { MetricsStorageAdapter } from "@wf-agent/storage";
+import type { MetricDataPoint } from "@wf-agent/common-utils";
 
 const logger = createContextualLogger({ operation: "BaseMetricCollector" });
 

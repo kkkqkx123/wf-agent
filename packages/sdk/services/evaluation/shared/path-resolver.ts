@@ -198,6 +198,104 @@ export function setArrayItemByKey(
 }
 
 /**
+ * Resolve path with wildcard array access support.
+ *
+ * Extends resolvePath() to support [*] wildcard syntax for collecting
+ * values from all elements of an array.
+ *
+ * Supported patterns:
+ * - "items[*].name" → returns ["name1", "name2", ...] (array of name values)
+ * - "items[*]" → returns the array itself
+ * - "user.name" → same as resolvePath() (no wildcard, falls through)
+ * - "groups[*].items[*].id" → multiple wildcards, recursively flattened
+ *
+ * @param path Path string with optional [*] wildcard segments
+ * @param root Root object
+ * @returns The resolved value, array of values, or undefined
+ */
+export function resolvePathWithWildcard(path: string, root: unknown): unknown {
+  if (!path || !root) {
+    return undefined;
+  }
+
+  // If no wildcard, fall back to normal resolvePath
+  if (!path.includes("[*]")) {
+    return resolvePath(path, root);
+  }
+
+  // Verify path security
+  validatePath(path);
+
+  const parts = path.split(".");
+  return resolveWildcardRecursive(parts, 0, root);
+}
+
+/**
+ * Recursively resolve path segments with wildcard support.
+ * @internal
+ */
+function resolveWildcardRecursive(
+  parts: string[],
+  index: number,
+  current: unknown,
+): unknown {
+  if (index >= parts.length || current === null || current === undefined) {
+    return current;
+  }
+
+  const part = parts[index] as string;
+  const wildcardMatch = part.match(/^(\w+)\[\*\]$/);
+
+  if (wildcardMatch && wildcardMatch[1]) {
+    // Wildcard segment: expand across all array elements
+    const arrayName = wildcardMatch[1];
+    const array = (current as Record<string, unknown>)[arrayName];
+
+    if (!Array.isArray(array)) {
+      return undefined;
+    }
+
+    // If this is the last segment, return the array itself
+    if (index === parts.length - 1) {
+      return array;
+    }
+
+    // Recursively resolve remaining path for each element
+    const results: unknown[] = [];
+    for (const element of array) {
+      const value = resolveWildcardRecursive(parts, index + 1, element);
+      if (value !== undefined) {
+        if (Array.isArray(value)) {
+          // Flatten nested arrays from multiple wildcards
+          results.push(...value);
+        } else {
+          results.push(value);
+        }
+      }
+    }
+    return results;
+  }
+
+  // Regular segment (no wildcard)
+  const arrayMatch = part.match(/(\w+)\[(\d+)\]/);
+  let next: unknown;
+  if (arrayMatch && arrayMatch[1] && arrayMatch[2]) {
+    const arrayName = arrayMatch[1];
+    const arrIndex = parseInt(arrayMatch[2], 10);
+    next = (current as Record<string, unknown>)[arrayName];
+    if (Array.isArray(next)) {
+      next = next[arrIndex];
+    } else {
+      next = undefined;
+    }
+  } else {
+    next = (current as Record<string, unknown>)[part];
+  }
+
+  return resolveWildcardRecursive(parts, index + 1, next);
+}
+
+/**
  * Unified path resolver for evaluation context
  * Resolves paths that can reference input, output, or variables scopes
  *

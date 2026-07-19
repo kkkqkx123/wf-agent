@@ -74,6 +74,7 @@ export {
   pathExists,
   setPath,
   setArrayItemByKey,
+  resolvePathWithWildcard,
 } from "@sdk/services/evaluation/shared/index.js";
 
 export type { EvaluationContext } from "@wf-agent/types";

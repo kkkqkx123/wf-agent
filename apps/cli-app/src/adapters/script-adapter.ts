@@ -7,7 +7,7 @@ import { BaseAdapter } from "./base-adapter.js";
 import { resolve } from "path";
 import type { Script, ScriptExecutionOptions } from "@wf-agent/types";
 import { parseScript } from "@wf-agent/sdk/api";
-import { loadConfigFile } from "@wf-agent/config-processor";
+import { loadConfigFile } from "@wf-agent/runtime/config";
 import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import { CLINotFoundError } from "../types/cli-types.js";
 

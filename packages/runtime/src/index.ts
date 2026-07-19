@@ -28,8 +28,8 @@ export { BaseAppAdapter, AdapterError } from "./adapters/base-adapter.js";
 
 // Config - Shared configuration types and utilities
 export type { RuntimeStorageConfig, AppConfig } from "./config/types.js";
-export { parseConfigContent, loadConfigFromFile } from "./config/loader.js";
-export type { ConfigFormat, LoadedConfig } from "./config/loader.js";
+export { parseConfigContent, loadConfigFromFile, loadConfigFile, tryLoadConfigFile, readConfigFile, createAppConfigLoader } from "./config/loader.js";
+export type { ConfigFormat, LoadedConfig, AppConfigLoaderOptions, AppConfigLoader } from "./config/loader.js";
 export { DEFAULT_CONFIG } from "./config/defaults.js";
 export { ConfigAccessor } from "./config/accessor.js";
 export { ConfigValidator, validateConfig, validateConfigOrThrow } from "./config/validator.js";

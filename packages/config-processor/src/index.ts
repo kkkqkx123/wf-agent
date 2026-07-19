@@ -18,13 +18,6 @@
  * ```
  */
 
-// Generic file I/O utilities (re-exported from local copy)
-export {
-  readConfigFile,
-  loadConfigFile,
-  tryLoadConfigFile,
-} from "./config-file-loader.js";
-
 // Domain-specific config loaders
 export {
   loadMetricsConfig,

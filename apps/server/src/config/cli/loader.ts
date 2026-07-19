@@ -1,5 +1,5 @@
 /**
- * Server Configuration Loader (Refactored)
+ * Server Configuration Loader
  * Simplified configuration loading without cosmiconfig.
  * Uses SDK's parsing capabilities for TOML and JSON.
  * Uses centralized environment variable mapping from SDK.
@@ -7,17 +7,11 @@
  * Config file loading utilities inherited from @wf-agent/runtime/config.
  */
 
-import { loadConfigFromFile } from "@wf-agent/runtime/config";
-import { parseConfigContent } from "@wf-agent/runtime/config";
-import {
-  applyEnvOverrides,
-  EnvMappingEntry,
-} from "@wf-agent/sdk/api";
-import type { CLIConfig } from "./types.js";
+import { createAppConfigLoader } from "@wf-agent/runtime/config";
+import type { EnvMappingEntry } from "@wf-agent/sdk/api";
 import type { LogLevel, OutputFormat } from "@wf-agent/types";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
-import { ExecutionModeEnvVars } from "@wf-agent/runtime/mode";
 import { getOutput } from "../../utils/output.js";
 
 const output = getOutput();
@@ -35,66 +29,15 @@ const CLI_ENV_MAPPING: Record<string, EnvMappingEntry> = {
   maxConcurrentExecutions: { env: "SERVER_MAX_CONCURRENT", parser: (v: string) => parseInt(v, 10) },
 };
 
-/**
- * Load Server configuration from explicit path or default location
- * @param configPath Explicit config file path (optional)
- * @returns Validated configuration object
- */
-export async function loadConfig(configPath?: string): Promise<CLIConfig> {
-  const targetPath = configPath || "./.modular-agent.toml";
+const { loadConfig, loadConfigWithEnvOverride } = createAppConfigLoader({
+  defaultConfigFileName: "./.modular-agent.toml",
+  schema: CLIConfigSchema,
+  defaults: DEFAULT_CONFIG,
+  envMapping: CLI_ENV_MAPPING,
+  warn: (msg: string) => output.warnLog(msg),
+});
 
-  try {
-    const { content, format } = await loadConfigFromFile(targetPath);
-    const rawConfig = parseConfigContent(content, format);
-    const validatedConfig = CLIConfigSchema.parse(rawConfig);
-    return { ...DEFAULT_CONFIG, ...validatedConfig };
-  } catch (error) {
-    if (configPath) {
-      throw new Error(
-        `Failed to load config from ${configPath}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        { cause: error },
-      );
-    }
-
-    output.warnLog("Config file not found or invalid, using default configuration:", {
-      error: String(error),
-    });
-    return CLIConfigSchema.parse(DEFAULT_CONFIG);
-  }
-}
-
-/**
- * Load configuration with environment variable overrides.
- * Uses SDK's centralized env mapping system.
- */
-export async function loadConfigWithEnvOverride(configPath?: string): Promise<CLIConfig> {
-  const config = await loadConfig(configPath);
-
-  const result = applyEnvOverrides(config as unknown as Record<string, unknown>, CLI_ENV_MAPPING) as unknown as CLIConfig;
-
-  if (process.env["LOG_DIR"] && result.output) {
-    result.output = { ...result.output, dir: process.env["LOG_DIR"] };
-  }
-  if (process.env["STORAGE_DIR"]) {
-    if (result.storage?.sqlite) {
-      const sqlitePath = result.storage.sqlite.dbPath;
-      const dirName = sqlitePath.substring(0, sqlitePath.lastIndexOf("/") + 1) || "./";
-      const newDbPath = process.env["STORAGE_DIR"] + sqlitePath.substring(dirName.length);
-      result.storage.sqlite = { ...result.storage.sqlite, dbPath: newDbPath };
-    }
-  }
-
-  const envFormat = process.env[ExecutionModeEnvVars.OUTPUT_FORMAT];
-  if (envFormat === "json" || envFormat === "silent") {
-    result.outputFormat = envFormat as OutputFormat;
-  } else if (result.outputFormat === "json" && !envFormat) {
-    process.env[ExecutionModeEnvVars.OUTPUT_FORMAT] = "json";
-  }
-
-  return result;
-}
+export { loadConfig, loadConfigWithEnvOverride };
 
 /**
  * Get the server environment mapping definition.

@@ -8,7 +8,7 @@ import { BaseAdapter } from "./base-adapter.js";
 import { resolve } from "path";
 import type { Tool, ToolExecutionOptions } from "@wf-agent/types";
 import { StaticValidatorAPI, parseToml, parseJson } from "@wf-agent/sdk/api";
-import { loadConfigFile } from "@wf-agent/config-processor";
+import { loadConfigFile } from "@wf-agent/runtime/config";
 import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import type { ConfigurationValidationError } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";

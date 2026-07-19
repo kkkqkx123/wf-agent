@@ -28,7 +28,6 @@
   "dependencies": {
     "@commander-js/extra-typings": "^15.0.0",
     "@wf-agent/common-utils": "workspace:*",
-    "@wf-agent/config-processor": "workspace:*",
     "@wf-agent/runtime": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
     "@wf-agent/storage": "workspace:*",

@@ -5,7 +5,7 @@
 
 import { BaseAdapter } from "./base-adapter.js";
 import { resolve } from "path";
-import { loadConfigFile } from "@wf-agent/config-processor";
+import { loadConfigFile } from "@wf-agent/runtime/config";
 import { parseJson, parseToml } from "@wf-agent/sdk/api";
 import { AgentLoopDefinitionSchema } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";

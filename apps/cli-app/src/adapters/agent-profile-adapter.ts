@@ -1,6 +1,7 @@
 /**
  * Agent Profile Adapter
  * Encapsulates calls to the AgentProfileRegistry in the SDK DI container
+ * with persistence via SqliteAgentProfileStorage.
  */
 
 import { BaseAdapter } from "./base-adapter.js";
@@ -10,6 +11,9 @@ import { parseJson, parseToml } from "@wf-agent/sdk/api";
 import { AgentLoopDefinitionSchema } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 
+/**
+ * Agent profile metadata stored in the registry
+ */
 interface AgentProfileMeta {
   id: string;
   name: string;
@@ -18,8 +22,14 @@ interface AgentProfileMeta {
 
 /**
  * Agent Profile Adapter
+ * Uses the SDK's AgentProfileRegistry (from DI container) which has
+ * write-through persistence via SqliteAgentProfileStorage.
  */
 export class AgentProfileAdapter extends BaseAdapter {
+  private getRegistry() {
+    return this.sdk.getFactory().getDependencies().getAgentProfileRegistry();
+  }
+
   /**
    * Register an agent profile from a configuration file
    * @param filePath Agent configuration file path
@@ -43,6 +53,10 @@ export class AgentProfileAdapter extends BaseAdapter {
         description: config.description,
       };
 
+      // Persist via the registry (write-through to SQLite)
+      const registry = this.getRegistry();
+      await registry.registerProfile(meta);
+
       this.output.infoLog(`Agent profile registered: ${meta.id}`);
       return meta;
     }, "Register an agent profile");
@@ -54,6 +68,8 @@ export class AgentProfileAdapter extends BaseAdapter {
    */
   async registerFromMeta(meta: AgentProfileMeta): Promise<void> {
     return this.executeWithErrorHandling(async () => {
+      const registry = this.getRegistry();
+      await registry.registerProfile(meta);
       this.output.infoLog(`Agent profile registered: ${meta.id}`);
     }, "Register agent profile");
   }
@@ -63,7 +79,10 @@ export class AgentProfileAdapter extends BaseAdapter {
    */
   async listProfiles(): Promise<AgentProfileMeta[]> {
     return this.executeWithErrorHandling(async () => {
-      return [];
+      const registry = this.getRegistry();
+      // Registry.list() returns memory-cached profiles; storage is loaded
+      // during SDK bootstrap via initializeFromStorage().
+      return registry.list() as AgentProfileMeta[];
     }, "List agent profiles");
   }
 
@@ -73,7 +92,12 @@ export class AgentProfileAdapter extends BaseAdapter {
    */
   async getProfile(id: string): Promise<AgentProfileMeta> {
     return this.executeWithErrorHandling(async () => {
-      throw new CLINotFoundError(`Agent profile not found: ${id}`, "AgentProfile", id);
+      const registry = this.getRegistry();
+      const profile = registry.get(id) as AgentProfileMeta | undefined;
+      if (!profile) {
+        throw new CLINotFoundError(`Agent profile not found: ${id}`, "AgentProfile", id);
+      }
+      return profile;
     }, "Get agent profile");
   }
 
@@ -83,6 +107,8 @@ export class AgentProfileAdapter extends BaseAdapter {
    */
   async deleteProfile(id: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
+      const registry = this.getRegistry();
+      await registry.removeProfile(id);
       this.output.infoLog(`Agent profile deleted: ${id}`);
     }, "Delete agent profile");
   }

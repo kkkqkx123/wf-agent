@@ -1,10 +1,11 @@
 /**
  * Workflow Version Adapter
- * Wraps WorkflowRegistryAPI for version management
+ * Wraps WorkflowStorageAdapter for version management with persistence.
  */
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { ID } from "@wf-agent/types";
+import type { WorkflowVersionInfo } from "@wf-agent/types";
 
 export interface WorkflowVersion {
   id: ID;
@@ -39,40 +40,28 @@ export class WorkflowVersionAdapter extends BaseAdapter {
   }
 
   /**
-   * List all versions of a workflow
+   * List all versions of a workflow from the storage adapter.
    */
   async listVersions(workflowId: ID): Promise<WorkflowVersion[]> {
     return this.executeWithErrorHandling(async () => {
-      const factory = this.sdk.getFactory();
-      const deps = factory?.getDependencies?.();
-      if (!deps) throw new Error("SDK dependencies not available");
+      const deps = this.sdk.getFactory().getDependencies();
+      const storageAdapter = deps.getWorkflowStorageAdapter();
+      if (!storageAdapter) throw new Error("Workflow storage adapter not available");
 
-      const workflowRegistry = deps.getWorkflowRegistry?.();
-      if (!workflowRegistry) throw new Error("Workflow registry not available");
+      const versionInfos: WorkflowVersionInfo[] = await storageAdapter.listWorkflowVersions(workflowId);
 
-      const workflow = await workflowRegistry.get(workflowId);
-      if (!workflow) throw new Error(`Workflow not found: ${workflowId}`);
-
-      // Get workflow metadata and versions
-      const versions: WorkflowVersion[] = [];
-
-      // Add current version
-      if (workflow) {
-        versions.push({
-          id: workflow.id,
-          workflowId: workflowId,
-          version: (workflow as any).version || "1.0.0",
-          name: workflow.name || workflow.id,
-          description: workflow.description,
-          nodeCount: (workflow.nodes || []).length,
-          edgeCount: (workflow.edges || []).length,
-          createdAt: (workflow as any).createdAt || Date.now(),
-          updatedAt: (workflow as any).updatedAt || Date.now(),
-          author: (workflow as any).author,
-          tags: (workflow as any).tags,
-          category: (workflow as any).category,
-        });
-      }
+      const versions: WorkflowVersion[] = versionInfos.map((info) => ({
+        id: `${workflowId}@${info.version}`,
+        workflowId,
+        version: info.version,
+        name: info.version,
+        description: info.changeNote,
+        nodeCount: 0,
+        edgeCount: 0,
+        createdAt: info.createdAt,
+        updatedAt: info.createdAt,
+        author: info.createdBy,
+      }));
 
       this.logOperation(`Retrieved ${versions.length} version(s) for workflow: ${workflowId}`);
       return versions;

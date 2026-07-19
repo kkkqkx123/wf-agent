@@ -6,8 +6,6 @@
 import { BaseAdapter } from "./base-adapter.js";
 import {
   AgentLoopFactory,
-  AgentLoopCoordinator,
-  AgentLoopRegistry,
   AgentStateCoordinator,
   createAgentLoopCheckpoint,
   cleanupAgentLoop,
@@ -16,6 +14,7 @@ import {
   type AgentLoopCheckpointDependencies,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
+import type { AgentLoopRegistry, AgentLoopCoordinator } from "@wf-agent/sdk/agent";
 import { CLINotFoundError } from "../types/cli-types.js";
 import type {
   AgentLoopRuntimeConfig,
@@ -37,15 +36,11 @@ export class AgentLoopAdapter extends BaseAdapter {
 
   constructor() {
     super();
-    // Initialize registry and coordinator
-    this.registry = new AgentLoopRegistry();
-
-    // Get globalContext from SDK instance
-    const globalContext = this.sdk.getGlobalContext();
-
-    // Create a minimal executor configuration for the coordinator
-    // The actual tool execution and LLM integration will be handled by the SDK
-    this.coordinator = new AgentLoopCoordinator(this.registry, undefined as any, globalContext);
+    // Use the SDK's DI container instances so the registry is connected
+    // to SqliteAgentLoopStorage for automatic persistence on register().
+    const deps = this.sdk.getFactory().getDependencies();
+    this.registry = deps.getAgentLoopRegistry();
+    this.coordinator = deps.getAgentLoopCoordinator();
   }
 
   /**

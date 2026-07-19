@@ -23,7 +23,9 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
 
   constructor() {
     super();
-    this.checkpointAPI = new AgentLoopCheckpointResourceAPI();
+    // Use the SDK's DI container to get the API instance, ensuring it
+    // shares the same storage adapter as the rest of the system.
+    this.checkpointAPI = this.sdk.getFactory().getDependencies().getAgentLoopCheckpointResourceAPI();
   }
 
   /**

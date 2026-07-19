@@ -116,8 +116,8 @@ export class WorkflowAdapter extends BaseAdapter {
         version: wf.version,
         description: wf.description,
         status: "active",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: String(wf.createdAt),
+        updatedAt: String(wf.updatedAt),
       }));
 
       return summaries;

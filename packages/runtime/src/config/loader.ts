@@ -16,6 +16,7 @@
  */
 
 import * as fs from "fs/promises";
+import * as path from "path";
 import { getConfigFormatFromPath, type ConfigFormat as SDKConfigFormat } from "@wf-agent/sdk/api";
 import { parseJson, parseToml } from "@wf-agent/sdk/api";
 import { applyEnvOverrides, type EnvMapping } from "@wf-agent/sdk/api";
@@ -230,8 +231,10 @@ export function createAppConfigLoader<T extends Record<string, unknown>>(
       if (storage?.["sqlite"]) {
         const sqlite = storage["sqlite"] as Record<string, unknown>;
         const sqlitePath = sqlite["dbPath"] as string;
-        const dirName = sqlitePath.substring(0, sqlitePath.lastIndexOf("/") + 1) || "./";
-        const newDbPath = storageDir + sqlitePath.substring(dirName.length);
+        // Use path.basename to extract the filename portion, then
+        // join with storageDir — this works on both Windows and POSIX.
+        const dbFileName = path.basename(sqlitePath);
+        const newDbPath = path.join(storageDir, dbFileName);
         sqlite["dbPath"] = newDbPath;
       }
     }

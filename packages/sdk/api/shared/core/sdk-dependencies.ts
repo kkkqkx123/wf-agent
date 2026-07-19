@@ -26,6 +26,7 @@ import type { WorkflowGraphRegistry } from "../../../workflow/registry/workflow-
 import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
+import type { AgentProfileRegistry } from "../../../shared/registry/agent-profile-registry.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
 import type { TaskRegistry } from "../../../shared/registry/task-registry.js";
 import type {
@@ -178,6 +179,13 @@ export class APIDependencyManager {
    */
   getAgentLoopRegistry(): AgentLoopRegistry {
     return this.getFromContainer(Identifiers.AgentLoopRegistry as ServiceIdentifier<AgentLoopRegistry>);
+  }
+
+  /**
+   * Get the Agent Profile Registry
+   */
+  getAgentProfileRegistry(): AgentProfileRegistry {
+    return this.getFromContainer(Identifiers.AgentProfileRegistry as ServiceIdentifier<AgentProfileRegistry>);
   }
 
   /**

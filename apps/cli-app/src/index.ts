@@ -161,6 +161,14 @@ Command.prototype.action = function (fn: (...args: unknown[]) => unknown) {
     try {
       await fn(...args);
     } finally {
+      // Run cleanup (storage close, SDK destroy) before exit.
+      // This ensures SQLite connections are properly closed and WAL
+      // is checkpointed, preventing data loss or corruption.
+      try {
+        await shutdown();
+      } catch {
+        // Ignore shutdown errors during process exit
+      }
       process.exit(0);
     }
   };

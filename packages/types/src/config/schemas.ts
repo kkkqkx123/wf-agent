@@ -46,6 +46,10 @@ export const SqliteStorageConfigSchema = z.object({
   readonly: z.boolean(),
   fileMustExist: z.boolean(),
   timeout: z.number().positive(),
+  autoVacuum: z.enum(["NONE", "FULL", "INCREMENTAL"]).optional(),
+  journalSizeLimit: z.number().positive().optional(),
+  pageSize: z.number().positive().optional(),
+  maintenanceIntervalMs: z.number().nonnegative().optional(),
 });
 
 /**

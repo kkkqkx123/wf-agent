@@ -172,7 +172,7 @@ export async function join(
   parentExecutionId?: string,
   eventManager?: EventRegistry,
   variableOutputs?: Array<{ sourcePathId: string; variableName: string; targetName?: string }>,
-  messageOutputs?: Array<{ sourcePathId: string; internalName: string; externalName: string }>,
+   messageOutputs?: Array<{ sourcePathId: string; internalName: string; targetContextId: string }>,
   stateCoordinatorMap?: Map<string, WorkflowStateCoordinator>,
 ): Promise<JoinResult> {
   // Step 1: Verify the Join configuration
@@ -331,7 +331,7 @@ export async function join(
             logger.debug("Message context exported from branch to parent", {
               sourcePathId: msgOutput.sourcePathId,
               internalName: msgOutput.internalName,
-              externalName: msgOutput.externalName,
+              targetContextId: msgOutput.targetContextId,
               messageCount: clonedMessages.length,
               parentExecutionId,
             });

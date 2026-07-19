@@ -145,7 +145,7 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
         config: {
           messageInputs: [
             {
-              externalName: "initial",
+              sourceContextId: "initial",
               internalName: "default",
               required: true,
               defaultMessages: config.initialMessages ?? defaultInitialMessages,
@@ -173,11 +173,11 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
           loopId: "review-loop",
           maxIterations: config.maxIterations,
           variableInputs: [
-            { externalName: "status", internalName: "status", required: true },
-            { externalName: "complete", internalName: "complete", required: true },
-            { externalName: "judges", internalName: "judges", required: true },
-            { externalName: "rootRequirement", internalName: "rootRequirement", required: true },
-            { externalName: "iterationCount", internalName: "iterationCount", required: false, defaultValue: 0 },
+            { sourcePath: "status", internalName: "status", required: true },
+            { sourcePath: "complete", internalName: "complete", required: true },
+            { sourcePath: "judges", internalName: "judges", required: true },
+            { sourcePath: "rootRequirement", internalName: "rootRequirement", required: true },
+            { sourcePath: "iterationCount", internalName: "iterationCount", required: false, defaultValue: 0 },
           ],
         },
       },
@@ -199,10 +199,10 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
           inlineConfig: {
             ...executorInline,
             messageInputs: [
-              { externalName: "default", internalName: "system-context" },
+              { sourceContextId: "default", internalName: "system-context" },
             ],
             messageOutputs: [
-              { internalName: "system-context", externalName: "default" },
+              { internalName: "system-context", targetContextId: "default" },
             ],
           },
         },
@@ -219,10 +219,10 @@ export class GoalReviewStarter extends BaseStarter<GoalReviewConfig> {
               { parentField: "judges", internalName: "previous_judges" },
             ],
             messageInputs: [
-              { externalName: "default", internalName: "review-context" },
+              { sourceContextId: "default", internalName: "review-context" },
             ],
             messageOutputs: [
-              { internalName: "review-context", externalName: "default" },
+              { internalName: "review-context", targetContextId: "default" },
             ],
           },
         },

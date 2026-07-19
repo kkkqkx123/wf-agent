@@ -68,7 +68,7 @@ export function createLlmSummaryWorkflow(
       config: {
         messageInputs: [
           {
-            externalName: "conversationHistory",
+            sourceContextId: "conversationHistory",
             internalName: "current",
             required: true,
             description: "Full conversation history to be compressed",
@@ -118,7 +118,7 @@ export function createLlmSummaryWorkflow(
         messageOutputs: [
           {
             internalName: "current",
-            externalName: "current",
+            targetContextId: "current",
             description: "Compressed conversation summary (original context replaced)",
           },
         ],

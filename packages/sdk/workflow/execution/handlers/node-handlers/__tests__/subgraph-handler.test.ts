@@ -53,15 +53,15 @@ const createMockSubgraphNode = (config?: Partial<SubgraphNodeConfig>): RuntimeNo
     subgraphId: "child-workflow",
     async: false,
     variableInputs: [
-      { externalName: "parentVar1", internalName: "childVar1", required: true },
+      { sourcePath: "parentVar1", internalName: "childVar1", required: true },
       {
-        externalName: "parentVar2",
+        sourcePath: "parentVar2",
         internalName: "childVar2",
         required: false,
         defaultValue: "default",
       },
     ],
-    variableOutputs: [{ internalName: "childResult", externalName: "parentResult" }],
+    variableOutputs: [{ internalName: "childResult", targetPath: "parentResult" }],
     messagePassing: {
       inputs: [],
       outputs: [],
@@ -263,7 +263,7 @@ describe("subgraphHandler", () => {
   it("should handle optional output variable that is undefined", async () => {
     // Arrange
     const nodeWithOptionalOutput = createMockSubgraphNode({
-      variableOutputs: [{ internalName: "optionalResult", externalName: "parentOptionalResult" }],
+      variableOutputs: [{ internalName: "optionalResult", targetPath: "parentOptionalResult" }],
     });
 
     // Reset mock to return success (previous test set it to reject)

@@ -231,7 +231,7 @@ describe("validateSubgraphCompatibility", () => {
             subgraphId: "subworkflow-1",
             variableInputs: [
               {
-                externalName: "input1",
+                sourcePath: "input1",
                 internalName: "var1",
                 required: true,
                 defaultValue: "default",
@@ -254,7 +254,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableOutputs: [{ internalName: "var1", externalName: "output1" }],
+            variableOutputs: [{ internalName: "var1", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -272,8 +272,8 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "var1" }],
-            variableOutputs: [{ internalName: "var1", externalName: "output1" }],
+            variableInputs: [{ sourcePath: "input1", internalName: "var1" }],
+            variableOutputs: [{ internalName: "var1", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -296,7 +296,7 @@ describe("validateSubgraphCompatibility", () => {
   });
 
   describe("Invalid SUBGRAPH compatibility - variableInputs", () => {
-    it("should fail validation when variableInput has missing externalName", () => {
+    it("should fail validation when variableInput has missing sourcePath", () => {
       const graph = createGraph([
         { id: "start", type: "START" },
         {
@@ -304,7 +304,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableInputs: [{ externalName: "", internalName: "var1" }],
+            variableInputs: [{ sourcePath: "", internalName: "var1" }],
           },
         },
         { id: "end", type: "END" },
@@ -312,12 +312,12 @@ describe("validateSubgraphCompatibility", () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("missing externalName");
-      expect(errors[0]!.context?.["code"]).toBe("MISSING_EXTERNAL_NAME");
+      expect(errors[0]!.message).toContain("missing sourcePath");
+      expect(errors[0]!.context?.["code"]).toBe("MISSING_SOURCE_PATH");
       expect(errors[0]!.context?.["nodeId"]).toBe("subgraph1");
     });
 
-    it("should fail validation when variableInput has whitespace-only externalName", () => {
+    it("should fail validation when variableInput has whitespace-only sourcePath", () => {
       const graph = createGraph([
         { id: "start", type: "START" },
         {
@@ -325,7 +325,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableInputs: [{ externalName: "   ", internalName: "var1" }],
+            variableInputs: [{ sourcePath: "   ", internalName: "var1" }],
           },
         },
         { id: "end", type: "END" },
@@ -333,7 +333,7 @@ describe("validateSubgraphCompatibility", () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("missing externalName");
+      expect(errors[0]!.message).toContain("missing sourcePath");
     });
 
     it("should fail validation when variableInput has missing internalName", () => {
@@ -344,7 +344,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "" }],
+            variableInputs: [{ sourcePath: "input1", internalName: "" }],
           },
         },
         { id: "end", type: "END" },
@@ -364,7 +364,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "   " }],
+            variableInputs: [{ sourcePath: "input1", internalName: "   " }],
           },
         },
         { id: "end", type: "END" },
@@ -384,8 +384,8 @@ describe("validateSubgraphCompatibility", () => {
           config: {
             subgraphId: "subworkflow-1",
             variableInputs: [
-              { externalName: "", internalName: "" },
-              { externalName: "input2", internalName: "" },
+              { sourcePath: "", internalName: "" },
+              { sourcePath: "input2", internalName: "" },
             ],
           },
         },
@@ -406,7 +406,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableOutputs: [{ internalName: "", externalName: "output1" }],
+            variableOutputs: [{ internalName: "", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -427,7 +427,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableOutputs: [{ internalName: "   ", externalName: "output1" }],
+            variableOutputs: [{ internalName: "   ", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -438,7 +438,7 @@ describe("validateSubgraphCompatibility", () => {
       expect(errors[0]!.message).toContain("missing internalName");
     });
 
-    it("should fail validation when variableOutput has missing externalName", () => {
+    it("should fail validation when variableOutput has missing targetPath", () => {
       const graph = createGraph([
         { id: "start", type: "START" },
         {
@@ -446,7 +446,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableOutputs: [{ internalName: "var1", externalName: "" }],
+            variableOutputs: [{ internalName: "var1", targetPath: "" }],
           },
         },
         { id: "end", type: "END" },
@@ -454,11 +454,11 @@ describe("validateSubgraphCompatibility", () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("missing externalName");
-      expect(errors[0]!.context?.["code"]).toBe("MISSING_OUTPUT_EXTERNAL_NAME");
+      expect(errors[0]!.message).toContain("missing targetPath");
+      expect(errors[0]!.context?.["code"]).toBe("MISSING_OUTPUT_TARGET_PATH");
     });
 
-    it("should fail validation when variableOutput has whitespace-only externalName", () => {
+    it("should fail validation when variableOutput has whitespace-only targetPath", () => {
       const graph = createGraph([
         { id: "start", type: "START" },
         {
@@ -466,7 +466,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "subworkflow-1",
-            variableOutputs: [{ internalName: "var1", externalName: "   " }],
+            variableOutputs: [{ internalName: "var1", targetPath: "   " }],
           },
         },
         { id: "end", type: "END" },
@@ -474,7 +474,7 @@ describe("validateSubgraphCompatibility", () => {
 
       const errors = validateSubgraphCompatibility(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("missing externalName");
+      expect(errors[0]!.message).toContain("missing targetPath");
     });
 
     it("should report multiple errors for multiple invalid variableOutputs", () => {
@@ -486,8 +486,8 @@ describe("validateSubgraphCompatibility", () => {
           config: {
             subgraphId: "subworkflow-1",
             variableOutputs: [
-              { internalName: "", externalName: "" },
-              { internalName: "var2", externalName: "" },
+              { internalName: "", targetPath: "" },
+              { internalName: "var2", targetPath: "" },
             ],
           },
         },
@@ -508,7 +508,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "workflow-1",
-            variableInputs: [{ externalName: "", internalName: "var1" }],
+            variableInputs: [{ sourcePath: "", internalName: "var1" }],
           },
         },
         {
@@ -516,7 +516,7 @@ describe("validateSubgraphCompatibility", () => {
           type: "SUBGRAPH",
           config: {
             subgraphId: "workflow-2",
-            variableOutputs: [{ internalName: "var2", externalName: "" }],
+            variableOutputs: [{ internalName: "var2", targetPath: "" }],
           },
         },
         { id: "end", type: "END" },
@@ -525,9 +525,11 @@ describe("validateSubgraphCompatibility", () => {
       const errors = validateSubgraphCompatibility(graph);
       expect(errors.length).toBeGreaterThanOrEqual(2);
 
-      const inputErrors = errors.filter(e => e.context?.["code"] === "MISSING_EXTERNAL_NAME");
+      const inputErrors = errors.filter(
+        e => e.context?.["code"] === "MISSING_SOURCE_PATH",
+      );
       const outputErrors = errors.filter(
-        e => e.context?.["code"] === "MISSING_OUTPUT_EXTERNAL_NAME",
+        e => e.context?.["code"] === "MISSING_OUTPUT_TARGET_PATH",
       );
 
       expect(inputErrors.length).toBeGreaterThanOrEqual(1);

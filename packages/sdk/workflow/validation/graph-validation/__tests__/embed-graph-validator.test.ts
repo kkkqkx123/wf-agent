@@ -245,7 +245,7 @@ describe("validateEmbedGraphConstraints", () => {
           type: "EMBED_GRAPH",
           config: {
             embedId: "embedded-workflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "var1" }],
+            variableInputs: [{ sourcePath: "input1", internalName: "var1" }],
           },
         },
         { id: "end", type: "END" },
@@ -266,7 +266,7 @@ describe("validateEmbedGraphConstraints", () => {
           type: "EMBED_GRAPH",
           config: {
             embedId: "embedded-workflow-1",
-            variableOutputs: [{ internalName: "var1", externalName: "output1" }],
+            variableOutputs: [{ internalName: "var1", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -287,8 +287,8 @@ describe("validateEmbedGraphConstraints", () => {
           type: "EMBED_GRAPH",
           config: {
             embedId: "embedded-workflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "var1" }],
-            variableOutputs: [{ internalName: "var1", externalName: "output1" }],
+            variableInputs: [{ sourcePath: "input1", internalName: "var1" }],
+            variableOutputs: [{ internalName: "var1", targetPath: "output1" }],
           },
         },
         { id: "end", type: "END" },
@@ -308,7 +308,7 @@ describe("validateEmbedGraphConstraints", () => {
           type: "EMBED_GRAPH",
           config: {
             embedId: "workflow-1",
-            variableInputs: [{ externalName: "input1", internalName: "var1" }],
+            variableInputs: [{ sourcePath: "input1", internalName: "var1" }],
           },
         },
         {
@@ -316,7 +316,7 @@ describe("validateEmbedGraphConstraints", () => {
           type: "EMBED_GRAPH",
           config: {
             embedId: "workflow-2",
-            variableOutputs: [{ internalName: "var2", externalName: "output2" }],
+            variableOutputs: [{ internalName: "var2", targetPath: "output2" }],
           },
         },
         { id: "end", type: "END" },

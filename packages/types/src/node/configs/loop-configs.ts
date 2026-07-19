@@ -14,18 +14,18 @@ import type { Condition } from "../../condition.js";
  * Defines which parent workflow variables are accessible within the loop
  */
 export interface LoopVariableInput {
-  /** Parent workflow variable name (source) */
-  externalName: string;
-  
+  /** Source path expression for resolving value from parent workflow */
+  sourcePath: string;
+
   /** Loop internal variable name (target) */
   internalName: string;
-  
+
   /** Whether this input is required */
   required?: boolean;
-  
+
   /** Default value if parent variable is not found */
   defaultValue?: unknown;
-  
+
   /** Description for documentation */
   description?: string;
 }
@@ -95,13 +95,13 @@ export interface LoopStartNodeConfig {
    * ```typescript
    * variableInputs: [
    *   {
-   *     externalName: "config",        // Parent's variable
-   *     internalName: "loopConfig",    // Loop sees it as this name
+   *     sourcePath: "config",
+   *     internalName: "loopConfig",
    *     required: true,
    *     description: "Configuration for loop processing"
    *   },
    *   {
-   *     externalName: "threshold",
+   *     sourcePath: "threshold",
    *     internalName: "maxValue",
    *     defaultValue: 100
    *   }

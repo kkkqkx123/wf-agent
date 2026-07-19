@@ -79,7 +79,7 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               targetPathId: "path-b",
-              variableMappings: [{ externalName: "var1", internalName: "var2" }],
+              variableMappings: [{ sourcePath: "var1", internalName: "var2" }],
             },
           },
           { id: "node-b", type: "SCRIPT" },
@@ -315,7 +315,7 @@ describe("validateSyncNodes", () => {
       expect(errors[0]!.context?.["code"]).toBe("INVALID_SYNC_TARGET_PATH_ID");
     });
 
-    it("should error when variableMapping has missing externalName", () => {
+    it("should error when variableMapping has missing sourcePath", () => {
       const graph = createGraph(
         [
           { id: "start", type: "START" },
@@ -332,7 +332,7 @@ describe("validateSyncNodes", () => {
             type: "SYNC",
             config: {
               sourcePathId: "path-a",
-              variableMappings: [{ internalName: "var1" }],
+              variableMappings: [{ sourcePath: "", internalName: "var1" }],
             },
           },
           {
@@ -355,8 +355,8 @@ describe("validateSyncNodes", () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("missing externalName");
-      expect(errors[0]!.context?.["code"]).toBe("MISSING_SYNC_MAPPING_EXTERNAL_NAME");
+      expect(errors[0]!.message).toContain("missing sourcePath");
+      expect(errors[0]!.context?.["code"]).toBe("MISSING_SYNC_MAPPING_SOURCE_PATH");
     });
 
     it("should error when variableMapping has missing internalName", () => {
@@ -376,7 +376,7 @@ describe("validateSyncNodes", () => {
             type: "SYNC",
             config: {
               sourcePathId: "path-a",
-              variableMappings: [{ externalName: "var1" }],
+              variableMappings: [{ sourcePath: "var1" }],
             },
           },
           {
@@ -403,7 +403,7 @@ describe("validateSyncNodes", () => {
       expect(errors[0]!.context?.["code"]).toBe("MISSING_SYNC_MAPPING_INTERNAL_NAME");
     });
 
-    it("should error when variableMapping has duplicate externalName", () => {
+    it("should error when variableMapping has duplicate sourcePath", () => {
       const graph = createGraph(
         [
           { id: "start", type: "START" },
@@ -421,8 +421,8 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               variableMappings: [
-                { externalName: "var1", internalName: "var2" },
-                { externalName: "var1", internalName: "var3" },
+                { sourcePath: "var1", internalName: "var2" },
+                { sourcePath: "var1", internalName: "var3" },
               ],
             },
           },
@@ -446,8 +446,8 @@ describe("validateSyncNodes", () => {
 
       const errors = validateSyncNodes(graph);
       expect(errors).toHaveLength(1);
-      expect(errors[0]!.message).toContain("duplicate externalName");
-      expect(errors[0]!.context?.["code"]).toBe("DUPLICATE_SYNC_MAPPING_EXTERNAL_NAME");
+      expect(errors[0]!.message).toContain("duplicate sourcePath");
+      expect(errors[0]!.context?.["code"]).toBe("DUPLICATE_SYNC_MAPPING_SOURCE_PATH");
     });
 
     it("should error when variableMapping has duplicate internalName", () => {
@@ -468,8 +468,8 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               variableMappings: [
-                { externalName: "var1", internalName: "var2" },
-                { externalName: "var3", internalName: "var2" },
+                { sourcePath: "var1", internalName: "var2" },
+                { sourcePath: "var3", internalName: "var2" },
               ],
             },
           },
@@ -563,7 +563,7 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               targetPathId: "path-b",
-              variableMappings: [{ externalName: "var1", internalName: "shared" }],
+              variableMappings: [{ sourcePath: "var1", internalName: "shared" }],
             },
           },
           {
@@ -572,7 +572,7 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               targetPathId: "path-b",
-              variableMappings: [{ externalName: "var2", internalName: "shared" }],
+              variableMappings: [{ sourcePath: "var2", internalName: "shared" }],
             },
           },
           { id: "node-b", type: "SCRIPT" },
@@ -626,7 +626,7 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-a",
               targetPathId: "path-b",
-              variableMappings: [{ externalName: "varA", internalName: "varB" }],
+              variableMappings: [{ sourcePath: "varA", internalName: "varB" }],
             },
           },
           {
@@ -635,7 +635,7 @@ describe("validateSyncNodes", () => {
             config: {
               sourcePathId: "path-b",
               targetPathId: "path-a",
-              variableMappings: [{ externalName: "varB", internalName: "varA" }],
+              variableMappings: [{ sourcePath: "varB", internalName: "varA" }],
             },
           },
           { id: "node-b", type: "SCRIPT" },

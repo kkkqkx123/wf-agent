@@ -49,7 +49,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
   describe("importVariables", () => {
     it("should import required variable successfully with deep clone", () => {
       // Arrange
-      const mappings = [{ externalName: "parentVar1", internalName: "childVar1", required: true }];
+      const mappings = [{ sourcePath: "parentVar1", internalName: "childVar1", required: true }];
 
       // Act
       childManager.importVariables(parentManager, mappings);
@@ -62,7 +62,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should import object variable with deep clone to prevent mutation", () => {
       // Arrange
       const originalObject = { nested: { data: "test" } };
-      const mappings = [{ externalName: "parentVar2", internalName: "childVar2", required: true }];
+      const mappings = [{ sourcePath: "parentVar2", internalName: "childVar2", required: true }];
 
       // Act
       childManager.importVariables(parentManager, mappings);
@@ -80,7 +80,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should throw error when required variable is missing", () => {
       // Arrange
       const mappings = [
-        { externalName: "nonExistentVar", internalName: "childVar", required: true },
+        { sourcePath: "nonExistentVar", internalName: "childVar", required: true },
       ];
 
       // Act & Assert
@@ -98,7 +98,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
       const defaultValue = { default: "value" };
       const mappings = [
         {
-          externalName: "nonExistentVar",
+          sourcePath: "nonExistentVar",
           internalName: "childVar",
           required: false,
           defaultValue,
@@ -116,7 +116,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should skip optional variable without default value", () => {
       // Arrange
       const mappings = [
-        { externalName: "nonExistentVar", internalName: "childVar", required: false },
+        { sourcePath: "nonExistentVar", internalName: "childVar", required: false },
       ];
 
       // Act
@@ -143,7 +143,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
         throw new Error("structuredClone failed");
       });
 
-      const mappings = [{ externalName: "circularVar", internalName: "childVar", required: true }];
+      const mappings = [{ sourcePath: "circularVar", internalName: "childVar", required: true }];
 
       // Act
       childManager.importVariables(parentManager, mappings);
@@ -156,10 +156,10 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should import multiple variables with mixed requirements", () => {
       // Arrange
       const mappings = [
-        { externalName: "parentVar1", internalName: "childVar1", required: true },
-        { externalName: "parentVar2", internalName: "childVar2", required: false },
+        { sourcePath: "parentVar1", internalName: "childVar1", required: true },
+        { sourcePath: "parentVar2", internalName: "childVar2", required: false },
         {
-          externalName: "nonExistentVar",
+          sourcePath: "nonExistentVar",
           internalName: "childVar3",
           required: false,
           defaultValue: "default",
@@ -174,11 +174,117 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
       expect(childManager.getVariable("childVar2")).toEqual({ nested: { data: "test" } });
       expect(childManager.getVariable("childVar3")).toBe("default");
     });
+
+    it("should import using sourcePath for nested variable access", () => {
+      // Arrange
+      const mappings = [
+        {
+          sourcePath: "parentVar2.nested.data",
+          internalName: "childNested",
+          required: true,
+        },
+      ];
+
+      // Act
+      childManager.importVariables(parentManager, mappings);
+
+      // Assert
+      expect(childManager.getVariable("childNested")).toBe("test");
+    });
+
   });
 
-  describe("exportVariables", () => {
+  describe("resolvePath", () => {
+    it("should resolve simple path via getVariable", () => {
+      // Act
+      const value = parentManager.resolvePath("parentVar1");
+
+      // Assert
+      expect(value).toBe("value1");
+    });
+
+    it("should resolve nested path from serialized variables", () => {
+      // Act
+      const value = parentManager.resolvePath("parentVar2.nested.data");
+
+      // Assert
+      expect(value).toBe("test");
+    });
+
+    it("should return undefined for non-existent path", () => {
+      // Act
+      const value = parentManager.resolvePath("nonExistent.field");
+
+      // Assert
+      expect(value).toBeUndefined();
+    });
+
+    it("should return undefined for undefined path", () => {
+      // Act
+      const value = parentManager.resolvePath("");
+
+      // Assert
+      expect(value).toBeUndefined();
+    });
+  });
+
+  describe("setPath", () => {
+    it("should set simple path via setVariable (existing variable)", () => {
+      // Arrange
+      parentManager.registerVariable({
+        name: "mutableVar",
+        type: "string",
+        value: "old",
+        readonly: false,
+      });
+
+      // Act
+      parentManager.setPath("mutableVar", "new");
+
+      // Assert
+      expect(parentManager.getVariable("mutableVar")).toBe("new");
+    });
+
+    it("should set simple path by creating new variable", () => {
+      // Act
+      parentManager.setPath("newSimpleVar", "newValue");
+
+      // Assert
+      expect(parentManager.getVariable("newSimpleVar")).toBe("newValue");
+    });
+
+    it("should set nested path with existing root object", () => {
+      // Arrange
+      parentManager.registerVariable({
+        name: "config",
+        type: "object",
+        value: { existing: "keep" },
+        readonly: false,
+      });
+
+      // Act
+      parentManager.setPath("config.newField", "added");
+
+      // Assert
+      const config = parentManager.getVariable("config") as Record<string, unknown>;
+      expect(config.existing).toBe("keep");
+      expect(config.newField).toBe("added");
+    });
+
+    it("should create root object when setting nested path on non-existent root", () => {
+      // Act
+      parentManager.setPath("newRoot.nested.field", "deepValue");
+
+      // Assert
+      expect(parentManager.getVariable("newRoot")).toBeDefined();
+      const root = parentManager.getVariable("newRoot") as Record<string, unknown>;
+      expect((root.nested as Record<string, unknown>).field).toBe("deepValue");
+    });
+  });
+
+  describe("exportVariables with targetPath", () => {
     beforeEach(() => {
-      // Setup child variables - need to register them first
+      // Setup child variables
       childManager.registerVariable({
         name: "childResult",
         type: "string",
@@ -191,17 +297,11 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
         value: { result: "data" },
         readonly: false,
       });
-      childManager.registerVariable({
-        name: "childArray",
-        type: "array",
-        value: [1, 2, 3],
-        readonly: false,
-      });
     });
 
     it("should export variable successfully with deep clone", () => {
       // Arrange
-      const mappings = [{ internalName: "childResult", externalName: "parentResult" }];
+      const mappings = [{ internalName: "childResult", targetPath: "parentResult" }];
 
       // Act
       childManager.exportVariables(parentManager, mappings);
@@ -214,7 +314,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should export object variable with deep clone to prevent mutation", () => {
       // Arrange
       const originalObject = { result: "data" };
-      const mappings = [{ internalName: "childData", externalName: "parentData" }];
+      const mappings = [{ internalName: "childData", targetPath: "parentData" }];
 
       // Act
       childManager.exportVariables(parentManager, mappings);
@@ -231,7 +331,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
 
     it("should skip undefined output variable (optional output)", () => {
       // Arrange
-      const mappings = [{ internalName: "nonExistentVar", externalName: "parentOutput" }];
+      const mappings = [{ internalName: "nonExistentVar", targetPath: "parentOutput" }];
 
       // Act
       childManager.exportVariables(parentManager, mappings);
@@ -258,7 +358,7 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
         throw new Error("structuredClone failed");
       });
 
-      const mappings = [{ internalName: "circularResult", externalName: "parentResult" }];
+      const mappings = [{ internalName: "circularResult", targetPath: "parentResult" }];
 
       // Act
       childManager.exportVariables(parentManager, mappings);
@@ -271,9 +371,9 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
     it("should export multiple variables", () => {
       // Arrange
       const mappings = [
-        { internalName: "childResult", externalName: "parentResult" },
-        { internalName: "childData", externalName: "parentData" },
-        { internalName: "nonExistentVar", externalName: "parentOptional" }, // Should be skipped
+        { internalName: "childResult", targetPath: "parentResult" },
+        { internalName: "childData", targetPath: "parentData" },
+        { internalName: "nonExistentVar", targetPath: "parentOptional" }, // Should be skipped
       ];
 
       // Act
@@ -284,16 +384,47 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
       expect(parentManager.getVariable("parentData")).toEqual({ result: "data" });
       expect(parentManager.getVariable("parentOptional")).toBeUndefined();
     });
+
+    it("should export to nested path using targetPath", () => {
+      // Arrange
+      parentManager.registerVariable({
+        name: "output",
+        type: "object",
+        value: {},
+        readonly: false,
+      });
+      const mappings = [
+        { internalName: "childResult", targetPath: "output.status" },
+      ];
+
+      // Act
+      childManager.exportVariables(parentManager, mappings);
+
+      // Assert
+      const output = parentManager.getVariable("output") as Record<string, unknown>;
+      expect(output.status).toBe("success");
+    });
+
+    it("should export to simple path using targetPath", () => {
+      // Arrange
+      const mappings = [{ internalName: "childResult", targetPath: "simpleResult" }];
+
+      // Act
+      childManager.exportVariables(parentManager, mappings);
+
+      // Assert
+      expect(parentManager.getVariable("simpleResult")).toBe("success");
+    });
   });
 
   describe("integration - full SUBGRAPH variable flow", () => {
     it("should complete full import-execute-export cycle with isolation", () => {
       // Arrange
       const inputMappings = [
-        { externalName: "parentInput", internalName: "childInput", required: true },
+        { sourcePath: "parentInput", internalName: "childInput", required: true },
       ];
 
-      const outputMappings = [{ internalName: "childOutput", externalName: "parentOutput" }];
+      const outputMappings = [{ internalName: "childOutput", targetPath: "parentOutput" }];
 
       // Setup parent input
       const originalInput = { data: "original", nested: { value: 1 } };
@@ -342,6 +473,55 @@ describe("VariableManager - SUBGRAPH Variable Passing", () => {
       // Verify exported output contains modified child data
       expect(exportedOutput.input.data).toBe("modified");
       expect(exportedOutput.input.nested.value).toBe(2);
+    });
+
+    it("should complete full import-execute-export cycle with path-based mappings", () => {
+      // Arrange: use sourcePath for import and targetPath for export
+      parentManager.registerVariable({
+        name: "config",
+        type: "object",
+        value: { user: { name: "Alice", role: "admin" } },
+        readonly: false,
+      });
+      parentManager.registerVariable({
+        name: "resultBucket",
+        type: "object",
+        value: {},
+        readonly: false,
+      });
+
+      const inputMappings = [
+        {
+          sourcePath: "config.user.name",
+          internalName: "childName",
+          required: true,
+        },
+      ];
+
+      const outputMappings = [
+        { internalName: "childReport", targetPath: "resultBucket.report" },
+      ];
+
+      // Act - Import phase with sourcePath
+      childManager.importVariables(parentManager, inputMappings);
+
+      // Simulate child execution
+      expect(childManager.getVariable("childName")).toBe("Alice");
+
+      // Set child output
+      childManager.registerVariable({
+        name: "childReport",
+        type: "string",
+        value: "Report for Alice",
+        readonly: false,
+      });
+
+      // Export phase with targetPath
+      childManager.exportVariables(parentManager, outputMappings);
+
+      // Assert
+      const resultBucket = parentManager.getVariable("resultBucket") as Record<string, unknown>;
+      expect(resultBucket.report).toBe("Report for Alice");
     });
   });
 });

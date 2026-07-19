@@ -36,7 +36,7 @@ describe("validateEndNode", () => {
         name: "End Node 2",
         type: "END",
         config: {
-          variableOutputs: [{ internalName: "result", externalName: "output" }],
+          variableOutputs: [{ internalName: "result", targetPath: "output" }],
         },
       } as StaticNode;
 

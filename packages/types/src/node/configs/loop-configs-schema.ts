@@ -9,7 +9,7 @@ import { z } from "zod";
  * Loop variable input mapping schema
  */
 const loopVariableInputSchema = z.object({
-  externalName: z.string().min(1, "External name (parent variable) is required"),
+  sourcePath: z.string().min(1, "Source path is required for loop variable input mapping"),
   internalName: z.string().min(1, "Internal name (loop variable) is required"),
   required: z.boolean().optional(),
   defaultValue: z.any().optional(),

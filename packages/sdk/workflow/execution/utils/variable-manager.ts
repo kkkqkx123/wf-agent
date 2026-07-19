@@ -345,6 +345,114 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
   }
 
   /**
+   * Resolve a path expression from the variable store, with caching.
+   *
+   * Unified replacement for both `getVariable()` (simple paths) and
+   * `resolvePathWithWildcard(getAllVariables())` (nested/wildcard paths).
+   *
+   * - Simple paths (no dots, no brackets): O(1) Map lookup via `getVariable()` (includes cache + validation)
+   * - Nested paths (with dots): O(n) getAllVariables() + path traversal + cache
+   * - Wildcard paths (with [*]): O(n) getAllVariables() + recursive traversal
+   *
+   * @param path Path expression to resolve
+   * @returns The resolved value, or undefined if not found
+   */
+  resolvePath(path: string): unknown {
+    // Handle undefined or empty path
+    if (!path) {
+      return undefined;
+    }
+
+    // Simple path (no dots, no brackets) → delegate to getVariable() which has cache + validation
+    if (!this.isNestedPath(path)) {
+      return this.getVariable(path);
+    }
+
+    // Nested/wildcard path → resolve from serialized data
+    const data = this.getAllVariables();
+    const value = resolvePathWithWildcard(path, data);
+
+    // Cache simple result (single value, not array)
+    if (this.cacheEnabled && this.cache && !Array.isArray(value)) {
+      this.cache.set(path, { value, timestamp: Date.now() });
+    }
+
+    // Runtime validation for the root variable of the path
+    if (process.env["NODE_ENV"] === "development" && this.executionEntity) {
+      const rootName = path.split(".")[0]!.split("[")[0]!;
+      this.validateVariableAccess(rootName);
+    }
+
+    return value;
+  }
+
+  /**
+   * Check if a path expression contains nested access (dots or brackets).
+   * Simple paths are plain variable names that can use O(1) Map lookup.
+   */
+  private isNestedPath(path: string): boolean {
+    return path.includes(".") || path.includes("[");
+  }
+
+  /**
+   * Set a value at a path expression, with deep cloning.
+   *
+   * Unified replacement for both `setVariable()` (simple paths) and
+   * the legacy `exportToPath()` / `exportToFlatName()` branching.
+   *
+   * - Simple path (no dots): equivalent to `setVariable(name, value)`
+   * - Nested path: traverse/create intermediate objects, set leaf value
+   *
+   * @param path Path expression to write to
+   * @param value The value to set
+   * @param options Optional settings (e.g. freeze)
+   */
+  setPath(path: string, value: unknown, options?: { freeze?: boolean }): void {
+    const parts = path.split(".");
+    const rootName = parts[0]!;
+
+    if (parts.length === 1) {
+      // Simple path: auto-register if not exists, otherwise set
+      if (!this.hasVariable(rootName)) {
+        this.registerVariable({
+          name: rootName,
+          type: inferVariableType(value),
+          value,
+          readonly: false,
+        });
+      } else {
+        this.setVariable(rootName, value, options?.freeze);
+      }
+      return;
+    }
+
+    // Nested path: get or create root object, traverse, set
+    let rootObj = this.getVariable(rootName);
+    if (rootObj === undefined) {
+      rootObj = {};
+      this.registerVariable({
+        name: rootName,
+        type: "object",
+        value: rootObj,
+        readonly: false,
+      });
+    }
+
+    if (typeof rootObj !== "object" || rootObj === null) {
+      // Root is scalar, overwrite with nested object
+      const newObj = buildNestedObject(parts.slice(1), value);
+      this.setVariable(rootName, newObj, options?.freeze);
+      return;
+    }
+
+    // Deep clone before mutation
+    const clonedValue = structuredClone(value);
+    const relativePath = parts.slice(1).join(".");
+    setPath(relativePath, rootObj as Record<string, unknown>, clonedValue);
+    this.setVariable(rootName, rootObj);
+  }
+
+  /**
    * Check if variable exists
    * @param name Variable name
    * @returns true if variable is defined
@@ -481,10 +589,6 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * This is the ONLY way to receive variables from a parent workflow.
    * All imported variables are deep cloned to ensure complete isolation.
    *
-   * Supports two modes:
-   * 1. Flat name mapping (legacy): uses `externalName` to look up a variable by name
-   * 2. Path-based mapping (new): uses `sourcePath` to resolve a nested path expression
-   *
    * @param source Source VariableManager (parent)
    * @param mappings Explicit variable input mappings
    * @throws RuntimeValidationError if required variable is not found in source
@@ -492,12 +596,9 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * Example:
    * ```typescript
    * childManager.importVariables(parentManager, [
-   *   // Flat name mapping (legacy)
-   *   { externalName: 'user_id', internalName: 'uid', required: true },
-   *   // Path-based mapping (new)
-   *   { externalName: 'config', internalName: 'settings', sourcePath: 'user.profile.settings', defaultValue: {} },
-   *   // Array wildcard mapping
-   *   { externalName: 'docs', internalName: 'contexts', sourcePath: 'documents[*].content' },
+   *   { sourcePath: 'user.id', internalName: 'uid', required: true },
+   *   { sourcePath: 'user.profile.settings', internalName: 'settings', defaultValue: {} },
+   *   { sourcePath: 'documents[*].content', internalName: 'contexts' },
    * ]);
    * ```
    */
@@ -505,30 +606,16 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
     logger.debug("Importing variables from parent", { count: mappings.length });
 
     for (const mapping of mappings) {
-      // Resolve value: sourcePath takes precedence over externalName
-      let value: unknown;
-      let resolvedFrom = mapping.externalName;
-
-      if (mapping.sourcePath) {
-        // Path-based resolution using source's all variables as root object
-        const sourceData = source.getAllVariables();
-        value = resolvePathWithWildcard(mapping.sourcePath, sourceData);
-        resolvedFrom = `path:${mapping.sourcePath}`;
-      } else {
-        // Legacy flat name lookup
-        value = source.getVariable(mapping.externalName);
-      }
+      const value = source.resolvePath(mapping.sourcePath);
 
       if (value === undefined) {
         if (mapping.required) {
           throw new RuntimeValidationError(
-            `Required input variable '${mapping.externalName}' not found in parent workflow` +
-              (mapping.sourcePath ? ` (sourcePath: ${mapping.sourcePath})` : ""),
+            `Required input variable '${mapping.sourcePath}' not found in parent workflow`,
             {
               operation: "importVariables",
-              field: mapping.externalName,
+              field: mapping.sourcePath,
               context: {
-                externalName: mapping.externalName,
                 internalName: mapping.internalName,
                 sourcePath: mapping.sourcePath,
                 required: mapping.required,
@@ -549,7 +636,7 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
           });
           logger.debug("Used default value for optional input", {
             internalName: mapping.internalName,
-            resolvedFrom,
+            sourcePath: mapping.sourcePath,
           });
         }
       } else {
@@ -564,13 +651,13 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
             readonly: false,
           });
           logger.debug("Imported variable with deep clone", {
-            resolvedFrom,
+            sourcePath: mapping.sourcePath,
             internalName: mapping.internalName,
           });
         } catch (error) {
           // Handle cases where structuredClone fails (e.g., functions, DOM nodes)
           logger.warn("structuredClone failed, using shallow copy", {
-            resolvedFrom,
+            sourcePath: mapping.sourcePath,
             error,
           });
           // Auto-register variable during import
@@ -591,23 +678,14 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
    * This is the ONLY way to return variables to a parent workflow.
    * All exported variables are deep cloned before transfer.
    *
-   * Supports two modes:
-   * 1. Flat name writing (legacy): uses `externalName` to write to a named variable
-   * 2. Path-based writing (new): uses `targetPath` to write to a nested path
-   *    in the target's variable data. The root object for path resolution is the
-   *    target's `getAllVariables()` result. If the targetPath's first segment
-   *    already exists as a mutable object variable, it is mutated in-place.
-   *
    * @param target Target VariableManager (parent)
    * @param mappings Explicit variable output mappings
    *
    * Example:
    * ```typescript
    * childManager.exportVariables(parentManager, [
-   *   // Flat name writing (legacy)
-   *   { internalName: 'result', externalName: 'output' },
-   *   // Path-based writing (new)
-   *   { internalName: 'status', externalName: 'output_state', targetPath: 'output.state' },
+   *   { internalName: 'result', targetPath: 'output' },
+   *   { internalName: 'status', targetPath: 'output.state' },
    * ]);
    * ```
    */
@@ -618,141 +696,28 @@ export class VariableManager implements StateManager<VariableManagerSnapshot> {
       const value = this.getVariable(mapping.internalName);
 
       if (value !== undefined) {
-        if (mapping.targetPath) {
-          // Path-based writing: write to nested path in target's variable data
-          this.exportToPath(target, mapping, value);
-        } else {
-          // Legacy flat name write
-          this.exportToFlatName(target, mapping, value);
+        try {
+          const clonedValue = structuredClone(value);
+          target.setPath(mapping.targetPath, clonedValue);
+          logger.debug("Exported variable with deep clone", {
+            internalName: mapping.internalName,
+            targetPath: mapping.targetPath,
+          });
+        } catch (error) {
+          // Handle cases where structuredClone fails (e.g., functions, DOM nodes)
+          logger.warn("structuredClone failed during export, using shallow copy", {
+            internalName: mapping.internalName,
+            error,
+          });
+          target.setPath(mapping.targetPath, value);
         }
       } else {
         // Variable doesn't exist - silently skip (optional outputs)
         logger.debug("Skipping undefined output variable", {
           internalName: mapping.internalName,
-          externalName: mapping.externalName,
           targetPath: mapping.targetPath,
         });
       }
-    }
-  }
-
-  /**
-   * Export a value to a flat named variable in the target (legacy mode).
-   */
-  private exportToFlatName(
-    target: VariableManager,
-    mapping: WorkflowVariableOutput,
-    value: unknown,
-  ): void {
-    try {
-      // Deep clone before exporting
-      const clonedValue = structuredClone(value);
-      // Auto-register variable in target if not exists
-      if (!target.hasVariable(mapping.externalName)) {
-        target.registerVariable({
-          name: mapping.externalName,
-          type: inferVariableType(clonedValue),
-          value: clonedValue,
-          readonly: false,
-        });
-      } else {
-        target.setVariable(mapping.externalName, clonedValue);
-      }
-      logger.debug("Exported variable with deep clone", {
-        internalName: mapping.internalName,
-        externalName: mapping.externalName,
-      });
-    } catch (error) {
-      // Handle cases where structuredClone fails
-      logger.warn("structuredClone failed during export, using shallow copy", {
-        internalName: mapping.internalName,
-        error,
-      });
-      if (!target.hasVariable(mapping.externalName)) {
-        target.registerVariable({
-          name: mapping.externalName,
-          type: inferVariableType(value),
-          value: value,
-          readonly: false,
-        });
-      } else {
-        target.setVariable(mapping.externalName, value);
-      }
-    }
-  }
-
-  /**
-   * Export a value to a nested path in the target's variable data.
-   *
-   * Strategy: The first segment of the targetPath is a flat variable name in the
-   * target. If that variable exists and is mutable, we mutate it in-place via setPath().
-   * If it doesn't exist, we create it as a plain object and register it.
-   */
-  private exportToPath(
-    target: VariableManager,
-    mapping: WorkflowVariableOutput,
-    value: unknown,
-  ): void {
-    const targetPath = mapping.targetPath!;
-    const parts = targetPath.split(".");
-    const rootVarName = parts[0]!;
-
-    try {
-      const clonedValue = structuredClone(value);
-
-      // Check if the root variable already exists in target
-      if (target.hasVariable(rootVarName)) {
-        const rootObj = target.getVariable(rootVarName);
-        if (typeof rootObj === "object" && rootObj !== null) {
-          // Mutate in-place using setPath, then set back to ensure it's persisted
-          const mutableObj = rootObj as Record<string, unknown>;
-          // Use setPath to write to the nested location
-          // The path used is relative to the root object (skip first segment)
-          const relativePath = parts.slice(1).join(".");
-          if (relativePath) {
-            setPath(relativePath, mutableObj, clonedValue);
-          } else {
-            // targetPath is just a single segment - write as flat name
-            target.setVariable(rootVarName, clonedValue);
-            return;
-          }
-          // Write the root object back (it was mutated in-place, but ensure VariableManager knows)
-          target.setVariable(rootVarName, mutableObj);
-        } else {
-          // Root variable is a scalar - can't write to nested path, fall back to flat overwrite
-          logger.warn("Cannot write to nested path: root variable is not an object", {
-            internalName: mapping.internalName,
-            targetPath,
-            rootVarName,
-            rootType: typeof rootObj,
-          });
-          target.setVariable(rootVarName, clonedValue);
-        }
-      } else {
-        // Root variable doesn't exist - create the full path structure
-        // Build the nested object
-        const newObj = buildNestedObject(parts.slice(1), clonedValue);
-        target.registerVariable({
-          name: rootVarName,
-          type: "object",
-          value: newObj,
-          readonly: false,
-        });
-      }
-
-      logger.debug("Exported variable to nested path", {
-        internalName: mapping.internalName,
-        targetPath,
-      });
-    } catch (error) {
-      logger.warn("Failed to export variable to nested path, falling back to flat name", {
-        internalName: mapping.internalName,
-        targetPath,
-        externalName: mapping.externalName,
-        error,
-      });
-      // Fallback: write to flat name
-      this.exportToFlatName(target, mapping, value);
     }
   }
 

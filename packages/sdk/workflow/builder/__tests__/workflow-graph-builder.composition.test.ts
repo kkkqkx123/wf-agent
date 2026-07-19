@@ -314,11 +314,11 @@ describe("WorkflowGraphBuilder with Composition Pattern", () => {
         id: "start",
         name: "Start",
         type: "START",
-        config: { variableInputs: [{ externalName: "val", internalName: "v1" }] },
+        config: { variableInputs: [{ sourcePath: "val", internalName: "v1" }] },
       });
 
       expect(result.graph.metadata.nodeConfigs.size).toBe(1);
-      expect(result.graph.getNodeConfig("start")?.config).toEqual({ variableInputs: [{ externalName: "val", internalName: "v1" }] });
+      expect(result.graph.getNodeConfig("start")?.config).toEqual({ variableInputs: [{ sourcePath: "val", internalName: "v1" }] });
     });
 
     test("should support graph transformations while preserving metadata", () => {

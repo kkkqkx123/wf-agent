@@ -69,12 +69,15 @@ export function validateSubgraphCompatibility(
     nodeId: string;
     subworkflowId: string;
     variableInputs?: Array<{
-      externalName: string;
+      sourcePath: string;
       internalName: string;
       required?: boolean;
       defaultValue?: unknown;
     }>;
-    variableOutputs?: Array<{ internalName: string; externalName: string }>;
+    variableOutputs?: Array<{
+      internalName: string;
+      targetPath: string;
+    }>;
     dataInputs?: Array<{
       parentField: string;
       internalName: string;
@@ -89,12 +92,15 @@ export function validateSubgraphCompatibility(
         | {
             subgraphId?: string;
             variableInputs?: Array<{
-              externalName: string;
+              sourcePath: string;
               internalName: string;
               required?: boolean;
               defaultValue?: unknown;
             }>;
-            variableOutputs?: Array<{ internalName: string; externalName: string }>;
+            variableOutputs?: Array<{
+              internalName: string;
+              targetPath: string;
+            }>;
             dataInputs?: Array<{
               parentField: string;
               internalName: string;
@@ -121,15 +127,14 @@ export function validateSubgraphCompatibility(
     // Check variableInputs format
     if (subgraphNode.variableInputs && subgraphNode.variableInputs.length > 0) {
       for (const input of subgraphNode.variableInputs) {
-        // Validate that externalName and internalName are present
-        if (!input.externalName || !input.externalName.trim()) {
+        if (!input.sourcePath || !input.sourcePath.trim()) {
           errors.push(
             new ConfigurationValidationError(
-              `SUBGRAPH node '${subgraphNode.nodeId}' has variableInput with missing externalName`,
+              `SUBGRAPH node '${subgraphNode.nodeId}' has variableInput with missing sourcePath`,
               {
                 configType: "workflow",
                 context: {
-                  code: "MISSING_EXTERNAL_NAME",
+                  code: "MISSING_SOURCE_PATH",
                   nodeId: subgraphNode.nodeId,
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: input.internalName,
@@ -149,7 +154,6 @@ export function validateSubgraphCompatibility(
                   code: "MISSING_INTERNAL_NAME",
                   nodeId: subgraphNode.nodeId,
                   subworkflowId: subgraphNode.subworkflowId,
-                  externalName: input.externalName,
                 },
               },
             ),
@@ -167,7 +171,6 @@ export function validateSubgraphCompatibility(
     // Check variableOutputs format
     if (subgraphNode.variableOutputs && subgraphNode.variableOutputs.length > 0) {
       for (const output of subgraphNode.variableOutputs) {
-        // Validate that internalName and externalName are present
         if (!output.internalName || !output.internalName.trim()) {
           errors.push(
             new ConfigurationValidationError(
@@ -178,21 +181,21 @@ export function validateSubgraphCompatibility(
                   code: "MISSING_OUTPUT_INTERNAL_NAME",
                   nodeId: subgraphNode.nodeId,
                   subworkflowId: subgraphNode.subworkflowId,
-                  externalName: output.externalName,
+                  targetPath: output.targetPath,
                 },
               },
             ),
           );
         }
 
-        if (!output.externalName || !output.externalName.trim()) {
+        if (!output.targetPath || !output.targetPath.trim()) {
           errors.push(
             new ConfigurationValidationError(
-              `SUBGRAPH node '${subgraphNode.nodeId}' has variableOutput with missing externalName`,
+              `SUBGRAPH node '${subgraphNode.nodeId}' has variableOutput with missing targetPath`,
               {
                 configType: "workflow",
                 context: {
-                  code: "MISSING_OUTPUT_EXTERNAL_NAME",
+                  code: "MISSING_OUTPUT_TARGET_PATH",
                   nodeId: subgraphNode.nodeId,
                   subworkflowId: subgraphNode.subworkflowId,
                   internalName: output.internalName,

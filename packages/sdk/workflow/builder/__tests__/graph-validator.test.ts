@@ -288,7 +288,7 @@ describe("GraphValidator", () => {
             config: {
               sourcePathId: "path-a",
               targetPathId: "path-b",
-              variableMappings: [{ externalName: "result_a", internalName: "synced_result" }],
+              variableMappings: [{ sourcePath: "result_a", internalName: "synced_result" }],
             } as any,
           },
           {
@@ -552,7 +552,7 @@ describe("GraphValidator", () => {
               sourcePathId: "path-a",
               targetPathId: "path-b",
               variableMappings: [
-                { externalName: "", internalName: "target_var" }, // Empty externalName
+                { sourcePath: "", internalName: "target_var" }, // Empty sourcePath
               ],
             } as any,
           },
@@ -584,7 +584,7 @@ describe("GraphValidator", () => {
       expect(result.isErr()).toBe(true);
       if (result.isErr()) {
         expect(
-          result.error.some(e => e.message.includes("SYNC") && e.message.includes("externalName")),
+          result.error.some(e => e.message.includes("SYNC") && e.message.includes("sourcePath")),
         ).toBe(true);
       }
     });

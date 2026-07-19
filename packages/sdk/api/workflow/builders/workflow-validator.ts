@@ -134,10 +134,11 @@ export class WorkflowValidator {
 
         if (config.variableInputs && config.variableInputs.length > 0) {
           for (const input of config.variableInputs) {
-            const parentVar = variables.find(v => v.name === input.externalName);
+            const rootName = input.sourcePath.split(".")[0]!.split("[")[0]!;
+            const parentVar = variables.find(v => v.name === rootName);
             if (!parentVar && input.required && input.defaultValue === undefined) {
               errors.push(
-                `Subgraph '${node.id}' requires variable '${input.externalName}' which is not defined in parent workflow`,
+                `Subgraph '${node.id}' requires variable '${rootName}' which is not defined in parent workflow`,
               );
             }
           }
@@ -161,10 +162,11 @@ export class WorkflowValidator {
 
         if (config.variableInputs && config.variableInputs.length > 0) {
           for (const input of config.variableInputs) {
-            const parentVar = variables.find(v => v.name === input.externalName);
+            const rootName = input.sourcePath.split(".")[0]!.split("[")[0]!;
+            const parentVar = variables.find(v => v.name === rootName);
             if (!parentVar && input.required && input.defaultValue === undefined) {
               errors.push(
-                `Loop '${config.loopId}' requires variable '${input.externalName}' which is not defined in parent workflow`,
+                `Loop '${config.loopId}' requires variable '${rootName}' which is not defined in parent workflow`,
               );
             }
           }

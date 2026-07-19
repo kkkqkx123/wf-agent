@@ -10,9 +10,8 @@ import { z } from "zod";
  * Defines how external variables are mapped into the workflow's internal scope
  */
 export const WorkflowVariableInputSchema = z.object({
-  externalName: z.string().min(1, "External name (caller variable) is required"),
+  sourcePath: z.string().min(1, "Source path is required for variable input mapping"),
   internalName: z.string().min(1, "Internal name (workflow variable) is required"),
-  sourcePath: z.string().optional(),
   required: z.boolean().optional(),
   defaultValue: z.any().optional(),
   description: z.string().optional(),
@@ -24,8 +23,7 @@ export const WorkflowVariableInputSchema = z.object({
  */
 export const WorkflowVariableOutputSchema = z.object({
   internalName: z.string().min(1, "Internal name (workflow variable) is required"),
-  externalName: z.string().min(1, "External name (caller variable) is required"),
-  targetPath: z.string().optional(),
+  targetPath: z.string().min(1, "Target path is required for variable output mapping"),
   description: z.string().optional(),
 });
 
@@ -34,7 +32,7 @@ export const WorkflowVariableOutputSchema = z.object({
  * Defines how named message contexts are passed into the workflow
  */
 export const WorkflowMessageInputSchema = z.object({
-  externalName: z.string().min(1, "External context ID is required"),
+  sourceContextId: z.string().min(1, "Source context ID is required"),
   internalName: z.string().min(1, "Internal context ID is required"),
   required: z.boolean().optional(),
   defaultMessages: z.array(z.any()).optional(),
@@ -47,7 +45,7 @@ export const WorkflowMessageInputSchema = z.object({
  */
 export const WorkflowMessageOutputSchema = z.object({
   internalName: z.string().min(1, "Internal context ID is required"),
-  externalName: z.string().min(1, "External context ID is required"),
+  targetContextId: z.string().min(1, "Target context ID is required"),
   description: z.string().optional(),
 });
 

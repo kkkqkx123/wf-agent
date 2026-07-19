@@ -137,18 +137,18 @@ export function validateSyncNodes(graph: WorkflowGraphStructure): ConfigurationV
 
     // Validate variableMappings format and consistency
     if (config.variableMappings && config.variableMappings.length > 0) {
-      const externalNames = new Set<string>();
+      const sourcePaths = new Set<string>();
       const internalNames = new Set<string>();
 
       for (const mapping of config.variableMappings) {
-        if (!mapping.externalName || !mapping.externalName.trim()) {
+        if (!mapping.sourcePath || !mapping.sourcePath.trim()) {
           errors.push(
             new ConfigurationValidationError(
-              `SYNC node '${nodeId}' has variableMapping with missing externalName`,
+              `SYNC node '${nodeId}' has variableMapping with missing sourcePath`,
               {
                 configType: "workflow",
                 context: {
-                  code: "MISSING_SYNC_MAPPING_EXTERNAL_NAME",
+                  code: "MISSING_SYNC_MAPPING_SOURCE_PATH",
                   nodeId,
                   internalName: mapping.internalName,
                 },
@@ -156,23 +156,23 @@ export function validateSyncNodes(graph: WorkflowGraphStructure): ConfigurationV
             ),
           );
         } else {
-          // Check for duplicate external names
-          if (externalNames.has(mapping.externalName)) {
+          // Check for duplicate source paths
+          if (sourcePaths.has(mapping.sourcePath)) {
             errors.push(
               new ConfigurationValidationError(
-                `SYNC node '${nodeId}' has duplicate externalName '${mapping.externalName}' in variableMappings`,
+                `SYNC node '${nodeId}' has duplicate sourcePath '${mapping.sourcePath}' in variableMappings`,
                 {
                   configType: "workflow",
                   context: {
-                    code: "DUPLICATE_SYNC_MAPPING_EXTERNAL_NAME",
+                    code: "DUPLICATE_SYNC_MAPPING_SOURCE_PATH",
                     nodeId,
-                    externalName: mapping.externalName,
+                    sourcePath: mapping.sourcePath,
                   },
                 },
               ),
             );
           }
-          externalNames.add(mapping.externalName);
+          sourcePaths.add(mapping.sourcePath);
         }
 
         if (!mapping.internalName || !mapping.internalName.trim()) {
@@ -184,7 +184,6 @@ export function validateSyncNodes(graph: WorkflowGraphStructure): ConfigurationV
                 context: {
                   code: "MISSING_SYNC_MAPPING_INTERNAL_NAME",
                   nodeId,
-                  externalName: mapping.externalName,
                 },
               },
             ),
@@ -209,12 +208,12 @@ export function validateSyncNodes(graph: WorkflowGraphStructure): ConfigurationV
           internalNames.add(mapping.internalName);
         }
 
-        // Check for self-mapping (externalName === internalName is allowed but should be warned)
-        if (mapping.externalName === mapping.internalName) {
+        // Check for self-mapping (sourcePath === internalName is allowed but should be warned)
+        if (mapping.sourcePath && mapping.sourcePath === mapping.internalName) {
           // This is allowed but we can add a warning in development mode
           if (process.env["NODE_ENV"] === "development") {
             logger.warn(
-              `[DEV] SYNC node '${nodeId}' has self-mapping: ${mapping.externalName} -> ${mapping.internalName}`,
+              `[DEV] SYNC node '${nodeId}' has self-mapping: ${mapping.sourcePath} -> ${mapping.internalName}`,
             );
           }
         }
@@ -654,23 +653,23 @@ function validateSyncNodePairing(
       // Check for circular variable dependencies
       for (const forwardMapping of sourceMapping) {
         const reverseMapping = reverseSyncNode.config.variableMappings.find(
-          rm => rm.externalName === forwardMapping.internalName,
+          rm => rm.sourcePath === forwardMapping.internalName,
         );
 
-        if (reverseMapping && reverseMapping.internalName === forwardMapping.externalName) {
+        if (reverseMapping && reverseMapping.internalName === forwardMapping.sourcePath) {
           // Circular dependency detected: A.x -> B.y and B.y -> A.x
           reportedCycles.add(cycleKey); // Mark as reported
           errors.push(
             new ConfigurationValidationError(
               `Circular variable dependency detected between SYNC nodes '${syncNode.nodeId}' and '${reverseSyncNode.nodeId}': ` +
-                `'${forwardMapping.externalName}' <-> '${forwardMapping.internalName}'`,
+                `'${forwardMapping.sourcePath}' <-> '${forwardMapping.internalName}'`,
               {
                 configType: "workflow",
                 context: {
                   code: "CIRCULAR_SYNC_DEPENDENCY",
                   nodeId: syncNode.nodeId,
                   pairedNodeId: reverseSyncNode.nodeId,
-                  variableName: forwardMapping.externalName,
+                  variableName: forwardMapping.sourcePath,
                 },
               },
             ),

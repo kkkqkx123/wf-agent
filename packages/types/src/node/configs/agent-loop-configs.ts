@@ -168,37 +168,37 @@ export interface AgentLoopNodeConfig {
      */
     dataInputs?: WorkflowDataInput[];
 
-    /**
-     * Message context inputs - explicitly maps named message contexts from
-     * the workflow's MessageContextRegistry to the agent loop's initial messages.
-     *
-     * Each entry specifies a source context (externalName) in the workflow registry
-     * and an internal name for the agent loop. The messages from all specified
-     * contexts are concatenated as initial messages for the agent loop execution.
-     *
-     * Example:
-     *   messageInputs: [
-     *     { externalName: "system-context", internalName: "system" },
-     *     { externalName: "conversation", internalName: "chat", required: true }
-     *   ]
-     */
+     /**
+      * Message context inputs - explicitly maps named message contexts from
+      * the workflow's MessageContextRegistry to the agent loop's initial messages.
+      *
+      * Each entry specifies a source context (sourceContextId) in the workflow registry
+      * and an internal name for the agent loop. The messages from all specified
+      * contexts are concatenated as initial messages for the agent loop execution.
+      *
+      * Example:
+      *   messageInputs: [
+      *     { sourceContextId: "system-context", internalName: "system" },
+      *     { sourceContextId: "conversation", internalName: "chat", required: true }
+      *   ]
+      */
     messageInputs?: WorkflowMessageInput[];
 
-    /**
-     * Message context outputs - explicitly maps the agent loop's accumulated
-     * messages back to named contexts in the workflow's MessageContextRegistry.
-     *
-     * After the agent loop completes execution, the messages from the agent loop's
-     * conversation manager are copied to the workflow registry under the specified
-     * external names. This ensures the workflow retains the conversation state
-     * for subsequent nodes or downstream processing.
-     *
-     * Example:
-     *   messageOutputs: [
-     *     { internalName: "agent-chat", externalName: "updated-conversation" }
-     *   ]
-     *   Result: workflow registry gets context "updated-conversation" with all messages
-     */
+     /**
+      * Message context outputs - explicitly maps the agent loop's accumulated
+      * messages back to named contexts in the workflow's MessageContextRegistry.
+      *
+      * After the agent loop completes execution, the messages from the agent loop's
+      * conversation manager are copied to the workflow registry under the specified
+      * target context IDs. This ensures the workflow retains the conversation state
+      * for subsequent nodes or downstream processing.
+      *
+      * Example:
+      *   messageOutputs: [
+      *     { internalName: "agent-chat", targetContextId: "updated-conversation" }
+      *   ]
+      *   Result: workflow registry gets context "updated-conversation" with all messages
+      */
     messageOutputs?: WorkflowMessageOutput[];
   };
 }

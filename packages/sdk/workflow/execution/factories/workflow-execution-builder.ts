@@ -74,12 +74,16 @@ export interface ChildExecutionConfig {
   nodeId?: string; // SUBGRAPH (node ID in parent)
   variableMapping?: {
     inputs?: Array<{
-      externalName: string;
+      sourcePath: string;
       internalName: string;
       required?: boolean;
       defaultValue?: unknown;
     }>;
-    outputs?: Array<{ internalName: string; externalName: string }>;
+    outputs?: Array<{
+      internalName: string;
+      targetPath: string;
+      description?: string;
+    }>;
   };
   /**
    * Data Mapping Configuration

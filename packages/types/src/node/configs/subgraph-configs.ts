@@ -84,13 +84,13 @@ export interface SubgraphNodeConfig {
    * ```typescript
    * variableInputs: [
    *   {
-   *     externalName: "apiKey",        // Parent's variable
-   *     internalName: "api_key",       // Child sees it as this name
+   *     sourcePath: "apiKey",
+   *     internalName: "api_key",
    *     required: true,
    *     description: "API key for authentication"
    *   },
    *   {
-   *     externalName: "config",
+   *     sourcePath: "config",
    *     internalName: "settings",
    *     defaultValue: { timeout: 5000 }
    *   }
@@ -137,19 +137,19 @@ export interface SubgraphNodeConfig {
    */
   dataInputs?: WorkflowDataInput[];
 
-  /**
-   * Message context passing configuration
-   *
-   * Maps parent workflow contexts to subgraph inputs,
-   * and subgraph outputs back to parent workflow contexts.
-   * This provides explicit control over message context flow between workflows.
-   *
-   * Reuses WorkflowMessageInput/WorkflowMessageOutput from boundary-config
-   * for consistency with other workflow boundary configurations.
-   *
-   * For inputs: externalName = parent context registry key, internalName = subgraph internal name
-   * For outputs: internalName = subgraph internal name, externalName = parent context registry key
-   */
+   /**
+    * Message context passing configuration
+    *
+    * Maps parent workflow contexts to subgraph inputs,
+    * and subgraph outputs back to parent workflow contexts.
+    * This provides explicit control over message context flow between workflows.
+    *
+    * Reuses WorkflowMessageInput/WorkflowMessageOutput from boundary-config
+    * for consistency with other workflow boundary configurations.
+    *
+    * For inputs: sourceContextId = parent context registry key, internalName = subgraph internal name
+    * For outputs: internalName = subgraph internal name, targetContextId = parent context registry key
+    */
   messagePassing?: {
     /** Input mappings - parent registry key → subgraph internal name */
     inputs?: WorkflowMessageInput[];

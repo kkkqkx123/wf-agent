@@ -247,7 +247,6 @@ function aggregateVariableOutputs(
   }
 
   // Export variables from source branch to parent using the output mappings
-  // variableOutputs: [{ internalName: branchVar, externalName: parentVar }]
   // This is semantically an export from branch → parent
   sourceBranch.variableStateManager.exportVariables(
     parentEntity.variableStateManager,
@@ -286,14 +285,14 @@ function aggregateMessageOutputs(
   }
 
   for (const outputDef of messageOutputs) {
-    const { internalName, externalName, sourcePathId } = outputDef;
+    const { internalName, targetContextId, sourcePathId } = outputDef;
     const sourceBranch = completedBranches.get(sourcePathId);
 
     if (!sourceBranch) {
       logger.warn("Source branch not found or not completed for message output", {
         sourcePathId,
         internalName,
-        externalName,
+        targetContextId,
       });
       continue;
     }
@@ -317,7 +316,7 @@ function aggregateMessageOutputs(
     }
 
     parentRegistry.register({
-      id: externalName,
+      id: targetContextId,
       messages: [...sourceContext.messages],
       createdAt: now(),
       updatedAt: now(),
@@ -332,7 +331,7 @@ function aggregateMessageOutputs(
     logger.debug("Aggregated message context output", {
       sourcePathId,
       internalName,
-      externalName,
+      targetContextId,
       messageCount: sourceContext.messages.length,
     });
   }

@@ -92,9 +92,9 @@ describe("validateAgentLoopNode", () => {
             workingContext: "thread-1",
             dataInputs: [{ parentField: "query", internalName: "query_text" }],
             messageInputs: [
-              { externalName: "system-context", internalName: "sys", required: true },
+              { sourceContextId: "system-context", internalName: "sys", required: true },
             ],
-            messageOutputs: [{ internalName: "agent-chat", externalName: "updated-conversation" }],
+            messageOutputs: [{ internalName: "agent-chat", targetContextId: "updated-conversation" }],
           },
         },
       };
@@ -334,7 +334,7 @@ describe("validateAgentLoopNode", () => {
           inlineConfig: {
             profileId: "DEFAULT",
             messageInputs: [
-              { externalName: "ctx" } as any, // Missing internalName
+              { sourceContextId: "ctx" } as any, // Missing internalName
             ],
           },
         },
@@ -361,7 +361,7 @@ describe("validateAgentLoopNode", () => {
           inlineConfig: {
             profileId: "DEFAULT",
             messageOutputs: [
-              { externalName: "ctx" } as any, // Missing internalName
+              { targetContextId: "ctx" } as any, // Missing internalName
             ],
           },
         },

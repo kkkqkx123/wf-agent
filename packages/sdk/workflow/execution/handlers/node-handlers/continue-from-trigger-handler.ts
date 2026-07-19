@@ -70,15 +70,15 @@ export async function continueFromTriggerHandler(
 
     if (registry && parentRegistry) {
       for (const outputDef of config.messageOutputs) {
-        const { internalName, externalName } = outputDef;
+        const { internalName, targetContextId } = outputDef;
 
         // Get the message context from subworkflow's registry
         const context = registry.get(internalName);
 
         if (context) {
-          // Copy to parent workflow's registry with external name
+          // Copy to parent workflow's registry with target context ID
           parentRegistry.register({
-            id: externalName,
+            id: targetContextId,
             messages: [...context.messages], // Shallow copy
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -92,19 +92,12 @@ export async function continueFromTriggerHandler(
     }
   }
 
-  // Handling variable outputs using new VariableManager architecture
+  // Export variable outputs to parent workflow using unified path engine
   if (config.variableOutputs && config.variableOutputs.length > 0) {
-    for (const outputDef of config.variableOutputs) {
-      const { internalName, externalName } = outputDef;
-
-      // Get the variable value from subworkflow's VariableManager
-      const value = workflowExecutionEntity.variableStateManager.getVariable(internalName);
-
-      if (value !== undefined) {
-        // Set the variable in main workflow's VariableManager with external name
-        mainWorkflowExecutionEntity.setVariable(externalName, value);
-      }
-    }
+    workflowExecutionEntity.variableStateManager.exportVariables(
+      mainWorkflowExecutionEntity.variableStateManager,
+      config.variableOutputs,
+    );
   }
 
   // Handle data outputs if configured: map internal variables to execution output keys

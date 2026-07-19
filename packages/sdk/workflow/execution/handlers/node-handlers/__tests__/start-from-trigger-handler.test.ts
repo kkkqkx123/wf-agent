@@ -69,7 +69,7 @@ describe("startFromTriggerHandler", () => {
       },
     };
     const config: WorkflowStartConfig = {
-      messageInputs: [{ externalName: "userName", internalName: "name", required: true }],
+      messageInputs: [{ sourceContextId: "userName", internalName: "name", required: true }],
     };
     const node = { id: "trigger-start-2", type: "START_FROM_TRIGGER", config } as RuntimeNode;
 
@@ -81,7 +81,7 @@ describe("startFromTriggerHandler", () => {
       triggerInput: {},
     };
     const config: WorkflowStartConfig = {
-      messageInputs: [{ externalName: "requiredField", internalName: "field", required: true }],
+      messageInputs: [{ sourceContextId: "requiredField", internalName: "field", required: true }],
     };
     const node = { id: "trigger-start-3", type: "START_FROM_TRIGGER", config } as RuntimeNode;
 

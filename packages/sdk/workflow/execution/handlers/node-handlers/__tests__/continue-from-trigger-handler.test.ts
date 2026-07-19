@@ -4,10 +4,21 @@ import type { WorkflowExecutionEntity } from "../../../../entities/workflow-exec
 import type { RuntimeNode, ContinueFromTriggerNodeConfig } from "@wf-agent/types";
 import type { ContinueFromTriggerHandlerContext } from "../continue-from-trigger-handler.js";
 
+const mockMainVariableManager = {
+  exportVariables: vi.fn(),
+  setPath: vi.fn(),
+};
+
 const mockMainEntity = {
   getWorkflowExecutionData: vi.fn(),
   setVariable: vi.fn(),
+  variableStateManager: mockMainVariableManager,
 } as unknown as WorkflowExecutionEntity;
+
+const mockSubVariableManager = {
+  getVariable: vi.fn(),
+  exportVariables: vi.fn(),
+};
 
 const mockMainExecution = {};
 
@@ -19,9 +30,7 @@ const mockSubEntity = {
   getWorkflowId: vi.fn().mockReturnValue("sub-wf"),
   getOutput: vi.fn().mockReturnValue({}),
   setOutput: vi.fn(),
-  variableStateManager: {
-    getVariable: vi.fn(),
-  },
+  variableStateManager: mockSubVariableManager,
 } as unknown as WorkflowExecutionEntity;
 
 const mockSubExecution = {};
@@ -56,7 +65,7 @@ describe("continueFromTriggerHandler", () => {
       mainWorkflowExecutionEntity: mockMainEntity,
     };
     const config: ContinueFromTriggerNodeConfig = {
-      messageOutputs: [{ internalName: "subCtx", externalName: "parentCtx" }],
+      messageOutputs: [{ internalName: "subCtx", targetContextId: "parentCtx" }],
     };
     const node = { id: "continue-trigger-1", type: "CONTINUE_FROM_TRIGGER", config } as RuntimeNode;
 
@@ -85,15 +94,18 @@ describe("continueFromTriggerHandler", () => {
       mainWorkflowExecutionEntity: mockMainEntity,
     };
     const config: ContinueFromTriggerNodeConfig = {
-      variableOutputs: [{ internalName: "childResult", externalName: "parentResult" }],
+      variableOutputs: [{ internalName: "childResult", targetPath: "parentResult" }],
     };
     const node = { id: "continue-trigger-2", type: "CONTINUE_FROM_TRIGGER", config } as RuntimeNode;
 
-    (mockSubEntity.variableStateManager.getVariable as any).mockReturnValue("some-value");
+    mockSubVariableManager.getVariable!.mockReturnValue("some-value");
 
     await continueFromTriggerHandler(mockSubEntity, node, context);
 
-    expect(mockMainEntity.setVariable).toHaveBeenCalledWith("parentResult", "some-value");
+    expect(mockSubVariableManager.exportVariables).toHaveBeenCalledWith(
+      mockMainVariableManager,
+      [{ internalName: "childResult", targetPath: "parentResult" }],
+    );
   });
 
   it("should throw when main workflow execution entity is missing", async () => {

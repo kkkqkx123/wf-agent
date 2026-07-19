@@ -60,8 +60,8 @@ describe("validateSubgraphNode", () => {
         config: {
           subgraphId: "child-workflow",
           async: false,
-          variableInputs: [{ externalName: "parentVar", internalName: "childVar", required: true }],
-          variableOutputs: [{ internalName: "childResult", externalName: "parentResult" }],
+          variableInputs: [{ sourcePath: "parentVar", internalName: "childVar", required: true }],
+          variableOutputs: [{ internalName: "childResult", targetPath: "parentResult" }],
         },
       };
 

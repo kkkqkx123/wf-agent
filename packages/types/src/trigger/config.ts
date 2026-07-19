@@ -275,7 +275,7 @@ export interface ExecuteTriggeredSubworkflowActionConfig {
     /** Variable mapping: parent variable name → subworkflow input name */
     variables?: Record<string, string>;
 
-    /** Message context mapping: parent context ID → subworkflow message input externalName */
+    /** Message context mapping: parent context ID → subworkflow message input sourceContextId */
     messageContexts?: Record<string, string>;
 
     /** Additional static parameters to pass */
@@ -301,7 +301,7 @@ export interface ExecuteTriggeredSubworkflowActionConfig {
 
     /** Message context output configuration */
     messageContexts?: {
-      /** List of message context externalNames to return */
+      /** List of message context targetContextIds to return */
       include?: string[];
 
       /** Whether to return all message contexts (default false) */

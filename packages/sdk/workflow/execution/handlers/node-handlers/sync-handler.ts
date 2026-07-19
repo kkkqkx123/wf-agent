@@ -353,8 +353,8 @@ export async function syncHandler(
 
       if (sourceRegistry && targetRegistry) {
         for (const inputDef of config.messageInputs) {
-          const { externalName, internalName, required, defaultMessages } = inputDef;
-          const sourceContext = sourceRegistry.get(externalName);
+          const { sourceContextId, internalName, required, defaultMessages } = inputDef;
+          const sourceContext = sourceRegistry.get(sourceContextId);
 
           if (sourceContext) {
             targetRegistry.register({
@@ -364,14 +364,14 @@ export async function syncHandler(
               updatedAt: Date.now(),
               metadata: {
                 ...sourceContext.metadata,
-                syncedFrom: externalName,
+                syncedFrom: sourceContextId,
                 sourceExecutionId: sourceExecutionEntity.id,
               } as Record<string, unknown>,
             });
           } else if (required) {
             throw new RuntimeValidationError(
-              `Required message context '${externalName}' not found in source branch`,
-              { operation: "syncHandler", field: "messageInputs", value: externalName },
+              `Required message context '${sourceContextId}' not found in source branch`,
+              { operation: "syncHandler", field: "messageInputs", value: sourceContextId },
             );
           } else if (defaultMessages && defaultMessages.length > 0) {
             targetRegistry.register({
@@ -409,7 +409,9 @@ export async function syncHandler(
     const syncedVariables: Record<string, unknown> = {};
     if (config.variableMappings) {
       for (const mapping of config.variableMappings) {
-        const value = sourceExecutionEntity.variableStateManager.getVariable(mapping.externalName);
+        const value = sourceExecutionEntity.variableStateManager.resolvePath(
+          mapping.sourcePath,
+        );
         if (value !== undefined) {
           syncedVariables[mapping.internalName] = value;
         }

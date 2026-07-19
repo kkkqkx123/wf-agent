@@ -166,7 +166,7 @@ describe("joinHandler", () => {
       forkPathIds: ["path-1"],
       joinStrategy: "ALL_COMPLETED",
       mainPathId: "path-1",
-      variableOutputs: [{ internalName: "branchVar", externalName: "parentVar" }],
+      variableOutputs: [{ internalName: "branchVar", targetPath: "parentVar" }],
     });
     const node = createMockNode(config);
 
@@ -193,7 +193,7 @@ describe("joinHandler", () => {
       messageOutputs: [
         {
           internalName: "branch-context",
-          externalName: "parent-context",
+          targetContextId: "parent-context",
           sourcePathId: "path-1",
         },
       ],

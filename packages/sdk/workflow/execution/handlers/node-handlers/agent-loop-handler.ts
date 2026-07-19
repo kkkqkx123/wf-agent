@@ -134,15 +134,15 @@ function collectInitialMessages(
 
   const allMessages: LLMMessage[] = [];
   for (const inputDef of messageInputs) {
-    const { externalName, internalName, required, defaultMessages } = inputDef;
-    const namedContext = registry.get(externalName);
+    const { sourceContextId, internalName, required, defaultMessages } = inputDef;
+    const namedContext = registry.get(sourceContextId);
 
     if (namedContext) {
       allMessages.push(...namedContext.messages);
     } else if (required) {
       throw new RuntimeValidationError(
-        `Required message context '${externalName}' (mapped to '${internalName}') not found in registry`,
-        { operation: "collectInitialMessages", field: "messageInputs", value: externalName },
+        `Required message context '${sourceContextId}' (mapped to '${internalName}') not found in registry`,
+        { operation: "collectInitialMessages", field: "messageInputs", value: sourceContextId },
       );
     } else if (defaultMessages && defaultMessages.length > 0) {
       allMessages.push(...defaultMessages);
@@ -216,9 +216,9 @@ function syncMessageOutputs(
   const now_ts = Date.now();
 
   for (const outputDef of messageOutputs) {
-    const { internalName, externalName } = outputDef;
+    const { internalName, targetContextId } = outputDef;
     registry.register({
-      id: externalName,
+      id: targetContextId,
       messages: [...allMessages],
       createdAt: now_ts,
       updatedAt: now_ts,
@@ -230,7 +230,7 @@ function syncMessageOutputs(
     });
 
     logger.debug("Synced agent loop messages to context", {
-      contextId: externalName,
+      contextId: targetContextId,
       messageCount: allMessages.length,
     });
   }

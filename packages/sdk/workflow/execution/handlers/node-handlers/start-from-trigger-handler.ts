@@ -100,15 +100,15 @@ export async function startFromTriggerHandler(
     const validatedInput: Record<string, unknown> = {};
 
     for (const inputDef of config.messageInputs) {
-      const { externalName, internalName, required } = inputDef;
+      const { sourceContextId, internalName, required } = inputDef;
 
-      // Look for the value in triggerInput using externalName
-      const value = triggerInput[externalName];
+      // Look for the value in triggerInput using sourceContextId
+      const value = triggerInput[sourceContextId];
 
       if (value === undefined) {
         if (required) {
           throw new Error(
-            `Required input '${externalName}' (mapped to '${internalName}') is missing`,
+            `Required input '${sourceContextId}' (mapped to '${internalName}') is missing`,
           );
         }
         continue;
@@ -143,20 +143,20 @@ export async function startFromTriggerHandler(
 
     if (registry) {
       for (const inputDef of config.messageInputs) {
-        const { externalName, internalName, required, defaultMessages } = inputDef;
+        const { sourceContextId, internalName, required, defaultMessages } = inputDef;
 
         // Try to get messages from triggerInput.messageContexts first
-        let messages = triggerInput.messageContexts?.[externalName];
+        let messages = triggerInput.messageContexts?.[sourceContextId];
 
-        // Fallback to triggerInput[externalName] if it's an array (backward compatibility)
-        if (!messages && Array.isArray(triggerInput[externalName])) {
-          messages = triggerInput[externalName] as LLMMessage[];
+        // Fallback to triggerInput[sourceContextId] if it's an array (backward compatibility)
+        if (!messages && Array.isArray(triggerInput[sourceContextId])) {
+          messages = triggerInput[sourceContextId] as LLMMessage[];
         }
 
         if (!messages) {
           if (required) {
             throw new Error(
-              `Required message context '${externalName}' (mapped to '${internalName}') is missing`,
+              `Required message context '${sourceContextId}' (mapped to '${internalName}') is missing`,
             );
           }
           // Use default messages if provided
@@ -177,7 +177,7 @@ export async function startFromTriggerHandler(
           messages: [...messages], // Shallow copy
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          metadata: { sourceContext: externalName } as Record<string, unknown>,
+          metadata: { sourceContext: sourceContextId } as Record<string, unknown>,
         });
       }
     }

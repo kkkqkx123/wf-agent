@@ -76,8 +76,8 @@ export interface SyncNodeConfig {
    * Maps variables from source branch to target branch with deep cloning
    *
    * Uses WorkflowVariableInput for consistency with other boundary configurations.
-   * externalName refers to the source branch variable name,
-   * internalName refers to the target branch variable name.
+   * sourcePath resolves the value from the source branch,
+   * internalName is the target branch variable name.
    */
   variableMappings?: WorkflowVariableInput[];
   

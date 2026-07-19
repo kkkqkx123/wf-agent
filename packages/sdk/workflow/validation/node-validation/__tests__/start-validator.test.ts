@@ -36,7 +36,7 @@ describe("validateStartNode", () => {
         name: "Start Node 2",
         type: "START",
         config: {
-          variableInputs: [{ externalName: "input1", internalName: "var1", required: true }],
+          variableInputs: [{ sourcePath: "input1", internalName: "var1", required: true }],
         },
       } as StaticNode;
 

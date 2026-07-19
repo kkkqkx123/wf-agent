@@ -23,14 +23,14 @@ describe("validateAndMapMessageContexts", () => {
           messagePassing: {
             inputs: [
               {
-                externalName: "parent-query",
+                sourceContextId: "parent-query",
                 internalName: "query",
               },
             ],
             outputs: [
               {
                 internalName: "result",
-                externalName: "parent-result",
+                targetContextId: "parent-result",
               },
             ],
           },
@@ -44,7 +44,7 @@ describe("validateAndMapMessageContexts", () => {
         config: {
           messageInputs: [
             {
-              externalName: "parent-query",
+              sourceContextId: "parent-query",
               internalName: "query",
             },
           ],
@@ -70,7 +70,7 @@ describe("validateAndMapMessageContexts", () => {
           messagePassing: {
             inputs: [
               {
-                externalName: "parent-query",
+                sourceContextId: "parent-query",
                 internalName: "query",
               },
             ],
@@ -85,7 +85,7 @@ describe("validateAndMapMessageContexts", () => {
         config: {
           messageInputs: [
             {
-              externalName: "parent-query",
+              sourceContextId: "parent-query",
               internalName: "query",
             },
           ],
@@ -108,7 +108,7 @@ describe("validateAndMapMessageContexts", () => {
             outputs: [
               {
                 internalName: "result",
-                externalName: "parent-result",
+                targetContextId: "parent-result",
               },
             ],
           },
@@ -164,7 +164,7 @@ describe("validateAndMapMessageContexts", () => {
           messagePassing: {
             inputs: [
               {
-                externalName: "parent-query",
+                sourceContextId: "parent-query",
                 internalName: "non-existent",
               },
             ],
@@ -179,7 +179,7 @@ describe("validateAndMapMessageContexts", () => {
         config: {
           messageInputs: [
             {
-              externalName: "parent-query",
+              sourceContextId: "parent-query",
               internalName: "query",
             },
           ],
@@ -207,7 +207,7 @@ describe("hasMessageContextConfig", () => {
         messagePassing: {
           inputs: [
             {
-              externalName: "parent-query",
+              sourceContextId: "parent-query",
               internalName: "query",
             },
           ],
@@ -230,7 +230,7 @@ describe("hasMessageContextConfig", () => {
           outputs: [
             {
               internalName: "result",
-              externalName: "parent-result",
+              targetContextId: "parent-result",
             },
           ],
         },

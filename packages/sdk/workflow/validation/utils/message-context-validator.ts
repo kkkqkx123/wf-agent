@@ -70,9 +70,9 @@ export function validateAndMapMessageContexts(
   // Validate inputs
   if (subgraphConfig.messagePassing?.inputs) {
     for (const input of subgraphConfig.messagePassing.inputs) {
-      const { externalName: parentContextId, internalName } = input;
+      const { sourceContextId: parentContextId, internalName } = input;
       const inputDef = startConfig.messageInputs?.find(
-        (i: { externalName: string; internalName: string }) => i.internalName === internalName,
+        (i: { sourceContextId: string; internalName: string }) => i.internalName === internalName,
       );
 
       if (!inputDef) {
@@ -103,7 +103,7 @@ export function validateAndMapMessageContexts(
   // Populate output mapping
   if (subgraphConfig.messagePassing?.outputs) {
     for (const output of subgraphConfig.messagePassing.outputs) {
-      const { internalName, externalName: parentContextId } = output;
+      const { internalName, targetContextId: parentContextId } = output;
       // Map subgraph internal name to parent context ID
       mapping.outputMapping.set(internalName, parentContextId);
     }

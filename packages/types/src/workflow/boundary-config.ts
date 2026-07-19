@@ -23,20 +23,11 @@ import type { LLMMessage } from "../message/index.js";
  * Defines how external variables are mapped into the workflow's internal scope
  */
 export interface WorkflowVariableInput {
-  /** External variable name (used by caller/parent workflow) - flat name lookup */
-  externalName: string;
+  /** Source path expression for resolving value from parent workflow */
+  sourcePath: string;
 
   /** Internal variable name (used within this workflow) */
   internalName: string;
-
-  /**
-   * Source path expression (optional, takes precedence over externalName).
-   * Supports nested access and array wildcards:
-   * - "user.name" - nested property
-   * - "items[0].title" - array index
-   * - "docs[*].content" - array wildcard (returns array of values)
-   */
-  sourcePath?: string;
 
   /** Whether this input is required */
   required?: boolean;
@@ -56,16 +47,8 @@ export interface WorkflowVariableOutput {
   /** Internal variable name (source within this workflow) */
   internalName: string;
 
-  /** External variable name (target for caller/parent workflow) - flat name */
-  externalName: string;
-
-  /**
-   * Target path expression (optional, takes precedence over externalName).
-   * Supports nested path writing:
-   * - "output.result.answer" - write to nested path
-   * - "data.items[0].score" - write to array index
-   */
-  targetPath?: string;
+  /** Target path expression for writing value to parent workflow */
+  targetPath: string;
 
   /** Description for documentation */
   description?: string;
@@ -80,8 +63,8 @@ export interface WorkflowVariableOutput {
  * Defines how named message contexts are passed into the workflow
  */
 export interface WorkflowMessageInput {
-  /** External context ID (used by caller/parent workflow) */
-  externalName: string;
+  /** Source context ID (used by caller/parent workflow) */
+  sourceContextId: string;
 
   /** Internal context ID (used within this workflow) */
   internalName: string;
@@ -89,7 +72,7 @@ export interface WorkflowMessageInput {
   /** Whether this input is required */
   required?: boolean;
 
-  /** Default messages if external context is not provided */
+  /** Default messages if source context is not provided */
   defaultMessages?: LLMMessage[];
 
   /** Description for documentation */
@@ -104,8 +87,8 @@ export interface WorkflowMessageOutput {
   /** Internal context ID (source within this workflow) */
   internalName: string;
 
-  /** External context ID (target for caller/parent workflow) */
-  externalName: string;
+  /** Target context ID (for caller/parent workflow) */
+  targetContextId: string;
 
   /** Description for documentation */
   description?: string;

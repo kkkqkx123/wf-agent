@@ -3,37 +3,24 @@
  * Simplified configuration loading without cosmiconfig.
  * Uses SDK's parsing capabilities for TOML and JSON.
  * Uses centralized environment variable mapping from SDK.
+ *
+ * Config file loading utilities inherited from @wf-agent/runtime/config.
  */
 
-import { loadConfigFile } from "@wf-agent/config-processor";
+import { loadConfigFromFile } from "@wf-agent/runtime/config";
+import { parseConfigContent } from "@wf-agent/runtime/config";
 import {
-  parseJson,
   applyEnvOverrides,
   EnvMappingEntry,
 } from "@wf-agent/sdk/api";
-import { parse as parseToml } from "@iarna/toml";
 import type { CLIConfig } from "./types.js";
 import type { LogLevel, OutputFormat } from "@wf-agent/types";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
-import { ExecutionModeEnvVars } from "../../types/execution-mode.js";
+import { ExecutionModeEnvVars } from "@wf-agent/runtime/mode";
 import { getOutput } from "../../utils/output.js";
 
 const output = getOutput();
-
-/**
- * Parse configuration content based on format using SDK parsers
- */
-function parseConfigContent(content: string, format: "json" | "toml"): unknown {
-  switch (format) {
-    case "json":
-      return parseJson(content);
-    case "toml":
-      return parseToml(content);
-    default:
-      throw new Error(`Unsupported config format: ${format}`);
-  }
-}
 
 /**
  * CLI environment variable mapping definition.
@@ -57,7 +44,7 @@ export async function loadConfig(configPath?: string): Promise<CLIConfig> {
   const targetPath = configPath || "./.modular-agent.toml";
 
   try {
-    const { content, format } = await loadConfigFile(targetPath);
+    const { content, format } = await loadConfigFromFile(targetPath);
     const rawConfig = parseConfigContent(content, format);
     const validatedConfig = CLIConfigSchema.parse(rawConfig);
     return { ...DEFAULT_CONFIG, ...validatedConfig };

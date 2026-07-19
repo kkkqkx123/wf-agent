@@ -4,10 +4,11 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { resolve, join, extname } from "path";
+import { resolve } from "path";
 import type { Script, ScriptExecutionOptions } from "@wf-agent/types";
 import { parseScript } from "@wf-agent/sdk/api";
 import { loadConfigFile } from "@wf-agent/config-processor";
+import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import { CLINotFoundError } from "../types/cli-types.js";
 
 /**
@@ -41,6 +42,7 @@ export class ScriptAdapter extends BaseAdapter {
 
   /**
    * Batch register scripts from directory
+   * Uses runtime's batchRegisterFromDir to eliminate duplicated scan/load/register logic.
    * @param options Load options
    * @returns Registration result
    */
@@ -53,51 +55,24 @@ export class ScriptAdapter extends BaseAdapter {
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
-      const { readdir } = await import("fs/promises");
-
-      const dir = options.configDir || "./configs/scripts";
-      const files: string[] = [];
-
-      const scanDir = async (currentDir: string) => {
-        const entries = await readdir(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = join(currentDir, entry.name);
-          if (entry.isDirectory() && options.recursive !== false) {
-            await scanDir(fullPath);
-          } else if (entry.isFile()) {
-            const ext = extname(entry.name).toLowerCase();
-            if (ext === ".toml" || ext === ".json") {
-              if (!options.filePattern || options.filePattern.test(entry.name)) {
-                files.push(fullPath);
-              }
-            }
-          }
-        }
-      };
-
-      await scanDir(dir);
-
-      const success: Script[] = [];
-      const failures: Array<{ filePath: string; error: string }> = [];
-
-      const api = this.sdk.scripts;
-      for (const file of files) {
-        try {
+      return await batchRegisterFromDir({
+        configDir: options.configDir || "./configs/scripts",
+        recursive: options.recursive,
+        filePattern: options.filePattern,
+        loadAndParse: async (file) => {
           const { content, format } = await loadConfigFile(file);
-          const script = parseScript(content, format);
-          await api.create(script);
-          success.push(script);
+          return parseScript(content, format);
+        },
+        register: async (script) => {
+          await this.sdk.scripts.create(script);
+        },
+        onSuccess: (script) => {
           this.output.infoLog(`Script registered: ${script.name}`);
-        } catch (error) {
-          failures.push({
-            filePath: file,
-            error: error instanceof Error ? error.message : String(error),
-          });
+        },
+        onFailure: (file) => {
           this.output.errorLog(`Failed to register script: ${file}`);
-        }
-      }
-
-      return { success, failures };
+        },
+      });
     }, "Batch register scripts");
   }
 

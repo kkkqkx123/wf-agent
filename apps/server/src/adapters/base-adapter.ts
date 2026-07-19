@@ -1,11 +1,18 @@
 /**
- * Base Adapter
+ * Server Base Adapter
  *
  * Abstract base class for all Server adapters.
  * Provides common functionality for resource access patterns.
+ *
+ * Extends the shared BaseAppAdapter from @wf-agent/runtime with
+ * server-specific pagination, error handling, and logging.
+ *
+ * Inherits executeWithErrorHandling from BaseAppAdapter and overrides
+ * handleOperationError to convert errors to ApiError.
  */
 
 import type { SDKInstance } from "@wf-agent/sdk/api";
+import { BaseAppAdapter, AdapterError } from "@wf-agent/runtime/adapters";
 import { getOutput } from "../utils/output.js";
 
 export interface QueryOptions {
@@ -24,25 +31,27 @@ export interface PaginatedResponse<T> {
   };
 }
 
-export class ApiError extends Error {
+export class ApiError extends AdapterError {
   constructor(
-    public code: string,
+    code: string,
     message: string,
     public details?: Record<string, any>
   ) {
-    super(message);
+    super(code, message);
     this.name = "ApiError";
   }
 }
 
 /**
- * Base adapter class for all resource adapters
+ * Base adapter class for all server resource adapters
  */
-export abstract class BaseAdapter {
+export abstract class BaseAdapter extends BaseAppAdapter {
   protected logger = getOutput();
   protected defaultPageSize = 20;
 
-  constructor(protected sdk: SDKInstance) {}
+  constructor(sdk: SDKInstance) {
+    super(sdk);
+  }
 
   /**
    * Get the resource name (for logging)
@@ -62,15 +71,14 @@ export abstract class BaseAdapter {
   }
 
   /**
-   * Handle adapter errors consistently
+   * Handle adapter errors consistently.
+   * Override of BaseAppAdapter.handleOperationError.
+   * Converts unknown errors to ApiError, logs them, and throws.
    */
-  protected async handleError(
-    error: unknown,
-    operation: string
-  ): Promise<never> {
+  protected override handleOperationError(error: unknown, context: string): never {
     const message = error instanceof Error ? error.message : String(error);
     this.logger.errorLog(
-      `${this.getResourceName()} adapter error in ${operation}: ${message}`
+      `${this.getResourceName()} adapter error in ${context}: ${message}`
     );
 
     if (error instanceof ApiError) {
@@ -79,10 +87,10 @@ export abstract class BaseAdapter {
 
     throw new ApiError(
       "ADAPTER_ERROR",
-      `Failed to ${operation} on ${this.getResourceName()}`,
+      `Failed to ${context} on ${this.getResourceName()}`,
       {
         originalError: message,
-        operation,
+        operation: context,
         resource: this.getResourceName(),
       }
     );

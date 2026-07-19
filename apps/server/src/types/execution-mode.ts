@@ -1,11 +1,10 @@
 /**
- * Execution Mode Types
+ * Server Execution Mode Types
+ * Thin re-export wrapper around @wf-agent/runtime/mode for backward compatibility.
  *
- * Simplified version for Server (no CLI-specific execution modes needed)
+ * The core execution mode types have been moved to @wf-agent/runtime/mode
+ * to eliminate duplication between cli-app and server.
  */
 
-export const ExecutionModeEnvVars = {
-  OUTPUT_FORMAT: "OUTPUT_FORMAT",
-} as const;
-
-export type ExecutionModeEnvVarsType = typeof ExecutionModeEnvVars;
+export type { ExecutionMode, OutputFormat } from "@wf-agent/runtime/mode";
+export { ExecutionModeEnvVars } from "@wf-agent/runtime/mode";

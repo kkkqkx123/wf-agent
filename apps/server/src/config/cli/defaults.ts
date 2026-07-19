@@ -1,24 +1,24 @@
 /**
- * CLI Configuration Defaults
- * Default configuration values for CLI application.
+ * Server Configuration Defaults
+ * Default configuration values for Server application.
+ * Extends the base defaults from @wf-agent/runtime.
  */
 
 import type { CLIConfig } from "./types.js";
+import { DEFAULT_CONFIG as BASE_DEFAULTS } from "@wf-agent/runtime";
 
 /**
  * Default Configuration
+ * Merges base defaults with server-specific defaults.
  */
 export const DEFAULT_CONFIG: CLIConfig = {
-  defaultTimeout: 30000,
-  verbose: false,
-  debug: false,
-  logLevel: "warn",
-  outputFormat: "table",
-  maxConcurrentExecutions: 5,
+  ...BASE_DEFAULTS,
+  outputFormat: "json",
+  maxConcurrentExecutions: 10,
   storage: {
     type: "sqlite",
     sqlite: {
-      dbPath: "./storage/cli-app.db",
+      dbPath: "./storage/server.db",
       enableWAL: true,
       enableLogging: false,
       readonly: false,
@@ -30,7 +30,7 @@ export const DEFAULT_CONFIG: CLIConfig = {
   },
   output: {
     dir: "./outputs",
-    logFilePattern: "cli-app-{date}.log",
+    logFilePattern: "server-{date}.log",
     enableLogTerminal: true,
     enableSDKLogs: true,
     sdkLogLevel: "silent",

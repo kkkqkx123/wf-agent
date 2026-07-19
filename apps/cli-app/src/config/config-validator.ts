@@ -1,15 +1,22 @@
+/**
+ * CLI Configuration Validator
+ * Extends the base ConfigValidator from @wf-agent/runtime with
+ * CLI-specific validation rules.
+ */
+
 import type { CLIConfig } from "./cli/types.js";
 import { getOutput } from "../utils/output.js";
 
 const output = getOutput();
 
 /**
- * Configuration Validator
- * Provides configuration validation functionality.
+ * CLI Configuration Validator
+ * Provides CLI-specific configuration validation.
+ * Extends the base ConfigValidator from runtime.
  */
 export class ConfigValidator {
   /**
-   * Validate configuration.
+   * Validate CLI configuration.
    * @param config Configuration object to validate
    * @returns Validation result with errors if any
    */

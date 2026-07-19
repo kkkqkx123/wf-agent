@@ -4,10 +4,11 @@
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { resolve, join, extname } from "path";
+import { resolve } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { parseNodeTemplate, parseTriggerTemplate } from "@wf-agent/sdk/api";
 import { loadConfigFile } from "@wf-agent/config-processor";
+import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import type { NodeTemplate, TriggerTemplate, NodeTemplateSummary, TriggerTemplateSummary } from "@wf-agent/types";
 
 /**
@@ -41,6 +42,7 @@ export class TemplateAdapter extends BaseAdapter {
 
   /**
    * Batch register node templates from directory
+   * Uses runtime's batchRegisterFromDir to eliminate duplicated scan/load/register logic.
    * @param options Load options
    * @returns Registration result
    */
@@ -53,53 +55,24 @@ export class TemplateAdapter extends BaseAdapter {
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
-      const { readdir } = await import("fs/promises");
-
-      const dir = options.configDir || "./configs/templates/node-templates";
-      const files: string[] = [];
-
-      const scanDir = async (currentDir: string) => {
-        const entries = await readdir(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = join(currentDir, entry.name);
-          if (entry.isDirectory() && options.recursive !== false) {
-            await scanDir(fullPath);
-          } else if (entry.isFile()) {
-            const ext = extname(entry.name).toLowerCase();
-            if (ext === ".toml" || ext === ".json") {
-              if (!options.filePattern || options.filePattern.test(entry.name)) {
-                files.push(fullPath);
-              }
-            }
-          }
-        }
-      };
-
-      await scanDir(dir);
-
-      const success: NodeTemplate[] = [];
-      const failures: Array<{ filePath: string; error: string }> = [];
-
-      const api = this.sdk.nodeTemplates;
-      for (const file of files) {
-        try {
+      return await batchRegisterFromDir({
+        configDir: options.configDir || "./configs/templates/node-templates",
+        recursive: options.recursive,
+        filePattern: options.filePattern,
+        loadAndParse: async (file) => {
           const { content, format } = await loadConfigFile(file);
-          const template = parseNodeTemplate(content, format);
-          await api.create(template);
-          success.push(template);
-          // Output to stdout for user visibility and test verification, also log for audit
+          return parseNodeTemplate(content, format);
+        },
+        register: async (template) => {
+          await this.sdk.nodeTemplates.create(template);
+        },
+        onSuccess: (template) => {
           this.logOperation(`Node template is registered: ${template.name}`);
-        } catch (error) {
-          failures.push({
-            filePath: file,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Output to stderr for user visibility and test verification, also log for audit
+        },
+        onFailure: (file) => {
           this.logOperationFailure(`Failed to register node template: ${file}`);
-        }
-      }
-
-      return { success, failures };
+        },
+      });
     }, "Batch registration of node templates");
   }
 
@@ -126,6 +99,7 @@ export class TemplateAdapter extends BaseAdapter {
 
   /**
    * Batch register trigger templates from directory
+   * Uses runtime's batchRegisterFromDir to eliminate duplicated scan/load/register logic.
    * @param options Load options
    * @returns Registration result
    */
@@ -138,53 +112,24 @@ export class TemplateAdapter extends BaseAdapter {
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
-      const { readdir } = await import("fs/promises");
-
-      const dir = options.configDir || "./configs/templates/trigger-templates";
-      const files: string[] = [];
-
-      const scanDir = async (currentDir: string) => {
-        const entries = await readdir(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = join(currentDir, entry.name);
-          if (entry.isDirectory() && options.recursive !== false) {
-            await scanDir(fullPath);
-          } else if (entry.isFile()) {
-            const ext = extname(entry.name).toLowerCase();
-            if (ext === ".toml" || ext === ".json") {
-              if (!options.filePattern || options.filePattern.test(entry.name)) {
-                files.push(fullPath);
-              }
-            }
-          }
-        }
-      };
-
-      await scanDir(dir);
-
-      const success: TriggerTemplate[] = [];
-      const failures: Array<{ filePath: string; error: string }> = [];
-
-      const api = this.sdk.triggerTemplates;
-      for (const file of files) {
-        try {
+      return await batchRegisterFromDir({
+        configDir: options.configDir || "./configs/templates/trigger-templates",
+        recursive: options.recursive,
+        filePattern: options.filePattern,
+        loadAndParse: async (file) => {
           const { content, format } = await loadConfigFile(file);
-          const template = parseTriggerTemplate(content, format);
-          await api.create(template);
-          success.push(template);
-          // Output to stdout for user visibility and test verification, also log for audit
+          return parseTriggerTemplate(content, format);
+        },
+        register: async (template) => {
+          await this.sdk.triggerTemplates.create(template);
+        },
+        onSuccess: (template) => {
           this.logOperation(`Trigger template is registered: ${template.name}`);
-        } catch (error) {
-          failures.push({
-            filePath: file,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Output to stderr for user visibility and test verification, also log for audit
+        },
+        onFailure: (file) => {
           this.logOperationFailure(`Failed to register trigger template: ${file}`);
-        }
-      }
-
-      return { success, failures };
+        },
+      });
     }, "Batch registration of trigger templates");
   }
 

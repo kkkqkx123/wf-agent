@@ -1,55 +1,42 @@
 /**
- * CLI Configuration Loader (Refactored)
+ * Server Configuration Loader (Refactored)
  * Simplified configuration loading without cosmiconfig.
  * Uses SDK's parsing capabilities for TOML and JSON.
  * Uses centralized environment variable mapping from SDK.
+ *
+ * Config file loading utilities inherited from @wf-agent/runtime/config.
  */
 
-import { loadConfigFile } from "@wf-agent/config-processor";
+import { loadConfigFromFile } from "@wf-agent/runtime/config";
+import { parseConfigContent } from "@wf-agent/runtime/config";
 import {
-  parseJson,
   applyEnvOverrides,
   EnvMappingEntry,
 } from "@wf-agent/sdk/api";
-import { parse as parseToml } from "@iarna/toml";
 import type { CLIConfig } from "./types.js";
 import type { LogLevel, OutputFormat } from "@wf-agent/types";
 import { CLIConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
-import { ExecutionModeEnvVars } from "../../types/execution-mode.js";
+import { ExecutionModeEnvVars } from "@wf-agent/runtime/mode";
 import { getOutput } from "../../utils/output.js";
 
 const output = getOutput();
 
 /**
- * Parse configuration content based on format using SDK parsers
- */
-function parseConfigContent(content: string, format: "json" | "toml"): unknown {
-  switch (format) {
-    case "json":
-      return parseJson(content);
-    case "toml":
-      return parseToml(content);
-    default:
-      throw new Error(`Unsupported config format: ${format}`);
-  }
-}
-
-/**
- * CLI environment variable mapping definition.
+ * Server environment variable mapping definition.
  * Uses SDK's centralized EnvMappingEntry type for declarative mapping.
  */
 const CLI_ENV_MAPPING: Record<string, EnvMappingEntry> = {
-  verbose: { env: "CLI_VERBOSE", parser: (v: string) => v === "true" || v === "1" },
-  debug: { env: "CLI_DEBUG", parser: (v: string) => v === "true" || v === "1" },
-  logLevel: { env: "CLI_LOG_LEVEL", parser: (v: string) => v as LogLevel },
-  outputFormat: { env: "CLI_OUTPUT_FORMAT", parser: (v: string) => v as OutputFormat },
-  defaultTimeout: { env: "CLI_DEFAULT_TIMEOUT", parser: (v: string) => parseInt(v, 10) },
-  maxConcurrentExecutions: { env: "CLI_MAX_CONCURRENT", parser: (v: string) => parseInt(v, 10) },
+  verbose: { env: "SERVER_VERBOSE", parser: (v: string) => v === "true" || v === "1" },
+  debug: { env: "SERVER_DEBUG", parser: (v: string) => v === "true" || v === "1" },
+  logLevel: { env: "SERVER_LOG_LEVEL", parser: (v: string) => v as LogLevel },
+  outputFormat: { env: "SERVER_OUTPUT_FORMAT", parser: (v: string) => v as OutputFormat },
+  defaultTimeout: { env: "SERVER_DEFAULT_TIMEOUT", parser: (v: string) => parseInt(v, 10) },
+  maxConcurrentExecutions: { env: "SERVER_MAX_CONCURRENT", parser: (v: string) => parseInt(v, 10) },
 };
 
 /**
- * Load CLI configuration from explicit path or default location
+ * Load Server configuration from explicit path or default location
  * @param configPath Explicit config file path (optional)
  * @returns Validated configuration object
  */
@@ -57,7 +44,7 @@ export async function loadConfig(configPath?: string): Promise<CLIConfig> {
   const targetPath = configPath || "./.modular-agent.toml";
 
   try {
-    const { content, format } = await loadConfigFile(targetPath);
+    const { content, format } = await loadConfigFromFile(targetPath);
     const rawConfig = parseConfigContent(content, format);
     const validatedConfig = CLIConfigSchema.parse(rawConfig);
     return { ...DEFAULT_CONFIG, ...validatedConfig };
@@ -110,7 +97,7 @@ export async function loadConfigWithEnvOverride(configPath?: string): Promise<CL
 }
 
 /**
- * Get the CLI environment mapping definition.
+ * Get the server environment mapping definition.
  * Useful for documentation and validation.
  */
 export function getCLIEnvMapping() {

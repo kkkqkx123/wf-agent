@@ -2,51 +2,50 @@
  * CLI Configuration Accessor
  * Provides convenient configuration access API.
  *
- * Refactored to use SDK base accessor pattern.
+ * Extends the base ConfigAccessor from @wf-agent/runtime with
+ * CLI-specific getter methods.
  */
 
 import type { CLIConfig } from "./types.js";
 import { ConfigValidator } from "../config-validator.js";
-import { createConfigAccessor, type ConfigAccessor } from "@wf-agent/sdk/api";
+import { ConfigAccessor as BaseConfigAccessor } from "@wf-agent/runtime";
 
 /**
  * CLI Configuration Accessor
  * Wraps CLIConfig with convenient getter methods.
- * Extends SDK base accessor pattern with CLI-specific functionality.
+ * Extends the base ConfigAccessor from runtime with CLI-specific functionality.
  */
-export class CLIConfigAccessor {
-  private accessor: ConfigAccessor<CLIConfig>;
-
-  constructor(config: CLIConfig) {
-    this.accessor = createConfigAccessor(config);
+export class CLIConfigAccessor extends BaseConfigAccessor<CLIConfig> {
+  constructor(config?: CLIConfig) {
+    super(config);
   }
 
   /**
-   * Get the underlying SDK accessor for generic operations.
+   * Get the underlying accessor for generic operations.
    */
-  getAccessor(): ConfigAccessor<CLIConfig> {
-    return this.accessor;
+  getAccessor(): BaseConfigAccessor<CLIConfig> {
+    return this;
   }
 
   /**
    * Get storage configuration.
    */
   getStorageConfig() {
-    return this.accessor.get().storage;
+    return this.get().storage;
   }
 
   /**
    * Get SQLite storage configuration.
    */
   getSqliteStorageConfig() {
-    return this.accessor.get().storage?.sqlite;
+    return this.get().storage?.sqlite;
   }
 
   /**
    * Get storage base directory.
    */
   getStorageBaseDir(): string {
-    const config = this.accessor.get();
+    const config = this.get();
     if (config.storage?.type === "sqlite" && config.storage.sqlite) {
       const dbPath = config.storage.sqlite.dbPath;
       return dbPath.substring(0, dbPath.lastIndexOf("/") + 1);
@@ -58,140 +57,119 @@ export class CLIConfigAccessor {
    * Get output configuration.
    */
   getOutputConfig() {
-    return this.accessor.get().output;
+    return this.get().output;
   }
 
   /**
    * Get output directory.
    */
   getOutputDir(): string {
-    return this.accessor.get().output?.dir || "./outputs";
+    return this.get().output?.dir || "./outputs";
   }
 
   /**
    * Get log file pattern.
    */
   getLogFilePattern(): string {
-    return this.accessor.get().output?.logFilePattern || "cli-app-{date}.log";
+    return this.get().output?.logFilePattern || "cli-app-{date}.log";
   }
 
   /**
    * Check if log terminal is enabled.
    */
   isLogTerminalEnabled(): boolean {
-    return this.accessor.get().output?.enableLogTerminal ?? true;
+    return this.get().output?.enableLogTerminal ?? true;
   }
 
   /**
    * Check if SDK logs are enabled.
    */
   isSDKLogsEnabled(): boolean {
-    return this.accessor.get().output?.enableSDKLogs ?? true;
+    return this.get().output?.enableSDKLogs ?? true;
   }
 
   /**
    * Get SDK log level.
    */
   getSDKLogLevel(): string {
-    return this.accessor.get().output?.sdkLogLevel || "silent";
+    return this.get().output?.sdkLogLevel || "silent";
   }
 
   /**
    * Get presets configuration.
    */
   getPresetsConfig() {
-    return this.accessor.get().presets;
+    return this.get().presets;
   }
 
   /**
    * Get context compression preset configuration.
    */
   getContextCompressionConfig() {
-    return this.accessor.get().presets?.contextCompression;
+    return this.get().presets?.contextCompression;
   }
 
   /**
    * Check if context compression is enabled.
    */
   isContextCompressionEnabled(): boolean {
-    return this.accessor.get().presets?.contextCompression?.enabled ?? true;
+    return this.get().presets?.contextCompression?.enabled ?? true;
   }
 
   /**
    * Get predefined tools preset configuration.
    */
   getPredefinedToolsConfig() {
-    return this.accessor.get().presets?.predefinedTools;
+    return this.get().presets?.predefinedTools;
   }
 
   /**
    * Check if predefined tools are enabled.
    */
   isPredefinedToolsEnabled(): boolean {
-    return this.accessor.get().presets?.predefinedTools?.enabled ?? true;
+    return this.get().presets?.predefinedTools?.enabled ?? true;
   }
 
   /**
    * Get predefined prompts preset configuration.
    */
   getPredefinedPromptsConfig() {
-    return this.accessor.get().presets?.predefinedPrompts;
+    return this.get().presets?.predefinedPrompts;
   }
 
   /**
    * Check if predefined prompts are enabled.
    */
   isPredefinedPromptsEnabled(): boolean {
-    return this.accessor.get().presets?.predefinedPrompts?.enabled ?? true;
+    return this.get().presets?.predefinedPrompts?.enabled ?? true;
   }
 
   /**
    * Get the full configuration object.
    */
   getFullConfig(): CLIConfig {
-    return this.accessor.get();
+    return this.get();
   }
 
   /**
    * Get a specific configuration value by key.
    */
-  get<K extends keyof CLIConfig>(key: K): CLIConfig[K] {
-    return this.accessor.get()[key];
-  }
-
-  /**
-   * Set the full configuration object.
-   */
-  setFullConfig(config: CLIConfig): void {
-    this.accessor.set(config);
-  }
-
-  /**
-   * Reset to default configuration.
-   */
-  reset(): void {
-    this.accessor.reset();
-  }
-
-  /**
-   * Check if accessor has been initialized.
-   */
-  isInitialized(): boolean {
-    return this.accessor.isInitialized();
+  getValue<K extends keyof CLIConfig>(key: K): CLIConfig[K] {
+    return this.get()[key];
   }
 
   /**
    * Validate the current configuration.
    */
   validate(): { valid: boolean; errors: string[] } {
-    return ConfigValidator.validate(this.accessor.get());
+    return ConfigValidator.validate(this.get());
   }
 
   /**
    * Validate the current configuration and throw if invalid.
    */
   validateOrThrow(): void {
-    ConfigValidator.validateOrThrow(this.accessor.get());
+    ConfigValidator.validateOrThrow(this.get());
   }
 }
 

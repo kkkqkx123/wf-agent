@@ -1,18 +1,18 @@
 /**
  * CLI Configuration Defaults
  * Default configuration values for CLI application.
+ * Extends the base defaults from @wf-agent/runtime.
  */
 
 import type { CLIConfig } from "./types.js";
+import { DEFAULT_CONFIG as BASE_DEFAULTS } from "@wf-agent/runtime";
 
 /**
  * Default Configuration
+ * Merges base defaults with CLI-specific defaults.
  */
 export const DEFAULT_CONFIG: CLIConfig = {
-  defaultTimeout: 30000,
-  verbose: false,
-  debug: false,
-  logLevel: "warn",
+  ...BASE_DEFAULTS,
   outputFormat: "table",
   maxConcurrentExecutions: 5,
   storage: {

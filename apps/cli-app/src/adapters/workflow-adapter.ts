@@ -1,13 +1,15 @@
 /**
  * Workflow Adapter
- * Wraps workflow-related SDK API calls
+ * Wraps workflow-related SDK API calls.
+ * Uses runtime utils for batch registration and error handling.
  */
 
 import { BaseAdapter } from "./base-adapter.js";
-import { resolve, join, extname } from "path";
+import { resolve } from "path";
 import { CLINotFoundError } from "../types/cli-types.js";
 import { parseWorkflow } from "@wf-agent/sdk/api";
 import { loadConfigFile } from "@wf-agent/config-processor";
+import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import type { WorkflowTemplate } from "@wf-agent/types";
 
 /**
@@ -43,6 +45,7 @@ export class WorkflowAdapter extends BaseAdapter {
 
   /**
    * Batch register workflows from directory
+   * Uses runtime's batchRegisterFromDir to eliminate duplicated scan/load/register logic.
    * @param options Load options
    * @returns Registration result
    */
@@ -56,53 +59,24 @@ export class WorkflowAdapter extends BaseAdapter {
     failures: Array<{ filePath: string; error: string }>;
   }> {
     return this.executeWithErrorHandling(async () => {
-      const { readdir } = await import("fs/promises");
-
-      const dir = options.configDir || "./configs/workflows";
-      const files: string[] = [];
-
-      const scanDir = async (currentDir: string) => {
-        const entries = await readdir(currentDir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = join(currentDir, entry.name);
-          if (entry.isDirectory() && options.recursive !== false) {
-            await scanDir(fullPath);
-          } else if (entry.isFile()) {
-            const ext = extname(entry.name).toLowerCase();
-            if (ext === ".toml" || ext === ".json") {
-              if (!options.filePattern || options.filePattern.test(entry.name)) {
-                files.push(fullPath);
-              }
-            }
-          }
-        }
-      };
-
-      await scanDir(dir);
-
-      const success: WorkflowTemplate[] = [];
-      const failures: Array<{ filePath: string; error: string }> = [];
-
-      const api = this.sdk.workflows;
-      for (const file of files) {
-        try {
+      return await batchRegisterFromDir({
+        configDir: options.configDir || "./configs/workflows",
+        recursive: options.recursive,
+        filePattern: options.filePattern,
+        loadAndParse: async (file) => {
           const { content, format } = await loadConfigFile(file);
-          const workflow = await parseWorkflow(content, format, options.parameters);
-          await api.create(workflow);
-          success.push(workflow);
-          // Output to stdout for user visibility and test verification, also log for audit
+          return await parseWorkflow(content, format, options.parameters);
+        },
+        register: async (workflow) => {
+          await this.sdk.workflows.create(workflow);
+        },
+        onSuccess: (workflow) => {
           this.logOperation(`Workflow is registered: ${workflow.name} (${workflow.id})`);
-        } catch (error) {
-          failures.push({
-            filePath: file,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Output to stderr for user visibility and test verification, also log for audit
+        },
+        onFailure: (file) => {
           this.logOperationFailure(`Failed to register workflow: ${file}`);
-        }
-      }
-
-      return { success, failures };
+        },
+      });
     }, "Batch registration workflow");
   }
 

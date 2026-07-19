@@ -1,0 +1,82 @@
+{
+  "name": "@wf-agent/runtime",
+  "version": "1.0.0",
+  "description": "Shared runtime package for Modular Agent Framework applications - provides unified SDK bootstrap, storage management, logger initialization, and lifecycle management",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bootstrap": {
+      "types": "./dist/bootstrap/index.d.ts",
+      "import": "./dist/bootstrap/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
+    },
+    "./logger": {
+      "types": "./dist/logger/index.d.ts",
+      "import": "./dist/logger/index.js"
+    },
+    "./lifecycle": {
+      "types": "./dist/lifecycle/index.d.ts",
+      "import": "./dist/lifecycle/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "import": "./dist/adapters/index.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "import": "./dist/config/index.js"
+    },
+    "./mode": {
+      "types": "./dist/mode/index.d.ts",
+      "import": "./dist/mode/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "echo 'No tests yet'",
+    "test:type": "tsd --files __tests__/test-d"
+  },
+  "keywords": [
+    "agent",
+    "workflow",
+    "runtime",
+    "bootstrap",
+    "modular-agent"
+  ],
+  "author": "Modular Agent Framework Team",
+  "license": "MIT",
+  "dependencies": {
+    "@wf-agent/common-utils": "workspace:*",
+    "@wf-agent/config-processor": "workspace:*",
+    "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/storage": "workspace:*",
+    "@wf-agent/types": "workspace:*"
+  },
+  "devDependencies": {
+    "tsd": "^0.33.0"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

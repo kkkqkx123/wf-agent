@@ -1,9 +1,11 @@
 /**
  * Configuration Module Exports
  * Unified exports for all configuration modules.
+ *
+ * Exports both server-specific config and re-exports shared runtime config utilities.
  */
 
-// CLI Configuration
+// Server Configuration
 export {
   loadConfig,
   loadConfigWithEnvOverride,

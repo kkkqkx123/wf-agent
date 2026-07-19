@@ -1,6 +1,9 @@
 /**
- * Storage Manager
- * Unified management of all storage instances
+ * Runtime Storage Manager
+ * Unified management of all storage instances, shared across applications.
+ *
+ * Extracted from apps/cli-app/src/storage/storage-manager.ts to eliminate
+ * duplication between cli-app and server.
  */
 
 import type {
@@ -31,13 +34,13 @@ import {
   SqliteAgentProfileStorage,
   type BaseSqliteStorageConfig,
 } from "@wf-agent/storage";
-import type { CLIConfig } from "../config/index.js";
 import { createPackageLogger, registerLogger, createLazyLogger } from "@wf-agent/common-utils";
+import type { RuntimeStorageConfig } from "../config/types.js";
 
-const logger = createLazyLogger("cli-app:storage-manager", () =>
-  createPackageLogger("cli-app").child("storage-manager")
+const logger = createLazyLogger("runtime:storage-manager", () =>
+  createPackageLogger("runtime").child("storage-manager")
 );
-registerLogger("cli-app.storage-manager", logger);
+registerLogger("runtime.storage-manager", logger);
 
 export class StorageManager {
   private workflowStorage: WorkflowStorageAdapter | null = null;
@@ -53,7 +56,7 @@ export class StorageManager {
   private agentProfileStorage: AgentProfileStorageAdapter | null = null;
   private initialized: boolean = false;
 
-  constructor(private config: CLIConfig) {}
+  constructor(private config: RuntimeStorageConfig) {}
 
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -71,7 +74,9 @@ export class StorageManager {
     if (storageConfig.type === "sqlite") {
       await this.initializeSQLiteStorage(storageConfig.sqlite);
     } else {
-      throw new Error(`Unsupported storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`);
+      throw new Error(
+        `Unsupported storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`
+      );
     }
 
     this.initialized = true;
@@ -79,7 +84,8 @@ export class StorageManager {
   }
 
   private async initializeSQLiteStorage(config?: BaseSqliteStorageConfig): Promise<void> {
-    const dbPath = config?.dbPath ?? "./storage/cli-app.db";
+    const appName = this.config.appName ?? "app";
+    const dbPath = config?.dbPath ?? `./storage/${appName}.db`;
 
     const baseConfig: BaseSqliteStorageConfig = {
       ...config,
@@ -168,7 +174,7 @@ export class StorageManager {
 
   /**
    * Get all storage adapters as an SDKOptions-compatible object.
-   * Convenience method to simplify createSDK() call in index.ts.
+   * Convenience method to simplify createSDK() call.
    */
   getAllAdapters(): Pick<
     SDKOptions,
@@ -256,4 +262,3 @@ export class StorageManager {
     logger.info("StorageManager cleared");
   }
 }
-

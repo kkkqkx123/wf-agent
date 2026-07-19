@@ -10,11 +10,9 @@ import { getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
 import { initLogger, initSDKLogger } from "./utils/logger.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
-import { createSDK } from "@wf-agent/sdk/api";
-import { registerAllIndexResolvers } from "@wf-agent/config-processor";
+import { createAppSDK } from "@wf-agent/runtime/bootstrap";
 import { ExitManager } from "./utils/exit-manager.js";
 import { isHeadless, getMode, getOutputFormat } from "./utils/mode-detector.js";
-import { StorageManager } from "./storage/index.js";
 import { createWorkflowCommands } from "./commands/workflow/index.js";
 import { createWorkflowExecutionCommands } from "./commands/workflow-execution/index.js";
 import { createCheckpointCommands } from "./commands/checkpoint/index.js";
@@ -93,10 +91,7 @@ program
     // 3. Initialize the formatter
     initializeFormatter(output.colorEnabled);
 
-    // 4. Initialize the output router is already captured by commands;
-    //    no need to recreate — it dynamically resolves getOutput() internally.
-
-    // 5. Initialize the log (CLI + SDK)
+    // 4. Initialize the log (CLI + SDK)
     initLogger({
       verbose: options.verbose,
       debug: options.debug,
@@ -108,7 +103,6 @@ program
       sdkLogLevel: config.output?.sdkLogLevel,
     });
 
-    // 5. Initialize SDK logger (this also sets all loggers level)
     initSDKLogger({
       verbose: options.verbose,
       debug: options.debug,
@@ -120,28 +114,23 @@ program
       sdkLogLevel: config.output?.sdkLogLevel,
     });
 
-    // 6. Initialize storage manager (will be managed by container)
-    const storageManager = new StorageManager(config);
-    await storageManager.initialize();
-
-    // 7. Initialize the SDK with storage adapters and lifecycle hooks
-    sdkInstance = createSDK({
+    // 5. Initialize SDK and storage via createAppSDK
+    const { sdk: sdkInstance } = await createAppSDK({
+      appName: "cli-app",
       debug: options.debug,
+      verbose: options.verbose,
       logging: {
         level: config.logLevel ||
                (options.debug ? "debug" : options.verbose ? "info" : "warn"),
       },
+      storage: {
+        storage: config.storage,
+        appName: "cli-app",
+      },
       presets: config.presets,
       strictStorage: true,
-      ...storageManager.getAllAdapters(),
       defaultTimeout: config.defaultTimeout,
-      workflowExecution: {
-        maxConcurrentExecutions: config.maxConcurrentExecutions,
-      },
-      gracefulShutdown: {
-        enabled: true,
-        timeoutMs: 15000,
-      },
+      maxConcurrentExecutions: config.maxConcurrentExecutions,
       hooks: {
         onBootstrapStart: () => {
           output.infoLog("Initializing SDK...");
@@ -152,22 +141,14 @@ program
         onBootstrapError: error => {
           output.errorLog(`SDK initialization failed: ${error.message}`);
         },
-        onDestroy: async () => {
-          output.infoLog("Shutting down SDK and storage...");
-          await storageManager.close();
-        },
       },
     });
 
-    await sdkInstance.waitForReady();
-
-    registerAllIndexResolvers();
-
-    // 8. Initialize User Interaction Handler for interactive tools
+    // 6. Initialize User Interaction Handler for interactive tools
     const interactionHandler = new CLIUserInteractionManager();
     interactionHandler.initialize(sdkInstance);
 
-    // 9. Initialize container with SDK and config (includes StorageManager)
+    // 7. Initialize container with SDK and config (includes StorageManager)
     const container = initializeContainer(sdkInstance, config);
     container.registerInteractionHandler(interactionHandler);
   });

@@ -1,9 +1,16 @@
 /**
- * Base Adapter Class
- * Provides common adapter functionality
+ * CLI Base Adapter Class
+ * Provides common adapter functionality for CLI-specific adapters.
+ *
+ * Extends the shared BaseAppAdapter from @wf-agent/runtime with
+ * CLI-specific output, error handling, and logging utilities.
+ *
+ * Inherits executeWithErrorHandling from BaseAppAdapter and overrides
+ * handleOperationError to convert errors to CLIError.
  */
 
 import type { SDKInstance } from "@wf-agent/sdk/api";
+import { BaseAppAdapter } from "@wf-agent/runtime/adapters";
 import { getOutput, type CLIOutput } from "../utils/output.js";
 import type { ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";
@@ -11,19 +18,23 @@ import { isHeadless } from "../utils/mode-detector.js";
 import { getSDKInstance } from "../index.js";
 
 /**
- * Base Adapter Class
+ * CLI Base Adapter Class
+ * Extends the runtime BaseAppAdapter with CLI-specific functionality.
+ *
+ * Maintains backward compatibility: adapters can call super() without
+ * passing an SDK instance — it will be resolved from the global SDK.
  */
-export class BaseAdapter {
+export class BaseAdapter extends BaseAppAdapter {
   protected output: CLIOutput;
-  protected sdk: SDKInstance;
 
-  constructor() {
-    this.output = getOutput();
-    const sdk = getSDKInstance();
-    if (!sdk) {
+  constructor(sdk?: SDKInstance) {
+    // Resolve SDK: prefer explicit injection, fall back to global
+    const resolvedSdk = sdk ?? getSDKInstance();
+    if (!resolvedSdk) {
       throw new Error("SDK instance not initialized. Make sure the CLI app has started.");
     }
-    this.sdk = sdk;
+    super(resolvedSdk);
+    this.output = getOutput();
   }
 
   /**
@@ -55,9 +66,11 @@ export class BaseAdapter {
   }
 
   /**
-   * 处理错误并转换为 CLIError
+   * Handle error and convert to CLIError
+   * Override of BaseAppAdapter.handleOperationError.
+   * Converts unknown errors to CLIError, logs them, and throws.
    */
-  protected handleError(error: unknown, context: string): never {
+  protected override handleOperationError(error: unknown, context: string): never {
     const cliError =
       error instanceof CLIError
         ? error
@@ -73,21 +86,7 @@ export class BaseAdapter {
   }
 
   /**
-   * 执行操作并处理错误
-   */
-  protected async executeWithErrorHandling<T>(
-    operation: () => Promise<T>,
-    context: string,
-  ): Promise<T> {
-    try {
-      return await operation();
-    } catch (error) {
-      this.handleError(error, context);
-    }
-  }
-
-  /**
-   * 创建错误上下文
+   * Create error context
    */
   protected createErrorContext(operation: string, additional?: Record<string, unknown>): ErrorContext {
     return {

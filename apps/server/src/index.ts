@@ -10,7 +10,7 @@
  * - Complete SDK initialization and lifecycle management
  * - Express.js 5.2.1 HTTP server
  * - Dependency injection container
- * - Graceful shutdown handling
+ * - Graceful shutdown handling (via @wf-agent/runtime/lifecycle)
  * - Structured logging
  * - CORS support
  */
@@ -20,6 +20,7 @@ import { getOutput } from "./utils/output.js";
 import { initializeFormatter } from "./utils/formatter.js";
 import { loadConfigWithEnvOverride } from "./config/index.js";
 import { bootstrapSDK, gracefulShutdown } from "./sdk-bootstrap.js";
+import { registerShutdownHandlers } from "@wf-agent/runtime/lifecycle";
 import { initializeContainer } from "./services/container.js";
 import { WorkflowAdapter } from "./adapters/workflow-adapter.js";
 import { ExecutionService } from "./services/execution-service.js";
@@ -27,7 +28,6 @@ import { Server } from "./server.js";
 
 // Global instances
 let sdkInstance: any = null;
-let storageManager: any = null;
 let server: Server | null = null;
 
 /**
@@ -55,7 +55,6 @@ async function bootstrap(): Promise<void> {
     output.infoLog("🔧 Bootstrapping SDK...");
     const sdkResult = await bootstrapSDK(config);
     sdkInstance = sdkResult.sdk;
-    storageManager = sdkResult.storageManager;
 
     // 4. Initialize dependency container
     output.infoLog("📦 Initializing dependency container...");
@@ -107,31 +106,22 @@ async function bootstrap(): Promise<void> {
 }
 
 /**
- * Handle shutdown signals
- */
-process.on("SIGTERM", async () => {
-  const output = getOutput();
-  output.infoLog("Received SIGTERM signal");
-  await performShutdown();
-});
-
-process.on("SIGINT", async () => {
-  const output = getOutput();
-  output.infoLog("Received SIGINT signal");
-  await performShutdown();
-});
-
-/**
  * Perform complete shutdown
+ * Uses runtime's gracefulShutdown which triggers the onDestroy hook
+ * (closing storage manager) and accepts an onBeforeShutdown callback
+ * for HTTP server shutdown.
  */
 async function performShutdown(): Promise<void> {
   try {
-    if (server) {
-      await server.shutdown();
-    }
-
-    if (sdkInstance && storageManager) {
-      await gracefulShutdown(sdkInstance, storageManager);
+    if (sdkInstance) {
+      // gracefulShutdown will:
+      // 1. Call onBeforeShutdown (stop HTTP server)
+      // 2. Destroy SDK (triggers onDestroy hook which closes storage)
+      await gracefulShutdown(sdkInstance, async () => {
+        if (server) {
+          await server.shutdown();
+        }
+      });
     }
   } catch (error) {
     const output = getOutput();
@@ -141,6 +131,9 @@ async function performShutdown(): Promise<void> {
     process.exit(1);
   }
 }
+
+// Register shutdown handlers using runtime lifecycle
+registerShutdownHandlers(performShutdown);
 
 /**
  * Handle uncaught exceptions

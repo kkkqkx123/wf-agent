@@ -1,9 +1,10 @@
 /**
  * CLI Configuration Schema
  * Zod schema definitions for configuration validation.
- * 
+ *
  * This file defines only CLI-specific schemas and composes shared schemas
  * from @wf-agent/types to maintain a single source of truth.
+ * The base config schema is inherited from @wf-agent/runtime.
  */
 
 import { z } from "zod";

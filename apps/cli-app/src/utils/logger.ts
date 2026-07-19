@@ -1,7 +1,9 @@
 /**
  * CLI Logger
- * Based on the project's common logging system, provides CLI-specific logging functionality
- * Supports separate log level configuration for graph and agent modules
+ * CLI-specific logging setup, routing through CLIOutput's single log stream.
+ *
+ * The core logging logic (initLogger, initSDKLogger) is provided by
+ * @wf-agent/runtime/logger to eliminate duplication between apps.
  *
  * Environment Variable Naming Convention (Layered Architecture):
  * - GLOBAL_*: Global settings affecting all modules
@@ -11,35 +13,21 @@
  * - SDK_*_AGENT: SDK Agent submodule settings
  */
 
-import {
-  createPackageLogger,
-  registerLogger,
-  setAllLoggersLevel,
-  setupExitHandlers,
-  getLogLevelFromEnv,
-  configureLazyLogger,
-} from "@wf-agent/common-utils";
-import type { LogLevel, LogStream, LogEntry } from "@wf-agent/common-utils";
+import type { LogStream, LogEntry } from "@wf-agent/common-utils";
 import { getOutput } from "./output.js";
-import { configureSDKLogger } from "@wf-agent/sdk/utils";
+import {
+  initLogger as runtimeInitLogger,
+  initSDKLogger as runtimeInitSDKLogger,
+  initAllLoggers as runtimeInitAllLoggers,
+} from "@wf-agent/runtime/logger";
+import type { LoggerOptions as RuntimeLoggerOptions } from "@wf-agent/runtime/logger";
 
 // ============================================
 // Types
 // ============================================
 
-export interface LoggerOptions {
-  verbose?: boolean;
-  debug?: boolean;
-  logFile?: string;
-  outputDir?: string;
-  logFilePattern?: string;
-  enableLogTerminal?: boolean;
-  enableSDKLogs?: boolean;
-  sdkLogLevel?: string;
-  /** Maximum log file size in bytes (default: 100MB) */
-  maxLogSize?: number;
-  /** Maximum number of log files to keep (default: 10) */
-  maxLogFiles?: number;
+export interface LoggerOptions extends RuntimeLoggerOptions {
+  // CLI-specific extensions (if any) go here
 }
 
 // ============================================
@@ -61,19 +49,6 @@ const ENV_VARS = {
   /** Disable SDK logs */
   SDK_DISABLE_LOGS: "SDK_DISABLE_LOGS",
 } as const;
-
-// ============================================
-// Helper Functions
-// ============================================
-
-/**
- * Determine if SDK logs should be disabled
- */
-function isSDKLogsDisabled(options: LoggerOptions): boolean {
-  if (process.env[ENV_VARS.SDK_DISABLE_LOGS] === "true") return true;
-  if (options.enableSDKLogs === false) return true;
-  return false;
-}
 
 // ============================================
 // LogStream Adapter
@@ -109,25 +84,7 @@ const outputLogStream: LogStream = new OutputLogStreamAdapter();
  * Should be called at program startup, before SDK initialization
  */
 export function initLogger(options: LoggerOptions = {}): void {
-  // Determine CLI log level
-  const level: LogLevel = options.debug
-    ? "debug"
-    : options.verbose
-      ? "info"
-      : getLogLevelFromEnv(ENV_VARS.CLI_LOG_LEVEL, ENV_VARS.GLOBAL_LOG_LEVEL, "warn");
-
-  // Use the OutputLogStreamAdapter to route through CLIOutput's single log stream.
-  // This avoids creating a separate rotating file stream that would compete with CLIOutput.
-  const logger = createPackageLogger("cli-app", {
-    level,
-    stream: outputLogStream,
-    timestamp: true,
-  });
-
-  registerLogger("cli-app", logger);
-
-  // Setup process exit handlers to ensure logs are flushed
-  setupExitHandlers();
+  runtimeInitLogger(options, outputLogStream, "cli-app");
 }
 
 /**
@@ -135,38 +92,7 @@ export function initLogger(options: LoggerOptions = {}): void {
  * Should be called before SDK initialization
  */
 export function initSDKLogger(options: LoggerOptions = {}): void {
-  const disableSDKLogs = isSDKLogsDisabled(options);
-
-  // Determine base SDK log level
-  let baseLevel: LogLevel;
-  if (disableSDKLogs) {
-    baseLevel = "off";
-  } else if (options.debug) {
-    baseLevel = "debug";
-  } else if (options.verbose) {
-    baseLevel = "info";
-  } else {
-    baseLevel = getLogLevelFromEnv(ENV_VARS.SDK_LOG_LEVEL, ENV_VARS.GLOBAL_LOG_LEVEL, "off");
-  }
-
-  // Use the OutputLogStreamAdapter for SDK logs as well, routing through CLIOutput's
-  // single log stream instead of creating a separate rotating file stream.
-
-  // Configure lazy loggers BEFORE they are initialized
-  // This ensures they use the correct configuration when first accessed
-  configureLazyLogger("storage", { level: baseLevel, stream: outputLogStream });
-  configureLazyLogger("tool-executors", { level: baseLevel, stream: outputLogStream });
-
-  // Configure the SDK logger with the determined level
-  configureSDKLogger({
-    level: baseLevel,
-    stream: outputLogStream,
-  });
-
-  // Set all other registered loggers to the base level
-  // Note: This only affects already-registered loggers (e.g., cli-app)
-  // Lazy loggers that haven't been initialized yet will use their pending config
-  setAllLoggersLevel(baseLevel);
+  runtimeInitSDKLogger(options, outputLogStream);
 }
 
 /**
@@ -175,20 +101,10 @@ export function initSDKLogger(options: LoggerOptions = {}): void {
  * IMPORTANT: Call this function BEFORE importing or using any SDK modules
  * to ensure proper logger configuration.
  *
- * Correct order:
- * 1. initAllLoggers() or initLogger() + initSDKLogger()
- * 2. Import SDK modules
- * 3. Use SDK functionality
- *
- * Wrong order (may cause configuration issues):
- * 1. Import SDK modules (triggers lazy logger access)
- * 2. initAllLoggers() (configuration applied too late)
- *
  * @param options Logger configuration options
  */
 export function initAllLoggers(options: LoggerOptions = {}): void {
-  initLogger(options);
-  initSDKLogger(options);
+  runtimeInitAllLoggers(options, outputLogStream, "cli-app");
 }
 
 /**

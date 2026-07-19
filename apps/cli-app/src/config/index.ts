@@ -1,6 +1,8 @@
 /**
  * Configuration Module Exports
  * Unified exports for all configuration modules.
+ *
+ * Exports both CLI-specific config and re-exports shared runtime config utilities.
  */
 
 // CLI Configuration

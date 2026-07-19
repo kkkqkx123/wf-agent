@@ -3,6 +3,9 @@
  *
  * Provides unified interface for workflow operations.
  * Handles listing, creating, updating, deleting, and analyzing workflows.
+ *
+ * Uses runtime's executeWithErrorHandling via BaseAdapter for consistent
+ * error handling across all operations.
  */
 
 import { BaseAdapter, type QueryOptions, type PaginatedResponse } from "./base-adapter.js";
@@ -65,26 +68,19 @@ export class WorkflowAdapter extends BaseAdapter {
    * List all workflows
    */
   async list(query?: QueryOptions): Promise<PaginatedResponse<Workflow>> {
-    this.logOperation("list", query);
-
-    try {
-      // Get all workflows from SDK
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("list", query);
       const workflows = await this.getWorkflowsFromSDK();
-
-      // Apply pagination
       return this.applyPagination(workflows, query);
-    } catch (error) {
-      return this.handleError(error, "list workflows");
-    }
+    }, "list workflows");
   }
 
   /**
    * Get a single workflow
    */
   async get(id: string): Promise<Workflow> {
-    this.logOperation("get", { id });
-
-    try {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("get", { id });
       if (!id || id.trim().length === 0) {
         throw new Error("Workflow ID is required");
       }
@@ -96,36 +92,30 @@ export class WorkflowAdapter extends BaseAdapter {
       }
 
       return workflow;
-    } catch (error) {
-      return this.handleError(error, `get workflow ${id}`);
-    }
+    }, `get workflow ${id}`);
   }
 
   /**
    * Create a new workflow
    */
   async create(data: WorkflowInput): Promise<Workflow> {
-    this.logOperation("create", { name: data.name });
-
-    try {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("create", { name: data.name });
       if (!data.name || data.name.trim().length === 0) {
         throw new Error("Workflow name is required");
       }
 
       const workflow = await this.createWorkflowInSDK(data);
       return workflow;
-    } catch (error) {
-      return this.handleError(error, "create workflow");
-    }
+    }, "create workflow");
   }
 
   /**
    * Update an existing workflow
    */
   async update(id: string, _data: Partial<WorkflowInput>): Promise<Workflow> {
-    this.logOperation("update", { id });
-
-    try {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("update", { id });
       if (!id || id.trim().length === 0) {
         throw new Error("Workflow ID is required");
       }
@@ -135,18 +125,15 @@ export class WorkflowAdapter extends BaseAdapter {
 
       const workflow = await this.updateWorkflowInSDK(id, _data);
       return workflow;
-    } catch (error) {
-      return this.handleError(error, `update workflow ${id}`);
-    }
+    }, `update workflow ${id}`);
   }
 
   /**
    * Delete a workflow
    */
   async delete(id: string): Promise<void> {
-    this.logOperation("delete", { id });
-
-    try {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("delete", { id });
       if (!id || id.trim().length === 0) {
         throw new Error("Workflow ID is required");
       }
@@ -155,18 +142,15 @@ export class WorkflowAdapter extends BaseAdapter {
       await this.get(id);
 
       await this.deleteWorkflowInSDK(id);
-    } catch (error) {
-      return this.handleError(error, `delete workflow ${id}`);
-    }
+    }, `delete workflow ${id}`);
   }
 
   /**
    * Get workflow graph
    */
   async getGraph(id: string): Promise<WorkflowGraph> {
-    this.logOperation("getGraph", { id });
-
-    try {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("getGraph", { id });
       if (!id || id.trim().length === 0) {
         throw new Error("Workflow ID is required");
       }
@@ -176,9 +160,7 @@ export class WorkflowAdapter extends BaseAdapter {
       const graph = await this.getGraphFromSDK(id);
 
       return graph;
-    } catch (error) {
-      return this.handleError(error, `get workflow graph ${id}`);
-    }
+    }, `get workflow graph ${id}`);
   }
 
   // ============================================

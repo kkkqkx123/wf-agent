@@ -1,7 +1,10 @@
 /**
- * CLI Configuration Types
- * Contains all type definitions for CLI configuration.
+ * Server Configuration Types
+ * Contains all type definitions for Server configuration.
+ * Extends the base AppConfig from @wf-agent/runtime.
  */
+
+import type { AppConfig } from "@wf-agent/runtime";
 
 import type {
   StorageConfig,
@@ -19,16 +22,18 @@ export type { StorageConfig, OutputConfig, LogLevel, OutputFormat };
 export type { PresetsConfig };
 
 /**
- * Complete CLI Configuration
+ * Complete Server Configuration
+ * Extends the base AppConfig with server-specific fields.
  */
-export interface CLIConfig {
-  defaultTimeout: number;
-  verbose: boolean;
-  debug: boolean;
-  logLevel: LogLevel;
+export interface CLIConfig extends AppConfig {
+  /** Output format */
   outputFormat: OutputFormat;
+  /** Maximum number of concurrent workflow executions */
   maxConcurrentExecutions: number;
+  /** Storage configuration */
   storage?: StorageConfig;
+  /** Output configuration */
   output?: OutputConfig;
+  /** Presets configuration */
   presets?: PresetsConfig;
 }

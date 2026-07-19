@@ -41,7 +41,7 @@ export const PREDEFINED_TOOL_IDS = [
  * @param skipIfExists: Whether to skip the registration if the tool already exists (instead of reporting an error)
  * @returns: The registration result
  */
-export function registerPredefinedTools(
+export async function registerPredefinedTools(
   toolService: ToolRegistry,
   options?: {
     /** Enable only the specified tools (allowlist). */
@@ -67,7 +67,7 @@ export function registerPredefinedTools(
     };
   },
   skipIfExists: boolean = true,
-): ResourceRegistrationResult {
+): Promise<ResourceRegistrationResult> {
   const success: string[] = [];
   const failures: Array<{ id: string; error: string }> = [];
 
@@ -86,7 +86,7 @@ export function registerPredefinedTools(
 
         // Convert to SDK format and register (memory-only, no persistence needed for predefined).
         const sdkTool = toSdkTool(tool);
-        toolService.register(sdkTool);
+        await toolService.register(sdkTool);
         success.push(tool.id);
         logger.info(`Registered predefined tool: ${tool.id}`);
       } catch (error) {

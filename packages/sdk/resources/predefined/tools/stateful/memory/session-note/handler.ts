@@ -115,10 +115,10 @@ function formatCategories(categories: NoteCategorySummary[], totalNotes: number,
  * Create a record_note tool factory
  */
 export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
-  const storage = getOrCreateStorage(config);
   const defaultSessionId = resolveSessionId(config);
 
   return (executionId?: string) => {
+    const storage = getOrCreateStorage(config);
     const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
@@ -168,10 +168,10 @@ export function createRecordNoteFactory(config: SessionNoteConfig = {}) {
  * Create a recall_notes tool factory
  */
 export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
-  const storage = getOrCreateStorage(config);
   const defaultSessionId = resolveSessionId(config);
 
   return (executionId?: string) => {
+    const storage = getOrCreateStorage(config);
     const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (params: Record<string, unknown>): Promise<ToolOutput> => {
@@ -226,10 +226,10 @@ export function createRecallNotesFactory(config: SessionNoteConfig = {}) {
  * Create a list_categories tool factory
  */
 export function createListCategoriesFactory(config: SessionNoteConfig = {}) {
-  const storage = getOrCreateStorage(config);
   const defaultSessionId = resolveSessionId(config);
 
   return (executionId?: string) => {
+    const storage = getOrCreateStorage(config);
     const sessionId = executionId ?? defaultSessionId;
     return {
       execute: async (): Promise<ToolOutput> => {

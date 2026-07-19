@@ -164,6 +164,7 @@ export async function variableHandler(
     executionEntity.variableStateManager.registerVariable({
       name: config.variableName,
       type: config.variableType,
+      value: typedResult,
       readonly: config.readonly || false,
     });
   }

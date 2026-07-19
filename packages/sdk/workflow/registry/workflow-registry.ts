@@ -172,38 +172,40 @@ export class WorkflowRegistry {
     this.workflows.set(workflow.id, workflow);
     this.updateIndexes(workflow);
 
-    // Step 5: Preprocess workflow asynchronously
-    try {
-      await preprocessWorkflow(workflow, {
-        workflowRegistry: this,
-        graphRegistry: this.graphRegistry!,
-        relationshipRegistry: this.relationshipRegistry!,
-      });
-    } catch (error) {
-      // Rollback: Remove from both memory and storage
-      this.workflows.delete(workflow.id);
-      this.removeFromIndexes(workflow);
-      if (this.storageAdapter) {
-        try {
-          await removeWorkflow(workflow.id, this.storageAdapter);
-        } catch (removeError) {
-          logger.error("Failed to remove workflow from storage after preprocessing failure", {
-            workflowId: workflow.id,
-            error: getErrorMessage(removeError),
-          });
+    // Step 5: Preprocess workflow asynchronously (skip if graph/relationship registries not available)
+    if (this.graphRegistry && this.relationshipRegistry) {
+      try {
+        await preprocessWorkflow(workflow, {
+          workflowRegistry: this,
+          graphRegistry: this.graphRegistry,
+          relationshipRegistry: this.relationshipRegistry,
+        });
+      } catch (error) {
+        // Rollback: Remove from both memory and storage
+        this.workflows.delete(workflow.id);
+        this.removeFromIndexes(workflow);
+        if (this.storageAdapter) {
+          try {
+            await removeWorkflow(workflow.id, this.storageAdapter);
+          } catch (removeError) {
+            logger.error("Failed to remove workflow from storage after preprocessing failure", {
+              workflowId: workflow.id,
+              error: getErrorMessage(removeError),
+            });
+          }
         }
-      }
-      throw new ConfigurationValidationError(
-        `Workflow preprocessing failed: ${getErrorMessage(error)}`,
-        {
-          configType: "workflow",
-          configPath: "workflow.definition",
-          context: {
-            workflowId: workflow.id,
-            operation: "workflow_preprocessing",
+        throw new ConfigurationValidationError(
+          `Workflow preprocessing failed: ${getErrorMessage(error)}`,
+          {
+            configType: "workflow",
+            configPath: "workflow.definition",
+            context: {
+              workflowId: workflow.id,
+              operation: "workflow_preprocessing",
+            },
           },
-        },
-      );
+        );
+      }
     }
   }
 

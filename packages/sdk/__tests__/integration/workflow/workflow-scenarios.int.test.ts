@@ -300,7 +300,10 @@ describe("Workflow Advanced Scenarios Integration", () => {
       expect(regResult.result.isOk()).toBe(true);
 
       const execBuilder = new ExecutionBuilder(sdk.getGlobalContext());
-      const result = await execBuilder.withWorkflow(wfId).execute();
+      const result = await execBuilder
+        .withWorkflow(wfId)
+        .withOnFailure("continue")
+        .execute();
       // Execution should complete (error is captured, not thrown)
       expect(result.isOk()).toBe(true);
     });

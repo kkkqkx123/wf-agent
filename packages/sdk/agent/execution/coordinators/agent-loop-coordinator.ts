@@ -677,7 +677,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
               this.registry.updateTaskStatusToCompleted(taskId, result);
             }
           }
-          return result;
+          return { ...result, agentLoopId: entity.id };
         }
 
         // Execution failed but did not throw
@@ -771,7 +771,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
           this.registry.updateTaskStatusToFailed(taskId, lastResult.error as Error);
         }
       }
-      return lastResult;
+      return { ...lastResult, agentLoopId: entity.id };
     }
 
     // Throwing failure path: record error and transition to FAILED
@@ -840,6 +840,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       iterations: entity.state.currentIteration,
       toolCallCount: entity.state.toolCallCount,
       error: lastError,
+      agentLoopId: entity.id,
       // Cross-layer error traceability: include inner error records
       innerErrorRecords: (typeof entity.state.getErrorRecords === 'function'
         ? entity.state.getErrorRecords().map(r => ({

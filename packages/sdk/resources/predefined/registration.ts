@@ -100,7 +100,7 @@ export async function registerPredefinedContent(
   // 3. Register predefined tools
   if (presets?.predefinedTools?.enabled !== false) {
     try {
-      results.tools = registerPredefinedTools(
+      results.tools = await registerPredefinedTools(
         toolService,
         {
           allowList: presets?.predefinedTools?.allowList,

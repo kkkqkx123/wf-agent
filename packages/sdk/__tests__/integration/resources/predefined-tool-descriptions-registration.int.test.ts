@@ -41,9 +41,9 @@ const EXPECTED_TOOL_DESCRIPTION_IDS = [
   "backend_shell",
   "shell_output",
   "shell_kill",
-  "execute_workflow",
-  "query_workflow_status",
-  "cancel_workflow",
+  "builtin_execute_workflow",
+  "builtin_query_workflow_status",
+  "builtin_cancel_workflow",
 ];
 
 // =============================================================================

@@ -42,8 +42,8 @@ const EXPECTED_FRAGMENT_IDS = [
   "fragments.constraint.code-safety",
   "fragments.tool-usage.xml-summary",
   "fragments.tool-usage.json-summary",
-  "fragments.user-commands.code-review",
-  "fragments.user-commands.data-analysis",
+  "fragments.task-instruction.code-review",
+  "fragments.task-instruction.data-analysis",
 ];
 
 const EXPECTED_TEMPLATE_IDS = [

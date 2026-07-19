@@ -13,8 +13,13 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ToolRegistry } from "@/shared/registry/tool-registry.js";
+import { TriggerTemplateRegistry } from "@/shared/registry/trigger-template-registry.js";
 import { FragmentRegistry } from "@/shared/registry/fragment-registry.js";
 import { PromptTemplateRegistry } from "@/shared/registry/prompt-template-registry.js";
+import { WorkflowRegistry } from "@/workflow/registry/workflow-registry.js";
+import { NodeTemplateRegistry } from "@/shared/registry/node-template-registry.js";
+import { HookTemplateRegistry } from "@/shared/registry/hook-template-registry.js";
+import { AgentLoopRegistry } from "@/agent/registry/agent-loop-registry.js";
 import { registerAllResources } from "@/resources/registration/orchestrator.js";
 import type { ResourceRegistries } from "@/resources/registration/types.js";
 import { createDefaultPresetsConfig, createDisabledPresetsConfig, createTestCustomTool, createTestCustomTrigger, createTestCustomPrompt } from "./__shared/fixtures.js";
@@ -25,12 +30,6 @@ import { toolDescriptionRegistry } from "@/shared/tools/tool-description-registr
 // =============================================================================
 
 function createRegistries(): ResourceRegistries {
-  const { TriggerTemplateRegistry } = require("@sdk/shared/registry/trigger-template-registry.js");
-  const { WorkflowRegistry } = require("@sdk/workflow/registry/workflow-registry.js");
-  const { NodeTemplateRegistry } = require("@sdk/shared/registry/node-template-registry.js");
-  const { HookTemplateRegistry } = require("@sdk/shared/registry/hook-template-registry.js");
-  const { AgentLoopRegistry } = require("@sdk/agent/registry/agent-loop-registry.js");
-
   return {
     triggerRegistry: new TriggerTemplateRegistry(),
     workflowRegistry: new WorkflowRegistry(),
@@ -90,7 +89,7 @@ describe("Registration Orchestrator", () => {
 
       // Verify registries have content
       expect(registries.fragmentRegistry.size).toBeGreaterThan(0);
-      expect(registries.workflowRegistry.size).toBeGreaterThan(0);
+      expect(registries.workflowRegistry.size()).toBeGreaterThan(0);
       expect(registries.toolRegistry.size).toBeGreaterThan(0);
       expect(registries.triggerRegistry.size).toBeGreaterThan(0);
 

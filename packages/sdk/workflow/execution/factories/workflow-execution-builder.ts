@@ -561,7 +561,6 @@ export class WorkflowExecutionBuilder {
     // Step 6: Create conversation session
     const conversationManager = this.createConversationSession(
       childEntity,
-      parent,
       options.parentStateCoordinator,
     );
 
@@ -913,22 +912,16 @@ export class WorkflowExecutionBuilder {
    */
   private createConversationSession(
     child: WorkflowExecutionEntity,
-    parent: WorkflowExecutionEntity,
     parentStateCoordinator?: WorkflowStateCoordinator,
   ): ConversationSession {
     const childExecution = child.getWorkflowExecutionData();
 
-    // Get initial messages from parent's state coordinator
-    if (!parentStateCoordinator) {
-      throw new ExecutionError(
-        `parentStateCoordinator is required for child execution creation`,
-        undefined,
-        childExecution.id,
-        { parentId: parent.id },
-      );
-    }
-
-    const initialMessages = parentStateCoordinator.exportMessagesForChild();
+    // Get initial messages from parent's state coordinator if available.
+    // Fork branches and other child executions that don't have a parent state
+    // coordinator will start with an empty conversation session.
+    const initialMessages = parentStateCoordinator
+      ? parentStateCoordinator.exportMessagesForChild()
+      : [];
 
     const conversationManager = new ConversationSession({
       eventManager: this.getEventManager(),

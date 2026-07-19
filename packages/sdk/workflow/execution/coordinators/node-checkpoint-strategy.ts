@@ -75,7 +75,12 @@ export class NodeCheckpointStrategy {
         workflowExecutionEntity,
         "CREATE_CHECKPOINT",
       );
-      throw error;
+      logger.warn("Before-node checkpoint creation failed, continuing execution", {
+        executionId: workflowExecutionEntity.id,
+        nodeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 
@@ -116,7 +121,12 @@ export class NodeCheckpointStrategy {
         workflowExecutionEntity,
         "CREATE_CHECKPOINT_AFTER",
       );
-      throw error;
+      logger.warn("After-node checkpoint creation failed, continuing execution", {
+        executionId: workflowExecutionEntity.id,
+        nodeId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 

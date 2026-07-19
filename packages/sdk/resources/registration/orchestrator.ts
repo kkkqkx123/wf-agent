@@ -134,7 +134,7 @@ export async function registerAllResources(
   if (customResources) {
     try {
       logger.debug("Starting custom resources registration pipeline");
-      const customResult = registerCustomResources(
+      const customResult = await registerCustomResources(
         {
           toolRegistry: registries.toolRegistry,
           triggerRegistry: registries.triggerRegistry,

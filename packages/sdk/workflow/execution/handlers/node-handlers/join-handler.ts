@@ -481,6 +481,8 @@ export async function joinHandler(
     await emit(
       eventManager,
       buildWorkflowExecutionJoinStartedEvent({
+        executionId: workflowExecutionEntity.id,
+        workflowId: workflowExecutionEntity.getWorkflowId(),
         parentExecutionId: workflowExecutionEntity.id,
         childExecutionIds: completedPathIds,
         joinStrategy: config.joinStrategy,
@@ -502,6 +504,8 @@ export async function joinHandler(
     await emit(
       eventManager,
       buildWorkflowExecutionJoinConditionMetEvent({
+        executionId: workflowExecutionEntity.id,
+        workflowId: workflowExecutionEntity.getWorkflowId(),
         parentExecutionId: workflowExecutionEntity.id,
         childExecutionIds: completedPathIds,
         condition: `join:${config.joinStrategy}:completed=${completedBranches.size}:failed=${failedBranches.length}`,
@@ -532,6 +536,8 @@ export async function joinHandler(
       await emit(
         eventManager,
         buildWorkflowExecutionJoinFailedEvent({
+          executionId: workflowExecutionEntity.id,
+          workflowId: workflowExecutionEntity.getWorkflowId(),
           parentExecutionId: workflowExecutionEntity.id,
           childExecutionIds: completedPathIds,
           joinStrategy: config.joinStrategy,
@@ -584,6 +590,8 @@ export async function joinHandler(
     await emit(
       eventManager,
       buildWorkflowExecutionJoinCompletedEvent({
+        executionId: workflowExecutionEntity.id,
+        workflowId: workflowExecutionEntity.getWorkflowId(),
         parentExecutionId: workflowExecutionEntity.id,
         childExecutionIds: completedPathIds,
         joinStrategy: config.joinStrategy,
@@ -621,6 +629,8 @@ export async function joinHandler(
     await emit(
       eventManager,
       buildWorkflowExecutionJoinFailedEvent({
+        executionId: workflowExecutionEntity.id,
+        workflowId: workflowExecutionEntity.getWorkflowId(),
         parentExecutionId: workflowExecutionEntity.id,
         childExecutionIds: completedPathIds,
         joinStrategy: config.joinStrategy,

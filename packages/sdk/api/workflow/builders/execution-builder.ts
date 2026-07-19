@@ -81,6 +81,20 @@ export class ExecutionBuilder {
   }
 
   /**
+   * Set workflow-level failure strategy.
+   * Controls what happens when a node fails (after node-level retries are exhausted):
+   * - "fail" (default): Fail the entire workflow immediately.
+   * - "continue": Mark the failed node as SKIPPED and continue execution.
+   * - "retry": Retry the entire workflow execution from the beginning.
+   * @param onFailure Failure strategy
+   * @returns this
+   */
+  withOnFailure(onFailure: "fail" | "continue" | "retry"): this {
+    this.options.onFailure = onFailure;
+    return this;
+  }
+
+  /**
    * Setting the node execution callback
    * @param callback Callback function
    * @returns this

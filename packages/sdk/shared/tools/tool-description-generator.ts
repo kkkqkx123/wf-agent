@@ -13,7 +13,7 @@
 
 import { renderToolDescription } from "../../resources/predefined/prompt-templates/tool-description-renderer.js";
 import { convertToolParameters } from "./tool-parameter-converter.js";
-import type { Tool, ToolDescriptionData } from "@wf-agent/types";
+import type { Tool, ToolDescriptionData, ToolParameterDescription } from "@wf-agent/types";
 
 /**
  * Generate a tool description for a given tool

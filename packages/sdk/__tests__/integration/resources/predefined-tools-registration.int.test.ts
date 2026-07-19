@@ -19,7 +19,7 @@ import { registerPredefinedTools, unregisterPredefinedTools, isPredefinedToolReg
 // Constants
 // =============================================================================
 
-const ALL_TOOL_COUNT = 10;
+const ALL_TOOL_COUNT = 18;
 
 // =============================================================================
 // Tests
@@ -40,8 +40,8 @@ describe("Predefined Tools Registration", () => {
   // Scenario: SDK bootstrap — register all tools
   // ---------------------------------------------------------------------------
   describe("register all tools (SDK bootstrap)", () => {
-    it("should register all predefined tools successfully", () => {
-      const result = registerPredefinedTools(toolRegistry);
+    it("should register all predefined tools successfully", async () => {
+      const result = await registerPredefinedTools(toolRegistry);
 
       expect(result.success).toHaveLength(ALL_TOOL_COUNT);
       expect(result.failures).toHaveLength(0);
@@ -49,7 +49,7 @@ describe("Predefined Tools Registration", () => {
         expect.arrayContaining([
           "read_file",
           "write_file",
-          "edit_file",
+          "edit",
           "run_shell",
           "record_note",
           "recall_notes",
@@ -57,12 +57,20 @@ describe("Predefined Tools Registration", () => {
           "backend_shell",
           "shell_output",
           "shell_kill",
+          "apply_patch",
+          "apply_diff",
+          "list_files",
+          "grep",
+          "glob",
+          "skill",
+          "update_todo_list",
+          "use_mcp",
         ]),
       );
     });
 
-    it("should make all tools queryable in the registry after registration", () => {
-      registerPredefinedTools(toolRegistry);
+    it("should make all tools queryable in the registry after registration", async () => {
+      await registerPredefinedTools(toolRegistry);
 
       for (const id of PREDEFINED_TOOL_IDS) {
         expect(toolRegistry.has(id)).toBe(true);
@@ -72,8 +80,8 @@ describe("Predefined Tools Registration", () => {
       }
     });
 
-    it("should provide tool descriptions for all registered tools", () => {
-      registerPredefinedTools(toolRegistry);
+    it("should provide tool descriptions for all registered tools", async () => {
+      await registerPredefinedTools(toolRegistry);
 
       for (const id of PREDEFINED_TOOL_IDS) {
         const tool = toolRegistry.get(id)!;
@@ -88,19 +96,19 @@ describe("Predefined Tools Registration", () => {
   // Scenario: skipIfExists behavior
   // ---------------------------------------------------------------------------
   describe("skipIfExists behavior", () => {
-    it("should skip already registered tools when skipIfExists=true (default)", () => {
-      registerPredefinedTools(toolRegistry);
-      const result = registerPredefinedTools(toolRegistry);
+    it("should skip already registered tools when skipIfExists=true (default)", async () => {
+      await registerPredefinedTools(toolRegistry);
+      const result = await registerPredefinedTools(toolRegistry);
 
       // Second registration should skip all existing tools
       expect(result.success).toHaveLength(0);
       expect(result.failures).toHaveLength(0);
     });
 
-    it("should report failures when skipIfExists=false and tools already exist", () => {
-      registerPredefinedTools(toolRegistry);
+    it("should report failures when skipIfExists=false and tools already exist", async () => {
+      await registerPredefinedTools(toolRegistry);
 
-      const result = registerPredefinedTools(toolRegistry, undefined, false);
+      const result = await registerPredefinedTools(toolRegistry, undefined, false);
 
       // All tools should fail because they already exist
       expect(result.success).toHaveLength(0);
@@ -115,9 +123,9 @@ describe("Predefined Tools Registration", () => {
   // Scenario: allowList — only enable specific tools
   // ---------------------------------------------------------------------------
   describe("allowList filtering", () => {
-    it("should register only the tools in the allowList", () => {
+    it("should register only the tools in the allowList", async () => {
       const allowed = ["read_file", "list_files", "grep", "glob"];
-      const result = registerPredefinedTools(toolRegistry, { allowList: allowed });
+      const result = await registerPredefinedTools(toolRegistry, { allowList: allowed });
 
       expect(result.success).toHaveLength(4);
       for (const id of allowed) {
@@ -128,11 +136,11 @@ describe("Predefined Tools Registration", () => {
       expect(toolRegistry.has("run_shell")).toBe(false);
     });
 
-    it("should register nothing when allowList is empty", () => {
-      const result = registerPredefinedTools(toolRegistry, { allowList: [] });
+    it("should register all tools when allowList is empty (no filtering)", async () => {
+      const result = await registerPredefinedTools(toolRegistry, { allowList: [] });
 
-      expect(result.success).toHaveLength(0);
-      expect(toolRegistry.size).toBe(0);
+      expect(result.success).toHaveLength(ALL_TOOL_COUNT);
+      expect(toolRegistry.size).toBe(ALL_TOOL_COUNT);
     });
   });
 
@@ -140,14 +148,14 @@ describe("Predefined Tools Registration", () => {
   // Scenario: blockList — disable specific tools
   // ---------------------------------------------------------------------------
   describe("blockList filtering", () => {
-    it("should skip tools in the blockList", () => {
-      const blocked = ["write_file", "edit_file", "run_shell"];
-      const result = registerPredefinedTools(toolRegistry, { blockList: blocked });
+    it("should skip tools in the blockList", async () => {
+      const blocked = ["write_file", "edit", "run_shell"];
+      const result = await registerPredefinedTools(toolRegistry, { blockList: blocked });
 
-      // Should register ALL_TOOL_COUNT - 3 = 7 tools
+      // Should register ALL_TOOL_COUNT - 3 = 15 tools
       expect(result.success).toHaveLength(ALL_TOOL_COUNT - 3);
       expect(toolRegistry.has("write_file")).toBe(false);
-      expect(toolRegistry.has("edit_file")).toBe(false);
+      expect(toolRegistry.has("edit")).toBe(false);
       expect(toolRegistry.has("run_shell")).toBe(false);
       expect(toolRegistry.has("read_file")).toBe(true);
     });
@@ -158,7 +166,7 @@ describe("Predefined Tools Registration", () => {
   // ---------------------------------------------------------------------------
   describe("unregister tools", () => {
     it("should unregister all predefined tools when no toolIds specified", async () => {
-      registerPredefinedTools(toolRegistry);
+      await registerPredefinedTools(toolRegistry);
       expect(toolRegistry.size).toBe(ALL_TOOL_COUNT);
 
       const result = await unregisterPredefinedTools(toolRegistry);
@@ -169,18 +177,18 @@ describe("Predefined Tools Registration", () => {
     });
 
     it("should unregister only specified tool IDs", async () => {
-      registerPredefinedTools(toolRegistry);
+      await registerPredefinedTools(toolRegistry);
 
       const result = await unregisterPredefinedTools(toolRegistry, ["read_file", "write_file"]);
 
       expect(result.success).toHaveLength(2);
       expect(toolRegistry.has("read_file")).toBe(false);
       expect(toolRegistry.has("write_file")).toBe(false);
-      expect(toolRegistry.has("edit_file")).toBe(true);
+      expect(toolRegistry.has("edit")).toBe(true);
     });
 
     it("should not fail when unregistering a non-existent tool", async () => {
-      registerPredefinedTools(toolRegistry);
+      await registerPredefinedTools(toolRegistry);
 
       const result = await unregisterPredefinedTools(toolRegistry, ["non_existent_tool"]);
 
@@ -198,13 +206,13 @@ describe("Predefined Tools Registration", () => {
       expect(isPredefinedToolRegistered(toolRegistry, "read_file")).toBe(false);
     });
 
-    it("should return true after registration", () => {
-      registerPredefinedTools(toolRegistry);
+    it("should return true after registration", async () => {
+      await registerPredefinedTools(toolRegistry);
       expect(isPredefinedToolRegistered(toolRegistry, "read_file")).toBe(true);
     });
 
     it("should return false after unregistration", async () => {
-      registerPredefinedTools(toolRegistry);
+      await registerPredefinedTools(toolRegistry);
       await unregisterPredefinedTools(toolRegistry, ["read_file"]);
       expect(isPredefinedToolRegistered(toolRegistry, "read_file")).toBe(false);
     });

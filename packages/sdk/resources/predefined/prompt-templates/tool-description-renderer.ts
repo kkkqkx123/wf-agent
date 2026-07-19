@@ -31,6 +31,7 @@ function renderExamples(examples: string[] | undefined): string {
 
 export function renderToolDescription(data: ToolDescriptionData): string {
   const parts: string[] = [
+    `Tool: ${data.id}`,
     data.description,
     "",
     "Parameters:",

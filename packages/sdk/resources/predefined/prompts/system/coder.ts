@@ -43,7 +43,7 @@ export const CODER_SYSTEM_TEMPLATE: PromptTemplate = {
   name: "Coder System Prompt",
   description: "Programming Assistant System Prompt Words (based on fragment combinations)",
   category: "system",
-  content: "",
+  content: "Generated from fragments at render time via buildCoderSystemPromptContent(). See fragments field for the list of fragment IDs.",
   variables: [],
   fragments: CODER_SYSTEM_PROMPT_FRAGMENTS,
 };

@@ -318,7 +318,7 @@ describe("Integration: Trigger State Persistence Across Checkpoint", () => {
       const restoredData = restored.toJSON();
 
       // DESIGN REQUIREMENT: Verify no triggers were lost
-      expect(restoredData).toHaveLength(3);
+      expect(Object.keys(restoredData)).toHaveLength(3);
       expect(Object.keys(restoredData).sort()).toEqual(
         Object.keys(original).sort()
       );

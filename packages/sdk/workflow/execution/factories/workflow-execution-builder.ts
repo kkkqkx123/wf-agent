@@ -546,7 +546,7 @@ export class WorkflowExecutionBuilder {
     this.validateChildExecutionConfig(type, config);
 
     // Step 2: Get target workflow graph
-    const targetGraph = await this.getTargetGraph(config);
+    const targetGraph = await this.getTargetGraph(config, parent);
 
     // Step 3: Create execution entity (shared logic for all types)
     const executionId = generateId();
@@ -666,11 +666,17 @@ export class WorkflowExecutionBuilder {
   /**
    * Get target workflow graph based on configuration
    */
-  private async getTargetGraph(config: ChildExecutionConfig): Promise<WorkflowGraph> {
+  private async getTargetGraph(config: ChildExecutionConfig, parent?: WorkflowExecutionEntity): Promise<WorkflowGraph> {
     const subworkflowId = config.subworkflowId;
 
     if (!subworkflowId) {
       // FORK_BRANCH uses parent's graph
+      if (parent) {
+        const parentGraph = parent.getGraph();
+        if (parentGraph) {
+          return parentGraph;
+        }
+      }
       throw new RuntimeValidationError("Cannot determine target graph", {
         field: "subworkflowId",
       });

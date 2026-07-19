@@ -17,7 +17,7 @@ const createHookTemplate = (overrides: Partial<HookTemplate> = {}): HookTemplate
   type: "pre-execution",
   priority: 100,
   condition: { type: "always" },
-  action: { type: "log", params: { level: "info", message: "Hook" } },
+  hook: { type: "log", hookType: "pre", eventName: "node.started", params: { level: "info", message: "Hook" } },
   enabled: true,
   ...overrides,
 });
@@ -47,7 +47,11 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
+    try {
+      await storage.clear();
+    } catch {
+      // Storage may have been closed during the test
+    }
     await storage.close();
     await cleanupTestDb();
   });
@@ -56,7 +60,7 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
     it("should register and retrieve hook template from SQLite", async () => {
       const hook = createHookTemplate({ name: "error-handler" });
 
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
       const retrieved = registry.get("error-handler");
 
       expect(retrieved).toBeDefined();
@@ -68,9 +72,9 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
 
     it("should update hook template with SQLite persistence", async () => {
       const hook = createHookTemplate({ name: "data-validator" });
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
 
-      await registry.updateAsync("data-validator", { priority: 200 });
+      await registry.updateHookTemplate("data-validator", { priority: 200 });
 
       const updated = registry.get("data-validator");
       expect(updated?.priority).toBe(200);
@@ -79,9 +83,9 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
 
     it("should unregister hook template from SQLite", async () => {
       const hook = createHookTemplate({ name: "cleanup-hook" });
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
 
-      await registry.unregisterAsync("cleanup-hook");
+      await registry.unregisterHookTemplate("cleanup-hook");
       expect(registry.has("cleanup-hook")).toBe(false);
       expect(await storage.exists("cleanup-hook")).toBe(false);
     });
@@ -95,7 +99,7 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
       ];
 
       for (const hook of hooks) {
-        await registry.registerAsync(hook);
+        await registry.registerHookTemplate(hook);
       }
 
       expect(registry.list()).toHaveLength(2);
@@ -108,20 +112,22 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
         createHookTemplate({ name: "batch-2" }),
       ];
 
-      await registry.registerBatchAsync(hooks);
+      for (const hook of hooks) {
+        await registry.registerHookTemplate(hook);
+      }
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
 
     it("should filter hook templates by type", async () => {
-      await registry.registerAsync(
+      await registry.registerHookTemplate(
         createHookTemplate({ name: "pre", type: "pre-execution" })
       );
-      await registry.registerAsync(
+      await registry.registerHookTemplate(
         createHookTemplate({ name: "post", type: "post-execution" })
       );
 
-      const preExec = registry.listByType("pre-execution");
+      const preExec = registry.list().filter(h => h.type === "pre-execution");
       expect(preExec).toHaveLength(1);
     });
   });
@@ -129,7 +135,7 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
   describe("Storage Persistence and Recovery", () => {
     it("should recover hook templates from SQLite", async () => {
       const hook = createHookTemplate({ name: "recovery-test" });
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
 
       await storage.close();
 
@@ -147,8 +153,10 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
     it("should verify hook template action persistence", async () => {
       const hook = createHookTemplate({
         name: "action-test",
-        action: {
+        hook: {
           type: "webhook",
+          hookType: "post",
+          eventName: "node.completed",
           params: {
             url: "https://example.com/webhook",
             method: "POST",
@@ -157,11 +165,11 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
         },
       });
 
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
       const retrieved = registry.get("action-test");
 
-      expect(retrieved?.action.type).toBe("webhook");
-      expect((retrieved?.action.params as any).url).toBe("https://example.com/webhook");
+      expect(retrieved?.hook.type).toBe("webhook");
+      expect((retrieved?.hook.params as any).url).toBe("https://example.com/webhook");
 
       const loaded = await storage.load("action-test");
       expect(loaded).not.toBeNull();
@@ -170,14 +178,14 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
 
   describe("Hook Priority Management", () => {
     it("should manage hook template priorities with SQLite", async () => {
-      await registry.registerAsync(
+      await registry.registerHookTemplate(
         createHookTemplate({ name: "high", priority: 1000 })
       );
-      await registry.registerAsync(
+      await registry.registerHookTemplate(
         createHookTemplate({ name: "low", priority: 100 })
       );
 
-      const sorted = registry.listByPriority("asc");
+      const sorted = registry.list().sort((a, b) => (a.priority || 0) - (b.priority || 0));
       expect(sorted[0]?.name).toBe("low");
       expect(sorted[1]?.name).toBe("high");
     });
@@ -191,7 +199,7 @@ describe("Hook Template Storage E2E Integration with SQLite", () => {
 
     it("should handle special characters in hook names", async () => {
       const hook = createHookTemplate({ name: "hook-v1.0_test" });
-      await registry.registerAsync(hook);
+      await registry.registerHookTemplate(hook);
 
       expect(registry.has("hook-v1.0_test")).toBe(true);
       expect(await storage.exists("hook-v1.0_test")).toBe(true);

@@ -43,7 +43,7 @@ export const ASSISTANT_SYSTEM_TEMPLATE: PromptTemplate = {
   name: "Assistant System Prompt",
   description: "Generic Assistant System Prompt Words (based on fragment combinations)",
   category: "system",
-  content: "",
+  content: "Generated from fragments at render time via buildAssistantSystemPromptContent(). See fragments field for the list of fragment IDs.",
   variables: [],
   fragments: ASSISTANT_SYSTEM_PROMPT_FRAGMENTS,
 };

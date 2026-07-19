@@ -108,7 +108,8 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
     // Check the corresponding enablement configuration based on the triggering timing.
     const triggerConfig = config.triggers || {};
 
-    switch (context.triggerType) {
+    const triggerType = context.triggerType as string;
+    switch (triggerType) {
       case CheckpointTrigger.BEFORE_EXECUTE:
         return triggerConfig.nodeBeforeExecute !== false;
       case CheckpointTrigger.AFTER_EXECUTE:
@@ -161,8 +162,9 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
     };
 
     // Handle HOOK and TRIGGER types that are not in the CheckpointTrigger enum
-    if (context.triggerType === "HOOK") return "Hook checkpoint";
-    if (context.triggerType === "TRIGGER") return "Trigger checkpoint";
+    const triggerType = context.triggerType as string;
+    if (triggerType === "HOOK") return "Hook checkpoint";
+    if (triggerType === "TRIGGER") return "Trigger checkpoint";
 
     return `${triggerDesc[context.triggerType]} checkpoint`;
   }

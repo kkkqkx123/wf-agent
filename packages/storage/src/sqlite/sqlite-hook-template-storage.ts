@@ -57,9 +57,9 @@ export class SqliteHookTemplateStorage
       );
 
       CREATE TABLE IF NOT EXISTS hook_templates_blob (
-        hook_templates_id TEXT PRIMARY KEY,
+        hook_template_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (hook_templates_id) REFERENCES hook_templates(id) ON DELETE CASCADE
+        FOREIGN KEY (hook_template_id) REFERENCES hook_templates(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_hook_templates_name ON hook_templates(name);

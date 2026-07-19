@@ -57,9 +57,9 @@ export class SqliteTriggerStorage
       );
 
       CREATE TABLE IF NOT EXISTS triggers_blob (
-        triggers_id TEXT PRIMARY KEY,
+        trigger_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (triggers_id) REFERENCES triggers(id) ON DELETE CASCADE
+        FOREIGN KEY (trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_triggers_name ON triggers(name);

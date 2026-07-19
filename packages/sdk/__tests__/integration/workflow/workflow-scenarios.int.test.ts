@@ -112,7 +112,7 @@ describe("Workflow Advanced Scenarios Integration", () => {
         .addStartNode("start")
         .addRouteNode(
           "router",
-          [{ condition: { expression: "true" }, targetNodeId: "path-a", priority: 1 }],
+          [{ condition: { type: "expression", expression: "true" }, targetNodeId: "path-a", priority: 1 }],
           "path-b",
         )
         .addNode("path-a", "SCRIPT", { scriptName: "route-a", risk: "none" }, "Route A")
@@ -144,7 +144,7 @@ describe("Workflow Advanced Scenarios Integration", () => {
           "router",
           [
             // All conditions are false, should fallback to defaultTargetNodeId
-            { condition: { expression: "false" }, targetNodeId: "alt", priority: 1 },
+            { condition: { type: "expression", expression: "false" }, targetNodeId: "alt", priority: 1 },
           ],
           "default",
         )

@@ -154,6 +154,15 @@ describe("Workflow Execution E2E", () => {
     });
 
     it("should return execution metadata", async () => {
+      // Register the script first
+      sdk.getGlobalContext().scriptRegistry.registerScript({
+        id: "step-1",
+        name: "step-1",
+        description: "Simple step script",
+        content: "echo hello",
+        options: { timeout: 5000 },
+      });
+
       const wfId = "wf-meta-e2e";
       const builder = sdk.createWorkflowBuilder(wfId);
       builder

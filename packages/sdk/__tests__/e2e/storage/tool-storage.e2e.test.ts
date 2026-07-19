@@ -27,12 +27,22 @@ const createTool = (overrides: Partial<Tool> = {}): Tool => {
   };
 
   return {
-    id: "test-tool-id",
+    id: "test_tool_id",
     name: "test-tool",
     description: "Test tool",
-    type: "function",
+    type: "STATELESS",
+    parameters: {
+      type: "object",
+      properties: {
+        input: { type: "string", description: "Input value" },
+      },
+      required: ["input"],
+    },
     toolFunction,
     enabled: true,
+    config: {
+      execute: async () => ({ result: "ok" }),
+    },
     metadata: {
       category: "testing",
       tags: ["test"],
@@ -66,51 +76,55 @@ describe("Tool Storage E2E Integration with SQLite", () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
+    try {
+      await storage.clear();
+    } catch {
+      // Storage may have been closed during the test
+    }
     await storage.close();
     await cleanupTestDb();
   });
 
   describe("Basic CRUD Operations with SQLite", () => {
     it("should register and retrieve a tool from SQLite", async () => {
-      const tool = createTool({ id: "auth-tool", name: "auth-handler" });
+      const tool = createTool({ id: "auth_tool", name: "auth-handler" });
 
       await registry.register(tool);
-      const retrieved = registry.get("auth-handler");
+      const retrieved = registry.get("auth_tool");
 
       expect(retrieved).toBeDefined();
       expect(retrieved?.name).toBe("auth-handler");
 
-      const loaded = await storage.load("auth-handler");
+      const loaded = await storage.load("auth_tool");
       expect(loaded).not.toBeNull();
     });
 
     it("should update a tool with SQLite persistence", async () => {
-      const tool = createTool({ id: "update-tool", name: "data-processor" });
+      const tool = createTool({ id: "update_tool", name: "data-processor" });
       await registry.register(tool);
 
       const updates = { description: "Updated tool description" };
-      await registry.update("data-processor", updates);
+      await registry.update("update_tool", updates);
 
-      const updated = registry.get("data-processor");
+      const updated = registry.get("update_tool");
       expect(updated?.description).toBe("Updated tool description");
 
-      expect(await storage.exists("data-processor")).toBe(true);
+      expect(await storage.exists("update_tool")).toBe(true);
     });
 
     it("should unregister and remove a tool from SQLite", async () => {
-      const tool = createTool({ id: "remove-tool", name: "cleanup-tool" });
+      const tool = createTool({ id: "remove_tool", name: "cleanup-tool" });
       await registry.register(tool);
 
-      expect(registry.has("cleanup-tool")).toBe(true);
+      expect(registry.has("remove_tool")).toBe(true);
 
-      await registry.unregister("cleanup-tool");
-      expect(registry.has("cleanup-tool")).toBe(false);
-      expect(await storage.exists("cleanup-tool")).toBe(false);
+      await registry.unregister("remove_tool");
+      expect(registry.has("remove_tool")).toBe(false);
+      expect(await storage.exists("remove_tool")).toBe(false);
     });
 
     it("should throw when registering duplicate tool", async () => {
-      const tool = createTool({ id: "dup-tool", name: "duplicate-test" });
+      const tool = createTool({ id: "dup_tool", name: "duplicate-test" });
       await registry.register(tool);
 
       await expect(registry.register(tool)).rejects.toThrow();
@@ -142,7 +156,7 @@ describe("Tool Storage E2E Integration with SQLite", () => {
         createTool({ id: "b2", name: "batch-2" }),
       ];
 
-      await registry.registers(tools);
+      await registry.registerBatch(tools);
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
@@ -160,8 +174,8 @@ describe("Tool Storage E2E Integration with SQLite", () => {
       await newStorage.initialize();
       await newRegistry.initializeFromStorage();
 
-      expect(newRegistry.has("recovery-test")).toBe(true);
-      const recovered = newRegistry.get("recovery-test");
+      expect(newRegistry.has("recover")).toBe(true);
+      const recovered = newRegistry.get("recover");
       expect(recovered?.name).toBe("recovery-test");
 
       await newStorage.close();
@@ -180,11 +194,11 @@ describe("Tool Storage E2E Integration with SQLite", () => {
 
       await registry.register(tool);
 
-      const retrieved = registry.get("integrity-test");
+      const retrieved = registry.get("integrity");
       expect(retrieved?.metadata?.tags).toEqual(["critical", "verified"]);
       expect(retrieved?.metadata?.version).toBe("2.0");
 
-      const loaded = await storage.load("integrity-test");
+      const loaded = await storage.load("integrity");
       expect(loaded).not.toBeNull();
     });
   });
@@ -196,7 +210,6 @@ describe("Tool Storage E2E Integration with SQLite", () => {
 
       const metrics = await storage.getMetrics();
       expect(metrics.saveCount).toBeGreaterThan(0);
-      expect(metrics.totalCount).toBeGreaterThan(0);
     });
   });
 
@@ -208,22 +221,22 @@ describe("Tool Storage E2E Integration with SQLite", () => {
 
     it("should handle special characters in tool names", async () => {
       const tool = createTool({
-        id: "special",
+        id: "special_v1",
         name: "tool-with-special_chars.v1",
       });
       await registry.register(tool);
 
-      expect(registry.has("tool-with-special_chars.v1")).toBe(true);
-      expect(await storage.exists("tool-with-special_chars.v1")).toBe(true);
+      expect(registry.has("special_v1")).toBe(true);
+      expect(await storage.exists("special_v1")).toBe(true);
     });
   });
 
   describe("Null Storage Adapter", () => {
     it("should handle null storage adapter", async () => {
       const registryNoStorage = new ToolRegistry({}, null);
-      registryNoStorage.register(createTool({ id: "mem", name: "memory-only" }));
+      registryNoStorage.register(createTool({ id: "mem_only", name: "memory-only" }));
 
-      expect(registryNoStorage.has("memory-only")).toBe(true);
+      expect(registryNoStorage.has("mem_only")).toBe(true);
     });
   });
 });

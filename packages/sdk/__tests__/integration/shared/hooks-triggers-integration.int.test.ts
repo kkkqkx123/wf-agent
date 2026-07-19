@@ -363,7 +363,7 @@ describe("Integration: Hooks and Triggers Execution Flow", () => {
       );
 
       // Register global listener
-      eventRegistry.on("on_iteration" as any, (event: BaseEventData) => {
+      eventRegistry.onGlobal((event: BaseEventData) => {
         globalEvents.push(event);
       });
 

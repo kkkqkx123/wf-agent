@@ -101,8 +101,8 @@ describe("Integration: Messaging & Checkpoint Lifecycle", () => {
       await conversationSession.addMessage(assistantMessage);
 
       // Step 3: Simulate tool execution - increment iteration
-      agentState.currentIteration = 1;
-      agentState.toolCallCount = 1;
+      agentState.startIteration(); // iteration 1
+      agentState.recordToolCallEnd("dummy-tc-1"); // toolCallCount = 1
 
       expect(conversationSession.getMessages()).toHaveLength(2);
       expect(agentState.currentIteration).toBe(1);
@@ -146,7 +146,8 @@ describe("Integration: Messaging & Checkpoint Lifecycle", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.startIteration(); // iteration 1
+      agentState.startIteration(); // iteration 2
       agentState.status = AgentLoopStatus.RUNNING;
 
       // Checkpoint point
@@ -190,7 +191,8 @@ describe("Integration: Messaging & Checkpoint Lifecycle", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.startIteration(); // iteration 1
+      agentState.startIteration(); // iteration 2
       const checkpoint = agentState.createSnapshot();
 
       // ❌ PROBLEM: Now imagine restoring with wrong messages
@@ -278,13 +280,13 @@ describe("Integration: Messaging & Checkpoint Lifecycle", () => {
       await session.addMessage(msg2);
 
       // Get token usage snapshot
-      const tokenUsage = session.getTokenUsageState();
+      const tokenUsage = session.getTokenUsage();
 
       // ✅ Token usage is tracked
       expect(tokenUsage).toBeDefined();
 
       // On checkpoint, this should be saved
-      const conversationState = session.getSnapshot();
+      const conversationState = session.getState();
 
       // ✅ Token state is in conversation state
       expect(conversationState.tokenUsage).toBeDefined();
@@ -322,7 +324,7 @@ describe("Integration: Messaging & Checkpoint Lifecycle", () => {
       expect(state1).toBe("Calculated value is 42");
 
       // Snapshot and restore
-      const snapshot = session.getSnapshot();
+      const snapshot = session.getState();
       expect(snapshot.turnStates).toBeDefined();
       expect(Object.keys(snapshot.turnStates || {})).toHaveLength(2);
 

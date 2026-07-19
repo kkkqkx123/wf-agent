@@ -63,8 +63,10 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
       }
 
       // Update state to reflect iterations
-      agentState.currentIteration = 3;
-      agentState.toolCallCount = 1;
+      agentState.startIteration(); // iteration 1
+      agentState.startIteration(); // iteration 2
+      agentState.startIteration(); // iteration 3
+      agentState.recordToolCallEnd("dummy-tc-1"); // toolCallCount = 1
       agentState.status = AgentLoopStatus.RUNNING;
 
       // Create checkpoint snapshot
@@ -104,7 +106,8 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.startIteration(); // iteration 1
+      agentState.startIteration(); // iteration 2
       const checkpoint = agentState.createSnapshot();
 
       // ISSUE: No metadata to validate message-state consistency
@@ -198,7 +201,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
       }
 
       // Update token tracking
-      conversationSession.addTokenUsage({
+      conversationSession.setTokenUsageState({
         promptTokens: 10,
         completionTokens: 20,
         totalTokens: 30,
@@ -231,7 +234,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
       }
 
       // Simulate token usage that exceeds limit
-      conversationSession.addTokenUsage({
+      conversationSession.setTokenUsageState({
         promptTokens: 50,
         completionTokens: 80,
         totalTokens: 130, // Exceeds limit of 100
@@ -264,7 +267,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 1;
+      agentState.startIteration(); // iteration 1
       const checkpoint1 = agentState.createSnapshot();
 
       // Checkpoint 2: Add 3 more messages (total 8)
@@ -278,7 +281,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         await conversationSession.addMessage(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.startIteration(); // iteration 2
       const checkpoint2 = agentState.createSnapshot();
 
       // DESIGN REQUIREMENT: Checkpoint2 should support delta compression
@@ -309,7 +312,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         allMessages.push(msg);
       }
 
-      agentState.currentIteration = 1;
+      agentState.startIteration(); // iteration 1
       const ckpt1 = agentState.createSnapshot();
 
       // Round 2: 2 more messages
@@ -322,7 +325,7 @@ describe("Integration: Checkpoint-ConversationSession Message Sync", () => {
         allMessages.push(msg);
       }
 
-      agentState.currentIteration = 2;
+      agentState.startIteration(); // iteration 2
       const ckpt2 = agentState.createSnapshot();
 
       // DESIGN REQUIREMENT: Build checkpointChain with message validation

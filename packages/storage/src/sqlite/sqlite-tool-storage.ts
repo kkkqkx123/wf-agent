@@ -55,9 +55,9 @@ export class SqliteToolStorage
       );
 
       CREATE TABLE IF NOT EXISTS tools_blob (
-        tools_id TEXT PRIMARY KEY,
+        tool_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (tools_id) REFERENCES tools(id) ON DELETE CASCADE
+        FOREIGN KEY (tool_id) REFERENCES tools(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_tools_type ON tools(type);

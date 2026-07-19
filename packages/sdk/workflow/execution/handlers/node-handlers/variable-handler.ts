@@ -6,7 +6,7 @@
 import type { RuntimeNode, VariableNodeConfig, EvaluationContext } from "@wf-agent/types";
 import type { WorkflowExecutionEntity } from "../../../entities/workflow-execution-entity.js";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { conditionEvaluator, expressionCompiler, expressionConditionExecutor, setArrayItemByKey } from "../../../../services/evaluation/index.js";
+import { expressionCompiler, expressionConditionExecutor, setArrayItemByKey } from "../../../../services/evaluation/index.js";
 
 /**
  * Evaluate the expression using ExpressionEvaluator (AST-based, safe)
@@ -157,6 +157,12 @@ export async function variableHandler(
     workflowExecution.variables.push({
       name: config.variableName,
       value: typedResult,
+      type: config.variableType,
+      readonly: config.readonly || false,
+    });
+    // Register the variable in the VariableManager so it can be set
+    executionEntity.variableStateManager.registerVariable({
+      name: config.variableName,
       type: config.variableType,
       readonly: config.readonly || false,
     });

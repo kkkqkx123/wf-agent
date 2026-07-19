@@ -59,9 +59,9 @@ export class SqliteScriptStorage
       );
 
       CREATE TABLE IF NOT EXISTS scripts_blob (
-        scripts_id TEXT PRIMARY KEY,
+        script_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (scripts_id) REFERENCES scripts(id) ON DELETE CASCADE
+        FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_scripts_name ON scripts(name);

@@ -69,11 +69,16 @@ export abstract class SqliteKeyValueStorageBase<TMetadata, TListOptions = void>
 
   /**
    * Execute query with SQLite
+   * Uses stmt.get() for SELECT queries, stmt.run() for DML (INSERT/UPDATE/DELETE)
    */
   protected override async executeQuery(sql: string, params?: any[]): Promise<any> {
     const db = this.getDb();
     const stmt = db.prepare(sql);
-    return stmt.get(...(params || []));
+    const trimmedSql = sql.trim().toUpperCase();
+    if (trimmedSql.startsWith("SELECT")) {
+      return stmt.get(...(params || []));
+    }
+    return stmt.run(...(params || []));
   }
 
   /**
@@ -123,6 +128,7 @@ export abstract class SqliteKeyValueStorageBase<TMetadata, TListOptions = void>
     if (this.db) {
       this.db.close();
       this.db = null;
+      this.initialized = false;
       logger.debug("SQLite connection closed");
     }
   }

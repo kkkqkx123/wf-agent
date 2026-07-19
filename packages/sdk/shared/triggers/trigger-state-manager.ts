@@ -37,7 +37,7 @@ export class TriggerStateManager {
   constructor(initialState?: Record<string, TriggerState>) {
     if (initialState) {
       for (const [triggerId, state] of Object.entries(initialState)) {
-        this.state.set(triggerId, state);
+        this.state.set(triggerId, { ...state });
       }
     }
   }

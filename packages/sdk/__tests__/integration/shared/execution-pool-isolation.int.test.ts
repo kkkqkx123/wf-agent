@@ -75,14 +75,16 @@ describe("Integration: Execution Pool and Context Isolation", () => {
       ];
 
       const results = await Promise.all(
-        instances.map((instance) => {
-          const executor = pool.executeSync(instance, {
-            onSuccess: (result) => result,
-            onError: (err) => {
-              throw err;
-            },
-          });
-          return executor;
+        instances.map(async (instance) => {
+          const executor = await pool.allocateExecutor();
+          try {
+            const result = await executor.execute(instance);
+            await pool.releaseExecutor(executor);
+            return result;
+          } catch (err) {
+            await pool.releaseExecutor(executor);
+            throw err;
+          }
         })
       );
 
@@ -129,12 +131,9 @@ describe("Integration: Execution Pool and Context Isolation", () => {
       // ❌ This means SDK-2's factory is IGNORED
       // All executors will be from SDK-1's factory
       const instance2 = { id: "task-2", contextId: "sdk-instance-2", taskName: "SDK2 Task" };
-      const result = await pool1.executeSync(instance2, {
-        onSuccess: (result) => result,
-        onError: (err) => {
-          throw err;
-        },
-      });
+      const executor = await pool1.allocateExecutor();
+      const result = await executor.execute(instance2);
+      await pool1.releaseExecutor(executor);
 
       // ❌ The executor came from factory1, not factory2
       expect(result.contextId).toBe("sdk-instance-1"); // Wrong! Should be "sdk-instance-2"
@@ -170,26 +169,18 @@ describe("Integration: Execution Pool and Context Isolation", () => {
       expect(pool2.getPoolId()).toBe("pool-sdk-2");
 
       // Execute on pool1
-      const result1 = await pool1.executeSync(
+      const executor1 = await pool1.allocateExecutor();
+      const result1 = await executor1.execute(
         { id: "t1", contextId: "sdk-1", taskName: "Task on SDK1" },
-        {
-          onSuccess: (result) => result,
-          onError: (err) => {
-            throw err;
-          },
-        }
       );
+      await pool1.releaseExecutor(executor1);
 
       // Execute on pool2
-      const result2 = await pool2.executeSync(
+      const executor2 = await pool2.allocateExecutor();
+      const result2 = await executor2.execute(
         { id: "t2", contextId: "sdk-2", taskName: "Task on SDK2" },
-        {
-          onSuccess: (result) => result,
-          onError: (err) => {
-            throw err;
-          },
-        }
       );
+      await pool2.releaseExecutor(executor2);
 
       // ✅ Results come from correct context
       expect(result1.contextId).toBe("sdk-1");
@@ -242,12 +233,14 @@ describe("Integration: Execution Pool and Context Isolation", () => {
       ];
 
       for (const task of tasks) {
-        await pool.executeSync(task, {
-          onSuccess: (result) => result,
-          onError: (err) => {
-            throw err;
-          },
-        });
+        const executor = await pool.allocateExecutor();
+        try {
+          await executor.execute(task);
+          await pool.releaseExecutor(executor);
+        } catch (err) {
+          await pool.releaseExecutor(executor);
+          throw err;
+        }
       }
 
       // Each executor should process multiple tasks without state bleed

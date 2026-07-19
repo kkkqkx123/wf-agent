@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEST_DB_DIR = path.join(__dirname, ".test-db-node-template");
 
 const createNodeTemplate = (overrides: Partial<NodeTemplate> = {}): NodeTemplate => ({
-  nodeType: "action",
+  type: "SCRIPT",
   name: "test-node",
   displayName: "Test Node",
   description: "Test node template",
@@ -23,6 +23,7 @@ const createNodeTemplate = (overrides: Partial<NodeTemplate> = {}): NodeTemplate
     properties: { input: { type: "string" } },
     required: ["input"],
   },
+  config: { scriptName: "test-script", risk: "none" },
   ...overrides,
 });
 
@@ -51,7 +52,11 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
+    try {
+      await storage.clear();
+    } catch {
+      // Storage may have been closed during the test
+    }
     await storage.close();
     await cleanupTestDb();
   });
@@ -60,7 +65,7 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
     it("should register and retrieve node template from SQLite", async () => {
       const template = createNodeTemplate({ name: "api-call" });
 
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
       const retrieved = registry.get("api-call");
 
       expect(retrieved).toBeDefined();
@@ -72,9 +77,9 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
 
     it("should update node template with SQLite persistence", async () => {
       const template = createNodeTemplate({ name: "data-transform" });
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
 
-      await registry.updateAsync("data-transform", { description: "Updated" });
+      await registry.updateNodeTemplate("data-transform", { description: "Updated" });
 
       const updated = registry.get("data-transform");
       expect(updated?.description).toBe("Updated");
@@ -83,9 +88,9 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
 
     it("should unregister node template from SQLite", async () => {
       const template = createNodeTemplate({ name: "cleanup-node" });
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
 
-      await registry.unregisterAsync("cleanup-node");
+      await registry.unregisterNodeTemplate("cleanup-node");
       expect(registry.has("cleanup-node")).toBe(false);
       expect(await storage.exists("cleanup-node")).toBe(false);
     });
@@ -99,7 +104,7 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
       ];
 
       for (const template of templates) {
-        await registry.registerAsync(template);
+        await registry.registerNodeTemplate(template);
       }
 
       expect(registry.list()).toHaveLength(2);
@@ -112,20 +117,22 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
         createNodeTemplate({ name: "batch-2" }),
       ];
 
-      await registry.registerBatchAsync(templates);
+      for (const template of templates) {
+        await registry.registerNodeTemplate(template);
+      }
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
 
     it("should filter node templates by category", async () => {
-      await registry.registerAsync(
+      await registry.registerNodeTemplate(
         createNodeTemplate({ name: "http", category: "networking" })
       );
-      await registry.registerAsync(
+      await registry.registerNodeTemplate(
         createNodeTemplate({ name: "transform", category: "data-processing" })
       );
 
-      const networking = registry.listByCategory("networking");
+      const networking = registry.list().filter(t => t.category === "networking");
       expect(networking).toHaveLength(1);
     });
   });
@@ -133,7 +140,7 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
   describe("Storage Persistence and Recovery", () => {
     it("should recover node templates from SQLite", async () => {
       const template = createNodeTemplate({ name: "recovery-test" });
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
 
       await storage.close();
 
@@ -161,7 +168,7 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
         },
       });
 
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
       const retrieved = registry.get("schema-test");
 
       expect((retrieved?.schema as any).properties.method.enum).toEqual(["GET", "POST"]);
@@ -179,7 +186,7 @@ describe("Node Template Storage E2E Integration with SQLite", () => {
 
     it("should handle special characters in template names", async () => {
       const template = createNodeTemplate({ name: "node-v1.0_test" });
-      await registry.registerAsync(template);
+      await registry.registerNodeTemplate(template);
 
       expect(registry.has("node-v1.0_test")).toBe(true);
       expect(await storage.exists("node-v1.0_test")).toBe(true);

@@ -49,9 +49,9 @@ export class SqliteAgentProfileStorage
       );
 
       CREATE TABLE IF NOT EXISTS agent_profiles_blob (
-        agent_profiles_id TEXT PRIMARY KEY,
+        agent_profile_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (agent_profiles_id) REFERENCES agent_profiles(id) ON DELETE CASCADE
+        FOREIGN KEY (agent_profile_id) REFERENCES agent_profiles(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_agent_profiles_profile_id ON agent_profiles(profile_id);

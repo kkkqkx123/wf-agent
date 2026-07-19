@@ -57,9 +57,9 @@ export class SqliteNodeTemplateStorage
       );
 
       CREATE TABLE IF NOT EXISTS node_templates_blob (
-        node_templates_id TEXT PRIMARY KEY,
+        node_template_id TEXT PRIMARY KEY,
         content BLOB NOT NULL,
-        FOREIGN KEY (node_templates_id) REFERENCES node_templates(id) ON DELETE CASCADE
+        FOREIGN KEY (node_template_id) REFERENCES node_templates(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_node_templates_name ON node_templates(name);

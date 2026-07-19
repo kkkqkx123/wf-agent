@@ -102,12 +102,9 @@ describe("Workflow Storage Integration", () => {
 
       // Verify via SDK API get()
       const getResult = await sdk.workflows.get("wf-persist-01");
-      expect(getResult.result.isOk()).toBe(true);
-      const getVal = getResult.result;
-      if (getVal.isOk() && getVal.value) {
-        expect(getVal.value.id).toBe("wf-persist-01");
-        expect(getVal.value.name).toBe("Persistence Test");
-      }
+      expect(getResult).not.toBeNull();
+      expect(getResult!.id).toBe("wf-persist-01");
+      expect(getResult!.name).toBe("Persistence Test");
     });
 
     it("should persist workflow with nodes and edges intact", async () => {
@@ -127,12 +124,9 @@ describe("Workflow Storage Integration", () => {
       expect(createResult.result.isOk()).toBe(true);
 
       const getResult = await sdk.workflows.get("wf-persist-nodes");
-      expect(getResult.result.isOk()).toBe(true);
-      const getVal = getResult.result;
-      if (getVal.isOk() && getVal.value) {
-        expect(getVal.value.nodes.length).toBe(3);
-        expect(getVal.value.edges.length).toBe(3);
-      }
+      expect(getResult).not.toBeNull();
+      expect(getResult!.nodes.length).toBe(3);
+      expect(getResult!.edges.length).toBe(3);
     });
   });
 
@@ -177,9 +171,12 @@ describe("Workflow Storage Integration", () => {
       const get2 = await sdk.workflows.get("wf-multi-2");
       const get3 = await sdk.workflows.get("wf-multi-3");
 
-      expect(get1.result.isOk() && get1.result.value?.name).toBe("First");
-      expect(get2.result.isOk() && get2.result.value?.name).toBe("Second");
-      expect(get3.result.isOk() && get3.result.value?.name).toBe("Third");
+      expect(get1).not.toBeNull();
+      expect(get1!.name).toBe("First");
+      expect(get2).not.toBeNull();
+      expect(get2!.name).toBe("Second");
+      expect(get3).not.toBeNull();
+      expect(get3!.name).toBe("Third");
 
       // All should appear in summaries
       const summaries = await sdk.workflows.getWorkflowSummaries();
@@ -213,20 +210,12 @@ describe("Workflow Storage Integration", () => {
   describe("Non-existent Workflow (WS-INT-05)", () => {
     it("should return null for non-existent workflow", async () => {
       const getResult = await sdk.workflows.get("non-existent");
-      expect(getResult.result.isOk()).toBe(true);
-      const getVal = getResult.result;
-      if (getVal.isOk()) {
-        expect(getVal.value).toBeNull();
-      }
+      expect(getResult).toBeNull();
     });
 
     it("should return false for has() on non-existent workflow", async () => {
       const hasResult = await sdk.workflows.has("non-existent");
-      expect(hasResult.result.isOk()).toBe(true);
-      const hasVal = hasResult.result;
-      if (hasVal.isOk()) {
-        expect(hasVal.value).toBe(false);
-      }
+      expect(hasResult).toBe(false);
     });
   });
 });

@@ -56,7 +56,11 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
+    try {
+      await storage.clear();
+    } catch {
+      // Storage may have been closed during the test
+    }
     await storage.close();
     await cleanupTestDb();
   });
@@ -68,13 +72,13 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         name: "authentication-agent",
       });
 
-      await registry.registerAsync(profile);
-      const retrieved = registry.get("authentication-agent");
+      await registry.registerProfile(profile);
+      const retrieved = registry.get("agent-auth");
 
       expect(retrieved).toBeDefined();
       expect(retrieved?.name).toBe("authentication-agent");
 
-      const loaded = await storage.load("authentication-agent");
+      const loaded = await storage.load("agent-auth");
       expect(loaded).not.toBeNull();
     });
 
@@ -83,13 +87,18 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         id: "agent-update",
         name: "data-processor",
       });
-      await registry.registerAsync(profile);
+      await registry.registerProfile(profile);
 
-      await registry.updateAsync("data-processor", { temperature: 0.5 });
+      // Update by re-registering with new values
+      await registry.registerProfile(createAgentProfile({
+        id: "agent-update",
+        name: "data-processor",
+        temperature: 0.5,
+      }));
 
-      const updated = registry.get("data-processor");
+      const updated = registry.get("agent-update");
       expect(updated?.temperature).toBe(0.5);
-      expect(await storage.exists("data-processor")).toBe(true);
+      expect(await storage.exists("agent-update")).toBe(true);
     });
 
     it("should unregister agent profile from SQLite", async () => {
@@ -97,11 +106,11 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         id: "agent-cleanup",
         name: "cleanup-agent",
       });
-      await registry.registerAsync(profile);
+      await registry.registerProfile(profile);
 
-      await registry.unregisterAsync("cleanup-agent");
-      expect(registry.has("cleanup-agent")).toBe(false);
-      expect(await storage.exists("cleanup-agent")).toBe(false);
+      await registry.removeProfile("agent-cleanup");
+      expect(registry.has("agent-cleanup")).toBe(false);
+      expect(await storage.exists("agent-cleanup")).toBe(false);
     });
   });
 
@@ -113,7 +122,7 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
       ];
 
       for (const profile of profiles) {
-        await registry.registerAsync(profile);
+        await registry.registerProfile(profile);
       }
 
       expect(registry.list()).toHaveLength(2);
@@ -126,20 +135,22 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         createAgentProfile({ id: "b2", name: "batch-2" }),
       ];
 
-      await registry.registerBatchAsync(profiles);
+      for (const profile of profiles) {
+        await registry.registerProfile(profile);
+      }
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
 
     it("should filter agent profiles by type", async () => {
-      await registry.registerAsync(
+      await registry.registerProfile(
         createAgentProfile({ id: "w1", name: "workflow-1", type: "workflow" })
       );
-      await registry.registerAsync(
+      await registry.registerProfile(
         createAgentProfile({ id: "l1", name: "loop-1", type: "loop" })
       );
 
-      const workflow = registry.listByType("workflow");
+      const workflow = registry.list().filter(p => p.type === "workflow");
       expect(workflow).toHaveLength(1);
     });
   });
@@ -150,7 +161,7 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         id: "recover",
         name: "recovery-test",
       });
-      await registry.registerAsync(profile);
+      await registry.registerProfile(profile);
 
       await storage.close();
 
@@ -159,8 +170,8 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
       await newStorage.initialize();
       await newRegistry.initializeFromStorage();
 
-      expect(newRegistry.has("recovery-test")).toBe(true);
-      expect(newRegistry.get("recovery-test")?.name).toBe("recovery-test");
+      expect(newRegistry.has("recover")).toBe(true);
+      expect(newRegistry.get("recover")?.name).toBe("recovery-test");
 
       await newStorage.close();
     });
@@ -174,14 +185,14 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         maxTokens: 2048,
       });
 
-      await registry.registerAsync(profile);
-      const retrieved = registry.get("model-test");
+      await registry.registerProfile(profile);
+      const retrieved = registry.get("model-config");
 
       expect(retrieved?.model).toBe("claude-sonnet-4-6");
       expect(retrieved?.temperature).toBe(0.3);
       expect(retrieved?.maxTokens).toBe(2048);
 
-      const loaded = await storage.load("model-test");
+      const loaded = await storage.load("model-config");
       expect(loaded).not.toBeNull();
     });
 
@@ -202,13 +213,13 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         ],
       });
 
-      await registry.registerAsync(profile);
-      const retrieved = registry.get("tools-profile");
+      await registry.registerProfile(profile);
+      const retrieved = registry.get("tools-test");
 
       expect(retrieved?.tools).toHaveLength(1);
       expect(retrieved?.tools[0]?.name).toBe("http-tool");
 
-      const loaded = await storage.load("tools-profile");
+      const loaded = await storage.load("tools-test");
       expect(loaded).not.toBeNull();
     });
   });
@@ -220,17 +231,26 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         name: "toggle-agent",
         enabled: true,
       });
-      await registry.registerAsync(profile);
+      await registry.registerProfile(profile);
 
-      await registry.updateAsync("toggle-agent", { enabled: false });
-      let retrieved = registry.get("toggle-agent");
+      // Update by re-registering with new values
+      await registry.registerProfile(createAgentProfile({
+        id: "toggle",
+        name: "toggle-agent",
+        enabled: false,
+      }));
+      let retrieved = registry.get("toggle");
       expect(retrieved?.enabled).toBe(false);
 
-      await registry.updateAsync("toggle-agent", { enabled: true });
-      retrieved = registry.get("toggle-agent");
+      await registry.registerProfile(createAgentProfile({
+        id: "toggle",
+        name: "toggle-agent",
+        enabled: true,
+      }));
+      retrieved = registry.get("toggle");
       expect(retrieved?.enabled).toBe(true);
 
-      expect(await storage.exists("toggle-agent")).toBe(true);
+      expect(await storage.exists("toggle")).toBe(true);
     });
   });
 
@@ -245,10 +265,10 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         id: "special",
         name: "agent-v1.0_test",
       });
-      await registry.registerAsync(profile);
+      await registry.registerProfile(profile);
 
-      expect(registry.has("agent-v1.0_test")).toBe(true);
-      expect(await storage.exists("agent-v1.0_test")).toBe(true);
+      expect(registry.has("special")).toBe(true);
+      expect(await storage.exists("special")).toBe(true);
     });
 
     it("should handle agent profile with complex metadata", async () => {
@@ -268,13 +288,13 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         },
       });
 
-      await registry.registerAsync(profile);
-      const retrieved = registry.get("complex-metadata");
+      await registry.registerProfile(profile);
+      const retrieved = registry.get("complex");
 
       expect(retrieved?.metadata?.version).toBe("2.0.1");
       expect((retrieved?.metadata as any).tags).toEqual(["production", "critical"]);
 
-      const loaded = await storage.load("complex-metadata");
+      const loaded = await storage.load("complex");
       expect(loaded).not.toBeNull();
     });
   });
@@ -286,7 +306,7 @@ describe("Agent Profile Storage E2E Integration with SQLite", () => {
         createAgentProfile({ id: "mem", name: "memory-only" })
       );
 
-      expect(registryNoStorage.has("memory-only")).toBe(true);
+      expect(registryNoStorage.has("mem")).toBe(true);
     });
   });
 });

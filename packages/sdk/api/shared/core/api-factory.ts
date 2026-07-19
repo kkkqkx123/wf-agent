@@ -435,7 +435,9 @@ export class APIFactory {
     // Initialize event-driven systems: metrics collection and logging
     try {
       const metricsRegistry = this.dependencies.getGlobalContext().metricsRegistry;
-      metricsRegistry.subscribeToEvents();
+      if (metricsRegistry && typeof metricsRegistry.subscribeToEvents === 'function') {
+        metricsRegistry.subscribeToEvents();
+      }
 
       const eventLogger = new ExecutionEventLogger();
       eventLogger.subscribe();

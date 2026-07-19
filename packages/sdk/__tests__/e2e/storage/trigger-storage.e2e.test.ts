@@ -12,10 +12,15 @@ const TEST_DB_DIR = path.join(__dirname, ".test-db-trigger");
 
 const createTrigger = (overrides: Partial<TriggerTemplate> = {}): TriggerTemplate => ({
   name: "test-trigger",
-  displayName: "Test Trigger",
   description: "Test trigger template",
-  type: "event",
-  config: { event: "user.created", filters: [] },
+  condition: {
+    eventType: "WORKFLOW_EXECUTION_STARTED",
+    filters: [],
+  },
+  action: {
+    type: "pause_workflow_execution",
+    config: { event: "WORKFLOW_EXECUTION_STARTED", filters: [] },
+  },
   createdAt: Date.now(),
   updatedAt: Date.now(),
   ...overrides,
@@ -46,7 +51,11 @@ describe("Trigger Storage E2E Integration with SQLite", () => {
   });
 
   afterEach(async () => {
-    await storage.clear();
+    try {
+      await storage.clear();
+    } catch {
+      // Storage may have been closed during the test
+    }
     await storage.close();
     await cleanupTestDb();
   });
@@ -81,7 +90,7 @@ describe("Trigger Storage E2E Integration with SQLite", () => {
       const trigger = createTrigger({ name: "cleanup-trigger" });
       await registry.registerAsync(trigger);
 
-      await registry.unregisterAsync("cleanup-trigger");
+      await registry.unregister("cleanup-trigger");
       expect(registry.has("cleanup-trigger")).toBe(false);
       expect(await storage.exists("cleanup-trigger")).toBe(false);
     });
@@ -109,7 +118,9 @@ describe("Trigger Storage E2E Integration with SQLite", () => {
         createTrigger({ name: "batch-2" }),
       ];
 
-      await registry.registerBatchAsync(triggers);
+      for (const trigger of triggers) {
+        await registry.registerAsync(trigger);
+      }
       expect(registry.size).toBe(2);
       expect(await storage.list()).toHaveLength(2);
     });
@@ -136,8 +147,8 @@ describe("Trigger Storage E2E Integration with SQLite", () => {
     it("should verify trigger config persistence", async () => {
       const trigger = createTrigger({
         name: "config-test",
-        config: {
-          event: "user.updated",
+        condition: {
+          eventType: "WORKFLOW_EXECUTION_COMPLETED",
           filters: [
             { field: "status", operator: "equals", value: "active" },
           ],
@@ -147,8 +158,8 @@ describe("Trigger Storage E2E Integration with SQLite", () => {
       await registry.registerAsync(trigger);
       const retrieved = registry.get("config-test");
 
-      expect((retrieved?.config as any).event).toBe("user.updated");
-      expect((retrieved?.config as any).filters).toHaveLength(1);
+      expect(retrieved?.condition.eventType).toBe("WORKFLOW_EXECUTION_COMPLETED");
+      expect(retrieved?.condition.filters).toHaveLength(1);
 
       const loaded = await storage.load("config-test");
       expect(loaded).not.toBeNull();

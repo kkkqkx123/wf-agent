@@ -26,10 +26,20 @@ export function generateToolDescription(tool: Tool): string {
 
   const convertedParameters = parameters ? convertToolParameters(parameters) : undefined;
 
+  // Convert Record<string, ConvertedParameter> to ToolParameterDescription[]
+  const paramArray: ToolParameterDescription[] = convertedParameters
+    ? Object.entries(convertedParameters).map(([name, param]) => ({
+        name,
+        type: param.type || "string",
+        required: param.required,
+        description: param.description || "",
+      }))
+    : [];
+
   return renderToolDescription({
-    toolId: id,
-    toolDescription: description || "No description",
-    parameters: convertedParameters,
+    id,
+    description: description || "No description",
+    parameters: paramArray,
   } as unknown as ToolDescriptionData);
 }
 

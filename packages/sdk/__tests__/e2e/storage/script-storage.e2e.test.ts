@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MemoryScriptStorage } from "@wf-agent/storage";
+import { MemoryScriptStorage, SqliteScriptStorage } from "@wf-agent/storage";
 import type { ScriptStorageAdapter } from "@wf-agent/storage";
 import { ScriptRegistry } from "../../../shared/registry/script-registry.js";
 import type { Script } from "@wf-agent/types";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
 
 const createScript = (overrides: Partial<Script> = {}): Script => ({
   name: "test-script",
@@ -249,25 +252,36 @@ describe("Script Storage E2E Integration", () => {
     });
 
     it("should recover scripts from SQLite on registry reinitialization", async () => {
-      const script = createScript({ name: "recovery-test" });
-      await registry.registerScript(script);
+      const sqliteTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "script-persist-"));
+      const sqliteDbPath = path.join(sqliteTempDir, "scripts.db");
+      try {
+        const sqliteStorage = new SqliteScriptStorage({ dbPath: sqliteDbPath });
+        const sqliteRegistry = new ScriptRegistry(sqliteStorage);
+        await sqliteStorage.initialize();
+        await sqliteRegistry.initializeFromStorage();
 
-      // Close first registry
-      await storage.close();
+        const script = createScript({ name: "recovery-test" });
+        await sqliteRegistry.registerScript(script);
 
-      // Create new storage and registry with same database file
-      const newStorage = new SqliteScriptStorage({ dbPath });
-      const newRegistry = new ScriptRegistry(newStorage);
-      await newStorage.initialize();
-      await newRegistry.initializeFromStorage();
+        // Close first registry
+        await sqliteStorage.close();
 
-      // Verify script recovered from SQLite
-      expect(newRegistry.has("recovery-test")).toBe(true);
-      const recovered = newRegistry.get("recovery-test");
-      expect(recovered?.name).toBe("recovery-test");
-      expect(recovered?.content).toBe("console.log('test');");
+        // Create new storage and registry with same database file
+        const newStorage = new SqliteScriptStorage({ dbPath: sqliteDbPath });
+        const newRegistry = new ScriptRegistry(newStorage);
+        await newStorage.initialize();
+        await newRegistry.initializeFromStorage();
 
-      await newStorage.close();
+        // Verify script recovered from SQLite
+        expect(newRegistry.has("recovery-test")).toBe(true);
+        const recovered = newRegistry.get("recovery-test");
+        expect(recovered?.name).toBe("recovery-test");
+        expect(recovered?.content).toBe("console.log('test');");
+
+        await newStorage.close();
+      } finally {
+        await fs.rm(sqliteTempDir, { recursive: true, force: true }).catch(() => {});
+      }
     });
 
     it("should clear registry memory without affecting SQLite storage", async () => {

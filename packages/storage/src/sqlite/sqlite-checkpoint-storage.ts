@@ -556,16 +556,18 @@ if (conditions.length > 0) {
       }
 
       if (options?.entityId) {
-        conditions.push("entity_id = ?");
-        params.push(options.entityId);
-      }
+              conditions.push("entity_id = ?");
+              params.push(options.entityId);
+            }
 
-      if (options?.tags && options.tags.length > 0) {
-        conditions.push(`EXISTS (SELECT 1 FROM json_each(tags) AS j WHERE j.value IN (${options.tags.map(() => "?").join(", ")}))`);
-        params.push(...options.tags);
-      }
+            if (options?.tags && options.tags.length > 0) {
+              // AND logic: all specified tags must be present
+              const placeholders = options.tags.map(() => "?").join(", ");
+              conditions.push(`tags IS NOT NULL AND (SELECT COUNT(*) FROM json_each(tags) WHERE value IN (${placeholders})) = ?`);
+              params.push(...options.tags, options.tags.length);
+            }
 
-if (conditions.length > 0) {
+            if (conditions.length > 0) {
         sql += " WHERE " + conditions.join(" AND ");
       }
 

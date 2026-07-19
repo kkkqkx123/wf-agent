@@ -7,8 +7,8 @@ import type { Tool } from "@wf-agent/types";
 
 // Mock tool-description-renderer
 vi.mock("../../../resources/predefined/prompt-templates/tool-description-renderer.js", () => ({
-  renderToolDescription: vi.fn((params: { toolId: string; toolDescription: string }) => {
-    return `${params.toolId}: ${params.toolDescription}`;
+  renderToolDescription: vi.fn((params: { id: string; description: string }) => {
+    return `${params.id}: ${params.description}`;
   }),
 }));
 

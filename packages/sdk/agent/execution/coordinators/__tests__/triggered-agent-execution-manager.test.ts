@@ -96,9 +96,6 @@ describe("TriggeredAgentExecutionManager", () => {
 
       const promise = manager.submitTriggeredExecution(executionConfig, entity, config);
 
-      // Give async processing time to complete
-      await new Promise(resolve => setTimeout(resolve, 50));
-
       const executionResult = await promise;
 
       expect(executionResult).toEqual(result);
@@ -120,9 +117,6 @@ describe("TriggeredAgentExecutionManager", () => {
 
       const promise = manager.submitTriggeredExecution(executionConfig, entity, config);
 
-      // Give async processing time to complete
-      await new Promise(resolve => setTimeout(resolve, 50));
-
       let caughtError: Error | null = null;
       try {
         await promise;
@@ -131,9 +125,6 @@ describe("TriggeredAgentExecutionManager", () => {
       }
 
       expect(caughtError).toBe(error);
-
-      // Give time for any pending async operations to complete
-      await new Promise(resolve => setTimeout(resolve, 150));
     });
 
     it("should register task before submission", async () => {

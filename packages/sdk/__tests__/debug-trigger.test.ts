@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import { TriggerTemplateRegistry } from "@/shared/registry/trigger-template-registry.js";
 import { registerCustomTriggers } from "@/resources/custom/registration.js";
-import { createTestCustomTrigger } from "__tests__/integration/resources/__shared/fixtures.js";
+import { createTestCustomTrigger } from "./integration/resources/__shared/fixtures.js";
 
 describe("debug", () => {
   it("should debug", () => {

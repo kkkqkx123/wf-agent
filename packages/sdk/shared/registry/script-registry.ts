@@ -77,12 +77,11 @@ class ScriptRegistry extends RegistryImpl<Script> {
     const count = this.size;
     super.clear();
 
-    // Also clear storage to maintain consistency
-    if (this.storageAdapter) {
-      await this.storageAdapter.clear();
-    }
+    // Note: only clears in-memory registry, not the underlying storage adapter.
+    // Call storageAdapter.clear() separately if full cleanup is needed.
+    // This allows re-initializing from storage after a registry clear.
 
-    logger.info("All scripts cleared (memory and storage)", { count });
+    logger.info("All scripts cleared from memory", { count });
   }
 
   // ============================================================
@@ -251,7 +250,7 @@ class ScriptRegistry extends RegistryImpl<Script> {
    */
   async unregisterBatch(keys: string[]): Promise<void> {
     for (const key of keys) {
-      this.unregister(key);
+      await this.unregisterScript(key);
     }
   }
 

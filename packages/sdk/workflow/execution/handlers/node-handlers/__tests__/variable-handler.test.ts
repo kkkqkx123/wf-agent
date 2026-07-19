@@ -6,6 +6,7 @@ import type { RuntimeNode, VariableNodeConfig } from "@wf-agent/types";
 const mockManager = {
   getAllVariables: vi.fn().mockReturnValue({}),
   setVariable: vi.fn(),
+  registerVariable: vi.fn(),
 };
 
 const mockEntity = {

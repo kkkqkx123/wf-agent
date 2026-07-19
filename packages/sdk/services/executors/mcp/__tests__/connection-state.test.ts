@@ -8,8 +8,8 @@ import {
   isConnected,
   isDisabled,
   getServerDisplayName,
-} from "../shared/connection-state.js";
-import type { McpServerState } from "../shared/types.js";
+} from "../core/connection-state.js";
+import type { McpServerState } from "../types.js";
 
 function makeState(overrides: Partial<McpServerState> = {}): McpServerState {
   return {

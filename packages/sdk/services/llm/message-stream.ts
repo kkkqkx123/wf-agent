@@ -165,6 +165,8 @@ export class MessageStream implements AsyncIterable<InternalStreamEvent> {
       logger.debug("MessageStream signal cleanup completed", {
         requestId: this.requestId,
       });
+    }).catch(() => {
+      // Silently handle rejection to avoid unhandled promise rejection warnings
     });
 
     logger.debug("External abort signal linked to MessageStream", {

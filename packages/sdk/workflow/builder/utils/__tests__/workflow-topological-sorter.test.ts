@@ -37,7 +37,7 @@ function createEdge(id: string, sourceNodeId: string, targetNodeId: string): Wor
 
 describe("topologicalSort", () => {
   it("should sort a simple linear graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -61,7 +61,7 @@ describe("topologicalSort", () => {
   });
 
   it("should handle empty graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     const result = topologicalSort(graph);
 
@@ -71,7 +71,7 @@ describe("topologicalSort", () => {
   });
 
   it("should handle single node graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
 
     const result = topologicalSort(graph);
@@ -82,7 +82,7 @@ describe("topologicalSort", () => {
   });
 
   it("should detect cycle in graph with cycle", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -99,7 +99,7 @@ describe("topologicalSort", () => {
   });
 
   it("should sort diamond-shaped DAG correctly", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -127,7 +127,7 @@ describe("topologicalSort", () => {
   });
 
   it("should handle graph with multiple disconnected components", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     // Component 1: a -> b
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
@@ -154,7 +154,7 @@ describe("topologicalSort", () => {
   });
 
   it("should handle complex DAG with multiple paths", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("start"));
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
@@ -180,7 +180,7 @@ describe("topologicalSort", () => {
   });
 
   it("should detect self-loop", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addEdge(createEdge("e1", "a", "a")); // Self-loop
 
@@ -192,7 +192,7 @@ describe("topologicalSort", () => {
   });
 
   it("should handle graph with only one edge", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addEdge(createEdge("e1", "a", "b"));

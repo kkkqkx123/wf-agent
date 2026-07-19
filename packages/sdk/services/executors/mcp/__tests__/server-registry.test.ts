@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { McpServerRegistry } from "../shared/server-registry.js";
-import { McpConnectionManager } from "../shared/connection-manager.js";
+import { McpServerRegistry } from "../core/server-registry.js";
+import { McpConnectionManager } from "../core/connection-manager.js";
 
 // Reset the singleton state before each test
 beforeEach(() => {
@@ -100,7 +100,7 @@ describe("McpServerRegistry", () => {
 
 describe("getMcpManager / releaseMcpManager", () => {
   it("should get and release manager (convenience functions)", async () => {
-    const { getMcpManager, releaseMcpManager } = await import("../shared/server-registry.js");
+    const { getMcpManager, releaseMcpManager } = await import("../core/server-registry.js");
 
     const manager = await getMcpManager();
     expect(manager).toBeInstanceOf(McpConnectionManager);

@@ -267,7 +267,7 @@ export function executeTransform(
 
   // Evaluate transform expression
   try {
-    const context = { variables: allVariables } as EvaluationContext;
+    const context = { variables: allVariables, input: {}, output: {} } as EvaluationContext;
     const compiled = expressionCompiler.compile(operation.transformExpression);
     const transformed = expressionConditionExecutor.execute(compiled, context);
 
@@ -320,7 +320,7 @@ export function executeBatchUpdate(
 
     // Evaluate expression
     try {
-      const context = { variables: allVariables } as EvaluationContext;
+      const context = { variables: allVariables, input: {}, output: {} } as EvaluationContext;
       const compiled = expressionCompiler.compile(update.expression);
       const value = expressionConditionExecutor.execute(compiled, context);
 

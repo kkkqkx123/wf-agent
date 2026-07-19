@@ -16,7 +16,7 @@ import {
   waitForNodeCompleted,
   waitForNodeFailed,
   WAIT_FOREVER,
-} from "../event-waiter.js";
+} from "../../event-waiter.js";
 import type { EventRegistry } from "../../../../../shared/registry/event-registry.js";
 
 // Mock the timeout utilities

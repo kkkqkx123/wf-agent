@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { McpConnectionManager } from "../shared/connection-manager.js";
+import { McpConnectionManager } from "../core/connection-manager.js";
 
 // Use vi.hoisted to create the mock class before vi.mock is evaluated
 const MockMcpClient = vi.hoisted(() => {

@@ -17,7 +17,7 @@ describe("validateSubgraphExistence", () => {
     nodes: Array<{ id: string; type: string; config?: any }>,
     edges: Array<{ sourceNodeId: string; targetNodeId: string }> = [],
   ): WorkflowGraphStructure {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Add nodes
     for (const nodeData of nodes) {
@@ -167,7 +167,7 @@ describe("validateSubgraphCompatibility", () => {
     nodes: Array<{ id: string; type: string; config?: any }>,
     edges: Array<{ sourceNodeId: string; targetNodeId: string }> = [],
   ): WorkflowGraphStructure {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Add nodes
     for (const nodeData of nodes) {

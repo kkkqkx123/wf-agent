@@ -276,7 +276,6 @@ describe("TriggerHandlerContextFactory", () => {
       expect(result).toHaveProperty("workflowExecutionRegistry");
       expect(result).toHaveProperty("eventManager");
       expect(result).toHaveProperty("executionBuilder");
-      expect(result).toHaveProperty("taskQueueManager");
       expect(result).toHaveProperty("parentExecutionId");
 
       expect((result as ExecuteSubgraphTriggerContext).workflowExecutionRegistry).toBe(
@@ -285,9 +284,6 @@ describe("TriggerHandlerContextFactory", () => {
       expect((result as ExecuteSubgraphTriggerContext).eventManager).toBe(config.eventManager);
       expect((result as ExecuteSubgraphTriggerContext).executionBuilder).toBe(
         config.executionBuilder,
-      );
-      expect((result as ExecuteSubgraphTriggerContext).taskQueueManager).toBe(
-        config.taskQueueManager,
       );
       expect((result as ExecuteSubgraphTriggerContext).parentExecutionId).toBe("exec456");
     });
@@ -327,24 +323,6 @@ describe("TriggerHandlerContextFactory", () => {
       );
       expect(() => factoryWithoutBuilder.createHandlerContext(trigger)).toThrow(
         "WorkflowExecutionBuilder is required for execute_triggered_subworkflow trigger action",
-      );
-    });
-
-    it("should throw DependencyInjectionError when taskQueueManager is missing for execute_triggered_subworkflow", () => {
-      // Remove taskQueueManager from config
-      const configWithoutTaskQueue = {
-        ...config,
-        taskQueueManager: undefined,
-      };
-      const factoryWithoutTaskQueue = new TriggerHandlerContextFactory(configWithoutTaskQueue);
-
-      const trigger = createMockTrigger("execute_triggered_subworkflow");
-
-      expect(() => factoryWithoutTaskQueue.createHandlerContext(trigger)).toThrow(
-        DependencyInjectionError,
-      );
-      expect(() => factoryWithoutTaskQueue.createHandlerContext(trigger)).toThrow(
-        "TaskQueue is required for execute_triggered_subworkflow trigger action",
       );
     });
 

@@ -28,7 +28,7 @@ describe("WorkflowGraph Composition Pattern", () => {
   let graph: WorkflowGraph;
 
   beforeEach(() => {
-    structure = new WorkflowGraphStructure();
+    structure = new WorkflowGraphStructureImpl();
     metadata = new WorkflowGraphMetadata();
     graph = new WorkflowGraph(structure, metadata);
   });

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { VariableManager } from "../variable-manager.js";
+import { VariableManager } from "../../execution/utils/variable-manager.js";
 import { RuntimeValidationError } from "@wf-agent/types";
 
 // Mock structuredClone

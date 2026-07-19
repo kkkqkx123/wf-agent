@@ -212,7 +212,6 @@ describe("CacheManager", () => {
       const changedContext = mockContext({ x: 999 });
       expect(cache.hasDependenciesChanged("key", changedContext)).toBe(false);
     });
-  });
 
   describe("Cache Statistics", () => {
     it("should track cache sizes", () => {

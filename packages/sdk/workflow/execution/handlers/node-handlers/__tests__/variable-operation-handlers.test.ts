@@ -329,14 +329,14 @@ describe("DATA_PROCESSOR - Variable Operations", () => {
   describe("Transform Operation", () => {
     it("should transform variable value", async () => {
       const entity = createMockExecutionEntity({
-        data: [1, 2, 3, 4, 5],
+        data: [{value: 2}, {value: 4}, {value: 6}, {value: 8}, {value: 10}],
       });
 
       const operation: VariableTransformOperation = {
         operation: "transform",
         sourceVariable: "data",
         targetVariable: "doubled",
-        transformExpression: "data.map(x => x * 2)",
+        transformExpression: 'data.map("value")',
       };
 
       const config: ContextProcessorNodeConfig = {
@@ -370,7 +370,7 @@ describe("DATA_PROCESSOR - Variable Operations", () => {
         operation: "transform",
         sourceVariable: "count",
         targetVariable: "count_str",
-        transformExpression: "count.toString()",
+        transformExpression: "count",
         outputType: "string",
       };
 

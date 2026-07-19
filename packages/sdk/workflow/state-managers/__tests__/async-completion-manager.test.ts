@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { AsyncCompletionManager } from "../async-completion-manager.js";
+import { AsyncCompletionManager } from "../../execution/utils/async-completion-manager.js";
 
 // Mock EventRegistry
 const mockEventRegistry = {

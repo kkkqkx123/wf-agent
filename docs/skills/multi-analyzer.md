@@ -94,6 +94,7 @@ analyzer msvc "/Zs main.cpp"
 | `--filter-paths <paths>` | Filter errors by file paths (comma-separated)          |
 | `--verbose`              | Show all issues without truncation                     |
 | `-o, --output <file>`    | Specify output file path (default: analysis_report.md) |
+| `--max-issues <N>`       | Limit analysis to the first N issues (default: unlimited) |
 
 ## Configuration
 

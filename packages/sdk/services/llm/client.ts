@@ -61,6 +61,8 @@ export class LLMClientImpl implements LLMClient {
       const lockedFormat = request.lockedToolCallFormat;
       const attemptedFormat = effectiveFormat;
 
+      let protocolAutoConverted: boolean | undefined;
+
       if (attemptedFormat && lockedFormat.format !== attemptedFormat.format) {
         // Resolve policy: request-level > global default
         const policy = request.violationPolicy ?? DEFAULT_TOOL_CALL_PROTOCOL_CONFIG.violationPolicy;
@@ -71,7 +73,7 @@ export class LLMClientImpl implements LLMClient {
           executionId: request.executionId || "",
           profileId: this.profile.id,
         };
-        handleProtocolViolation(
+        protocolAutoConverted = handleProtocolViolation(
           violationContext,
           policy,
         );
@@ -82,6 +84,7 @@ export class LLMClientImpl implements LLMClient {
         profile: this.profile,
         stream,
         toolCallFormat: lockedFormat,
+        protocolAutoConverted,
       };
     }
 

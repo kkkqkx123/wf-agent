@@ -37,7 +37,7 @@ function createEdge(id: string, sourceNodeId: string, targetNodeId: string): Wor
 
 describe("detectCycles", () => {
   it("should detect no cycle in a simple linear graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Create nodes: START -> A -> B -> END
     graph.addNode(createNode("start", "START"));
@@ -61,7 +61,7 @@ describe("detectCycles", () => {
   });
 
   it("should detect a simple cycle", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Create nodes: A -> B -> C -> A (cycle)
     graph.addNode(createNode("a", "TASK"));
@@ -83,7 +83,7 @@ describe("detectCycles", () => {
   });
 
   it("should detect cycle in a graph with multiple components", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Component 1: Linear (no cycle)
     graph.addNode(createNode("a", "TASK"));
@@ -105,7 +105,7 @@ describe("detectCycles", () => {
   });
 
   it("should handle empty graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     const result = detectCycles(graph);
 
@@ -115,7 +115,7 @@ describe("detectCycles", () => {
   });
 
   it("should handle single node graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a", "TASK"));
 
     const result = detectCycles(graph);
@@ -126,7 +126,7 @@ describe("detectCycles", () => {
   });
 
   it("should detect self-loop", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a", "TASK"));
     graph.addEdge(createEdge("e1", "a", "a"));
 
@@ -138,7 +138,7 @@ describe("detectCycles", () => {
   });
 
   it("should detect complex cycle with multiple nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Create a diamond shape with a cycle
     graph.addNode(createNode("a", "TASK"));
@@ -163,7 +163,7 @@ describe("detectCycles", () => {
   });
 
   it("should not detect cycle in DAG (Directed Acyclic Graph)", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     // Create a DAG: multiple paths but no cycles
     graph.addNode(createNode("start", "START"));

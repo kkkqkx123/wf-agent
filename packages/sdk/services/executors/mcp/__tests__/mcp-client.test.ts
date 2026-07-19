@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { McpClient } from "../shared/mcp-client.js";
-import type { IMcpTransport, TransportEventHandlers } from "../shared/transport/types.js";
+import { McpClient } from "../core/mcp-client.js";
+import type { IMcpTransport, TransportEventHandlers } from "../transport/types.js";
 
 /**
  * Create a mock transport for testing McpClient

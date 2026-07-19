@@ -366,7 +366,7 @@ describe("SizeBasedCleanupStrategy", () => {
 
     strategy.execute(checkpoints);
     expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0]![0]).toContain("no recorded size");
+    expect(warnSpy.mock.calls[0]![0]).toContain("no blobSize in metadata");
     warnSpy.mockRestore();
   });
 });

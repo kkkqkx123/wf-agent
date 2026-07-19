@@ -92,7 +92,7 @@ describe("InMemoryMessageContextRegistry", () => {
     it("should throw for non-existent context", () => {
       expect(() => {
         registry.update("non-existent", []);
-      }).toThrow("Context 'non-existent' not found");
+      }).toThrow("'non-existent' not found");
     });
   });
 

@@ -302,6 +302,14 @@ export class AgentLoopRegistry implements IAgentExecutionRegistry {
     this.coordinatorStore.clear();
   }
 
+  /**
+   * AsyncDispose for using in `await using` syntax
+   * Calls clear() to clean up all entities and coordinators
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clear();
+  }
+
   // ============================================================
   // Storage Persistence Methods
   // ============================================================

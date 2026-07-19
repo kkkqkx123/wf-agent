@@ -39,9 +39,21 @@ describe("AgentLoopCheckpointCoordinator", () => {
         startTime: Date.now(),
         endTime: null,
         error: undefined,
+        createSnapshot: vi.fn().mockReturnValue({
+          status: AgentLoopStatus.RUNNING,
+          currentIteration: 1,
+          toolCallCount: 0,
+          startTime: Date.now(),
+          endTime: null,
+          error: undefined,
+          messages: [],
+          config: {},
+        }),
       },
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
+      exportTriggerState: vi.fn().mockReturnValue(undefined),
+      getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
       ...overrides,
     } as unknown as AgentLoopEntity;
     return entity;
@@ -77,7 +89,16 @@ describe("AgentLoopCheckpointCoordinator", () => {
     });
 
     it("should create delta checkpoint when incremental storage is enabled", async () => {
-      const entity = createMockEntity({ state: { currentIteration: 2 } } as any);
+      const entity = createMockEntity({ state: { currentIteration: 2, createSnapshot: vi.fn().mockReturnValue({
+        status: AgentLoopStatus.RUNNING,
+        currentIteration: 2,
+        toolCallCount: 0,
+        startTime: Date.now(),
+        endTime: null,
+        error: undefined,
+        messages: [],
+        config: {},
+      }) } } as any);
       dependencies.listCheckpoints = vi.fn().mockResolvedValue(["cp-1"]);
       dependencies.getCheckpoint = vi.fn().mockResolvedValue(createFullCheckpoint("cp-1"));
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-2");
@@ -123,6 +144,16 @@ describe("AgentLoopCheckpointCoordinator", () => {
           startTime: 1000,
           endTime: 2000,
           error: new Error("Test"),
+          createSnapshot: vi.fn().mockReturnValue({
+            status: AgentLoopStatus.COMPLETED,
+            currentIteration: 5,
+            toolCallCount: 10,
+            startTime: 1000,
+            endTime: 2000,
+            error: new Error("Test"),
+            messages: [],
+            config: {},
+          }),
         },
         config: { profileId: "test-profile" },
         getMessages: vi.fn().mockReturnValue([{ role: "user", content: "Test" } as Message]),

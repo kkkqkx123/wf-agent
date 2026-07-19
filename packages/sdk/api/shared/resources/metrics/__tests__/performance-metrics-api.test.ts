@@ -5,34 +5,50 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PerformanceMetricsAPI } from "../performance-metrics-api.js";
 import { NoOpPersistenceLayer } from "../../../core/__tests__/no-op-persistence.js";
-import type { ResourceUsageRecord } from "../../../../agent/resources/agent-loop-iteration-api.js";
-import type { PersistenceLayer } from "../../../core/persistence-interfaces.js";
+import type { IterationSystemMetrics, IterationLLMMetrics } from "../../../../agent/resources/agent-loop-iteration-api.js";
+import type { PersistenceLayer, TimeRange } from "../../../core/persistence-interfaces.js";
+import type { ID } from "@wf-agent/types";
 
 describe("PerformanceMetricsAPI", () => {
   let api: PerformanceMetricsAPI;
 
   // Mock persistence layer
   class MockPersistenceLayer extends NoOpPersistenceLayer {
-    private records: Map<string, (ResourceUsageRecord & { timestamp?: number })[]> = new Map();
+    private systemMetrics: Map<string, IterationSystemMetrics[]> = new Map();
+    private llmMetrics: Map<string, IterationLLMMetrics[]> = new Map();
 
-    async saveResourceUsageRecord(
-      executionId: string,
-      record: ResourceUsageRecord,
+    async saveSystemMetrics(
+      executionId: ID,
+      iteration: number,
+      metrics: IterationSystemMetrics,
     ): Promise<void> {
       const key = executionId.toString();
-      if (!this.records.has(key)) {
-        this.records.set(key, []);
+      if (!this.systemMetrics.has(key)) {
+        this.systemMetrics.set(key, []);
       }
-      this.records.get(key)!.push({
-        ...record,
-      });
+      this.systemMetrics.get(key)!.push({ ...metrics, iteration });
     }
 
-    async getResourceUsageRecords(executionId: string): Promise<ResourceUsageRecord[]> {
-      return (this.records.get(executionId.toString()) ?? []).map(r => {
-        const { timestamp, ...rest } = r;
-        return rest;
-      });
+    async saveLLMMetrics(executionId: ID, metrics: IterationLLMMetrics[]): Promise<void> {
+      const key = executionId.toString();
+      if (!this.llmMetrics.has(key)) {
+        this.llmMetrics.set(key, []);
+      }
+      this.llmMetrics.get(key)!.push(...metrics);
+    }
+
+    async getSystemMetrics(
+      executionId: ID,
+      _filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+    ): Promise<IterationSystemMetrics[]> {
+      return this.systemMetrics.get(executionId.toString()) ?? [];
+    }
+
+    async getLLMMetrics(
+      executionId: ID,
+      _filter?: { timeRange?: TimeRange; iterationRange?: [number, number] },
+    ): Promise<IterationLLMMetrics[]> {
+      return this.llmMetrics.get(executionId.toString()) ?? [];
     }
   }
 
@@ -52,7 +68,8 @@ describe("PerformanceMetricsAPI", () => {
       expect(timeline.executionId).toBe("exec-001");
       expect(timeline.totalTokens).toBe(0);
       expect(timeline.totalCost).toBe(0);
-      expect(timeline.timeline).toHaveLength(0);
+      expect(timeline.systemMetrics).toHaveLength(0);
+      expect(timeline.llmMetrics).toHaveLength(0);
     });
 
     it("should aggregate metrics from multiple records", async () => {
@@ -60,35 +77,53 @@ describe("PerformanceMetricsAPI", () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
+          const now = Date.now();
           // Pre-populate with test data
-          mock.saveResourceUsageRecord("exec-001", {
-            llmInputTokens: 100,
-            llmOutputTokens: 50,
-            llmCost: 0.01,
-            apiCalls: 1,
-            dataProcessed: 1024,
-            memoryPeak: 512,
-            timingBreakdown: {
-              llmThinkingTime: 100,
-              toolExecutionTime: 200,
-              resultProcessingTime: 50,
+          mock.saveSystemMetrics("exec-001", 1, {
+            iteration: 1,
+            timestamp: now,
+            cpuTimeMs: 300,
+            memoryPeakMb: 512,
+            durationMs: 350,
+          });
+          mock.saveLLMMetrics("exec-001", [
+            {
+              iteration: 1,
+              timestamp: now,
+              inputTokens: 100,
+              outputTokens: 50,
+              costUsd: 0.01,
+              model: "gpt-4",
+              durationMs: 100,
             },
-            timestamp: Date.now(),
-          } as any);
-          mock.saveResourceUsageRecord("exec-001", {
-            llmInputTokens: 150,
-            llmOutputTokens: 75,
-            llmCost: 0.015,
-            apiCalls: 1,
-            dataProcessed: 2048,
-            memoryPeak: 768,
-            timingBreakdown: {
-              llmThinkingTime: 150,
-              toolExecutionTime: 250,
-              resultProcessingTime: 50,
+            {
+              iteration: 1,
+              timestamp: now,
+              inputTokens: 150,
+              outputTokens: 75,
+              costUsd: 0.015,
+              model: "gpt-4",
+              durationMs: 150,
             },
-            timestamp: Date.now() + 5000,
-          } as any);
+          ]);
+          mock.saveSystemMetrics("exec-001", 2, {
+            iteration: 2,
+            timestamp: now + 5000,
+            cpuTimeMs: 400,
+            memoryPeakMb: 768,
+            durationMs: 450,
+          });
+          mock.saveLLMMetrics("exec-001", [
+            {
+              iteration: 2,
+              timestamp: now + 5000,
+              inputTokens: 150,
+              outputTokens: 75,
+              costUsd: 0.015,
+              model: "gpt-4",
+              durationMs: 150,
+            },
+          ]);
           return mock;
         },
       } as any;
@@ -96,10 +131,9 @@ describe("PerformanceMetricsAPI", () => {
       const testApi = new PerformanceMetricsAPI(mockDeps);
       const timeline = await testApi.getPerformanceTimeline("exec-001");
 
-      expect(timeline.totalTokens).toBe(375); // (100+50) + (150+75)
-      expect(timeline.totalCost).toBe(0.025);
+      expect(timeline.totalTokens).toBe(600); // (100+50) + (150+75) + (150+75)
+      expect(timeline.totalCost).toBe(0.04);
       expect(timeline.peakMemoryUsage).toBe(768);
-      expect(timeline.timeline.length).toBe(2);
       expect(timeline.averageIterationTime).toBeGreaterThan(0);
     });
   });
@@ -109,77 +143,31 @@ describe("PerformanceMetricsAPI", () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
+          const now = Date.now();
 
           // Baseline execution - higher metrics
-          const baselineRecords: ResourceUsageRecord[] = [
-            {
-              llmInputTokens: 1000,
-              llmOutputTokens: 500,
-              llmCost: 0.1,
-              apiCalls: 5,
-              dataProcessed: 10240,
-              memoryPeak: 5120,
-              timingBreakdown: {
-                llmThinkingTime: 1000,
-                toolExecutionTime: 2000,
-                resultProcessingTime: 500,
-              },
-              timestamp: Date.now(),
-            } as any,
-            {
-              llmInputTokens: 1200,
-              llmOutputTokens: 600,
-              llmCost: 0.12,
-              apiCalls: 5,
-              dataProcessed: 12288,
-              memoryPeak: 6144,
-              timingBreakdown: {
-                llmThinkingTime: 1200,
-                toolExecutionTime: 2200,
-                resultProcessingTime: 500,
-              },
-              timestamp: Date.now() + 10000,
-            } as any,
-          ];
+          mock.saveSystemMetrics("baseline", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 1500, memoryPeakMb: 5120, durationMs: 3500,
+          });
+          mock.saveSystemMetrics("baseline", 2, {
+            iteration: 2, timestamp: now + 10000, cpuTimeMs: 1700, memoryPeakMb: 6144, durationMs: 3900,
+          });
+          mock.saveLLMMetrics("baseline", [
+            { iteration: 1, timestamp: now, inputTokens: 1000, outputTokens: 500, costUsd: 0.1, model: "gpt-4", durationMs: 1000 },
+            { iteration: 2, timestamp: now + 10000, inputTokens: 1200, outputTokens: 600, costUsd: 0.12, model: "gpt-4", durationMs: 1200 },
+          ]);
 
           // Target execution - improved metrics
-          const targetRecords: ResourceUsageRecord[] = [
-            {
-              llmInputTokens: 500,
-              llmOutputTokens: 250,
-              llmCost: 0.05,
-              apiCalls: 3,
-              dataProcessed: 5120,
-              memoryPeak: 2560,
-              timingBreakdown: {
-                llmThinkingTime: 500,
-                toolExecutionTime: 1000,
-                resultProcessingTime: 500,
-              },
-              timestamp: Date.now(),
-            } as any,
-            {
-              llmInputTokens: 600,
-              llmOutputTokens: 300,
-              llmCost: 0.06,
-              apiCalls: 3,
-              dataProcessed: 6144,
-              memoryPeak: 3072,
-              timingBreakdown: {
-                llmThinkingTime: 600,
-                toolExecutionTime: 1100,
-                resultProcessingTime: 500,
-              },
-              timestamp: Date.now() + 8000,
-            } as any,
-          ];
-
-          baselineRecords.forEach((r) => {
-            mock.saveResourceUsageRecord("baseline", r);
+          mock.saveSystemMetrics("target", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 750, memoryPeakMb: 2560, durationMs: 1500,
           });
-          targetRecords.forEach((r) => {
-            mock.saveResourceUsageRecord("target", r);
+          mock.saveSystemMetrics("target", 2, {
+            iteration: 2, timestamp: now + 8000, cpuTimeMs: 800, memoryPeakMb: 3072, durationMs: 1700,
           });
+          mock.saveLLMMetrics("target", [
+            { iteration: 1, timestamp: now, inputTokens: 500, outputTokens: 250, costUsd: 0.05, model: "gpt-4", durationMs: 500 },
+            { iteration: 2, timestamp: now + 8000, inputTokens: 600, outputTokens: 300, costUsd: 0.06, model: "gpt-4", durationMs: 600 },
+          ]);
 
           return mock;
         },
@@ -206,30 +194,23 @@ describe("PerformanceMetricsAPI", () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
+          const now = Date.now();
 
           // Setup baseline
-          mock.saveResourceUsageRecord("baseline", {
-            llmInputTokens: 1000,
-            llmOutputTokens: 500,
-            llmCost: 0.1,
-            apiCalls: 5,
-            timingBreakdown: {
-              toolExecutionTime: 2000,
-              resultProcessingTime: 500,
-            },
-          } as any);
+          mock.saveSystemMetrics("baseline", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 2500, memoryPeakMb: 1024, durationMs: 2500,
+          });
+          mock.saveLLMMetrics("baseline", [
+            { iteration: 1, timestamp: now, inputTokens: 1000, outputTokens: 500, costUsd: 0.1, model: "gpt-4", durationMs: 2000 },
+          ]);
 
           // Setup target with major improvements
-          mock.saveResourceUsageRecord("target", {
-            llmInputTokens: 500,
-            llmOutputTokens: 250,
-            llmCost: 0.05,
-            apiCalls: 3,
-            timingBreakdown: {
-              toolExecutionTime: 1000,
-              resultProcessingTime: 500,
-            },
-          } as any);
+          mock.saveSystemMetrics("target", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 1500, memoryPeakMb: 512, durationMs: 1500,
+          });
+          mock.saveLLMMetrics("target", [
+            { iteration: 1, timestamp: now, inputTokens: 500, outputTokens: 250, costUsd: 0.05, model: "gpt-4", durationMs: 1000 },
+          ]);
 
           return mock;
         },
@@ -249,18 +230,13 @@ describe("PerformanceMetricsAPI", () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
-          mock.saveResourceUsageRecord("exec-001", {
-            llmInputTokens: 100,
-            llmOutputTokens: 50,
-            llmCost: 0.01,
-            apiCalls: 1,
-            memoryPeak: 1024,
-            timingBreakdown: {
-              toolExecutionTime: 200,
-              resultProcessingTime: 50,
-            },
-            timestamp: Date.now(),
-          } as any);
+          const now = Date.now();
+          mock.saveSystemMetrics("exec-001", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 250, memoryPeakMb: 1024, durationMs: 250,
+          });
+          mock.saveLLMMetrics("exec-001", [
+            { iteration: 1, timestamp: now, inputTokens: 100, outputTokens: 50, costUsd: 0.01, model: "gpt-4", durationMs: 200 },
+          ]);
           return mock;
         },
       } as any;
@@ -282,17 +258,13 @@ describe("PerformanceMetricsAPI", () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
-          mock.saveResourceUsageRecord("exec-001", {
-            llmInputTokens: 100,
-            llmOutputTokens: 50,
-            llmCost: 0.01,
-            apiCalls: 2,
-            timingBreakdown: {
-              toolExecutionTime: 5000,
-              resultProcessingTime: 100,
-            },
-            timestamp: Date.now(),
-          } as any);
+          const now = Date.now();
+          mock.saveSystemMetrics("exec-001", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 5100, memoryPeakMb: 1024, durationMs: 5100,
+          });
+          mock.saveLLMMetrics("exec-001", [
+            { iteration: 1, timestamp: now, inputTokens: 100, outputTokens: 50, costUsd: 0.01, model: "gpt-4", durationMs: 5000 },
+          ]);
           return mock;
         },
       } as any;
@@ -315,37 +287,29 @@ describe("PerformanceMetricsAPI", () => {
     it("should handle missing execution gracefully", async () => {
       const timeline = await api.getPerformanceTimeline("exec-nonexistent");
       expect(timeline.executionId).toBe("exec-nonexistent");
-      expect(timeline.timeline).toHaveLength(0);
+      expect(timeline.systemMetrics).toHaveLength(0);
+      expect(timeline.llmMetrics).toHaveLength(0);
     });
 
     it("should handle zero baseline values in comparison", async () => {
       const mockDeps = {
         getPersistenceLayer: () => {
           const mock = new MockPersistenceLayer();
+          const now = Date.now();
           // Baseline with zero metrics
-          mock.saveResourceUsageRecord("baseline", {
-            llmInputTokens: 0,
-            llmOutputTokens: 0,
-            llmCost: 0,
-            apiCalls: 0,
-            memoryPeak: 0,
-            timingBreakdown: {
-              toolExecutionTime: 0,
-              resultProcessingTime: 0,
-            },
-          } as any);
+          mock.saveSystemMetrics("baseline", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 0, memoryPeakMb: 0, durationMs: 0,
+          });
+          mock.saveLLMMetrics("baseline", [
+            { iteration: 1, timestamp: now, inputTokens: 0, outputTokens: 0, costUsd: 0, model: "gpt-4", durationMs: 0 },
+          ]);
           // Target with some metrics
-          mock.saveResourceUsageRecord("target", {
-            llmInputTokens: 100,
-            llmOutputTokens: 50,
-            llmCost: 0.01,
-            apiCalls: 1,
-            memoryPeak: 512,
-            timingBreakdown: {
-              toolExecutionTime: 200,
-              resultProcessingTime: 50,
-            },
-          } as any);
+          mock.saveSystemMetrics("target", 1, {
+            iteration: 1, timestamp: now, cpuTimeMs: 250, memoryPeakMb: 512, durationMs: 250,
+          });
+          mock.saveLLMMetrics("target", [
+            { iteration: 1, timestamp: now, inputTokens: 100, outputTokens: 50, costUsd: 0.01, model: "gpt-4", durationMs: 200 },
+          ]);
           return mock;
         },
       } as any;

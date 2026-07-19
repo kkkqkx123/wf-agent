@@ -225,6 +225,14 @@ export class WorkflowExecutionRegistry {
     this.coordinatorStore.clear();
   }
 
+  /**
+   * AsyncDispose for using in `await using` syntax
+   * Calls clear() to clean up all entities and coordinators
+   */
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clear();
+  }
+
   // ========== Hierarchy-Aware Methods ==========
 
   /**

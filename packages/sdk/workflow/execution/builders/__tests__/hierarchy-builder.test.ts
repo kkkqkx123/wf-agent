@@ -68,6 +68,7 @@ function createMockEntity(options: MockEntityOptions = {}): WorkflowExecutionEnt
     getParentContext,
     getChildExecutionIds,
     getHierarchyMetadata,
+    getRegistry: vi.fn().mockReturnValue(registry),
   } as unknown as WorkflowExecutionEntity;
 
   // If registry is provided, attach it to mimic the private hierarchyManager

@@ -58,7 +58,7 @@ describe("WorkflowGraphRegistry", () => {
 
   describe("constructor", () => {
     it("should create an empty registry", () => {
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
       expect(registry.getAllWorkflowIds()).toEqual([]);
     });
   });
@@ -67,7 +67,7 @@ describe("WorkflowGraphRegistry", () => {
     it("should register a workflow graph", () => {
       const graph = createMockGraph("workflow-1");
       registry.register(graph);
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
       expect(registry.has("workflow-1")).toBe(true);
     });
 
@@ -76,7 +76,7 @@ describe("WorkflowGraphRegistry", () => {
       const graph2 = createMockGraph("workflow-1", { workflowVersion: "2.0" });
       registry.register(graph1);
       registry.register(graph2);
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
       expect(registry.get("workflow-1")?.workflowVersion).toBe("2.0");
     });
   });
@@ -109,7 +109,7 @@ describe("WorkflowGraphRegistry", () => {
       registry.register(createMockGraph("workflow-1"));
       registry.unregister("workflow-1");
       expect(registry.has("workflow-1")).toBe(false);
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
 
     it("should not throw when unregistering non-existent graph", () => {
@@ -122,7 +122,7 @@ describe("WorkflowGraphRegistry", () => {
       registry.register(createMockGraph("workflow-1"));
       registry.register(createMockGraph("workflow-2"));
       registry.clear();
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
       expect(registry.getAllWorkflowIds()).toEqual([]);
     });
   });
@@ -140,11 +140,11 @@ describe("WorkflowGraphRegistry", () => {
 
   describe("size", () => {
     it("should return correct count", () => {
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
       registry.register(createMockGraph("workflow-1"));
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
       registry.register(createMockGraph("workflow-2"));
-      expect(registry.size()).toBe(2);
+      expect(registry.size).toBe(2);
     });
   });
 
@@ -156,7 +156,7 @@ describe("WorkflowGraphRegistry", () => {
         createMockGraph("workflow-3"),
       ];
       registry.registerBatch(graphs);
-      expect(registry.size()).toBe(3);
+      expect(registry.size).toBe(3);
       expect(registry.has("workflow-1")).toBe(true);
       expect(registry.has("workflow-2")).toBe(true);
       expect(registry.has("workflow-3")).toBe(true);
@@ -164,7 +164,7 @@ describe("WorkflowGraphRegistry", () => {
 
     it("should handle empty array", () => {
       registry.registerBatch([]);
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
   });
 
@@ -174,14 +174,14 @@ describe("WorkflowGraphRegistry", () => {
       registry.register(createMockGraph("workflow-2"));
       registry.register(createMockGraph("workflow-3"));
       registry.unregisterBatch(["workflow-1", "workflow-3"]);
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
       expect(registry.has("workflow-2")).toBe(true);
     });
 
     it("should handle empty array", () => {
       registry.register(createMockGraph("workflow-1"));
       registry.unregisterBatch([]);
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
     });
   });
 });

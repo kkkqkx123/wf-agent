@@ -63,7 +63,7 @@ describe("resolveSystemPrompt", () => {
     it("should return template content when template is found", () => {
       mockTemplateRegistry.get.mockReturnValue({ content: "Template content here" });
 
-      const result = resolveSystemPrompt({ systemPromptTemplateId: "template-1" });
+      const result = resolveSystemPrompt({ systemPromptTemplateId: "template-1" }, mockTemplateRegistry as any);
       expect(result).toBe("Template content here");
       expect(mockTemplateRegistry.get).toHaveBeenCalledWith("template-1");
     });
@@ -74,7 +74,7 @@ describe("resolveSystemPrompt", () => {
       const result = resolveSystemPrompt({
         systemPromptTemplateId: "missing-template",
         systemPrompt: "Fallback prompt",
-      });
+      }, mockTemplateRegistry as any);
       expect(result).toBe("Fallback prompt");
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining("not found"),
@@ -85,7 +85,7 @@ describe("resolveSystemPrompt", () => {
     it("should fall back to empty string when template is not found and no systemPrompt", () => {
       mockTemplateRegistry.get.mockReturnValue(undefined);
 
-      const result = resolveSystemPrompt({ systemPromptTemplateId: "missing-template" });
+      const result = resolveSystemPrompt({ systemPromptTemplateId: "missing-template" }, mockTemplateRegistry as any);
       expect(result).toBe("");
       expect(mockLogger.warn).toHaveBeenCalled();
     });
@@ -93,7 +93,7 @@ describe("resolveSystemPrompt", () => {
     it("should not call renderTemplate when no variables provided", () => {
       mockTemplateRegistry.get.mockReturnValue({ content: "Static content" });
 
-      resolveSystemPrompt({ systemPromptTemplateId: "template-1" });
+      resolveSystemPrompt({ systemPromptTemplateId: "template-1" }, mockTemplateRegistry as any);
       expect(mockRenderTemplate).not.toHaveBeenCalled();
     });
   });
@@ -117,7 +117,7 @@ describe("resolveSystemPrompt", () => {
       const result = resolveSystemPrompt({
         systemPromptTemplateId: "template-1",
         systemPromptTemplateVariables: { var: "rendered" },
-      });
+      }, mockTemplateRegistry as any);
       expect(result).toBe("Template rendered");
       expect(mockRenderTemplate).toHaveBeenCalledWith("Template {{var}}", { var: "rendered" });
     });
@@ -140,7 +140,7 @@ describe("resolveSystemPrompt", () => {
       const result = resolveSystemPrompt({
         systemPromptTemplateId: "template-1",
         systemPrompt: "Direct prompt",
-      });
+      }, mockTemplateRegistry as any);
       expect(result).toBe("From template");
     });
   });

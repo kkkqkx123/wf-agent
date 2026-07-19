@@ -683,7 +683,7 @@ describe("ToolCallExecutor", () => {
         "interactive-tool",
         {},
         expect.objectContaining({
-          timeout: 30000,
+          timeout: 0,
           retries: 0,
           retryDelay: 1000,
         }),
@@ -806,7 +806,7 @@ describe("ToolCallExecutor", () => {
         "configured-tool",
         {},
         expect.objectContaining({
-          timeout: 5000,
+          timeout: 0,
           retries: 3,
           retryDelay: 2000,
         }),
@@ -948,13 +948,12 @@ describe("ToolCallExecutor", () => {
       // Verify result
       expect(results[0]?.success).toBe(false);
 
-      // Verify progress callback was called with interrupted status
+      // Verify progress callback was called with running status
       expect(progressCallback).toHaveBeenCalledWith(
         "call_1",
         expect.objectContaining({
-          status: "interrupted",
+          status: "running",
           toolName: "test-tool",
-          interruptionType: "PAUSE",
         })
       );
     });

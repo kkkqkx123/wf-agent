@@ -20,6 +20,7 @@ const mockEntity = {
     registerPath: vi.fn(),
   }),
   initializeSyncBarrier: vi.fn(),
+  getRetryBudget: vi.fn().mockReturnValue(undefined),
 } as unknown as WorkflowExecutionEntity;
 
 const mockBuilder = {

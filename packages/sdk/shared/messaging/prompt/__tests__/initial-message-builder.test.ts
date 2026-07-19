@@ -104,7 +104,7 @@ describe("buildInitialMessages", () => {
       const result = buildInitialMessages({
         initialUserMessageTemplateId: "greeting-template",
         initialUserMessageTemplateVariables: { name: "Alice" },
-      });
+      }, mockTemplateRegistry as any);
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
@@ -123,7 +123,7 @@ describe("buildInitialMessages", () => {
       const result = buildInitialMessages({
         initialUserMessageTemplateId: "missing-template",
         initialUserMessage: "Fallback message",
-      });
+      }, mockTemplateRegistry as any);
 
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
@@ -241,7 +241,7 @@ describe("buildInitialMessages", () => {
 
       const result = buildInitialMessages({
         initialUserMessageTemplateId: "template-1",
-      });
+      }, mockTemplateRegistry as any);
 
       expect(result).toHaveLength(1);
       expect(mockTemplateRegistry.render).toHaveBeenCalledWith("template-1", {});

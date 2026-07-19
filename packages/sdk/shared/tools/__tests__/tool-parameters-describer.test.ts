@@ -75,8 +75,8 @@ describe("ToolParametersDescriber", () => {
       expect(description).toContain("Tool: calculator");
       expect(description).toContain("calculator");
       expect(description).toContain("Performs basic calculations");
-      expect(description).toContain("Parameter schema:");
-      expect(description).toContain("Parameter description:");
+      expect(description).toContain("Schema:");
+      expect(description).toContain("Parameters:");
     });
 
     it("The JSON Schema that should contain the parameters", () => {

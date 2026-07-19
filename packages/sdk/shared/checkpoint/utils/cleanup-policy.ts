@@ -296,6 +296,7 @@ export class CountBasedCleanupStrategy implements CheckpointCleanupStrategy {
 export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
   constructor(
     private policy: SizeBasedCleanupPolicy,
+    private sizes?: Map<string, number>,
   ) {}
 
   execute(checkpoints: CheckpointInfo[], dependencyGraph?: CheckpointDependencyGraph): string[] {
@@ -309,7 +310,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
     let totalSize = 0;
     const missingSizeIds: string[] = [];
     for (const checkpoint of sorted) {
-      const size = checkpoint.metadata.blobSize;
+      const size = checkpoint.metadata.blobSize ?? this.sizes?.get(checkpoint.checkpointId);
       if (size === undefined || size === null) {
         missingSizeIds.push(checkpoint.checkpointId);
       }
@@ -335,7 +336,7 @@ export class SizeBasedCleanupStrategy implements CheckpointCleanupStrategy {
       if (!checkpoint) continue;
 
       const checkpointId = checkpoint.checkpointId;
-      const size = checkpoint.metadata.blobSize ?? 0;
+      const size = checkpoint.metadata.blobSize ?? this.sizes?.get(checkpoint.checkpointId) ?? 0;
 
       if (i < sorted.length - minRetention) {
         toDelete.push(checkpointId);

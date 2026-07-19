@@ -227,11 +227,11 @@ describe("WorkflowGraph Composition Edge Cases", () => {
 
   describe("Graph Transformation Edge Cases", () => {
     test("should handle withStructure when structure has different nodes", () => {
-      const originalStructure = new WorkflowGraphStructure();
+      const originalStructure = new WorkflowGraphStructureImpl();
       const originalNode = createTestNode({ id: "original", type: "START", config: {} });
       originalStructure.addNode(originalNode);
 
-      const newStructure = new WorkflowGraphStructure();
+      const newStructure = new WorkflowGraphStructureImpl();
       const newNode = createTestNode({ id: "new", type: "START", config: {} });
       newStructure.addNode(newNode);
 
@@ -251,7 +251,7 @@ describe("WorkflowGraph Composition Edge Cases", () => {
     });
 
     test("should handle withMetadata when metadata has different state", () => {
-      const structure = new WorkflowGraphStructure();
+      const structure = new WorkflowGraphStructureImpl();
       const originalMetadata = new WorkflowGraphMetadata();
       originalMetadata.workflowId = "original";
       originalMetadata.markPreprocessed(1111111111);
@@ -277,14 +277,14 @@ describe("WorkflowGraph Composition Edge Cases", () => {
 
   describe("Memory Management", () => {
     test("should not leak references when creating transformed graphs", () => {
-      const structure = new WorkflowGraphStructure();
+      const structure = new WorkflowGraphStructureImpl();
       const metadata = new WorkflowGraphMetadata();
       const originalGraph = new WorkflowGraph(structure, metadata);
 
       // Create multiple transformations
       const transformations = [];
       for (let i = 0; i < 100; i++) {
-        const newStructure = new WorkflowGraphStructure();
+        const newStructure = new WorkflowGraphStructureImpl();
         const transformedGraph = originalGraph.withStructure(newStructure);
         transformations.push(transformedGraph);
       }

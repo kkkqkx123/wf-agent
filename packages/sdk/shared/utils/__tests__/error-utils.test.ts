@@ -28,12 +28,12 @@ vi.mock("../../../utils/logger", () => ({
 }));
 
 // Mock event builders
-vi.mock("../event/builders/index.js", () => ({
+vi.mock("../../events/builders/index.js", () => ({
   buildErrorEvent: mockBuildErrorEvent,
 }));
 
 // Mock event emitter — must export 'emit' to match what error-utils.ts imports
-vi.mock("../event/emit-event.js", () => ({
+vi.mock("../../events/emit-event.js", () => ({
   emit: mockEmit,
 }));
 

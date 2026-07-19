@@ -14,7 +14,7 @@ import type {
   EvaluationContext,
 } from "@wf-agent/types";
 import { RuntimeValidationError } from "@wf-agent/types";
-import { conditionEvaluator, setArrayItemByKey } from "../../../../services/evaluation/index.js";
+import { conditionEvaluator, expressionCompiler, expressionConditionExecutor, setArrayItemByKey } from "../../../../services/evaluation/index.js";
 import type { VariableManager } from "../../utils/variable-manager.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
@@ -267,11 +267,9 @@ export function executeTransform(
 
   // Evaluate transform expression
   try {
-    const context = { variables: allVariables };
-    const transformed = conditionEvaluator.evaluate(
-      { type: "expression", expression: operation.transformExpression },
-      context as EvaluationContext
-    );
+    const context = { variables: allVariables } as EvaluationContext;
+    const compiled = expressionCompiler.compile(operation.transformExpression);
+    const transformed = expressionConditionExecutor.execute(compiled, context);
 
     // Type conversion if specified
     const typedValue = convertType(transformed, operation.outputType);
@@ -322,8 +320,9 @@ export function executeBatchUpdate(
 
     // Evaluate expression
     try {
-      const context = { variables: allVariables };
-      const value = conditionEvaluator.evaluate({ type: "expression", expression: update.expression }, context as EvaluationContext);
+      const context = { variables: allVariables } as EvaluationContext;
+      const compiled = expressionCompiler.compile(update.expression);
+      const value = expressionConditionExecutor.execute(compiled, context);
 
       // Type conversion if specified
       const typedValue = convertType(value, update.type);

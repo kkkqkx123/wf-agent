@@ -28,7 +28,7 @@ describe("AgentLoopCheckpointStateManager", () => {
 
   const createCheckpoint = (id: string): AgentLoopCheckpoint => ({
     id,
-    agentLoopId: "agent-1",
+    agentLoopId: "test-agent-1",
     timestamp: Date.now(),
     type: "FULL" as const,
     snapshot: {

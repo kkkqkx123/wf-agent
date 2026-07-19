@@ -109,7 +109,7 @@ describe("WorkflowRegistry", () => {
   let mockExecutionRegistry: WorkflowExecutionRegistry;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
 
     // Default mock for checkWorkflowReferences: no references found
     (checkWorkflowReferences as Mock).mockResolvedValue({
@@ -195,48 +195,48 @@ describe("WorkflowRegistry", () => {
   // ============================================================
 
   describe("register", () => {
-    it("should register a workflow", () => {
+    it("should register a workflow", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
       expect(registry.size()).toBe(1);
       expect(registry.has("wf-1")).toBe(true);
     });
 
-    it("should throw if workflow has no id", () => {
+    it("should throw if workflow has no id", async () => {
       const workflow = createMockWorkflow("wf-1", { id: "" });
-      expect(() => registry.register(workflow)).toThrow("Workflow ID is required");
+      await expect(registry.register(workflow)).rejects.toThrow("Workflow ID is required");
     });
 
-    it("should throw if workflow has no name", () => {
+    it("should throw if workflow has no name", async () => {
       const workflow = createMockWorkflow("wf-1", { name: "" });
-      expect(() => registry.register(workflow)).toThrow("Workflow name is required");
+      await expect(registry.register(workflow)).rejects.toThrow("Workflow name is required");
     });
 
-    it("should throw if workflow has no nodes", () => {
+    it("should throw if workflow has no nodes", async () => {
       const workflow = createMockWorkflow("wf-1", { nodes: [] });
-      expect(() => registry.register(workflow)).toThrow("Workflow must have at least one node");
+      await expect(registry.register(workflow)).rejects.toThrow("Workflow must have at least one node");
     });
 
-    it("should throw if workflow id already exists", () => {
+    it("should throw if workflow id already exists", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
-      expect(() => registry.register(workflow)).toThrow("already exists");
+      await registry.register(workflow);
+      await expect(registry.register(workflow)).rejects.toThrow("already exists");
     });
 
-    it("should skip if skipIfExists option is set", () => {
+    it("should skip if skipIfExists option is set", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
-      expect(() => registry.register(workflow, { skipIfExists: true })).not.toThrow();
+      await registry.register(workflow);
+      await expect(registry.register(workflow, { skipIfExists: true })).resolves.not.toThrow();
       expect(registry.size()).toBe(1);
     });
   });
 
-  describe("registerAsync", () => {
+  describe("register with preprocessing", () => {
     it("should register a workflow asynchronously with preprocessing", async () => {
       const workflow = createMockWorkflow("wf-1");
       (preprocessWorkflow as Mock).mockResolvedValue(undefined);
 
-      await registry.registerAsync(workflow);
+      await registry.register(workflow);
 
       expect(registry.has("wf-1")).toBe(true);
       expect(preprocessWorkflow).toHaveBeenCalledWith(
@@ -259,7 +259,7 @@ describe("WorkflowRegistry", () => {
       const workflow = createMockWorkflow("wf-1");
       (preprocessWorkflow as Mock).mockResolvedValue(undefined);
 
-      await reg.registerAsync(workflow);
+      await reg.register(workflow);
 
       expect(persistWorkflow).toHaveBeenCalledWith(workflow, mockStorageAdapter);
       expect(reg.has("wf-1")).toBe(true);
@@ -275,50 +275,50 @@ describe("WorkflowRegistry", () => {
       const workflow = createMockWorkflow("wf-1");
       (preprocessWorkflow as Mock).mockRejectedValue(new Error("Preprocessing failed"));
 
-      await expect(reg.registerAsync(workflow)).rejects.toThrow("Preprocessing failed");
+      await expect(reg.register(workflow)).rejects.toThrow("Preprocessing failed");
       expect(reg.has("wf-1")).toBe(false);
       expect(removeWorkflow).toHaveBeenCalledWith("wf-1", mockStorageAdapter);
     });
 
     it("should throw on duplicate id", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
-      await expect(registry.registerAsync(workflow)).rejects.toThrow("already exists");
+      await registry.register(workflow);
+      await expect(registry.register(workflow)).rejects.toThrow("already exists");
     });
 
     it("should skip if skipIfExists option is set", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
-      await expect(registry.registerAsync(workflow, { skipIfExists: true })).resolves.not.toThrow();
+      await registry.register(workflow);
+      await expect(registry.register(workflow, { skipIfExists: true })).resolves.not.toThrow();
     });
   });
 
   describe("registerBatch", () => {
-    it("should register multiple workflows", () => {
+    it("should register multiple workflows", async () => {
       const workflows = [createMockWorkflow("wf-1"), createMockWorkflow("wf-2")];
 
-      registry.registerBatch(workflows);
+      await registry.registerBatch(workflows);
 
       expect(registry.size()).toBe(2);
       expect(registry.has("wf-1")).toBe(true);
       expect(registry.has("wf-2")).toBe(true);
     });
 
-    it("should skip errors with skipErrors option", () => {
+    it("should skip errors with skipErrors option", async () => {
       const validWorkflow = createMockWorkflow("wf-1");
       const invalidWorkflow = createMockWorkflow("wf-2", { id: "" });
 
-      registry.registerBatch([validWorkflow, invalidWorkflow], { skipErrors: true });
+      await registry.registerBatch([validWorkflow, invalidWorkflow], { skipErrors: true });
 
       expect(registry.size()).toBe(1);
       expect(registry.has("wf-1")).toBe(true);
     });
 
-    it("should throw on first error without skipErrors", () => {
+    it("should throw on first error without skipErrors", async () => {
       const validWorkflow = createMockWorkflow("wf-1");
       const invalidWorkflow = createMockWorkflow("wf-2", { id: "" });
 
-      expect(() => registry.registerBatch([invalidWorkflow, validWorkflow])).toThrow();
+      await expect(registry.registerBatch([invalidWorkflow, validWorkflow])).rejects.toThrow();
     });
   });
 
@@ -329,7 +329,7 @@ describe("WorkflowRegistry", () => {
   describe("update", () => {
     it("should update an existing workflow", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
 
       await registry.update("wf-1", { name: "Updated Name" });
 
@@ -359,7 +359,7 @@ describe("WorkflowRegistry", () => {
         mockGraphRegistry,
       );
       const workflow = createMockWorkflow("wf-1");
-      reg.register(workflow);
+      await reg.register(workflow);
 
       await reg.update("wf-1", { name: "Updated" });
 
@@ -376,7 +376,7 @@ describe("WorkflowRegistry", () => {
 
     it("should update if exists", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
 
       await registry.upsert({ ...workflow, name: "Updated" });
 
@@ -389,9 +389,9 @@ describe("WorkflowRegistry", () => {
   // ============================================================
 
   describe("get", () => {
-    it("should return workflow by id", () => {
+    it("should return workflow by id", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
       expect(registry.get("wf-1")).toBe(workflow);
     });
 
@@ -401,9 +401,9 @@ describe("WorkflowRegistry", () => {
   });
 
   describe("getByName", () => {
-    it("should find workflow by name", () => {
+    it("should find workflow by name", async () => {
       const workflow = createMockWorkflow("wf-1", { name: "Unique Name" });
-      registry.register(workflow);
+      await registry.register(workflow);
       expect(registry.getByName("Unique Name")).toBe(workflow);
     });
 
@@ -413,52 +413,52 @@ describe("WorkflowRegistry", () => {
   });
 
   describe("getByTags", () => {
-    it("should find workflows by tags", () => {
+    it("should find workflows by tags", async () => {
       const workflow = createMockWorkflow("wf-1", {
         metadata: { tags: ["test", "important"] },
       });
-      registry.register(workflow);
+      await registry.register(workflow);
       const results = registry.getByTags(["test"]);
       expect(results).toHaveLength(1);
       expect(results[0]).toBe(workflow);
     });
 
-    it("should match all tags (AND logic)", () => {
+    it("should match all tags (AND logic)", async () => {
       const workflow1 = createMockWorkflow("wf-1", {
         metadata: { tags: ["test", "important"] },
       });
       const workflow2 = createMockWorkflow("wf-2", {
         metadata: { tags: ["test"] },
       });
-      registry.register(workflow1);
-      registry.register(workflow2);
+      await registry.register(workflow1);
+      await registry.register(workflow2);
       const results = registry.getByTags(["test", "important"]);
       expect(results).toHaveLength(1);
     });
 
-    it("should return empty array when no match", () => {
-      registry.register(createMockWorkflow("wf-1"));
+    it("should return empty array when no match", async () => {
+      await registry.register(createMockWorkflow("wf-1"));
       expect(registry.getByTags(["non-existent"])).toHaveLength(0);
     });
   });
 
   describe("getByCategory", () => {
-    it("should find workflows by category", () => {
+    it("should find workflows by category", async () => {
       const workflow = createMockWorkflow("wf-1", {
         metadata: { category: "critical" },
       });
-      registry.register(workflow);
+      await registry.register(workflow);
       const results = registry.getByCategory("critical");
       expect(results).toHaveLength(1);
     });
   });
 
   describe("getByAuthor", () => {
-    it("should find workflows by author", () => {
+    it("should find workflows by author", async () => {
       const workflow = createMockWorkflow("wf-1", {
         metadata: { author: "developer" },
       });
-      registry.register(workflow);
+      await registry.register(workflow);
       const results = registry.getByAuthor("developer");
       expect(results).toHaveLength(1);
     });
@@ -466,8 +466,8 @@ describe("WorkflowRegistry", () => {
 
   describe("list", () => {
     it("should return summaries of all registered workflows", async () => {
-      registry.register(createMockWorkflow("wf-1"));
-      registry.register(createMockWorkflow("wf-2"));
+      await registry.register(createMockWorkflow("wf-1"));
+      await registry.register(createMockWorkflow("wf-2"));
 
       const summaries = await registry.list();
 
@@ -487,7 +487,7 @@ describe("WorkflowRegistry", () => {
       );
 
       const wf1 = createMockWorkflow("wf-1");
-      reg.register(wf1);
+      await reg.register(wf1);
 
       (mockStorageAdapter.list as Mock).mockResolvedValue(["wf-1", "wf-2"]);
       (loadWorkflow as Mock).mockResolvedValue(createMockWorkflow("wf-2"));
@@ -501,8 +501,8 @@ describe("WorkflowRegistry", () => {
 
   describe("search", () => {
     it("should search by name", async () => {
-      registry.register(createMockWorkflow("wf-1", { name: "My Important Workflow" }));
-      registry.register(createMockWorkflow("wf-2", { name: "Other" }));
+      await registry.register(createMockWorkflow("wf-1", { name: "My Important Workflow" }));
+      await registry.register(createMockWorkflow("wf-2", { name: "Other" }));
 
       const results = await registry.search("important");
       expect(results).toHaveLength(1);
@@ -510,22 +510,22 @@ describe("WorkflowRegistry", () => {
     });
 
     it("should search by description", async () => {
-      registry.register(createMockWorkflow("wf-1", { description: "This is critical" }));
-      registry.register(createMockWorkflow("wf-2", { description: "Other" }));
+      await registry.register(createMockWorkflow("wf-1", { description: "This is critical" }));
+      await registry.register(createMockWorkflow("wf-2", { description: "Other" }));
 
       const results = await registry.search("critical");
       expect(results).toHaveLength(1);
     });
 
     it("should search by id", async () => {
-      registry.register(createMockWorkflow("critical-workflow"));
+      await registry.register(createMockWorkflow("critical-workflow"));
 
       const results = await registry.search("critical");
       expect(results).toHaveLength(1);
     });
 
     it("should return empty array when no match", async () => {
-      registry.register(createMockWorkflow("wf-1"));
+      await registry.register(createMockWorkflow("wf-1"));
       const results = await registry.search("nonexistent");
       expect(results).toHaveLength(0);
     });
@@ -590,9 +590,9 @@ describe("WorkflowRegistry", () => {
   // ============================================================
 
   describe("export", () => {
-    it("should export workflow as JSON string", () => {
+    it("should export workflow as JSON string", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
 
       const json = registry.export("wf-1");
       const parsed = JSON.parse(json);
@@ -606,17 +606,17 @@ describe("WorkflowRegistry", () => {
   });
 
   describe("import", () => {
-    it("should import workflow from JSON string", () => {
+    it("should import workflow from JSON string", async () => {
       const workflow = createMockWorkflow("wf-1");
       const json = JSON.stringify(workflow);
 
-      const id = registry.import(json);
+      const id = await registry.import(json);
       expect(id).toBe("wf-1");
       expect(registry.has("wf-1")).toBe(true);
     });
 
-    it("should throw for invalid JSON", () => {
-      expect(() => registry.import("invalid json")).toThrow("Failed to import workflow");
+    it("should throw for invalid JSON", async () => {
+      await expect(registry.import("invalid json")).rejects.toThrow("Failed to import workflow");
     });
   });
 
@@ -627,7 +627,7 @@ describe("WorkflowRegistry", () => {
   describe("unregister", () => {
     it("should unregister a workflow", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
 
       await registry.unregister("wf-1");
 
@@ -646,7 +646,7 @@ describe("WorkflowRegistry", () => {
         mockGraphRegistry,
       );
       const workflow = createMockWorkflow("wf-1");
-      reg.register(workflow);
+      await reg.register(workflow);
 
       await reg.unregister("wf-1");
 
@@ -655,7 +655,7 @@ describe("WorkflowRegistry", () => {
 
     it("should cleanup relationship references", async () => {
       const workflow = createMockWorkflow("wf-1");
-      registry.register(workflow);
+      await registry.register(workflow);
 
       await registry.unregister("wf-1");
 
@@ -668,9 +668,9 @@ describe("WorkflowRegistry", () => {
   // ============================================================
 
   describe("clear", () => {
-    it("should clear all workflows", () => {
-      registry.register(createMockWorkflow("wf-1"));
-      registry.register(createMockWorkflow("wf-2"));
+    it("should clear all workflows", async () => {
+      await registry.register(createMockWorkflow("wf-1"));
+      await registry.register(createMockWorkflow("wf-2"));
       registry.addActiveWorkflow("wf-1");
 
       registry.clear();
@@ -690,8 +690,8 @@ describe("WorkflowRegistry", () => {
   // ============================================================
 
   describe("has", () => {
-    it("should return true if workflow exists", () => {
-      registry.register(createMockWorkflow("wf-1"));
+    it("should return true if workflow exists", async () => {
+      await registry.register(createMockWorkflow("wf-1"));
       expect(registry.has("wf-1")).toBe(true);
     });
 
@@ -701,9 +701,9 @@ describe("WorkflowRegistry", () => {
   });
 
   describe("size", () => {
-    it("should return correct count", () => {
+    it("should return correct count", async () => {
       expect(registry.size()).toBe(0);
-      registry.register(createMockWorkflow("wf-1"));
+      await registry.register(createMockWorkflow("wf-1"));
       expect(registry.size()).toBe(1);
     });
   });

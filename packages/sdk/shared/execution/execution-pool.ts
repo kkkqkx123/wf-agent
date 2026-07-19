@@ -419,6 +419,21 @@ export class ExecutionPool<T> {
    * Static method to reset all instances (for testing)
    */
   static resetAllInstances(): void {
+    for (const instance of ExecutionPool.instances.values()) {
+      instance.shutdown();
+    }
     ExecutionPool.instances.clear();
+  }
+
+  /**
+   * Static method to reset a specific instance (for testing)
+   * @param poolId Pool identifier
+   */
+  static resetInstance(poolId: string): void {
+    const instance = ExecutionPool.instances.get(poolId);
+    if (instance) {
+      instance.shutdown();
+      ExecutionPool.instances.delete(poolId);
+    }
   }
 }

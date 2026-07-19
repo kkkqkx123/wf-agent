@@ -19,9 +19,15 @@ export { CacheManager, cacheManager } from "./cache-manager.js";
 export { BaseExecutor } from "./base-executor.js";
 
 // ============================================================================
-// Compilers (for validation use)
+// Compilers
 // ============================================================================
 export { scriptCompiler } from "./compilers/script-compiler.js";
+export { expressionCompiler } from "./compilers/expression-compiler.js";
+
+// ============================================================================
+// Executors
+// ============================================================================
+export { ExpressionConditionExecutor, expressionConditionExecutor } from "./executors/expression-condition-executor.js";
 
 // ============================================================================
 // DSL Layer (Parsing & Validation)

@@ -83,7 +83,7 @@ describe("TriggerTemplateRegistry", () => {
       const t1 = createValidTemplate({ name: "t1" });
       const t2 = createValidTemplate({ name: "t2" });
       registry.registerBatch([t1, t2]);
-      expect(registry.size()).toBe(2);
+      expect(registry.size).toBe(2);
     });
 
     it("should continue on error with skipErrors option", () => {
@@ -92,7 +92,7 @@ describe("TriggerTemplateRegistry", () => {
         [createValidTemplate({ name: "t1" }), createValidTemplate({ name: "t2" })],
         { skipErrors: true },
       );
-      expect(registry.size()).toBe(2);
+      expect(registry.size).toBe(2);
     });
 
     it("should throw on first error without skipErrors", () => {
@@ -188,13 +188,13 @@ describe("TriggerTemplateRegistry", () => {
       registry.register(createValidTemplate({ name: "t1" }));
       registry.register(createValidTemplate({ name: "t2" }));
       await registry.unregisterBatch(["t1", "t2"]);
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
 
     it("should continue on error with skipErrors", async () => {
       registry.register(createValidTemplate({ name: "t1" }));
       await registry.unregisterBatch(["t1", "non-existent"], { skipErrors: true });
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
 
     it("should throw on first error without skipErrors", async () => {
@@ -233,18 +233,18 @@ describe("TriggerTemplateRegistry", () => {
       registry.register(createValidTemplate({ name: "t1" }));
       registry.register(createValidTemplate({ name: "t2" }));
       registry.clear();
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
   });
 
   describe("size", () => {
     it("should return 0 for empty registry", () => {
-      expect(registry.size()).toBe(0);
+      expect(registry.size).toBe(0);
     });
 
     it("should return correct count", () => {
       registry.register(createValidTemplate({ name: "t1" }));
-      expect(registry.size()).toBe(1);
+      expect(registry.size).toBe(1);
     });
   });
 

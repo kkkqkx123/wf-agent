@@ -119,6 +119,9 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
         return triggerConfig.toolAfter !== false;
       case CheckpointTrigger.MANUAL:
         return true; // Manual is enabled by default.
+      case "HOOK":
+      case "TRIGGER":
+        return true; // HOOK and TRIGGER always create checkpoints.
       default:
         return false;
     }
@@ -156,6 +159,10 @@ export class WorkflowCheckpointConfigResolver extends CheckpointConfigResolver {
       [CheckpointTrigger.MANUAL]: "Manual",
       [CheckpointTrigger.NEVER]: "Never",
     };
+
+    // Handle HOOK and TRIGGER types that are not in the CheckpointTrigger enum
+    if (context.triggerType === "HOOK") return "Hook checkpoint";
+    if (context.triggerType === "TRIGGER") return "Trigger checkpoint";
 
     return `${triggerDesc[context.triggerType]} checkpoint`;
   }

@@ -30,21 +30,23 @@ function createMockExecutionEntity(
     variableManager.setVariable(name, value);
   });
 
+  const mockGetWorkflowExecutionData = vi.fn().mockReturnValue({
+    id: "exec-1",
+    workflowId: "wf-1",
+    variables: Object.entries(variables).map(([name, value]) => ({
+      name,
+      value,
+      type: typeof value,
+    })),
+    nodeResults: [],
+    errors: [],
+    input: {},
+    output: {},
+  });
+
   return {
     variableStateManager: variableManager as any,
-    getWorkflowExecutionData: () => ({
-      id: "exec-1",
-      workflowId: "wf-1",
-      variables: Object.entries(variables).map(([name, value]) => ({
-        name,
-        value,
-        type: typeof value,
-      })),
-      nodeResults: [],
-      errors: [],
-      input: {},
-      output: {},
-    } as any),
+    getWorkflowExecutionData: mockGetWorkflowExecutionData,
     addNodeResult: vi.fn(),
     getNodeResults: () => [],
   } as unknown as WorkflowExecutionEntity;

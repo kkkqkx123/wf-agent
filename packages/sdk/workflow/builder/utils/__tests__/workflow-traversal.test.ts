@@ -37,7 +37,7 @@ function createEdge(id: string, sourceNodeId: string, targetNodeId: string): Wor
 
 describe("getReachableNodes", () => {
   it("should get all reachable nodes from start node", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -56,7 +56,7 @@ describe("getReachableNodes", () => {
   });
 
   it("should return empty set for non-existent node", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
 
     const reachable = getReachableNodes(graph, "nonexistent");
@@ -65,7 +65,7 @@ describe("getReachableNodes", () => {
   });
 
   it("should handle disconnected nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -83,7 +83,7 @@ describe("getReachableNodes", () => {
 
 describe("getNodesReachingTo", () => {
   it("should get all nodes that can reach the target node", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));
@@ -102,7 +102,7 @@ describe("getNodesReachingTo", () => {
   });
 
   it("should return empty set for non-existent target node", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
 
     const reaching = getNodesReachingTo(graph, "nonexistent");
@@ -111,7 +111,7 @@ describe("getNodesReachingTo", () => {
   });
 
   it("should handle node with no incoming edges", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addEdge(createEdge("e1", "a", "b"));
@@ -124,7 +124,7 @@ describe("getNodesReachingTo", () => {
   });
 
   it("should handle complex graph with multiple paths", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a"));
     graph.addNode(createNode("b"));
     graph.addNode(createNode("c"));

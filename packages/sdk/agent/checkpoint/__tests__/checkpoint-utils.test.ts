@@ -21,18 +21,29 @@ describe("AgentLoopCheckpointCoordinator", () => {
       listCheckpoints: vi.fn(),
     };
 
+    const now = Date.now();
     mockEntity = {
       id: "agent-1",
       state: {
         status: AgentLoopStatus.RUNNING,
         currentIteration: 1,
         toolCallCount: 0,
-        startTime: Date.now(),
+        startTime: now,
         endTime: null,
         error: undefined,
+        createSnapshot: vi.fn().mockReturnValue({
+          status: AgentLoopStatus.RUNNING,
+          currentIteration: 1,
+          toolCallCount: 0,
+          startTime: now,
+          endTime: null,
+          error: undefined,
+        }),
       },
       config: {},
       getMessages: vi.fn().mockReturnValue([]),
+      getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+      exportTriggerState: vi.fn().mockReturnValue(undefined),
     } as unknown as AgentLoopEntity;
   });
 
@@ -85,14 +96,16 @@ describe("AgentLoopCheckpointCoordinator", () => {
       expect(savedCheckpoint.metadata?.customFields?.customField).toBe("customValue");
     });
 
-    it("should not include metadata when no options provided", async () => {
+    it("should not include custom metadata when no options provided", async () => {
       dependencies.saveCheckpoint = vi.fn().mockResolvedValue("cp-1");
       dependencies.listCheckpoints = vi.fn().mockResolvedValue([]);
 
       await coordinator.createCheckpoint(mockEntity, dependencies);
 
       const savedCheckpoint = (dependencies.saveCheckpoint as any).mock.calls[0][0];
-      expect(savedCheckpoint.metadata).toBeUndefined();
+      // Metadata will have default chainPosition but no custom fields
+      expect(savedCheckpoint.metadata?.description).toBeUndefined();
+      expect(savedCheckpoint.metadata?.tags).toBeUndefined();
     });
   });
 

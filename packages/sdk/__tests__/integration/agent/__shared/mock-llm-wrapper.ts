@@ -15,12 +15,35 @@
  * - Response delay control
  */
 
-import type { LLMRequest, LLMResult, LLMToolCall, Result } from "@wf-agent/types";
+import type { LLMRequest, LLMResult, LLMToolCall, Result, LLMProfile } from "@wf-agent/types";
 import { ok, err } from "@wf-agent/common-utils";
 import { LLMError } from "@wf-agent/types";
 import { LLMWrapper } from "@/services/llm/wrapper.js";
 import { MessageStream } from "@/services/llm/message-stream.js";
 import type { EventRegistry } from "@/shared/registry/event-registry.js";
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+export const MOCK_PROFILE_ID = "integration-test-mock-llm";
+
+/**
+ * Create a mock LLM profile for integration testing
+ */
+function createMockLLMProfile(profileId: string = MOCK_PROFILE_ID): LLMProfile {
+  return {
+    id: profileId,
+    name: "Mock LLM Profile",
+    provider: "OPENAI_CHAT",
+    model: "mock-model-v1",
+    apiKey: "mock-api-key",
+    parameters: {
+      temperature: 0,
+      maxTokens: 100,
+    },
+  };
+}
 
 // =============================================================================
 // Types
@@ -64,6 +87,8 @@ export class MockLLMWrapper extends LLMWrapper {
 
   constructor(eventManager?: EventRegistry) {
     super(eventManager);
+    // Register a mock profile so getProfile() doesn't throw ConfigurationError
+    this.registerProfile(createMockLLMProfile());
   }
 
   /**

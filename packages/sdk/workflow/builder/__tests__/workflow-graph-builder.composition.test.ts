@@ -62,7 +62,7 @@ describe("WorkflowGraphBuilder with Composition Pattern", () => {
       const workflow = createSimpleWorkflow();
       const graph = WorkflowGraphBuilder.build(workflow);
 
-      expect(graph).toBeInstanceOf(WorkflowGraphStructure);
+      expect(graph).toBeInstanceOf(WorkflowGraphStructureImpl);
       expect(graph.getAllNodeIds()).toHaveLength(3);
       expect(graph.getAllEdgeIds()).toHaveLength(2);
       expect(graph.startNodeId).toBe("start");
@@ -71,7 +71,7 @@ describe("WorkflowGraphBuilder with Composition Pattern", () => {
 
     test("should build into existing structure when provided", () => {
       const workflow = createSimpleWorkflow();
-      const existingStructure = new WorkflowGraphStructure();
+      const existingStructure = new WorkflowGraphStructureImpl();
       const graph = WorkflowGraphBuilder.build(workflow, existingStructure);
 
       expect(graph).toBe(existingStructure);
@@ -176,7 +176,7 @@ describe("WorkflowGraphBuilder with Composition Pattern", () => {
       expect(result.errors).toHaveLength(0);
 
       // Verify the graph is a composition
-      expect(result.graph.structure).toBeInstanceOf(WorkflowGraphStructure);
+      expect(result.graph.structure).toBeInstanceOf(WorkflowGraphStructureImpl);
       expect(result.graph.metadata).toBeInstanceOf(WorkflowGraphMetadata);
     });
 
@@ -334,7 +334,7 @@ describe("WorkflowGraphBuilder with Composition Pattern", () => {
       };
 
       // Create new structure
-      const newStructure = new WorkflowGraphStructure();
+      const newStructure = new WorkflowGraphStructureImpl();
       const newNode = { id: "newStart", workflowId: "test-wf", type: "START" as const, outgoingEdgeIds: [] as string[], incomingEdgeIds: [] as string[], config: {} };
       newStructure.addNode(newNode);
 

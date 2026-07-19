@@ -11,7 +11,7 @@ import {
 import { ConfigurationValidationError, ExpressionSecurityError } from "@wf-agent/types";
 import { validateExpression } from "../../../services/evaluation/index.js";
 
-vi.mock("../../../workflow/evaluation/index.js", () => ({
+vi.mock("../../../services/evaluation/index.js", () => ({
   validateExpression: vi.fn(),
 }));
 

@@ -71,7 +71,7 @@ function createEdge(id: string, sourceNodeId: string, targetNodeId: string): Wor
 
 describe("analyzeWorkflowGraph", () => {
   it("should analyze a simple linear graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("start", "START"));
     graph.addNode(createNode("a", "TASK"));
     graph.addNode(createNode("end", "END"));
@@ -107,7 +107,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should detect cycles in graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a", "TASK"));
     graph.addNode(createNode("b", "TASK"));
     graph.addNode(createNode("c", "TASK"));
@@ -122,7 +122,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should handle graph with FORK/JOIN nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("start", "START"));
     graph.addNode(createForkNode("fork1", "fork-1"));
     graph.addNode(createNode("a", "TASK"));
@@ -149,7 +149,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should detect unpaired FORK/JOIN nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("start", "START"));
     graph.addNode(createForkNode("fork1", "fork-1")); // No matching JOIN
     graph.addNode(createNode("a", "TASK"));
@@ -172,7 +172,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should count nodes by type correctly", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("start", "START"));
     graph.addNode(createNode("task1", "TASK"));
     graph.addNode(createNode("task2", "TASK"));
@@ -189,7 +189,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should count edges by type correctly", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a", "TASK"));
     graph.addNode(createNode("b", "TASK"));
     graph.addNode(createNode("c", "TASK"));
@@ -205,7 +205,7 @@ describe("analyzeWorkflowGraph", () => {
   });
 
   it("should handle empty graph", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
 
     const result = analyzeWorkflowGraph(graph);
 
@@ -218,7 +218,7 @@ describe("analyzeWorkflowGraph", () => {
 
 describe("collectForkJoinPairs", () => {
   it("should collect valid FORK/JOIN pairs", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createForkNode("fork1", "fork-1"));
     graph.addNode(createJoinNode("join1", "fork-1"));
 
@@ -233,7 +233,7 @@ describe("collectForkJoinPairs", () => {
   });
 
   it("should detect unpaired FORK nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createForkNode("fork1", "fork-1"));
     graph.addNode(createForkNode("fork2", "fork-2"));
 
@@ -245,7 +245,7 @@ describe("collectForkJoinPairs", () => {
   });
 
   it("should detect unpaired JOIN nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createJoinNode("join1", "fork-1"));
     graph.addNode(createJoinNode("join2", "fork-2"));
 
@@ -257,7 +257,7 @@ describe("collectForkJoinPairs", () => {
   });
 
   it("should handle mixed paired and unpaired nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createForkNode("fork1", "fork-1"));
     graph.addNode(createJoinNode("join1", "fork-1")); // Paired with fork1
     graph.addNode(createForkNode("fork2", "fork-2")); // Unpaired
@@ -272,7 +272,7 @@ describe("collectForkJoinPairs", () => {
   });
 
   it("should handle graph without FORK/JOIN nodes", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createNode("a", "TASK"));
     graph.addNode(createNode("b", "TASK"));
 
@@ -285,7 +285,7 @@ describe("collectForkJoinPairs", () => {
   });
 
   it("should handle multiple valid pairs", () => {
-    const graph = new WorkflowGraphStructure();
+    const graph = new WorkflowGraphStructureImpl();
     graph.addNode(createForkNode("fork1", "fork-1"));
     graph.addNode(createJoinNode("join1", "fork-1"));
     graph.addNode(createForkNode("fork2", "fork-2"));

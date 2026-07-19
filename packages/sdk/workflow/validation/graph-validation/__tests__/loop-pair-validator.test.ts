@@ -19,8 +19,8 @@ describe("validateLoopPairs", () => {
   function createGraph(
     nodes: Array<{ id: string; type: string; config?: any }>,
     edges: Array<{ sourceNodeId: string; targetNodeId: string }>,
-  ): WorkflowGraphStructure {
-    const graph = new WorkflowGraphStructure();
+  ): WorkflowGraphStructureImpl {
+    const graph = new WorkflowGraphStructureImpl();
 
     // Add nodes
     for (const nodeData of nodes) {

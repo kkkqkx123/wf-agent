@@ -81,6 +81,7 @@ describe("AgentLoopCoordinator", () => {
         cancel: vi.fn(),
         recordToolCallStart: vi.fn(),
         recordToolCallEnd: vi.fn(),
+        addErrorRecord: vi.fn(),
       },
       conversationManager: {
         getMessageCount: vi.fn().mockReturnValue(0),
@@ -96,6 +97,7 @@ describe("AgentLoopCoordinator", () => {
       interrupt: vi.fn(),
       resetInterrupt: vi.fn(),
       cleanup: vi.fn(),
+      getParentContext: vi.fn().mockReturnValue(null),
     };
 
     const mockStateCoordinator = {
@@ -116,6 +118,8 @@ describe("AgentLoopCoordinator", () => {
       clear: vi.fn(),
       registerStateCoordinator: vi.fn(),
       getStateCoordinator: vi.fn().mockReturnValue(mockStateCoordinator),
+      findTaskIdByAgentLoopId: vi.fn().mockReturnValue(undefined),
+      updateTaskStatusToFailed: vi.fn(),
     } as unknown as AgentLoopRegistry;
 
     mockExecutor = {
@@ -252,7 +256,8 @@ describe("AgentLoopCoordinator", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
-      expect(mockMetricsCollector.recordError).toHaveBeenCalled();
+      expect(mockMetricsCollector.recordExecutionComplete).toHaveBeenCalled();
+      expect(mockMetricsCollector.recordExecutionComplete.mock.calls[0][5]).toBe(false);
     });
 
     it("should establish interruption cascade when parentExecutionId is provided", async () => {

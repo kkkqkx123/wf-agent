@@ -129,7 +129,7 @@ describe("ToolExecutionCoordinator", () => {
         mockConversationManager,
         mockEntity.id,
         mockEntity.nodeId,
-        { abortSignal: mockEntity.getAbortSignal() },
+        expect.objectContaining({ abortSignal: expect.any(AbortSignal) }),
       );
     });
 

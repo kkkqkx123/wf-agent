@@ -179,19 +179,14 @@ function createMockDependencies(
 }
 
 describe("CheckpointCoordinator", () => {
+  let coordinator: CheckpointCoordinator;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    coordinator = new CheckpointCoordinator();
   });
 
-  describe("createCheckpoint", () => {
-    it("should throw WorkflowExecutionNotFoundError when execution entity is not found", async () => {
-      const deps = createMockDependencies();
-
-      await expect(
-        CheckpointCoordinator.createCheckpoint("nonexistent-exec", deps),
-      ).rejects.toThrow("WorkflowExecutionEntity not found");
-    });
-
+  describe("createWorkflowCheckpoint", () => {
     it("should create a FULL checkpoint when no previous checkpoints exist", async () => {
       const execution = createMockWorkflowExecution();
       const mockEntity = {
@@ -206,10 +201,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -221,6 +225,9 @@ describe("CheckpointCoordinator", () => {
       const mockCheckpointState = {
         list: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue("cp-1"),
+        get: vi.fn().mockResolvedValue(null),
+        getCheckpoints: vi.fn().mockResolvedValue([]),
+        listByEntityWithMetadata: vi.fn().mockResolvedValue([]),
       } as unknown as CheckpointState;
 
       const deps = createMockDependencies({
@@ -229,10 +236,9 @@ describe("CheckpointCoordinator", () => {
 
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
-      const result = await CheckpointCoordinator.createCheckpoint("exec-1", deps);
+      const result = await coordinator.createWorkflowCheckpoint(mockEntity, deps);
 
       expect(result).toBe("cp-1");
-      expect(mockCheckpointState.list).toHaveBeenCalledWith({ parentId: "exec-1" });
       expect(mockCheckpointState.create).toHaveBeenCalled();
 
       // Verify the checkpoint has FULL type and snapshot
@@ -256,10 +262,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -273,7 +288,7 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
-      const result = await CheckpointCoordinator.createCheckpoint("exec-1", deps);
+      const result = await coordinator.createWorkflowCheckpoint(mockEntity, deps);
 
       expect(result).toBeDefined();
     });
@@ -292,10 +307,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -337,6 +361,8 @@ describe("CheckpointCoordinator", () => {
         list: vi.fn().mockResolvedValue(["cp-prev"]),
         get: vi.fn().mockResolvedValue(previousCheckpoint),
         create: vi.fn().mockResolvedValue("cp-delta"),
+        getCheckpoints: vi.fn().mockResolvedValue([previousCheckpoint]),
+        listByEntityWithMetadata: vi.fn().mockResolvedValue([]),
       } as unknown as CheckpointState;
 
       const deps = createMockDependencies({
@@ -345,7 +371,7 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
-      const result = await CheckpointCoordinator.createCheckpoint("exec-1", deps);
+      const result = await coordinator.createWorkflowCheckpoint(mockEntity, deps);
 
       expect(result).toBe("cp-delta");
 
@@ -367,10 +393,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -389,7 +424,7 @@ describe("CheckpointCoordinator", () => {
         toolId: "tool-1",
       };
 
-      await CheckpointCoordinator.createCheckpoint("exec-1", deps, options);
+      await coordinator.createWorkflowCheckpoint(mockEntity, deps, options);
 
       const createdCheckpoint = (deps.checkpointStateManager.create as any).mock.calls[0][0];
       expect(createdCheckpoint.metadata?.description).toBe("Before tool execution");
@@ -410,10 +445,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -431,7 +475,7 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
-      await CheckpointCoordinator.createCheckpoint("exec-1", deps);
+      await coordinator.createWorkflowCheckpoint(mockEntity, deps);
 
       expect(mockFileCheckpointManager.createCheckpoint).toHaveBeenCalledWith("exec-1");
     });
@@ -450,10 +494,19 @@ describe("CheckpointCoordinator", () => {
             variables: new Map(),
           }),
           restoreFromSnapshot: vi.fn(),
+          getAllVariables: vi.fn().mockReturnValue({}),
         },
         getTriggerStateSnapshot: vi.fn().mockReturnValue({ triggers: [] }),
         restoreTriggerState: vi.fn(),
         getChildExecutionIds: vi.fn().mockReturnValue([]),
+        getHierarchyMetadata: vi.fn().mockReturnValue(undefined),
+        getInput: vi.fn().mockReturnValue({}),
+        getOutput: vi.fn().mockReturnValue({}),
+        getForkJoinAggregationState: vi.fn().mockReturnValue(undefined),
+        getExecutionConfig: vi.fn().mockReturnValue(undefined),
+        setHookExecutionContext: vi.fn(),
+        setExecutionConfig: vi.fn(),
+        restoreForkJoinAggregationState: vi.fn(),
         state: {
           getOperationStateSnapshot: vi.fn().mockReturnValue(null),
           getErrorRecords: vi.fn().mockReturnValue([]),
@@ -472,11 +525,11 @@ describe("CheckpointCoordinator", () => {
       deps.workflowExecutionRegistry.get = vi.fn().mockReturnValue(mockEntity);
 
       // Should not throw despite file checkpoint failure
-      await expect(CheckpointCoordinator.createCheckpoint("exec-1", deps)).resolves.toBeDefined();
+      await expect(coordinator.createWorkflowCheckpoint(mockEntity, deps)).resolves.toBeDefined();
     });
   });
 
-  describe("restoreFromCheckpoint", () => {
+  describe("restoreWorkflowFromCheckpoint", () => {
     it("should throw CheckpointNotFoundError when checkpoint is not found", async () => {
       const mockCheckpointState = {
         get: vi.fn().mockResolvedValue(null),
@@ -487,7 +540,7 @@ describe("CheckpointCoordinator", () => {
       });
 
       await expect(
-        CheckpointCoordinator.restoreFromCheckpoint("nonexistent-cp", deps),
+        coordinator.restoreWorkflowFromCheckpoint("nonexistent-cp", deps),
       ).rejects.toThrow("Checkpoint not found");
     });
 
@@ -530,7 +583,7 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowGraphRegistry.get = vi.fn().mockReturnValue(null);
 
-      await expect(CheckpointCoordinator.restoreFromCheckpoint("cp-1", deps)).rejects.toThrow(
+      await expect(coordinator.restoreWorkflowFromCheckpoint("cp-1", deps)).rejects.toThrow(
         "Processed workflow not found",
       );
     });
@@ -582,7 +635,7 @@ describe("CheckpointCoordinator", () => {
       });
       deps.workflowGraphRegistry.get = vi.fn().mockReturnValue(mockGraph);
 
-      const result = await CheckpointCoordinator.restoreFromCheckpoint("cp-1", deps);
+      const result = await coordinator.restoreWorkflowFromCheckpoint("cp-1", deps);
 
       expect(result).toBeDefined();
       expect(result.workflowExecutionEntity).toBeDefined();
@@ -695,33 +748,4 @@ describe("CheckpointCoordinator", () => {
     });
   });
 
-  describe("findChildCheckpoint (instance method)", () => {
-    it("should return undefined when no checkpoints found", async () => {
-      const coordinator = new CheckpointCoordinator();
-      const mockCheckpointState = {
-        list: vi.fn().mockResolvedValue([]),
-      } as unknown as CheckpointState;
-
-      const result = await (coordinator as any)._findChildCheckpoint(
-        "child-exec-1",
-        mockCheckpointState,
-      );
-
-      expect(result).toBeUndefined();
-    });
-
-    it("should return latest checkpoint ID", async () => {
-      const coordinator = new CheckpointCoordinator();
-      const mockCheckpointState = {
-        list: vi.fn().mockResolvedValue(["cp-old", "cp-latest"]),
-      } as unknown as CheckpointState;
-
-      const result = await (coordinator as any)._findChildCheckpoint(
-        "child-exec-1",
-        mockCheckpointState,
-      );
-
-      expect(result).toBe("cp-latest");
-    });
   });
-});

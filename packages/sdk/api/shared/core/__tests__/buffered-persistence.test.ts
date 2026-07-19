@@ -111,7 +111,7 @@ describe("BufferedPersistenceLayer", () => {
         data: { iteration: 1 },
       };
 
-      await buffered.saveEvent(event as any);
+      await buffered.saveEvent("exec-001", event as any);
 
       const results = await buffered.queryEvents({ executionId: "exec-001" });
       expect(results.length).toBeGreaterThan(0);
@@ -125,7 +125,7 @@ describe("BufferedPersistenceLayer", () => {
         data: { iteration: 1 },
       };
 
-      await buffered.saveEvent(event as any);
+      await buffered.saveEvent("exec-001", event as any);
 
       const count = await buffered.countEvents({ executionId: "exec-001" });
       expect(count).toBeGreaterThan(0);

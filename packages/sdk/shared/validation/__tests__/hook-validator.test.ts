@@ -3,7 +3,7 @@ import { validateHook, validateHooks } from "../hook-validator.js";
 import { ConfigurationValidationError, ExpressionSecurityError } from "@wf-agent/types";
 import { validateExpression } from "../../../services/evaluation/index.js";
 
-vi.mock("../../../workflow/evaluation/index.js", () => ({
+vi.mock("../../../services/evaluation/index.js", () => ({
   validateExpression: vi.fn(),
 }));
 
@@ -70,7 +70,7 @@ describe("validateHook", () => {
 
   it("should validate hook with condition expression", () => {
     const hook = createValidHook({
-      condition: { expression: 'data.status == "completed"' },
+      condition: { type: "expression", expression: 'data.status == "completed"' },
     });
     vi.mocked(validateExpression).mockReturnValue(undefined);
     const result = validateHook(hook as any, "node-1");
@@ -80,7 +80,7 @@ describe("validateHook", () => {
 
   it("should return err when condition expression fails security check", () => {
     const hook = createValidHook({
-      condition: { expression: "unsafe" },
+      condition: { type: "expression", expression: "unsafe" },
     });
     vi.mocked(validateExpression).mockImplementation(() => {
       throw new ExpressionSecurityError("Expression is too long", {
@@ -98,7 +98,7 @@ describe("validateHook", () => {
 
   it("should propagate non-security errors from validateExpression", () => {
     const hook = createValidHook({
-      condition: { expression: 'data.status == "completed"' },
+      condition: { type: "expression", expression: 'data.status == "completed"' },
     });
     vi.mocked(validateExpression).mockImplementation(() => {
       throw new Error("Unexpected error");
@@ -117,7 +117,7 @@ describe("validateHook", () => {
 
   it("should validate hook with condition metadata", () => {
     const hook = createValidHook({
-      condition: { expression: "true", metadata: { source: "test" } },
+      condition: { type: "expression", expression: "true", metadata: { source: "test" } },
     });
     vi.mocked(validateExpression).mockReturnValue(undefined);
     const result = validateHook(hook as any, "node-1");
@@ -206,12 +206,12 @@ describe("validateHooks", () => {
       createValidHook({
         hookType: "BEFORE_EXECUTE",
         eventName: "event_1",
-        condition: { expression: "a > 1" },
+        condition: { type: "expression", expression: "a > 1" },
       }),
       createValidHook({
         hookType: "AFTER_EXECUTE",
         eventName: "event_2",
-        condition: { expression: "b == 2" },
+        condition: { type: "expression", expression: "b == 2" },
       }),
     ];
     vi.mocked(validateExpression).mockReturnValue(undefined);

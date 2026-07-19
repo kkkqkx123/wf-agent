@@ -23,7 +23,7 @@ function createTestNode(partial: Partial<WorkflowNode> & { id: string; type: Run
 }
 
 describe("WorkflowGraph Composition Pattern", () => {
-  let structure: WorkflowGraphStructure;
+  let structure: WorkflowGraphStructureImpl;
   let metadata: WorkflowGraphMetadata;
   let graph: WorkflowGraph;
 
@@ -160,7 +160,7 @@ describe("WorkflowGraph Composition Pattern", () => {
     });
 
     test("should allow creation with new structure", () => {
-      const newStructure = new WorkflowGraphStructure();
+      const newStructure = new WorkflowGraphStructureImpl();
       const newNode = createTestNode({ id: "newNode", type: "START", config: {} });
       newStructure.addNode(newNode);
 

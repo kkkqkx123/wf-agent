@@ -41,20 +41,9 @@ export class EventManager {
   private broadcasters: Map<string, IEventBroadcaster> = new Map();
   private eventBuffer: ExecutionEvent[] = [];
   private options: EventManagerOptions;
-  private static instance: EventManager;
 
-  private constructor(options?: Partial<EventManagerOptions>) {
+  constructor(options?: Partial<EventManagerOptions>) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
-  }
-
-  /**
-   * Get singleton instance
-   */
-  static getInstance(options?: Partial<EventManagerOptions>): EventManager {
-    if (!EventManager.instance) {
-      EventManager.instance = new EventManager(options);
-    }
-    return EventManager.instance;
   }
 
   /**
@@ -167,6 +156,23 @@ export class EventManager {
     this.eventBuffer.push(event);
     if (this.eventBuffer.length > this.options.maxBufferSize) {
       this.eventBuffer.shift();
+    }
+  }
+
+  /**
+   * Replay buffered events to a handler (for late-joining clients).
+   * Used by broadcasters (SSE, WS) to replay history without subscribing.
+   * Pass null as executionId to replay all buffered events.
+   */
+  replayEvents(executionId: string | null, handler: EventHandler): void {
+    for (const event of this.eventBuffer) {
+      if (executionId === null || event.executionId === executionId) {
+        try {
+          handler(event);
+        } catch {
+          // Ignore replay errors
+        }
+      }
     }
   }
 

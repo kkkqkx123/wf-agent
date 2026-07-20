@@ -33,17 +33,10 @@ export interface FollowupQuestion {
 export class InteractionService {
   private pendingApprovals: Map<string, ApprovalRequest> = new Map();
   private pendingQuestions: Map<string, FollowupQuestion> = new Map();
-  private eventManager = EventManager.getInstance();
-  private static instance: InteractionService;
+  private eventManager: EventManager;
 
-  /**
-   * Get singleton instance
-   */
-  static getInstance(): InteractionService {
-    if (!InteractionService.instance) {
-      InteractionService.instance = new InteractionService();
-    }
-    return InteractionService.instance;
+  constructor(eventManager: EventManager) {
+    this.eventManager = eventManager;
   }
 
   /**

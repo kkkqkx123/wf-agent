@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: AuthConfig = {
   headerName: "x-api-key",
   allowQueryParam: true,
   queryParamName: "api_key",
-  excludedPaths: ["/health", "/api/v1/info", "/", "/api/v1/ws", "/api/v1/events/stream"],
+  excludedPaths: ["/health", "/api/v1/info", "/", "/api/v1/ws", "/api/v1/sse/stream"],
 };
 
 let config: AuthConfig = { ...DEFAULT_CONFIG };

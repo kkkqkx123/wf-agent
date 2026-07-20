@@ -35,7 +35,9 @@ import {
   createInteractionRoutes,
 } from "./routes/index.js";
 import { WSManager } from "./services/ws-manager.js";
+import { SSEBroadcaster } from "./services/sse-broadcaster.js";
 import { EventManager } from "./services/event-manager.js";
+import { InteractionService } from "./services/interaction-service.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { getOutput } from "./utils/output.js";
@@ -73,6 +75,7 @@ export class Server {
    * Setup middleware
    */
   private wsManager: WSManager | null = null;
+  private sseBroadcaster: SSEBroadcaster | null = null;
   private setupMiddleware(): void {
     // Body parser middleware
     this.app.use(express.json());
@@ -132,7 +135,7 @@ export class Server {
   /**
    * Setup routes
    */
-  private setupRoutes(): void {
+  private setupRoutes(interactionService?: InteractionService): void {
     // Health check endpoint
     this.app.get("/health", (_req: Request, res: Response) => {
       const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
@@ -171,7 +174,7 @@ export class Server {
           workflows: "/api/v1/workflows",
           executions: "/api/v1/executions",
           events: "/api/v1/events",
-          "events/stream (SSE)": "/api/v1/events/stream?executionId=<id>",
+          "sse/stream (SSE)": "/api/v1/sse/stream?executionId=<id>",
           "websocket (WS)": "/api/v1/ws",
         },
       });
@@ -200,8 +203,8 @@ export class Server {
     this.app.use("/api/v1/metrics", createMetricsRoutes(this.container));
     this.app.use("/api/v1/search", createSearchRoutes(this.container));
     this.app.use("/api/v1/storage", createStorageRoutes(this.container));
-    this.app.use("/api/v1/events/stream", createSSERoutes());
-    this.app.use("/api/v1/interactions", createInteractionRoutes());
+    this.app.use("/api/v1/sse/stream", createSSERoutes(this.sseBroadcaster!));
+    this.app.use("/api/v1/interactions", createInteractionRoutes(interactionService!));
 
     // 404 handler
     this.app.use((_req: Request, res: Response) => {
@@ -244,20 +247,33 @@ export class Server {
    */
   async start(): Promise<void> {
     try {
-      this.setupRoutes();
+      // Initialize EventManager (DI-managed, no longer singleton)
+      const eventManager = new EventManager();
+
+      // Initialize SSE broadcaster before routes so createSSERoutes can use it
+      this.sseBroadcaster = new SSEBroadcaster(eventManager);
+
+      // Initialize InteractionService before routes so createInteractionRoutes can use it
+      const interactionService = new InteractionService(eventManager);
+
+      this.setupRoutes(interactionService);
 
       // Create HTTP server wrapping Express app
       this.httpServer = http.createServer(this.app);
 
       // Initialize WebSocket server on /api/v1/ws
-      this.wsManager = WSManager.getInstance();
+      this.wsManager = new WSManager();
       this.wsManager.setPath("/api/v1/ws");
       this.wsManager.setup(this.httpServer);
 
-      // Register WSManager as a broadcaster with EventManager
-      const eventManager = EventManager.getInstance();
+      // Register broadcasters with EventManager
       eventManager.registerBroadcaster(this.wsManager);
-      this.logger.debugLog("WSManager registered as EventManager broadcaster");
+      eventManager.registerBroadcaster(this.sseBroadcaster);
+      this.logger.debugLog("Broadcasters registered with EventManager (WS, SSE)");
+
+      // Register services in the DI container
+      this.container.registerService("eventManager", eventManager);
+      this.container.registerService("wsManager", this.wsManager);
 
       // Listen on configured port and host
       await new Promise<void>((resolve) => {
@@ -310,6 +326,12 @@ export class Server {
       if (this.wsManager) {
         this.wsManager.cleanup();
         this.logger.infoLog("✓ WebSocket server closed");
+      }
+
+      // Cleanup SSE connections
+      if (this.sseBroadcaster) {
+        this.sseBroadcaster.cleanup();
+        this.logger.infoLog("✓ SSE broadcaster closed");
       }
 
       await this.container.cleanup();

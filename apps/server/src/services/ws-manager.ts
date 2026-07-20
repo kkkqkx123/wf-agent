@@ -26,22 +26,10 @@ export class WSManager implements IEventBroadcaster {
   private wss: WebSocketServer | null = null;
   private clients: Map<string, WSClient> = new Map();
   private logger = getOutput();
-  private static instance: WSManager;
   /** WebSocket server path */
   private wsPath = "/ws";
 
   constructor() {
-    // Singleton
-  }
-
-  /**
-   * Get singleton instance
-   */
-  static getInstance(): WSManager {
-    if (!WSManager.instance) {
-      WSManager.instance = new WSManager();
-    }
-    return WSManager.instance;
   }
 
   /**

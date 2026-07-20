@@ -59,12 +59,13 @@ export interface LogEntry {
 export class ExecutionService {
   private logger = getOutput();
   private activeExecutions = new Map<string, ExecutionDetails>();
-  private eventManager = EventManager.getInstance();
+  private eventManager: EventManager;
   // @ts-ignore - SDK will be used in Phase 2 for integration
   private sdk: SDKInstance;
 
-  constructor(sdk: SDKInstance) {
+  constructor(sdk: SDKInstance, eventManager: EventManager) {
     this.sdk = sdk;
+    this.eventManager = eventManager;
   }
 
   /**

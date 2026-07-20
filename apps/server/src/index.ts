@@ -44,6 +44,7 @@ import { MetricsAdapter } from "./adapters/metrics-adapter.js";
 import { SearchAdapter } from "./adapters/search-adapter.js";
 import { StorageDiagnosticsAdapter } from "./adapters/storage-diagnostics-adapter.js";
 import { ExecutionService } from "./services/execution-service.js";
+import { EventManager } from "./services/event-manager.js";
 import { Server } from "./server.js";
 
 // Global instances
@@ -104,7 +105,7 @@ async function bootstrap(): Promise<void> {
     container.registerAdapter("storage", new StorageDiagnosticsAdapter(sdkInstance));
 
     // Register services
-    container.registerService("execution", new ExecutionService(sdkInstance));
+    container.registerService("execution", new ExecutionService(sdkInstance, new EventManager()));
 
     output.debugLog(
       `Container initialized with adapters: ${container.getAdapterNames().join(", ")}`

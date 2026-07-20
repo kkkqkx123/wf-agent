@@ -11,9 +11,8 @@ import { InteractionService } from "../services/interaction-service.js";
 import { successResponse, errorResponse, mapErrorToResponse, getHttpStatus } from "../utils/api-response.js";
 import { getSafeParam } from "./route-helpers.js";
 
-export function createInteractionRoutes(): Router {
+export function createInteractionRoutes(service: InteractionService): Router {
   const router = Router();
-  const service = InteractionService.getInstance();
 
   /**
    * List pending approvals

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger, saveStorageSnapshot } from "../../utils/index.js";
+import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../__shared/index.js";
 import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers.js";
 import { resolve } from "path";
 
@@ -63,8 +63,6 @@ describe("Workflow Registration Tests", () => {
         "",
       ).trim();
       expect(stderrWithoutWarnings).toBe("");
-
-      saveStorageSnapshot("standalone", helper.getStorageDir());
 
       // Verify workflow can be queried
       const listResult = await runner.run(["workflow", "list"], {
@@ -169,8 +167,6 @@ describe("Workflow Registration Tests", () => {
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("DEPENDENT");
 
-      saveStorageSnapshot("dependent", helper.getStorageDir());
-
       logger.endTest("passed");
     });
   });
@@ -216,8 +212,6 @@ describe("Workflow Registration Tests", () => {
 
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("trigger-001");
-
-      saveStorageSnapshot("trigger", helper.getStorageDir());
 
       logger.endTest("passed");
     });

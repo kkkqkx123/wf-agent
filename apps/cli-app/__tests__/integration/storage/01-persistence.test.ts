@@ -12,9 +12,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
-import { CLIRunner } from "../../utils/cli-runner.js";
-import { TestHelper } from "../../utils/test-helpers.js";
-import { saveStorageSnapshot } from "../../utils/storage-snapshot.js";
+import { CLIRunner } from "../../__shared/cli-runner.js";
+import { TestHelper } from "../../__shared/test-helpers.js";
 
 describe("Storage Persistence", () => {
   let runner: CLIRunner;
@@ -98,8 +97,6 @@ describe("Storage Persistence", () => {
       expect(listResult.exitCode).toBe(0);
       expect(listResult.stdout).toContain("child-wf");
       expect(listResult.stdout).toContain("standalone-wf");
-
-      saveStorageSnapshot("persistence", helper.getStorageDir());
     });
   });
 

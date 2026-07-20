@@ -1,4 +1,4 @@
-import { TestHelper } from "../utils/index.js";
+import { TestHelper } from "../__shared/index.js";
 import { copyFileSync } from "fs";
 
 /**

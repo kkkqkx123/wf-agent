@@ -157,7 +157,7 @@ export class ToolRegistryAPI extends SimplifiedCrudResourceAPI<Tool, string, Too
    * Clear all tools
    */
   protected override async clearResources(): Promise<void> {
-    this.dependencies.getToolService().clear();
+    await this.dependencies.getToolService().clear();
   }
 
   /**

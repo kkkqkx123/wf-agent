@@ -1,21 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../__shared/index.js";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { CLIRunner, TestHelper, createTestHelper } from "../__shared/index.js";
 import { resolve } from "path";
 
 describe("Test Framework Validation", () => {
   let helper: TestHelper;
-  let logger: TestLogger;
   let runner: CLIRunner;
   const testOutputDir = resolve(__dirname, "../outputs/test-framework");
 
   beforeAll(() => {
-    logger = new TestLogger(testOutputDir);
     runner = new CLIRunner(undefined, testOutputDir);
-  });
-
-  afterAll(() => {
-    const summary = logger.getSummary();
-    console.log("\nTest Summary:", summary);
   });
 
   beforeEach(() => {
@@ -27,26 +20,18 @@ describe("Test Framework Validation", () => {
   });
 
   it("should execute CLI help command successfully", async () => {
-    logger.startTest("TestFramework", "CLI Help Command");
-
     const result = await runner.run(["--help"], {
       outputSubdir: "test-framework",
     });
-
-    logger.recordCommand(["--help"], result);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBeTruthy();
     expect(result.stderr).toBe("");
     expect(result.duration).toBeGreaterThan(0);
     expect(result.outputFilePath).toBeTruthy();
-
-    logger.endTest("passed");
   });
 
   it("should create and use temporary directory", async () => {
-    logger.startTest("TestFramework", "Temporary Directory Management");
-
     const tempDir = helper.getTempDir();
     expect(tempDir).toBeTruthy();
     expect(tempDir).toContain("test-framework");
@@ -58,13 +43,9 @@ describe("Test Framework Validation", () => {
 
     const readContent = helper.readTempFile("test.txt");
     expect(readContent).toBe(testContent);
-
-    logger.endTest("passed");
   });
 
   it("should handle fixture files correctly", async () => {
-    logger.startTest("TestFramework", "Fixture File Management");
-
     const fixtureContent = '[workflow]\nname = "test-workflow"\ndescription = "Test fixture"';
     const fixturePath = await helper.writeFixture("test.toml", fixtureContent, "workflows");
     expect(fixturePath).toBeTruthy();
@@ -72,58 +53,38 @@ describe("Test Framework Validation", () => {
 
     const readContent = helper.readFixture("workflows", "test.toml");
     expect(readContent).toBe(fixtureContent);
-
-    logger.endTest("passed");
   });
 
   it("should extract IDs from output using patterns", async () => {
-    logger.startTest("TestFramework", "ID Extraction");
-
     const testOutput = "Agent Loop has been initiated: agent-12345";
-    const extractedId = helper.extractId(testOutput, /Agent Loop 已启动: ([\w-]+)/);
+    const extractedId = helper.extractId(testOutput, /Agent Loop ID: ([\w-]+)/);
     expect(extractedId).toBe("agent-12345");
 
     const notFoundId = helper.extractId(testOutput, /Workflow ID: ([\w-]+)/);
     expect(notFoundId).toBe(null);
-
-    logger.endTest("passed");
   });
 
   it("should record and log test execution details", async () => {
-    logger.startTest("TestFramework", "Test Logging");
-
     const result = await runner.run(["--version"], {
       outputSubdir: "test-framework",
     });
 
-    logger.recordCommand(["--version"], result);
-
     expect(result.exitCode).toBe(0);
     expect(result.duration).toBeGreaterThan(0);
     expect(result.outputFilePath).toBeTruthy();
-
-    logger.endTest("passed");
   });
 
   it("should handle timeout gracefully", async () => {
-    logger.startTest("TestFramework", "Timeout Handling");
-
     const result = await runner.run(["--help"], {
       timeout: 1000,
       outputSubdir: "test-framework",
     });
 
-    logger.recordCommand(["--help"], result);
-
     expect(result).toBeDefined();
     expect(result.duration).toBeLessThan(2000);
-
-    logger.endTest("passed");
   });
 
   it("should preserve test isolation", async () => {
-    logger.startTest("TestFramework", "Test Isolation");
-
     const helper1 = createTestHelper("isolation-test-1", testOutputDir);
     const helper2 = createTestHelper("isolation-test-2", testOutputDir);
 
@@ -136,7 +97,5 @@ describe("Test Framework Validation", () => {
 
     await helper1.cleanup();
     await helper2.cleanup();
-
-    logger.endTest("passed");
   });
 });

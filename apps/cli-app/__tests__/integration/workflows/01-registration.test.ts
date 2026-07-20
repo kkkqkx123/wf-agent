@@ -1,23 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../__shared/index.js";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { CLIRunner, TestHelper, createTestHelper } from "../../__shared/index.js";
 import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers.js";
 import { resolve } from "path";
 
 describe("Workflow Registration Tests", () => {
   let helper: TestHelper;
   let workflowHelper: WorkflowTestHelper;
-  let logger: TestLogger;
   let runner: CLIRunner;
   const testOutputDir = resolve(__dirname, "../../outputs/workflow-registration");
 
   beforeAll(() => {
-    logger = new TestLogger(testOutputDir);
     runner = new CLIRunner(undefined, testOutputDir);
-  });
-
-  afterAll(() => {
-    const summary = logger.getSummary();
-    console.log("\nWorkflow Registration Test Summary:", summary);
   });
 
   beforeEach(() => {
@@ -34,7 +27,6 @@ describe("Workflow Registration Tests", () => {
 
   describe("1.1 Register STANDALONE Workflow", () => {
     it("should register a STANDALONE workflow successfully", async () => {
-      logger.startTest("WorkflowRegistration", "Register STANDALONE Workflow");
 
       // Create workflow configuration
       const workflowConfig = workflowHelper.createStandaloneWorkflowWithLLM(
@@ -51,7 +43,6 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify registration
       expect(result.exitCode).toBe(0);
@@ -72,13 +63,11 @@ describe("Workflow Registration Tests", () => {
       expect(listResult.exitCode).toBe(0);
       expect(listResult.stdout).toContain("standalone-wf-001");
 
-      logger.endTest("passed");
     });
   });
 
   describe("1.2 Register TRIGGERED_SUBWORKFLOW", () => {
     it("should register a triggered subworkflow successfully", async () => {
-      logger.startTest("WorkflowRegistration", "Register TRIGGERED_SUBWORKFLOW");
 
       // Create triggered subworkflow configuration
       const workflowConfig = workflowHelper.createTriggeredSubworkflow(
@@ -95,7 +84,6 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify registration
       expect(result.exitCode).toBe(0);
@@ -116,13 +104,11 @@ describe("Workflow Registration Tests", () => {
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("TRIGGERED_SUBWORKFLOW");
 
-      logger.endTest("passed");
     });
   });
 
   describe("1.3 Register DEPENDENT Workflow", () => {
     it("should register a dependent workflow successfully", async () => {
-      logger.startTest("WorkflowRegistration", "Register DEPENDENT Workflow");
 
       // First register child workflow using static fixture
       const childFile = workflowHelper.copyWorkflowFixtureToTemp(
@@ -146,7 +132,6 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", parentFile], result);
 
       // Verify registration
       expect(result.exitCode).toBe(0);
@@ -167,13 +152,11 @@ describe("Workflow Registration Tests", () => {
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("DEPENDENT");
 
-      logger.endTest("passed");
     });
   });
 
   describe("1.4 Register Workflow with Trigger", () => {
     it("should register a workflow with trigger successfully", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow with Trigger");
 
       // Create workflow with trigger
       const workflowConfig = workflowHelper.createWorkflowWithTrigger(
@@ -192,7 +175,6 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify registration
       expect(result.exitCode).toBe(0);
@@ -213,13 +195,11 @@ describe("Workflow Registration Tests", () => {
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("trigger-001");
 
-      logger.endTest("passed");
     });
   });
 
   describe("1.5 Register Workflow with Parameter Replacement", () => {
     it("should register a workflow with parameter replacement successfully", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow with Parameter Replacement");
 
       // Create parameterized workflow
       const workflowConfig = workflowHelper.createParameterizedWorkflow();
@@ -246,7 +226,6 @@ describe("Workflow Registration Tests", () => {
         },
       );
 
-      logger.recordCommand(["workflow", "register", workflowFile, "--params"], result);
 
       // Verify registration
       expect(result.exitCode).toBe(0);
@@ -267,13 +246,11 @@ describe("Workflow Registration Tests", () => {
       expect(showResult.exitCode).toBe(0);
       expect(showResult.stdout).toContain("Parameterized Workflow");
 
-      logger.endTest("passed");
     });
   });
 
   describe("1.6 Register Workflow - Validation Failures", () => {
     it("should fail to register workflow with missing required fields", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Missing Required Fields");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("invalid-missing-fields.toml");
@@ -283,17 +260,14 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
 
-      logger.endTest("passed");
     });
 
     it("should fail to register workflow with invalid node type", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Invalid Node Type");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("invalid-node-type.toml");
@@ -303,17 +277,14 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
 
-      logger.endTest("passed");
     });
 
     it("should fail to register workflow with duplicate node IDs", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Duplicate Node IDs");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("duplicate-node.toml");
@@ -323,17 +294,14 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
 
-      logger.endTest("passed");
     });
 
     it("should fail to register workflow with invalid edge reference", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Invalid Edge Reference");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("invalid-edge.toml");
@@ -343,17 +311,14 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
 
-      logger.endTest("passed");
     });
 
     it("should fail to register workflow with multiple START nodes", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Multiple START Nodes");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("multiple-start.toml");
@@ -363,17 +328,14 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
 
-      logger.endTest("passed");
     });
 
     it("should allow workflows with multiple END nodes (valid graph structure)", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - Multiple END Nodes");
 
       // Use static fixture file
       const workflowFile = workflowHelper.copyWorkflowFixtureToTemp("multiple-end.toml");
@@ -383,18 +345,15 @@ describe("Workflow Registration Tests", () => {
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify registration succeeds (multiple END nodes are valid)
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Workflow is registered");
       expect(result.stdout).toContain("multiple-end-wf");
 
-      logger.endTest("passed");
     });
 
     it("should fail to register workflow with TOML syntax error", async () => {
-      logger.startTest("WorkflowRegistration", "Register Workflow - TOML Syntax Error");
 
       // Create invalid TOML file
       const invalidToml = `[workflow
@@ -410,14 +369,12 @@ id = "invalid-toml-wf"`;
         outputSubdir: "workflow-registration",
       });
 
-      logger.recordCommand(["workflow", "register", workflowFile], result);
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("register-workflow");
       expect(result.stderr).toContain("TOML");
 
-      logger.endTest("passed");
     });
   });
 });

@@ -14,7 +14,14 @@ import type { ID } from "@wf-agent/types";
 
 const output = getOutput();
 const router = getRouter();
-const adapter = new IterationAnalysisAdapter();
+let adapter: IterationAnalysisAdapter | null = null;
+
+function getAdapter(): IterationAnalysisAdapter {
+  if (!adapter) {
+    adapter = new IterationAnalysisAdapter();
+  }
+  return adapter;
+}
 
 /**
  * Create Agent Loop Iteration Commands
@@ -43,7 +50,7 @@ export function createIterationCommands(): Command {
 
           // Get summary
           const summary =
-            await adapter.getIterationHistorySummary(agentLoopId);
+            await getAdapter().getIterationHistorySummary(agentLoopId);
           if (!summary) {
             output.warn("No iteration history found");
             return;
@@ -98,7 +105,7 @@ Status: ${summary.status}`;
           output.infoLog(`Listing iterations for agent loop: ${agentLoopId}`);
 
           const limit = options.limit ? parseInt(options.limit, 10) : 20;
-          const iterations = await adapter.listIterations(agentLoopId, limit);
+          const iterations = await getAdapter().listIterations(agentLoopId, limit);
 
           if (iterations.length === 0) {
             output.warn("No iterations found");
@@ -168,7 +175,7 @@ Status: ${summary.status}`;
         try {
           output.infoLog(`Analyzing decisions for agent loop: ${agentLoopId}`);
 
-          const analysis = await adapter.analyzeDecisions(agentLoopId);
+          const analysis = await getAdapter().analyzeDecisions(agentLoopId);
           if (!analysis) {
             output.warn("No decision data found");
             return;
@@ -211,7 +218,7 @@ Status: ${summary.status}`;
             `Analyzing execution paths for agent loop: ${agentLoopId}`,
           );
 
-          const analysis = await adapter.analyzeExecutionPaths(agentLoopId);
+          const analysis = await getAdapter().analyzeExecutionPaths(agentLoopId);
           if (!analysis) {
             output.warn("No execution path data found");
             return;
@@ -257,7 +264,7 @@ Status: ${summary.status}`;
             ? parseInt(iterationIndex, 10)
             : undefined;
 
-          const metrics = await adapter.getIterationMetrics(agentLoopId, index);
+          const metrics = await getAdapter().getIterationMetrics(agentLoopId, index);
           if (!metrics) {
             output.warn("No metrics found");
             return;

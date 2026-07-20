@@ -14,6 +14,7 @@ import { now } from "@wf-agent/common-utils";
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { WorkflowTemplate } from "@wf-agent/types";
 import { WorkflowNotFoundError } from "@wf-agent/types";
+import { CommandNotFoundError } from "../../shared/types/command-error.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 import type { Timestamp } from "@wf-agent/types";
 import { WorkflowValidator } from "../../../workflow/validation/workflow-validator.js";
@@ -121,7 +122,7 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    */
   protected async deleteResource(id: string): Promise<void> {
     try {
-      this.dependencies.getWorkflowRegistry().unregister(id);
+      await this.dependencies.getWorkflowRegistry().unregister(id);
     } catch (error) {
       this.throwCommandError(error, "DELETE_WORKFLOW");
     }
@@ -133,11 +134,8 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    */
   protected async updateResource(id: string, updates: Partial<WorkflowTemplate>): Promise<void> {
     try {
-      // Call createVersionedUpdate directly to implement the update operation.
-      await this.createVersionedUpdate(id, updates, {
-        keepOriginal: false,
-        force: false,
-      });
+      // Use the workflow registry's update method directly for in-place updates
+      await this.dependencies.getWorkflowRegistry().update(id, updates);
     } catch (error) {
       this.throwCommandError(error, "UPDATE_WORKFLOW");
     }
@@ -147,8 +145,6 @@ export class WorkflowRegistryAPI extends SimplifiedCrudResourceAPI<WorkflowTempl
    * Helper to convert SDK errors to CommandError
    */
   private throwCommandError(error: unknown, operation: string): never {
-    const { CommandNotFoundError } = require("../../shared/types/command-error.js");
-
     if (error instanceof Error) {
       if (error.message.includes("not found") || error.message.includes("does not exist")) {
         throw new CommandNotFoundError(

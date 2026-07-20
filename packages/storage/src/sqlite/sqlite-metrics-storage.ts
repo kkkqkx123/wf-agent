@@ -41,11 +41,22 @@ export class SqliteMetricsStorage implements MetricsStorageAdapter {
   private vacuumInterval: number;
   private vacuumTimer?: NodeJS.Timeout;
   private initialized = false;
+  private externalConnection = false;
 
   constructor(config: SqliteMetricsStorageConfig = {}) {
     this.dbPath = config.dbPath || join(process.cwd(), 'data', 'metrics.db');
     this.enableWAL = config.enableWAL ?? true;
     this.vacuumInterval = config.vacuumInterval ?? 60 * 60 * 1000; // 1 hour
+  }
+
+  /**
+   * Set an external database connection (shared connection).
+   * When set, initialize() will skip creating a new connection and
+   * close() will NOT close the connection (the owner is responsible).
+   */
+  setExternalDb(db: Database.Database): void {
+    this.db = db;
+    this.externalConnection = true;
   }
 
   async initialize(): Promise<void> {
@@ -54,21 +65,24 @@ export class SqliteMetricsStorage implements MetricsStorageAdapter {
     }
 
     try {
-      // Ensure directory exists
-      const { mkdirSync } = await import('fs');
-      const { dirname } = await import('path');
-      mkdirSync(dirname(this.dbPath), { recursive: true });
+      // If using an external connection, skip creating a new one
+      if (!this.externalConnection) {
+        // Ensure directory exists
+        const { mkdirSync } = await import('fs');
+        const { dirname } = await import('path');
+        mkdirSync(dirname(this.dbPath), { recursive: true });
 
-      // Initialize SQLite database
-      this.db = new Database(this.dbPath);
-      
-      // Configure database using shared PRAGMA utility
-      configurePragmas(this.db, {
-        enableWAL: this.enableWAL,
-        autoVacuum: 'INCREMENTAL',
-        journalSizeLimit: 64 * 1024 * 1024,
-        busyTimeout: 5000,
-      });
+        // Initialize SQLite database
+        this.db = new Database(this.dbPath);
+        
+        // Configure database using shared PRAGMA utility
+        configurePragmas(this.db, {
+          enableWAL: this.enableWAL,
+          autoVacuum: 'INCREMENTAL',
+          journalSizeLimit: 64 * 1024 * 1024,
+          busyTimeout: 5000,
+        });
+      }
 
       // Create tables and indexes
       this.createSchema();
@@ -238,7 +252,7 @@ export class SqliteMetricsStorage implements MetricsStorageAdapter {
       this.vacuumTimer = undefined;
     }
 
-    if (this.db) {
+    if (this.db && !this.externalConnection) {
       try {
         this.db.close();
         this.initialized = false;

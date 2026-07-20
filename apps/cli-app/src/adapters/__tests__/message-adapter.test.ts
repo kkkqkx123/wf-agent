@@ -14,7 +14,7 @@ vi.mock("@wf-agent/sdk", async () => {
   };
 });
 
-vi.mock("../../src/index.js", () => ({
+vi.mock("../../src/services/sdk-globals.js", () => ({
   getSDKInstance: vi.fn(),
 }));
 
@@ -52,7 +52,7 @@ describe("MessageAdapter", () => {
     };
 
     // Setup getSDKInstance mock
-    const { getSDKInstance } = require("../../src/index.js");
+    const { getSDKInstance } = require("../../src/services/sdk-globals.js");
     getSDKInstance.mockReturnValue(mockSdk);
 
     // Create adapter instance

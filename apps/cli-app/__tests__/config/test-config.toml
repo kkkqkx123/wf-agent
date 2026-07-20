@@ -39,3 +39,21 @@ enabled = true
 
 [presets.predefinedPrompts]
 enabled = true
+
+# Minimal workflow section required by the SDK config parser
+[workflow]
+id = "test-config-placeholder"
+name = "Test Config Placeholder"
+version = "1.0.0"
+
+[[workflow.nodes]]
+id = "start"
+type = "START"
+
+[[workflow.nodes]]
+id = "end"
+type = "END"
+
+[[workflow.edges]]
+from = "start"
+to = "end"

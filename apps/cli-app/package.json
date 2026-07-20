@@ -21,8 +21,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --config vitest.integration.config.mjs",
     "test:unit": "vitest run --config vitest.config.mjs",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
-    "test:type": "tsd --files __tests__/test-d"
+    "test:integration": "vitest run --config vitest.integration.config.mjs"
   },
   "keywords": [
     "cli",
@@ -38,6 +37,7 @@
     "@wf-agent/config-processor": "workspace:*",
     "@wf-agent/runtime": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
+    "@wf-agent/sdk-kit": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
     "commander": "^15.0.0",

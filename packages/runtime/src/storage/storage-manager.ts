@@ -18,6 +18,7 @@ import type {
   NodeTemplateStorageAdapter,
   HookTemplateStorageAdapter,
   AgentProfileStorageAdapter,
+  MetricsStorageAdapter,
 } from "@wf-agent/storage";
 import type { SDKOptions } from "@wf-agent/sdk/api";
 import {
@@ -33,6 +34,7 @@ import {
   SqliteNodeTemplateStorage,
   SqliteHookTemplateStorage,
   SqliteAgentProfileStorage,
+  SqliteMetricsStorage,
   type BaseSqliteStorageConfig,
   configurePragmas,
   // PostgreSQL adapters
@@ -47,6 +49,7 @@ import {
   PostgresNodeTemplateStorage,
   PostgresHookTemplateStorage,
   PostgresAgentProfileStorage,
+  PostgresMetricsStorage,
   type BasePostgresStorageConfig,
   getPostgresGlobalConnectionPool,
   // Memory adapters
@@ -61,6 +64,7 @@ import {
   MemoryNodeTemplateStorage,
   MemoryHookTemplateStorage,
   MemoryAgentProfileStorage,
+  MemoryMetricsStorage,
 } from "@wf-agent/storage";
 import Database from "better-sqlite3";
 import { createPackageLogger, registerLogger, createLazyLogger } from "@wf-agent/common-utils";
@@ -83,6 +87,7 @@ export class StorageManager {
   private nodeTemplateStorage: NodeTemplateStorageAdapter | null = null;
   private hookTemplateStorage: HookTemplateStorageAdapter | null = null;
   private agentProfileStorage: AgentProfileStorageAdapter | null = null;
+  private metricsStorage: MetricsStorageAdapter | null = null;
   private initialized: boolean = false;
   /** Shared SQLite connection injected into all storage instances */
   private sharedDb: Database.Database | null = null;
@@ -208,6 +213,10 @@ export class StorageManager {
     (this.agentProfileStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.agentProfileStorage.initialize();
 
+    this.metricsStorage = new SqliteMetricsStorage(baseConfig);
+    (this.metricsStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
+    await this.metricsStorage.initialize();
+
     logger.info("SQLite storage initialized with shared connection", { dbPath });
   }
 
@@ -246,6 +255,9 @@ export class StorageManager {
 
     this.agentProfileStorage = new MemoryAgentProfileStorage();
     await this.agentProfileStorage.initialize();
+
+    this.metricsStorage = new MemoryMetricsStorage();
+    await this.metricsStorage.initialize();
 
     logger.info("Memory storage initialized with all adapters");
   }
@@ -300,6 +312,9 @@ export class StorageManager {
 
     this.agentProfileStorage = new PostgresAgentProfileStorage(baseConfig);
     await this.agentProfileStorage.initialize();
+
+    this.metricsStorage = new PostgresMetricsStorage(baseConfig);
+    await this.metricsStorage.initialize();
 
     logger.info("PostgreSQL storage initialized with all adapters", { connectionString });
   }
@@ -365,6 +380,7 @@ export class StorageManager {
     | "nodeTemplateStorageAdapter"
     | "hookTemplateStorageAdapter"
     | "agentProfileStorageAdapter"
+    | "metricsStorageAdapter"
   > {
     return {
       checkpointStorageAdapter: this.checkpointStorage ?? undefined,
@@ -378,6 +394,7 @@ export class StorageManager {
       nodeTemplateStorageAdapter: this.nodeTemplateStorage ?? undefined,
       hookTemplateStorageAdapter: this.hookTemplateStorage ?? undefined,
       agentProfileStorageAdapter: this.agentProfileStorage ?? undefined,
+      metricsStorageAdapter: this.metricsStorage ?? undefined,
     };
   }
 

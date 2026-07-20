@@ -2,9 +2,6 @@ import { beforeAll, afterAll } from "vitest";
 import { mkdirSync } from "fs";
 import { resolve } from "path";
 
-process.env["CLI_MODE"] = "programmatic";
-process.env["TEST_MODE"] = "true";
-
 const TEST_OUTPUT_DIR = resolve(__dirname, "../outputs");
 
 (globalThis as unknown as { TEST_OUTPUT_DIR: string }).TEST_OUTPUT_DIR = TEST_OUTPUT_DIR;

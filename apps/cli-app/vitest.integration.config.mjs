@@ -35,6 +35,12 @@ export default defineConfig({
 
     // Setup files
     setupFiles: ["./__tests__/setup.ts"],
+
+    // Environment variables for integration tests
+    env: {
+      CLI_MODE: "programmatic",
+      TEST_MODE: "true",
+    },
   },
 
   resolve: {

@@ -44,7 +44,7 @@ export class ResourceManager {
     }
 
     try {
-      const registry = this.sdk.getFactory().getWorkflowRegistry();
+      const registry = this.sdk.workflows;
       if (!registry) {
         return err(new KitError(
           'Workflow registry not available',
@@ -53,7 +53,9 @@ export class ResourceManager {
       }
 
       const result = await registry.create(template);
-      return this.errorConverter.convertResult<string>(result);
+      // Extract the inner Result from ExecutionResult before converting
+      const innerResult = result && typeof result === 'object' && 'result' in result ? result.result : result;
+      return this.errorConverter.convertResult<string>(innerResult);
     } catch (error) {
       return err(this.errorConverter.toKitError(error));
     }
@@ -74,7 +76,7 @@ export class ResourceManager {
     }
 
     try {
-      const registry = this.sdk.getFactory().getWorkflowRegistry();
+      const registry = this.sdk.workflows;
       if (!registry) {
         return err(new KitError(
           'Workflow registry not available',
@@ -112,7 +114,7 @@ export class ResourceManager {
     }
 
     try {
-      const registry = this.sdk.getFactory().getWorkflowRegistry();
+      const registry = this.sdk.workflows;
       if (!registry) {
         return err(new KitError(
           'Workflow registry not available',
@@ -121,7 +123,9 @@ export class ResourceManager {
       }
 
       const result = await registry.update(id, template);
-      return this.errorConverter.convertResult<void>(result);
+      // Extract the inner Result from ExecutionResult before converting
+      const innerResult = result && typeof result === 'object' && 'result' in result ? result.result : result;
+      return this.errorConverter.convertResult<void>(innerResult);
     } catch (error) {
       return err(this.errorConverter.toKitError(error));
     }
@@ -142,7 +146,7 @@ export class ResourceManager {
     }
 
     try {
-      const registry = this.sdk.getFactory().getWorkflowRegistry();
+      const registry = this.sdk.workflows;
       if (!registry) {
         return err(new KitError(
           'Workflow registry not available',
@@ -151,7 +155,9 @@ export class ResourceManager {
       }
 
       const result = await registry.delete(id);
-      return this.errorConverter.convertResult<void>(result);
+      // Extract the inner Result from ExecutionResult before converting
+      const innerResult = result && typeof result === 'object' && 'result' in result ? result.result : result;
+      return this.errorConverter.convertResult<void>(innerResult);
     } catch (error) {
       return err(this.errorConverter.toKitError(error));
     }
@@ -164,7 +170,7 @@ export class ResourceManager {
    */
   async listWorkflows(filter?: ResourceFilter): Promise<Result<WorkflowTemplate[], KitError>> {
     try {
-      const registry = this.sdk.getFactory().getWorkflowRegistry();
+      const registry = this.sdk.workflows;
       if (!registry) {
         return err(new KitError(
           'Workflow registry not available',

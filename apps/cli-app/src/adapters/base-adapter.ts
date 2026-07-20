@@ -15,7 +15,7 @@ import { getOutput, type CLIOutput } from "../utils/output.js";
 import type { ErrorContext } from "../utils/error-handler.js";
 import { CLIError } from "../types/cli-types.js";
 import { isHeadless } from "../utils/mode-detector.js";
-import { getSDKInstance } from "../index.js";
+import { getSDKInstance } from "../services/sdk-globals.js";
 
 /**
  * CLI Base Adapter Class

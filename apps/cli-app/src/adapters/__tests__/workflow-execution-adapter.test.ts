@@ -35,7 +35,7 @@ vi.mock("@wf-agent/sdk", async () => {
   };
 });
 
-vi.mock("../../src/index.js", () => ({
+vi.mock("../../src/services/sdk-globals.js", () => ({
   getSDKInstance: vi.fn(() => mockSdk),
 }));
 

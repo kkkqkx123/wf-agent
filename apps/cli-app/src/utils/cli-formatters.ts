@@ -532,3 +532,106 @@ export function formatSkillList(skills: SkillWithMetadata[], options?: { table?:
 
   return skills.map(s => formatSkill(s)).join("\n");
 }
+
+// ============================================
+// Trigger Template Formatters
+// ============================================
+
+export function formatTriggerTemplate(template: TriggerTemplate, options?: { verbose?: boolean }): string {
+  const formatter = getGlobalFormatter();
+  if (options?.verbose) {
+    return formatter.json(template);
+  }
+
+  const name = template.name || "N/A";
+  const description = template.description || "-";
+  const conditionType = template.condition?.eventType || "N/A";
+  const actionType = template.action?.type || "N/A";
+
+  return `${name} - ${description} (${conditionType} -> ${actionType})`;
+}
+
+export function formatTriggerTemplateList(
+  templates: TriggerTemplateSummary[],
+  options?: { table?: boolean },
+): string {
+  const formatter = getGlobalFormatter();
+  if (templates.length === 0) {
+    return "No trigger template was found.";
+  }
+
+  if (options?.table) {
+    const headers = ["Name", "Description", "Category", "Created At"];
+    const rows = templates.map(t => [
+      t.name,
+      t.description?.substring(0, 40) || "-",
+      t.category || "-",
+      String(t.createdAt).substring(0, 10),
+    ]);
+    return formatter.table(headers, rows);
+  }
+
+  return templates.map(t => formatTriggerTemplateSummary(t)).join("\n");
+}
+
+export function formatTriggerTemplateSummary(
+  summary: TriggerTemplateSummary,
+  options?: { verbose?: boolean },
+): string {
+  const formatter = getGlobalFormatter();
+  if (options?.verbose) {
+    return formatter.json(summary);
+  }
+
+  const name = summary.name || "N/A";
+  const description = summary.description || "-";
+  const category = summary.category ? ` [${summary.category}]` : "";
+
+  return `${name}${category} - ${description}`;
+}
+
+// ============================================
+// Plugin Formatters
+// ============================================
+
+export function formatPlugin(plugin: Record<string, unknown>, options?: { verbose?: boolean; json?: boolean }): string {
+  const formatter = getGlobalFormatter();
+  if (options?.json || options?.verbose) {
+    return formatter.json(plugin);
+  }
+
+  const manifest = plugin["manifest"] as Record<string, unknown> | undefined;
+  const name = (manifest?.["name"] as string) || (manifest?.["id"] as string) || "N/A";
+  const version = (manifest?.["version"] as string) || "N/A";
+  const status = (plugin["status"] as string) || "unknown";
+  const description = (manifest?.["description"] as string) || "-";
+
+  return `${name} (${version}) - ${status} - ${description}`;
+}
+
+export function formatPluginList(
+  plugins: Record<string, unknown>[],
+  options?: { table?: boolean; verbose?: boolean },
+): string {
+  const formatter = getGlobalFormatter();
+  if (plugins.length === 0) {
+    return "No plugin was found.";
+  }
+
+  if (options?.table) {
+    const headers = ["ID", "Name", "Version", "Status", "Description"];
+    const rows = plugins.map(p => {
+      const manifest = p["manifest"] as Record<string, unknown> | undefined;
+      return [
+        (manifest?.["id"] as string)?.substring(0, 16) || "N/A",
+        (manifest?.["name"] as string) || "N/A",
+        (manifest?.["version"] as string) || "N/A",
+        (p["status"] as string) || "unknown",
+        ((manifest?.["description"] as string) || "-").substring(0, 40),
+      ];
+    });
+    return formatter.table(headers, rows);
+  }
+
+  return plugins.map(p => formatPlugin(p, { verbose: options?.verbose })).join("\n");
+}

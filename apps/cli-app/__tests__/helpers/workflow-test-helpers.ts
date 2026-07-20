@@ -458,7 +458,7 @@ to = "child-end"`;
   /**
    * Extract workflow ID from CLI output
    */
-  extractWorkflowId(output: string, pattern: RegExp = /工作流已注册: ([\w-]+)/): string | null {
+  extractWorkflowId(output: string, pattern: RegExp = /Workflow is registered: .* \(([\w-]+)\)/): string | null {
     return this.helper.extractId(output, pattern);
   }
 
@@ -488,7 +488,7 @@ to = "child-end"`;
    * Check if output contains error message
    */
   hasErrorMessage(output: string): boolean {
-    return output.includes("incorrect") || output.toLowerCase().includes("error");
+    return output.toLowerCase().includes("error");
   }
 
   /**

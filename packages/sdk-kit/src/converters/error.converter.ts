@@ -216,23 +216,26 @@ export class ErrorConverter {
 
   /**
    * Check if result is a success (follows SDK Result type structure)
+   * Supports both legacy (success field) and new (_tag field) Result formats
    */
   private isSuccessResult(result: any): boolean {
-    return result && result.success === true;
+    return result && (result.success === true || result._tag === "Ok");
   }
 
   /**
    * Check if result is a failure (follows SDK Result type structure)
+   * Supports both legacy (success field) and new (_tag field) Result formats
    */
   private isFailureResult(result: any): boolean {
-    return result && result.success === false;
+    return result && (result.success === false || result._tag === "Err");
   }
 
   /**
    * Extract success data from Result
+   * Supports both legacy (data field) and new (value field) Result formats
    */
   private getSuccessData<T>(result: any): T {
-    return result.data as T;
+    return result.data !== undefined ? result.data : result.value;
   }
 
   /**

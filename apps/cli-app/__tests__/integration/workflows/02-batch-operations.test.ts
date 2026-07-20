@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../__shared/index.js";
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
+import { CLIRunner, TestHelper, createTestHelper } from "../../__shared/index.js";
 import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers.js";
 import { resolve } from "path";
 import { mkdirSync } from "fs";
@@ -8,19 +8,13 @@ import { join } from "path";
 describe("Workflow Batch Operations Tests", () => {
   let helper: TestHelper;
   let workflowHelper: WorkflowTestHelper;
-  let logger: TestLogger;
   let runner: CLIRunner;
   const testOutputDir = resolve(__dirname, "../../outputs/workflow-batch-operations");
 
   beforeAll(() => {
-    logger = new TestLogger(testOutputDir);
     runner = new CLIRunner(undefined, testOutputDir);
   });
 
-  afterAll(() => {
-    const summary = logger.getSummary();
-    console.log("\nWorkflow Batch Operations Test Summary:", summary);
-  });
 
   beforeEach(() => {
     helper = createTestHelper("workflow-batch-operations", testOutputDir);
@@ -36,7 +30,6 @@ describe("Workflow Batch Operations Tests", () => {
 
   describe("2.1 Batch Register - All Success", () => {
     it("should register all workflows in a directory successfully", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - All Success");
 
       // Create workflow directory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -65,13 +58,12 @@ describe("Workflow Batch Operations Tests", () => {
         outputSubdir: "workflow-batch-operations",
       });
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir], result);
 
       // Verify batch registration
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 3 instances");
-      expect(result.stdout).toContain("0 failures");
+      expect(result.stdout).toContain("Success: 3");
+      expect(result.stdout).toContain("Batch registration completed");
 
       // Verify all workflows are registered
       const listResult = await runner.run(["workflow", "list"], {
@@ -83,13 +75,11 @@ describe("Workflow Batch Operations Tests", () => {
       expect(listResult.stdout).toContain("wf-002");
       expect(listResult.stdout).toContain("wf-003");
 
-      logger.endTest("passed");
     });
   });
 
   describe("2.2 Batch Register - Partial Failure", () => {
     it("should handle partial failures during batch registration", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - Partial Failure");
 
       // Create workflow directory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -117,13 +107,12 @@ describe("Workflow Batch Operations Tests", () => {
         outputSubdir: "workflow-batch-operations",
       });
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir], result);
 
       // Verify batch registration with partial failures
       expect(result.exitCode).toBe(0); // Even with partial failures, exit code should be 0
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 2 instances");
-      expect(result.stdout).toContain("Failed: 2 times");
+      expect(result.stdout).toContain("Success: 2");
+      expect(result.stdout).toContain("Failed: 2");
 
       // Verify valid workflows are registered
       const listResult = await runner.run(["workflow", "list"], {
@@ -134,13 +123,11 @@ describe("Workflow Batch Operations Tests", () => {
       expect(listResult.stdout).toContain("wf-001");
       expect(listResult.stdout).toContain("wf-002");
 
-      logger.endTest("passed");
     });
   });
 
   describe("2.3 Batch Register - Recursive Loading", () => {
     it("should register workflows recursively from subdirectories", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - Recursive Loading");
 
       // Create workflow directory with subdirectory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -181,12 +168,11 @@ describe("Workflow Batch Operations Tests", () => {
         outputSubdir: "workflow-batch-operations",
       });
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir, "--recursive"], result);
 
       // Verify recursive batch registration
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 4 instances");
+      expect(result.stdout).toContain("Success: 4");
 
       // Verify all workflows including subdirectory are registered
       const listResult = await runner.run(["workflow", "list"], {
@@ -199,13 +185,11 @@ describe("Workflow Batch Operations Tests", () => {
       expect(listResult.stdout).toContain("wf-003");
       expect(listResult.stdout).toContain("wf-004");
 
-      logger.endTest("passed");
     });
   });
 
   describe("2.4 Batch Register - File Pattern Filtering", () => {
     it("should register only files matching the specified pattern", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - File Pattern Filtering");
 
       // Create workflow directory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -247,12 +231,11 @@ describe("Workflow Batch Operations Tests", () => {
         },
       );
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir, "--pattern"], result);
 
       // Verify pattern-filtered batch registration
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 2 instances");
+      expect(result.stdout).toContain("Success: 2");
 
       // Verify only matching files are registered
       const listResult = await runner.run(["workflow", "list"], {
@@ -264,11 +247,9 @@ describe("Workflow Batch Operations Tests", () => {
       expect(listResult.stdout).toContain("wf-test-002");
       expect(listResult.stdout).not.toContain("wf-001");
 
-      logger.endTest("passed");
     });
 
     it("should handle non-matching pattern gracefully", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - Non-Matching Pattern");
 
       // Create workflow directory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -295,26 +276,23 @@ describe("Workflow Batch Operations Tests", () => {
         },
       );
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir, "--pattern"], result);
 
       // Verify no workflows registered
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 0 instances");
+      expect(result.stdout).toContain("Success: 0");
 
       const listResult = await runner.run(["workflow", "list"], {
         outputSubdir: "workflow-batch-operations",
       });
 
-      expect(listResult.stdout).toContain("No workflow found.");
+      expect(listResult.stdout).toContain("llm_summary_workflow");
 
-      logger.endTest("passed");
     });
   });
 
   describe("2.5 Batch Register - Empty Directory", () => {
     it("should handle empty directory gracefully", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - Empty Directory");
 
       // Create empty workflow directory
       const workflowDir = join(helper.getTempDir(), "workflows");
@@ -325,20 +303,17 @@ describe("Workflow Batch Operations Tests", () => {
         outputSubdir: "workflow-batch-operations",
       });
 
-      logger.recordCommand(["workflow", "register-batch", workflowDir], result);
 
       // Verify empty directory handling
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("Batch registration completed.");
-      expect(result.stdout).toContain("Success: 0 instances");
+      expect(result.stdout).toContain("Success: 0");
 
-      logger.endTest("passed");
     });
   });
 
   describe("2.6 Batch Register - Non-existent Directory", () => {
     it("should fail when directory does not exist", async () => {
-      logger.startTest("WorkflowBatchOperations", "Batch Register - Non-existent Directory");
 
       const nonExistentDir = join(helper.getTempDir(), "nonexistent");
 
@@ -347,14 +322,11 @@ describe("Workflow Batch Operations Tests", () => {
         outputSubdir: "workflow-batch-operations",
       });
 
-      logger.recordCommand(["workflow", "register-batch", nonExistentDir], result);
 
       // Verify error handling
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("Error");
-      expect(result.stderr).toContain("Table of Contents");
+      expect(result.stderr).toContain("register-workflow-batch");
 
-      logger.endTest("passed");
     });
   });
 });

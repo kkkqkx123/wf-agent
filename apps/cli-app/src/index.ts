@@ -20,6 +20,7 @@ import { createTemplateCommands } from "./commands/template/index.js";
 import { createLLMProfileCommands } from "./commands/llm-profile/index.js";
 import { createScriptCommands } from "./commands/script/index.js";
 import { createToolCommands } from "./commands/tool/index.js";
+import { createPluginCommands } from "./commands/plugin/index.js";
 import { createTriggerCommands } from "./commands/trigger/index.js";
 import { createMessageCommands } from "./commands/message/index.js";
 import { createVariableCommands } from "./commands/variable/index.js";
@@ -36,12 +37,11 @@ import { createProgressCommand } from "./commands/progress/index.js";
 import { createWorkflowVersionCommand } from "./commands/workflow-version/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
+import { setSDKInstance, getSDKInstance } from "./services/sdk-globals.js";
 
 // Create an instance of the main program.
 const program = new Command();
 
-// Global SDK instance (initialized in preAction hook)
-let sdkInstance: import("@wf-agent/sdk").SDKInstance | null = null;
 // Global StorageManager reference (safety net for explicit close in shutdown)
 let storageManager: import("@wf-agent/runtime").StorageManager | null = null;
 
@@ -56,8 +56,9 @@ program
   .option("-c, --config <path>", "Specify the path to the configuration file.")
   .option("-t, --tui", "Start the TUI (interactive terminal UI) mode.")
   .hook("preAction", async thisCommand => {
-    // Initialize the output system before executing any command.
-    const options = thisCommand.opts() as {
+    try {
+      // Initialize the output system before executing any command.
+      const options = thisCommand.opts() as {
       verbose?: boolean;
       debug?: boolean;
       logFile?: string;
@@ -145,8 +146,8 @@ program
         },
       },
     });
-    // Assign to the module-level variable so getSDKInstance() and shutdown() work correctly
-    sdkInstance = sdk;
+    // Store SDK instance globally so adapters and shutdown() can retrieve it
+    setSDKInstance(sdk);
     // Store StorageManager reference for explicit close safety net in shutdown()
     storageManager = sm;
 
@@ -157,6 +158,15 @@ program
     // 7. Initialize container with SDK and config (includes StorageManager)
     const container = initializeContainer(sdk, config);
     container.registerInteractionHandler(interactionHandler);
+    } catch (error) {
+      const output = getOutput();
+      output.errorLog(
+        `SDK initialization failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      // Do NOT re-throw — commander does not catch preAction hook rejections,
+      // causing an unhandled promise rejection that terminates the process.
+      // The command action will fail gracefully when it tries to use the SDK.
+    }
   });
 
 // Ensure headless-mode exit after command completion
@@ -201,6 +211,9 @@ program.addCommand(createScriptCommands());
 
 // Add tool command groups
 program.addCommand(createToolCommands());
+
+// Add plugin command group
+program.addCommand(createPluginCommands());
 
 // Add trigger command group
 program.addCommand(createTriggerCommands());
@@ -304,9 +317,10 @@ async function startTUI() {
 
       try {
         // Destroy SDK (triggers onDestroy hook which closes storage manager)
-        if (sdkInstance) {
-          await sdkInstance.destroy();
-          sdkInstance = null;
+        const sdk = getSDKInstance();
+        if (sdk) {
+          await sdk.destroy();
+          setSDKInstance(null as any);
         }
 
         // Use container to cleanup services (including StorageManager)
@@ -367,9 +381,10 @@ const shutdown = async () => {
 
   try {
     // Destroy SDK (triggers onDestroy hook which closes storage manager)
-    if (sdkInstance) {
-      await sdkInstance.destroy();
-      sdkInstance = null;
+    const sdk = getSDKInstance();
+    if (sdk) {
+      await sdk.destroy();
+      setSDKInstance(null as any);
     }
 
     // Safety net: explicitly close storage manager if SDK destroy didn't cover it
@@ -410,7 +425,5 @@ const shutdown = async () => {
 // Export shutdown function for use in ExitManager or other modules
 export { shutdown };
 
-// Export function to get SDK instance (for adapters and other modules)
-export function getSDKInstance(): import("@wf-agent/sdk").SDKInstance | null {
-  return sdkInstance;
-}
+// Re-export getSDKInstance from sdk-globals for backward compatibility
+export { getSDKInstance } from "./services/sdk-globals.js";

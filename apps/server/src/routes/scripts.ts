@@ -36,5 +36,59 @@ export function createScriptRoutes(container: ServerDependencyContainer): Router
     }
   });
 
+  /**
+   * Register script from file
+   * POST /scripts/import
+   * Body: { filePath }
+   */
+  router.post("/import", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<ScriptAdapter>("script");
+      const { filePath } = req.body;
+      if (!filePath) { res.status(400).json(errorResponse("VALIDATION_ERROR", "filePath is required")); return; }
+      const result = await adapter.registerFromFile(filePath);
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  /**
+   * Batch register scripts from directory
+   * POST /scripts/import-batch
+   * Body: { configDir, recursive?, filePattern? }
+   */
+  router.post("/import-batch", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<ScriptAdapter>("script");
+      const { configDir, recursive, filePattern } = req.body;
+      if (!configDir) { res.status(400).json(errorResponse("VALIDATION_ERROR", "configDir is required")); return; }
+      const result = await adapter.registerFromDirectory({
+        configDir,
+        recursive,
+        filePattern: filePattern ? new RegExp(filePattern) : undefined,
+      });
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  /**
+   * Delete script
+   * DELETE /scripts/:id
+   */
+  router.delete("/:id", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<ScriptAdapter>("script");
+      const id = getSafeParam(req.params["id"]);
+      if (!id) { res.status(400).json(errorResponse("VALIDATION_ERROR", "Script ID is required")); return; }
+      await adapter.delete(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
   return router;
 }

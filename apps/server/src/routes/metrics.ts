@@ -55,5 +55,23 @@ export function createMetricsRoutes(container: ServerDependencyContainer): Route
     }
   });
 
+  /**
+   * Export metrics
+   * GET /metrics/export?format=json|prometheus
+   */
+  router.get("/export", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<MetricsAdapter>("metrics");
+      const format = (req.query["format"] as string) || "json";
+      const result = await adapter.exportMetrics(format);
+      if (format === "prometheus") {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      }
+      res.json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
   return router;
 }

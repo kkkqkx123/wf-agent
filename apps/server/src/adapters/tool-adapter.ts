@@ -4,7 +4,9 @@
  */
 
 import { BaseAdapter, type QueryOptions, type PaginatedResponse } from "./base-adapter.js";
-import { findByIdOrThrow } from "@wf-agent/runtime/adapters";
+import { findByIdOrThrow, batchRegisterFromDir } from "@wf-agent/runtime/adapters";
+import { loadConfigFile } from "@wf-agent/runtime/config";
+import { resolve } from "path";
 
 export class ToolAdapter extends BaseAdapter {
   override getResourceName(): string {
@@ -47,5 +49,56 @@ export class ToolAdapter extends BaseAdapter {
       const tool = await findByIdOrThrow(this.sdk.tools, id, "Tool");
       return { id, valid: true, tool: tool as any, config };
     }, `validate tool ${id}`);
+  }
+
+  async registerFromFile(filePath: string): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("registerFromFile", { filePath });
+      const fullPath = resolve(process.cwd(), filePath);
+      const { content } = await loadConfigFile(fullPath);
+      const tool = JSON.parse(content);
+      await this.sdk.tools.create(tool);
+      return tool as any;
+    }, "register tool from file");
+  }
+
+  async registerFromDirectory(options: {
+    configDir: string;
+    recursive?: boolean;
+    filePattern?: RegExp;
+  }): Promise<{
+    success: any[];
+    failures: Array<{ filePath: string; error: string }>;
+  }> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("registerFromDirectory", { configDir: options.configDir });
+      return await batchRegisterFromDir({
+        configDir: options.configDir,
+        recursive: options.recursive,
+        filePattern: options.filePattern,
+        loadAndParse: async (file) => {
+          const { content } = await loadConfigFile(file);
+          return JSON.parse(content);
+        },
+        register: async (tool) => {
+          await this.sdk.tools.create(tool);
+        },
+        onSuccess: (tool) => {
+          this.logOperation(`Tool registered: ${tool.name}`);
+        },
+        onFailure: (file) => {
+          this.logOperation(`Failed to register tool: ${file}`);
+        },
+      });
+    }, "batch register tools");
+  }
+
+  async delete(id: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("delete", { id });
+      if (!id || id.trim().length === 0) throw new Error("Tool ID is required");
+      await findByIdOrThrow(this.sdk.tools, id, "Tool");
+      await this.sdk.tools.delete(id);
+    }, `delete tool ${id}`);
   }
 }

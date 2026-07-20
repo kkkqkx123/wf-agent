@@ -26,3 +26,5 @@ export { createComparisonRoutes } from "./comparisons.js";
 export { createMetricsRoutes } from "./metrics.js";
 export { createSearchRoutes } from "./search.js";
 export { createStorageRoutes } from "./storage.js";
+export { createSSERoutes } from "./sse.js";
+export { createInteractionRoutes } from "./interactions.js";

@@ -8,6 +8,8 @@
  * - PUT /workflows/:id - Update workflow
  * - DELETE /workflows/:id - Delete workflow
  * - GET /workflows/:id/graph - Get workflow graph
+ * - POST /workflows/import - Import workflow from file
+ * - POST /workflows/import-batch - Batch import workflows from directory
  */
 
 import { Router, type Request, type Response } from "express";
@@ -182,6 +184,69 @@ export function createWorkflowRoutes(
 
       const result = await adapter.getGraph(id);
       res.json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      const response = mapErrorToResponse(error, req.path, req.method);
+      res.status(getHttpStatus(response.error?.code || "INTERNAL_ERROR")).json(response);
+    }
+  });
+
+  /**
+   * Import workflow from file
+   * POST /workflows/import
+   * Body: { filePath, parameters? }
+   */
+  router.post("/import", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<WorkflowAdapter>("workflow");
+      const { filePath, parameters } = req.body;
+
+      if (!filePath) {
+        const response = errorResponse(
+          "VALIDATION_ERROR",
+          "filePath is required",
+          { required: ["filePath"] },
+          { path: req.path, method: req.method }
+        );
+        res.status(400).json(response);
+        return;
+      }
+
+      const result = await adapter.registerFromFile({ filePath, parameters });
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      const response = mapErrorToResponse(error, req.path, req.method);
+      res.status(getHttpStatus(response.error?.code || "INTERNAL_ERROR")).json(response);
+    }
+  });
+
+  /**
+   * Batch import workflows from directory
+   * POST /workflows/import-batch
+   * Body: { configDir, recursive?, filePattern?, parameters? }
+   */
+  router.post("/import-batch", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<WorkflowAdapter>("workflow");
+      const { configDir, recursive, filePattern, parameters } = req.body;
+
+      if (!configDir) {
+        const response = errorResponse(
+          "VALIDATION_ERROR",
+          "configDir is required",
+          { required: ["configDir"] },
+          { path: req.path, method: req.method }
+        );
+        res.status(400).json(response);
+        return;
+      }
+
+      const result = await adapter.registerFromDirectory({
+        configDir,
+        recursive,
+        filePattern: filePattern ? new RegExp(filePattern) : undefined,
+        parameters,
+      });
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
     } catch (error) {
       const response = mapErrorToResponse(error, req.path, req.method);
       res.status(getHttpStatus(response.error?.code || "INTERNAL_ERROR")).json(response);

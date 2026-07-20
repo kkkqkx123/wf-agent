@@ -61,7 +61,49 @@ export class AgentLoopAdapter extends BaseAdapter {
       this.logOperation("delete", { id });
       const coordinator = this.getCoordinator();
       await coordinator.stop(id);
-      // Registry cleanup is handled by the coordinator
     }, `delete agent loop ${id}`);
+  }
+
+  async run(config: Record<string, any>): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("run", { config });
+      const coordinator = this.getCoordinator();
+      const result = await coordinator.start(config);
+      return { id: (result as any)?.id || "unknown", status: "running", config } as any;
+    }, "run agent loop");
+  }
+
+  async stop(id: ID): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("stop", { id });
+      const coordinator = this.getCoordinator();
+      await coordinator.stop(id);
+    }, `stop agent loop ${id}`);
+  }
+
+  async createCheckpoint(agentLoopId: ID, name?: string): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("createCheckpoint", { agentLoopId, name });
+      const coordinator = this.getCoordinator() as any;
+      const checkpoint = await coordinator.createCheckpoint(agentLoopId, { name });
+      return checkpoint as any;
+    }, `create checkpoint for agent loop ${agentLoopId}`);
+  }
+
+  async listCheckpoints(agentLoopId: ID): Promise<Record<string, any>[]> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("listCheckpoints", { agentLoopId });
+      const coordinator = this.getCoordinator() as any;
+      const checkpoints = await coordinator.getCheckpoints(agentLoopId);
+      return (checkpoints || []) as any[];
+    }, `list checkpoints for agent loop ${agentLoopId}`);
+  }
+
+  async loadCheckpoint(checkpointId: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("loadCheckpoint", { checkpointId });
+      const coordinator = this.getCoordinator() as any;
+      await coordinator.restoreCheckpoint(checkpointId);
+    }, `load checkpoint ${checkpointId}`);
   }
 }

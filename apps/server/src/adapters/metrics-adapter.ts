@@ -63,4 +63,34 @@ export class MetricsAdapter extends BaseAdapter {
       };
     }, "Get comprehensive report");
   }
+
+  async exportMetrics(format: string, outputFile?: string): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("exportMetrics", { format, outputFile });
+      const report = await this.getComprehensiveReport();
+      let content: string;
+      if (format === "json") {
+        content = JSON.stringify(report, null, 2);
+      } else if (format === "prometheus") {
+        const lines: string[] = [];
+        lines.push("# HELP wf_agent_workflow_executions_total Total workflow executions");
+        lines.push("# TYPE wf_agent_workflow_executions_total counter");
+        const wfMetrics = report["workflowMetrics"] as Record<string, any> | undefined;
+        if (wfMetrics) {
+          lines.push(`wf_agent_workflow_executions_total ${wfMetrics["totalExecutions"] || 0}`);
+          lines.push(`wf_agent_workflow_success_rate ${wfMetrics["successRate"] || 0}`);
+          lines.push(`wf_agent_workflow_avg_duration_ms ${wfMetrics["avgDuration"] || 0}`);
+        }
+        const agentMetrics = report["agentMetrics"] as Record<string, any> | undefined;
+        if (agentMetrics) {
+          lines.push(`wf_agent_agent_executions_total ${agentMetrics["totalExecutions"] || 0}`);
+          lines.push(`wf_agent_agent_avg_iterations ${agentMetrics["avgIterations"] || 0}`);
+        }
+        content = lines.join("\n");
+      } else {
+        content = JSON.stringify(report, null, 2);
+      }
+      return { format, outputFile, content };
+    }, "Export metrics");
+  }
 }

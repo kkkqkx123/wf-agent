@@ -31,7 +31,13 @@ import {
   createMetricsRoutes,
   createSearchRoutes,
   createStorageRoutes,
+  createSSERoutes,
+  createInteractionRoutes,
 } from "./routes/index.js";
+import { WSManager } from "./services/ws-manager.js";
+import { EventManager } from "./services/event-manager.js";
+import { authMiddleware } from "./middleware/auth.js";
+import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { getOutput } from "./utils/output.js";
 
 export interface ServerConfig {
@@ -49,6 +55,7 @@ export class Server {
   private container: ServerDependencyContainer;
   private config: ServerConfig;
   private logger = getOutput();
+  private startTime: number = 0;
 
   constructor(container: ServerDependencyContainer, config?: ServerConfig) {
     this.container = container;
@@ -65,6 +72,7 @@ export class Server {
   /**
    * Setup middleware
    */
+  private wsManager: WSManager | null = null;
   private setupMiddleware(): void {
     // Body parser middleware
     this.app.use(express.json());
@@ -87,6 +95,12 @@ export class Server {
       }
       next();
     });
+
+    // Auth middleware
+    this.app.use(authMiddleware);
+
+    // Rate limiting middleware
+    this.app.use(rateLimitMiddleware);
 
     // Request logging middleware
     this.app.use((req: Request, res: Response, next: NextFunction): void => {
@@ -121,9 +135,19 @@ export class Server {
   private setupRoutes(): void {
     // Health check endpoint
     this.app.get("/health", (_req: Request, res: Response) => {
+      const uptime = this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0;
+      const memoryUsage = process.memoryUsage();
       res.json({
         status: "ok",
         timestamp: new Date().toISOString(),
+        uptime: `${uptime}s`,
+        version: "1.0.0",
+        wsConnections: this.wsManager?.getClientCount() || 0,
+        memory: {
+          rss: `${Math.round(memoryUsage.rss / 1024 / 1024)}MB`,
+          heapTotal: `${Math.round(memoryUsage.heapTotal / 1024 / 1024)}MB`,
+          heapUsed: `${Math.round(memoryUsage.heapUsed / 1024 / 1024)}MB`,
+        },
       });
     });
 
@@ -147,6 +171,8 @@ export class Server {
           workflows: "/api/v1/workflows",
           executions: "/api/v1/executions",
           events: "/api/v1/events",
+          "events/stream (SSE)": "/api/v1/events/stream?executionId=<id>",
+          "websocket (WS)": "/api/v1/ws",
         },
       });
     });
@@ -174,6 +200,8 @@ export class Server {
     this.app.use("/api/v1/metrics", createMetricsRoutes(this.container));
     this.app.use("/api/v1/search", createSearchRoutes(this.container));
     this.app.use("/api/v1/storage", createStorageRoutes(this.container));
+    this.app.use("/api/v1/events/stream", createSSERoutes());
+    this.app.use("/api/v1/interactions", createInteractionRoutes());
 
     // 404 handler
     this.app.use((_req: Request, res: Response) => {
@@ -221,12 +249,24 @@ export class Server {
       // Create HTTP server wrapping Express app
       this.httpServer = http.createServer(this.app);
 
+      // Initialize WebSocket server on /api/v1/ws
+      this.wsManager = WSManager.getInstance();
+      this.wsManager.setPath("/api/v1/ws");
+      this.wsManager.setup(this.httpServer);
+
+      // Register WSManager as a broadcaster with EventManager
+      const eventManager = EventManager.getInstance();
+      eventManager.registerBroadcaster(this.wsManager);
+      this.logger.debugLog("WSManager registered as EventManager broadcaster");
+
       // Listen on configured port and host
       await new Promise<void>((resolve) => {
         this.httpServer!.listen(this.config.port, this.config.host, () => {
+          this.startTime = Date.now();
           this.logger.infoLog(
             `🚀 Server started on http://${this.config.host}:${this.config.port}`
           );
+          this.logger.infoLog(`🔌 WebSocket available at ws://${this.config.host}:${this.config.port}/api/v1/ws`);
           resolve();
         });
       });
@@ -243,12 +283,19 @@ export class Server {
   }
 
   /**
-   * Shutdown the server
+   * Shutdown the server gracefully
    */
   async shutdown(): Promise<void> {
-    try {
-      this.logger.infoLog("🛑 Shutting down server...");
+    this.logger.infoLog("🛑 Shutting down server...");
 
+    // Force shutdown after timeout if graceful shutdown hangs
+    const forceExitTimer = setTimeout(() => {
+      this.logger.errorLog("⚠️ Graceful shutdown timeout, forcing exit");
+      process.exit(1);
+    }, 30000);
+
+    try {
+      // Stop accepting new connections
       if (this.httpServer) {
         await new Promise<void>((resolve, reject) => {
           this.httpServer!.close((error?: Error) => {
@@ -259,12 +306,20 @@ export class Server {
         this.logger.infoLog("✓ HTTP server closed");
       }
 
+      // Cleanup WebSocket connections
+      if (this.wsManager) {
+        this.wsManager.cleanup();
+        this.logger.infoLog("✓ WebSocket server closed");
+      }
+
       await this.container.cleanup();
       this.logger.infoLog("✓ Container cleaned up");
 
+      clearTimeout(forceExitTimer);
       this.logger.infoLog("✅ Server shutdown complete");
       process.exit(0);
     } catch (error) {
+      clearTimeout(forceExitTimer);
       this.logger.errorLog(
         `Shutdown error: ${error instanceof Error ? error.message : String(error)}`
       );

@@ -86,4 +86,22 @@ export class MessageAdapter extends BaseAdapter {
       return { total: messages.length, byExecution, byRole };
     }, "Get global message stats");
   }
+
+  async compress(executionId: string, strategy?: string, keepRecent?: number): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("compress", { executionId, strategy, keepRecent });
+      if (!executionId || executionId.trim().length === 0) throw new Error("Execution ID is required");
+      const s = strategy || "TRUNCATE";
+      const k = keepRecent ?? 10;
+      // Dispatch a context compression event through the SDK
+      const eventsApi = this.sdk.events as any;
+      await eventsApi.emit({
+        type: "CONTEXT_COMPRESSION_REQUESTED",
+        executionId,
+        timestamp: Date.now(),
+        data: { strategy: s, keepRecent: k },
+      } as any);
+      return { executionId, strategy: s, keepRecent: k, status: "compression_requested" };
+    }, "Compress messages");
+  }
 }

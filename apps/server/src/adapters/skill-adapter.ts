@@ -51,4 +51,51 @@ export class SkillAdapter extends BaseAdapter {
       return content || "";
     }, `load skill content ${name}`);
   }
+
+  async register(name: string, metadata: Record<string, any>): Promise<Record<string, any>> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("register", { name });
+      const api = this.sdk.skills as any;
+      const result = await api.register(name, metadata);
+      if (!isSuccess(result)) throw getError(result) || new Error("Failed to register skill");
+      return { name, ...metadata } as any;
+    }, `register skill ${name}`);
+  }
+
+  async unregister(name: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("unregister", { name });
+      if (!name || name.trim().length === 0) throw new Error("Skill name is required");
+      const api = this.sdk.skills as any;
+      const result = await api.unregister(name);
+      if (!isSuccess(result)) throw getError(result) || new Error("Failed to unregister skill");
+    }, `unregister skill ${name}`);
+  }
+
+  async enable(name: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("enable", { name });
+      if (!name || name.trim().length === 0) throw new Error("Skill name is required");
+      const api = this.sdk.skills as any;
+      await api.enable(name);
+    }, `enable skill ${name}`);
+  }
+
+  async disable(name: string): Promise<void> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("disable", { name });
+      if (!name || name.trim().length === 0) throw new Error("Skill name is required");
+      const api = this.sdk.skills as any;
+      await api.disable(name);
+    }, `disable skill ${name}`);
+  }
+
+  async listResources(): Promise<Record<string, any>[]> {
+    return this.executeWithErrorHandling(async () => {
+      this.logOperation("listResources");
+      const api = this.sdk.skills as any;
+      const resources = await api.getResources();
+      return (resources || []) as any[];
+    }, "list skill resources");
+  }
 }

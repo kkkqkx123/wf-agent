@@ -62,5 +62,104 @@ export function createTemplateRoutes(container: ServerDependencyContainer): Rout
     }
   });
 
+  // Instantiate a node template
+  router.post("/nodes/:id/instantiate", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const id = getSafeParam(req.params["id"]);
+      if (!id) { res.status(400).json(errorResponse("VALIDATION_ERROR", "Template ID is required")); return; }
+      const result = await adapter.instantiateNodeTemplate(id, req.body?.params);
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Register node template from file
+  router.post("/nodes/import", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const { filePath } = req.body;
+      if (!filePath) { res.status(400).json(errorResponse("VALIDATION_ERROR", "filePath is required")); return; }
+      const result = await adapter.registerNodeTemplateFromFile(filePath);
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Batch register node templates
+  router.post("/nodes/import-batch", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const { configDir, recursive, filePattern } = req.body;
+      if (!configDir) { res.status(400).json(errorResponse("VALIDATION_ERROR", "configDir is required")); return; }
+      const result = await adapter.registerNodeTemplatesFromDirectory({
+        configDir,
+        recursive,
+        filePattern: filePattern ? new RegExp(filePattern) : undefined,
+      });
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Delete node template
+  router.delete("/nodes/:id", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const id = getSafeParam(req.params["id"]);
+      if (!id) { res.status(400).json(errorResponse("VALIDATION_ERROR", "Template ID is required")); return; }
+      await adapter.deleteNodeTemplate(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Register trigger template from file
+  router.post("/triggers/import", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const { filePath } = req.body;
+      if (!filePath) { res.status(400).json(errorResponse("VALIDATION_ERROR", "filePath is required")); return; }
+      const result = await adapter.registerTriggerTemplateFromFile(filePath);
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Batch register trigger templates
+  router.post("/triggers/import-batch", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const { configDir, recursive, filePattern } = req.body;
+      if (!configDir) { res.status(400).json(errorResponse("VALIDATION_ERROR", "configDir is required")); return; }
+      const result = await adapter.registerTriggerTemplatesFromDirectory({
+        configDir,
+        recursive,
+        filePattern: filePattern ? new RegExp(filePattern) : undefined,
+      });
+      res.status(201).json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
+  // Delete trigger template
+  router.delete("/triggers/:id", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<TemplateAdapter>("template");
+      const id = getSafeParam(req.params["id"]);
+      if (!id) { res.status(400).json(errorResponse("VALIDATION_ERROR", "Template ID is required")); return; }
+      await adapter.deleteTriggerTemplate(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
   return router;
 }

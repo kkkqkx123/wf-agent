@@ -22,14 +22,34 @@ export function createExecutionRoutes(
   const router = Router();
 
   /**
+   * List all executions
+   * GET /executions?workflowId=&status=
+   */
+  router.get("/", async (req: Request, res: Response) => {
+    try {
+      const service = container.getService<ExecutionService>("execution");
+      const workflowId = getSafeParam(req.query["workflowId"] as string);
+      const status = getSafeParam(req.query["status"] as string);
+      const filter: { workflowId?: string; status?: string } = {};
+      if (workflowId) filter.workflowId = workflowId;
+      if (status) filter.status = status;
+      const result = await service.list(filter);
+      res.json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      const response = mapErrorToResponse(error, req.path, req.method);
+      res.status(getHttpStatus(response.error?.code || "INTERNAL_ERROR")).json(response);
+    }
+  });
+
+  /**
    * Execute a workflow
    * POST /executions
-   * Body: { workflowId, input? }
+   * Body: { workflowId, input?, mode? }
    */
   router.post("/", async (req: Request, res: Response) => {
     try {
       const service = container.getService<ExecutionService>("execution");
-      const { workflowId, input } = req.body;
+      const { workflowId, input, mode } = req.body;
 
       if (!workflowId) {
         const response = errorResponse(
@@ -42,10 +62,10 @@ export function createExecutionRoutes(
         return;
       }
 
-      const executionId = await service.execute(workflowId, input);
+      const executionId = await service.execute(workflowId, input, mode);
       res.status(201).json(
         successResponse(
-          { executionId, workflowId, status: "running" },
+          { executionId, workflowId, mode: mode || "detached", status: "running" },
           { path: req.path, method: req.method }
         )
       );

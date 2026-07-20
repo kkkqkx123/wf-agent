@@ -61,6 +61,23 @@ export function createMessageRoutes(container: ServerDependencyContainer): Route
     }
   });
 
+  /**
+   * Compress messages for an execution
+   * POST /messages/compress
+   * Body: { executionId, strategy?, keepRecent? }
+   */
+  router.post("/compress", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<MessageAdapter>("message");
+      const { executionId, strategy, keepRecent } = req.body;
+      if (!executionId) { res.status(400).json(errorResponse("VALIDATION_ERROR", "executionId is required")); return; }
+      const result = await adapter.compress(executionId, strategy, keepRecent);
+      res.json(successResponse(result, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
+
   router.get("/:id", async (req: Request, res: Response) => {
     try {
       const adapter = container.getAdapter<MessageAdapter>("message");

@@ -33,10 +33,12 @@
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@types/ws": "^8.18.1"
   },
   "engines": {
     "node": ">=22.0.0",

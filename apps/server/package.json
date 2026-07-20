@@ -30,7 +30,6 @@
     "@wf-agent/common-utils": "workspace:*",
     "@wf-agent/runtime": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
-    "@wf-agent/storage": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
     "dotenv": "^17.4.2",

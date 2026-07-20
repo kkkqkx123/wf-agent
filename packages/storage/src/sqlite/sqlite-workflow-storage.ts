@@ -152,7 +152,7 @@ export class SqliteWorkflowStorage
   /**
    * Save workflow with metadata-BLOB separation and compression
    */
-  async save(
+  async doSave(
     workflowId: string,
     data: Uint8Array,
     metadata: WorkflowStorageMetadata,
@@ -230,7 +230,7 @@ export class SqliteWorkflowStorage
   /**
    * Load workflow data with automatic decompression
    */
-  override async load(id: string): Promise<Uint8Array | null> {
+  override async doLoad(id: string): Promise<Uint8Array | null> {
     const db = this.getDb();
 
     try {
@@ -267,7 +267,7 @@ export class SqliteWorkflowStorage
   /**
    * Delete workflow (cascade delete will handle blobs and versions)
    */
-  override async delete(workflowId: string): Promise<void> {
+  async doDelete(workflowId: string): Promise<void> {
     const db = this.getDb();
 
     try {

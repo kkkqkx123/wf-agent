@@ -100,7 +100,7 @@ export class SqliteAgentLoopStorage
   /**
    * Save agent loop with metadata-BLOB separation and compression
    */
-  async save(agentLoopId: string, data: Uint8Array, metadata: AgentEntityMetadata): Promise<void> {
+  async doSave(agentLoopId: string, data: Uint8Array, metadata: AgentEntityMetadata): Promise<void> {
     const db = this.getDb();
 
     try {
@@ -163,7 +163,7 @@ export class SqliteAgentLoopStorage
   /**
    * Load agent loop data with automatic decompression
    */
-  override async load(id: string): Promise<Uint8Array | null> {
+  override async doLoad(id: string): Promise<Uint8Array | null> {
     const db = this.getDb();
 
     try {
@@ -200,7 +200,7 @@ export class SqliteAgentLoopStorage
   /**
    * Delete agent loop (cascade delete will handle blob)
    */
-  override async delete(id: string): Promise<void> {
+  async doDelete(id: string): Promise<void> {
     const db = this.getDb();
 
     try {

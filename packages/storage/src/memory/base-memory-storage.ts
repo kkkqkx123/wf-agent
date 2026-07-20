@@ -172,11 +172,11 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
       totalSize += entry.data.length;
     }
 
-    return {
+    return this.populateCacheMetrics({
       ...this.metrics,
       totalCount: this.store.size,
       totalBlobSize: totalSize,
-    };
+    });
   }
 
   /**
@@ -345,18 +345,24 @@ export abstract class BaseMemoryStorage<TMetadata, TListOptions = Record<string,
 
 import type {
   AgentProfileStorageMetadata,
+  AgentProfileListOptions,
   ScriptStorageMetadata,
+  ScriptListOptions,
   ToolStorageMetadata,
+  ToolListOptions,
   HookTemplateStorageMetadata,
+  HookTemplateListOptions,
   NodeTemplateStorageMetadata,
+  NodeTemplateListOptions,
   TriggerStorageMetadata,
+  TriggerListOptions,
 } from "@wf-agent/types";
 
 /**
  * In-Memory Agent Profile Storage
  * Fast, isolated agent profile storage for testing
  */
-export class MemoryAgentProfileStorage extends BaseMemoryStorage<AgentProfileStorageMetadata, void> {
+export class MemoryAgentProfileStorage extends BaseMemoryStorage<AgentProfileStorageMetadata, AgentProfileListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }
 
@@ -364,7 +370,7 @@ export class MemoryAgentProfileStorage extends BaseMemoryStorage<AgentProfileSto
  * In-Memory Script Storage
  * Fast, isolated script storage for testing
  */
-export class MemoryScriptStorage extends BaseMemoryStorage<ScriptStorageMetadata, void> {
+export class MemoryScriptStorage extends BaseMemoryStorage<ScriptStorageMetadata, ScriptListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }
 
@@ -372,7 +378,7 @@ export class MemoryScriptStorage extends BaseMemoryStorage<ScriptStorageMetadata
  * In-Memory Tool Storage
  * Fast, isolated tool storage for testing
  */
-export class MemoryToolStorage extends BaseMemoryStorage<ToolStorageMetadata, void> {
+export class MemoryToolStorage extends BaseMemoryStorage<ToolStorageMetadata, ToolListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }
 
@@ -380,7 +386,7 @@ export class MemoryToolStorage extends BaseMemoryStorage<ToolStorageMetadata, vo
  * In-Memory Hook Template Storage
  * Fast, isolated hook template storage for testing
  */
-export class MemoryHookTemplateStorage extends BaseMemoryStorage<HookTemplateStorageMetadata, void> {
+export class MemoryHookTemplateStorage extends BaseMemoryStorage<HookTemplateStorageMetadata, HookTemplateListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }
 
@@ -388,7 +394,7 @@ export class MemoryHookTemplateStorage extends BaseMemoryStorage<HookTemplateSto
  * In-Memory Node Template Storage
  * Fast, isolated node template storage for testing
  */
-export class MemoryNodeTemplateStorage extends BaseMemoryStorage<NodeTemplateStorageMetadata, void> {
+export class MemoryNodeTemplateStorage extends BaseMemoryStorage<NodeTemplateStorageMetadata, NodeTemplateListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }
 
@@ -396,6 +402,6 @@ export class MemoryNodeTemplateStorage extends BaseMemoryStorage<NodeTemplateSto
  * In-Memory Trigger Storage
  * Fast, isolated trigger storage for testing
  */
-export class MemoryTriggerStorage extends BaseMemoryStorage<TriggerStorageMetadata, void> {
+export class MemoryTriggerStorage extends BaseMemoryStorage<TriggerStorageMetadata, TriggerListOptions> {
   constructor(config?: MemoryStorageConfig) { super(config); }
 }

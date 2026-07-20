@@ -4,6 +4,7 @@
  */
 
 import Database, { SqliteError } from "better-sqlite3";
+import { LRUCache } from "lru-cache";
 import { StorageError, StorageInitializationError } from "../types/storage-errors.js";
 import { StorageAdapterBase } from "../types/adapter/storage-adapter-base.js";
 import { createModuleLogger } from "../logger.js";
@@ -52,17 +53,31 @@ const MAX_PAGE_LIMIT = 1000;
  * @template TMetadata metadata type
  * @template TListOptions list options type
  */
-export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string, unknown>>
-  extends StorageAdapterBase<TMetadata, TListOptions>
+export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string, unknown>, TSaveOptions = void>
+  extends StorageAdapterBase<TMetadata, TListOptions, TSaveOptions>
 {
   protected db: Database.Database | null = null;
   protected loadCounter: number = 0; // Counter for integrity check frequency
-  private statementCache: Map<string, Database.Statement> = new Map();
-  private readonly MAX_CACHE_SIZE = 100;
+  private statementCache: LRUCache<string, Database.Statement>;
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  /** Whether the db connection was injected externally (shared connection) */
+  private externalConnection: boolean = false;
 
   constructor(protected readonly config: BaseSqliteStorageConfig) {
     super();
+    this.statementCache = new LRUCache<string, Database.Statement>({
+      max: 100,
+    });
+  }
+
+  /**
+   * Inject an external database connection (shared connection).
+   * When set, initialize() will skip creating a new connection and
+   * close() will NOT close the connection (the owner is responsible).
+   */
+  setExternalDb(db: Database.Database): void {
+    this.db = db;
+    this.externalConnection = true;
   }
 
   /**
@@ -94,29 +109,34 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
     });
 
     try {
-      // Create database connection
-      const options: Database.Options = {
-        readonly: this.config.readonly ?? false,
-        fileMustExist: this.config.fileMustExist ?? false,
-        timeout: this.config.timeout ?? 5000,
-      };
+      // Use externally injected shared connection if available
+      if (!this.externalConnection) {
+        // Create database connection
+        const options: Database.Options = {
+          readonly: this.config.readonly ?? false,
+          fileMustExist: this.config.fileMustExist ?? false,
+          timeout: this.config.timeout ?? 5000,
+        };
 
-      this.db = new Database(this.config.dbPath, options);
+        this.db = new Database(this.config.dbPath, options);
 
-      // Apply standard PRAGMA configuration
-      configurePragmas(this.db, {
-        autoVacuum: this.config.autoVacuum,
-        journalSizeLimit: this.config.journalSizeLimit,
-        synchronous: 'NORMAL',
-        walAutocheckpoint: 1000,
-      } as PragmaConfig);
+        // Apply standard PRAGMA configuration
+        configurePragmas(this.db, {
+          autoVacuum: this.config.autoVacuum,
+          journalSizeLimit: this.config.journalSizeLimit,
+          synchronous: 'NORMAL',
+          walAutocheckpoint: 1000,
+        } as PragmaConfig);
 
-      // Page size: must be set before any tables are created (not covered by configurePragmas)
-      if (this.config.pageSize) {
-        this.db.pragma(`page_size = ${this.config.pageSize}`);
+        // Page size: must be set before any tables are created (not covered by configurePragmas)
+        if (this.config.pageSize) {
+          this.db.pragma(`page_size = ${this.config.pageSize}`);
+        }
+
+        logger.debug("Created SQLite connection", { dbPath: this.config.dbPath });
+      } else {
+        logger.debug("Using shared external SQLite connection", { dbPath: this.config.dbPath });
       }
-
-      logger.debug("Created SQLite connection", { dbPath: this.config.dbPath });
 
       // is marked as initialized so that createTableSchema can use the getDb
       this.initialized = true;
@@ -213,15 +233,7 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
     const db = this.getDb();
     const stmt = db.prepare(sql);
 
-    // Add to cache with LRU eviction
-    if (this.statementCache.size >= this.MAX_CACHE_SIZE) {
-      // Remove oldest entry (first key in Map)
-      const firstKey = this.statementCache.keys().next().value;
-      if (firstKey) {
-        this.statementCache.delete(firstKey);
-      }
-    }
-
+    // Add to cache (LRU eviction is handled internally by lru-cache)
     this.statementCache.set(sql, stmt);
     return stmt;
   }
@@ -345,19 +357,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
   }
 
   /**
-   * Delete data
-   */
-  override async delete(id: string): Promise<void> {
-    try {
-      const stmt = this.getPreparedStatement(`DELETE FROM ${this.getTableName()} WHERE id = ?`);
-      stmt.run(id);
-      logger.debug("Data deleted from SQLite", { id, table: this.getTableName() });
-    } catch (error) {
-      this.handleSqliteError(error, "delete", { id });
-    }
-  }
-
-  /**
    * Check if data exists
    */
   override async exists(id: string): Promise<boolean> {
@@ -367,30 +366,6 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
       return row !== undefined;
     } catch (error) {
       this.handleSqliteError(error, "exists", { id });
-    }
-  }
-
-  /**
-   * Clear all data
-   */
-  override async clear(): Promise<void> {
-    try {
-      const db = this.getDb();
-      const blobTableName = this.getBlobTableName();
-
-      // Use transaction to delete from both tables atomically
-      const clearTransaction = db.transaction(() => {
-        // Delete from blob table first (if exists) to respect FK constraints
-        if (blobTableName) {
-          db.prepare(`DELETE FROM ${blobTableName}`).run();
-        }
-        db.prepare(`DELETE FROM ${this.getTableName()}`).run();
-      });
-
-      clearTransaction();
-      logger.info("SQLite tables cleared", { table: this.getTableName(), blobTable: blobTableName });
-    } catch (error) {
-      this.handleSqliteError(error, "clear", {});
     }
   }
 
@@ -423,6 +398,11 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
       });
 
       deleteTransaction(ids);
+
+      // Invalidate cache for all deleted ids
+      for (const id of ids) {
+        this.cache?.delete(id);
+      }
 
       const elapsed = Date.now() - startTime;
       this.updateMetric("delete", elapsed / ids.length);
@@ -582,9 +562,15 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
         // Clear statement cache before closing
         this.clearStatementCache();
 
-        // Close connection
-        this.db.close();
-        logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
+        // Only close the connection if we own it (not an externally injected shared connection)
+        if (!this.externalConnection) {
+          this.db.close();
+          logger.info("SQLite storage closed", { dbPath: this.config.dbPath });
+        } else {
+          logger.debug("Skipping close for externally managed shared connection", {
+            dbPath: this.config.dbPath,
+          });
+        }
       } catch (error) {
         logger.error("Error closing SQLite database", {
           dbPath: this.config.dbPath,
@@ -611,20 +597,72 @@ export abstract class BaseSqliteStorage<TMetadata, TListOptions = Record<string,
         `SELECT COUNT(*) as count, COALESCE(SUM(blob_size), 0) as total_blob_size FROM ${tableName}`
       ).get() as { count: number; total_blob_size: number };
 
-      return {
+      return this.populateCacheMetrics({
         ...this.metrics,
         totalCount: sizeInfo.count,
         totalBlobSize: sizeInfo.total_blob_size || 0,
-      };
+      });
     } catch (error) {
       logger.error("Failed to get metrics", { error });
-      return { ...this.metrics };
+      return this.populateCacheMetrics({ ...this.metrics });
+    }
+  }
+
+  // ── Template methods for cache integration ─────────────────────────────
+  /**
+   * Subclasses must implement doSave() instead of save().
+   * The base class wraps doSave() with cache invalidation.
+   * @param options - Optional save options (TSaveOptions), forwarded from save()
+   */
+  protected abstract doSave(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void>;
+
+  /**
+   * Subclasses must implement doLoad() instead of load().
+   * The base class wraps doLoad() with read-through caching.
+   */
+  protected abstract doLoad(id: string): Promise<Uint8Array | null>;
+
+  /**
+   * Subclasses must implement doDelete() instead of delete().
+   * The base class wraps doDelete() with cache invalidation.
+   */
+  protected abstract doDelete(id: string): Promise<void>;
+
+  override async save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void> {
+    await this.saveAndInvalidateCache(id, () => this.doSave(id, data, metadata, options));
+  }
+
+  override async load(id: string): Promise<Uint8Array | null> {
+    return this.loadFromCache(id, () => this.doLoad(id));
+  }
+
+  override async delete(id: string): Promise<void> {
+    await this.deleteAndInvalidateCache(id, () => this.doDelete(id));
+  }
+
+  override async clear(): Promise<void> {
+    try {
+      const db = this.getDb();
+      const blobTableName = this.getBlobTableName();
+
+      // Use transaction to delete from both tables atomically
+      const clearTransaction = db.transaction(() => {
+        // Delete from blob table first (if exists) to respect FK constraints
+        if (blobTableName) {
+          db.prepare(`DELETE FROM ${blobTableName}`).run();
+        }
+        db.prepare(`DELETE FROM ${this.getTableName()}`).run();
+      });
+
+      clearTransaction();
+      this.clearCache();
+      logger.info("SQLite tables cleared", { table: this.getTableName(), blobTable: blobTableName });
+    } catch (error) {
+      this.handleSqliteError(error, "clear", {});
     }
   }
 
   // ── CRUD abstract methods (must be implemented by subclasses) ──────────
-  abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
-  abstract override load(id: string): Promise<Uint8Array | null>;
   abstract override list(options?: TListOptions): Promise<string[]>;
   abstract override getMetadata(id: string): Promise<TMetadata | null>;
 }

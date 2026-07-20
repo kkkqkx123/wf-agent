@@ -2,13 +2,13 @@
 
 ## 1. 概述
 
-本文档描述了 CLI 应用如何集成 `@wf-agent/storage` 包的 JSON 存储实现，以实现工作流、工作流执行实例、检查点等数据的持久化存储。
+本文档描述了 CLI 应用如何通过 `@wf-agent/runtime` 的 `StorageManager` 集成 `@wf-agent/storage` 包的 SQLite 存储实现，以实现工作流、工作流执行实例、检查点等数据的持久化存储。
 
 ## 2. 当前问题分析
 
 ### 2.1 存在的问题
 
-1. **数据丢失**：当前 CLI 应用在退出后，所有注册的工作流、工作流执行实例等数据都会丢失，因为没有持久化存储。
+1. **数据丢失**：当 CLI 应用使用 `memory` 存储类型时，退出后所有注册的工作流、工作流执行实例等数据都会丢失。
 
 2. **测试复杂度高**：测试模式需要设置多个环境变量（`TEST_MODE`、`LOG_DIR`、`DISABLE_LOG_TERMINAL`、`DISABLE_SDK_LOGS`、`SDK_LOG_LEVEL`），使用繁琐。
 
@@ -17,7 +17,7 @@
 ### 2.2 根本原因
 
 - SDK 默认使用内存存储（`WorkflowRegistry`、`WorkflowExecutionRegistry` 等），没有集成持久化存储。
-- CLI 应用没有提供存储回调接口的实现。
+- CLI 应用没有通过 `@wf-agent/runtime` 的 `StorageManager` 注入 SQLite 存储适配器。
 - 配置系统只支持应用级配置（如 API URL、超时等），不支持存储相关配置。
 
 ## 3. 存储架构设计
@@ -30,153 +30,94 @@
 ├─────────────────────────────────────────────────────────────┤
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │              Configuration Layer                      │  │
-│  │  - CLIConfig (application config)                     │  │
-│  │  - StorageConfig (storage-specific config)            │  │
+│  │  - CLIConfig (extends AppConfig)                      │  │
+│  │  - StorageConfig (from @wf-agent/types)               │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                              ↓                                │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │              Storage Integration Layer                │  │
+│  │              @wf-agent/runtime Bootstrap              │  │
+│  │  - createAppSDK()                                     │  │
 │  │  - StorageManager (main integration point)            │  │
-│  │  - JsonWorkflowStorage                               │  │
-│  │  - JsonWorkflowExecutionStorage                       │  │
-│  │  - JsonCheckpointStorage                              │  │
-│  │  - JsonTaskStorage                                    │  │
-│  │  - JsonNoteStorage                                    │  │
+│  │  - getAllAdapters() → SDK adapter injection           │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                              ↓                                │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │              Storage Callback Adapter                 │  │
-│  │  - CheckpointStorageCallback (SDK interface)          │  │
-│  │  - WorkflowStorageCallback (SDK interface)            │  │
-│  │  - WorkflowExecutionStorageCallback (SDK interface)   │  │
-│  │  - TaskStorageCallback (SDK interface)                │  │
+│  │              @wf-agent/storage Package                │  │
+│  │  - SqliteWorkflowStorage                              │  │
+│  │  - SqliteWorkflowExecutionStorage                     │  │
+│  │  - SqliteCheckpointStorage                            │  │
+│  │  - SqliteTaskStorage                                  │  │
+│  │  - SqliteAgentLoopStorage                             │  │
+│  │  - SqliteTriggerStorage                               │  │
+│  │  - SqliteToolStorage                                  │  │
+│  │  - SqliteScriptStorage                                │  │
+│  │  - SqliteNodeTemplateStorage                          │  │
+│  │  - SqliteHookTemplateStorage                          │  │
+│  │  - SqliteAgentProfileStorage                          │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                              ↓                                │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │              @wf-agent/storage Package             │  │
-│  │  - BaseJsonStorage (metadata-data separation)         │  │
-│  │  - Compression support (optional)                     │  │
-│  │  - File locking (optional)                            │  │
-│  └───────────────────────────────────────────────────────┘  │
-│                              ↓                                │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │              File System                              │  │
-│  │  storage/                                             │  │
-│  │    ├── metadata/                                      │  │
-│  │    │   ├── workflow/                                  │  │
-│  │    │   ├── workflow-execution/                        │  │
-│  │    │   ├── checkpoint/                                │  │
-│  │    │   ├── task/                                      │  │
-│  │    │   └── note/                                      │  │
-│  │    └── data/                                          │  │
-│  │        ├── workflow/                                  │  │
-│  │        ├── workflow-execution/                        │  │
-│  │        ├── checkpoint/                                │  │
-│  │        ├── task/                                      │  │
-│  │        └── note/                                      │  │
+│  │              SQLite Database                           │  │
+│  │  storage/cli-app.db (single file)                     │  │
+│  │  - WAL mode for concurrent read performance           │  │
+│  │  - INCREMENTAL auto-vacuum for space management       │  │
+│  │  - Journal size limit (64MB) to prevent unbounded WAL │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 存储类型映射
 
-| SDK 存储接口 | JSON 存储实现 | 存储的数据 |
-|--------------|--------------|-----------|
-| `WorkflowStorageCallback` | `JsonWorkflowStorage` | 工作流定义、版本历史 |
-| `WorkflowExecutionStorageCallback` | `JsonWorkflowExecutionStorage` | 工作流执行实例状态、消息历史 |
-| `CheckpointStorageCallback` | `JsonCheckpointStorage` | 检查点状态快照 |
-| `TaskStorageCallback` | `JsonTaskStorage` | 任务执行状态 |
-| `NoteStorageCallback` | `JsonNoteStorage` | 会话笔记 |
+| SDK 存储接口 | SQLite 存储实现 | 存储的数据 |
+|--------------|----------------|-----------|
+| `WorkflowStorageAdapter` | `SqliteWorkflowStorage` | 工作流定义、版本历史 |
+| `WorkflowExecutionStorageAdapter` | `SqliteWorkflowExecutionStorage` | 工作流执行实例状态、消息历史 |
+| `CheckpointStorageAdapter` | `SqliteCheckpointStorage` | 检查点状态快照 |
+| `TaskStorageAdapter` | `SqliteTaskStorage` | 任务执行状态 |
+| `AgentLoopStorageAdapter` | `SqliteAgentLoopStorage` | Agent 循环检查点 |
+| `TriggerStorageAdapter` | `SqliteTriggerStorage` | 触发器定义和状态 |
+| `ToolStorageAdapter` | `SqliteToolStorage` | 工具注册信息 |
+| `ScriptStorageAdapter` | `SqliteScriptStorage` | 脚本定义 |
+| `NodeTemplateStorageAdapter` | `SqliteNodeTemplateStorage` | 节点模板 |
+| `HookTemplateStorageAdapter` | `SqliteHookTemplateStorage` | 钩子模板 |
+| `AgentProfileStorageAdapter` | `SqliteAgentProfileStorage` | Agent 配置信息 |
 
 ## 4. 配置设计
 
-### 4.1 扩展配置 Schema
+### 4.1 配置 Schema
 
-在现有的 `CLIConfig` 基础上，添加存储相关配置：
+存储配置使用 `@wf-agent/types` 包中定义的共享 Schema：
 
 ```typescript
-// apps/cli-app/src/config/config-loader.ts
+// packages/types/src/config/schemas.ts
 
-const ConfigSchema = z.object({
-  // ... 现有配置 ...
-
-  // 新增：存储配置
-  storage: z
-    .object({
-      // 存储类型：'json' | 'sqlite' | 'memory'
-      type: z.enum(["json", "sqlite", "memory"]).default("json"),
-
-      // JSON 存储配置
-      json: z
-        .object({
-          // 基础存储目录
-          baseDir: z.string().default("./storage"),
-
-          // 是否启用文件锁
-          enableFileLock: z.boolean().default(false),
-
-          // 压缩配置
-          compression: z
-            .object({
-              enabled: z.boolean().default(false),
-              algorithm: z.enum(["gzip", "brotli", "zlib"]).default("gzip"),
-              threshold: z.number().default(1024), // bytes
-            })
-            .optional(),
-        })
-        .optional(),
-
-      // SQLite 存储配置（预留）
-      sqlite: z
-        .object({
-          dbPath: z.string().default("./storage/cli-app.db"),
-          enableWAL: z.boolean().default(true),
-        })
-        .optional(),
-    })
-    .optional(),
-
-  // 输出配置
-  output: z
-    .object({
-      // 输出目录
-      dir: z.string().default("./outputs"),
-
-      // 日志文件名模式
-      logFilePattern: z.string().default("cli-app-{date}.log"),
-
-      // 是否启用日志终端输出
-      enableLogTerminal: z.boolean().default(true),
-
-      // 是否启用 SDK 日志
-      enableSDKLogs: z.boolean().default(true),
-
-      // SDK 日志级别
-      sdkLogLevel: z.enum(["silent", "error", "warn", "info", "debug"]).default("silent"),
-    })
-    .optional(),
+export const StorageConfigSchema = z.object({
+  type: StorageTypeSchema,  // "sqlite" | "json" | "postgres" | "memory"
+  sqlite: SqliteStorageConfigSchema.optional(),
+  postgres: z.object({ ... }).optional(),
 });
-
-export type CLIConfig = z.infer<typeof ConfigSchema>;
 ```
 
 ### 4.2 默认配置
 
 ```typescript
-const DEFAULT_CONFIG: Partial<CLIConfig> = {
-  // ... 现有默认配置 ...
+// apps/cli-app/src/config/cli/defaults.ts
 
+export const DEFAULT_CONFIG: CLIConfig = {
+  // ... base defaults ...
   storage: {
-    type: "json",
-    json: {
-      baseDir: "./storage",
-      enableFileLock: false,
-      compression: {
-        enabled: false,
-      },
+    type: "sqlite",
+    sqlite: {
+      dbPath: "./storage/cli-app.db",
+      enableWAL: true,
+      enableLogging: false,
+      readonly: false,
+      fileMustExist: false,
+      timeout: 5000,
+      autoVacuum: 'INCREMENTAL',
+      journalSizeLimit: 67108864,
     },
   },
-
   output: {
     dir: "./outputs",
     logFilePattern: "cli-app-{date}.log",
@@ -190,19 +131,16 @@ const DEFAULT_CONFIG: Partial<CLIConfig> = {
 ### 4.3 配置文件示例
 
 ```toml
-# .modular-agentrc.toml
+# .modular-agent.toml
 
 [storage]
-type = "json"
+type = "sqlite"
 
-[storage.json]
-baseDir = "./storage"
-enableFileLock = false
-
-[storage.json.compression]
-enabled = true
-algorithm = "gzip"
-threshold = 1024
+[storage.sqlite]
+dbPath = "./storage/cli-app.db"
+enableWAL = true
+enableLogging = false
+timeout = 5000
 
 [output]
 dir = "./outputs"
@@ -210,488 +148,111 @@ logFilePattern = "cli-app-{date}.log"
 enableLogTerminal = true
 enableSDKLogs = true
 sdkLogLevel = "silent"
-
-[presets.contextCompression]
-enabled = true
-timeout = 30000
-maxTriggers = 10
-
-[presets.predefinedTools]
-enabled = true
-
-[presets.predefinedPrompts]
-enabled = true
 ```
 
 ## 5. 实现设计
 
-### 5.1 StorageManager
+### 5.1 StorageManager (位于 @wf-agent/runtime)
 
-创建统一的存储管理器，负责初始化和管理所有存储实例。
+`StorageManager` 位于 `@wf-agent/runtime` 包中，是一个共享的存储管理器，被 cli-app 和 server 共同使用。
 
 ```typescript
-// apps/cli-app/src/storage/storage-manager.ts
+// packages/runtime/src/storage/storage-manager.ts
 
-import type {
-  CheckpointStorageCallback,
-  WorkflowStorageCallback,
-  WorkflowExecutionStorageCallback,
-  TaskStorageCallback,
-  NoteStorageCallback,
-} from "@wf-agent/storage";
-import {
-  JsonCheckpointStorage,
-  JsonWorkflowStorage,
-  JsonWorkflowExecutionStorage,
-  JsonTaskStorage,
-  JsonNoteStorage,
-  type BaseJsonStorageConfig,
-} from "@wf-agent/storage";
-import type { CLIConfig } from "../config/config-loader.js";
-import { logger } from "../utils/logger.js";
-
-/**
- * Storage Manager
- * Unified management of all storage instances
- */
 export class StorageManager {
-  private workflowStorage: WorkflowStorageCallback | null = null;
-  private workflowExecutionStorage: WorkflowExecutionStorageCallback | null = null;
-  private checkpointStorage: CheckpointStorageCallback | null = null;
-  private taskStorage: TaskStorageCallback | null = null;
-  private noteStorage: NoteStorageCallback | null = null;
+  private workflowStorage: WorkflowStorageAdapter | null = null;
+  private workflowExecutionStorage: WorkflowExecutionStorageAdapter | null = null;
+  private checkpointStorage: CheckpointStorageAdapter | null = null;
+  private taskStorage: TaskStorageAdapter | null = null;
+  private agentLoopStorage: AgentLoopStorageAdapter | null = null;
+  private triggerStorage: TriggerStorageAdapter | null = null;
+  private toolStorage: ToolStorageAdapter | null = null;
+  private scriptStorage: ScriptStorageAdapter | null = null;
+  private nodeTemplateStorage: NodeTemplateStorageAdapter | null = null;
+  private hookTemplateStorage: HookTemplateStorageAdapter | null = null;
+  private agentProfileStorage: AgentProfileStorageAdapter | null = null;
   private initialized: boolean = false;
 
-  constructor(private config: CLIConfig) {}
+  constructor(private config: RuntimeStorageConfig) {}
 
-  /**
-   * Initialize all storage instances
-   */
   async initialize(): Promise<void> {
-    if (this.initialized) {
-      logger.warn("StorageManager already initialized");
-      return;
-    }
-
-    const storageConfig = this.config.storage;
-    if (!storageConfig || storageConfig.type === "memory") {
-      logger.info("Using in-memory storage (no persistence)");
-      this.initialized = true;
-      return;
-    }
-
-    if (storageConfig.type === "json") {
-      await this.initializeJsonStorage(storageConfig.json);
-    } else if (storageConfig.type === "sqlite") {
-      throw new Error("SQLite storage not yet implemented");
-    } else {
-      throw new Error(`Unknown storage type: ${storageConfig.type}`);
-    }
-
-    this.initialized = true;
-    logger.info("StorageManager initialized successfully");
+    // 支持 sqlite 和 memory 两种类型
+    // sqlite → 初始化 11 个 SQLite 存储实例
+    // memory → 跳过初始化（SDK 使用默认内存存储）
   }
 
   /**
-   * Initialize JSON storage
+   * 返回所有存储适配器，用于注入到 createSDK()
    */
-  private async initializeJsonStorage(config?: BaseJsonStorageConfig): Promise<void> {
-    const baseDir = config?.baseDir ?? "./storage";
-    const enableFileLock = config?.enableFileLock ?? false;
-    const compression = config?.compression;
-
-    const baseConfig: BaseJsonStorageConfig = {
-      baseDir,
-      enableFileLock,
-      compression: compression
-        ? {
-            enabled: compression.enabled,
-            algorithm: compression.algorithm,
-            threshold: compression.threshold,
-          }
-        : undefined,
+  getAllAdapters(): Pick<SDKOptions, ...> {
+    return {
+      checkpointStorageAdapter: this.checkpointStorage ?? undefined,
+      workflowStorageAdapter: this.workflowStorage ?? undefined,
+      // ...
     };
-
-    // Initialize workflow storage
-    this.workflowStorage = new JsonWorkflowStorage(baseConfig);
-    await this.workflowStorage.initialize();
-    logger.info("WorkflowStorage initialized", { baseDir });
-
-    // Initialize workflow execution storage
-    this.workflowExecutionStorage = new JsonWorkflowExecutionStorage(baseConfig);
-    await this.workflowExecutionStorage.initialize();
-    logger.info("WorkflowExecutionStorage initialized", { baseDir });
-
-    // Initialize checkpoint storage
-    this.checkpointStorage = new JsonCheckpointStorage(baseConfig);
-    await this.checkpointStorage.initialize();
-    logger.info("CheckpointStorage initialized", { baseDir });
-
-    // Initialize task storage
-    this.taskStorage = new JsonTaskStorage(baseConfig);
-    await this.taskStorage.initialize();
-    logger.info("TaskStorage initialized", { baseDir });
-
-    // Initialize note storage
-    this.noteStorage = new JsonNoteStorage(baseConfig);
-    await this.noteStorage.initialize();
-    logger.info("NoteStorage initialized", { baseDir });
-  }
-
-  /**
-   * Get workflow storage
-   */
-  getWorkflowStorage(): WorkflowStorageCallback | null {
-    return this.workflowStorage;
-  }
-
-  /**
-   * Get workflow execution storage
-   */
-  getWorkflowExecutionStorage(): WorkflowExecutionStorageCallback | null {
-    return this.workflowExecutionStorage;
-  }
-
-  /**
-   * Get checkpoint storage
-   */
-  getCheckpointStorage(): CheckpointStorageCallback | null {
-    return this.checkpointStorage;
-  }
-
-  /**
-   * Get task storage
-   */
-  getTaskStorage(): TaskStorageCallback | null {
-    return this.taskStorage;
-  }
-
-  /**
-   * Get note storage
-   */
-  getNoteStorage(): NoteStorageCallback | null {
-    return this.noteStorage;
-  }
-
-  /**
-   * Close all storage instances
-   */
-  async close(): Promise<void> {
-    if (!this.initialized) {
-      return;
-    }
-
-    const promises: Promise<void>[] = [];
-
-    if (this.workflowStorage) {
-      promises.push(this.workflowStorage.close());
-    }
-    if (this.workflowExecutionStorage) {
-      promises.push(this.workflowExecutionStorage.close());
-    }
-    if (this.checkpointStorage) {
-      promises.push(this.checkpointStorage.close());
-    }
-    if (this.taskStorage) {
-      promises.push(this.taskStorage.close());
-    }
-    if (this.noteStorage) {
-      promises.push(this.noteStorage.close());
-    }
-
-    await Promise.all(promises);
-    this.initialized = false;
-    logger.info("StorageManager closed");
-  }
-
-  /**
-   * Clear all storage data
-   */
-  async clear(): Promise<void> {
-    if (!this.initialized) {
-      return;
-    }
-
-    const promises: Promise<void>[] = [];
-
-    if (this.workflowStorage) {
-      promises.push(this.workflowStorage.clear());
-    }
-    if (this.workflowExecutionStorage) {
-      promises.push(this.workflowExecutionStorage.clear());
-    }
-    if (this.checkpointStorage) {
-      promises.push(this.checkpointStorage.clear());
-    }
-    if (this.taskStorage) {
-      promises.push(this.taskStorage.clear());
-    }
-    if (this.noteStorage) {
-      promises.push(this.noteStorage.clear());
-    }
-
-    await Promise.all(promises);
-    logger.info("StorageManager cleared");
-  }
-}
-
-/**
- * Global storage manager instance
- */
-let globalStorageManager: StorageManager | null = null;
-
-/**
- * Get the global storage manager instance
- */
-export function getStorageManager(): StorageManager | null {
-  return globalStorageManager;
-}
-
-/**
- * Initialize the global storage manager
- */
-export async function initializeStorageManager(config: CLIConfig): Promise<StorageManager> {
-  if (globalStorageManager) {
-    return globalStorageManager;
-  }
-
-  globalStorageManager = new StorageManager(config);
-  await globalStorageManager.initialize();
-  return globalStorageManager;
-}
-
-/**
- * Close the global storage manager
- */
-export async function closeStorageManager(): Promise<void> {
-  if (globalStorageManager) {
-    await globalStorageManager.close();
-    globalStorageManager = null;
   }
 }
 ```
 
 ### 5.2 集成到 CLI 主入口
 
+CLI 应用通过 `@wf-agent/runtime/bootstrap` 的 `createAppSDK()` 统一初始化：
+
 ```typescript
 // apps/cli-app/src/index.ts
 
-import { initializeStorageManager, closeStorageManager } from "./storage/storage-manager.js";
-import { getStorageManager } from "./storage/storage-manager.js";
-import { setStorageCallback } from "@wf-agent/sdk";
+import { createAppSDK } from "@wf-agent/runtime/bootstrap";
 
-// ... 在 preAction hook 中 ...
+const { sdk, storageManager } = await createAppSDK({
+  appName: "cli-app",
+  storage: {
+    storage: config.storage,  // 来自配置文件
+    appName: "cli-app",
+  },
+  // ... 其他配置 ...
+  hooks: {
+    onBootstrapStart: () => { /* ... */ },
+    onBootstrapComplete: () => { /* ... */ },
+    onBootstrapError: (error) => { /* ... */ },
+  },
+});
 
-program
-  .hook("preAction", async thisCommand => {
-    // 1. Initialize the output system
-    const output = initializeOutput({
-      config: config.output,
-    });
-
-    // 2. Initialize the formatter
-    initializeFormatter(output.colorEnabled);
-
-    // 3. Initialize the log
-    initLogger({
-      config: config.output,
-    });
-
-    initSDKLogger({
-      config: config.output,
-    });
-
-    // 4. Initialize storage manager
-    await initializeStorageManager(config);
-
-    const storageManager = getStorageManager();
-
-    // 5. Register storage callbacks with SDK
-    if (storageManager) {
-      const checkpointStorage = storageManager.getCheckpointStorage();
-      if (checkpointStorage) {
-        setStorageCallback(checkpointStorage);
-      }
-    }
-
-    // 6. Load the global configuration and initialize the SDK
-    const sdk = getSDK({
-      debug: options.debug,
-      logLevel: options.debug ? "debug" : options.verbose ? "info" : "warn",
-      presets: config.presets,
-      checkpointStorageCallback: storageManager?.getCheckpointStorage() ?? undefined,
-    });
-
-    // ... rest of the initialization ...
-  });
-
-// ... 在 shutdown 函数中 ...
-
-const shutdown = async () => {
-  const output = getOutput();
-  output.infoLog("Cleaning up resources...");
-
-  try {
-    // Close storage manager
-    await closeStorageManager();
-
-    // Close the output stream
-    await output.close();
-    process.exit(0);
-  } catch (error) {
-    output.errorLog(`Error cleaning up resources: ${error instanceof Error ? error.message : String(error)}`);
-    await output.close();
-    process.exit(1);
-  }
-};
+// SDK 的 onDestroy hook 自动关闭 StorageManager
+// shutdown() 中调用 sdk.destroy() 触发 storageManager.close()
 ```
 
-### 5.3 更新输出系统以支持配置
+### 5.3 关闭流程
 
-```typescript
-// apps/cli-app/src/utils/output.ts
-
-export interface OutputConfig {
-  /** Log file path */
-  logFile?: string;
-  /** Whether to enable colors */
-  color?: boolean;
-  /** Is it in detail mode? */
-  verbose?: boolean;
-  /** Is it in debug mode? */
-  debug?: boolean;
-  /** Output directory (from config) */
-  outputDir?: string;
-  /** Log file pattern (from config) */
-  logFilePattern?: string;
-  /** Whether to enable log terminal output */
-  enableLogTerminal?: boolean;
-  /** Whether to enable SDK logs */
-  enableSDKLogs?: boolean;
-  /** SDK log level */
-  sdkLogLevel?: string;
-}
-
-export class CLIOutput {
-  constructor(config: OutputConfig = {}) {
-    this._stdout = process.stdout;
-    this._stderr = process.stderr;
-    this._colorEnabled = config.color ?? this._supportsColor();
-    this._verbose = config.verbose ?? false;
-    this._debug = config.debug ?? false;
-
-    // Initialize the log file
-    this._logFile = config.logFile || this._getDefaultLogPath(config);
-    this._logStream = fs.createWriteStream(this._logFile, { flags: "a" });
-  }
-
-  private _getDefaultLogPath(config: OutputConfig = {}): string {
-    const outputDir = config.outputDir ?? (process.env["TEST_MODE"] && process.env["LOG_DIR"]
-      ? process.env["LOG_DIR"]
-      : path.join(process.cwd(), "logs"));
-
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
-    const pattern = config.logFilePattern ?? "cli-app-{date}.log";
-    const date = new Date().toISOString().split("T")[0];
-    const logFileName = pattern.replace("{date}", date);
-
-    return path.join(outputDir, logFileName);
-  }
-}
-
-export function initializeOutput(config: OutputConfig = {}): CLIOutput {
-  globalOutput = new CLIOutput(config);
-  return globalOutput;
-}
+```
+shutdown()
+  └─ sdk.destroy()
+       └─ onDestroy hook (set by createAppSDK)
+            └─ storageManager.close()
+                 └─ Promise.allSettled(11 × storage.close())
+  └─ storageManager.close() (安全网，防止 SDK destroy 未覆盖)
+  └─ container.cleanup()
+  └─ output.close()
 ```
 
-### 5.4 更新日志系统以支持配置
-
-```typescript
-// apps/cli-app/src/utils/logger.ts
-
-export interface LoggerOptions {
-  verbose?: boolean;
-  debug?: boolean;
-  logFile?: string;
-  outputDir?: string;
-  logFilePattern?: string;
-  enableLogTerminal?: boolean;
-  enableSDKLogs?: boolean;
-  sdkLogLevel?: string;
-}
-
-export function initLogger(options: LoggerOptions = {}): void {
-  // Determine log level based on environment variables or configuration
-  const disableLogTerminal =
-    process.env["DISABLE_LOG_TERMINAL"] === "true" || options.enableLogTerminal === false;
-
-  const level = options.debug ? "debug" : options.verbose ? "info" : "warn";
-
-  const output = getOutput();
-  const logStream = output.logStream as Writable;
-
-  const logger = createPackageLogger("cli-app", {
-    level,
-    stream: logStream,
-    timestamp: true,
-  });
-
-  registerLogger("cli-app", logger);
-}
-
-export function initSDKLogger(options: LoggerOptions = {}): void {
-  const disableSDKLogs = process.env["DISABLE_SDK_LOGS"] === "true" || options.enableSDKLogs === false;
-
-  if (disableSDKLogs) {
-    // SDK logs are disabled, do not register SDK logger
-    return;
-  }
-
-  const sdkLogLevelEnv = process.env["SDK_LOG_LEVEL"];
-  const sdkLogLevelConfig = options.sdkLogLevel ?? "silent";
-
-  // Use environment variables first, then use the configuration, and finally use the default value
-  const sdkLogLevel = sdkLogLevelEnv ?? sdkLogLevelConfig;
-
-  // If the log level is 'silent', do not register the SDK logger
-  if (sdkLogLevel === "silent") {
-    return;
-  }
-
-  const level = sdkLogLevel === "debug" ? "debug" : sdkLogLevel === "info" ? "info" : sdkLogLevel === "warn" ? "warn" : "error";
-
-  const output = getOutput();
-  const logStream = output.logStream as Writable;
-
-  const logger = createPackageLogger("sdk", {
-    level,
-    stream: logStream,
-    timestamp: true,
-  });
-
-  registerLogger("sdk", logger);
-}
-```
+`StorageManager.close()` 使用 `Promise.allSettled` 确保所有存储实例都被关闭，即使个别关闭失败也不会阻塞整体流程。
 
 ## 6. 测试设计
 
 ### 6.1 测试配置文件
 
-为测试环境创建专用配置文件：
+测试环境使用 `sqlite` 存储类型，输出目录和数据库路径指向测试目录：
 
 ```toml
 # apps/cli-app/__tests__/config/test-config.toml
 
 [storage]
-type = "json"
+type = "sqlite"
 
-[storage.json]
-baseDir = "./__tests__/storage"
-enableFileLock = false
+[storage.sqlite]
+dbPath = "./__tests__/storage/cli-app.db"
+enableWAL = true
+enableLogging = false
+timeout = 5000
 
 [output]
 dir = "./__tests__/outputs"
@@ -699,265 +260,73 @@ logFilePattern = "cli-app-{date}.log"
 enableLogTerminal = false
 enableSDKLogs = false
 sdkLogLevel = "silent"
-
-[presets.contextCompression]
-enabled = true
-
-[presets.predefinedTools]
-enabled = true
-
-[presets.predefinedPrompts]
-enabled = true
 ```
 
-### 6.2 更新测试辅助工具
+### 6.2 测试运行器
+
+`CLIRunner` 通过子进程方式运行 CLI，每个测试用例独立运行，数据通过 SQLite 文件持久化：
 
 ```typescript
-// apps/cli-app/__tests__/utils/test-config-loader.ts
-
-import { ConfigLoader } from "../../src/config/config-loader.js";
-
-/**
- * Load test configuration
- */
-export function loadTestConfig(configPath?: string) {
-  const loader = new ConfigLoader();
-  const config = loader.load(configPath);
-  return config;
-}
-
-/**
- * Get the default test configuration path
- */
-export function getDefaultTestConfigPath() {
-  return "./__tests__/config/test-config.toml";
-}
-```
-
-### 6.3 更新测试运行器
-
-```typescript
-// apps/cli-app/__tests__/utils/cli-runner.ts
-
 export class CLIRunner {
-  private cliPath: string;
-  private outputDir: string;
-  private defaultEnv: Record<string, string>;
-  private outputFileCounter: number;
-
   constructor(cliPath?: string, outputDir?: string, configPath?: string) {
-    this.cliPath = cliPath || this.findCLIPath();
-    this.outputDir = outputDir || resolve(__dirname, "../outputs");
     this.defaultEnv = {
       ...process.env,
       NODE_ENV: "test",
       TEST_MODE: "true",
-      // Use configuration file to replace environment variables
       CLI_CONFIG_PATH: configPath || resolve(__dirname, "../config/test-config.toml"),
     };
-    this.outputFileCounter = 0;
-  }
-
-  async run(args: string[], options: CLIRunOptions = {}): Promise<CLIRunResult> {
-    const {
-      timeout = 30000,
-      input,
-      cwd = process.cwd(),
-      env = {},
-      saveOutput = true,
-      outputSubdir = "general",
-    } = options;
-
-    const startTime = Date.now();
-    const result = await this.executeCommand(args, {
-      timeout,
-      input,
-      cwd,
-      env,
-    });
-
-    result.duration = Date.now() - startTime;
-
-    if (saveOutput) {
-      const outputFilePath = await this.saveOutput(result, args, outputSubdir);
-      result.outputFilePath = outputFilePath;
-    }
-
-    return result;
-  }
-
-  private async executeCommand(
-    args: string[],
-    options: { timeout: number; input?: string; cwd: string; env: Record<string, string> },
-  ): Promise<CLIRunResult> {
-    return new Promise(resolve => {
-      const child = spawn("node", [this.cliPath, ...args], {
-        env: { ...this.defaultEnv, ...options.env },
-        cwd: options.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      child.stdout?.on("data", data => {
-        stdout += data.toString();
-      });
-
-      child.stderr?.on("data", data => {
-        stderr += data.toString();
-      });
-
-      if (options.input && child.stdin) {
-        child.stdin.write(options.input);
-        child.stdin.end();
-      }
-
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve({
-          exitCode: -1,
-          stdout,
-          stderr: `Timeout after ${options.timeout}ms`,
-          duration: 0,
-        });
-      }, options.timeout);
-
-      child.on("close", code => {
-        clearTimeout(timer);
-        resolve({
-          exitCode: code,
-          stdout,
-          stderr,
-          duration: 0,
-        });
-      });
-
-      child.on("error", error => {
-        clearTimeout(timer);
-        resolve({
-          exitCode: -1,
-          stdout,
-          stderr: error.message,
-          duration: 0,
-        });
-      });
-    });
   }
 }
 ```
 
-### 6.4 更新测试用例
+## 7. 关键设计决策
 
-```typescript
-// apps/cli-app/__tests__/integration/workflows/01-registration.test.ts
+### 7.1 为什么选择 SQLite 而不是 JSON
 
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "vitest";
-import { CLIRunner, TestHelper, createTestHelper, TestLogger } from "../../utils";
-import { createWorkflowTestHelper, WorkflowTestHelper } from "../../helpers/workflow-test-helpers";
-import { resolve } from "path";
-import { loadTestConfig, getDefaultTestConfigPath } from "../../utils/test-config-loader";
+| 维度 | SQLite | JSON 文件 |
+|------|--------|-----------|
+| 查询能力 | 支持复杂查询、过滤、排序 | 需要全量加载后过滤 |
+| 并发控制 | 内置 WAL 模式，读写并发 | 需要额外文件锁 |
+| 数据一致性 | 事务支持，原子提交 | 多文件写入非原子 |
+| 性能 | 索引优化，单文件查询快 | 大量小文件，IO 开销大 |
+| 维护 | 单文件，易备份/迁移 | 多目录多文件，管理复杂 |
 
-describe("Workflow Registration Tests", () => {
-  let helper: TestHelper;
-  let workflowHelper: WorkflowTestHelper;
-  let logger: TestLogger;
-  let runner: CLIRunner;
-  const testOutputDir = resolve(__dirname, "../../outputs/workflow-registration");
+### 7.2 为什么 StorageManager 放在 @wf-agent/runtime
 
-  beforeAll(() => {
-    logger = new TestLogger(testOutputDir);
-    // Load test configuration file
-    const testConfigPath = getDefaultTestConfigPath();
-    runner = new CLIRunner(undefined, testOutputDir, testConfigPath);
-  });
-
-  // ... rest of the test code ...
-});
-```
-
-## 7. 迁移计划
-
-### 7.1 阶段一：基础集成（Week 1）
-
-1. **配置系统扩展**
-   - 扩展 `CLIConfig` Schema，添加存储和输出配置
-   - 更新默认配置
-   - 创建测试配置文件
-
-2. **存储管理器实现**
-   - 实现 `StorageManager` 类
-   - 实现 JSON 存储初始化逻辑
-   - 实现存储回调接口
-
-3. **CLI 主入口集成**
-   - 在 `preAction` hook 中初始化存储管理器
-   - 注册存储回调到 SDK
-   - 在 `shutdown` 函数中关闭存储管理器
-
-4. **输出系统更新**
-   - 更新 `CLIOutput` 以支持配置
-   - 更新日志系统以支持配置
-
-### 7.2 阶段二：测试迁移（Week 2）
-
-1. **测试辅助工具更新**
-   - 实现 `test-config-loader.ts`
-   - 更新 `CLIRunner` 以支持配置文件
-   - 更新测试用例以使用配置文件
-
-2. **测试执行**
-   - 运行所有集成测试
-   - 修复发现的问题
-   - 验证数据持久化
-
-### 7.3 阶段三：优化和完善（Week 3）
-
-1. **性能优化**
-   - 评估压缩配置
-   - 优化文件锁策略
-   - 添加缓存机制
-
-2. **错误处理**
-   - 完善错误处理逻辑
-   - 添加详细的错误日志
-   - 提供友好的错误提示
-
-3. **文档完善**
-   - 更新用户文档
-   - 添加配置示例
-   - 编写故障排查指南
+- **消除代码重复**：cli-app 和 server 使用相同的存储初始化逻辑
+- **统一管理**：共享的 11 个存储适配器初始化
+- **一致的生命周期**：统一的 `initialize()` / `close()` / `clear()` 接口
 
 ## 8. 风险和挑战
 
 ### 8.1 技术风险
 
-1. **存储性能**：JSON 文件存储在大量数据时可能性能不佳，需要评估压缩和索引策略。
+1. **存储性能**：SQLite 单文件在大量写入时可能存在锁竞争，WAL 模式缓解了读并发但写仍然是串行的。
 
-2. **并发控制**：文件锁机制可能影响性能，需要评估是否启用。
+2. **数据文件膨胀**：WAL 文件可能无限增长，通过 `journalSizeLimit` 和 `autoVacuum` 控制。
 
-3. **数据一致性**：需要确保元数据和数据的原子性更新。
+3. **并发控制**：多进程访问同一数据库文件可能导致 `SQLITE_BUSY`，通过 `timeout` 配置缓解。
 
 ### 8.2 兼容性风险
 
-1. **向后兼容**：需要确保现有用户的工作流不受影响。
+1. **向后兼容**：从 `memory` 切换到 `sqlite` 后，之前的数据不可见（但未丢失，仍在内存中）。
 
-2. **配置迁移**：需要提供配置迁移指南。
+2. **Schema 变更**：SQLite 表结构变更需要迁移策略，当前通过 `better-sqlite3` 的 `CREATE TABLE IF NOT EXISTS` 处理。
 
 ### 8.3 测试风险
 
-1. **测试隔离**：需要确保测试之间的数据隔离。
+1. **测试隔离**：每个测试子进程使用独立的 SQLite 数据库文件，确保数据隔离。
 
-2. **测试清理**：需要确保测试后的数据清理。
+2. **测试清理**：测试后需要清理测试数据库文件和输出目录。
 
 ## 9. 总结
 
-本设计文档详细描述了 CLI 应用如何集成 `@wf-agent/storage` 包的 JSON 存储实现，以实现工作流、线程、检查点等数据的持久化存储。通过扩展配置系统、实现存储管理器、更新 CLI 主入口和测试辅助工具，我们可以：
+本设计文档描述了 CLI 应用如何通过 `@wf-agent/runtime` 的 `StorageManager` 集成 `@wf-agent/storage` 包的 SQLite 存储实现，以实现工作流、执行实例、检查点等数据的持久化存储。通过 `createAppSDK()` 统一初始化流程：
 
-1. **解决数据丢失问题**：通过持久化存储，确保数据在应用退出后仍然存在。
+1. **解决数据丢失问题**：通过 SQLite 持久化存储，确保数据在应用退出后仍然存在。
 
-2. **简化测试配置**：通过配置文件，避免设置多个环境变量，提高测试的可维护性。
+2. **简化配置管理**：通过 `@wf-agent/types` 的共享 Schema，提供统一的配置定义。
 
-3. **提高可扩展性**：通过统一的存储管理器，便于未来支持其他存储后端（如 SQLite）。
+3. **提高可扩展性**：通过 `@wf-agent/runtime` 的 `StorageManager`，支持未来添加更多存储后端。
 
-4. **改善用户体验**：通过友好的配置文件和详细的文档，降低用户的使用门槛。
+4. **改善用户体验**：默认启用 SQLite 持久化，用户无需额外配置即可获得持久化能力。

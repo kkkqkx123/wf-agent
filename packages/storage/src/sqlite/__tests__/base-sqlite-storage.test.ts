@@ -36,7 +36,7 @@ class TestSqliteStorage extends BaseSqliteStorage<TestMetadata> {
     `);
   }
 
-  async save(id: string, data: Uint8Array, metadata: TestMetadata): Promise<void> {
+  async doSave(id: string, data: Uint8Array, metadata: TestMetadata): Promise<void> {
     const db = this.getDb();
     try {
       const stmt = db.prepare(`
@@ -76,7 +76,7 @@ class TestSqliteStorage extends BaseSqliteStorage<TestMetadata> {
     }
   }
 
-  async load(id: string): Promise<Uint8Array | null> {
+  async doLoad(id: string): Promise<Uint8Array | null> {
     const db = this.getDb();
     try {
       const stmt = db.prepare(`SELECT data FROM test_table WHERE id = ?`);

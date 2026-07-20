@@ -42,6 +42,8 @@ const program = new Command();
 
 // Global SDK instance (initialized in preAction hook)
 let sdkInstance: import("@wf-agent/sdk").SDKInstance | null = null;
+// Global StorageManager reference (safety net for explicit close in shutdown)
+let storageManager: import("@wf-agent/runtime").StorageManager | null = null;
 
 // Configure basic program information
 program
@@ -115,7 +117,7 @@ program
     });
 
     // 5. Initialize SDK and storage via createAppSDK
-    const { sdk: sdkInstance } = await createAppSDK({
+    const { sdk, storageManager: sm } = await createAppSDK({
       appName: "cli-app",
       debug: options.debug,
       verbose: options.verbose,
@@ -143,13 +145,17 @@ program
         },
       },
     });
+    // Assign to the module-level variable so getSDKInstance() and shutdown() work correctly
+    sdkInstance = sdk;
+    // Store StorageManager reference for explicit close safety net in shutdown()
+    storageManager = sm;
 
     // 6. Initialize User Interaction Handler for interactive tools
     const interactionHandler = new CLIUserInteractionManager();
-    interactionHandler.initialize(sdkInstance);
+    interactionHandler.initialize(sdk);
 
     // 7. Initialize container with SDK and config (includes StorageManager)
-    const container = initializeContainer(sdkInstance, config);
+    const container = initializeContainer(sdk, config);
     container.registerInteractionHandler(interactionHandler);
   });
 
@@ -364,6 +370,18 @@ const shutdown = async () => {
     if (sdkInstance) {
       await sdkInstance.destroy();
       sdkInstance = null;
+    }
+
+    // Safety net: explicitly close storage manager if SDK destroy didn't cover it
+    if (storageManager) {
+      try {
+        await storageManager.close();
+      } catch (error) {
+        output.warnLog(
+          `StorageManager close warning: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      storageManager = null;
     }
 
     // Use container to cleanup services (including StorageManager)

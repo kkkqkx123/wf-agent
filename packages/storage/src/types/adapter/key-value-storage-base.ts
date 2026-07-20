@@ -115,107 +115,113 @@ export abstract class KeyValueStorageBase<TMetadata, TListOptions = void>
    * Save data to storage
    */
   async save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void> {
-    const startTime = Date.now();
-    this.ensureInitialized();
+    await this.saveAndInvalidateCache(id, async () => {
+      const startTime = Date.now();
+      this.ensureInitialized();
 
-    try {
-      const config = this.getConfig();
-      const metaValues = config.metadataToValues(metadata);
+      try {
+        const config = this.getConfig();
+        const metaValues = config.metadataToValues(metadata);
 
-      const operations: Array<{ sql: string; params?: any[] }> = [];
+        const operations: Array<{ sql: string; params?: any[] }> = [];
 
-      // Insert/update metadata
-      const columns = Object.keys(metaValues);
-      const placeholders = columns.map(() => "?").join(", ");
-      const updates = columns.map((c) => `${c} = excluded.${c}`).join(", ");
+        // Insert/update metadata
+        const columns = Object.keys(metaValues);
+        const placeholders = columns.map(() => "?").join(", ");
+        const updates = columns.map((c) => `${c} = excluded.${c}`).join(", ");
 
-      operations.push({
-        sql: `
-          INSERT INTO ${config.tableName} (id, ${columns.join(", ")})
-          VALUES (?, ${placeholders})
-          ON CONFLICT(id) DO UPDATE SET ${updates}
-        `,
-        params: [id, ...Object.values(metaValues)],
-      });
-
-      // Insert/update BLOB if table is separated
-      if (config.blobTableName) {
-        const blobIdCol = config.tableName.slice(0, -1) + "_id";
         operations.push({
           sql: `
-            INSERT INTO ${config.blobTableName} (${blobIdCol}, content)
-            VALUES (?, ?)
-            ON CONFLICT(${blobIdCol}) DO UPDATE SET content = excluded.content
+            INSERT INTO ${config.tableName} (id, ${columns.join(", ")})
+            VALUES (?, ${placeholders})
+            ON CONFLICT(id) DO UPDATE SET ${updates}
           `,
-          params: [id, data],
+          params: [id, ...Object.values(metaValues)],
         });
+
+        // Insert/update BLOB if table is separated
+        if (config.blobTableName) {
+          const blobIdCol = config.tableName.slice(0, -1) + "_id";
+          operations.push({
+            sql: `
+              INSERT INTO ${config.blobTableName} (${blobIdCol}, content)
+              VALUES (?, ?)
+              ON CONFLICT(${blobIdCol}) DO UPDATE SET content = excluded.content
+            `,
+            params: [id, data],
+          });
+        }
+
+        await this.executeTransaction(operations);
+
+        const elapsed = Date.now() - startTime;
+        this.updateMetric("save", elapsed, data.length);
+        logger.debug("Data saved", { id, size: data.length });
+      } catch (error) {
+        this.handleError(error, "save", { id });
+        throw error;
       }
-
-      await this.executeTransaction(operations);
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric("save", elapsed, data.length);
-      logger.debug("Data saved", { id, size: data.length });
-    } catch (error) {
-      this.handleError(error, "save", { id });
-      throw error;
-    }
+    });
   }
 
   /**
    * Load data from storage
    */
   async load(id: string): Promise<Uint8Array | null> {
-    const startTime = Date.now();
-    this.ensureInitialized();
+    return this.loadFromCache(id, async () => {
+      const startTime = Date.now();
+      this.ensureInitialized();
 
-    try {
-      const config = this.getConfig();
+      try {
+        const config = this.getConfig();
 
-      let sql: string;
-      if (config.blobTableName) {
-        const blobIdCol = config.tableName.slice(0, -1) + "_id";
-        sql = `SELECT content FROM ${config.blobTableName} WHERE ${blobIdCol} = ?`;
-      } else {
-        sql = `SELECT content FROM ${config.tableName} WHERE id = ?`;
+        let sql: string;
+        if (config.blobTableName) {
+          const blobIdCol = config.tableName.slice(0, -1) + "_id";
+          sql = `SELECT content FROM ${config.blobTableName} WHERE ${blobIdCol} = ?`;
+        } else {
+          sql = `SELECT content FROM ${config.tableName} WHERE id = ?`;
+        }
+
+        const row = await this.executeQuery(sql, [id]);
+        if (!row || !row.content) {
+          return null;
+        }
+
+        // Handle both Buffer (SQLite/PostgreSQL) and Uint8Array
+        const content = row.content instanceof Uint8Array ? row.content : Buffer.from(row.content);
+        const data = new Uint8Array(content);
+
+        const elapsed = Date.now() - startTime;
+        this.updateMetric("load", elapsed, data.length);
+        return data;
+      } catch (error) {
+        this.handleError(error, "load", { id });
+        throw error;
       }
-
-      const row = await this.executeQuery(sql, [id]);
-      if (!row || !row.content) {
-        return null;
-      }
-
-      // Handle both Buffer (SQLite/PostgreSQL) and Uint8Array
-      const content = row.content instanceof Uint8Array ? row.content : Buffer.from(row.content);
-      const data = new Uint8Array(content);
-
-      const elapsed = Date.now() - startTime;
-      this.updateMetric("load", elapsed, data.length);
-      return data;
-    } catch (error) {
-      this.handleError(error, "load", { id });
-      throw error;
-    }
+    });
   }
 
   /**
    * Delete data from storage
    */
   async delete(id: string): Promise<void> {
-    const startTime = Date.now();
-    this.ensureInitialized();
+    await this.deleteAndInvalidateCache(id, async () => {
+      const startTime = Date.now();
+      this.ensureInitialized();
 
-    try {
-      const config = this.getConfig();
-      await this.executeQuery(`DELETE FROM ${config.tableName} WHERE id = ?`, [id]);
+      try {
+        const config = this.getConfig();
+        await this.executeQuery(`DELETE FROM ${config.tableName} WHERE id = ?`, [id]);
 
-      const elapsed = Date.now() - startTime;
-      this.updateMetric("delete", elapsed);
-      logger.debug("Data deleted", { id });
-    } catch (error) {
-      this.handleError(error, "delete", { id });
-      throw error;
-    }
+        const elapsed = Date.now() - startTime;
+        this.updateMetric("delete", elapsed);
+        logger.debug("Data deleted", { id });
+      } catch (error) {
+        this.handleError(error, "delete", { id });
+        throw error;
+      }
+    });
   }
 
   /**
@@ -291,6 +297,7 @@ export abstract class KeyValueStorageBase<TMetadata, TListOptions = void>
     try {
       const config = this.getConfig();
       await this.executeQuery(`DELETE FROM ${config.tableName}`);
+      this.clearCache();
       logger.info("Storage cleared");
     } catch (error) {
       this.handleError(error, "clear");
@@ -309,7 +316,7 @@ export abstract class KeyValueStorageBase<TMetadata, TListOptions = void>
    * Get storage metrics
    */
   async getMetrics(): Promise<StorageMetrics> {
-    return { ...this.metrics };
+    return this.populateCacheMetrics({ ...this.metrics });
   }
 
   // ────────────────────────────────────────────────────────────────

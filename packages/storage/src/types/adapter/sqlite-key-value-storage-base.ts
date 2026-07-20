@@ -23,10 +23,22 @@ export abstract class SqliteKeyValueStorageBase<TMetadata, TListOptions = void>
 {
   protected db: Database.Database | null = null;
   protected sqliteConfig: BaseSqliteStorageConfig;
+  /** Whether the db connection was injected externally (shared connection) */
+  private externalConnection: boolean = false;
 
   constructor(config: BaseSqliteStorageConfig) {
     super();
     this.sqliteConfig = config;
+  }
+
+  /**
+   * Inject an external database connection (shared connection).
+   * When set, createSchema() will skip creating a new connection and
+   * close() will NOT close the connection (the owner is responsible).
+   */
+  setExternalDb(db: Database.Database): void {
+    this.db = db;
+    this.externalConnection = true;
   }
 
   /**
@@ -43,21 +55,29 @@ export abstract class SqliteKeyValueStorageBase<TMetadata, TListOptions = void>
    * Initialize SQLite database
    */
   protected override async createSchema(): Promise<void> {
-    // Open database connection
-    const options: Database.Options = {
-      readonly: this.sqliteConfig.readonly ?? false,
-      fileMustExist: this.sqliteConfig.fileMustExist ?? false,
-      timeout: this.sqliteConfig.timeout ?? 5000,
-    };
+    // Use externally injected shared connection if available
+    if (!this.externalConnection) {
+      // Open database connection
+      const options: Database.Options = {
+        readonly: this.sqliteConfig.readonly ?? false,
+        fileMustExist: this.sqliteConfig.fileMustExist ?? false,
+        timeout: this.sqliteConfig.timeout ?? 5000,
+      };
 
-    this.db = new Database(this.sqliteConfig.dbPath, options);
+      this.db = new Database(this.sqliteConfig.dbPath, options);
 
-    // Apply pragmas for performance
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("cache_size = -64000"); // 64MB
+      // Apply pragmas for performance
+      this.db.pragma("journal_mode = WAL");
+      this.db.pragma("synchronous = NORMAL");
+      this.db.pragma("cache_size = -64000"); // 64MB
+      this.db.pragma("foreign_keys = ON");
+    } else {
+      logger.debug("Using shared external SQLite connection for key-value storage", {
+        dbPath: this.sqliteConfig.dbPath,
+      });
+    }
 
-    // Create schema
+    // Create schema (IF NOT EXISTS ensures idempotency even with shared connection)
     await this.createSqliteSchema();
   }
 
@@ -126,10 +146,15 @@ export abstract class SqliteKeyValueStorageBase<TMetadata, TListOptions = void>
    */
   override async close(): Promise<void> {
     if (this.db) {
-      this.db.close();
+      // Only close the connection if we own it (not an externally injected shared connection)
+      if (!this.externalConnection) {
+        this.db.close();
+        logger.debug("SQLite connection closed");
+      } else {
+        logger.debug("Skipping close for externally managed shared connection");
+      }
       this.db = null;
       this.initialized = false;
-      logger.debug("SQLite connection closed");
     }
   }
 }

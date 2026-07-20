@@ -38,7 +38,6 @@
     "@wf-agent/config-processor": "workspace:*",
     "@wf-agent/runtime": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
-    "@wf-agent/storage": "workspace:*",
     "@wf-agent/types": "workspace:*",
     "chalk": "^5.6.2",
     "commander": "^15.0.0",

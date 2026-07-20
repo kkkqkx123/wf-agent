@@ -98,7 +98,7 @@ export class PostgresAgentLoopStorage
   /**
    * Save agent loop with metadata-BLOB separation and compression
    */
-  async save(
+  async doSave(
     agentLoopId: string,
     data: Uint8Array,
     metadata: AgentEntityMetadata
@@ -203,7 +203,7 @@ export class PostgresAgentLoopStorage
   /**
    * Load agent loop data with automatic decompression
    */
-  async load(agentLoopId: string): Promise<Uint8Array | null> {
+  async doLoad(agentLoopId: string): Promise<Uint8Array | null> {
     const client = await this.getClient();
     const startTime = Date.now();
 
@@ -259,7 +259,7 @@ export class PostgresAgentLoopStorage
   /**
    * Delete agent loop (cascade delete will handle blobs)
    */
-  async delete(agentLoopId: string): Promise<void> {
+  async doDelete(agentLoopId: string): Promise<void> {
     const client = await this.getClient();
 
     try {

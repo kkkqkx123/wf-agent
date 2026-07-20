@@ -156,7 +156,7 @@ export class PostgresWorkflowStorage
   /**
    * Save workflow with metadata-BLOB separation and compression
    */
-  async save(
+  async doSave(
     workflowId: string,
     data: Uint8Array,
     metadata: WorkflowStorageMetadata
@@ -264,7 +264,7 @@ export class PostgresWorkflowStorage
   /**
    * Load workflow data with automatic decompression
    */
-  async load(workflowId: string): Promise<Uint8Array | null> {
+  async doLoad(workflowId: string): Promise<Uint8Array | null> {
     const client = await this.getClient();
     const startTime = Date.now();
 
@@ -320,7 +320,7 @@ export class PostgresWorkflowStorage
   /**
    * Delete workflow (cascade delete will handle blobs and versions)
    */
-  async delete(workflowId: string): Promise<void> {
+  async doDelete(workflowId: string): Promise<void> {
     const client = await this.getClient();
 
     try {

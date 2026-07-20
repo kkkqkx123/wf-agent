@@ -23,7 +23,7 @@ const logger = createModuleLogger("sqlite-checkpoint-storage");
  * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
 export class SqliteCheckpointStorage
-  extends BaseSqliteStorage<CheckpointStorageMetadata, CheckpointStorageListOptions>
+  extends BaseSqliteStorage<CheckpointStorageMetadata, CheckpointStorageListOptions, CheckpointOptions>
   implements CheckpointStorageAdapter
 {
   constructor(config: BaseSqliteStorageConfig) {
@@ -198,7 +198,7 @@ export class SqliteCheckpointStorage
    * @param metadata Checkpoint metadata
    * @param options Checkpoint options (sync mode, timeout, etc.)
    */
-  async save(
+  async doSave(
     id: string,
     data: Uint8Array,
     metadata: CheckpointStorageMetadata,
@@ -292,14 +292,13 @@ export class SqliteCheckpointStorage
       this.updateMetric('save', elapsed, compressed.length);
     } catch (error) {
       this.handleSqliteError(error, "save", { id });
-      throw error; // Re-throw to ensure caller knows about the failure
     }
   }
 
   /**
    * Load checkpoint data with automatic decompression
    */
-  override async load(id: string): Promise<Uint8Array | null> {
+  override async doLoad(id: string): Promise<Uint8Array | null> {
     const startTime = Date.now();
     const db = this.getDb();
 
@@ -353,7 +352,7 @@ export class SqliteCheckpointStorage
   /**
    * Delete checkpoint (cascade delete will handle blob)
    */
-  override async delete(id: string): Promise<void> {
+  async doDelete(id: string): Promise<void> {
     const startTime = Date.now();
     const db = this.getDb();
 

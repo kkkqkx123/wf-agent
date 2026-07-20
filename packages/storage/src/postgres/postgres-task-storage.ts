@@ -118,7 +118,7 @@ export class PostgresTaskStorage
   /**
    * Save task with metadata-BLOB separation and compression
    */
-  async save(taskId: string, data: Uint8Array, metadata: TaskStorageMetadata): Promise<void> {
+  async doSave(taskId: string, data: Uint8Array, metadata: TaskStorageMetadata): Promise<void> {
     const client = await this.getClient();
     const startTime = Date.now();
 
@@ -225,7 +225,7 @@ export class PostgresTaskStorage
   /**
    * Load task data with automatic decompression
    */
-  async load(taskId: string): Promise<Uint8Array | null> {
+  async doLoad(taskId: string): Promise<Uint8Array | null> {
     const client = await this.getClient();
     const startTime = Date.now();
 
@@ -281,7 +281,7 @@ export class PostgresTaskStorage
   /**
    * Delete task (cascade delete will handle blobs)
    */
-  async delete(taskId: string): Promise<void> {
+  async doDelete(taskId: string): Promise<void> {
     const client = await this.getClient();
 
     try {

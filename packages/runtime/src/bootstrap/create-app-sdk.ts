@@ -120,6 +120,13 @@ export async function createAppSDK(options: AppSDKOptions = {}): Promise<AppSDKR
     await options.hooks.onStorageReady(storageManager);
   }
 
+  // Determine if strict storage mode should be enforced.
+  // When storage type is "memory" or no storage is configured, strictStorage
+  // must be disabled because all adapters will be undefined.
+  const storageType = options.storage?.storage?.type;
+  const isStorageDisabled = !storageType || storageType === "memory";
+  const effectiveStrictStorage = isStorageDisabled ? false : (options.strictStorage ?? true);
+
   // 3. Initialize the SDK with storage adapters and lifecycle hooks
   const sdk = createSDK({
     debug: options.debug,
@@ -127,7 +134,7 @@ export async function createAppSDK(options: AppSDKOptions = {}): Promise<AppSDKR
       level: options.debug ? "debug" : options.verbose ? "info" : "warn",
     },
     presets: options.presets,
-    strictStorage: options.strictStorage ?? true,
+    strictStorage: effectiveStrictStorage,
     ...storageManager.getAllAdapters(),
     defaultTimeout: options.defaultTimeout,
     workflowExecution: {

@@ -62,8 +62,8 @@ export interface BasePostgresStorageConfig {
  * @template TMetadata metadata type
  * @template TListOptions list options type
  */
-export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<string, unknown>>
-  extends StorageAdapterBase<TMetadata, TListOptions>
+export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<string, unknown>, TSaveOptions = void>
+  extends StorageAdapterBase<TMetadata, TListOptions, TSaveOptions>
 {
   protected pool: Pool | null = null;
   protected usingPool: boolean = false;
@@ -409,23 +409,53 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
         );
 
         const sizeInfo = result.rows[0];
-        return {
+        return this.populateCacheMetrics({
           ...this.metrics,
           totalCount: parseInt(sizeInfo.count) || 0,
           totalBlobSize: parseInt(sizeInfo.total_blob_size) || 0,
-        };
+        });
       } finally {
         this.releaseClient(client);
       }
     } catch (error) {
       logger.error('Failed to get metrics', { error });
-      return { ...this.metrics };
+      return this.populateCacheMetrics({ ...this.metrics });
     }
   }
 
+  // ── Template methods for cache integration ─────────────────────────────
+  /**
+   * Subclasses must implement doSave() instead of save().
+   * The base class wraps doSave() with cache invalidation.
+   * @param options - Optional save options (TSaveOptions), forwarded from save()
+   */
+  protected abstract doSave(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void>;
+
+  /**
+   * Subclasses must implement doLoad() instead of load().
+   * The base class wraps doLoad() with read-through caching.
+   */
+  protected abstract doLoad(id: string): Promise<Uint8Array | null>;
+
+  override async save(id: string, data: Uint8Array, metadata: TMetadata, options?: TSaveOptions): Promise<void> {
+    await this.saveAndInvalidateCache(id, () => this.doSave(id, data, metadata, options));
+  }
+
+  override async load(id: string): Promise<Uint8Array | null> {
+    return this.loadFromCache(id, () => this.doLoad(id));
+  }
+
+  /**
+   * Subclasses must implement doDelete() instead of delete().
+   * The base class wraps doDelete() with cache invalidation.
+   */
+  protected abstract doDelete(id: string): Promise<void>;
+
+  override async delete(id: string): Promise<void> {
+    await this.deleteAndInvalidateCache(id, () => this.doDelete(id));
+  }
+
   // ── CRUD abstract methods (must be implemented by subclasses) ──────────
-  abstract override save(id: string, data: Uint8Array, metadata: TMetadata): Promise<void>;
-  abstract override load(id: string): Promise<Uint8Array | null>;
   abstract override list(options?: TListOptions): Promise<string[]>;
   abstract override getMetadata(id: string): Promise<TMetadata | null>;
 
@@ -443,6 +473,7 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
         await client.query(`DELETE FROM ${blobTableName}`);
       }
       
+      this.clearCache();
       logger.info('PostgreSQL tables cleared', { 
         table: this.getTableName(),
         blobTable: blobTableName 
@@ -601,6 +632,11 @@ export abstract class BasePostgresStorage<TMetadata, TListOptions = Record<strin
         
         // Commit transaction
         await client.query('COMMIT');
+
+        // Invalidate cache for all deleted ids
+        for (const id of ids) {
+          this.cache?.delete(id);
+        }
 
         const elapsed = Date.now() - startTime;
         this.updateMetric('delete', elapsed / ids.length);

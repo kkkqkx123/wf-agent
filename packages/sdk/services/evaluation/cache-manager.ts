@@ -11,6 +11,11 @@
  * - Error handling for invalid context paths
  * - Compiler-independent cache key generation
  *
+ * Design:
+ * Uses the generic CacheManager from @wf-agent/common-utils/cache as internal
+ * storage for both compilation and execution caches, avoiding direct coupling
+ * to lru-cache and eliminating duplicate LRU/hash logic.
+ *
  * Thread Safety:
  * This class is designed for single-threaded (Node.js main thread) usage.
  * It is NOT thread-safe for use with Worker threads.
@@ -22,7 +27,7 @@ import type { CompiledUnit } from "./types/index.js";
 import { resolveContextPath } from "@sdk/services/evaluation/shared/path-resolver.js";
 import { getGlobalLogger } from "@wf-agent/common-utils";
 import { createHashAlgorithm, type IHashAlgorithm } from "@wf-agent/common-utils/cache";
-import { LRUCache } from "lru-cache";
+import { CacheManager as CommonCacheManager, createCacheSync } from "@wf-agent/common-utils/cache";
 
 interface CachedResult {
   result: unknown;
@@ -53,63 +58,49 @@ export class CacheManager {
   private logger = getGlobalLogger().child("CacheManager", { pkg: "sdk/workflow" });
 
   private hashAlgorithm: IHashAlgorithm;
-  private hashInitialized = false;
+  private initialized = false;
 
-  // Compilation cache: uses LRU eviction policy
-  private compilationCache: LRUCache<string, CompiledUnit>;
+  // Compilation cache: uses CommonCacheManager (LRU) internally
+  private compilationCache: CommonCacheManager<string, CompiledUnit>;
 
-  // Execution cache: uses LRU eviction policy
-  private executionCache: LRUCache<string, CachedResult>;
-
-  private readonly MAX_COMPILATION_CACHE: number;
-  private readonly MAX_EXECUTION_CACHE: number;
-
-  // Cache statistics
-  private compilationHits = 0;
-  private compilationMisses = 0;
-  private executionHits = 0;
-  private executionMisses = 0;
+  // Execution cache: uses CommonCacheManager (LRU) internally
+  private executionCache: CommonCacheManager<string, CachedResult>;
 
   private useShallowComparison: boolean;
 
   constructor(options?: CacheManagerOptions) {
-    this.MAX_COMPILATION_CACHE = options?.compilationCacheSize ?? 1000;
-    this.MAX_EXECUTION_CACHE = options?.executionCacheSize ?? 5000;
+    const maxCompilation = options?.compilationCacheSize ?? 1000;
+    const maxExecution = options?.executionCacheSize ?? 5000;
 
-    this.compilationCache = new LRUCache<string, CompiledUnit>({
-      max: this.MAX_COMPILATION_CACHE,
+    this.compilationCache = createCacheSync<string, CompiledUnit>({
+      maxSize: maxCompilation,
+      hashBits: 64,
+      enableStats: true,
     });
-    this.executionCache = new LRUCache<string, CachedResult>({
-      max: this.MAX_EXECUTION_CACHE,
+    this.executionCache = createCacheSync<string, CachedResult>({
+      maxSize: maxExecution,
+      hashBits: 64,
+      enableStats: true,
     });
     this.useShallowComparison = options?.useShallowComparison ?? false;
 
     // Initialize hash algorithm (xxHash64 - 10,000x faster than FNV-1a)
     this.hashAlgorithm = createHashAlgorithm("xxhash64");
-    this.initializeHashAlgorithm();
+    this.initializeInternal();
   }
 
   /**
-   * Initialize hash algorithm asynchronously
+   * Initialize hash algorithm and internal caches asynchronously
    */
-  private async initializeHashAlgorithm(): Promise<void> {
-    if (this.hashInitialized || this.hashAlgorithm.isInitialized?.()) {
-      return;
-    }
+  private async initializeInternal(): Promise<void> {
+    if (this.initialized) return;
 
-    if (this.hashAlgorithm.initialize) {
-      await this.hashAlgorithm.initialize();
-    }
-    this.hashInitialized = true;
-  }
-
-  /**
-   * Ensure hash algorithm is initialized before use
-   */
-  private async ensureHashInitialized(): Promise<void> {
-    if (!this.hashInitialized && !this.hashAlgorithm.isInitialized?.()) {
-      await this.initializeHashAlgorithm();
-    }
+    await Promise.all([
+      this.compilationCache.initialize(),
+      this.executionCache.initialize(),
+      this.hashAlgorithm.initialize?.(),
+    ]);
+    this.initialized = true;
   }
 
   /**
@@ -147,69 +138,86 @@ export class CacheManager {
    * Replaces previous FNV-1a implementation (35 lines removed)
    */
   private hashValue(input: unknown): string {
+    // If the hash algorithm is not yet initialized, fall back to JSON.stringify
+    // to avoid throwing during early construction.
+    if (!this.hashAlgorithm.isInitialized?.()) {
+      return JSON.stringify(input);
+    }
     return this.hashAlgorithm.hash(input);
   }
 
   /**
-   * Initialize the cache manager's hash algorithm
-   * Should be called during application startup
+   * Initialize the cache manager's hash algorithm and internal caches.
+   * Should be called during application startup.
    */
   async initialize(): Promise<void> {
-    await this.ensureHashInitialized();
+    await this.initializeInternal();
   }
 
   /**
    * Get compiled unit from cache
    */
   getCompiled(cacheKey: string): CompiledUnit | null {
-    const cached = this.compilationCache.get(cacheKey) ?? null;
-    if (cached) {
-      this.compilationHits++;
-    } else {
-      this.compilationMisses++;
+    if (!this.initialized) return null;
+    try {
+      return this.compilationCache.get(cacheKey) ?? null;
+    } catch {
+      return null;
     }
-    return cached;
   }
 
   /**
    * Store compiled unit in cache
    */
   setCompiled(cacheKey: string, unit: CompiledUnit): void {
-    this.compilationCache.set(cacheKey, unit);
+    if (!this.initialized) return;
+    try {
+      this.compilationCache.set(cacheKey, unit);
+    } catch {
+      // Cache not ready yet, skip
+    }
   }
 
   /**
    * Get cached execution result
    */
   getCachedResult(cacheKey: string): unknown | null {
-    const cached = this.executionCache.get(cacheKey);
-    if (cached) {
-      this.executionHits++;
-      return cached.result;
+    if (!this.initialized) return null;
+    try {
+      const cached = this.executionCache.get(cacheKey);
+      if (cached) {
+        return cached.result;
+      }
+      return null;
+    } catch {
+      return null;
     }
-    this.executionMisses++;
-    return null;
   }
 
   /**
    * Check if dependencies have changed since last execution
    */
   hasDependenciesChanged(cacheKey: string, context: EvaluationContext): boolean {
-    const cached = this.executionCache.get(cacheKey);
-    if (!cached) return true; // No cache, treat as changed
+    if (!this.initialized) return true;
+    try {
+      const cached = this.executionCache.get(cacheKey);
+      if (!cached) return true; // No cache, treat as changed
 
-    const compareFunc = cached.useShallowComparison ? this.valuesShallowEqual : this.valuesEqual;
+      const compareFunc = cached.useShallowComparison ? this.valuesShallowEqual : this.valuesEqual;
 
-    for (const dep of cached.dependencies) {
-      const currentValue = this.getContextValue(dep, context);
-      const previousValue = cached.previousValues.get(dep);
+      for (const dep of cached.dependencies) {
+        const currentValue = this.getContextValue(dep, context);
+        const previousValue = cached.previousValues.get(dep);
 
-      if (!compareFunc.call(this, previousValue, currentValue)) {
-        return true;
+        if (!compareFunc.call(this, previousValue, currentValue)) {
+          return true;
+        }
       }
-    }
 
-    return false;
+      return false;
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -221,30 +229,32 @@ export class CacheManager {
     dependencies: string[],
     context: EvaluationContext,
   ): void {
-    const previousValues = new Map<string, unknown>();
-    for (const dep of dependencies) {
-      previousValues.set(dep, this.getContextValue(dep, context));
-    }
+    if (!this.initialized) return;
+    try {
+      const previousValues = new Map<string, unknown>();
+      for (const dep of dependencies) {
+        previousValues.set(dep, this.getContextValue(dep, context));
+      }
 
-    this.executionCache.set(cacheKey, {
-      result,
-      dependencies,
-      timestamp: Date.now(),
-      previousValues,
-      useShallowComparison: this.useShallowComparison,
-    });
+      this.executionCache.set(cacheKey, {
+        result,
+        dependencies,
+        timestamp: Date.now(),
+        previousValues,
+        useShallowComparison: this.useShallowComparison,
+      });
+    } catch {
+      // Cache not ready yet, skip
+    }
   }
 
   /**
    * Clear all caches
    */
   clear(): void {
+    if (!this.initialized) return;
     this.compilationCache.clear();
     this.executionCache.clear();
-    this.compilationHits = 0;
-    this.compilationMisses = 0;
-    this.executionHits = 0;
-    this.executionMisses = 0;
     this.logger.debug("Cache cleared");
   }
 
@@ -252,6 +262,7 @@ export class CacheManager {
    * Clear execution cache only (keep compilation cache)
    */
   clearExecutionCache(): void {
+    if (!this.initialized) return;
     this.executionCache.clear();
   }
 
@@ -268,18 +279,31 @@ export class CacheManager {
     executionMisses: number;
     executionHitRate: number;
   } {
-    const compilationTotal = this.compilationHits + this.compilationMisses;
-    const executionTotal = this.executionHits + this.executionMisses;
+    if (!this.initialized) {
+      return {
+        compilation: 0,
+        execution: 0,
+        compilationHits: 0,
+        compilationMisses: 0,
+        compilationHitRate: 0,
+        executionHits: 0,
+        executionMisses: 0,
+        executionHitRate: 0,
+      };
+    }
+
+    const compStats = this.compilationCache.getStats();
+    const execStats = this.executionCache.getStats();
 
     return {
-      compilation: this.compilationCache.size,
-      execution: this.executionCache.size,
-      compilationHits: this.compilationHits,
-      compilationMisses: this.compilationMisses,
-      compilationHitRate: compilationTotal > 0 ? this.compilationHits / compilationTotal : 0,
-      executionHits: this.executionHits,
-      executionMisses: this.executionMisses,
-      executionHitRate: executionTotal > 0 ? this.executionHits / executionTotal : 0,
+      compilation: compStats.size,
+      execution: execStats.size,
+      compilationHits: compStats.hits,
+      compilationMisses: compStats.misses,
+      compilationHitRate: compStats.hitRate,
+      executionHits: execStats.hits,
+      executionMisses: execStats.misses,
+      executionHitRate: execStats.hitRate,
     };
   }
 
@@ -336,5 +360,11 @@ export class CacheManager {
   }
 }
 
+/**
+ * Singleton cache manager instance.
+ * Note: This is created at module load time but internal caches are NOT
+ * initialized until initialize() is explicitly called during application startup.
+ * Before that, all get/set operations are safe no-ops returning null.
+ */
 export const cacheManager = new CacheManager();
 export type { CacheManagerOptions };

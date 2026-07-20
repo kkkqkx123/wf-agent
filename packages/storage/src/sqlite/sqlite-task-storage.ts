@@ -115,7 +115,7 @@ export class SqliteTaskStorage
   /**
    * Save task with metadata-BLOB separation and compression
    */
-  async save(taskId: string, data: Uint8Array, metadata: TaskStorageMetadata): Promise<void> {
+  async doSave(taskId: string, data: Uint8Array, metadata: TaskStorageMetadata): Promise<void> {
     const db = this.getDb();
     const now = Date.now();
 
@@ -200,7 +200,7 @@ export class SqliteTaskStorage
   /**
    * Load task data with automatic decompression
    */
-  override async load(id: string): Promise<Uint8Array | null> {
+  override async doLoad(id: string): Promise<Uint8Array | null> {
     const db = this.getDb();
 
     try {
@@ -250,7 +250,7 @@ export class SqliteTaskStorage
   /**
    * Delete task (cascade delete will handle blob)
    */
-  override async delete(id: string): Promise<void> {
+  async doDelete(id: string): Promise<void> {
     const db = this.getDb();
 
     try {

@@ -58,6 +58,10 @@ export class SkillRegistry {
   /** Internal cache control — not user-configurable */
   private static readonly CACHE_ENABLED = true;
   private static readonly CACHE_TTL = 300000; // 5 minutes
+  /** Max entries in the content cache before eviction */
+  private static readonly CACHE_MAX_SIZE = 100;
+  /** Max entries in the resource cache before eviction */
+  private static readonly RESOURCE_CACHE_MAX_SIZE = 500;
 
   constructor(
     config: SkillConfig,
@@ -421,6 +425,8 @@ export class SkillRegistry {
     if (SkillRegistry.CACHE_ENABLED) {
       skill.content = body;
       this.contentCache.set(name, { content: body, timestamp: Date.now() });
+      this.clearExpiredFromCache(this.contentCache);
+      this.evictOldestFromCache(this.contentCache, SkillRegistry.CACHE_MAX_SIZE);
     }
 
     return body;
@@ -466,6 +472,8 @@ export class SkillRegistry {
         content: content as string | Buffer,
         timestamp: Date.now(),
       });
+      this.clearExpiredFromCache(this.resourceCache);
+      this.evictOldestFromCache(this.resourceCache, SkillRegistry.RESOURCE_CACHE_MAX_SIZE);
     }
 
     return content;
@@ -503,6 +511,47 @@ export class SkillRegistry {
    */
   onCacheClear(handler: () => void): void {
     this.cacheClearHandlers.push(handler);
+  }
+
+  /**
+   * Remove expired entries from a TTL cache map.
+   * Must be called before checking capacity to free up space.
+   */
+  private clearExpiredFromCache<T>(
+    cache: Map<string, { content: T; timestamp: number }>,
+  ): void {
+    const now = Date.now();
+    for (const [key, entry] of cache.entries()) {
+      if (now - entry.timestamp >= SkillRegistry.CACHE_TTL) {
+        cache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Evict the oldest entry from a cache map when it exceeds maxSize.
+   * Expired entries should have been removed first via clearExpiredFromCache.
+   */
+  private evictOldestFromCache<T>(
+    cache: Map<string, { content: T; timestamp: number }>,
+    maxSize: number,
+  ): void {
+    while (cache.size >= maxSize) {
+      // Find the oldest entry (by timestamp)
+      let oldestKey: string | null = null;
+      let oldestTimestamp = Infinity;
+      for (const [key, entry] of cache.entries()) {
+        if (entry.timestamp < oldestTimestamp) {
+          oldestTimestamp = entry.timestamp;
+          oldestKey = key;
+        }
+      }
+      if (oldestKey) {
+        cache.delete(oldestKey);
+      } else {
+        break; // Safety guard
+      }
+    }
   }
 
   /**

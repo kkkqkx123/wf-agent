@@ -28,7 +28,7 @@ const logger = createModuleLogger("postgres-checkpoint-storage");
  * Implementing the CheckpointStorageAdapter interface with metadata-BLOB separation
  */
 export class PostgresCheckpointStorage
-  extends BasePostgresStorage<CheckpointStorageMetadata, CheckpointStorageListOptions>
+  extends BasePostgresStorage<CheckpointStorageMetadata, CheckpointStorageListOptions, CheckpointOptions>
   implements CheckpointStorageAdapter
 {
   constructor(config: BasePostgresStorageConfig) {
@@ -134,7 +134,7 @@ export class PostgresCheckpointStorage
   /**
    * Save checkpoint with metadata-BLOB separation and compression
    */
-  async save(
+  async doSave(
     checkpointId: string, 
     data: Uint8Array, 
     metadata: CheckpointStorageMetadata,
@@ -294,7 +294,7 @@ export class PostgresCheckpointStorage
   /**
    * Load checkpoint with decompression
    */
-  async load(checkpointId: string): Promise<Uint8Array | null> {
+  async doLoad(checkpointId: string): Promise<Uint8Array | null> {
     const client = await this.getClient();
     const startTime = Date.now();
 
@@ -347,7 +347,7 @@ export class PostgresCheckpointStorage
   /**
    * Delete checkpoint
    */
-  async delete(checkpointId: string): Promise<void> {
+  async doDelete(checkpointId: string): Promise<void> {
     const client = await this.getClient();
 
     try {

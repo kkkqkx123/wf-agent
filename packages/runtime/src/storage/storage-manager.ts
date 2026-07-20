@@ -21,6 +21,7 @@ import type {
 } from "@wf-agent/storage";
 import type { SDKOptions } from "@wf-agent/sdk/api";
 import {
+  // SQLite adapters
   SqliteCheckpointStorage,
   SqliteWorkflowStorage,
   SqliteWorkflowExecutionStorage,
@@ -33,7 +34,35 @@ import {
   SqliteHookTemplateStorage,
   SqliteAgentProfileStorage,
   type BaseSqliteStorageConfig,
+  configurePragmas,
+  // PostgreSQL adapters
+  PostgresCheckpointStorage,
+  PostgresWorkflowStorage,
+  PostgresWorkflowExecutionStorage,
+  PostgresTaskStorage,
+  PostgresAgentLoopStorage,
+  PostgresTriggerStorage,
+  PostgresToolStorage,
+  PostgresScriptStorage,
+  PostgresNodeTemplateStorage,
+  PostgresHookTemplateStorage,
+  PostgresAgentProfileStorage,
+  type BasePostgresStorageConfig,
+  getPostgresGlobalConnectionPool,
+  // Memory adapters
+  MemoryCheckpointStorage,
+  MemoryWorkflowStorage,
+  MemoryWorkflowExecutionStorage,
+  MemoryTaskStorage,
+  MemoryAgentLoopStorage,
+  MemoryTriggerStorage,
+  MemoryToolStorage,
+  MemoryScriptStorage,
+  MemoryNodeTemplateStorage,
+  MemoryHookTemplateStorage,
+  MemoryAgentProfileStorage,
 } from "@wf-agent/storage";
+import Database from "better-sqlite3";
 import { createPackageLogger, registerLogger, createLazyLogger } from "@wf-agent/common-utils";
 import type { RuntimeStorageConfig } from "../config/types.js";
 
@@ -55,6 +84,8 @@ export class StorageManager {
   private hookTemplateStorage: HookTemplateStorageAdapter | null = null;
   private agentProfileStorage: AgentProfileStorageAdapter | null = null;
   private initialized: boolean = false;
+  /** Shared SQLite connection injected into all storage instances */
+  private sharedDb: Database.Database | null = null;
 
   constructor(private config: RuntimeStorageConfig) {}
 
@@ -73,9 +104,28 @@ export class StorageManager {
 
     if (storageConfig.type === "sqlite") {
       await this.initializeSQLiteStorage(storageConfig.sqlite);
+    } else if (storageConfig.type === "memory") {
+      await this.initializeMemoryStorage();
+    } else if (storageConfig.type === "postgres") {
+      const pgConfig = storageConfig.postgres;
+      if (!pgConfig) {
+        throw new Error("PostgreSQL storage config is missing. Set storage.postgres in config.");
+      }
+      // Convert user-facing PostgresStorageConfig to internal BasePostgresStorageConfig
+      await this.initializePostgresStorage({
+        connectionString: `postgresql://${encodeURIComponent(pgConfig.username)}:${encodeURIComponent(pgConfig.password)}@${pgConfig.host}:${pgConfig.port ?? 5432}/${pgConfig.database}`,
+        poolConfig: {
+          max: pgConfig.poolSize,
+          min: pgConfig.minConnections,
+          idleTimeoutMillis: pgConfig.idleTimeout,
+          connectionTimeoutMillis: pgConfig.connectionTimeout,
+          maxUses: pgConfig.maxUses,
+        },
+      });
     } else {
       throw new Error(
-        `Unsupported storage type: ${(storageConfig as unknown as Record<string, unknown>)["type"]}`
+        `Unsupported storage type: "${(storageConfig as unknown as Record<string, unknown>)["type"]}". ` +
+        `Currently only "sqlite", "postgres", and "memory" are supported.`
       );
     }
 
@@ -92,40 +142,166 @@ export class StorageManager {
       dbPath,
     };
 
+    // Create a single shared SQLite connection for all storage instances
+    this.sharedDb = new Database(dbPath);
+    configurePragmas(this.sharedDb, {
+      autoVacuum: config?.autoVacuum,
+      journalSizeLimit: config?.journalSizeLimit,
+      synchronous: 'NORMAL',
+      walAutocheckpoint: 1000,
+    });
+
+    // Apply additional pragmas that configurePragmas does not cover
+    // (must match SqliteKeyValueStorageBase.createSchema defaults)
+    this.sharedDb.pragma("cache_size = -64000"); // 64MB
+    this.sharedDb.pragma("foreign_keys = ON");
+
+    // Apply page size if configured (must be set before any tables are created)
+    if (config?.pageSize) {
+      this.sharedDb.pragma(`page_size = ${config.pageSize}`);
+    }
+
+    logger.info("Created shared SQLite connection", { dbPath });
+
+    // Create all storage instances and inject the shared connection
     this.workflowStorage = new SqliteWorkflowStorage(baseConfig);
+    (this.workflowStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.workflowStorage.initialize();
 
     this.workflowExecutionStorage = new SqliteWorkflowExecutionStorage(baseConfig);
+    (this.workflowExecutionStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.workflowExecutionStorage.initialize();
 
     this.checkpointStorage = new SqliteCheckpointStorage(baseConfig);
+    (this.checkpointStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.checkpointStorage.initialize();
 
     this.taskStorage = new SqliteTaskStorage(baseConfig);
+    (this.taskStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.taskStorage.initialize();
 
     this.agentLoopStorage = new SqliteAgentLoopStorage(baseConfig);
+    (this.agentLoopStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.agentLoopStorage.initialize();
 
     this.triggerStorage = new SqliteTriggerStorage(baseConfig);
+    (this.triggerStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.triggerStorage.initialize();
 
     this.toolStorage = new SqliteToolStorage(baseConfig);
+    (this.toolStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.toolStorage.initialize();
 
     this.scriptStorage = new SqliteScriptStorage(baseConfig);
+    (this.scriptStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.scriptStorage.initialize();
 
     this.nodeTemplateStorage = new SqliteNodeTemplateStorage(baseConfig);
+    (this.nodeTemplateStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.nodeTemplateStorage.initialize();
 
     this.hookTemplateStorage = new SqliteHookTemplateStorage(baseConfig);
+    (this.hookTemplateStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.hookTemplateStorage.initialize();
 
     this.agentProfileStorage = new SqliteAgentProfileStorage(baseConfig);
+    (this.agentProfileStorage as unknown as { setExternalDb: (db: Database.Database) => void }).setExternalDb(this.sharedDb);
     await this.agentProfileStorage.initialize();
 
-    logger.info("SQLite storage initialized", { dbPath });
+    logger.info("SQLite storage initialized with shared connection", { dbPath });
+  }
+
+  private async initializeMemoryStorage(): Promise<void> {
+    logger.info("Storage type is 'memory', initializing in-memory storage adapters");
+
+    this.workflowStorage = new MemoryWorkflowStorage();
+    await this.workflowStorage.initialize();
+
+    this.workflowExecutionStorage = new MemoryWorkflowExecutionStorage();
+    await this.workflowExecutionStorage.initialize();
+
+    this.checkpointStorage = new MemoryCheckpointStorage();
+    await this.checkpointStorage.initialize();
+
+    this.taskStorage = new MemoryTaskStorage();
+    await this.taskStorage.initialize();
+
+    this.agentLoopStorage = new MemoryAgentLoopStorage();
+    await this.agentLoopStorage.initialize();
+
+    this.triggerStorage = new MemoryTriggerStorage();
+    await this.triggerStorage.initialize();
+
+    this.toolStorage = new MemoryToolStorage();
+    await this.toolStorage.initialize();
+
+    this.scriptStorage = new MemoryScriptStorage();
+    await this.scriptStorage.initialize();
+
+    this.nodeTemplateStorage = new MemoryNodeTemplateStorage();
+    await this.nodeTemplateStorage.initialize();
+
+    this.hookTemplateStorage = new MemoryHookTemplateStorage();
+    await this.hookTemplateStorage.initialize();
+
+    this.agentProfileStorage = new MemoryAgentProfileStorage();
+    await this.agentProfileStorage.initialize();
+
+    logger.info("Memory storage initialized with all adapters");
+  }
+
+  private async initializePostgresStorage(config?: BasePostgresStorageConfig): Promise<void> {
+    const connectionString = config?.connectionString ?? "";
+    if (!connectionString) {
+      throw new Error("PostgreSQL connection string is required. Set storage.postgres.connectionString in config.");
+    }
+
+    const baseConfig: BasePostgresStorageConfig = {
+      ...config,
+      connectionString,
+    };
+
+    // Use the global connection pool by default
+    if (!baseConfig.connectionPool) {
+      baseConfig.connectionPool = getPostgresGlobalConnectionPool();
+    }
+
+    logger.info("Initializing PostgreSQL storage", { connectionString });
+
+    this.workflowStorage = new PostgresWorkflowStorage(baseConfig);
+    await this.workflowStorage.initialize();
+
+    this.workflowExecutionStorage = new PostgresWorkflowExecutionStorage(baseConfig);
+    await this.workflowExecutionStorage.initialize();
+
+    this.checkpointStorage = new PostgresCheckpointStorage(baseConfig);
+    await this.checkpointStorage.initialize();
+
+    this.taskStorage = new PostgresTaskStorage(baseConfig);
+    await this.taskStorage.initialize();
+
+    this.agentLoopStorage = new PostgresAgentLoopStorage(baseConfig);
+    await this.agentLoopStorage.initialize();
+
+    this.triggerStorage = new PostgresTriggerStorage(baseConfig);
+    await this.triggerStorage.initialize();
+
+    this.toolStorage = new PostgresToolStorage(baseConfig);
+    await this.toolStorage.initialize();
+
+    this.scriptStorage = new PostgresScriptStorage(baseConfig);
+    await this.scriptStorage.initialize();
+
+    this.nodeTemplateStorage = new PostgresNodeTemplateStorage(baseConfig);
+    await this.nodeTemplateStorage.initialize();
+
+    this.hookTemplateStorage = new PostgresHookTemplateStorage(baseConfig);
+    await this.hookTemplateStorage.initialize();
+
+    this.agentProfileStorage = new PostgresAgentProfileStorage(baseConfig);
+    await this.agentProfileStorage.initialize();
+
+    logger.info("PostgreSQL storage initialized with all adapters", { connectionString });
   }
 
   getWorkflowStorage(): WorkflowStorageAdapter | null {
@@ -210,6 +386,7 @@ export class StorageManager {
       return;
     }
 
+    // Close all individual storage instances (they will skip closing the shared connection)
     const results = await Promise.allSettled([
       this.workflowStorage?.close(),
       this.workflowExecutionStorage?.close(),
@@ -227,6 +404,18 @@ export class StorageManager {
     for (const result of results) {
       if (result.status === "rejected") {
         logger.error("Storage close error", { error: result.reason });
+      }
+    }
+
+    // Close the shared connection last
+    if (this.sharedDb) {
+      try {
+        this.sharedDb.close();
+        logger.info("Shared SQLite connection closed");
+      } catch (error) {
+        logger.error("Error closing shared SQLite connection", { error: (error as Error).message });
+      } finally {
+        this.sharedDb = null;
       }
     }
 

@@ -70,9 +70,11 @@
     "@wf-agent/config-processor": "workspace:*",
     "@wf-agent/sdk": "workspace:*",
     "@wf-agent/storage": "workspace:*",
-    "@wf-agent/types": "workspace:*"
+    "@wf-agent/types": "workspace:*",
+    "better-sqlite3": "^12.11.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "tsd": "^0.33.0"
   },
   "engines": {

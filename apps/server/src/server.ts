@@ -8,7 +8,30 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import http from "http";
 import type { ServerDependencyContainer } from "./services/container.js";
-import { createWorkflowRoutes, createExecutionRoutes, createEventsRoutes } from "./routes/index.js";
+import {
+  createWorkflowRoutes,
+  createExecutionRoutes,
+  createEventRoutes,
+  createWorkflowVersionRoutes,
+  createWorkflowGraphRoutes,
+  createCheckpointRoutes,
+  createToolRoutes,
+  createTemplateRoutes,
+  createScriptRoutes,
+  createVariableRoutes,
+  createTriggerRoutes,
+  createMessageRoutes,
+  createAgentLoopRoutes,
+  createIterationRoutes,
+  createAgentProfileRoutes,
+  createLLMProfileRoutes,
+  createSkillRoutes,
+  createProgressRoutes,
+  createComparisonRoutes,
+  createMetricsRoutes,
+  createSearchRoutes,
+  createStorageRoutes,
+} from "./routes/index.js";
 import { getOutput } from "./utils/output.js";
 
 export interface ServerConfig {
@@ -131,7 +154,26 @@ export class Server {
     // API v1 routes
     this.app.use("/api/v1/workflows", createWorkflowRoutes(this.container));
     this.app.use("/api/v1/executions", createExecutionRoutes(this.container));
-    this.app.use("/api/v1/events", createEventsRoutes(this.container));
+    this.app.use("/api/v1/events", createEventRoutes(this.container));
+    this.app.use("/api/v1/workflows/versions", createWorkflowVersionRoutes(this.container));
+    this.app.use("/api/v1/workflows/graph", createWorkflowGraphRoutes(this.container));
+    this.app.use("/api/v1/checkpoints", createCheckpointRoutes(this.container));
+    this.app.use("/api/v1/tools", createToolRoutes(this.container));
+    this.app.use("/api/v1/templates", createTemplateRoutes(this.container));
+    this.app.use("/api/v1/scripts", createScriptRoutes(this.container));
+    this.app.use("/api/v1/variables", createVariableRoutes(this.container));
+    this.app.use("/api/v1/triggers", createTriggerRoutes(this.container));
+    this.app.use("/api/v1/messages", createMessageRoutes(this.container));
+    this.app.use("/api/v1/agent-loops", createAgentLoopRoutes(this.container));
+    this.app.use("/api/v1/agent-loops/iterations", createIterationRoutes(this.container));
+    this.app.use("/api/v1/agent-profiles", createAgentProfileRoutes(this.container));
+    this.app.use("/api/v1/llm-profiles", createLLMProfileRoutes(this.container));
+    this.app.use("/api/v1/skills", createSkillRoutes(this.container));
+    this.app.use("/api/v1/executions/progress", createProgressRoutes(this.container));
+    this.app.use("/api/v1/executions/compare", createComparisonRoutes(this.container));
+    this.app.use("/api/v1/metrics", createMetricsRoutes(this.container));
+    this.app.use("/api/v1/search", createSearchRoutes(this.container));
+    this.app.use("/api/v1/storage", createStorageRoutes(this.container));
 
     // 404 handler
     this.app.use((_req: Request, res: Response) => {

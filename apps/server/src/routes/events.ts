@@ -1,107 +1,74 @@
 /**
- * Events Routes
- *
- * Server-Sent Events (SSE) endpoints for real-time execution updates:
- * - GET /events/executions/:id - Stream execution events
+ * Event Routes
+ * REST API endpoints for event management.
  */
 
 import { Router, type Request, type Response } from "express";
 import type { ServerDependencyContainer } from "../services/container.js";
-import { EventManager, type ExecutionEvent } from "../services/event-manager.js";
-import { getSafeParam } from "./route-helpers.js";
+import type { EventAdapter } from "../adapters/event-adapter.js";
+import { successResponse, errorResponse, mapErrorToResponse, getHttpStatus } from "../utils/api-response.js";
+import { getSafeParam, getIntParam } from "./route-helpers.js";
 
-export function createEventsRoutes(
-  _container: ServerDependencyContainer
-): Router {
+export function createEventRoutes(container: ServerDependencyContainer): Router {
   const router = Router();
-  const eventManager = EventManager.getInstance();
 
-  /**
-   * Stream execution events
-   * GET /events/executions/:id
-   *
-   * Returns Server-Sent Events stream for real-time updates:
-   * - status: Execution state changes (running, paused, cancelled, completed)
-   * - log: New log entries
-   * - progress: Progress updates (current step, total steps)
-   * - error: Execution errors
-   * - complete: Execution finished
-   *
-   * Client usage:
-   * ```javascript
-   * const eventSource = new EventSource('/api/v1/events/executions/exec_123');
-   * eventSource.addEventListener('status', (e) => {
-   *   console.log('Status:', JSON.parse(e.data));
-   * });
-   * eventSource.addEventListener('log', (e) => {
-   *   console.log('Log:', JSON.parse(e.data));
-   * });
-   * eventSource.addEventListener('error', (e) => {
-   *   console.error('Connection error');
-   * });
-   * ```
-   */
-  router.get("/executions/:id", (req: Request, res: Response) => {
-    const id = getSafeParam(req.params["id"]);
-
-    if (!id) {
-      res.status(400).json({
-        success: false,
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "Execution ID is required",
-        },
-      });
-      return;
+  router.get("/", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<EventAdapter>("event");
+      const filter: Record<string, any> = {};
+      const type = getSafeParam(req.query["type"] as string);
+      const executionId = getSafeParam(req.query["executionId"] as string);
+      const workflowId = getSafeParam(req.query["workflowId"] as string);
+      if (type) filter["type"] = type;
+      if (executionId) filter["executionId"] = executionId;
+      if (workflowId) filter["workflowId"] = workflowId;
+      const limit = getIntParam(req.query["limit"] as string, 50);
+      filter["limit"] = limit;
+      const events = await adapter.listEvents(filter);
+      res.json(successResponse(events, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
     }
+  });
 
-    // Set SSE headers
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("Access-Control-Allow-Origin", "*");
+  router.get("/stats", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<EventAdapter>("event");
+      const filter: Record<string, any> = {};
+      const type = getSafeParam(req.query["type"] as string);
+      const executionId = getSafeParam(req.query["executionId"] as string);
+      const workflowId = getSafeParam(req.query["workflowId"] as string);
+      if (type) filter["type"] = type;
+      if (executionId) filter["executionId"] = executionId;
+      if (workflowId) filter["workflowId"] = workflowId;
+      const stats = await adapter.getEventStats(filter);
+      res.json(successResponse(stats, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
 
-    // Send initial connection event
-    const connectionEvent: ExecutionEvent = {
-      type: "status",
-      executionId: id,
-      timestamp: new Date().toISOString(),
-      data: { message: "Connected to event stream" },
-    };
-    res.write(`data: ${JSON.stringify(connectionEvent)}\n\n`);
+  router.post("/trim", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<EventAdapter>("event");
+      const maxSize = getIntParam(req.body?.maxSize as string, 1000);
+      const removed = await adapter.trimEventHistory(maxSize);
+      res.json(successResponse({ maxSize, removed }, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
+  });
 
-    // Subscribe to events
-    const unsubscribe = eventManager.subscribe(id, (event: ExecutionEvent) => {
-      // Send event as SSE
-      try {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-      } catch (error) {
-        // Client disconnected, unsubscribe
-        unsubscribe();
-      }
-    });
-
-    // Handle client disconnect
-    req.on("close", () => {
-      unsubscribe();
-      res.end();
-    });
-
-    // Keep connection alive with heartbeat
-    const heartbeatInterval = setInterval(() => {
-      try {
-        res.write(":heartbeat\n\n");
-      } catch (error) {
-        clearInterval(heartbeatInterval);
-        unsubscribe();
-      }
-    }, 30000); // Every 30 seconds
-
-    // Cleanup on response end
-    res.on("finish", () => {
-      clearInterval(heartbeatInterval);
-      unsubscribe();
-    });
+  router.get("/:id", async (req: Request, res: Response) => {
+    try {
+      const adapter = container.getAdapter<EventAdapter>("event");
+      const id = getSafeParam(req.params["id"]);
+      if (!id) { res.status(400).json(errorResponse("VALIDATION_ERROR", "Event ID is required")); return; }
+      const event = await adapter.getEvent(id);
+      res.json(successResponse(event, { path: req.path, method: req.method }));
+    } catch (error) {
+      res.status(getHttpStatus("INTERNAL_ERROR")).json(mapErrorToResponse(error, req.path, req.method));
+    }
   });
 
   return router;

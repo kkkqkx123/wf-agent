@@ -23,6 +23,26 @@ import { bootstrapSDK, gracefulShutdown } from "./sdk-bootstrap.js";
 import { registerShutdownHandlers } from "@wf-agent/runtime/lifecycle";
 import { initializeContainer } from "./services/container.js";
 import { WorkflowAdapter } from "./adapters/workflow-adapter.js";
+import { WorkflowVersionAdapter } from "./adapters/workflow-version-adapter.js";
+import { WorkflowGraphAdapter } from "./adapters/workflow-graph-adapter.js";
+import { WorkflowExecutionCheckpointAdapter } from "./adapters/workflow-execution-checkpoint-adapter.js";
+import { ToolAdapter } from "./adapters/tool-adapter.js";
+import { TemplateAdapter } from "./adapters/template-adapter.js";
+import { ScriptAdapter } from "./adapters/script-adapter.js";
+import { VariableAdapter } from "./adapters/variable-adapter.js";
+import { TriggerAdapter } from "./adapters/trigger-adapter.js";
+import { EventAdapter } from "./adapters/event-adapter.js";
+import { MessageAdapter } from "./adapters/message-adapter.js";
+import { AgentLoopAdapter } from "./adapters/agent-loop-adapter.js";
+import { IterationAnalysisAdapter } from "./adapters/iteration-analysis-adapter.js";
+import { AgentProfileAdapter } from "./adapters/agent-profile-adapter.js";
+import { LLMProfileAdapter } from "./adapters/llm-profile-adapter.js";
+import { SkillAdapter } from "./adapters/skill-adapter.js";
+import { ProgressTrackingAdapter } from "./adapters/progress-tracking-adapter.js";
+import { ExecutionComparisonAdapter } from "./adapters/execution-comparison-adapter.js";
+import { MetricsAdapter } from "./adapters/metrics-adapter.js";
+import { SearchAdapter } from "./adapters/search-adapter.js";
+import { StorageDiagnosticsAdapter } from "./adapters/storage-diagnostics-adapter.js";
 import { ExecutionService } from "./services/execution-service.js";
 import { Server } from "./server.js";
 
@@ -62,6 +82,26 @@ async function bootstrap(): Promise<void> {
 
     // Register adapters
     container.registerAdapter("workflow", new WorkflowAdapter(sdkInstance));
+    container.registerAdapter("workflow-version", new WorkflowVersionAdapter(sdkInstance));
+    container.registerAdapter("workflow-graph", new WorkflowGraphAdapter(sdkInstance));
+    container.registerAdapter("checkpoint", new WorkflowExecutionCheckpointAdapter(sdkInstance));
+    container.registerAdapter("tool", new ToolAdapter(sdkInstance));
+    container.registerAdapter("template", new TemplateAdapter(sdkInstance));
+    container.registerAdapter("script", new ScriptAdapter(sdkInstance));
+    container.registerAdapter("variable", new VariableAdapter(sdkInstance));
+    container.registerAdapter("trigger", new TriggerAdapter(sdkInstance));
+    container.registerAdapter("event", new EventAdapter(sdkInstance));
+    container.registerAdapter("message", new MessageAdapter(sdkInstance));
+    container.registerAdapter("agent-loop", new AgentLoopAdapter(sdkInstance));
+    container.registerAdapter("iteration-analysis", new IterationAnalysisAdapter(sdkInstance));
+    container.registerAdapter("agent-profile", new AgentProfileAdapter(sdkInstance));
+    container.registerAdapter("llm-profile", new LLMProfileAdapter(sdkInstance));
+    container.registerAdapter("skill", new SkillAdapter(sdkInstance));
+    container.registerAdapter("progress", new ProgressTrackingAdapter(sdkInstance));
+    container.registerAdapter("comparison", new ExecutionComparisonAdapter(sdkInstance));
+    container.registerAdapter("metrics", new MetricsAdapter(sdkInstance));
+    container.registerAdapter("search", new SearchAdapter(sdkInstance));
+    container.registerAdapter("storage", new StorageDiagnosticsAdapter(sdkInstance));
 
     // Register services
     container.registerService("execution", new ExecutionService(sdkInstance));

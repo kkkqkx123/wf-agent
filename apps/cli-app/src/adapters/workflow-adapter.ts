@@ -11,31 +11,11 @@ import { parseWorkflow } from "@wf-agent/sdk/api";
 import { loadConfigFile } from "@wf-agent/runtime/config";
 import { batchRegisterFromDir } from "@wf-agent/runtime/adapters";
 import type { WorkflowTemplate } from "@wf-agent/types";
-import { SDKKit } from "@wf-agent/sdk-kit";
-
-/**
- * Workflow Template with metadata fields
- */
-interface WorkflowWithMetadata extends WorkflowTemplate {
-  // type is already WorkflowTemplateType from WorkflowTemplate
-}
 
 /**
  * Workflow Adapter
  */
 export class WorkflowAdapter extends BaseAdapter {
-  private _sdkKit: SDKKit | null = null;
-
-  /**
-   * Get or create SDKKit instance for advanced operations
-   */
-  private getKit(): SDKKit {
-    if (!this._sdkKit) {
-      this._sdkKit = new SDKKit(this.sdk as any);
-    }
-    return this._sdkKit;
-  }
-
   constructor() {
     super();
   }
@@ -101,122 +81,6 @@ export class WorkflowAdapter extends BaseAdapter {
   }
 
   /**
-   * Update an existing workflow from a file
-   * @param id Workflow ID
-   * @param filePath Configuration file path
-   * @param parameters Runtime parameters (for template substitution)
-   * @returns Updated workflow definition
-   */
-  async updateWorkflow(id: string, filePath: string, parameters?: Record<string, unknown>): Promise<WorkflowTemplate> {
-    return this.executeWithErrorHandling(async () => {
-      const fullPath = resolve(process.cwd(), filePath);
-      const { content, format } = await loadConfigFile(fullPath);
-      const workflow = await parseWorkflow(content, format, parameters);
-
-      const api = this.sdk.workflows;
-      const result = await api.update(id, workflow);
-
-      if (result.result.isErr()) {
-        throw new Error(result.result.error.message);
-      }
-
-      this.logOperation(`Workflow updated: ${id}`);
-      return workflow;
-    }, "Update workflow");
-  }
-
-  /**
-   * Clone an existing workflow with a new ID
-   * @param sourceId Source workflow ID
-   * @param targetId Target workflow ID for the clone
-   * @param options Optional name and description overrides
-   * @returns The cloned workflow template
-   */
-  async cloneWorkflow(
-    sourceId: string,
-    targetId: string,
-    options?: { name?: string; description?: string },
-  ): Promise<WorkflowTemplate> {
-    return this.executeWithErrorHandling(async () => {
-      const kit = this.getKit();
-      const result = await kit.resource().workflows().clone(sourceId, targetId);
-
-      if (result.isErr()) {
-        throw new Error(result.error.message);
-      }
-
-      // Fetch the cloned workflow using the SDK API (returns full WorkflowTemplate type)
-      const api = this.sdk.workflows;
-      const template = await api.get(targetId);
-      if (!template) {
-        throw new Error(`Cloned workflow not found: ${targetId}`);
-      }
-
-      // Apply name/description overrides if provided
-      if (options?.name || options?.description) {
-        const updates: Partial<WorkflowTemplate> = {};
-        if (options.name) updates.name = options.name;
-        if (options.description) updates.description = options.description;
-        await api.update(targetId, updates);
-        if (options.name) template.name = options.name;
-        if (options.description) template.description = options.description;
-      }
-
-      this.logOperation(`Workflow cloned: ${sourceId} -> ${targetId}`);
-      return template;
-    }, "Clone workflow");
-  }
-
-  /**
-   * Rollback a workflow to a previous version
-   * @param id Workflow ID
-   * @param version Target version to rollback to
-   * @returns The rolled-back workflow template
-   */
-  async rollbackWorkflow(id: string, version: string): Promise<WorkflowTemplate> {
-    return this.executeWithErrorHandling(async () => {
-      const kit = this.getKit();
-      const result = await kit.resource().workflows().rollback(id, version);
-
-      if (result.isErr()) {
-        throw new Error(result.error.message);
-      }
-
-      // Fetch the rolled-back workflow using the SDK API (returns full WorkflowTemplate type)
-      const api = this.sdk.workflows;
-      const template = await api.get(id);
-      if (!template) {
-        throw new Error(`Rolled-back workflow not found: ${id}`);
-      }
-
-      this.logOperation(`Workflow rolled back: ${id} to version ${version}`);
-      return template;
-    }, "Rollback workflow");
-  }
-
-  /**
-   * List all versions of a workflow
-   * @param id Workflow ID
-   * @returns Array of workflow versions
-   */
-  async listWorkflowVersions(id: string): Promise<Array<{ version: string; createdAt: string; description?: string }>> {
-    return this.executeWithErrorHandling(async () => {
-      const kit = this.getKit();
-      const result = await kit.resource().workflows().listVersions(id);
-
-      if (result.isErr()) {
-        throw new Error(result.error.message);
-      }
-
-      return result.value.map((v: any) => ({
-        version: v.version || v.id || "N/A",
-        createdAt: String(v.createdAt || v.timestamp || ""),
-        description: v.description,
-      }));
-    }, "List workflow versions");
-  }
-
-  /**
    * List all workflows
    */
   async listWorkflows(filter?: Record<string, unknown>): Promise<Array<{
@@ -263,7 +127,7 @@ export class WorkflowAdapter extends BaseAdapter {
   /**
    * Get workflow details
    */
-  async getWorkflow(id: string): Promise<WorkflowWithMetadata> {
+  async getWorkflow(id: string): Promise<WorkflowTemplate & { type: string }> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.workflows;
       const workflow = await api.get(id);
@@ -286,12 +150,7 @@ export class WorkflowAdapter extends BaseAdapter {
   async deleteWorkflow(id: string): Promise<void> {
     return this.executeWithErrorHandling(async () => {
       const api = this.sdk.workflows;
-      const result = await api.delete(id);
-
-      // Check if the delete operation was successful
-      if (result && typeof result.result !== 'undefined' && result.result.isErr()) {
-        throw new Error(result.result.error.message);
-      }
+      await api.delete(id);
 
       // Output to stdout for user visibility and test verification, also log for audit
       this.logOperation(`Workflow is deleted: ${id}`);

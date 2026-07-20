@@ -15,25 +15,6 @@ const output = getOutput();
 const router = getRouter();
 
 /**
- * Extended options for workflow commands
- */
-interface WorkflowCommandOptions extends CommandOptions {
-  type?: string;
-  status?: string;
-  tag?: string;
-  json?: boolean;
-  versions?: boolean;
-  force?: boolean;
-  fromFile?: string;
-  params?: string;
-  keepVersion?: boolean;
-  name?: string;
-  description?: string;
-  toVersion?: string;
-  confirm?: boolean;
-}
-
-/**
  * Create Workflow Command Group
  */
 export function createWorkflowCommands(): Command {
@@ -145,27 +126,10 @@ export function createWorkflowCommands(): Command {
     .description("List all workflows")
     .option("-t, --table", "Output in table format:")
     .option("-v, --verbose", "Detailed output")
-    .option("--type <type>", "Filter by workflow type")
-    .option("--status <status>", "Filter by status")
-    .option("--tag <tag>", "Filter by tag")
-    .option("--json", "Output as JSON array")
-    .action(async (options: WorkflowCommandOptions) => {
+    .action(async (options: CommandOptions) => {
       try {
         const adapter = new WorkflowAdapter();
-        const filter: Record<string, unknown> = {};
-        if (options.tag) filter["tags"] = [options.tag];
-
-        let workflows = await adapter.listWorkflows(
-          Object.keys(filter).length > 0 ? filter : undefined,
-        );
-
-        // Apply CLI-side filters for type and status (not supported by SDK filter)
-        if (options.type) {
-          workflows = workflows.filter(w => w.type === options.type);
-        }
-        if (options.status) {
-          workflows = workflows.filter(w => w.status === options.status);
-        }
+        const workflows = await adapter.listWorkflows();
 
         if (workflows.length === 0) {
           router.render(workflows, {
@@ -176,24 +140,16 @@ export function createWorkflowCommands(): Command {
           return;
         }
 
-        // JSON output mode
-        if (options.json) {
-          output.output(JSON.stringify(workflows, null, 2));
-          return;
-        }
-
         router.render(workflows, {
           type: "list",
           entity: "workflow",
           format: () => {
             if (options.table) {
-              const headers = ["ID", "Name", "Type", "Status", "Version", "Creation time"];
+              const headers = ["ID", "Name", "Status", "Creation time"];
               const rows = workflows.map(w => [
                 w.id?.substring(0, 8) || "N/A",
                 w.name || "Unnamed",
-                w.type || "unknown",
                 w.status || "unknown",
-                w.version || "N/A",
                 w.createdAt || "N/A",
               ]);
               return getFormatter().table(headers, rows);
@@ -220,36 +176,19 @@ export function createWorkflowCommands(): Command {
     .command("show <id>")
     .description("View workflow details")
     .option("-v, --verbose", "Detailed output")
-    .option("--json", "Output as JSON")
-    .option("--versions", "Show version history")
-    .action(async (id, options: WorkflowCommandOptions) => {
+    .action(async (id, options: CommandOptions) => {
       try {
         const adapter = new WorkflowAdapter();
         const workflow = await adapter.getWorkflow(id);
-
-        // If --versions, also fetch and display version history
-        let versionsOutput = "";
-        if (options.versions) {
-          try {
-            const versions = await adapter.listWorkflowVersions(id);
-            if (versions.length > 0) {
-              versionsOutput = "\n\nVersion History:\n" + versions
-                .map(v => `  ${v.version} - ${v.createdAt}${v.description ? ` - ${v.description}` : ""}`)
-                .join("\n");
-            }
-          } catch {
-            versionsOutput = "\n\n(Version history not available)";
-          }
-        }
 
         router.render(workflow, {
           type: "detail",
           entity: "workflow",
           format: () => {
-            if (options.json || options.verbose) {
-              return getFormatter().json(workflow) + versionsOutput;
+            if (options.verbose) {
+              return getFormatter().json(workflow);
             }
-            return formatWorkflow(workflow) + versionsOutput;
+            return formatWorkflow(workflow);
           },
         });
       } catch (error) {
@@ -297,98 +236,6 @@ export function createWorkflowCommands(): Command {
         handleError(error, {
           operation: "delete-workflow",
           additionalInfo: { id },
-        });
-      }
-    });
-
-  // Update workflow command
-  workflowCmd
-    .command("update <id>")
-    .description("Update an existing workflow from a file")
-    .requiredOption("--from-file <file>", "Workflow configuration file")
-    .option("-p, --params <params>", "Runtime parameters (JSON format)")
-    .option("-k, --keep-version", "Keep the current version number (do not auto-increment)")
-    .action(async (id, options: WorkflowCommandOptions) => {
-      try {
-        const adapter = new WorkflowAdapter();
-        const parameters = options.params ? JSON.parse(options.params) : undefined;
-
-        await adapter.updateWorkflow(id, options.fromFile!, parameters);
-
-        router.render(
-          { id },
-          {
-            type: "action",
-            entity: "workflow",
-            message: `Workflow updated: ${id}`,
-            format: () => `Workflow updated successfully: ${id}`,
-          },
-        );
-      } catch (error) {
-        handleError(error, {
-          operation: "update-workflow",
-          additionalInfo: { id, fromFile: options.fromFile },
-        });
-      }
-    });
-
-  // Clone workflow command
-  workflowCmd
-    .command("clone <source-id> <target-id>")
-    .description("Clone an existing workflow with a new ID")
-    .option("-n, --name <name>", "New workflow name")
-    .option("-d, --description <desc>", "New description")
-    .action(async (sourceId, targetId, options: WorkflowCommandOptions) => {
-      try {
-        const adapter = new WorkflowAdapter();
-        const cloned = await adapter.cloneWorkflow(sourceId, targetId, {
-          name: options.name,
-          description: options.description,
-        });
-
-        router.render(cloned, {
-          type: "detail",
-          entity: "workflow",
-          format: () => formatWorkflow(cloned),
-          message: `Workflow cloned: ${sourceId} -> ${targetId}`,
-        });
-      } catch (error) {
-        handleError(error, {
-          operation: "clone-workflow",
-          additionalInfo: { sourceId, targetId },
-        });
-      }
-    });
-
-  // Rollback workflow command
-  workflowCmd
-    .command("rollback <id>")
-    .description("Rollback workflow to a previous version")
-    .requiredOption("--to-version <v>", "Target version to rollback to")
-    .option("--confirm", "Skip confirmation prompt")
-    .action(async (id, options: WorkflowCommandOptions) => {
-      try {
-        if (!options.confirm) {
-          output.warn(`This will rollback workflow '${id}' to version ${options.toVersion}.`);
-          output.warn("Use --confirm to proceed without prompt.");
-          output.info("Note: Interactive confirmation is not yet implemented in headless mode.");
-          output.info(`To proceed, run: workflow rollback ${id} --to-version ${options.toVersion} --confirm`);
-          return;
-        }
-
-        const adapter = new WorkflowAdapter();
-        const rolledBack = await adapter.rollbackWorkflow(id, options.toVersion!);
-
-        router.render(rolledBack, {
-          type: "detail",
-          entity: "workflow",
-          format: () => formatWorkflow(rolledBack),
-          message: `Workflow rolled back: ${id} to version ${options.toVersion}`,
-        });
-      } catch (error) {
-        handleError(error, {
-          operation: "rollback-workflow",
-          additionalInfo: { id, version: options.toVersion },
         });
       }
     });

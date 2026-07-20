@@ -60,7 +60,7 @@ function detectMode(): ExecutionMode {
  */
 function detectOutputFormat(mode?: ExecutionMode): OutputFormat {
   const format = process.env[ENV.OUTPUT_FORMAT] as OutputFormat | undefined;
-  if (format === "json" || format === "silent") return format;
+  if (format === "json" || format === "silent" || format === "text") return format;
 
   // Headless mode defaults to json output
   const currentMode = mode ?? detectMode();

@@ -161,7 +161,7 @@ type = "START"
 [[nodes]]
 id = "subgraph"
 type = "SUBGRAPH"
-config = { workflowId = "${childWorkflowId}" }
+config = { subgraphId = "${childWorkflowId}", async = false }
 
 [[nodes]]
 id = "end"
@@ -440,7 +440,7 @@ type = "START"
 [[nodes]]
 id = "child-process"
 type = "LLM"
-config = { llmProfileId = "gpt-4o" }
+config = { profileId = "gpt-4o" }
 
 [[nodes]]
 id = "child-end"

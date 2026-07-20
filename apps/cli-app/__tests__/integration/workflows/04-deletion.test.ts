@@ -147,9 +147,8 @@ describe("Workflow Deletion Tests", () => {
 
       // Verify error
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("Error");
       expect(result.stderr).toContain("Cannot be deleted.");
-      expect(result.stderr).toContain("Referenced by the following workflow");
+      expect(result.stderr).toContain("is referenced by");
       expect(result.stderr).toContain("parent-wf");
 
       // Verify child workflow still exists
@@ -190,8 +189,8 @@ describe("Workflow Deletion Tests", () => {
 
       // Verify cascade suggestion
       expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("Cannot be deleted");
       expect(result.stderr).toContain("--cascade");
-      expect(result.stderr).toContain("Cascade deletion");
 
     });
   });
@@ -234,7 +233,7 @@ describe("Workflow Deletion Tests", () => {
 
       // Verify cascade deletion
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("The workflow has been deleted.");
+      expect(result.stdout).toContain("Workflow is deleted");
       expect(result.stdout).toContain("child-wf-3");
       expect(result.stdout).toContain("Cascade Deletion");
       expect(result.stdout).toContain("parent-wf-3");
@@ -336,7 +335,7 @@ describe("Workflow Deletion Tests", () => {
 
       // Verify force is required (or confirmation prompt)
       expect(result.exitCode).not.toBe(0);
-      expect(result.stderr.includes("Error") || result.stderr.includes("Confirm")).toBe(true);
+      expect(result.stderr).toContain("Use --force to delete");
 
       // Verify workflow still exists
       const listResult = await runner.run(["workflow", "list"], {

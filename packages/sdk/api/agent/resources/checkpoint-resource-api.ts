@@ -16,6 +16,8 @@ import {
   type CheckpointDependencies,
 } from "../../../agent/checkpoint/checkpoint-coordinator.js";
 import { AgentLoopCheckpointStateManager } from "../../../agent/checkpoint/checkpoint-state-manager.js";
+import type { EventRegistry } from "../../../shared/registry/event-registry.js";
+import { buildCheckpointRestoredEvent } from "../../../shared/events/builders/index.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "AgentLoopCheckpointResourceAPI" });
@@ -61,13 +63,15 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
 > {
   private storage: CheckpointStorage;
   private stateManager?: AgentLoopCheckpointStateManager;
+  private eventManager?: EventRegistry;
   private checkpoints: Map<string, AgentLoopCheckpoint> = new Map();
   private checkpointsByAgentLoop: Map<string, string[]> = new Map();
 
-  constructor(storage?: CheckpointStorage, stateManager?: AgentLoopCheckpointStateManager) {
+  constructor(storage?: CheckpointStorage, stateManager?: AgentLoopCheckpointStateManager, eventManager?: EventRegistry) {
     super();
     this.storage = storage ?? this.createDefaultStorage();
     this.stateManager = stateManager;
+    this.eventManager = eventManager;
   }
 
   /**
@@ -267,7 +271,23 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
     };
 
     const coordinator = new AgentLoopCheckpointCoordinator();
-    return coordinator.restoreFromCheckpoint(checkpointId, dependencies);
+    const entity = await coordinator.restoreFromCheckpoint(checkpointId, dependencies);
+
+    // Emit checkpoint restored event if event manager is available
+    if (this.eventManager) {
+      const checkpoint = await this.storage.getCheckpoint(checkpointId);
+      if (checkpoint) {
+        await this.eventManager.emit(
+          buildCheckpointRestoredEvent({
+            executionId: checkpoint.agentLoopId,
+            checkpointId,
+            description: checkpoint.metadata?.description,
+          }),
+        );
+      }
+    }
+
+    return entity;
   }
 
   /**
@@ -417,6 +437,16 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
    */
   async getByIds(ids: string[]): Promise<AgentLoopCheckpoint[]> {
     return this.query({ ids });
+  }
+
+  /**
+   * Get checkpoints by tags
+   * @param agentLoopId Agent Loop ID
+   * @param tags Tags to filter by
+   * @returns Checkpoints with matching tags
+   */
+  async getByTags(agentLoopId: string, tags: string[]): Promise<AgentLoopCheckpoint[]> {
+    return this.query({ agentLoopId, tags } as unknown as AgentLoopCheckpointFilter);
   }
 
   /**

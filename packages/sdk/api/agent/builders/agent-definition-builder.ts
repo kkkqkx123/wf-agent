@@ -11,11 +11,11 @@ import type {
   AgentTriggerStatic,
   AgentToolConfig,
   AgentCheckpointConfig,
-  AgentLoopMetadata,
   Message,
   ID,
 } from "@wf-agent/types";
 import type { DynamicContextConfig } from "@wf-agent/types";
+import { BaseBuilder } from "../../shared/base-builder.js";
 
 /**
  * Utility to generate unique IDs
@@ -26,12 +26,13 @@ function generateId(): string {
 
 /**
  * AgentDefinitionBuilder - Build agent loop definition with fluent API
+ * Extends BaseBuilder to share common builder functionality (description, metadata, tags, timestamps)
+ * with other builders across Agent and Workflow domains.
  */
-export class AgentDefinitionBuilder {
+export class AgentDefinitionBuilder extends BaseBuilder<AgentLoopDefinition> {
   private _id?: ID;
   private _name?: string;
   private _version: string = "1.0.0";
-  private _description?: string;
   private _profileId?: ID;
   private _systemPrompt?: string;
   private _systemPromptTemplateId?: string;
@@ -44,7 +45,6 @@ export class AgentDefinitionBuilder {
   private _triggers: AgentTriggerStatic[] = [];
   private _dynamicContext?: DynamicContextConfig;
   private _checkpoint?: AgentCheckpointConfig;
-  private _metadata: AgentLoopMetadata = {};
 
   /**
    * Create a new AgentDefinitionBuilder instance
@@ -89,8 +89,9 @@ export class AgentDefinitionBuilder {
    * @param description Agent description
    * @returns this for chaining
    */
-  description(description: string): this {
+  override description(description: string): this {
     this._description = description;
+    this._updatedAt = Date.now();
     return this;
   }
 
@@ -298,23 +299,17 @@ export class AgentDefinitionBuilder {
 
   /**
    * Add metadata field
-   * @param key Metadata key
-   * @param value Metadata value
+   * @param keyOrObj Metadata key or object
+   * @param value Metadata value (if key is a string)
    * @returns this for chaining
    */
-  metadata(key: string, value: unknown): this;
-  /**
-   * Add metadata object
-   * @param metadata Metadata object
-   * @returns this for chaining
-   */
-  metadata(metadata: Record<string, unknown>): this;
-  metadata(keyOrObj: string | Record<string, unknown>, value?: unknown): this {
+  override metadata(keyOrObj: string | Record<string, unknown>, value?: unknown): this {
     if (typeof keyOrObj === "string") {
       this._metadata[keyOrObj] = value;
     } else {
       this._metadata = { ...this._metadata, ...keyOrObj };
     }
+    this._updatedAt = Date.now();
     return this;
   }
 

@@ -6,6 +6,10 @@
 
 import type { Timestamp } from "@wf-agent/types";
 import type { AgentHookType } from "@wf-agent/types";
+import type { HookTemplate } from "@wf-agent/types";
+import { ValidationError, ConfigurationValidationError } from "@wf-agent/types";
+import type { Result } from "@wf-agent/types";
+import { ok, err } from "@wf-agent/common-utils";
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
@@ -47,6 +51,8 @@ export interface AgentHookTemplateSummary {
 
 /**
  * Agent Hook Template Definition
+ * Wraps the underlying HookTemplate with agent-specific fields.
+ * The `id` field is mapped from the underlying HookTemplate's `name`.
  */
 export interface AgentHookTemplate {
   /** Template ID */
@@ -82,6 +88,32 @@ export interface AgentHookTemplate {
 }
 
 /**
+ * Convert a HookTemplate from the shared registry to an AgentHookTemplate.
+ * The shared HookTemplate stores hook config in a `hook` object, while
+ * AgentHookTemplate flattens those fields at the top level.
+ */
+function toAgentHookTemplate(template: HookTemplate): AgentHookTemplate {
+  const metadata = template.metadata ?? {};
+  return {
+    id: template.name,
+    name: template.name,
+    hookType: (template.hook?.hookType ?? "unknown") as AgentHookType,
+    condition: template.hook?.condition as string | undefined,
+    eventName: (template.hook?.eventName as string) ?? "",
+    eventPayload: template.hook?.eventPayload as Record<string, unknown> | undefined,
+    createCheckpoint: template.hook?.createCheckpoint,
+    checkpointDescription: template.hook?.checkpointDescription,
+    weight: (metadata as Record<string, unknown>)["weight"] as number | undefined,
+    description: template.description,
+    category: (metadata as Record<string, unknown>)["category"] as string | undefined,
+    tags: (metadata as Record<string, unknown>)["tags"] as string[] | undefined,
+    createdAt: template.createdAt,
+    updatedAt: template.updatedAt,
+    enabled: metadata["enabled"] !== false,
+  };
+}
+
+/**
  * Agent Hook Template Registry API
  */
 export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
@@ -89,10 +121,11 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
   string,
   AgentHookTemplateFilter
 > {
+  private dependencies: APIDependencyManager;
+
   constructor(dependencies: APIDependencyManager) {
     super();
-    // Store dependencies if needed for future implementation
-    void dependencies;
+    this.dependencies = dependencies;
   }
 
   /**
@@ -100,10 +133,10 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID/name
    * @returns The hook template; returns null if it does not exist
    */
-  protected async getResource(): Promise<AgentHookTemplate | null> {
-    // In a full implementation, this would retrieve from a template registry
-    // For now, returns null as placeholder for future implementation
-    return null;
+  protected async getResource(id: string): Promise<AgentHookTemplate | null> {
+    const template = this.dependencies.getHookTemplateRegistry().get(id);
+    if (!template) return null;
+    return toAgentHookTemplate(template);
   }
 
   /**
@@ -111,8 +144,8 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @returns Array of all hook templates
    */
   protected async getAllResources(): Promise<AgentHookTemplate[]> {
-    // In a full implementation, this would retrieve all templates from registry
-    return [];
+    const templates = this.dependencies.getHookTemplateRegistry().list();
+    return templates.map(toAgentHookTemplate);
   }
 
   /**
@@ -120,8 +153,7 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param resource Template to create
    */
   protected async createResource(resource: AgentHookTemplate): Promise<void> {
-    void resource; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.dependencies.getHookTemplateRegistry().register(resource as unknown as HookTemplate);
   }
 
   /**
@@ -133,9 +165,7 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
     id: string,
     updates: Partial<AgentHookTemplate>
   ): Promise<void> {
-    void id;
-    void updates; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.dependencies.getHookTemplateRegistry().update(id, updates as unknown as Partial<HookTemplate>);
   }
 
   /**
@@ -143,8 +173,7 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID to delete
    */
   protected async deleteResource(id: string): Promise<void> {
-    void id; // Suppress unused parameter warning
-    // In a full implementation, this would delete from storage
+    this.dependencies.getHookTemplateRegistry().unregister(id);
   }
 
   /**
@@ -213,5 +242,109 @@ export class AgentHookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    */
   async getTemplatesForHook(hookType: AgentHookType): Promise<AgentHookTemplate[]> {
     return this.queryByHookType(hookType);
+  }
+
+  /**
+   * Get hook template summaries.
+   * @param filter - Optional filter criteria
+   * @returns Array of hook template summaries
+   */
+  async getTemplateSummaries(filter?: AgentHookTemplateFilter): Promise<AgentHookTemplateSummary[]> {
+    const summaries = this.dependencies.getHookTemplateRegistry().listSummaries();
+
+    if (!filter) {
+      return summaries as AgentHookTemplateSummary[];
+    }
+
+    return (summaries as AgentHookTemplateSummary[]).filter((summary) => {
+      if (filter.name && !summary.name.toLowerCase().includes(filter.name.toLowerCase())) {
+        return false;
+      }
+      if (filter.hookType && summary.hookType !== filter.hookType) {
+        return false;
+      }
+      if (filter.category && summary.category !== filter.category) {
+        return false;
+      }
+      if (filter.tags && summary.tags) {
+        if (!filter.tags.every((tag) => summary.tags!.includes(tag))) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Search hook templates.
+   * @param keyword - Search keyword
+   * @returns Array of matching hook templates
+   */
+  async searchTemplates(keyword: string): Promise<AgentHookTemplate[]> {
+    const templates = this.dependencies.getHookTemplateRegistry().search(keyword);
+    return templates.map(toAgentHookTemplate);
+  }
+
+  /**
+   * Validate a hook template (no side effects).
+   * @param template - Hook template to validate
+   * @returns Validation result
+   */
+  async validateTemplate(template: AgentHookTemplate): Promise<Result<AgentHookTemplate, ValidationError[]>> {
+    const errors: ValidationError[] = [];
+
+    if (!template.name || typeof template.name !== "string") {
+      errors.push(
+        new ConfigurationValidationError("Hook template name is required and must be a string", {
+          configType: "hook_template",
+          configPath: "template.name",
+          field: "name",
+        }),
+      );
+    }
+
+    if (!template.hookType) {
+      errors.push(
+        new ConfigurationValidationError("Hook template hookType is required", {
+          configType: "hook_template",
+          configPath: "template.hookType",
+          field: "hookType",
+        }),
+      );
+    }
+
+    if (!template.eventName) {
+      errors.push(
+        new ConfigurationValidationError("Hook template eventName is required", {
+          configType: "hook_template",
+          configPath: "template.eventName",
+          field: "eventName",
+        }),
+      );
+    }
+
+    if (errors.length > 0) {
+      return err(errors);
+    }
+
+    return ok(template);
+  }
+
+  /**
+   * Export a hook template as JSON.
+   * @param name - Hook template name
+   * @returns JSON string
+   */
+  async exportTemplate(name: string): Promise<string> {
+    return this.dependencies.getHookTemplateRegistry().export(name);
+  }
+
+  /**
+   * Import a hook template from JSON.
+   * @param json - JSON string
+   * @returns Hook template name
+   */
+  async importTemplate(json: string): Promise<string> {
+    return this.dependencies.getHookTemplateRegistry().import(json);
   }
 }

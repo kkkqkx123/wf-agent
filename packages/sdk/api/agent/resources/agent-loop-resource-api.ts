@@ -2,6 +2,12 @@
  * AgentLoopResourceAPI - Agent Loop Entity Resource Management API
  * Inherits GenericResourceAPI, provides unified CRUD operations for agent loop entities
  *
+ * @deprecated Use {@link AgentLoopRegistryAPI} instead. AgentLoopRegistryAPI now provides
+ * all the methods previously only available in this class (updateStatus, listByStatus,
+ * getSummary, listSummaries). AgentLoopRegistryAPI integrates with the DI-managed
+ * AgentLoopRegistry, providing consistent access to all agent loop operations.
+ * This class will be removed in a future major version.
+ *
  * Responsibilities:
  * - Manages agent loop entity lifecycle (create, read, update, delete)
  * - Integrates with AgentLoopStateManager for persistence

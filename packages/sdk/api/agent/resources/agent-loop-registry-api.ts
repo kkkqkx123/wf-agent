@@ -1,11 +1,21 @@
 /**
- * AgentLoopRegistryAPI - Agent Loop Registry Management API
- * Inherits GenericResourceAPI and provides unified CRUD operations.
+ * AgentLoopRegistryAPI - Agent Loop Registry Management API (Read-Only Query Registry)
+ *
+ * This is a **read-only query registry** focused on execution analytics.
+ * It provides query methods for iteration history, timeline, variable history,
+ * context evolution, and execution statistics.
+ *
+ * For writeable entity CRUD operations (create, update, delete agent loop entities),
+ * use {@link AgentLoopResourceAPI} instead.
  *
  * Responsibilities:
- * - Encapsulate AgentLoopRegistry, provide query and management of Agent Loop instances
- * - Provide statistical information, status query and other functions.
+ * - Query and retrieve Agent Loop instances from the underlying registry
+ * - Provide execution analytics: iteration history, timeline, variable history, context evolution
+ * - Provide statistical information and status queries
  * - Refer to the design pattern of WorkflowExecutionRegistryAPI.
+ *
+ * Note: createResource and updateResource are not supported (throw errors).
+ * Agent Loops are created through AgentLoopEntity, not through this API.
  */
 
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
@@ -23,6 +33,10 @@ export interface AgentLoopFilter {
   ids?: ID[];
   /** State Filtering */
   status?: AgentLoopStatus;
+  /** Profile ID filter */
+  profileId?: string;
+  /** Tag filter */
+  tags?: string[];
   /** Creation timeframe */
   createdAtRange?: {
     start?: number;
@@ -48,16 +62,28 @@ export interface AgentLoopSummary {
   endTime: number | null;
   /** Execution time (milliseconds) */
   executionTime?: number;
+  /** Profile ID (from AgentLoopResourceAPI) */
+  profileId?: string;
 }
 
 /**
- * AgentLoopRegistryAPI - Agent Loop Registry Management API
+ * AgentLoopRegistryAPI - Agent Loop Registry Management API (Read-Only Query Registry)
+ *
+ * This is a **read-only query registry** focused on execution analytics.
+ * It provides query methods for iteration history, timeline, variable history,
+ * context evolution, and execution statistics.
+ *
+ * For writeable entity CRUD operations (create, update, delete agent loop entities),
+ * use {@link AgentLoopResourceAPI} instead.
  *
  * Core Responsibilities:
- * - Manage active AgentLoopEntity instances.
- * - Provide registration, query and deletion of instances
- * - Provide registration, query and deletion of instances.
- * - Provide statistical information
+ * - Query and retrieve Agent Loop instances from the underlying registry
+ * - Provide execution analytics: iteration history, timeline, variable history, context evolution
+ * - Provide statistical information and status queries
+ * - Refer to the design pattern of WorkflowExecutionRegistryAPI.
+ *
+ * Note: createResource and updateResource are not supported and throw errors.
+ * Agent Loops are created through AgentLoopEntity, not through this API.
  */
 export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEntity, ID, AgentLoopFilter> {
   private registry: AgentLoopRegistry;
@@ -94,7 +120,10 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
   }
 
   /**
-   * Create Agent Loop - Not supported, Agent Loops are created via AgentLoopEntity
+   * Create Agent Loop - Not supported
+   *
+   * @deprecated Agent Loop creation is not supported via this read-only query registry.
+   * Agent Loops are created through AgentLoopEntity. Use {@link AgentLoopResourceAPI} instead.
    * @param resource Agent Loop entity
    */
   protected async createResource(_resource: AgentLoopEntity): Promise<void> {
@@ -104,7 +133,10 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
   }
 
   /**
-   * Update Agent Loop - Not supported, Agent Loop state is managed via AgentLoopEntity
+   * Update Agent Loop - Not supported
+   *
+   * @deprecated Agent Loop update is not supported via this read-only query registry.
+   * Agent Loop state is managed through AgentLoopEntity. Use {@link AgentLoopResourceAPI} instead.
    * @param id Agent Loop ID
    * @param updates Partial updates
    */
@@ -143,6 +175,15 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       }
       if (filter.status && entity.getStatus() !== filter.status) {
         return false;
+      }
+      if (filter.profileId && entity.config.profileId !== filter.profileId) {
+        return false;
+      }
+      if (filter.tags && filter.tags.length > 0) {
+        const entityTags = entity.config.tags || [];
+        if (!filter.tags.some(tag => entityTags.includes(tag))) {
+          return false;
+        }
       }
       if (filter.createdAtRange) {
         const startTime = entity.state.startTime;
@@ -190,8 +231,73 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
         startTime,
         endTime,
         executionTime: startTime !== null && endTime !== null ? endTime - startTime : undefined,
+        profileId: entity.config.profileId,
       };
     });
+  }
+
+  /**
+   * Get a single Agent Loop summary by ID
+   * @param agentLoopId Agent Loop ID
+   * @returns Agent Loop summary, or null if not found
+   */
+  async getAgentLoopSummary(agentLoopId: ID): Promise<AgentLoopSummary | null> {
+    const entity = await this.get(agentLoopId);
+    if (!entity) {
+      return null;
+    }
+
+    const startTime = entity.state.startTime;
+    const endTime = entity.state.endTime;
+    return {
+      id: entity.id,
+      status: entity.getStatus(),
+      currentIteration: entity.state.currentIteration,
+      toolCallCount: entity.state.toolCallCount,
+      startTime,
+      endTime,
+      executionTime: startTime !== null && endTime !== null ? endTime - startTime : undefined,
+      profileId: entity.config.profileId,
+    };
+  }
+
+  /**
+   * List agent loops by status
+   * @param status Status to filter by
+   * @returns Array of matching agent loop entities
+   */
+  async listByStatus(status: AgentLoopStatus): Promise<AgentLoopEntity[]> {
+    return this.registry.getByStatus(status);
+  }
+
+  /**
+   * Update agent loop status
+   * Delegates to the entity's state management methods for lifecycle transitions.
+   * @param agentLoopId Agent Loop ID
+   * @param status New status to set
+   */
+  async updateStatus(agentLoopId: ID, status: AgentLoopStatus): Promise<void> {
+    const entity = await this.registry.get(agentLoopId);
+    if (!entity) {
+      throw new Error(`Agent Loop not found: ${agentLoopId}`);
+    }
+    // Use the entity's state management methods for proper lifecycle transitions
+    switch (status) {
+      case AgentLoopStatus.RUNNING:
+        entity.resume();
+        break;
+      case AgentLoopStatus.PAUSED:
+        entity.pause();
+        break;
+      case AgentLoopStatus.CANCELLED:
+      case AgentLoopStatus.STOPPED:
+        entity.stop();
+        break;
+      default:
+        // For other status changes, directly set the status
+        entity.state.status = status;
+        break;
+    }
   }
 
   /**
@@ -305,10 +411,16 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   // ============================================================================
   // Iteration History Methods
+  //
+  // @deprecated Use {@link AgentLoopIterationAPI} instead for iteration-level analysis.
+  // The methods below are kept for backward compatibility but delegate to the
+  // more specific AgentLoopIterationAPI where possible.
   // ============================================================================
 
   /**
    * Get iteration history for an agent loop
+   *
+   * @deprecated Use {@link AgentLoopIterationAPI#getExtendedHistorySummary} for enhanced iteration analysis.
    * @param agentLoopId Agent loop ID
    * @returns Iteration details in chronological order
    */
@@ -331,6 +443,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   /**
    * Get iteration history summary for an agent loop
+   *
+   * @deprecated Use {@link AgentLoopIterationAPI#getExtendedHistorySummary} for enhanced iteration analysis.
    * @param agentLoopId Agent loop ID
    * @returns Iteration summary or null if agent loop not found
    */
@@ -364,12 +478,16 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
   }
 
   // ============================================================================
-  // Execution History APIs (P0: Align with Workflow API)
+  // Execution History APIs
+  //
+  // @deprecated Use {@link AgentExecutionStateAPI} for execution timeline and state tracking.
+  // The methods below are kept for backward compatibility.
   // ============================================================================
 
   /**
    * Get execution timeline for an agent loop
-   * Provides chronological view of all significant events during execution
+   *
+   * @deprecated Use {@link AgentExecutionStateAPI#getExecutionTimeline} instead.
    * @param agentLoopId Agent loop ID
    * @returns Timeline entries sorted by timestamp
    */
@@ -435,7 +553,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
         'STOP': 'interruption_stop',
       };
 
-      // Map interrupt type to user-friendly description
       const descriptionMap: Record<string, string> = {
         'PAUSE': 'paused',
         'STOP': 'stopped',
@@ -473,6 +590,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   /**
    * Get variable history - track how a specific variable changed throughout execution
+   *
+   * @deprecated Use {@link AgentVariableResourceAPI} for variable management.
    * @param agentLoopId Agent loop ID
    * @param variableName Variable name to track
    * @returns Variable snapshots in chronological order
@@ -492,7 +611,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
         continue;
       }
 
-      // Check if this variable exists in this snapshot
       if (!(variableName in snapshot.variables)) {
         continue;
       }
@@ -518,6 +636,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   /**
    * Get context evolution - track how execution context evolved
+   *
+   * @deprecated Use {@link AgentExecutionStateAPI} for state tracking.
    * @param agentLoopId Agent loop ID
    * @returns Context snapshots at key points
    */
@@ -530,7 +650,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
     const evolution: ContextEvolutionEntry[] = [];
     const state = entity.state;
 
-    // Add state at key transitions
     evolution.push({
       timestamp: state.startTime || 0,
       iteration: 0,
@@ -538,7 +657,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       description: 'Execution started',
     });
 
-    // Add iteration transitions
     for (const record of state.iterationHistory) {
       evolution.push({
         timestamp: record.startTime,
@@ -549,7 +667,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       });
     }
 
-    // Add end state
     if (state.endTime) {
       evolution.push({
         timestamp: state.endTime,
@@ -564,6 +681,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   /**
    * Get execution statistics - aggregated metrics across all agent loops
+   *
+   * @deprecated Use {@link AgentExecutionRegistryAPI#getExecutionStatistics} instead.
    * @returns Statistics including success rate, avg duration, etc.
    */
   async getExecutionStatistics(): Promise<AgentExecutionStatistics> {
@@ -581,7 +700,6 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
       const state = entity.state;
       const status = entity.getStatus();
 
-      // Count by status
       if (status === AgentLoopStatus.COMPLETED) {
         completedCount++;
       } else if (status === AgentLoopStatus.FAILED) {
@@ -590,14 +708,12 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
         cancelledCount++;
       }
 
-      // Calculate duration for completed executions
       if (state.startTime && state.endTime) {
         totalDuration += state.endTime - state.startTime;
       } else if (state.startTime && status === AgentLoopStatus.RUNNING) {
         totalDuration += now - state.startTime;
       }
 
-      // Aggregate iterations and tool calls
       totalIterations += state.currentIteration;
       totalToolCalls += state.toolCallCount;
     }
@@ -622,6 +738,8 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
 
   /**
    * Get execution path - track which iterations and branches were taken
+   *
+   * @deprecated Use {@link AgentLoopIterationAPI#analyzePaths} for enhanced path analysis.
    * @param agentLoopId Agent loop ID
    * @returns Execution path description
    */

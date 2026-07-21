@@ -1,9 +1,13 @@
 /**
- * TriggerResourceAPI - Trigger Resource Management API
- *  Inherits from QueryableResourceAPI, providing read-only operations
+ * TriggerResourceAPI - Workflow Trigger Resource Management API
+ * Provides APIs for managing triggers in workflow executions.
+ * Extends the shared BaseTriggerResourceAPI with workflow-specific implementation.
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import {
+  BaseTriggerResourceAPI,
+  type BaseTriggerFilter,
+} from "../../shared/resources/trigger-base.js";
 import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import type { Trigger } from "@wf-agent/types";
 import { NotFoundError, WorkflowExecutionNotFoundError } from "@wf-agent/types";
@@ -11,23 +15,21 @@ import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js
 import { now } from "@wf-agent/common-utils";
 
 /**
- * Trigger Filter
+ * Workflow Trigger Filter
  */
-export interface TriggerFilter {
+export interface TriggerFilter extends BaseTriggerFilter {
   /** Trigger ID list */
   ids?: string[];
-  /** Trigger name (fuzzy matching is supported) */
+  /** Trigger name (fuzzy matching) */
   name?: string;
-  /** Workflow ID */
+  /** Workflow ID filter */
   workflowId?: string;
-  /** Is it to be enabled? */
-  enabled?: boolean;
 }
 
 /**
- * TriggerResourceAPI - Trigger Resource Management API
+ * TriggerResourceAPI - Workflow Trigger Resource Management API
  */
-export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, TriggerFilter> {
+export class TriggerResourceAPI extends BaseTriggerResourceAPI<Trigger, TriggerFilter> {
   private registry: WorkflowExecutionRegistry;
 
   constructor(deps: APIDependencyManager) {
@@ -36,35 +38,13 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   }
 
   // ============================================================================
-  // Implement the abstract method
+  // Implement BaseTriggerResourceAPI abstract methods
   // ============================================================================
 
   /**
-   * Get a single trigger
-   * @param id: Trigger ID
-   * @returns: Trigger object; returns null if the trigger does not exist
+   * Get all triggers across all workflow executions
    */
-  protected async getResource(id: string): Promise<Trigger | null> {
-    // Triggers are usually obtained through workflow execution entities, and in this case, it is necessary to iterate through all workflow executions.
-    const executionEntities = this.registry.getAll();
-    for (const executionEntity of executionEntities) {
-      const triggerManager = executionEntity.triggerManager as
-        | { getAll: () => Trigger[] }
-        | undefined;
-      const triggers = triggerManager?.getAll() || [];
-      const trigger = triggers.find((t: Trigger) => t.id === id);
-      if (trigger) {
-        return trigger;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get all triggers
-   * @returns Array of triggers
-   */
-  protected async getAllResources(): Promise<Trigger[]> {
+  protected getAllEntitiesTriggers(): Trigger[] {
     const executionEntities = this.registry.getAll();
     const allTriggers: Trigger[] = [];
 
@@ -80,57 +60,27 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   }
 
   /**
-   * Apply filter criteria
+   * Get triggers for a specific workflow execution
    */
-  protected override applyFilter(triggers: Trigger[], filter: TriggerFilter): Trigger[] {
-    return triggers.filter(trigger => {
-      if (filter.ids && !filter.ids.includes(trigger.id)) {
-        return false;
-      }
-      if (filter.name && !trigger.name.toLowerCase().includes(filter.name.toLowerCase())) {
-        return false;
-      }
-      if (filter.workflowId && trigger.workflowId !== filter.workflowId) {
-        return false;
-      }
-      return true;
-    });
-  }
-
-  // ============================================================================
-  // Trigger a specific method
-  // ============================================================================
-
-  /**
-   * Get all triggers for the workflow execution
-   * @param executionId: Execution ID
-   * @param filter: Filter criteria
-   * @returns: Array of triggers
-   */
-  async getWorkflowExecutionTriggers(
-    executionId: string,
-    filter?: TriggerFilter,
-  ): Promise<Trigger[]> {
-    const triggerManager = (await this.getTriggerManager(executionId)) as {
-      getAll: () => Trigger[];
-    };
-    let triggers = triggerManager.getAll();
-
-    // Apply filter criteria
-    if (filter) {
-      triggers = triggers.filter((t: Trigger) => this.applyFilter([t], filter).length > 0);
+  protected getEntityTriggers(executionId: string): Trigger[] {
+    const executionEntity = this.registry.get(executionId);
+    if (!executionEntity) {
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
-    return triggers;
+    const triggerManager = executionEntity.triggerManager as
+      | { getAll: () => Trigger[] }
+      | undefined;
+    return triggerManager?.getAll() || [];
   }
 
   /**
-   * Get the specified trigger for a workflow execution
-   * @param executionId: Execution ID
-   * @param triggerId: Trigger ID
-   * @returns: Trigger object
+   * Get a specific trigger for a workflow execution
    */
-  async getWorkflowExecutionTrigger(executionId: string, triggerId: string): Promise<Trigger> {
+  protected async getEntityTrigger(executionId: string, triggerId: string): Promise<Trigger> {
     const triggerManager = (await this.getTriggerManager(executionId)) as {
       get: (id: string) => Trigger | undefined;
     };
@@ -144,11 +94,9 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   }
 
   /**
-   * Enable trigger
-   * @param executionId Execution ID
-   * @param triggerId Trigger ID
+   * Enable a trigger
    */
-  async enableTrigger(executionId: string, triggerId: string): Promise<void> {
+  protected async enableEntityTrigger(executionId: string, triggerId: string): Promise<void> {
     const triggerManager = (await this.getTriggerManager(executionId)) as {
       enable: (id: string) => void;
     };
@@ -156,11 +104,9 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   }
 
   /**
-   * Disable the trigger
-   * @param executionId Execution ID
-   * @param triggerId Trigger ID
+   * Disable a trigger
    */
-  async disableTrigger(executionId: string, triggerId: string): Promise<void> {
+  protected async disableEntityTrigger(executionId: string, triggerId: string): Promise<void> {
     const triggerManager = (await this.getTriggerManager(executionId)) as {
       disable: (id: string) => void;
     };
@@ -168,20 +114,105 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   }
 
   /**
-   * Check if the trigger is enabled.
-   * @param executionId Execution ID
-   * @param triggerId Trigger ID
-   * @returns Whether it is enabled
+   * Check if a trigger is enabled
    */
-  async isTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
-    const trigger = await this.getWorkflowExecutionTrigger(executionId, triggerId);
+  protected async isEntityTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
+    const trigger = await this.getEntityTrigger(executionId, triggerId);
     return trigger.status === "enabled";
   }
 
   /**
-   * Retrieve trigger statistics
-   * @param executionId Execution ID
-   * @returns Statistical information
+   * Get the entity ID from a trigger
+   */
+  protected getEntityIdForTrigger(trigger: Trigger): string {
+    return trigger.workflowId || "";
+  }
+
+  /**
+   * Get the trigger ID
+   */
+  protected getTriggerId(trigger: Trigger): string {
+    return trigger.id;
+  }
+
+  /**
+   * Get the trigger name
+   */
+  protected getTriggerName(trigger: Trigger): string {
+    return trigger.name;
+  }
+
+  /**
+   * Get the trigger type
+   */
+  protected getTriggerType(trigger: Trigger): string {
+    return trigger.action?.type || "unknown";
+  }
+
+  /**
+   * Is the trigger enabled?
+   */
+  protected isTriggerObjectEnabled(trigger: Trigger): boolean {
+    return trigger.status === "enabled";
+  }
+
+  /**
+   * Apply filter criteria (workflow-specific: adds workflowId filtering)
+   */
+  protected override applyFilter(triggers: Trigger[], filter: TriggerFilter): Trigger[] {
+    let filtered = super.applyFilter(triggers, filter);
+
+    if (filter.workflowId) {
+      filtered = filtered.filter((t) => t.workflowId === filter.workflowId);
+    }
+
+    return filtered;
+  }
+
+  // ============================================================================
+  // Workflow-specific trigger methods
+  // ============================================================================
+
+  /**
+   * Get all triggers for the workflow execution
+   */
+  async getWorkflowExecutionTriggers(
+    executionId: string,
+    filter?: TriggerFilter,
+  ): Promise<Trigger[]> {
+    return this.getEntityTriggersWithFilter(executionId, filter);
+  }
+
+  /**
+   * Get the specified trigger for a workflow execution
+   */
+  async getWorkflowExecutionTrigger(executionId: string, triggerId: string): Promise<Trigger> {
+    return this.getEntityTrigger(executionId, triggerId);
+  }
+
+  /**
+   * Enable trigger (public API)
+   */
+  override async enableTrigger(executionId: string, triggerId: string): Promise<void> {
+    return this.enableEntityTrigger(executionId, triggerId);
+  }
+
+  /**
+   * Disable the trigger (public API)
+   */
+  override async disableTrigger(executionId: string, triggerId: string): Promise<void> {
+    return this.disableEntityTrigger(executionId, triggerId);
+  }
+
+  /**
+   * Check if the trigger is enabled (public API)
+   */
+  override async isTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
+    return this.isEntityTriggerEnabled(executionId, triggerId);
+  }
+
+  /**
+   * Retrieve trigger statistics for a workflow execution
    */
   async getTriggerStatistics(executionId: string): Promise<{
     total: number;
@@ -189,66 +220,45 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
     disabled: number;
     byType: Record<string, number>;
   }> {
-    const triggers = await this.getWorkflowExecutionTriggers(executionId);
-
-    const stats = {
-      total: triggers.length,
-      enabled: 0,
-      disabled: 0,
-      byType: {} as Record<string, number>,
-    };
-
-    for (const trigger of triggers) {
-      if (trigger.status === "enabled") {
-        stats.enabled++;
-      } else {
-        stats.disabled++;
-      }
-
-      const type = trigger.condition.eventType || "unknown";
-      stats.byType[type] = (stats.byType[type] || 0) + 1;
-    }
-
-    return stats;
+    return this.getEntityTriggerStatistics(executionId);
   }
 
   /**
    * Get trigger statistics for all workflow executions
-   * @returns Global statistics information
    */
-  async getGlobalTriggerStatistics(): Promise<{
+  async getWorkflowGlobalTriggerStatistics(): Promise<{
     total: number;
     enabled: number;
     disabled: number;
     byExecution: Record<string, number>;
     byType: Record<string, number>;
   }> {
-    const executionContexts = this.registry.getAll();
-    const stats = {
+    const allTriggers = await this.getAllEntitiesTriggers();
+    const stats: {
+      total: number;
+      enabled: number;
+      disabled: number;
+      byExecution: Record<string, number>;
+      byType: Record<string, number>;
+    } = {
       total: 0,
       enabled: 0,
       disabled: 0,
-      byExecution: {} as Record<string, number>,
-      byType: {} as Record<string, number>,
+      byExecution: {},
+      byType: {},
     };
 
-    for (const context of executionContexts) {
-      const executionId = context.id;
-      const triggers = (context.triggerManager as { getAll: () => Trigger[] }).getAll();
-
-      stats.byExecution[executionId] = triggers.length;
-      stats.total += triggers.length;
-
-      for (const trigger of triggers) {
-        if (trigger.status === "enabled") {
-          stats.enabled++;
-        } else {
-          stats.disabled++;
-        }
-
-        const type = trigger.action?.type || "unknown";
-        stats.byType[type] = (stats.byType[type] || 0) + 1;
+    for (const trigger of allTriggers) {
+      stats.total++;
+      if (this.isTriggerObjectEnabled(trigger)) {
+        stats.enabled++;
+      } else {
+        stats.disabled++;
       }
+      const type = this.getTriggerType(trigger);
+      stats.byType[type] = (stats.byType[type] || 0) + 1;
+      const entityId = this.getEntityIdForTrigger(trigger);
+      stats.byExecution[entityId] = (stats.byExecution[entityId] || 0) + 1;
     }
 
     return stats;
@@ -256,23 +266,19 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
 
   /**
    * Search Trigger
-   * @param query Search keyword
-   * @returns Array of matching triggers
    */
   async searchTriggers(query: string): Promise<Trigger[]> {
-    const allTriggers = await this.getAllResources();
+    const allTriggers = await this.getAllEntitiesTriggers();
+    const lowerQuery = query.toLowerCase();
     return allTriggers.filter(
-      trigger =>
-        trigger.name.toLowerCase().includes(query.toLowerCase()) ||
-        trigger.id.toLowerCase().includes(query.toLowerCase()),
+      (trigger) =>
+        this.getTriggerName(trigger).toLowerCase().includes(lowerQuery) ||
+        this.getTriggerId(trigger).toLowerCase().includes(lowerQuery),
     );
   }
 
   /**
    * Retrieve the execution history of a trigger
-   * @param executionId: Execution ID
-   * @param triggerId: Trigger ID
-   * @returns: Array of execution histories (simplified implementation)
    */
   async getTriggerExecutionHistory(
     executionId: string,
@@ -284,7 +290,6 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
       success: boolean;
     }>
   > {
-    // Simplify the implementation; in real projects, you can obtain the necessary data from the event system.
     const trigger = await this.getWorkflowExecutionTrigger(executionId, triggerId);
     return [
       {
@@ -297,12 +302,9 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
 
   /**
    * Export workflow execution trigger
-   * @param executionId: Execution ID
-   * @returns: JSON string
    */
   async exportWorkflowExecutionTriggers(executionId: string): Promise<string> {
-    const triggers = await this.getWorkflowExecutionTriggers(executionId);
-    return JSON.stringify(triggers, null, 2);
+    return this.exportEntityTriggers(executionId);
   }
 
   // ============================================================================
@@ -310,7 +312,7 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
   // ============================================================================
 
   /**
-   * Obtain the Trigger Manager
+   * Get the Trigger Manager
    */
   private async getTriggerManager(executionId: string) {
     const executionContext = this.registry.get(executionId);
@@ -325,7 +327,6 @@ export class TriggerResourceAPI extends QueryableResourceAPI<Trigger, string, Tr
 
   /**
    * Get the underlying WorkflowExecutionRegistry instance
-   * @returns WorkflowExecutionRegistry instance
    */
   getRegistry(): WorkflowExecutionRegistry {
     return this.registry;

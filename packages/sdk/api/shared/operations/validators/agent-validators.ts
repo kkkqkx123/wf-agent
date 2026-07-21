@@ -52,3 +52,17 @@ export function validateAgentCheckpointRestorationParams(checkpointId: string): 
   const errors = validateRequiredId(checkpointId, "Checkpoint ID");
   return errors.length > 0 ? validationFailure(errors) : validationSuccess();
 }
+
+/**
+ * Validate agent trigger parameters (enable/disable)
+ */
+export function validateAgentTriggerParams(agentLoopId: string, triggerId: string): CommandValidationResult {
+  const errors: string[] = [];
+  if (!agentLoopId) {
+    errors.push("Agent Loop ID is required");
+  }
+  if (!triggerId) {
+    errors.push("Trigger ID is required");
+  }
+  return errors.length > 0 ? validationFailure(errors) : validationSuccess();
+}

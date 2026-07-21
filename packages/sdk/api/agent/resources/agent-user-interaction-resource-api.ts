@@ -1,44 +1,54 @@
 /**
  * AgentUserInteractionResourceAPI - Agent User Interaction Resource Management API
- * Manages user interaction configurations and handlers for agent executions
+ *
+ * Extends BaseUserInteractionResourceAPI with agent-specific event recording capabilities.
+ * Provides event history tracking, statistics, and export functionality.
+ *
+ * Features:
+ * - Event recording pattern: records all interaction events with timestamps
+ * - Event history query and export
+ * - Interaction statistics
+ * - Handler registration and interaction handling
  */
 
+import {
+  BaseUserInteractionResourceAPI,
+  type BaseUserInteractionConfig,
+  type BaseUserInteractionFilter,
+} from "../../shared/resources/user-interaction-base.js";
 import { validateRequiredFields } from "../../shared/validation/validation-strategy.js";
 import { now } from "@wf-agent/common-utils";
-import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type {
   UserInteractionHandler,
 } from "@wf-agent/types";
 import { ConfigurationError } from "@wf-agent/types";
+import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
+import { validateStringLength, validatePositiveNumber } from "../../shared/validation/validation-strategy.js";
 
 /**
  * Agent User Interaction Configuration
  */
-export interface AgentUserInteractionConfig {
-  /** Configuration ID */
-  id: string;
-  /** Configuration Name */
-  name: string;
-  /** Configuration Description */
-  description?: string;
-  /** Default timeout in milliseconds */
-  defaultTimeout?: number;
-  /** Interaction Type (approval, input, confirmation, etc.) */
-  interactionType?: "approval" | "input" | "confirmation" | "selection" | "custom";
-  /** metadata */
-  metadata?: Record<string, unknown>;
+export interface AgentUserInteractionConfig extends BaseUserInteractionConfig {
+  /** Execution type */
+  executionType?: string;
+  /** Timeout (milliseconds) */
+  timeout?: number;
+  /** Maximum number of retries */
+  maxRetries?: number;
+  /** Interaction mode */
+  mode?: string;
+  /** User interaction handler type */
+  handlerType?: string;
 }
 
 /**
  * Agent User Interaction Filter
  */
-export interface AgentUserInteractionFilter {
-  /** Configuration Name */
-  name?: string;
-  /** Interaction Type */
-  interactionType?: string;
-  /** Metadata Filtering */
-  metadata?: Record<string, unknown>;
+export interface AgentUserInteractionFilter extends BaseUserInteractionFilter {
+  /** Filter by execution type */
+  executionType?: string;
+  /** Filter by mode */
+  mode?: string;
 }
 
 /**
@@ -47,132 +57,143 @@ export interface AgentUserInteractionFilter {
 export interface AgentUserInteractionEventRecord {
   /** Event ID */
   id: string;
-  /** Configuration ID that triggered this event */
+  /** Config ID */
   configId: string;
   /** Execution ID */
   executionId: string;
-  /** Event Type */
-  eventType: "requested" | "approved" | "rejected" | "timeout" | "cancelled";
-  /** Request Context */
-  context?: Record<string, unknown>;
-  /** User Response */
-  response?: unknown;
-  /** Event Timestamp */
+  /** Event type (requested, approved, rejected) */
+  eventType: string;
+  /** Event context */
+  context: Record<string, unknown>;
+  /** Event timestamp */
   timestamp: number;
-  /** Response Timestamp */
+  /** Response (if any) */
+  response?: unknown;
+  /** Response timestamp */
   responseTimestamp?: number;
-  /** Response Time (ms) */
-  responseTime?: number | null;
+  /** Response time (milliseconds) */
+  responseTime: number | null;
 }
 
 /**
- * Agent User Interaction Resource Management API
+ * AgentUserInteractionResourceAPI - Agent User Interaction Resource Management API
  */
-export class AgentUserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
+export class AgentUserInteractionResourceAPI extends BaseUserInteractionResourceAPI<
   AgentUserInteractionConfig,
-  string,
   AgentUserInteractionFilter
 > {
-  private userInteractionHandler?: UserInteractionHandler;
-  private configs: Map<string, AgentUserInteractionConfig> = new Map();
+  private _deps?: APIDependencyManager;
   private eventHistory: AgentUserInteractionEventRecord[] = [];
   private eventIdCounter: number = 0;
 
-  constructor() {
+  /**
+   * Constructor
+   * @param deps Optional APIDependencyManager for dependency injection
+   */
+  constructor(deps?: APIDependencyManager) {
     super();
+    this._deps = deps;
+  }
+
+  /**
+   * Get the dependencies manager
+   * @returns APIDependencyManager instance or undefined
+   */
+  getDependencies(): APIDependencyManager | undefined {
+    return this._deps;
   }
 
   // ============================================================================
-  // GenericResourceAPI abstract method implementation
+  // Implement BaseUserInteractionResourceAPI abstract methods
   // ============================================================================
 
-  protected async getResource(id: string): Promise<AgentUserInteractionConfig | null> {
-    return this.configs.get(id) || null;
-  }
+  protected override async validateResource(
+    config: AgentUserInteractionConfig,
+    _context?: unknown,
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
 
-  protected async getAllResources(): Promise<AgentUserInteractionConfig[]> {
-    return Array.from(this.configs.values());
-  }
-
-  protected async createResource(config: AgentUserInteractionConfig): Promise<void> {
-    // Validate required fields
-    validateRequiredFields(config, ["id", "name"], "config");
-    // Note: validateStringLength returns a Result type, we perform basic validation instead
-    if (!config.id || !config.name) {
-      throw new Error("Configuration must have id and name");
+    const requiredResult = validateRequiredFields(config, ["id", "name", "type"], "config");
+    if (requiredResult.isErr()) {
+      errors.push(...requiredResult.unwrapOrElse(err => err.map(e => e.message)));
     }
-    if (config.name.length < 1 || config.name.length > 255) {
-      throw new Error("Configuration name must be between 1 and 255 characters");
+    const idResult = validateStringLength(config.id, "Config ID", 1, 100);
+    if (idResult.isErr()) {
+      errors.push(...idResult.unwrapOrElse(err => err.map(e => e.message)));
+    }
+    const nameResult = validateStringLength(config.name, "Config name", 1, 200);
+    if (nameResult.isErr()) {
+      errors.push(...nameResult.unwrapOrElse(err => err.map(e => e.message)));
+    }
+    if (config.timeout !== undefined) {
+      const timeoutResult = validatePositiveNumber(config.timeout, "Timeout");
+      if (timeoutResult.isErr()) {
+        errors.push(...timeoutResult.unwrapOrElse(err => err.map(e => e.message)));
+      }
     }
 
-    this.configs.set(config.id, config);
+    return { valid: errors.length === 0, errors };
   }
 
-  protected async updateResource(
-    id: string,
+  protected override async validateUpdate(
     updates: Partial<AgentUserInteractionConfig>,
-  ): Promise<void> {
-    const existing = this.configs.get(id);
-    if (existing) {
-      this.configs.set(id, { ...existing, ...updates });
+    _context?: unknown,
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    if (updates.name !== undefined) {
+      const nameResult = validateStringLength(updates.name, "Config name", 1, 200);
+      if (nameResult.isErr()) {
+        errors.push(...nameResult.unwrapOrElse(err => err.map(e => e.message)));
+      }
     }
-  }
-
-  protected async deleteResource(id: string): Promise<void> {
-    this.configs.delete(id);
-  }
-
-  protected override applyFilter(
-    resources: AgentUserInteractionConfig[],
-    filter: AgentUserInteractionFilter,
-  ): AgentUserInteractionConfig[] {
-    return resources.filter(config => {
-      if (filter.name && !config.name.includes(filter.name)) {
-        return false;
+    if (updates.timeout !== undefined) {
+      const timeoutResult = validatePositiveNumber(updates.timeout, "Timeout");
+      if (timeoutResult.isErr()) {
+        errors.push(...timeoutResult.unwrapOrElse(err => err.map(e => e.message)));
       }
+    }
 
-      if (filter.interactionType && config.interactionType !== filter.interactionType) {
-        return false;
-      }
-
-      if (filter.metadata) {
-        for (const [key, value] of Object.entries(filter.metadata)) {
-          if (config.metadata?.[key] !== value) {
-            return false;
-          }
-        }
-      }
-
-      return true;
-    });
+    return { valid: errors.length === 0, errors };
   }
 
   // ============================================================================
-  // Agent-specific user interaction methods
+  // Agent-specific: Handler Management (with async wrappers for backward compatibility)
   // ============================================================================
 
   /**
    * Register a user interaction handler
    * @param handler The user interaction handler
+   *
+   * @deprecated Use {@link registerHandler} instead. This method is kept for
+   * backward compatibility and delegates to registerHandler.
    */
   async registerUserInteractionHandler(handler: UserInteractionHandler): Promise<void> {
-    this.userInteractionHandler = handler;
+    this.registerHandler(handler);
   }
 
   /**
    * Get the registered user interaction handler
    * @returns The handler, or undefined if not registered
+   *
+   * @deprecated Use {@link getHandler} instead. This method is kept for
+   * backward compatibility.
    */
   async getUserInteractionHandler(): Promise<UserInteractionHandler | undefined> {
-    return this.userInteractionHandler;
+    return this.getHandler();
   }
 
+  // ============================================================================
+  // Agent-specific: Interaction Handling (with event recording)
+  // ============================================================================
+
   /**
-   * Handle a user interaction request
+   * Handle user interaction with event recording
+   * Extends the base handleInteraction with event history recording.
    * @param configId Configuration ID
    * @param executionId Execution ID
    * @param context Interaction context
-   * @returns User response
+   * @returns Handler response
    */
   async handleUserInteraction(
     configId: string,
@@ -201,14 +222,41 @@ export class AgentUserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
     this.eventHistory.push(event);
 
     try {
-      // If a handler is registered, call it
+      // If a handler is registered, call it with the structured request
       if (this.userInteractionHandler) {
-        // For now, we do not directly call the handler with UserInteractionRequest
-        // as it requires specific fields (interactionId, operationType, prompt, timeout)
-        // Applications should implement their own UserInteractionHandler independently
+        const request = {
+          interactionId: eventId,
+          operationType: (config.type || "TOOL_APPROVAL") as "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION" | "SCRIPT_INTERACTION",
+          prompt: config.name,
+          timeout: config.timeout ?? 30000,
+          metadata: {
+            executionId,
+            configId,
+            ...context,
+          },
+        };
+
+        const interactionContext = this.createInteractionContext({
+          interactionId: eventId,
+          operationType: "TOOL_APPROVAL",
+          prompt: config.name,
+          timeout: config.timeout ?? 30000,
+          metadata: { executionId },
+        });
+
+        const result = await this.userInteractionHandler.handle(request, interactionContext);
+
+        // Update event with response
+        const responseTimestamp = now();
+        event.response = result;
+        event.responseTimestamp = responseTimestamp;
+        event.responseTime = responseTimestamp - requestTimestamp;
+        event.eventType = "approved";
+
+        return result;
       }
 
-      // Update event with response (simplified - no actual handler call)
+      // No handler registered - return context as-is (simplified behavior)
       const responseTimestamp = now();
       event.response = context;
       event.responseTimestamp = responseTimestamp;
@@ -225,10 +273,14 @@ export class AgentUserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
     }
   }
 
+  // ============================================================================
+  // Agent-specific: Event History
+  // ============================================================================
+
   /**
-   * Get user interaction event history
-   * @param executionId Optional execution ID to filter events
-   * @returns Array of interaction events
+   * Get interaction event history
+   * @param executionId Optional execution ID to filter by
+   * @returns Array of interaction event records
    */
   async getInteractionEventHistory(executionId?: string): Promise<AgentUserInteractionEventRecord[]> {
     if (executionId) {
@@ -239,66 +291,69 @@ export class AgentUserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
 
   /**
    * Get interaction statistics
-   * @returns Statistics about user interactions
+   * @returns Interaction statistics
    */
   async getInteractionStatistics(): Promise<{
-    totalInteractions: number;
-    byType: Record<string, number>;
-    byStatus: Record<string, number>;
+    totalEvents: number;
+    byEventType: Record<string, number>;
     averageResponseTime: number;
-    totalResponseTime: number;
+    maxResponseTime: number;
+    minResponseTime: number;
+    totalApproved: number;
+    totalRejected: number;
   }> {
-    const stats = {
-      totalInteractions: this.eventHistory.length,
-      byType: {} as Record<string, number>,
-      byStatus: {
-        requested: 0,
-        approved: 0,
-        rejected: 0,
-        timeout: 0,
-        cancelled: 0,
-      },
-      averageResponseTime: 0,
-      totalResponseTime: 0,
-    };
+    const events = this.eventHistory;
+    const byEventType: Record<string, number> = {};
+    let totalResponseTime = 0;
+    let responseTimeCount = 0;
+    let maxResponseTime = 0;
+    let minResponseTime = Infinity;
+    let totalApproved = 0;
+    let totalRejected = 0;
 
-    for (const event of this.eventHistory) {
-      // Count by interaction type
-      const config = this.configs.get(event.configId);
-      const type = config?.interactionType || "unknown";
-      stats.byType[type] = (stats.byType[type] || 0) + 1;
+    for (const event of events) {
+      byEventType[event.eventType] = (byEventType[event.eventType] || 0) + 1;
 
-      // Count by status
-      stats.byStatus[event.eventType]++;
+      if (event.responseTime !== null) {
+        totalResponseTime += event.responseTime;
+        responseTimeCount++;
+        maxResponseTime = Math.max(maxResponseTime, event.responseTime);
+        minResponseTime = Math.min(minResponseTime, event.responseTime);
+      }
 
-      // Calculate response time
-      if (event.responseTime !== undefined && event.responseTime !== null) {
-        stats.totalResponseTime += event.responseTime;
+      if (event.eventType === "approved") {
+        totalApproved++;
+      } else if (event.eventType === "rejected") {
+        totalRejected++;
       }
     }
 
-    if (this.eventHistory.length > 0) {
-      stats.averageResponseTime = stats.totalResponseTime / this.eventHistory.length;
-    }
-
-    return stats;
+    return {
+      totalEvents: events.length,
+      byEventType,
+      averageResponseTime: responseTimeCount > 0 ? Math.round(totalResponseTime / responseTimeCount) : 0,
+      maxResponseTime,
+      minResponseTime: responseTimeCount > 0 ? minResponseTime : 0,
+      totalApproved,
+      totalRejected,
+    };
   }
 
   /**
-   * Get interaction events for a specific configuration
+   * Get configuration interaction history
    * @param configId Configuration ID
-   * @returns Array of events for this configuration
+   * @returns Array of interaction event records for the specified config
    */
   async getConfigurationInteractionHistory(configId: string): Promise<AgentUserInteractionEventRecord[]> {
     return this.eventHistory.filter(event => event.configId === configId);
   }
 
   /**
-   * Clear interaction event history
-   * @param olderThanTimestamp Optional: only clear events older than this timestamp
+   * Clear interaction history
+   * @param olderThanTimestamp Optional timestamp to clear events older than this
    */
   async clearInteractionHistory(olderThanTimestamp?: number): Promise<void> {
-    if (olderThanTimestamp) {
+    if (olderThanTimestamp !== undefined) {
       this.eventHistory = this.eventHistory.filter(event => event.timestamp > olderThanTimestamp);
     } else {
       this.eventHistory = [];
@@ -306,23 +361,21 @@ export class AgentUserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
   }
 
   /**
-   * Export interaction history
-   * @param executionId Optional: filter by execution ID
-   * @returns JSON string
+   * Export interaction history as JSON string
+   * @param executionId Optional execution ID to filter by
+   * @returns JSON string of interaction history
    */
   async exportInteractionHistory(executionId?: string): Promise<string> {
-    const history = await this.getInteractionEventHistory(executionId);
-    return JSON.stringify(history, null, 2);
+    const events = await this.getInteractionEventHistory(executionId);
+    return JSON.stringify(events, null, 2);
   }
 
-  // ============================================================================
-  // Helper methods
-  // ============================================================================
-
   /**
-   * Generate unique event ID
+   * Generate a unique event ID
+   * @returns Unique event ID
    */
   private generateEventId(): string {
-    return `event_${++this.eventIdCounter}_${now()}`;
+    this.eventIdCounter++;
+    return `interaction-${now()}-${this.eventIdCounter}`;
   }
 }

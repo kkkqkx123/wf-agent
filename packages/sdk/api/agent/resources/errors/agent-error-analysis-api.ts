@@ -18,6 +18,7 @@ import type { ID } from "@wf-agent/types";
 import type { ExecutionErrorRecord } from "@wf-agent/types";
 import type { IErrorAnalysisProvider } from "../../../shared/resources/errors/error-analysis-provider.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import type { BaseEvent } from "@wf-agent/types";
 
 const logger = createContextualLogger({ operation: "AgentErrorAnalysisAPI" });
 
@@ -647,6 +648,102 @@ export class AgentErrorAnalysisAPI
       logger.error("Failed to fetch agent error records", { executionId, error });
       return [];
     }
+  }
+
+  /**
+   * Stream error chain as errors are processed
+   *
+   * Yields errors one by one from the error chain, allowing callers to
+   * process them incrementally without waiting for the full chain.
+   *
+   * @param executionId Execution ID
+   * @returns Async generator yielding errors one at a time
+   *
+   * @example
+   * ```typescript
+   * for await (const error of api.streamErrorChain(execId)) {
+   *   console.log(`Error: ${error.message}`);
+   * }
+   * ```
+   */
+  async *streamErrorChain(executionId: ID): AsyncGenerator<ExecutionErrorRecord, void, void> {
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+    if (errorRecords.length === 0) {
+      return;
+    }
+
+    // Yield errors in order, starting from the root cause
+    // Root cause: an error whose rootCauseId is its own id or is undefined (no parent)
+    const rootError = errorRecords.find(
+      e => !e.rootCauseId || e.rootCauseId === e.id || !e.parentErrorId,
+    );
+    if (rootError) {
+      yield rootError;
+      // Yield errors that chain from the root
+      for (const error of errorRecords) {
+        if (error.id !== rootError.id && error.errorChain?.includes(rootError.id)) {
+          yield error;
+        }
+      }
+    }
+
+    // Yield any remaining errors not in the root chain
+    const yieldedIds = new Set<string>();
+    for (const error of errorRecords) {
+      if (!yieldedIds.has(error.id)) {
+        yieldedIds.add(error.id);
+        yield error;
+      }
+    }
+  }
+
+  /**
+   * Subscribe to real-time error events for an execution
+   *
+   * Uses the event infrastructure to listen for error events
+   * and invoke the callback whenever a new error is detected.
+   *
+   * @param executionId Execution ID to subscribe to
+   * @param callback Function to call with each new error record
+   * @returns Unsubscribe function to stop listening
+   *
+   * @example
+   * ```typescript
+   * const unsubscribe = api.subscribeToErrors(execId, (error) => {
+   *   console.log(`New error: ${error.message}`);
+   * });
+   * // Later: unsubscribe();
+   * ```
+   */
+  subscribeToErrors(
+    executionId: ID,
+    callback: (error: ExecutionErrorRecord) => void,
+  ): () => void {
+    const eventManager = this.deps.getEventManager();
+
+    const unsubscribe = eventManager.onGlobal((event: BaseEvent) => {
+      // Filter for error events related to this execution
+      if (event.type === "ERROR") {
+        if (event.executionId === executionId && event.metadata && event.metadata['errorRecord']) {
+          const errorRecord = event.metadata['errorRecord'] as ExecutionErrorRecord;
+          try {
+            callback(errorRecord);
+          } catch (cbError) {
+            logger.error("Error in subscription callback", {
+              executionId,
+              error: cbError,
+            });
+          }
+        }
+      }
+    });
+
+    logger.debug("Subscribed to error events", { executionId });
+
+    return () => {
+      unsubscribe();
+      logger.debug("Unsubscribed from error events", { executionId });
+    };
   }
 }
 

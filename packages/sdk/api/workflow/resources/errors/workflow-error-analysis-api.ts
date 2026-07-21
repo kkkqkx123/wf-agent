@@ -18,6 +18,7 @@ import type { ID } from "@wf-agent/types";
 import type { ExecutionErrorRecord } from "@wf-agent/types";
 import type { IErrorAnalysisProvider } from "../../../shared/resources/errors/error-analysis-provider.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
+import type { BaseEvent } from "@wf-agent/types";
 
 const logger = createContextualLogger({ operation: "WorkflowErrorAnalysisAPI" });
 
@@ -93,6 +94,64 @@ export interface WorkflowRecoveryProposal {
   likelihood: number;
   steps: string[];
   estimatedTimeToRecover?: number;
+}
+
+/**
+ * Error hotspot - identifies iterations with high error concentration
+ */
+export interface WorkflowErrorHotspot {
+  /** Node ID where errors are concentrated */
+  nodeId: string;
+  /** Node name for readability */
+  nodeName?: string;
+  /** Error count */
+  errorCount: number;
+  /** Error types observed */
+  errorTypes: string[];
+  /** Highest severity observed */
+  severity: string;
+}
+
+/**
+ * Temporal pattern of error occurrence
+ */
+export type WorkflowTemporalPattern = 'none' | 'steady' | 'accelerating' | 'decelerating';
+
+/**
+ * Error trend direction
+ */
+export type WorkflowErrorTrend = 'increasing' | 'decreasing' | 'stable';
+
+/**
+ * Problematic node in workflow execution
+ */
+export interface ProblematicNode {
+  /** Node ID */
+  nodeId: string;
+  /** Node name */
+  nodeName?: string;
+  /** Error count */
+  errorCount: number;
+  /** Node type */
+  nodeType?: string;
+}
+
+/**
+ * Advanced error analysis with frequency, patterns, and hotspots
+ */
+export interface AdvancedWorkflowErrorAnalysis {
+  /** Total errors */
+  totalErrors: number;
+  /** Error frequency by type */
+  errorFrequency: Record<string, number>;
+  /** Error hotspots (nodes with highest error rates) */
+  errorHotspots: WorkflowErrorHotspot[];
+  /** Temporal pattern of error occurrence */
+  temporalPattern: WorkflowTemporalPattern;
+  /** Most problematic nodes */
+  mostProblematicNodes: ProblematicNode[];
+  /** Error trend direction */
+  errorTrend: WorkflowErrorTrend;
 }
 
 // ============================================================================
@@ -340,6 +399,97 @@ export class WorkflowErrorAnalysisAPI
     );
   }
 
+  /**
+   * Get advanced error analysis with frequency, patterns, and hotspots.
+   *
+   * Provides additional insights:
+   * - Error frequency by type over time
+   * - Error hotspots (nodes with highest error rates)
+   * - Temporal patterns (errors increase/decrease)
+   * - Most problematic nodes
+   * - Error trend direction
+   *
+   * @param executionId Execution ID
+   * @returns Advanced error analysis
+   */
+  async getAdvancedErrorAnalysis(executionId: ID): Promise<AdvancedWorkflowErrorAnalysis> {
+    logger.debug("Computing advanced error analysis", { executionId });
+
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+
+    if (errorRecords.length === 0) {
+      return {
+        totalErrors: 0,
+        errorFrequency: {},
+        errorHotspots: [],
+        temporalPattern: 'none',
+        mostProblematicNodes: [],
+        errorTrend: 'stable',
+      };
+    }
+
+    // Analyze error frequency over time
+    const sortedErrors = [...errorRecords].sort((a, b) => a.timestamp - b.timestamp);
+    const errorFrequency: Record<string, number> = {};
+    const nodeProblems: Record<string, { count: number; types: Set<string>; names: string[]; severity: string }> = {};
+
+    sortedErrors.forEach(err => {
+      // Frequency by type
+      errorFrequency[err.errorType] = (errorFrequency[err.errorType] ?? 0) + 1;
+
+      // Node problems
+      const nodeId = (err.context as any).nodeId;
+      const nodeName = (err.context as any).nodeName;
+      if (nodeId) {
+        if (!nodeProblems[nodeId]) {
+          nodeProblems[nodeId] = { count: 0, types: new Set(), names: [], severity: err.severity };
+        }
+        nodeProblems[nodeId]!.count++;
+        nodeProblems[nodeId]!.types.add(err.errorType);
+        if (nodeName && !nodeProblems[nodeId]!.names.includes(nodeName)) {
+          nodeProblems[nodeId]!.names.push(nodeName);
+        }
+        // Track highest severity
+        const severityOrder = ['warning', 'error', 'critical'];
+        if (severityOrder.indexOf(err.severity) > severityOrder.indexOf(nodeProblems[nodeId]!.severity)) {
+          nodeProblems[nodeId]!.severity = err.severity;
+        }
+      }
+    });
+
+    // Build error hotspots
+    const errorHotspots: WorkflowErrorHotspot[] = Object.entries(nodeProblems)
+      .sort(([, a], [, b]) => b.count - a.count)
+      .map(([nodeId, data]) => ({
+        nodeId,
+        nodeName: data.names[0],
+        errorCount: data.count,
+        errorTypes: Array.from(data.types),
+        severity: data.severity,
+      }));
+
+    // Build most problematic nodes
+    const mostProblematicNodes: ProblematicNode[] = errorHotspots.map(hotspot => ({
+      nodeId: hotspot.nodeId,
+      nodeName: hotspot.nodeName,
+      errorCount: hotspot.errorCount,
+      nodeType: undefined,
+    }));
+
+    // Analyze temporal pattern
+    const temporalPattern = this.analyzeTemporalPattern(sortedErrors);
+    const errorTrend = this.analyzeErrorTrend(sortedErrors);
+
+    return {
+      totalErrors: errorRecords.length,
+      errorFrequency,
+      errorHotspots: errorHotspots.slice(0, 10),
+      temporalPattern,
+      mostProblematicNodes: mostProblematicNodes.slice(0, 5),
+      errorTrend,
+    };
+  }
+
   // ============ Helper Methods ============
 
   private getRecommendedWorkflowAction(
@@ -500,5 +650,160 @@ export class WorkflowErrorAnalysisAPI
       logger.error("Failed to fetch workflow error records", { executionId, error: err });
       return [];
     }
+  }
+
+  /**
+   * Stream error chain as errors are processed
+   *
+   * Yields errors one by one from the error chain, allowing callers to
+   * process them incrementally without waiting for the full chain.
+   *
+   * @param executionId Execution ID
+   * @returns Async generator yielding errors one at a time
+   *
+   * @example
+   * ```typescript
+   * for await (const error of api.streamErrorChain(execId)) {
+   *   console.log(`Error: ${error.message}`);
+   * }
+   * ```
+   */
+  async *streamErrorChain(executionId: ID): AsyncGenerator<ExecutionErrorRecord, void, void> {
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+    if (errorRecords.length === 0) {
+      return;
+    }
+
+    // Yield errors in order, starting from the root cause
+    // Root cause: an error whose rootCauseId is its own id or is undefined (no parent)
+    const rootError = errorRecords.find(
+      e => !e.rootCauseId || e.rootCauseId === e.id || !e.parentErrorId,
+    );
+    if (rootError) {
+      yield rootError;
+      // Yield errors that chain from the root
+      for (const error of errorRecords) {
+        if (error.id !== rootError.id && error.errorChain?.includes(rootError.id)) {
+          yield error;
+        }
+      }
+    }
+
+    // Yield any remaining errors not in the root chain
+    const yieldedIds = new Set<string>();
+    for (const error of errorRecords) {
+      if (!yieldedIds.has(error.id)) {
+        yieldedIds.add(error.id);
+        yield error;
+      }
+    }
+  }
+
+  /**
+   * Subscribe to real-time error events for an execution
+   *
+   * Uses the event infrastructure to listen for error events
+   * and invoke the callback whenever a new error is detected.
+   *
+   * @param executionId Execution ID to subscribe to
+   * @param callback Function to call with each new error record
+   * @returns Unsubscribe function to stop listening
+   *
+   * @example
+   * ```typescript
+   * const unsubscribe = api.subscribeToErrors(execId, (error) => {
+   *   console.log(`New error: ${error.message}`);
+   * });
+   * // Later: unsubscribe();
+   * ```
+   */
+  subscribeToErrors(
+    executionId: ID,
+    callback: (error: ExecutionErrorRecord) => void,
+  ): () => void {
+    const eventManager = this.deps.getEventManager();
+
+    const unsubscribe = eventManager.onGlobal((event: BaseEvent) => {
+      // Filter for error events related to this execution
+      if (event.type === "ERROR") {
+        if (event.executionId === executionId && event.metadata && event.metadata['errorRecord']) {
+          const errorRecord = event.metadata['errorRecord'] as ExecutionErrorRecord;
+          try {
+            callback(errorRecord);
+          } catch (cbError) {
+            logger.error("Error in subscription callback", {
+              executionId,
+              error: cbError,
+            });
+          }
+        }
+      }
+    });
+
+    logger.debug("Subscribed to workflow error events", { executionId });
+
+    return () => {
+      unsubscribe();
+      logger.debug("Unsubscribed from workflow error events", { executionId });
+    };
+  }
+
+  /**
+   * Analyze temporal pattern of error occurrence
+   * Determines if errors are accelerating, decelerating, or steady over time.
+   */
+  private analyzeTemporalPattern(sortedErrors: ExecutionErrorRecord[]): WorkflowTemporalPattern {
+    if (sortedErrors.length < 2) {
+      return 'none';
+    }
+
+    const timeIntervals: number[] = [];
+    for (let i = 1; i < sortedErrors.length; i++) {
+      timeIntervals.push(sortedErrors[i]!.timestamp - sortedErrors[i - 1]!.timestamp);
+    }
+
+    // If there are not enough intervals to determine pattern, return none
+    if (timeIntervals.length < 2) {
+      return 'none';
+    }
+
+    // If errors are getting closer together, pattern is 'accelerating'
+    const recent = timeIntervals.slice(-3);
+    const early = timeIntervals.slice(0, 3);
+
+    const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const earlyAvg = early.reduce((a, b) => a + b, 0) / early.length;
+
+    if (recentAvg < earlyAvg * 0.7) {
+      return 'accelerating';
+    } else if (recentAvg > earlyAvg * 1.3) {
+      return 'decelerating';
+    }
+
+    return 'steady';
+  }
+
+  /**
+   * Analyze error trend (are errors increasing or decreasing?)
+   * Compares the first half of errors with the second half.
+   */
+  private analyzeErrorTrend(sortedErrors: ExecutionErrorRecord[]): WorkflowErrorTrend {
+    if (sortedErrors.length < 2) {
+      return 'stable';
+    }
+
+    const mid = Math.floor(sortedErrors.length / 2);
+    const firstHalf = sortedErrors.slice(0, mid);
+    const secondHalf = sortedErrors.slice(mid);
+
+    const ratio = secondHalf.length / firstHalf.length;
+
+    if (ratio > 1.3) {
+      return 'increasing';
+    } else if (ratio < 0.7) {
+      return 'decreasing';
+    }
+
+    return 'stable';
   }
 }

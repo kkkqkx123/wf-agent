@@ -868,6 +868,110 @@ export class SDKInstance {
   }
 
   /**
+   * Get Agent Error Analysis API
+   */
+  get agentErrorAnalysis() {
+    this.ensureReady();
+    return this.apiFactory.createAgentErrorAnalysisAPI();
+  }
+
+  /**
+   * Get Agent Loop Registry API
+   */
+  get agentLoops() {
+    this.ensureReady();
+    return this.apiFactory.createAgentLoopRegistryAPI();
+  }
+
+  /**
+   * Get Agent Loop Checkpoint API
+   */
+  get agentLoopCheckpoints() {
+    this.ensureReady();
+    return this.apiFactory.createAgentLoopCheckpointAPI();
+  }
+
+  /**
+   * Get Agent Loop Message API
+   */
+  get agentLoopMessages() {
+    this.ensureReady();
+    return this.apiFactory.createAgentLoopMessageAPI();
+  }
+
+  /**
+   * Get Agent Loop Iteration API
+   */
+  get agentLoopIteration() {
+    this.ensureReady();
+    return this.apiFactory.createAgentLoopIterationAPI();
+  }
+
+  /**
+   * Get Agent Performance Analysis API
+   */
+  get agentPerformance() {
+    this.ensureReady();
+    return this.apiFactory.createAgentPerformanceAnalysisAPI();
+  }
+
+  /**
+   * Get Agent Execution Registry API
+   */
+  get agentExecutionRegistry() {
+    this.ensureReady();
+    return this.apiFactory.createAgentExecutionRegistryAPI();
+  }
+
+  /**
+   * Get Agent Execution State API
+   */
+  get agentExecutionState() {
+    this.ensureReady();
+    return this.apiFactory.createAgentExecutionStateAPI();
+  }
+
+  /**
+   * Get Agent Execution Graph API
+   */
+  get agentExecutionGraph() {
+    this.ensureReady();
+    return this.apiFactory.createAgentExecutionGraphQueryAPI();
+  }
+
+  /**
+   * Get Agent Trigger API
+   */
+  get agentTriggers() {
+    this.ensureReady();
+    return this.apiFactory.createAgentTriggerResourceAPI();
+  }
+
+  /**
+   * Get Agent Trigger Template API
+   */
+  get agentTriggerTemplates() {
+    this.ensureReady();
+    return this.apiFactory.createAgentTriggerTemplateRegistryAPI();
+  }
+
+  /**
+   * Get Agent Hook Template API
+   */
+  get agentHookTemplates() {
+    this.ensureReady();
+    return this.apiFactory.createAgentHookTemplateRegistryAPI();
+  }
+
+  /**
+   * Get Agent Template API
+   */
+  get agentTemplates() {
+    this.ensureReady();
+    return this.apiFactory.createAgentTemplateRegistryAPI();
+  }
+
+  /**
    * Get the GlobalContext for this SDK instance
    *
    * This provides access to the instance-specific DI container and all registered services.

@@ -1,38 +1,37 @@
 /**
  * AgentVariableResourceAPI - Agent Variable Resource Management API
- * Manages context variables and state within agent loop executions
- *
- * Unlike Workflow which has a dedicated VariableStateManager, Agent manages
- * variables through the execution context and message history. This API provides
- * a unified interface for accessing and managing agent variables.
+ * Provides APIs for managing variables in agent loop executions.
+ * Extends the shared BaseVariableResourceAPI with agent-specific implementation.
  */
 
+import {
+  BaseVariableResourceAPI,
+  type BaseVariableFilter,
+  type VariableStatistics,
+} from "../../shared/resources/variable-base.js";
 import { now } from "@wf-agent/common-utils";
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { NotFoundError, SDKError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
+import { success, failure } from "../../shared/types/execution-result.js";
+import type { ExecutionResult } from "../../shared/types/execution-result.js";
 
 /**
- * Variable Filter for Agent Variables
+ * Agent Variable Filter
  */
-export interface AgentVariableFilter {
-  /** Variable names (fuzzy matching is supported) */
-  name?: string;
-  /** Source of the variable (context, message, config, etc.) */
-  source?: "context" | "message" | "config" | "state";
-  /** Execution ID */
-  executionId?: string;
+export interface AgentVariableFilter extends BaseVariableFilter {
+  /** Filter by source */
+  source?: string;
 }
 
 /**
- * Variable update options
+ * Agent Variable Update Options
  */
 export interface AgentVariableUpdateOptions {
-  /** Whether to overwrite an existing variable */
+  /** Whether to overwrite existing variables */
   overwrite?: boolean;
-  /** Variable source for tracking origin */
+  /** Source of the update */
   source?: string;
 }
 
@@ -44,31 +43,34 @@ export interface AgentVariableDefinition {
   name: string;
   /** Variable type */
   type: string;
-  /** Variable description */
-  description?: string;
-  /** Current value */
-  value?: unknown;
-  /** Source (where the variable comes from) */
-  source: "context" | "message" | "config" | "state";
+  /** Variable value */
+  value: unknown;
+  /** Variable source */
+  source: string;
   /** Last updated timestamp */
-  lastUpdated?: number;
+  lastUpdated: number;
+  /** Whether the variable is required */
+  required?: boolean;
 }
 
 /**
- * Agent Context Variable Record
+ * Agent Context Variable
  */
 export interface AgentContextVariable {
+  /** Variable name */
   name: string;
+  /** Variable value */
   value: unknown;
-  source: string;
-  timestamp: number;
+  /** Variable scope */
+  scope: "execution" | "iteration" | "global";
 }
 
 /**
  * AgentVariableResourceAPI - Agent Variable Resource Management API
  */
-export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, string, AgentVariableFilter> {
+export class AgentVariableResourceAPI extends BaseVariableResourceAPI<AgentVariableFilter> {
   private registry: AgentLoopRegistry;
+  private _customVariables: Map<string, Record<string, unknown>> = new Map();
 
   constructor(deps: APIDependencyManager) {
     super();
@@ -76,44 +78,15 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
   }
 
   // ============================================================================
-  // Implement the abstract method
-  // ============================================================================
-
-  /**
-   * Get the value of a single variable
-   * @param id The variable name (format: executionId:variableName)
-   * @returns The variable value; returns null if it does not exist
-   */
-  protected async getResource(id: string): Promise<unknown | null> {
-    const [executionId, variableName] = this.parseVariableId(id);
-    await this.getAgentLoopEntity(executionId);
-
-    // Try to get variable from context
-    const variables = await this.getExecutionVariables(executionId);
-    return variables[variableName] ?? null;
-  }
-
-  /**
-   * Get all variable values
-   * @returns Record of variable values (empty array - use specific methods instead)
-   */
-  protected async getAllResources(): Promise<unknown[]> {
-    return [];
-  }
-
-  // ============================================================================
-  // Agent-specific methods
+  // Implement BaseVariableResourceAPI abstract methods
   // ============================================================================
 
   /**
    * Get all variables in an agent loop execution context
-   * @param executionId Execution ID
-   * @returns Record of variables extracted from execution context
    */
-  async getExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
+  protected async getEntityVariables(executionId: string): Promise<Record<string, unknown>> {
     const entity = await this.getAgentLoopEntity(executionId);
 
-    // Collect variables from execution state
     const variables: Record<string, unknown> = {};
 
     // From agent config ID
@@ -126,7 +99,7 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
       variables["profileId"] = entity.config.profileId;
     }
 
-    // From initial messages (if any)
+    // From initial messages
     if (entity.config.initialMessages && entity.config.initialMessages.length > 0) {
       variables["initialMessages"] = entity.config.initialMessages;
     }
@@ -140,17 +113,20 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
     const stateVars = await this.extractStateVariables(entity);
     Object.assign(variables, stateVars);
 
+    // From custom variables store
+    const customVars = this._customVariables.get(executionId);
+    if (customVars) {
+      Object.assign(variables, customVars);
+    }
+
     return variables;
   }
 
   /**
-   * Get a specific variable value from execution
-   * @param executionId Execution ID
-   * @param name Variable name
-   * @returns Variable value
+   * Get a specific variable value
    */
-  async getExecutionVariable(executionId: string, name: string): Promise<unknown> {
-    const variables = await this.getExecutionVariables(executionId);
+  protected async getEntityVariable(executionId: string, name: string): Promise<unknown> {
+    const variables = await this.getEntityVariables(executionId);
     const value = variables[name];
 
     if (value === undefined) {
@@ -161,22 +137,74 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
   }
 
   /**
-   * Check if a variable exists in execution
-   * @param executionId Execution ID
-   * @param name Variable name
-   * @returns Whether the variable exists
+   * Check if a variable exists
    */
-  async hasExecutionVariable(executionId: string, name: string): Promise<boolean> {
-    const variables = await this.getExecutionVariables(executionId);
+  protected async hasEntityVariable(executionId: string, name: string): Promise<boolean> {
+    const variables = await this.getEntityVariables(executionId);
     return name in variables;
   }
 
   /**
-   * Get variable definitions for an execution
-   * @param executionId Execution ID
-   * @returns Record of variable definitions
+   * Set a variable value
    */
-  async getExecutionVariableDefinitions(executionId: string): Promise<Record<string, AgentVariableDefinition>> {
+  protected async setEntityVariable(
+    executionId: string,
+    name: string,
+    value: unknown,
+  ): Promise<ExecutionResult<void>> {
+    try {
+      await this.getAgentLoopEntity(executionId);
+
+      let vars = this._customVariables.get(executionId);
+      if (!vars) {
+        vars = {};
+        this._customVariables.set(executionId, vars);
+      }
+      vars[name] = value;
+      return success(undefined, 0);
+    } catch (error) {
+      const sdkError =
+        error instanceof SDKError
+          ? error
+          : error instanceof Error
+            ? new SDKError(error.message, "error", undefined, error)
+            : new SDKError(String(error), "error");
+      return failure(sdkError, 0);
+    }
+  }
+
+  /**
+   * Delete a variable
+   */
+  protected async deleteEntityVariable(
+    executionId: string,
+    name: string,
+  ): Promise<ExecutionResult<void>> {
+    try {
+      await this.getAgentLoopEntity(executionId);
+
+      const vars = this._customVariables.get(executionId);
+      if (vars && name in vars) {
+        delete vars[name];
+      }
+      return success(undefined, 0);
+    } catch (error) {
+      const sdkError =
+        error instanceof SDKError
+          ? error
+          : error instanceof Error
+            ? new SDKError(error.message, "error", undefined, error)
+            : new SDKError(String(error), "error");
+      return failure(sdkError, 0);
+    }
+  }
+
+  /**
+   * Get variable definitions for an execution
+   */
+  protected async getEntityVariableDefinitions(
+    executionId: string,
+  ): Promise<Record<string, unknown>> {
     const entity = await this.getAgentLoopEntity(executionId);
     const definitions: Record<string, AgentVariableDefinition> = {};
 
@@ -226,78 +254,122 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
       };
     }
 
-    return definitions;
+    return definitions as unknown as Record<string, unknown>;
   }
 
   /**
-   * Get variable statistics for all executions
-   * @returns Statistical information
+   * Parse variable ID
    */
-  async getVariableStatistics(): Promise<{
-    totalExecutions: number;
-    totalVariables: number;
-    byExecution: Record<string, number>;
-    bySource: Record<string, number>;
-  }> {
+  protected parseVariableId(id: string): [string, string] {
+    const [executionId, ...rest] = id.split(":");
+    if (!executionId || rest.length === 0) {
+      throw new SDKError("Invalid variable ID format. Expected 'executionId:variableName'");
+    }
+    return [executionId, rest.join(":")];
+  }
+
+  /**
+   * Get variable statistics
+   */
+  protected async getVariableStatistics(): Promise<VariableStatistics> {
     const entities = this.registry.getAll();
-    const stats = {
+    const stats: VariableStatistics = {
       totalExecutions: entities.length,
       totalVariables: 0,
-      byExecution: {} as Record<string, number>,
-      bySource: {
-        config: 0,
-        state: 0,
-        message: 0,
-        context: 0,
-      },
+      byExecution: {},
+      byType: {},
+      bySource: {},
     };
 
     for (const entity of entities) {
-      const variables = await this.getExecutionVariables(entity.id);
+      const variables = await this.getEntityVariables(entity.id);
       const varCount = Object.keys(variables).length;
 
       stats.byExecution[entity.id] = varCount;
       stats.totalVariables += varCount;
-      stats.bySource.config += varCount; // Simplified: all variables counted as config
+      stats.bySource["config"] = (stats.bySource["config"] || 0) + varCount;
     }
 
     return stats;
   }
 
+  // ============================================================================
+  // Agent-specific methods
+  // ============================================================================
+
+  /**
+   * Get all variables in an agent loop execution context
+   */
+  async getExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
+    return this.getEntityVariables(executionId);
+  }
+
+  /**
+   * Get a specific variable value from execution
+   */
+  async getExecutionVariable(executionId: string, name: string): Promise<unknown> {
+    return this.getEntityVariable(executionId, name);
+  }
+
+  /**
+   * Check if a variable exists in execution
+   */
+  async hasExecutionVariable(executionId: string, name: string): Promise<boolean> {
+    return this.hasEntityVariable(executionId, name);
+  }
+
+  /**
+   * Get variable definitions for an execution
+   */
+  async getExecutionVariableDefinitions(
+    executionId: string,
+  ): Promise<Record<string, AgentVariableDefinition>> {
+    const definitions = await this.getEntityVariableDefinitions(executionId);
+    return definitions as unknown as Record<string, AgentVariableDefinition>;
+  }
+
+  /**
+   * Get variable statistics (public API - renamed to avoid conflict with base class)
+   */
+  async getAgentVariableStatistics(): Promise<{
+    totalExecutions: number;
+    totalVariables: number;
+    byExecution: Record<string, number>;
+    bySource: Record<string, number>;
+  }> {
+    const stats = await this.getVariableStatistics();
+    return {
+      totalExecutions: stats.totalExecutions,
+      totalVariables: stats.totalVariables,
+      byExecution: stats.byExecution,
+      bySource: stats.bySource,
+    };
+  }
+
   /**
    * Search for variables
-   * @param executionId Execution ID
-   * @param query Search keyword
-   * @returns Array of matching variable names
    */
   async searchVariables(executionId: string, query: string): Promise<AgentVariableDefinition[]> {
-    const definitions = await this.getExecutionVariableDefinitions(executionId);
-
-    return Object.values(definitions).filter(def =>
-      def.name.toLowerCase().includes(query.toLowerCase()),
-    );
+    const results = await this.searchEntityVariables(executionId, query);
+    return results as AgentVariableDefinition[];
   }
 
   /**
    * Export execution variables
-   * @param executionId Execution ID
-   * @returns JSON string
    */
   async exportExecutionVariables(executionId: string): Promise<string> {
-    const variables = await this.getExecutionVariables(executionId);
-    return JSON.stringify(variables, null, 2);
+    return this.exportEntityVariables(executionId);
   }
 
   /**
    * Get context snapshot at specific iteration
-   * @param executionId Execution ID
-   * @param iterationNumber Iteration number
-   * @returns Variables snapshot at that iteration
    */
-  async getVariablesAtIteration(executionId: string, iterationNumber: number): Promise<Record<string, unknown>> {
+  async getVariablesAtIteration(
+    executionId: string,
+    iterationNumber: number,
+  ): Promise<Record<string, unknown>> {
     const entity = await this.getAgentLoopEntity(executionId);
 
-    // Get iteration history
     const iterationHistory = entity.state.iterationHistory;
     if (iterationNumber < 0 || iterationNumber >= iterationHistory.length) {
       throw new NotFoundError(
@@ -307,69 +379,198 @@ export class AgentVariableResourceAPI extends QueryableResourceAPI<unknown, stri
       );
     }
 
-    // For now, return current variables
-    // In a full implementation, this would track variable changes per iteration
-    return this.getExecutionVariables(executionId);
+    return this.getEntityVariables(executionId);
+  }
+
+  /**
+   * Set a variable value for an agent execution
+   */
+  async setExecutionVariable(
+    executionId: string,
+    name: string,
+    value: unknown,
+  ): Promise<ExecutionResult<void>> {
+    return this.setEntityVariable(executionId, name, value);
+  }
+
+  /**
+   * Delete a variable from an agent execution
+   */
+  async deleteExecutionVariable(
+    executionId: string,
+    name: string,
+  ): Promise<ExecutionResult<void>> {
+    return this.deleteEntityVariable(executionId, name);
   }
 
   // ============================================================================
   // Helper methods
   // ============================================================================
 
-  /**
-   * Parse variable ID in format "executionId:variableName"
-   */
-  private parseVariableId(id: string): [string, string] {
-    const [executionId, ...rest] = id.split(":");
-    if (!executionId || rest.length === 0) {
-      throw new SDKError("Invalid variable ID format. Expected 'executionId:variableName'");
-    }
-    return [executionId, rest.join(":")];
-  }
-
-  /**
-   * Get agent loop entity
-   */
   private async getAgentLoopEntity(executionId: string): Promise<AgentLoopEntity> {
     const entity = await this.registry.get(executionId);
     if (!entity) {
-      throw new NotFoundError(`Agent loop execution not found: ${executionId}`, "AgentLoop", executionId);
+      throw new NotFoundError(
+        `Agent loop execution not found: ${executionId}`,
+        "AgentLoop",
+        executionId,
+      );
     }
     return entity;
   }
 
   /**
-   * Extract variables from agent state
+   * Get variable change history for an agent execution
+   * Tracks how variables have changed over time across iterations.
+   * @param executionId Execution ID
+   * @param variableName Optional variable name to filter history
+   * @returns Array of variable history entries
    */
+  async getVariableHistory(
+    executionId: string,
+    variableName?: string,
+  ): Promise<
+    Array<{
+      name: string;
+      previousValue?: unknown;
+      newValue: unknown;
+      timestamp: number;
+      iteration: number;
+      source?: string;
+    }>
+  > {
+    const entity = await this.getAgentLoopEntity(executionId);
+    const history: Array<{
+      name: string;
+      previousValue?: unknown;
+      newValue: unknown;
+      timestamp: number;
+      iteration: number;
+      source?: string;
+    }> = [];
+
+    // Track variable changes across iterations
+    const previousVars: Record<string, unknown> = {};
+
+    for (const record of entity.state.iterationHistory) {
+      const currentVars: Record<string, unknown> = {
+        ...previousVars,
+      };
+
+      // Record config changes
+      if (record.responseContent) {
+        currentVars["lastResponse"] = record.responseContent;
+      }
+
+      // Track tool call results
+      for (const toolCall of record.toolCalls) {
+        if (toolCall.result !== undefined) {
+          currentVars[`tool_${toolCall.name}_result`] = toolCall.result;
+        }
+      }
+
+      // Detect changes
+      for (const [name, value] of Object.entries(currentVars)) {
+        const prevValue = previousVars[name];
+        if (prevValue !== value) {
+          history.push({
+            name,
+            previousValue: prevValue,
+            newValue: value,
+            timestamp: record.startTime,
+            iteration: record.iteration,
+            source: "iteration",
+          });
+        }
+      }
+
+      Object.assign(previousVars, currentVars);
+    }
+
+    // Filter by variable name if specified
+    if (variableName) {
+      return history.filter((h) => h.name === variableName);
+    }
+
+    return history;
+  }
+
+  /**
+   * Get variable scopes for an agent execution
+   * Returns the available scopes and their variables.
+   * @param executionId Execution ID
+   * @returns Scopes configuration
+   */
+  async getVariableScopes(
+    executionId: string,
+  ): Promise<{
+    scopes: Array<{
+      name: string;
+      description: string;
+      variables: string[];
+      isMutable: boolean;
+    }>;
+  }> {
+    const variables = await this.getEntityVariables(executionId);
+
+    return {
+      scopes: [
+        {
+          name: "config",
+          description: "Variables from agent loop configuration",
+          variables: Object.keys(variables).filter((k) =>
+            ["agentConfigId", "profileId", "initialMessages"].includes(k),
+          ),
+          isMutable: false,
+        },
+        {
+          name: "state",
+          description: "Variables from execution state",
+          variables: Object.keys(variables).filter((k) =>
+            ["currentIteration", "status", "toolCallCount", "startTime", "endTime"].includes(k),
+          ),
+          isMutable: false,
+        },
+        {
+          name: "custom",
+          description: "Custom variables set during execution",
+          variables: Object.keys(this._customVariables.get(executionId) ?? {}),
+          isMutable: true,
+        },
+        {
+          name: "iteration",
+          description: "Variables from iteration outputs",
+          variables: Object.keys(variables).filter(
+            (k) => k.startsWith("tool_") || k === "lastResponse",
+          ),
+          isMutable: true,
+        },
+      ],
+    };
+  }
+
   private async extractStateVariables(entity: AgentLoopEntity): Promise<Record<string, unknown>> {
     const variables: Record<string, unknown> = {};
-
-    // Extract from state information
     variables["currentIteration"] = entity.state.currentIteration;
     variables["status"] = entity.state.status;
     variables["toolCallCount"] = entity.state.toolCallCount;
     variables["startTime"] = entity.state.startTime;
     variables["endTime"] = entity.state.endTime;
-
     return variables;
   }
 
-  /**
-   * Extract variables from iteration history
-   */
-  private async extractIterationVariables(entity: AgentLoopEntity): Promise<Record<string, unknown>> {
+  private async extractIterationVariables(
+    entity: AgentLoopEntity,
+  ): Promise<Record<string, unknown>> {
     const variables: Record<string, unknown> = {};
-
     const history = entity.state.iterationHistory;
     if (history.length > 0) {
-      // Get the latest iteration
       const lastIteration = history[history.length - 1];
       if (lastIteration) {
         variables["lastIterationOutput"] = lastIteration.responseContent;
         variables["lastIterationToolCalls"] = lastIteration.toolCalls?.length ?? 0;
       }
     }
-
     return variables;
   }
 }

@@ -91,7 +91,30 @@ export {
   type ContextEvolution,
   type VariableSnapshotFilter,
   type ContextEvolutionFilter,
+  type WorkflowStackFrame,
+  type WorkflowCallStack,
+  type WorkflowStateTransitionAnalysis,
 } from "./resources/workflow-execution-context-api.js";
+
+export {
+  WorkflowExecutionGraphQueryAPI,
+  type WorkflowExecutionNode,
+  type WorkflowExecutionEdge,
+  type WorkflowExecutionGraph,
+  type WorkflowExecutionPathSummary,
+  type WorkflowExecutionGraphFilter,
+  type AlternativeDecision,
+  type DecisionPoint,
+  type WorkflowDecisionAnalysis,
+  type PathProbabilityAnalysis,
+} from "./resources/workflow-execution-graph-query-api.js";
+
+export {
+  WorkflowPerformanceAnalysisAPI,
+  type WorkflowExecutionPerformanceProfile,
+  type NodeExecutionPerformance,
+  type WorkflowNodeComparison,
+} from "./resources/workflow-performance-analysis-api.js";
 
 // Operations - Execution
 export {

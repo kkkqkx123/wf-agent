@@ -31,7 +31,7 @@ export {
   type NodeTemplateSummary,
 } from "./node-template-registry-api.js";
 export {
-  HookRegistryAPI,
+  HookTemplateRegistryAPI,
   type HookTemplateFilter,
   type HookTemplateSummary,
 } from "./hook-template-registry-api.js";
@@ -84,4 +84,34 @@ export {
   type ContextEvolution,
   type VariableSnapshotFilter,
   type ContextEvolutionFilter,
+  type WorkflowStackFrame,
+  type WorkflowCallStack,
+  type WorkflowStateTransitionAnalysis,
 } from "./workflow-execution-context-api.js";
+
+export {
+  WorkflowExecutionGraphQueryAPI,
+  type WorkflowExecutionNode,
+  type WorkflowExecutionEdge,
+  type WorkflowExecutionGraph,
+  type WorkflowExecutionPathSummary,
+  type WorkflowExecutionGraphFilter,
+  type AlternativeDecision,
+  type DecisionPoint,
+  type WorkflowDecisionAnalysis,
+  type PathProbabilityAnalysis,
+} from "./workflow-execution-graph-query-api.js";
+
+export {
+  WorkflowPerformanceAnalysisAPI,
+  type WorkflowExecutionPerformanceProfile,
+  type NodeExecutionPerformance,
+  type WorkflowNodeComparison,
+  type OperationMetrics,
+  type PerformanceTier,
+  type PerformanceBottleneck,
+  type PerformanceSummary,
+  type PerformanceTrend,
+  type ExecutionTimelineEntry,
+  type ExecutionTimelineType,
+} from "./workflow-performance-analysis-api.js";

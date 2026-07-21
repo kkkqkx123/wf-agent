@@ -7,19 +7,13 @@
 
 import {
   ExecutionCommand,
-  CommandValidationResult,
-  validationSuccess,
-  validationFailure,
   type CommandMetadataDefinition,
 } from "../../shared/types/command.js";
-import {
-  validateRequiredEntity,
-  validateOptionalPositiveInt,
-  combineErrors,
-} from "../../shared/operations/validation-utils.js";
+import { validateAgentLoopRunParams } from "../../shared/operations/validators/agent-validators.js";
+import type { CommandValidationResult } from "../../shared/types/command.js";
 import type { AgentLoopRuntimeConfig, AgentLoopResult } from "@wf-agent/types";
-import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { AgentLoopEntityOptions } from "../../../agent/execution/factories/agent-loop-factory.js";
+import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import { withExecutionTimeout } from "../../shared/utils/timeout-execution.js";
 
@@ -42,7 +36,7 @@ export interface RunAgentLoopParams {
 export class RunAgentLoopCommand extends ExecutionCommand<AgentLoopResult> {
   constructor(
     private readonly params: RunAgentLoopParams,
-    private readonly coordinator: AgentLoopCoordinator,
+    private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
@@ -76,8 +70,9 @@ export class RunAgentLoopCommand extends ExecutionCommand<AgentLoopResult> {
     });
 
     try {
+      const coordinator = this.dependencies.getAgentLoopCoordinator();
       const result = await withExecutionTimeout(
-        this.coordinator.execute(this.params.config, this.params.options),
+        coordinator.execute(this.params.config, this.params.options),
         this.params.timeoutMs ?? estimatedDefaultTimeout,
         "Agent Loop Execution"
       );
@@ -109,20 +104,6 @@ export class RunAgentLoopCommand extends ExecutionCommand<AgentLoopResult> {
   }
 
   validate(): CommandValidationResult {
-    const errors = combineErrors(
-      validateRequiredEntity(this.params.config, "Config"),
-      validateOptionalPositiveInt(this.params.config?.maxIterations, "maxIterations"),
-    );
-
-    // Validate profileId if provided (must be non-empty string)
-    if (
-      this.params.config?.profileId !== undefined &&
-      typeof this.params.config.profileId === "string" &&
-      this.params.config.profileId.trim().length === 0
-    ) {
-      errors.push("`profileId` cannot be an empty string.");
-    }
-
-    return errors.length > 0 ? validationFailure(errors) : validationSuccess();
+    return validateAgentLoopRunParams(this.params.config);
   }
 }

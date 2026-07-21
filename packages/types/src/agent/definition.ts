@@ -150,3 +150,26 @@ export interface AgentLoopDefinition {
   /** Last update timestamp (ISO 8601 format) */
   updatedAt?: Timestamp;
 }
+
+/**
+ * Agent Template - Complete agent definition template for reuse.
+ *
+ * Extends AgentLoopDefinition with template-specific metadata
+ * for organizing, searching, and tracking agent templates.
+ */
+export interface AgentTemplate extends AgentLoopDefinition {
+  /** Template ID (overrides AgentLoopDefinition's id) */
+  id: string;
+  /** Template name (for display) */
+  templateName: string;
+  /** Template category (for organization) */
+  templateCategory?: string;
+  /** Template tags (for searching) */
+  templateTags?: string[];
+  /** Whether this is a public template */
+  isPublic?: boolean;
+  /** Number of times used */
+  usageCount?: number;
+  /** Whether template is enabled */
+  enabled?: boolean;
+}

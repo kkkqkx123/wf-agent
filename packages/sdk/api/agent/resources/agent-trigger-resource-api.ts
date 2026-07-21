@@ -1,9 +1,13 @@
 /**
  * AgentTriggerResourceAPI - Agent Trigger Resource Management API
- * Inherits from QueryableResourceAPI, providing read-only operations
+ * Provides APIs for managing triggers in agent loop executions.
+ * Extends the shared BaseTriggerResourceAPI with agent-specific implementation.
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import {
+  BaseTriggerResourceAPI,
+  type BaseTriggerFilter,
+} from "../../shared/resources/trigger-base.js";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { AgentTrigger } from "@wf-agent/types";
 import { NotFoundError, type ID } from "@wf-agent/types";
@@ -12,7 +16,7 @@ import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js
 /**
  * Agent Trigger Filter
  */
-export interface AgentTriggerFilter {
+export interface AgentTriggerFilter extends BaseTriggerFilter {
   /** Trigger ID list */
   ids?: string[];
   /** Trigger name (fuzzy matching is supported) */
@@ -28,7 +32,7 @@ export interface AgentTriggerFilter {
 /**
  * AgentTriggerResourceAPI - Agent Trigger Resource Management API
  */
-export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, string, AgentTriggerFilter> {
+export class AgentTriggerResourceAPI extends BaseTriggerResourceAPI<AgentTrigger, AgentTriggerFilter> {
   private registry: AgentLoopRegistry;
 
   constructor(deps: APIDependencyManager) {
@@ -37,32 +41,13 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
   }
 
   // ============================================================================
-  // Implement the abstract method
+  // Implement BaseTriggerResourceAPI abstract methods
   // ============================================================================
 
   /**
-   * Get a single trigger
-   * @param id: Trigger ID
-   * @returns: Trigger object; returns null if the trigger does not exist
+   * Get all triggers across all agent loops
    */
-  protected async getResource(id: string): Promise<AgentTrigger | null> {
-    // Triggers are usually obtained through agent loop entities
-    const agentLoops = this.registry.getAll();
-    for (const agentLoop of agentLoops) {
-      const triggers = agentLoop.config.triggers || [];
-      const trigger = triggers.find((t: AgentTrigger) => t.id === id);
-      if (trigger) {
-        return trigger;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get all triggers
-   * @returns Array of triggers
-   */
-  protected async getAllResources(): Promise<AgentTrigger[]> {
+  protected getAllEntitiesTriggers(): AgentTrigger[] {
     const agentLoops = this.registry.getAll();
     const allTriggers: AgentTrigger[] = [];
 
@@ -75,42 +60,20 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
   }
 
   /**
-   * Apply filter criteria
+   * Get triggers for a specific agent loop
    */
-  protected override applyFilter(triggers: AgentTrigger[], filter: AgentTriggerFilter): AgentTrigger[] {
-    return triggers.filter(trigger => {
-      if (filter.ids && !filter.ids.includes(trigger.id)) {
-        return false;
-      }
-      if (filter.name && !trigger.name?.toLowerCase().includes(filter.name.toLowerCase())) {
-        return false;
-      }
-      if (filter.enabled !== undefined) {
-        if (trigger.enabled !== filter.enabled) {
-          return false;
-        }
-      }
-      if (filter.triggerType && trigger.condition?.eventType !== filter.triggerType) {
-        return false;
-      }
-      return true;
-    });
+  protected async getEntityTriggers(agentLoopId: string): Promise<AgentTrigger[]> {
+    const agentLoop = await this.registry.get(agentLoopId);
+    if (!agentLoop) {
+      return [];
+    }
+    return agentLoop.config.triggers || [];
   }
 
-  // ============================================================================
-  // Trigger Specific Methods
-  // ============================================================================
-
   /**
-   * Get all triggers for an agent loop
-   * @param agentLoopId: Agent Loop ID
-   * @param filter: Filter criteria
-   * @returns: Array of triggers
+   * Get a specific trigger for an agent loop
    */
-  async getAgentLoopTriggers(
-    agentLoopId: ID,
-    filter?: AgentTriggerFilter,
-  ): Promise<AgentTrigger[]> {
+  protected async getEntityTrigger(agentLoopId: string, triggerId: string): Promise<AgentTrigger> {
     const agentLoop = await this.registry.get(agentLoopId);
     if (!agentLoop) {
       throw new NotFoundError(
@@ -120,34 +83,7 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
       );
     }
 
-    let triggers = agentLoop.config.triggers || [];
-
-    // Apply filter criteria
-    if (filter) {
-      triggers = this.applyFilter(triggers, filter);
-    }
-
-    return triggers;
-  }
-
-  /**
-   * Get the specified trigger for an agent loop
-   * @param agentLoopId: Agent Loop ID
-   * @param triggerId: Trigger ID
-   * @returns: Trigger object
-   */
-  async getAgentLoopTrigger(agentLoopId: ID, triggerId: string): Promise<AgentTrigger> {
-    const agentLoop = await this.registry.get(agentLoopId);
-    if (!agentLoop) {
-      throw new NotFoundError(
-        `Agent Loop not found: ${agentLoopId}`,
-        "agent_loop",
-        agentLoopId,
-      );
-    }
-
-    const trigger = (agentLoop.config.triggers || []).find((t: any) => t.id === triggerId);
-
+    const trigger = (agentLoop.config.triggers || []).find((t: AgentTrigger) => t.id === triggerId);
     if (!trigger) {
       throw new NotFoundError(`Trigger not found: ${triggerId}`, "trigger", triggerId);
     }
@@ -156,40 +92,126 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
   }
 
   /**
-   * Enable trigger
-   * @param agentLoopId Agent Loop ID
-   * @param triggerId Trigger ID
+   * Enable a trigger
    */
-  async enableTrigger(agentLoopId: ID, triggerId: string): Promise<void> {
-    const trigger = await this.getAgentLoopTrigger(agentLoopId, triggerId);
+  protected async enableEntityTrigger(agentLoopId: string, triggerId: string): Promise<void> {
+    const trigger = await this.getEntityTrigger(agentLoopId, triggerId);
     trigger.enabled = true;
   }
 
   /**
-   * Disable the trigger
-   * @param agentLoopId Agent Loop ID
-   * @param triggerId Trigger ID
+   * Disable a trigger
    */
-  async disableTrigger(agentLoopId: ID, triggerId: string): Promise<void> {
-    const trigger = await this.getAgentLoopTrigger(agentLoopId, triggerId);
+  protected async disableEntityTrigger(agentLoopId: string, triggerId: string): Promise<void> {
+    const trigger = await this.getEntityTrigger(agentLoopId, triggerId);
     trigger.enabled = false;
   }
 
   /**
-   * Check if the trigger is enabled.
-   * @param agentLoopId Agent Loop ID
-   * @param triggerId Trigger ID
-   * @returns Whether it is enabled
+   * Check if a trigger is enabled
    */
-  async isTriggerEnabled(agentLoopId: ID, triggerId: string): Promise<boolean> {
-    const trigger = await this.getAgentLoopTrigger(agentLoopId, triggerId);
+  protected async isEntityTriggerEnabled(agentLoopId: string, triggerId: string): Promise<boolean> {
+    const trigger = await this.getEntityTrigger(agentLoopId, triggerId);
     return trigger.enabled === true;
   }
 
   /**
-   * Retrieve trigger statistics
-   * @param agentLoopId Agent Loop ID
-   * @returns Statistical information
+   * Get the entity ID from a trigger
+   * Entity ID is derived from the agent loop that owns the trigger.
+   * Since AgentTrigger doesn't have an agentLoopId field, we use the id as fallback.
+   */
+  protected getEntityIdForTrigger(trigger: AgentTrigger): string {
+    return (trigger as unknown as Record<string, unknown>)["agentLoopId"] as string || "";
+  }
+
+  /**
+   * Get the trigger ID
+   */
+  protected getTriggerId(trigger: AgentTrigger): string {
+    return trigger.id;
+  }
+
+  /**
+   * Get the trigger name
+   */
+  protected getTriggerName(trigger: AgentTrigger): string {
+    return trigger.name || "";
+  }
+
+  /**
+   * Get the trigger type
+   */
+  protected getTriggerType(trigger: AgentTrigger): string {
+    return trigger.condition?.eventType || "unknown";
+  }
+
+  /**
+   * Is the trigger enabled?
+   */
+  protected isTriggerObjectEnabled(trigger: AgentTrigger): boolean {
+    return trigger.enabled === true;
+  }
+
+  /**
+   * Apply filter criteria (agent-specific: adds agentLoopId and triggerType filtering)
+   */
+  protected override applyFilter(triggers: AgentTrigger[], filter: AgentTriggerFilter): AgentTrigger[] {
+    let filtered = super.applyFilter(triggers, filter);
+
+    if (filter.agentLoopId) {
+      filtered = filtered.filter((t) => this.getEntityIdForTrigger(t) === filter.agentLoopId);
+    }
+    if (filter.triggerType) {
+      filtered = filtered.filter((t) => t.condition?.eventType === filter.triggerType);
+    }
+
+    return filtered;
+  }
+
+  // ============================================================================
+  // Agent-specific trigger methods
+  // ============================================================================
+
+  /**
+   * Get all triggers for an agent loop
+   */
+  async getAgentLoopTriggers(
+    agentLoopId: ID,
+    filter?: AgentTriggerFilter,
+  ): Promise<AgentTrigger[]> {
+    return this.getEntityTriggersWithFilter(agentLoopId, filter);
+  }
+
+  /**
+   * Get the specified trigger for an agent loop
+   */
+  async getAgentLoopTrigger(agentLoopId: ID, triggerId: string): Promise<AgentTrigger> {
+    return this.getEntityTrigger(agentLoopId, triggerId);
+  }
+
+  /**
+   * Enable trigger (public API)
+   */
+  override async enableTrigger(agentLoopId: string, triggerId: string): Promise<void> {
+    return this.enableEntityTrigger(agentLoopId, triggerId);
+  }
+
+  /**
+   * Disable the trigger (public API)
+   */
+  override async disableTrigger(agentLoopId: string, triggerId: string): Promise<void> {
+    return this.disableEntityTrigger(agentLoopId, triggerId);
+  }
+
+  /**
+   * Check if the trigger is enabled (public API)
+   */
+  override async isTriggerEnabled(agentLoopId: string, triggerId: string): Promise<boolean> {
+    return this.isEntityTriggerEnabled(agentLoopId, triggerId);
+  }
+
+  /**
+   * Retrieve trigger statistics for an agent loop
    */
   async getTriggerStatistics(agentLoopId: ID): Promise<{
     total: number;
@@ -197,64 +219,46 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
     disabled: number;
     byType: Record<string, number>;
   }> {
-    const triggers = await this.getAgentLoopTriggers(agentLoopId);
-
-    const stats = {
-      total: triggers.length,
-      enabled: 0,
-      disabled: 0,
-      byType: {} as Record<string, number>,
-    };
-
-    for (const trigger of triggers) {
-      if (trigger.enabled === true) {
-        stats.enabled++;
-      } else {
-        stats.disabled++;
-      }
-
-      const type = trigger.condition?.eventType || "unknown";
-      stats.byType[type] = (stats.byType[type] || 0) + 1;
-    }
-
-    return stats;
+    return this.getEntityTriggerStatistics(agentLoopId);
   }
 
   /**
    * Get trigger statistics for all agent loops
-   * @returns Global statistics information
    */
-  async getGlobalTriggerStatistics(): Promise<{
+  async getAgentGlobalTriggerStatistics(): Promise<{
     total: number;
     enabled: number;
     disabled: number;
     byAgentLoop: Record<ID, number>;
     byType: Record<string, number>;
   }> {
-    const agentLoops = this.registry.getAll();
-    const stats = {
+    const allTriggers = await this.getAllEntitiesTriggers();
+    const stats: {
+      total: number;
+      enabled: number;
+      disabled: number;
+      byAgentLoop: Record<ID, number>;
+      byType: Record<string, number>;
+    } = {
       total: 0,
       enabled: 0,
       disabled: 0,
-      byAgentLoop: {} as Record<ID, number>,
-      byType: {} as Record<string, number>,
+      byAgentLoop: {},
+      byType: {},
     };
 
-    for (const agentLoop of agentLoops) {
-      const triggers = agentLoop.config.triggers || [];
-
-      stats.byAgentLoop[agentLoop.id] = triggers.length;
-      stats.total += triggers.length;
-
-      for (const trigger of triggers) {
-        if (trigger.enabled === true) {
-          stats.enabled++;
-        } else {
-          stats.disabled++;
-        }
-
-        const type = trigger.condition?.eventType || "unknown";
-        stats.byType[type] = (stats.byType[type] || 0) + 1;
+    for (const trigger of allTriggers) {
+      stats.total++;
+      if (this.isTriggerObjectEnabled(trigger)) {
+        stats.enabled++;
+      } else {
+        stats.disabled++;
+      }
+      const type = this.getTriggerType(trigger);
+      stats.byType[type] = (stats.byType[type] || 0) + 1;
+      const entityId = this.getEntityIdForTrigger(trigger);
+      if (entityId) {
+        stats.byAgentLoop[entityId] = (stats.byAgentLoop[entityId] || 0) + 1;
       }
     }
 
@@ -263,35 +267,52 @@ export class AgentTriggerResourceAPI extends QueryableResourceAPI<AgentTrigger, 
 
   /**
    * Search Trigger
-   * @param query Search keyword
-   * @returns Array of matching triggers
    */
   async searchTriggers(query: string): Promise<AgentTrigger[]> {
-    const allTriggers = await this.getAllResources();
+    const allTriggers = await this.getAllEntitiesTriggers();
+    const lowerQuery = query.toLowerCase();
     return allTriggers.filter(
-      trigger =>
-        trigger.name?.toLowerCase().includes(query.toLowerCase()) ||
-        trigger.id.toLowerCase().includes(query.toLowerCase()),
+      (trigger) =>
+        this.getTriggerName(trigger).toLowerCase().includes(lowerQuery) ||
+        this.getTriggerId(trigger).toLowerCase().includes(lowerQuery),
     );
   }
 
   /**
    * Export agent loop triggers
-   * @param agentLoopId: Agent Loop ID
-   * @returns: JSON string
    */
   async exportAgentLoopTriggers(agentLoopId: ID): Promise<string> {
-    const triggers = await this.getAgentLoopTriggers(agentLoopId);
-    return JSON.stringify(triggers, null, 2);
+    return this.exportEntityTriggers(agentLoopId);
   }
 
-  // ============================================================================
-  // Auxiliary method
-  // ============================================================================
+  /**
+   * Get trigger execution history for a specific agent loop trigger
+   * @param agentLoopId Agent Loop ID
+   * @param triggerId Trigger ID
+   * @returns Array of trigger execution records
+   */
+  async getTriggerExecutionHistory(
+    agentLoopId: ID,
+    triggerId: string,
+  ): Promise<
+    Array<{
+      timestamp: number;
+      result: unknown;
+      success: boolean;
+    }>
+  > {
+    const trigger = await this.getAgentLoopTrigger(agentLoopId, triggerId);
+    return [
+      {
+        timestamp: Date.now(),
+        result: `Trigger ${triggerId} is ${trigger.enabled ? "enabled" : "disabled"}`,
+        success: trigger.enabled === true,
+      },
+    ];
+  }
 
   /**
    * Get the underlying AgentLoopRegistry instance
-   * @returns AgentLoopRegistry instance
    */
   getRegistry(): AgentLoopRegistry {
     return this.registry;

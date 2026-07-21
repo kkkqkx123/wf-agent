@@ -9,137 +9,54 @@
  * - Performance bottleneck identification
  * - Iteration-by-iteration performance breakdown
  *
+ * @deprecated Use {@link PerformanceMetricsAPI} from "@sdk/api/shared/resources/metrics/performance-metrics-api.js" instead.
+ * The `PerformanceMetricsAPI` now provides `analyzePerformance` and `getIterationComparison`
+ * methods alongside its existing timeline and comparison capabilities.
+ * This class is kept for backward compatibility and will be removed in a future major version.
+ *
  * Part of P1 priority: Improve system observability with performance metrics
  */
 
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
-import type { ID, AgentLoopStatus } from "@wf-agent/types";
+import type { ID } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type {
+  OperationMetrics,
+  IterationPerformance,
+  ExecutionPerformanceProfile,
+  PerformanceTier,
+  PerformanceBottleneck,
+  PerformanceSummary,
+  PerformanceTrend,
+  IterationComparison,
+  ExecutionTimelineEntry,
+  ExecutionTimelineType,
+} from "../../shared/resources/metrics/performance-metrics-api.js";
 
 const logger = createContextualLogger({ operation: "AgentPerformanceAnalysisAPI" });
 
 // ============================================================================
 // Type Definitions: Performance Metrics
 // ============================================================================
+// Types are now defined in the shared PerformanceMetricsAPI module.
+// Imported via "../../shared/resources/metrics/performance-metrics-api.js".
+// For new code, import types directly from the shared module.
+// ============================================================================
 
-/**
- * Performance metrics for a single operation
- */
-export interface OperationMetrics {
-  /** Operation name */
-  name: string;
-  /** Operation type (e.g., 'llm_request', 'tool_call', 'iteration') */
-  type: string;
-  /** Start timestamp */
-  startTime: number;
-  /** End timestamp */
-  endTime: number;
-  /** Duration in milliseconds */
-  duration: number;
-  /** Whether operation succeeded */
-  success: boolean;
-  /** Resource usage estimates */
-  resources?: {
-    /** Estimated CPU time (ms) */
-    cpuTime?: number;
-    /** Estimated memory used (bytes) */
-    memoryUsed?: number;
-  };
-}
-
-/**
- * Iteration performance breakdown
- */
-export interface IterationPerformance {
-  /** Iteration number */
-  iteration: number;
-  /** Iteration start time */
-  startTime: number;
-  /** Iteration end time */
-  endTime: number;
-  /** Total iteration duration */
-  duration: number;
-  /** Number of tool calls in this iteration */
-  toolCallCount: number;
-  /** LLM request count */
-  llmRequestCount: number;
-  /** Detailed operation metrics */
-  operations: OperationMetrics[];
-  /** Whether iteration succeeded */
-  success: boolean;
-  /** Performance tier: 'fast' | 'normal' | 'slow' */
-  performanceTier: PerformanceTier;
-}
-
-/**
- * Complete execution performance profile
- */
-export interface ExecutionPerformanceProfile {
-  /** Execution ID */
-  executionId: ID;
-  /** Execution status */
-  status: AgentLoopStatus;
-  /** Total execution start time */
-  startTime: number;
-  /** Total execution end time */
-  endTime?: number;
-  /** Total execution duration */
-  totalDuration?: number;
-  /** Total number of iterations */
-  totalIterations: number;
-  /** Total tool calls */
-  totalToolCalls: number;
-  /** Performance tier */
-  performanceTier: PerformanceTier;
-  /** Iteration-by-iteration breakdown */
-  iterations: IterationPerformance[];
-  /** Performance bottlenecks */
-  bottlenecks: PerformanceBottleneck[];
-  /** Performance summary */
-  summary: PerformanceSummary;
-}
-
-/**
- * Performance tier classification
- */
-export type PerformanceTier = 'fast' | 'normal' | 'slow';
-
-/**
- * Performance bottleneck
- */
-export interface PerformanceBottleneck {
-  /** Bottleneck type */
-  type: 'iteration' | 'tool_call' | 'llm_request';
-  /** Location (iteration number or tool name) */
-  location: string | number;
-  /** Duration (ms) */
-  duration: number;
-  /** Percentage of total execution time */
-  percentage: number;
-  /** Severity: 'low' | 'medium' | 'high' */
-  severity: 'low' | 'medium' | 'high';
-}
-
-/**
- * Performance summary
- */
-export interface PerformanceSummary {
-  /** Average iteration duration */
-  avgIterationDuration: number;
-  /** Fastest iteration duration */
-  minIterationDuration: number;
-  /** Slowest iteration duration */
-  maxIterationDuration: number;
-  /** Average tool call duration */
-  avgToolCallDuration?: number;
-  /** Success rate */
-  successRate: number;
-  /** Estimated operations per second */
-  operationsPerSecond: number;
-  /** Recommendations for optimization */
-  recommendations: string[];
-}
+// Re-export types from shared location for backward compatibility
+export type {
+  OperationMetrics,
+  IterationPerformance,
+  ExecutionPerformanceProfile,
+  PerformanceTier,
+  PerformanceBottleneck,
+  PerformanceSummary,
+  PerformanceTrend,
+  IterationComparison,
+  ExecutionTimelineEntry,
+  ExecutionTimelineType,
+} from "../../shared/resources/metrics/performance-metrics-api.js";
 
 // ============================================================================
 // API Implementation
@@ -525,62 +442,4 @@ export class AgentPerformanceAnalysisAPI extends QueryableResourceAPI<
 
     return bottlenecks.sort((a, b) => b.duration - a.duration).slice(0, 10);
   }
-}
-
-// ============================================================================
-// Additional Type Definitions
-// ============================================================================
-
-/**
- * Execution timeline entry
- */
-export interface ExecutionTimelineEntry {
-  /** Event timestamp */
-  timestamp: number;
-  /** Event type */
-  type: ExecutionTimelineType;
-  /** Event description */
-  description: string;
-  /** Event duration */
-  duration?: number;
-  /** Performance tier */
-  performanceTier?: PerformanceTier;
-  /** Whether event succeeded */
-  success?: boolean;
-}
-
-/**
- * Timeline entry type
- */
-export type ExecutionTimelineType = 'iteration_start' | 'iteration_end' | 'tool_call' | 'llm_request';
-
-/**
- * Performance trend
- */
-export type PerformanceTrend = 'improving' | 'degrading' | 'stable';
-
-/**
- * Iteration comparison result
- */
-export interface IterationComparison {
-  /** Execution ID */
-  executionId: ID;
-  /** Total iterations */
-  totalIterations: number;
-  /** Fastest iteration */
-  fastestIteration: {
-    iteration: number;
-    duration: number;
-  } | null;
-  /** Slowest iteration */
-  slowestIteration: {
-    iteration: number;
-    duration: number;
-  } | null;
-  /** Average iteration duration */
-  averageDuration: number;
-  /** Variance in durations */
-  variance: number;
-  /** Performance trend */
-  trend: PerformanceTrend;
 }

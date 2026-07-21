@@ -26,6 +26,7 @@
 
 // Static Definition Type (for file-based configuration)
 export type { AgentLoopDefinition } from "./definition.js";
+export type { AgentTemplate } from "./definition.js";
 
 // Static Configuration Components
 export type {

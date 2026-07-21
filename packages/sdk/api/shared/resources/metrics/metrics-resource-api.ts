@@ -188,6 +188,196 @@ export class MetricsResourceAPI {
     return collector.getAgentStats();
   }
 
+  /**
+   * Get agent tool usage metrics
+   *
+   * Returns tool call frequency and duration statistics for agent executions.
+   *
+   * @param agentLoopId Optional agent loop ID to filter by (if supported by collector)
+   * @returns Tool metrics including call count and total duration by tool name
+   */
+  async getAgentToolMetrics(agentLoopId?: string): Promise<{
+    byTool: Record<string, { callCount: number; totalDuration: number; avgDuration: number }>;
+    totalToolCalls: number;
+  }> {
+    const collector = this.metricsRegistry.getAgentCollector();
+    if (!collector) {
+      throw new Error("Agent metrics collector not available");
+    }
+
+    const filter = agentLoopId
+      ? { labels: { agent_loop_id: agentLoopId } }
+      : {};
+
+    // Query tool call count
+    const toolCountResult = collector.query({
+      metricName: "agent.tool.call.count",
+      metricType: "counter",
+      ...filter,
+    });
+
+    // Query tool execution duration
+    const toolDurationResult = collector.query({
+      metricName: "agent.tool.execution.duration",
+      metricType: "histogram",
+      ...filter,
+    });
+
+    const byTool: Record<string, { callCount: number; totalDuration: number; avgDuration: number }> = {};
+    let totalToolCalls = 0;
+
+    // Aggregate by tool name
+    const countMetric = toolCountResult.metrics.get("agent.tool.call.count");
+    if (countMetric) {
+      for (const [labelKey, labelAgg] of countMetric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          const toolName = labels.tool_name;
+          if (toolName) {
+            byTool[toolName] = byTool[toolName] || { callCount: 0, totalDuration: 0, avgDuration: 0 };
+            byTool[toolName].callCount += labelAgg.value;
+            totalToolCalls += labelAgg.value;
+          }
+        } catch {
+          // Skip malformed label keys
+        }
+      }
+    }
+
+    // Merge duration data
+    const durationMetric = toolDurationResult.metrics.get("agent.tool.execution.duration");
+    if (durationMetric) {
+      for (const [labelKey, labelAgg] of durationMetric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          const toolName = labels.tool_name;
+          if (toolName && byTool[toolName]) {
+            byTool[toolName].totalDuration += labelAgg.value;
+            byTool[toolName].avgDuration =
+              byTool[toolName].callCount > 0
+                ? byTool[toolName].totalDuration / byTool[toolName].callCount
+                : 0;
+          }
+        } catch {
+          // Skip malformed label keys
+        }
+      }
+    }
+
+    return { byTool, totalToolCalls };
+  }
+
+  /**
+   * Get agent LLM usage metrics
+   *
+   * Returns token consumption and cost statistics for agent LLM invocations.
+   *
+   * @param agentLoopId Optional agent loop ID to filter by (if supported by collector)
+   * @returns LLM metrics including token usage and cost
+   */
+  async getAgentLLMMetrics(agentLoopId?: string): Promise<{
+    totalTokens: number;
+    avgTokensPerIteration: number;
+    totalCostUsd: number;
+    byModel: Record<string, { tokens: number; costUsd: number }>;
+  }> {
+    const collector = this.metricsRegistry.getAgentCollector();
+    if (!collector) {
+      throw new Error("Agent metrics collector not available");
+    }
+
+    const filter = agentLoopId
+      ? { labels: { agent_loop_id: agentLoopId } }
+      : {};
+
+    // Query tokens per iteration
+    const tokenResult = collector.query({
+      metricName: "agent.loop.tokens_per_iteration",
+      metricType: "histogram",
+      ...filter,
+    });
+
+    // Query iteration count
+    const iterationResult = collector.query({
+      metricName: "agent.loop.iteration.count",
+      metricType: "counter",
+      ...filter,
+    });
+
+    const byModel: Record<string, { tokens: number; costUsd: number }> = {};
+    let totalTokens = 0;
+    let totalCostUsd = 0;
+
+    const tokenMetric = tokenResult.metrics.get("agent.loop.tokens_per_iteration");
+    if (tokenMetric) {
+      totalTokens = tokenMetric.value;
+      // Model-level breakdown would require additional labeling in the collector
+      // For now, aggregate under "unknown"
+      byModel["unknown"] = {
+        tokens: totalTokens,
+        costUsd: 0,
+      };
+    }
+
+    const iterationMetric = iterationResult.metrics.get("agent.loop.iteration.count");
+    const totalIterations = iterationMetric ? iterationMetric.value : 0;
+
+    return {
+      totalTokens,
+      avgTokensPerIteration: totalIterations > 0 ? totalTokens / totalIterations : 0,
+      totalCostUsd,
+      byModel,
+    };
+  }
+
+  /**
+   * Get agent error metrics
+   *
+   * Returns error frequency statistics for agent executions.
+   *
+   * @param agentLoopId Optional agent loop ID to filter by (if supported by collector)
+   * @returns Error metrics including error frequency by type
+   */
+  async getAgentErrorMetrics(agentLoopId?: string): Promise<{
+    totalErrors: number;
+    byErrorType: Record<string, number>;
+  }> {
+    const collector = this.metricsRegistry.getAgentCollector();
+    if (!collector) {
+      throw new Error("Agent metrics collector not available");
+    }
+
+    const filter = agentLoopId
+      ? { labels: { agent_loop_id: agentLoopId } }
+      : {};
+
+    // Query agent error metrics (if available from collector)
+    const errorResult = collector.query({
+      metricName: "agent.error.count",
+      metricType: "counter",
+      ...filter,
+    });
+
+    const byErrorType: Record<string, number> = {};
+    let totalErrors = 0;
+
+    const errorMetric = errorResult.metrics.get("agent.error.count");
+    if (errorMetric) {
+      totalErrors = errorMetric.value;
+      for (const [labelKey, labelAgg] of errorMetric.byLabel.entries()) {
+        try {
+          const labels = JSON.parse(labelKey);
+          const errorType = labels.error_type || "unknown";
+          byErrorType[errorType] = (byErrorType[errorType] || 0) + labelAgg.value;
+        } catch {
+          byErrorType["unknown"] = (byErrorType["unknown"] || 0) + labelAgg.value;
+        }
+      }
+    }
+
+    return { totalErrors, byErrorType };
+  }
+
   // ============================================================
   // Comprehensive Reports
   // ============================================================

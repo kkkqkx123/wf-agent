@@ -319,11 +319,27 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
 
   /**
    * Constructor
+   *
+   * Creates an AgentExecutionStateAPI instance. If no PersistenceLayer is provided
+   * by the APIDependencyManager, a NoOpPersistenceLayer is used as fallback.
+   *
+   * **Warning**: When NoOpPersistenceLayer is active, execution state data is
+   * stored only in memory and will be lost when the application restarts.
+   * For production use, configure a proper PersistenceLayer through the
+   * APIDependencyManager.
+   *
    * @param deps APIDependencyManager instance
    */
   constructor(deps: APIDependencyManager) {
     super();
     this.persistence = deps.getPersistenceLayer() || new NoOpPersistenceLayer();
+
+    if (this.persistence instanceof NoOpPersistenceLayer) {
+      logger.warn(
+        "NoOpPersistenceLayer is active - execution state data will not be persisted. " +
+          "Configure a PersistenceLayer through APIDependencyManager for production use.",
+      );
+    }
   }
 
   // ============================================================================

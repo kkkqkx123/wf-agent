@@ -198,6 +198,14 @@ export {
   type UserInteractionConfig,
   type UserInteractionFilter,
 } from "./workflow/resources/user-interaction-resource-api.js";
+export {
+  WorkflowExecutionGraphQueryAPI,
+  type WorkflowExecutionNode,
+  type WorkflowExecutionEdge,
+  type WorkflowExecutionGraph,
+  type WorkflowExecutionPathSummary,
+  type WorkflowExecutionGraphFilter,
+} from "./workflow/resources/workflow-execution-graph-query-api.js";
 
 // ============================================================================
 // Commands - Unified Command Interface
@@ -304,6 +312,13 @@ export {
 } from "./agent/resources/agent-loop-registry-api.js";
 
 export {
+  AgentExecutionRegistryAPI,
+  type AgentExecutionFilter,
+  type AgentExecutionSummary,
+} from "./agent/resources/agent-execution-registry-api.js";
+
+export {
+  /** @deprecated Use {@link AgentLoopRegistryAPI} instead */
   AgentLoopResourceAPI,
   type AgentLoopFilter as AgentLoopEntityFilter,
   type AgentLoopSummary as AgentLoopEntitySummary,
@@ -336,6 +351,7 @@ export {
   type ExtendedIterationFilter,
   type DecisionAnalysis,
   type ExecutionPathAnalysis,
+  type OptimizationOpportunity,
 } from "./agent/resources/agent-loop-iteration-api.js";
 
 export {
@@ -380,6 +396,13 @@ export {
   type AgentTemplateFilter,
   type AgentTemplateSummary,
 } from "./agent/resources/agent-template-registry-api.js";
+
+export {
+  AgentErrorAnalysisAPI,
+  type RootCauseAnalysis,
+  type ErrorStatistics,
+  type ErrorRecoveryProposal,
+} from "./agent/resources/errors/index.js";
 
 // ============================================================================
 // Shared - Types

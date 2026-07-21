@@ -10,6 +10,7 @@ import {
   type CommandMetadataDefinition,
 } from "../../../shared/types/command.js";
 import type { CommandValidationResult } from "../../../shared/types/command.js";
+import { validateAgentTriggerParams } from "../../../shared/operations/validators/agent-validators.js";
 import { NotFoundError, type ID } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
@@ -50,19 +51,7 @@ export class DisableAgentTriggerCommand extends ManagementCommand<void> {
    * Verify command parameters
    */
   validate(): CommandValidationResult {
-    if (!this.params.agentLoopId) {
-      return {
-        valid: false,
-        errors: ["Agent Loop ID is required"],
-      };
-    }
-    if (!this.params.triggerId) {
-      return {
-        valid: false,
-        errors: ["Trigger ID is required"],
-      };
-    }
-    return { valid: true, errors: [] };
+    return validateAgentTriggerParams(this.params.agentLoopId, this.params.triggerId);
   }
 
   /**

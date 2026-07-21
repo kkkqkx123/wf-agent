@@ -4,3 +4,4 @@
  */
 
 export { AgentLoopRegistry, type AgentTaskManager, type AgentTaskInfo, type AgentTaskStats } from "./agent-loop-registry.js";
+export { AgentTemplateRegistry } from "./agent-template-registry.js";

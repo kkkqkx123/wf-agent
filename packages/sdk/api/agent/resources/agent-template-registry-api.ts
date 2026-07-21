@@ -7,6 +7,8 @@
 import type { Timestamp, AgentLoopDefinition } from "@wf-agent/types";
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
+import type { AgentTemplateRegistry } from "../../../agent/registry/agent-template-registry.js";
+import { now } from "@wf-agent/common-utils";
 
 /**
  * Agent Template Filter
@@ -72,10 +74,11 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
   string,
   AgentTemplateFilter
 > {
+  private registry: AgentTemplateRegistry;
+
   constructor(dependencies: APIDependencyManager) {
     super();
-    // Store dependencies if needed for future implementation
-    void dependencies;
+    this.registry = dependencies.getAgentTemplateRegistry();
   }
 
   /**
@@ -83,10 +86,9 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID
    * @returns The agent template; returns null if it does not exist
    */
-  protected async getResource(): Promise<AgentTemplate | null> {
-    // In a full implementation, this would retrieve from a template registry
-    // For now, returns null as placeholder for future implementation
-    return null;
+  protected async getResource(id: string): Promise<AgentTemplate | null> {
+    const template = this.registry.get(id);
+    return template ?? null;
   }
 
   /**
@@ -94,8 +96,7 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @returns Array of all agent templates
    */
   protected async getAllResources(): Promise<AgentTemplate[]> {
-    // In a full implementation, this would retrieve all templates from registry
-    return [];
+    return this.registry.getAll();
   }
 
   /**
@@ -103,8 +104,7 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param resource Template to create
    */
   protected async createResource(resource: AgentTemplate): Promise<void> {
-    void resource; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.registry.register(resource);
   }
 
   /**
@@ -116,9 +116,7 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
     id: string,
     updates: Partial<AgentTemplate>
   ): Promise<void> {
-    void id;
-    void updates; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.registry.update(id, updates);
   }
 
   /**
@@ -126,8 +124,7 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID to delete
    */
   protected async deleteResource(id: string): Promise<void> {
-    void id; // Suppress unused parameter warning
-    // In a full implementation, this would delete from storage
+    this.registry.unregister(id);
   }
 
   /**
@@ -225,7 +222,7 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @returns The cloned agent definition
    */
   async cloneTemplate(templateId: string, newName: string): Promise<AgentLoopDefinition | null> {
-    const template = await this.getResource();
+    const template = this.registry.get(templateId);
     if (!template) return null;
 
     // Create a new definition based on the template
@@ -247,10 +244,9 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
       dynamicContext: template.dynamicContext,
       checkpoint: template.checkpoint,
       metadata: template.metadata ? { ...template.metadata } : undefined,
-      createdAt: Date.now(),
+      createdAt: now(),
     };
 
-    void templateId; // Suppress unused parameter warning
     return cloned;
   }
 
@@ -259,11 +255,6 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param templateId Template ID
    */
   async incrementUsageCount(templateId: string): Promise<void> {
-    const template = await this.getResource();
-    if (template) {
-      template.usageCount = (template.usageCount || 0) + 1;
-      // In full implementation, would persist this change
-    }
-    void templateId; // Suppress unused parameter warning
+    this.registry.incrementUsageCount(templateId);
   }
 }

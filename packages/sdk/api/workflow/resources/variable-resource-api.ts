@@ -1,10 +1,15 @@
 /**
- * VariableResourceAPI - Variable Resource Management API
- * inherits from QueryableResourceAPI, providing read-only operations
+ * VariableResourceAPI - Workflow Variable Resource Management API
+ * Provides APIs for managing variables in workflow executions.
+ * Extends the shared BaseVariableResourceAPI with workflow-specific implementation.
  */
 
+import {
+  BaseVariableResourceAPI,
+  type BaseVariableFilter,
+  type VariableStatistics,
+} from "../../shared/resources/variable-base.js";
 import { now } from "@wf-agent/common-utils";
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import { NotFoundError, WorkflowExecutionNotFoundError, SDKError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
@@ -12,53 +17,47 @@ import type { ExecutionResult } from "../../shared/types/execution-result.js";
 import { success, failure } from "../../shared/types/execution-result.js";
 
 /**
- * Variable Filter
+ * Workflow Variable Filter
  */
-export interface VariableFilter {
-  /** Variable names (fuzzy matching is supported) */
+export interface VariableFilter extends BaseVariableFilter {
+  /** Filter by name */
   name?: string;
-  /** Variable Scope */
-  scope?: "global" | "workflowExecution" | "subgraph" | "loop";
-  /** Variable Types */
-  type?: string;
-  /** Execution ID */
-  executionId?: string;
-  /** Workflow ID */
-  workflowId?: string;
+  /** Filter by source */
+  source?: string;
 }
 
 /**
- * Variable update options
+ * Variable Update Options
  */
 export interface VariableUpdateOptions {
-  /** Whether to overwrite an existing variable */
+  /** Whether to overwrite existing variables */
   overwrite?: boolean;
-  /** Whether to validate the variable value */
-  validate?: boolean;
-  /** Whether to trigger the event */
-  triggerEvent?: boolean;
+  /** Source of the update */
+  source?: string;
 }
 
 /**
- * Variable definition information
+ * Variable Definition
  */
 export interface VariableDefinition {
-  /** Variable names */
+  /** Variable name */
   name: string;
-  /** Variable Types */
+  /** Variable type */
   type: string;
-  /** Variable Description */
-  description?: string;
-  /** Default value */
-  defaultValue?: unknown;
-  /** Is it mandatory? */
+  /** Variable value */
+  value: unknown;
+  /** Variable source */
+  source: string;
+  /** Last updated timestamp */
+  lastUpdated: number;
+  /** Whether the variable is required */
   required?: boolean;
 }
 
 /**
- * VariableResourceAPI - Variable Resource Management API
+ * VariableResourceAPI - Workflow Variable Resource Management API
  */
-export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, VariableFilter> {
+export class VariableResourceAPI extends BaseVariableResourceAPI<VariableFilter> {
   private registry: WorkflowExecutionRegistry;
 
   constructor(deps: APIDependencyManager) {
@@ -67,222 +66,43 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
   }
 
   // ============================================================================
-  // Implement the abstract method
-  // ============================================================================
-
-  /**
-   * Get the value of a single variable
-   * @param id The variable name (format: executionId:variableName)
-   * @returns The variable value; returns null if it does not exist
-   */
-  protected async getResource(id: string): Promise<unknown | null> {
-    const [executionId, variableName] = this.parseVariableId(id);
-    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-
-    // Use VariableManager to get variable (respects scope priority)
-    const value = executionEntity.variableStateManager.getVariable(variableName);
-    return value ?? null;
-  }
-
-  /**
-   * Get all variable values
-   * @returns Record of variable values
-   */
-  protected async getAllResources(): Promise<unknown[]> {
-    // The variable is not suitable to return an array, so an empty array is returned instead. A specific method is used to obtain the variable.
-    return [];
-  }
-
-  // ============================================================================
-  // Variable-specific methods
+  // Implement BaseVariableResourceAPI abstract methods
   // ============================================================================
 
   /**
    * Get all variable values of the workflow execution
-   * @param executionId: Execution ID
-   * @returns: Record of variable values
    */
-  async getWorkflowExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
+  protected async getEntityVariables(executionId: string): Promise<Record<string, unknown>> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-    // Use VariableManager to get all variables (respects scope priority)
     return executionEntity.variableStateManager.getAllVariables();
   }
 
   /**
    * Get the value of a specified variable for a workflow execution
-   * @param executionId: Execution ID
-   * @param name: Variable name
-   * @returns: Variable value
    */
-  async getWorkflowExecutionVariable(executionId: string, name: string): Promise<unknown> {
+  protected async getEntityVariable(executionId: string, name: string): Promise<unknown> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-
     const value = executionEntity.variableStateManager.getVariable(name);
     if (value === undefined) {
       throw new NotFoundError(`Variable not found: ${name}`, "Variable", name);
     }
-
     return value;
   }
 
   /**
-   * Check if the specified variable exists in the workflow execution.
-   * @param executionId: Execution ID
-   * @param name: Variable name
-   * @returns: Whether the variable exists
+   * Check if the specified variable exists in the workflow execution
    */
-  async hasWorkflowExecutionVariable(executionId: string, name: string): Promise<boolean> {
+  protected async hasEntityVariable(executionId: string, name: string): Promise<boolean> {
     const executionEntity = await this.getWorkflowExecutionEntity(executionId);
     return executionEntity.variableStateManager.hasVariable(name);
   }
 
   /**
-   * Get variable definitions for a workflow execution
-   * @param executionId Execution ID
-   * @returns Record of variable definitions (name -> definition)
-   */
-  async getWorkflowExecutionVariableDefinitions(
-    executionId: string,
-  ): Promise<Record<string, unknown>> {
-    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-    const definitions = executionEntity.variableStateManager.getAllVariableDefinitions();
-
-    // Convert array to record format
-    const result: Record<string, unknown> = {};
-    for (const def of definitions) {
-      result[def.name] = def;
-    }
-    return result;
-  }
-
-  /**
-   * Get variable statistics for all executions
-   * @returns Statistical information
-   */
-  async getVariableStatistics(): Promise<{
-    totalExecutions: number;
-    totalVariables: number;
-    byExecution: Record<string, number>;
-    byType: Record<string, number>;
-  }> {
-    const executionEntities = this.registry.getAll();
-    const stats = {
-      totalExecutions: executionEntities.length,
-      totalVariables: 0,
-      byExecution: {} as Record<string, number>,
-      byType: {} as Record<string, number>,
-    };
-
-    for (const executionEntity of executionEntities) {
-      const executionId = executionEntity.id;
-      const manager = executionEntity.variableStateManager;
-      const variables = manager.getAllVariables();
-
-      stats.byExecution[executionId] = Object.keys(variables).length;
-      stats.totalVariables += Object.keys(variables).length;
-
-      // Statistical variable type determination (simplified implementation)
-      for (const [, value] of Object.entries(variables)) {
-        const type = typeof value;
-        stats.byType[type] = (stats.byType[type] || 0) + 1;
-      }
-    }
-
-    return stats;
-  }
-
-  /**
-   * Get variable scopes information (deprecated - scope mechanism removed)
-   * This method is kept for backward compatibility but returns simplified data
-   * @param executionId Execution ID
-   * @returns Scope information (all variables in execution field)
-   */
-  async getVariableScopes(executionId: string): Promise<{
-    execution: Record<string, unknown>;
-    global: Record<string, unknown>;
-    subgraph: Record<string, unknown>; // Always empty - deprecated
-    loop: Record<string, unknown>; // Always empty - deprecated
-    currentScopeDepth: number;
-    hasActiveTemporaryScope: boolean;
-  }> {
-    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-    const manager = executionEntity.variableStateManager;
-
-    // Get all variables (flat structure)
-    const allVars = manager.getAllVariables();
-
-    return {
-      execution: allVars,
-      global: {}, // Deprecated - no longer used
-      subgraph: {}, // Always empty - internal use only
-      loop: {}, // Always empty - internal use only
-      currentScopeDepth: 0, // Deprecated - no scope stack
-      hasActiveTemporaryScope: false, // Deprecated - no scope stack
-    };
-  }
-
-  /**
-   * Search for variables
-   * @param executionId Execution ID
-   * @param query Search keyword
-   * @returns Array of matching variable names
-   */
-  async searchVariables(executionId: string, query: string): Promise<string[]> {
-    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
-    const variables = executionEntity.variableStateManager.getAllVariables();
-
-    return Object.keys(variables).filter(name => name.toLowerCase().includes(query.toLowerCase()));
-  }
-
-  /**
-   * Export workflow execution variables
-   * @param executionId Execution ID
-   * @returns JSON string
-   */
-  async exportWorkflowExecutionVariables(executionId: string): Promise<string> {
-    const variables = await this.getWorkflowExecutionVariables(executionId);
-    return JSON.stringify(variables, null, 2);
-  }
-
-  /**
-   * Get variable change history
-   * @param executionId Execution ID
-   * @param variableName Variable name
-   * @returns Array of change history (simplified implementation)
-   */
-  async getVariableHistory(
-    executionId: string,
-    variableName: string,
-  ): Promise<
-    Array<{
-      timestamp: number;
-      value: unknown;
-      source: string;
-    }>
-  > {
-    // Simplify the implementation; in real projects, you can obtain the necessary data from the event system.
-    const currentValue = await this.getWorkflowExecutionVariable(executionId, variableName);
-    return [
-      {
-        timestamp: now(),
-        value: currentValue,
-        source: "current",
-      },
-    ];
-  }
-
-  /**
    * Set variable value for an execution
-   * This is a convenience method that encapsulates direct registry access
-   *
-   * @param executionId Execution ID
-   * @param variableName Variable name
-   * @param value Variable value
-   * @returns Execution result
    */
-  async setVariable(
+  protected async setEntityVariable(
     executionId: string,
-    variableName: string,
+    name: string,
     value: unknown,
   ): Promise<ExecutionResult<void>> {
     try {
@@ -297,7 +117,7 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
         );
       }
 
-      await executionContext.setVariable(variableName, value);
+      await executionContext.setVariable(name, value);
       return success(undefined, 0);
     } catch (error) {
       const sdkError =
@@ -312,13 +132,11 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
 
   /**
    * Delete variable for an execution
-   * This is a convenience method that encapsulates direct registry access
-   *
-   * @param executionId Execution ID
-   * @param variableName Variable name
-   * @returns Execution result
    */
-  async deleteVariable(executionId: string, variableName: string): Promise<ExecutionResult<void>> {
+  protected async deleteEntityVariable(
+    executionId: string,
+    name: string,
+  ): Promise<ExecutionResult<void>> {
     try {
       const executionContext = this.registry.get(executionId);
       if (!executionContext) {
@@ -331,7 +149,7 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
         );
       }
 
-      await executionContext.deleteVariable(variableName);
+      await executionContext.deleteVariable(name);
       return success(undefined, 0);
     } catch (error) {
       const sdkError =
@@ -344,16 +162,26 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
     }
   }
 
-  // ============================================================================
-  // Auxiliary method
-  // ============================================================================
+  /**
+   * Get variable definitions for a workflow execution
+   */
+  protected async getEntityVariableDefinitions(
+    executionId: string,
+  ): Promise<Record<string, unknown>> {
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const definitions = executionEntity.variableStateManager.getAllVariableDefinitions();
+
+    const result: Record<string, unknown> = {};
+    for (const def of definitions) {
+      result[def.name] = def;
+    }
+    return result;
+  }
 
   /**
    * Parse variable ID
-   * @param id Variable ID (format: executionId:variableName)
-   * @returns [executionId, variableName]
    */
-  private parseVariableId(id: string): [string, string] {
+  protected parseVariableId(id: string): [string, string] {
     const parts = id.split(":");
     if (parts.length !== 2) {
       throw new Error(
@@ -364,8 +192,177 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
   }
 
   /**
-   * Obtain an execution entity
+   * Get variable statistics
    */
+  protected async getVariableStatistics(): Promise<VariableStatistics> {
+    const executionEntities = this.registry.getAll();
+    const stats: VariableStatistics = {
+      totalExecutions: executionEntities.length,
+      totalVariables: 0,
+      byExecution: {},
+      byType: {},
+      bySource: {},
+    };
+
+    for (const executionEntity of executionEntities) {
+      const executionId = executionEntity.id;
+      const manager = executionEntity.variableStateManager;
+      const variables = manager.getAllVariables();
+
+      stats.byExecution[executionId] = Object.keys(variables).length;
+      stats.totalVariables += Object.keys(variables).length;
+
+      for (const [, value] of Object.entries(variables)) {
+        const type = typeof value;
+        stats.byType[type] = (stats.byType[type] || 0) + 1;
+      }
+    }
+
+    return stats;
+  }
+
+  // ============================================================================
+  // Workflow-specific methods
+  // ============================================================================
+
+  /**
+   * Get all variable values of the workflow execution
+   */
+  async getWorkflowExecutionVariables(executionId: string): Promise<Record<string, unknown>> {
+    return this.getEntityVariables(executionId);
+  }
+
+  /**
+   * Get the value of a specified variable for a workflow execution
+   */
+  async getWorkflowExecutionVariable(executionId: string, name: string): Promise<unknown> {
+    return this.getEntityVariable(executionId, name);
+  }
+
+  /**
+   * Check if the specified variable exists in the workflow execution
+   */
+  async hasWorkflowExecutionVariable(executionId: string, name: string): Promise<boolean> {
+    return this.hasEntityVariable(executionId, name);
+  }
+
+  /**
+   * Get variable definitions for a workflow execution
+   */
+  async getWorkflowExecutionVariableDefinitions(
+    executionId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.getEntityVariableDefinitions(executionId);
+  }
+
+  /**
+   * Get variable statistics (public API - renamed to avoid conflict with base class)
+   */
+  async getWorkflowVariableStatistics(): Promise<{
+    totalExecutions: number;
+    totalVariables: number;
+    byExecution: Record<string, number>;
+    byType: Record<string, number>;
+  }> {
+    const stats = await this.getVariableStatistics();
+    return {
+      totalExecutions: stats.totalExecutions,
+      totalVariables: stats.totalVariables,
+      byExecution: stats.byExecution,
+      byType: stats.byType,
+    };
+  }
+
+  /**
+   * Get variable scopes information
+   */
+  async getVariableScopes(executionId: string): Promise<{
+    execution: Record<string, unknown>;
+    global: Record<string, unknown>;
+    subgraph: Record<string, unknown>;
+    loop: Record<string, unknown>;
+    currentScopeDepth: number;
+    hasActiveTemporaryScope: boolean;
+  }> {
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const manager = executionEntity.variableStateManager;
+    const allVars = manager.getAllVariables();
+
+    return {
+      execution: allVars,
+      global: {},
+      subgraph: {},
+      loop: {},
+      currentScopeDepth: 0,
+      hasActiveTemporaryScope: false,
+    };
+  }
+
+  /**
+   * Search for variables
+   */
+  async searchVariables(executionId: string, query: string): Promise<string[]> {
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const variables = executionEntity.variableStateManager.getAllVariables();
+    const lowerQuery = query.toLowerCase();
+    return Object.keys(variables).filter((name) => name.toLowerCase().includes(lowerQuery));
+  }
+
+  /**
+   * Export workflow execution variables
+   */
+  async exportWorkflowExecutionVariables(executionId: string): Promise<string> {
+    return this.exportEntityVariables(executionId);
+  }
+
+  /**
+   * Get variable change history
+   */
+  async getVariableHistory(
+    executionId: string,
+    variableName: string,
+  ): Promise<
+    Array<{
+      timestamp: number;
+      value: unknown;
+      source: string;
+    }>
+  > {
+    const currentValue = await this.getWorkflowExecutionVariable(executionId, variableName);
+    return [
+      {
+        timestamp: now(),
+        value: currentValue,
+        source: "current",
+      },
+    ];
+  }
+
+  /**
+   * Set variable value for an execution
+   */
+  async setVariable(
+    executionId: string,
+    variableName: string,
+    value: unknown,
+  ): Promise<ExecutionResult<void>> {
+    return this.setEntityVariable(executionId, variableName, value);
+  }
+
+  /**
+   * Delete variable for an execution
+   */
+  async deleteVariable(
+    executionId: string,
+    variableName: string,
+  ): Promise<ExecutionResult<void>> {
+    return this.deleteEntityVariable(executionId, variableName);
+  }
+
+  // ============================================================================
+  // Helper methods
+  // ============================================================================
+
   private async getWorkflowExecutionEntity(executionId: string) {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
@@ -378,8 +375,7 @@ export class VariableResourceAPI extends QueryableResourceAPI<unknown, string, V
   }
 
   /**
-   * Obtain the underlying WorkflowExecutionRegistry instance
-   * @returns WorkflowExecutionRegistry instance
+   * Get the underlying WorkflowExecutionRegistry instance
    */
   getRegistry(): WorkflowExecutionRegistry {
     return this.registry;

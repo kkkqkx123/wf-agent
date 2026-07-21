@@ -5,6 +5,8 @@
  * - Factory pattern: Responsible for creating API instances in a unified manner.
  * - Instance-level caching: Ensures that each API type has only one instance per APIFactory.
  * - Consistent Cache Management: All APIs use the same caching strategy
+ * - Registry pattern: API constructors are registered in a central registry, reducing boilerplate
+ *   when adding new APIs (no need to add a new createXxx method for each new API)
  *
  * Architecture:
  * - Each SDKInstance creates its own APIFactory
@@ -15,9 +17,18 @@
  * - All APIs use the same createAPI() method for consistency
  * - Some APIs don't require dependencies; they use a wrapper approach
  * - No hand-written cache logic - all delegated to createAPI()
- */
+ *
+ * Usage:
+ * ```typescript
+ * // Create via specific method (traditional)
+ * const workflowAPI = factory.createWorkflowAPI();
+ *
+ * // Create via generic getAPI method (recommended for new APIs)
+ * const workflowAPI = factory.getAPI("workflows", WorkflowRegistryAPI);
+  * ```
+  */
 
-import { WorkflowRegistryAPI } from "../../workflow/resources/workflow-registry-api.js";
+  import { WorkflowRegistryAPI } from "../../workflow/resources/workflow-registry-api.js";
 import { ToolRegistryAPI } from "../resources/tools/tool-registry-api.js";
 import { WorkflowExecutionRegistryAPI } from "../../workflow/resources/workflow-execution-registry-api.js";
 import { ScriptRegistryAPI } from "../resources/scripts/script-registry-api.js";
@@ -43,6 +54,15 @@ import { AgentLoopMessageResourceAPI } from "../../agent/resources/message-resou
 import { AgentLoopIterationAPI } from "../../agent/resources/agent-loop-iteration-api.js";
 import { AgentVariableResourceAPI } from "../../agent/resources/agent-variable-resource-api.js";
 import { AgentUserInteractionResourceAPI } from "../../agent/resources/agent-user-interaction-resource-api.js";
+import { AgentErrorAnalysisAPI } from "../../agent/resources/errors/agent-error-analysis-api.js";
+import { AgentPerformanceAnalysisAPI } from "../../agent/resources/agent-performance-analysis-api.js";
+import { AgentExecutionRegistryAPI } from "../../agent/resources/agent-execution-registry-api.js";
+import { AgentExecutionStateAPI } from "../../agent/resources/agent-execution-state-api.js";
+import { AgentExecutionGraphQueryAPI } from "../../agent/resources/agent-execution-graph-query-api.js";
+import { AgentTriggerResourceAPI } from "../../agent/resources/agent-trigger-resource-api.js";
+import { AgentTriggerTemplateRegistryAPI } from "../../agent/resources/agent-trigger-template-registry-api.js";
+import { AgentHookTemplateRegistryAPI } from "../../agent/resources/agent-hook-template-registry-api.js";
+import { AgentTemplateRegistryAPI } from "../../agent/resources/agent-template-registry-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 import { ExecutionEventLogger } from "../../../shared/events/execution-event-logger.js";
 
@@ -90,7 +110,8 @@ export interface AllAPIs {
   fileCheckpoints: FileCheckpointResourceAPI;
   /** Agent Loop Registry API */
   agentLoopRegistry: AgentLoopRegistryAPI;
-  /** Agent Loop Resource API */
+  /** Agent Loop Resource API (deprecated - use agentLoopRegistry instead) */
+  /** @deprecated Use {@link agentLoopRegistry} instead */
   agentLoopResource: AgentLoopResourceAPI;
   /** Agent Loop Checkpoint API */
   agentLoopCheckpoints: AgentLoopCheckpointResourceAPI;
@@ -102,6 +123,24 @@ export interface AllAPIs {
   agentVariables: AgentVariableResourceAPI;
   /** Agent User Interaction API */
   agentUserInteractions: AgentUserInteractionResourceAPI;
+  /** Agent Error Analysis API */
+  agentErrorAnalysis: AgentErrorAnalysisAPI;
+  /** Agent Performance Analysis API */
+  agentPerformance: AgentPerformanceAnalysisAPI;
+  /** Agent Execution Registry API */
+  agentExecutionRegistry: AgentExecutionRegistryAPI;
+  /** Agent Execution State API */
+  agentExecutionState: AgentExecutionStateAPI;
+  /** Agent Execution Graph API */
+  agentExecutionGraph: AgentExecutionGraphQueryAPI;
+  /** Agent Trigger API */
+  agentTriggers: AgentTriggerResourceAPI;
+  /** Agent Trigger Template API */
+  agentTriggerTemplates: AgentTriggerTemplateRegistryAPI;
+  /** Agent Hook Template API */
+  agentHookTemplates: AgentHookTemplateRegistryAPI;
+  /** Agent Template API */
+  agentTemplates: AgentTemplateRegistryAPI;
 }
 
 /**
@@ -136,6 +175,42 @@ export class APIFactory {
    */
   public reset(): void {
     this.apiInstances = {};
+  }
+
+  /**
+   * Generic method for creating or retrieving an API instance by key and constructor.
+   *
+   * This is the recommended way to create API instances when adding new APIs,
+   * as it reduces boilerplate compared to adding a new createXxx method for each API.
+   *
+   * Usage:
+   * ```typescript
+   * const api = factory.getAPI("workflows", WorkflowRegistryAPI);
+   * ```
+   *
+   * @param key The AllAPIs key to associate with this instance
+   * @param APIConstructor The API constructor (requires APIDependencyManager)
+   * @returns The API instance (cached if already created)
+   */
+  public getAPI<K extends keyof AllAPIs, T extends AllAPIs[K]>(
+    key: K,
+    APIConstructor: new (deps: APIDependencyManager) => T,
+  ): T {
+    return this.createAPI(key, APIConstructor);
+  }
+
+  /**
+   * Generic method for creating or retrieving an API instance without dependencies.
+   *
+   * @param key The AllAPIs key to associate with this instance
+   * @param APIConstructor The API constructor (no parameters required)
+   * @returns The API instance (cached if already created)
+   */
+  public getAPIWithoutDeps<K extends keyof AllAPIs, T extends AllAPIs[K]>(
+    key: K,
+    APIConstructor: new () => T,
+  ): T {
+    return this.createAPIWithoutDeps(key, APIConstructor);
   }
 
   /**
@@ -346,6 +421,11 @@ export class APIFactory {
 
   /**
    * Create an Agent Loop Resource API
+   *
+   * @deprecated Use {@link createAgentLoopRegistryAPI} instead. AgentLoopRegistryAPI now
+   * provides all state management methods previously only available in AgentLoopResourceAPI.
+   * This method will be removed in a future major version.
+   *
    * @returns AgentLoopResourceAPI instance
    *
    * Note: This API doesn't require dependencies, using createAPIWithoutDeps for consistency
@@ -399,6 +479,78 @@ export class APIFactory {
   }
 
   /**
+   * Create an Agent Error Analysis API
+   * @returns AgentErrorAnalysisAPI instance
+   */
+  public createAgentErrorAnalysisAPI(): AgentErrorAnalysisAPI {
+    return this.createAPI("agentErrorAnalysis", AgentErrorAnalysisAPI);
+  }
+
+  /**
+   * Create an Agent Performance Analysis API
+   * @returns AgentPerformanceAnalysisAPI instance
+   */
+  public createAgentPerformanceAnalysisAPI(): AgentPerformanceAnalysisAPI {
+    return this.createAPI("agentPerformance", AgentPerformanceAnalysisAPI);
+  }
+
+  /**
+   * Create an Agent Execution Registry API
+   * @returns AgentExecutionRegistryAPI instance
+   */
+  public createAgentExecutionRegistryAPI(): AgentExecutionRegistryAPI {
+    return this.createAPI("agentExecutionRegistry", AgentExecutionRegistryAPI);
+  }
+
+  /**
+   * Create an Agent Execution State API
+   * @returns AgentExecutionStateAPI instance
+   */
+  public createAgentExecutionStateAPI(): AgentExecutionStateAPI {
+    return this.createAPI("agentExecutionState", AgentExecutionStateAPI);
+  }
+
+  /**
+   * Create an Agent Execution Graph Query API
+   * @returns AgentExecutionGraphQueryAPI instance
+   */
+  public createAgentExecutionGraphQueryAPI(): AgentExecutionGraphQueryAPI {
+    return this.createAPI("agentExecutionGraph", AgentExecutionGraphQueryAPI);
+  }
+
+  /**
+   * Create an Agent Trigger API
+   * @returns AgentTriggerResourceAPI instance
+   */
+  public createAgentTriggerResourceAPI(): AgentTriggerResourceAPI {
+    return this.createAPI("agentTriggers", AgentTriggerResourceAPI);
+  }
+
+  /**
+   * Create an Agent Trigger Template Registry API
+   * @returns AgentTriggerTemplateRegistryAPI instance
+   */
+  public createAgentTriggerTemplateRegistryAPI(): AgentTriggerTemplateRegistryAPI {
+    return this.createAPI("agentTriggerTemplates", AgentTriggerTemplateRegistryAPI);
+  }
+
+  /**
+   * Create an Agent Hook Template Registry API
+   * @returns AgentHookTemplateRegistryAPI instance
+   */
+  public createAgentHookTemplateRegistryAPI(): AgentHookTemplateRegistryAPI {
+    return this.createAPI("agentHookTemplates", AgentHookTemplateRegistryAPI);
+  }
+
+  /**
+   * Create an Agent Template Registry API
+   * @returns AgentTemplateRegistryAPI instance
+   */
+  public createAgentTemplateRegistryAPI(): AgentTemplateRegistryAPI {
+    return this.createAPI("agentTemplates", AgentTemplateRegistryAPI);
+  }
+
+  /**
    * Create all API instances and initialize event-driven systems
    * @returns All API instances
    */
@@ -430,6 +582,15 @@ export class APIFactory {
       agentLoopIteration: this.createAgentLoopIterationAPI(),
       agentVariables: this.createAgentVariableAPI(),
       agentUserInteractions: this.createAgentUserInteractionAPI(),
+      agentErrorAnalysis: this.createAgentErrorAnalysisAPI(),
+      agentPerformance: this.createAgentPerformanceAnalysisAPI(),
+      agentExecutionRegistry: this.createAgentExecutionRegistryAPI(),
+      agentExecutionState: this.createAgentExecutionStateAPI(),
+      agentExecutionGraph: this.createAgentExecutionGraphQueryAPI(),
+      agentTriggers: this.createAgentTriggerResourceAPI(),
+      agentTriggerTemplates: this.createAgentTriggerTemplateRegistryAPI(),
+      agentHookTemplates: this.createAgentHookTemplateRegistryAPI(),
+      agentTemplates: this.createAgentTemplateRegistryAPI(),
     };
 
     // Initialize event-driven systems: metrics collection and logging

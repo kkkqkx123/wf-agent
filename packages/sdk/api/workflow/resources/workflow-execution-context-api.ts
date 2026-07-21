@@ -163,6 +163,71 @@ export interface ExecutionContextSnapshot {
   pendingNodes: string[];
   /** Failed/skipped nodes */
   skippedNodes: string[];
+  /** Call stack at this point in execution */
+  callStack?: WorkflowStackFrame[];
+  /** Memory usage snapshot (bytes) */
+  memoryUsage?: number;
+  /** Peak memory usage during execution (bytes) */
+  peakMemoryUsage?: number;
+}
+
+/**
+ * Workflow stack frame
+ */
+export interface WorkflowStackFrame {
+  /** Frame ID */
+  frameId: string;
+  /** Frame type */
+  type: "node_execution" | "tool_call" | "condition_check" | "branch" | "subworkflow" | "loop";
+  /** Frame description */
+  description: string;
+  /** Node ID if this frame is associated with a node */
+  nodeId?: string;
+  /** Node name */
+  nodeName?: string;
+  /** Variables in this frame */
+  frameVariables: Record<string, unknown>;
+  /** Entry timestamp */
+  entryTime: number;
+  /** Exit timestamp */
+  exitTime?: number;
+  /** Parent frame ID (for nested execution tracking) */
+  parentFrameId?: string;
+}
+
+/**
+ * Call stack snapshot
+ */
+export interface WorkflowCallStack {
+  /** Execution ID */
+  executionId: ID;
+  /** Timestamp of snapshot */
+  timestamp: number;
+  /** Stack frames in order (top = current) */
+  frames: WorkflowStackFrame[];
+  /** Stack depth */
+  depth: number;
+  /** Current node ID */
+  currentNodeId?: string;
+}
+
+/**
+ * State transition analysis
+ */
+export interface WorkflowStateTransitionAnalysis {
+  /** Total transitions */
+  totalTransitions: number;
+  /** Most common transitions */
+  commonTransitions: Array<{
+    from: string;
+    to: string;
+    count: number;
+    frequency: number;
+  }>;
+  /** State entry counts */
+  stateEntryCount: Record<string, number>;
+  /** Average time in state (ms) */
+  averageTimeInState: Record<string, number>;
 }
 
 /**
@@ -611,5 +676,138 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
   async getKeyContextSnapshots(executionId: ID): Promise<ExecutionContextSnapshot[]> {
     const evolution = this.contextEvolutions.get(executionId as string);
     return evolution?.keySnapshots ?? [];
+  }
+
+  // ============================================================================
+  // Call Stack & Memory Usage
+  // ============================================================================
+
+  /**
+   * Get the call stack at the current point of execution
+   *
+   * @param executionId Workflow execution ID
+   * @returns Call stack snapshot, or null if not available
+   */
+  async getCallStack(executionId: ID): Promise<WorkflowCallStack | null> {
+    const context = this.contextSnapshots.get(executionId as string);
+    if (!context) {
+      return null;
+    }
+
+    const frames = context.callStack ?? [];
+    return {
+      executionId,
+      timestamp: context.timestamp,
+      frames,
+      depth: frames.length,
+      currentNodeId: context.currentNodeId,
+    };
+  }
+
+  /**
+   * Get the memory usage for a given execution
+   *
+   * @param executionId Workflow execution ID
+   * @returns Memory usage in bytes, or null if not available
+   */
+  async getMemoryUsage(executionId: ID): Promise<number | null> {
+    const context = this.contextSnapshots.get(executionId as string);
+    return context?.memoryUsage ?? null;
+  }
+
+  /**
+   * Get the peak memory usage for a given execution
+   *
+   * @param executionId Workflow execution ID
+   * @returns Peak memory usage in bytes, or null if not available
+   */
+  async getPeakMemoryUsage(executionId: ID): Promise<number | null> {
+    const context = this.contextSnapshots.get(executionId as string);
+    return context?.peakMemoryUsage ?? null;
+  }
+
+  /**
+   * Analyze state transitions and produce a summary analysis
+   *
+   * @param executionId Workflow execution ID
+   * @returns State transition analysis
+   */
+  async analyzeStateTransitions(executionId: ID): Promise<WorkflowStateTransitionAnalysis> {
+    const evolution = this.contextEvolutions.get(executionId as string);
+    const transitions = evolution?.transitions ?? [];
+
+    if (transitions.length === 0) {
+      return {
+        totalTransitions: 0,
+        commonTransitions: [],
+        stateEntryCount: {},
+        averageTimeInState: {},
+      };
+    }
+
+    // Count transitions by source/target
+    const transitionMap = new Map<string, { from: string; to: string; count: number }>();
+    for (const t of transitions) {
+      const key = `${t.fromNode ?? "start"}->${t.toNode ?? "end"}`;
+      const existing = transitionMap.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        transitionMap.set(key, { from: t.fromNode ?? "start", to: t.toNode ?? "end", count: 1 });
+      }
+    }
+
+    // Sort by frequency
+    const sortedTransitions = Array.from(transitionMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    const total = transitions.length;
+    const commonTransitions = sortedTransitions.map(t => ({
+      from: t.from,
+      to: t.to,
+      count: t.count,
+      frequency: total > 0 ? t.count / total : 0,
+    }));
+
+    // Count state entries
+    const stateEntryCount: Record<string, number> = {};
+    for (const t of transitions) {
+      if (t.toNode) {
+        stateEntryCount[t.toNode] = (stateEntryCount[t.toNode] ?? 0) + 1;
+      }
+    }
+
+    // Calculate average time in each state (node)
+    const timeInState: Record<string, number[]> = {};
+    for (let i = 0; i < transitions.length; i++) {
+      const current = transitions[i]!;
+      if (current.toNode) {
+        const next = transitions[i + 1];
+        if (next) {
+          const duration = next.timestamp - current.timestamp;
+          if (duration >= 0) {
+            if (!timeInState[current.toNode]) {
+              timeInState[current.toNode] = [];
+            }
+            timeInState[current.toNode]!.push(duration);
+          }
+        }
+      }
+    }
+
+    const averageTimeInState: Record<string, number> = {};
+    for (const [state, durations] of Object.entries(timeInState)) {
+      averageTimeInState[state] = Math.round(
+        durations.reduce((sum, d) => sum + d, 0) / durations.length,
+      );
+    }
+
+    return {
+      totalTransitions: total,
+      commonTransitions,
+      stateEntryCount,
+      averageTimeInState,
+    };
   }
 }

@@ -2,25 +2,26 @@
  * RunAgentLoopStreamCommand - Run Agent Loop Stream Command
  *
  * Category: Execution (Streaming)
- * Executes an agent loop and streams events in real-time
+ * Executes an agent loop and streams events in real-time.
+ * Extends StreamingExecutionBase for shared event streaming infrastructure.
  */
 
 import {
   StreamingCommand,
-  CommandValidationResult,
-  validationSuccess,
-  validationFailure,
   type CommandMetadataDefinition,
 } from "../../shared/types/command.js";
-import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
-import {
-  AgentLoopExecutor,
-  type AgentLoopStreamEvent,
-} from "../../../agent/execution/executors/agent-loop-executor.js";
+import { validateAgentLoopRunParams } from "../../shared/operations/validators/agent-validators.js";
+import type { CommandValidationResult } from "../../shared/types/command.js";
+import type { AgentLoopRuntimeConfig, BaseEvent, EventType } from "@wf-agent/types";
+import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 import { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import { ConversationSession } from "../../../shared/messaging/conversation-session.js";
 import { AgentStateCoordinator } from "../../../agent/state-managers/agent-state-coordinator.js";
-import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import {
+  StreamingExecutionBase,
+  type ExecutionContext,
+  type EventEmitterLike,
+} from "../../shared/operations/streaming-execution-base.js";
 
 /**
  * Run Agent Loop Stream command parameters
@@ -32,12 +33,13 @@ export interface RunAgentLoopStreamParams {
 
 /**
  * Run Agent Loop Stream Command
- * Executes agent loop and yields events as they occur
+ * Executes agent loop and yields events as they occur.
+ * Uses the shared StreamingExecutionBase for event management.
  */
-export class RunAgentLoopStreamCommand extends StreamingCommand<AsyncGenerator<AgentLoopStreamEvent>> {
+export class RunAgentLoopStreamCommand extends StreamingCommand<AsyncGenerator<BaseEvent>> {
   constructor(
     private readonly params: RunAgentLoopStreamParams,
-    private readonly agentLoopExecutor: AgentLoopExecutor,
+    private readonly dependencies: APIDependencyManager,
   ) {
     super();
   }
@@ -54,17 +56,34 @@ export class RunAgentLoopStreamCommand extends StreamingCommand<AsyncGenerator<A
     };
   }
 
-  protected async executeInternal(): Promise<AsyncGenerator<AgentLoopStreamEvent>> {
-    const logger = createContextualLogger({
-      component: "RunAgentLoopStreamCommand",
-      commandName: "RunAgentLoopStreamCommand",
-    });
+  protected async executeInternal(): Promise<AsyncGenerator<BaseEvent>> {
+    const streamExecutor = new AgentLoopStreamExecutor(
+      this.params,
+      this.dependencies,
+    );
+    return streamExecutor.executeStream();
+  }
 
-    const startTime = Date.now();
-    logger.info("Stream command execution started", {
-      maxIterations: this.params.config?.maxIterations,
-      profileId: this.params.config?.profileId,
-    });
+  validate(): CommandValidationResult {
+    return validateAgentLoopRunParams(this.params.config);
+  }
+}
+
+/**
+ * AgentLoopStreamExecutor - Internal streaming executor for agent loop
+ * Extends StreamingExecutionBase to leverage shared event streaming infrastructure.
+ */
+class AgentLoopStreamExecutor extends StreamingExecutionBase {
+  constructor(
+    private readonly params: RunAgentLoopStreamParams,
+    private readonly dependencies: APIDependencyManager,
+  ) {
+    super();
+  }
+
+  protected async startExecution(): Promise<ExecutionContext> {
+    const agentLoopExecutor = this.dependencies.getAgentLoopExecutor();
+    const eventManager = this.dependencies.getEventManager();
 
     const entity = new AgentLoopEntity(`command-${Date.now()}`, this.params.config);
     const conversationSession = new ConversationSession({
@@ -74,44 +93,57 @@ export class RunAgentLoopStreamCommand extends StreamingCommand<AsyncGenerator<A
       conversationManager: conversationSession,
     });
 
-    logger.debug("Streaming execution context initialized", undefined, {
-      entityId: entity.id,
-    });
+    const executionId = entity.id;
 
-    try {
-      return this.agentLoopExecutor.executeStream(entity, stateCoordinator);
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      logger.error("Stream command execution failed", undefined, { duration }, error as Error);
-      throw error;
-    }
+    // Create an emitter that wraps the actual event registry
+    const emitter: EventEmitterLike = {
+      on: (eventType: EventType, listener: (event: BaseEvent) => void) => {
+        const actualEmitter = eventManager.getEmitter(executionId);
+        return actualEmitter.on(eventType, listener);
+      },
+    };
+
+    // Execute the agent loop stream
+    const streamPromise = agentLoopExecutor.executeStream(entity, stateCoordinator);
+
+    // Convert the generator to a promise-based execution
+    const executionPromise = (async () => {
+      const generator = await streamPromise;
+      for await (const streamEvent of generator) {
+        // Emit each stream event to the event registry so it can be captured
+        // by subscribers registered via the emitter
+        try {
+          await eventManager.emit({
+            ...streamEvent,
+            executionId,
+          } as unknown as BaseEvent);
+        } catch {
+          // Best-effort event emission
+        }
+      }
+    })();
+
+    return { executionId, emitter, executionPromise };
   }
 
-  validate(): CommandValidationResult {
-    const errors: string[] = [];
-
-    // Verification: The config must be provided.
-    if (!this.params.config) {
-      errors.push("config must be provided");
-    } else {
-      // Verification: If `profileId` is provided, it must be a non-empty string.
-      if (
-        this.params.config?.profileId !== undefined &&
-        typeof this.params.config.profileId === "string" &&
-        this.params.config.profileId.trim().length === 0
-      ) {
-        errors.push("profileId cannot be an empty string");
-      }
-
-      // Verification: The `maxIterations` value, if provided, must be a positive integer.
-      if (
-        this.params.config?.maxIterations !== undefined &&
-        (this.params.config.maxIterations < 1 || !Number.isInteger(this.params.config.maxIterations))
-      ) {
-        errors.push("maxIterations must be a positive integer");
-      }
-    }
-
-    return errors.length > 0 ? validationFailure(errors) : validationSuccess();
+  protected getEventTypes(): EventType[] {
+    return [
+      "AGENT_STARTED",
+      "AGENT_COMPLETED",
+      "AGENT_FAILED",
+      "AGENT_PAUSED",
+      "AGENT_RESUMED",
+      "AGENT_CANCELLED",
+      "AGENT_ITERATION_STARTED",
+      "AGENT_ITERATION_COMPLETED",
+      "AGENT_TURN_STARTED",
+      "AGENT_TURN_COMPLETED",
+      "AGENT_MESSAGE_STARTED",
+      "AGENT_MESSAGE_COMPLETED",
+      "AGENT_TOOL_EXECUTION_STARTED",
+      "AGENT_TOOL_EXECUTION_COMPLETED",
+      "AGENT_HOOK_TRIGGERED",
+      "ERROR",
+    ];
   }
 }

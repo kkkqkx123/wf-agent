@@ -11,11 +11,14 @@ import type {
   Message,
   ID,
 } from "@wf-agent/types";
+import { BaseBuilder } from "../../shared/base-builder.js";
 
 /**
  * AgentLoopConfigBuilder - Build agent loop runtime configuration with fluent API
+ * Extends BaseBuilder to share common builder functionality (description, metadata, tags, timestamps)
+ * with other builders across Agent and Workflow domains.
  */
-export class AgentLoopConfigBuilder {
+export class AgentLoopConfigBuilder extends BaseBuilder<AgentLoopRuntimeConfig> {
   private _agentConfigId?: ID;
   private _profileId?: ID;
   private _systemPrompt?: string;
@@ -30,12 +33,13 @@ export class AgentLoopConfigBuilder {
   private _createCheckpointOnError: boolean = false;
   private _hooks: AgentHook[] = [];
   private _triggers: AgentTrigger[] = [];
-  private _metadata: Record<string, unknown> = {};
 
   /**
    * Private constructor
    */
-  private constructor() {}
+  private constructor() {
+    super();
+  }
 
   /**
    * Create a new AgentLoopConfigBuilder instance
@@ -213,18 +217,11 @@ export class AgentLoopConfigBuilder {
 
   /**
    * Add metadata
-   * @param key Metadata key
-   * @param value Metadata value
+   * @param keyOrObj Metadata key or object
+   * @param value Metadata value (if key is a string)
    * @returns this for chaining
    */
-  metadata(key: string, value: unknown): this;
-  /**
-   * Add metadata object
-   * @param metadata Metadata object
-   * @returns this for chaining
-   */
-  metadata(metadata: Record<string, unknown>): this;
-  metadata(keyOrObj: string | Record<string, unknown>, value?: unknown): this {
+  override metadata(keyOrObj: string | Record<string, unknown>, value?: unknown): this {
     if (typeof keyOrObj === "string") {
       this._metadata[keyOrObj] = value;
     } else {

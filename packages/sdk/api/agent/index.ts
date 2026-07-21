@@ -85,6 +85,7 @@ export {
   type AgentLoopSummary,
 } from "./resources/agent-loop-registry-api.js";
 export {
+  /** @deprecated Use {@link AgentLoopRegistryAPI} instead */
   AgentLoopResourceAPI,
   type AgentLoopFilter as AgentLoopEntityFilter,
   type AgentLoopSummary as AgentLoopEntitySummary,
@@ -191,3 +192,11 @@ export {
   type AgentTemplateFilter,
   type AgentTemplateSummary,
 } from "./resources/agent-template-registry-api.js";
+
+// errors
+export {
+  AgentErrorAnalysisAPI,
+  type RootCauseAnalysis,
+  type ErrorStatistics,
+  type ErrorRecoveryProposal,
+} from "./resources/errors/index.js";

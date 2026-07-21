@@ -48,7 +48,7 @@ export interface HookTemplateSummary {
 /**
  * HookTemplateRegistryAPI - Hook Template Registry API
  */
-export class HookRegistryAPI extends SimplifiedCrudResourceAPI<HookTemplate, string, HookTemplateFilter> {
+export class HookTemplateRegistryAPI extends SimplifiedCrudResourceAPI<HookTemplate, string, HookTemplateFilter> {
   private dependencies: APIDependencyManager;
 
   constructor(dependencies: APIDependencyManager) {

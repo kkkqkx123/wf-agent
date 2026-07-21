@@ -2,6 +2,8 @@
  * UserInteractionResourceAPI - UserInteractionResourceAPI
  * Provides user interaction related resource management functions
  *
+ * Extends BaseUserInteractionResourceAPI with workflow-specific event subscription capabilities.
+ *
  * Responsibilities:
  * - Manage the registration and acquisition of user interaction processors
  * - Provide user interaction event subscription functionality
@@ -20,38 +22,35 @@ import {
 } from "../../shared/validation/validation-strategy.js";
 
 import { now, diffTimestamp } from "@wf-agent/common-utils";
-import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import {
+  BaseUserInteractionResourceAPI,
+  type BaseUserInteractionConfig,
+  type BaseUserInteractionFilter,
+} from "../../shared/resources/user-interaction-base.js";
 import type { ExecutionResult } from "../../shared/types/execution-result.js";
 import { success, failure } from "../../shared/types/execution-result.js";
 import type {
-  UserInteractionHandler,
   UserInteractionRequest,
   UserInteractionContext,
 } from "@wf-agent/types";
-import { ConfigurationError } from "@wf-agent/types";
+import { ConfigurationError, SDKError } from "@wf-agent/types";
 import type { ToolApprovalRequestedEvent, FollowupQuestionRequestedEvent } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
 /**
  * User Interaction Configuration
  */
-export interface UserInteractionConfig {
-  /** layout ID */
-  id: string;
-  /** Placement Name */
-  name: string;
+export interface UserInteractionConfig extends BaseUserInteractionConfig {
   /** Configuration Description */
   description?: string;
   /** Default timeout in milliseconds */
   defaultTimeout?: number;
-  /** metadata */
-  metadata?: Record<string, unknown>;
 }
 
 /**
  * User Interaction Filter
  */
-export interface UserInteractionFilter {
+export interface UserInteractionFilter extends BaseUserInteractionFilter {
   /** Placement Name */
   name?: string;
   /** Metadata Filtering */
@@ -61,14 +60,11 @@ export interface UserInteractionFilter {
 /**
  * User Interaction Resource Management API
  */
-export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
+export class UserInteractionResourceAPI extends BaseUserInteractionResourceAPI<
   UserInteractionConfig,
-  string,
   UserInteractionFilter
 > {
   private dependencies: APIDependencyManager;
-  private userInteractionHandler?: UserInteractionHandler;
-  private configs: Map<string, UserInteractionConfig> = new Map();
 
   constructor(dependencies: APIDependencyManager) {
     super();
@@ -76,34 +72,8 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
   }
 
   // ============================================================================
-  // GenericResourceAPI abstract method implementation
+  // Implement BaseUserInteractionResourceAPI abstract methods
   // ============================================================================
-
-  protected async getResource(id: string): Promise<UserInteractionConfig | null> {
-    return this.configs.get(id) || null;
-  }
-
-  protected async getAllResources(): Promise<UserInteractionConfig[]> {
-    return Array.from(this.configs.values());
-  }
-
-  protected async createResource(config: UserInteractionConfig): Promise<void> {
-    this.configs.set(config.id, config);
-  }
-
-  protected async updateResource(
-    id: string,
-    updates: Partial<UserInteractionConfig>,
-  ): Promise<void> {
-    const existing = this.configs.get(id);
-    if (existing) {
-      this.configs.set(id, { ...existing, ...updates });
-    }
-  }
-
-  protected async deleteResource(id: string): Promise<void> {
-    this.configs.delete(id);
-  }
 
   protected override applyFilter(
     resources: UserInteractionConfig[],
@@ -111,6 +81,12 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
   ): UserInteractionConfig[] {
     return resources.filter(config => {
       if (filter.name && !config.name.includes(filter.name)) {
+        return false;
+      }
+      if (filter.type && config.type !== filter.type) {
+        return false;
+      }
+      if (filter.enabled !== undefined && config.enabled !== filter.enabled) {
         return false;
       }
       if (filter.metadata) {
@@ -124,79 +100,90 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
     });
   }
 
-  protected override async clearResources(): Promise<void> {
-    this.configs.clear();
-  }
-
-  // ============================================================================
-  // User Interaction Processor Management
-  // ============================================================================
-
   /**
-   * Registering a User Interaction Handler
-   * @param handler User interaction handler
+   * Validating User Interaction Configuration
+   * @param config Configuration object
+   * @param _context Validation context
    */
-  registerHandler(handler: UserInteractionHandler): void {
-    this.userInteractionHandler = handler;
-  }
+  protected override async validateResource(
+    config: UserInteractionConfig,
+    _context?: unknown,
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
 
-  /**
-   * Get the currently registered User Interaction Processor
-   * @returns The user interaction processor, or undefined if not registered.
-   */
-  getHandler(): UserInteractionHandler | undefined {
-    return this.userInteractionHandler;
-  }
-
-  /**
-   * Clear the currently registered User Interaction Processor
-   */
-  clearHandler(): void {
-    this.userInteractionHandler = undefined;
-  }
-
-  // ============================================================================
-  // User Interaction Processing
-  // ============================================================================
-
-  /**
-   * Handling User Interaction Requests
-   * @param request User interaction request
-   * @returns Execution results
-   */
-  async handleInteraction(request: UserInteractionRequest): Promise<ExecutionResult<unknown>> {
-    const startTime = now();
-
-    try {
-      if (!this.userInteractionHandler) {
-        return failure(
-          new ConfigurationError(
-            "UserInteractionHandler not registered. Please register a handler before handling interactions.",
-            "userInteractionHandler",
-            { code: "HANDLER_NOT_REGISTERED" },
-          ),
-          diffTimestamp(startTime, now()),
-        );
-      }
-
-      // Creating an Interaction Context
-      const context = this.createInteractionContext(request);
-
-      // invocation processor
-      const result = await this.userInteractionHandler.handle(request, context);
-
-      return success(result, diffTimestamp(startTime, now()));
-    } catch (error) {
-      return this.handleError(error, "HANDLE_INTERACTION", startTime);
+    // Validating Required Fields with Simplified Validation Tool
+    const requiredResult = validateRequiredFields(config, ["id", "name"], "config");
+    if (requiredResult.isErr()) {
+      errors.push(...requiredResult.unwrapOrElse(err => err.map(error => error.message)));
     }
+
+    // Authentication Timeout
+    if (config.defaultTimeout !== undefined) {
+      const timeoutResult = validatePositiveNumber(config.defaultTimeout, "Default timeout");
+      if (timeoutResult.isErr()) {
+        errors.push(...timeoutResult.unwrapOrElse(err => err.map(error => error.message)));
+      }
+    }
+
+    // Verify ID length
+    if (config.id) {
+      const idResult = validateStringLength(config.id, "layout ID", 1, 100);
+      if (idResult.isErr()) {
+        errors.push(...idResult.unwrapOrElse(err => err.map(error => error.message)));
+      }
+    }
+
+    // Verify name length
+    if (config.name) {
+      const nameResult = validateStringLength(config.name, "Placement Name", 1, 200);
+      if (nameResult.isErr()) {
+        errors.push(...nameResult.unwrapOrElse(err => err.map(error => error.message)));
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
   }
+
+  /**
+   * Verify user interaction with configuration updates
+   * @param updates Updated content
+   * @param _context Validation context
+   */
+  protected override async validateUpdate(
+    updates: Partial<UserInteractionConfig>,
+    _context?: unknown,
+  ): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+
+    // Validation name (if provided)
+    if (updates.name !== undefined) {
+      const nameResult = validateStringLength(updates.name, "Placement Name", 1, 200);
+      if (nameResult.isErr()) {
+        errors.push(...nameResult.unwrapOrElse(err => err.map(error => error.message)));
+      }
+    }
+
+    // Validation timeout time (if provided)
+    if (updates.defaultTimeout !== undefined) {
+      const timeoutResult = validatePositiveNumber(updates.defaultTimeout, "Default timeout");
+      if (timeoutResult.isErr()) {
+        errors.push(...timeoutResult.unwrapOrElse(err => err.map(error => error.message)));
+      }
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  // ============================================================================
+  // Override: Interaction Context with Workflow-specific capabilities
+  // ============================================================================
 
   /**
    * Creating an Interaction Context
    * @param request User interaction request
    * @returns Interaction context
    */
-  private createInteractionContext(request: UserInteractionRequest): UserInteractionContext {
+  protected override createInteractionContext(request: UserInteractionRequest): UserInteractionContext {
     const cancelToken: { cancelled: boolean; cancel: () => void } = {
       cancelled: false,
       cancel: () => {
@@ -222,6 +209,20 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
       timeout: request.timeout,
       cancelToken: cancelToken as UserInteractionContext["cancelToken"],
     };
+  }
+
+  /**
+   * Handle errors during interaction processing
+   * @param error The error that occurred
+   * @param _operationType Type of operation for error context
+   * @param startTime Start time for duration calculation
+   * @returns Failure execution result
+   */
+  private handleWorkflowError(error: unknown, _operationType: string, startTime: number): ExecutionResult<unknown> {
+    return failure(
+      error instanceof SDKError ? error : new ConfigurationError(String(error), "workflow", { code: "WORKFLOW_ERROR" }),
+      diffTimestamp(startTime, now()),
+    );
   }
 
   // ============================================================================
@@ -257,98 +258,8 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
   }
 
   // ============================================================================
-  // Validation Methods
-  // ============================================================================
-
-  /**
-   * Validating User Interaction Configuration
-   * @param config Configuration object
-   * @returns Validation results
-   */
-  protected override async validateResource(
-    config: UserInteractionConfig,
-  ): Promise<{ valid: boolean; errors: string[] }> {
-    const errors: string[] = [];
-
-    // Validating Required Fields with Simplified Validation Tool
-    const requiredResult = validateRequiredFields(config, ["id", "name"], "config");
-    if (requiredResult.isErr()) {
-      errors.push(...requiredResult.unwrapOrElse(err => err.map(error => error.message)));
-    }
-
-    // Authentication Timeout
-    if (config.defaultTimeout !== undefined) {
-      const timeoutResult = validatePositiveNumber(config.defaultTimeout, "Default timeout");
-      if (timeoutResult.isErr()) {
-        errors.push(...timeoutResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    // Verify ID length
-    if (config.id) {
-      const idResult = validateStringLength(config.id, "layout ID", 1, 100);
-      if (idResult.isErr()) {
-        errors.push(...idResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    // Verify name length
-    if (config.name) {
-      const nameResult = validateStringLength(config.name, "Placement Name", 1, 200);
-      if (nameResult.isErr()) {
-        errors.push(...nameResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-    };
-  }
-
-  /**
-   * Verify user interaction with configuration updates
-   * @param updates Updated content
-   * @returns Validation results
-   */
-  protected override async validateUpdate(
-    updates: Partial<UserInteractionConfig>,
-  ): Promise<{ valid: boolean; errors: string[] }> {
-    const errors: string[] = [];
-
-    // Validation name (if provided)
-    if (updates.name !== undefined) {
-      const nameResult = validateStringLength(updates.name, "Placement Name", 1, 200);
-      if (nameResult.isErr()) {
-        errors.push(...nameResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    // Validation timeout time (if provided)
-    if (updates.defaultTimeout !== undefined) {
-      const timeoutResult = validatePositiveNumber(updates.defaultTimeout, "Default timeout");
-      if (timeoutResult.isErr()) {
-        errors.push(...timeoutResult.unwrapOrElse(err => err.map(error => error.message)));
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-    };
-  }
-
-  // ============================================================================
   // Tools and methodologies
   // ============================================================================
-
-  /**
-   * Checking if a Processor is Registered
-   * @returns whether the processor is registered
-   */
-  hasHandler(): boolean {
-    return this.userInteractionHandler !== undefined;
-  }
 
   /**
    * Getting Configuration Quantity
@@ -359,7 +270,7 @@ export class UserInteractionResourceAPI extends SimplifiedCrudResourceAPI<
     try {
       return success(this.configs.size, diffTimestamp(startTime, now()));
     } catch (error) {
-      return this.handleError(error, "GET_CONFIG_COUNT", startTime);
+      return this.handleWorkflowError(error, "GET_CONFIG_COUNT", startTime) as ExecutionResult<number>;
     }
   }
 }

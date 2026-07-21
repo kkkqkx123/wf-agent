@@ -1366,6 +1366,33 @@ export class AgentLoopCoordinator implements AgentTaskManager {
   }
 
   /**
+   * Cancel an agent loop execution (convenience wrapper around stop())
+   * Aligned with WorkflowLifecycleCoordinator pattern for consistency.
+   * @param id Agent Loop ID to cancel
+   */
+  async cancelAgentLoop(id: ID): Promise<void> {
+    await this.stop(id);
+  }
+
+  /**
+   * Pause an agent loop execution (convenience wrapper)
+   * Aligned with WorkflowLifecycleCoordinator pattern for consistency.
+   * @param id Agent Loop ID to pause
+   */
+  async pauseAgentLoop(id: ID): Promise<void> {
+    await this.pause(id);
+  }
+
+  /**
+   * Resume an agent loop execution (convenience wrapper)
+   * Aligned with WorkflowLifecycleCoordinator pattern for consistency.
+   * @param id Agent Loop ID to resume
+   */
+  async resumeAgentLoop(id: ID): Promise<AgentLoopResult> {
+    return await this.resume(id);
+  }
+
+  /**
    * Get an instance
    * @param id: Instance ID
    */

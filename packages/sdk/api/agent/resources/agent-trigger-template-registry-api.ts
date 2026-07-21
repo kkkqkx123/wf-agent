@@ -5,8 +5,14 @@
  */
 
 import type { Timestamp } from "@wf-agent/types";
+import type { TriggerTemplate, TriggerReference } from "@wf-agent/types";
 import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
+import { ConfigurationValidationError } from "@wf-agent/types";
+import type { DeleteCheckResult } from "../../../shared/registry/types.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "AgentTriggerTemplateRegistryAPI" });
 
 /**
  * Agent Trigger Template Filter
@@ -46,6 +52,8 @@ export interface AgentTriggerTemplateSummary {
 
 /**
  * Agent Trigger Template Definition
+ * Wraps the underlying TriggerTemplate with agent-specific fields.
+ * The `id` field is mapped from the underlying TriggerTemplate's `name`.
  */
 export interface AgentTriggerTemplate {
   /** Template ID */
@@ -77,6 +85,78 @@ export interface AgentTriggerTemplate {
 }
 
 /**
+ * Convert a TriggerTemplate from the shared registry to an AgentTriggerTemplate.
+ * The shared TriggerTemplate stores trigger config in `condition` and `action` objects,
+ * while AgentTriggerTemplate flattens key fields at the top level.
+ */
+function toAgentTriggerTemplate(template: TriggerTemplate): AgentTriggerTemplate {
+  const metadata = template.metadata ?? {};
+  const triggerType = inferTriggerType(template);
+  return {
+    id: template.name,
+    name: template.name,
+    type: triggerType,
+    condition: extractConditionExpression(template),
+    eventName: template.condition?.eventName,
+    actionType: inferActionType(template),
+    actionConfig: template.action?.parameters as unknown as Record<string, unknown> | undefined,
+    description: template.description,
+    category: (metadata as Record<string, unknown>)["category"] as string | undefined,
+    tags: (metadata as Record<string, unknown>)["tags"] as string[] | undefined,
+    createdAt: template.createdAt,
+    updatedAt: template.updatedAt,
+    enabled: template.enabled !== false,
+  };
+}
+
+/**
+ * Extract the condition expression string from the shared TriggerTemplate's condition.
+ * Falls back to JSON.stringify for non-expression conditions.
+ */
+function extractConditionExpression(template: TriggerTemplate): string | undefined {
+  const cond = template.condition?.condition;
+  if (!cond) return undefined;
+  if (typeof cond === "object" && "expression" in cond) {
+    return (cond as { expression: string }).expression;
+  }
+  if (typeof cond === "object" && "script" in cond) {
+    return (cond as { script: string }).script;
+  }
+  return JSON.stringify(cond);
+}
+
+/**
+ * Infer the trigger type from the shared TriggerTemplate's condition event type.
+ */
+function inferTriggerType(template: TriggerTemplate): "event" | "condition" | "schedule" {
+  const eventType = template.condition?.eventType as string;
+  if (eventType && eventType.includes("SCHEDULE")) {
+    return "schedule";
+  }
+  if (template.condition?.eventName || (eventType && eventType.includes("EVENT"))) {
+    return "event";
+  }
+  return "condition";
+}
+
+/**
+ * Infer the action type from the shared TriggerTemplate's action type.
+ */
+function inferActionType(template: TriggerTemplate): "pause" | "stop" | "checkpoint" | "custom" {
+  const actionType = template.action?.type as string;
+  if (actionType === "pause_workflow_execution") {
+    return "pause";
+  }
+  if (actionType === "stop_workflow_execution") {
+    return "stop";
+  }
+  if (actionType === "checkpoint") {
+    return "checkpoint";
+  }
+  return "custom";
+}
+
+/**
  * Agent Trigger Template Registry API
  */
 export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
@@ -84,10 +164,11 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
   string,
   AgentTriggerTemplateFilter
 > {
+  private dependencies: APIDependencyManager;
+
   constructor(dependencies: APIDependencyManager) {
     super();
-    // Store dependencies if needed for future implementation
-    void dependencies;
+    this.dependencies = dependencies;
   }
 
   /**
@@ -95,10 +176,10 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID/name
    * @returns The trigger template; returns null if it does not exist
    */
-  protected async getResource(): Promise<AgentTriggerTemplate | null> {
-    // In a full implementation, this would retrieve from a template registry
-    // For now, returns null as placeholder for future implementation
-    return null;
+  protected async getResource(id: string): Promise<AgentTriggerTemplate | null> {
+    const template = this.dependencies.getTriggerTemplateRegistry().get(id);
+    if (!template) return null;
+    return toAgentTriggerTemplate(template);
   }
 
   /**
@@ -106,8 +187,8 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @returns Array of all trigger templates
    */
   protected async getAllResources(): Promise<AgentTriggerTemplate[]> {
-    // In a full implementation, this would retrieve all templates from registry
-    return [];
+    const templates = this.dependencies.getTriggerTemplateRegistry().list();
+    return templates.map(toAgentTriggerTemplate);
   }
 
   /**
@@ -115,8 +196,7 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param resource Template to create
    */
   protected async createResource(resource: AgentTriggerTemplate): Promise<void> {
-    void resource; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.dependencies.getTriggerTemplateRegistry().register(resource as unknown as TriggerTemplate);
   }
 
   /**
@@ -128,9 +208,7 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
     id: string,
     updates: Partial<AgentTriggerTemplate>
   ): Promise<void> {
-    void id;
-    void updates; // Suppress unused parameter warning
-    // In a full implementation, this would persist to storage
+    this.dependencies.getTriggerTemplateRegistry().update(id, updates as unknown as Partial<TriggerTemplate>);
   }
 
   /**
@@ -138,8 +216,7 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param id Template ID to delete
    */
   protected async deleteResource(id: string): Promise<void> {
-    void id; // Suppress unused parameter warning
-    // In a full implementation, this would delete from storage
+    this.dependencies.getTriggerTemplateRegistry().unregister(id);
   }
 
   /**
@@ -199,5 +276,222 @@ export class AgentTriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    */
   async queryByTags(tags: string[]): Promise<AgentTriggerTemplate[]> {
     return this.query({ tags });
+  }
+
+  /**
+   * Get trigger template summaries.
+   * @param filter - Optional filter criteria
+   * @returns Array of trigger template summaries
+   */
+  async getTemplateSummaries(filter?: AgentTriggerTemplateFilter): Promise<AgentTriggerTemplateSummary[]> {
+    const templates = await this.getAllResources();
+
+    let results = templates;
+
+    if (filter) {
+      if (filter.name) {
+        const nameLower = filter.name.toLowerCase();
+        results = results.filter((t) => t.name.toLowerCase().includes(nameLower));
+      }
+      if (filter.triggerType) {
+        results = results.filter((t) => t.type === filter.triggerType);
+      }
+      if (filter.category) {
+        results = results.filter((t) => t.category === filter.category);
+      }
+      if (filter.tags && filter.tags.length > 0) {
+        results = results.filter((t) =>
+          t.tags ? filter.tags!.some((tag) => t.tags!.includes(tag)) : false,
+        );
+      }
+    }
+
+    return results.map((t) => ({
+      id: t.id,
+      name: t.name,
+      triggerType: t.type,
+      description: t.description,
+      category: t.category,
+      tags: t.tags,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
+  }
+
+  /**
+   * Search trigger templates.
+   * @param keyword - Search keyword
+   * @returns Array of matching trigger templates
+   */
+  searchTemplates(keyword: string): AgentTriggerTemplate[] {
+    const templates = this.dependencies.getTriggerTemplateRegistry().search(keyword);
+    return templates.map(toAgentTriggerTemplate);
+  }
+
+  /**
+   * Export a trigger template as JSON.
+   * @param name - Trigger template name
+   * @returns JSON string
+   */
+  exportTemplate(name: string): string {
+    return this.dependencies.getTriggerTemplateRegistry().export(name);
+  }
+
+  /**
+   * Import a trigger template from JSON.
+   * @param json - JSON string
+   * @returns Trigger template name
+   */
+  importTemplate(json: string): string {
+    return this.dependencies.getTriggerTemplateRegistry().import(json);
+  }
+
+  /**
+   * Batch import trigger templates.
+   * @param jsons - Array of JSON strings
+   * @returns Array of trigger template names
+   */
+  importTemplates(jsons: string[]): string[] {
+    const names: string[] = [];
+    for (const json of jsons) {
+      names.push(this.importTemplate(json));
+    }
+    return names;
+  }
+
+  /**
+   * Batch export trigger templates.
+   * @param names - Array of trigger template names
+   * @returns Array of JSON strings
+   */
+  exportTemplates(names: string[]): string[] {
+    const jsons: string[] = [];
+    for (const name of names) {
+      jsons.push(this.exportTemplate(name));
+    }
+    return jsons;
+  }
+
+  /**
+   * Delete trigger template with options.
+   * @param id - Trigger template name
+   * @param options - Deletion options
+   */
+  override async deleteWithOptions(
+    id: string,
+    options?: { force?: boolean; checkReferences?: boolean },
+  ): Promise<void> {
+    const shouldCheck = options?.checkReferences !== false;
+
+    if (shouldCheck) {
+      const check = await this.checkDeleteReferences(id);
+
+      if (!check.canDelete && !options?.force) {
+        throw new ConfigurationValidationError(
+          `Cannot delete trigger template '${id}': ${check.details}`,
+          {
+            configType: "trigger",
+            configPath: "template.delete.referenced",
+          },
+        );
+      }
+
+      if (options?.force && !check.canDelete) {
+        const refNames = check.references.map((r) => r.sourceId).join(", ");
+        logger.warn(
+          `Force deleting trigger template '${id}' with ${check.references.length} active references: ${refNames}`,
+        );
+      }
+    }
+
+    this.dependencies.getTriggerTemplateRegistry().unregister(id);
+  }
+
+  /**
+   * Check if the trigger template can be safely deleted.
+   * @param templateName - Trigger template name
+   * @param options - Deletion options
+   * @returns Whether the template can be deleted and detailed information
+   */
+  override async canSafelyDelete(
+    templateName: string,
+    options?: { force?: boolean },
+  ): Promise<DeleteCheckResult> {
+    const result = await this.checkDeleteReferences(templateName);
+
+    if (result.canDelete) {
+      return result;
+    }
+
+    if (options?.force) {
+      return {
+        canDelete: true,
+        details: `Force deleting trigger template with ${result.references.length} active references: ${result.references.map((r) => r.sourceId).join(", ")}`,
+        references: result.references,
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * Check references for safe deletion.
+   * Finds agent loops that reference this trigger template.
+   * @param id - Trigger template name
+   * @returns Delete check result
+   */
+  protected override async checkDeleteReferences(id: string): Promise<DeleteCheckResult> {
+    const referencingAgentLoops = await this.findReferencingAgentLoops(id);
+
+    const references: DeleteCheckResult["references"] = referencingAgentLoops.map((loopId) => ({
+      type: "agent_loop_trigger" as const,
+      sourceId: loopId,
+      details: "Agent loop has trigger referencing this template",
+    }));
+
+    return {
+      canDelete: references.length === 0,
+      details:
+        references.length === 0
+          ? "No references found"
+          : `Referenced by ${references.length} agent loop(s): ${referencingAgentLoops.join(", ")}`,
+      references,
+    };
+  }
+
+  /**
+   * Find agent loops that reference this trigger template.
+   * @param templateName - Trigger template name
+   * @returns Array of agent loop IDs that reference this template
+   */
+  private async findReferencingAgentLoops(templateName: string): Promise<string[]> {
+    const agentLoopRegistry = this.dependencies.getAgentLoopRegistry();
+    const allAgentLoops = agentLoopRegistry.getAll();
+
+    const referencingLoops: string[] = [];
+
+    for (const agentLoop of allAgentLoops) {
+      const triggers = agentLoop.config.triggers || [];
+      for (const trigger of triggers) {
+        if (this.isTriggerReference(trigger) && trigger.templateName === templateName) {
+          referencingLoops.push(agentLoop.id);
+          break;
+        }
+      }
+    }
+
+    return referencingLoops;
+  }
+
+  /**
+   * Type guard to check if a trigger is a TriggerReference.
+   */
+  private isTriggerReference(trigger: unknown): trigger is TriggerReference {
+    return (
+      typeof trigger === "object" &&
+      trigger !== null &&
+      "templateName" in trigger &&
+      typeof (trigger as TriggerReference).templateName === "string"
+    );
   }
 }

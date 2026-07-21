@@ -25,7 +25,9 @@ import type { HookTemplateRegistry } from "../../../shared/registry/hook-templat
 import type { WorkflowGraphRegistry } from "../../../workflow/registry/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
+import type { AgentTemplateRegistry } from "../../../agent/registry/agent-template-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
+import type { AgentLoopExecutor } from "../../../agent/execution/executors/agent-loop-executor.js";
 import type { AgentProfileRegistry } from "../../../shared/registry/agent-profile-registry.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
 import type { TaskRegistry } from "../../../shared/registry/task-registry.js";
@@ -189,6 +191,21 @@ export class APIDependencyManager {
   }
 
   /**
+   * Get the Agent Template Registry
+   * Agent-specific registry for managing complete agent definition templates.
+   * Uses in-memory storage by default.
+   */
+  private _agentTemplateRegistry?: AgentTemplateRegistry;
+
+  getAgentTemplateRegistry(): AgentTemplateRegistry {
+    if (!this._agentTemplateRegistry) {
+      const { AgentTemplateRegistry: RegistryClass } = require("../../../agent/registry/agent-template-registry.js");
+      this._agentTemplateRegistry = new RegistryClass() as AgentTemplateRegistry;
+    }
+    return this._agentTemplateRegistry;
+  }
+
+  /**
    * Get the Task Registry
    */
   getTaskRegistry(): TaskRegistry {
@@ -227,6 +244,20 @@ export class APIDependencyManager {
       Identifiers.AgentLoopCoordinator as ServiceIdentifier<NoArgServiceFactory<AgentLoopCoordinator>>,
     );
     return (factory as unknown as NoArgServiceFactory<AgentLoopCoordinator>).create();
+  }
+
+  /**
+   * Obtain the Agent Loop executor
+   *
+   * AgentLoopExecutor is registered in the DI container as a
+   * NoArgServiceFactory to support proper dependency injection. This method
+   * resolves the factory and creates an executor instance.
+   */
+  getAgentLoopExecutor(): AgentLoopExecutor {
+    const factory = this.getFromContainer(
+      Identifiers.AgentLoopExecutor as ServiceIdentifier<NoArgServiceFactory<AgentLoopExecutor>>,
+    );
+    return (factory as unknown as NoArgServiceFactory<AgentLoopExecutor>).create();
   }
 
   // ============================================================================

@@ -13,6 +13,8 @@ import { validateWorkflowExecutionParams } from "../../../shared/operations/vali
 import type { CommandValidationResult } from "../../../shared/types/command.js";
 import type { WorkflowExecutionResult, WorkflowExecutionOptions } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
+import { withExecutionTimeout } from "../../../shared/utils/timeout-execution.js";
+import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 
 /**
  * Execute workflow command parameters
@@ -22,6 +24,8 @@ export interface ExecuteWorkflowParams {
   workflowId: string;
   /** Execution options */
   options?: WorkflowExecutionOptions;
+  /** Optional execution timeout in milliseconds */
+  timeoutMs?: number;
 }
 
 /**
@@ -49,16 +53,56 @@ export class ExecuteWorkflowCommand extends ExecutionCommand<WorkflowExecutionRe
   }
 
   protected async executeInternal(): Promise<WorkflowExecutionResult> {
-    // Obtain the WorkflowLifecycleCoordinator through APIDependencyManager
-    const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+    const logger = createContextualLogger({
+      component: "ExecuteWorkflowCommand",
+      commandName: "ExecuteWorkflowCommand",
+    });
 
-    // Execute workflow (delegated to WorkflowLifecycleCoordinator)
-    const result = await lifecycleCoordinator.execute(
-      this.params.workflowId,
-      this.params.options || {},
-    );
+    const startTime = Date.now();
+    const estimatedDefaultTimeout = 300000; // 5 minutes default for workflow execution
 
-    return result;
+    logger.info("Command execution started", {
+      workflowId: this.params.workflowId,
+      timeoutMs: this.params.timeoutMs ?? estimatedDefaultTimeout,
+    });
+
+    try {
+      // Obtain the WorkflowLifecycleCoordinator through APIDependencyManager
+      const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
+
+      // Execute workflow with timeout support
+      const result = await withExecutionTimeout(
+        lifecycleCoordinator.execute(
+          this.params.workflowId,
+          this.params.options || {},
+        ),
+        this.params.timeoutMs ?? estimatedDefaultTimeout,
+        "Workflow Execution",
+      );
+
+      const duration = Date.now() - startTime;
+      logger.info("Command execution completed successfully", undefined, {
+        workflowId: this.params.workflowId,
+        duration,
+      });
+
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      if (errorMsg.includes("timeout")) {
+        logger.warn("Command execution timeout", undefined, {
+          workflowId: this.params.workflowId,
+          duration,
+          timeoutMs: this.params.timeoutMs ?? estimatedDefaultTimeout,
+        });
+      } else {
+        logger.error("Command execution failed", undefined, { duration }, error as Error);
+      }
+
+      throw error;
+    }
   }
 
   validate(): CommandValidationResult {

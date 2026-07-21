@@ -1,46 +1,59 @@
 /**
- * MessageResourceAPI - Message Resource Management API
- *  Inherits from QueryableResourceAPI, providing read-only operations
+ * MessageResourceAPI - Workflow Message Resource Management API
+ * Provides APIs for managing messages in workflow executions.
+ * Extends the shared BaseMessageResourceAPI with workflow-specific implementation.
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import {
+  BaseMessageResourceAPI,
+  type BaseMessageFilter,
+  type ParsedMessageId,
+  type GetAllMessagesResult,
+} from "../../shared/resources/message-base.js";
 import type { WorkflowExecutionRegistry } from "../../../workflow/registry/workflow-execution-registry.js";
 import type { LLMMessage } from "@wf-agent/types";
 import { WorkflowExecutionNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 
 /**
- * Message Filter
+ * Workflow Message Filter
  */
-export interface MessageFilter {
-  /** Execution ID */
-  executionId?: string;
-  /** Role Filtering */
+export interface MessageFilter extends BaseMessageFilter {
+  /** Filter by role */
   role?: string;
-  /** Content Keywords */
+  /** Filter by content (fuzzy matching) */
   content?: string;
-  /** Time range start */
-  startTimeFrom?: number;
-  /** Time range has ended. */
-  startTimeTo?: number;
+  /** Filter by execution ID */
+  executionId?: string;
+  /** Filter by time range */
+  timeRange?: {
+    start?: number;
+    end?: number;
+  };
 }
 
 /**
- * Message statistics information
+ * Message Statistics
  */
 export interface MessageStats {
-  /** Total amount */
+  /** Total number of messages */
   total: number;
-  /** Count by role */
+  /** Distribution by role */
   byRole: Record<string, number>;
-  /** Count by type */
+  /** Distribution by type */
   byType: Record<string, number>;
+  /** Token usage statistics */
+  totalTokenUsage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
- * MessageResourceAPI - Message Resource Management API
+ * MessageResourceAPI - Workflow Message Resource Management API
  */
-export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string, MessageFilter> {
+export class MessageResourceAPI extends BaseMessageResourceAPI<MessageFilter> {
   private registry: WorkflowExecutionRegistry;
 
   constructor(deps: APIDependencyManager) {
@@ -49,56 +62,39 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
   }
 
   // ============================================================================
-  // Implement the abstract method
+  // Implement BaseMessageResourceAPI abstract methods
   // ============================================================================
 
   /**
-   * Get a single message
-   * @param id Message ID (format: executionId-index)
-   * @returns Message object; returns null if the message does not exist
+   * Get messages for a specific workflow execution
    */
-  protected async getResource(id: string): Promise<LLMMessage | null> {
-    // Parse ID format: executionId-index
-    const lastDashIndex = id.lastIndexOf("-");
-    if (lastDashIndex === -1) {
-      return null;
-    }
-
-    const executionId = id.substring(0, lastDashIndex);
-    const indexStr = id.substring(lastDashIndex + 1);
-    const index = parseInt(indexStr, 10);
-
-    if (isNaN(index) || index < 0) {
-      return null;
-    }
-
-    // Get specific workflow execution entity
+  protected getEntityMessages(executionId: string): LLMMessage[] {
     const executionEntity = this.registry.get(executionId);
     if (!executionEntity) {
-      return null;
+      throw new WorkflowExecutionNotFoundError(
+        `Workflow execution not found: ${executionId}`,
+        executionId,
+      );
     }
 
-    // Get messages from state coordinator
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (!stateCoordinator) {
-      return null;
+      throw new WorkflowExecutionNotFoundError(
+        `State coordinator not found for execution: ${executionId}`,
+        executionId,
+      );
     }
 
-    const messages = stateCoordinator.getMessages() || [];
-    if (index >= messages.length) {
-      return null;
-    }
-
-    return messages[index] || null;
+    return stateCoordinator.getMessages() || [];
   }
 
   /**
-   * Get all messages
-   * @returns Array of messages
+   * Get all messages across all workflow executions
    */
-  protected async getAllResources(): Promise<LLMMessage[]> {
+  protected getAllEntityMessages(): GetAllMessagesResult {
     const executionEntities = this.registry.getAll();
     const allMessages: LLMMessage[] = [];
+    const entityCounts: Record<string, number> = {};
 
     for (const executionEntity of executionEntities) {
       const stateCoordinator = this.registry.getStateCoordinator(executionEntity.id);
@@ -106,34 +102,32 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
         continue;
       }
       const messages = stateCoordinator.getMessages() || [];
+      entityCounts[executionEntity.id] = messages.length;
       allMessages.push(...messages);
     }
 
-    return allMessages;
+    return { messages: allMessages, entityCounts };
   }
 
   /**
-   * Apply filter criteria
+   * Parse composite message ID (format: executionId:index)
    */
-  protected override applyFilter(messages: LLMMessage[], filter: MessageFilter): LLMMessage[] {
-    // Since LLMMessage does not have a execution ID or timestamp, it is only possible to filter by role and content.
-    return messages.filter(message => {
-      if (filter.role && message.role !== filter.role) {
-        return false;
-      }
-      if (filter.content) {
-        const content =
-          typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-        if (!content.toLowerCase().includes(filter.content.toLowerCase())) {
-          return false;
-        }
-      }
-      return true;
-    });
+  protected parseMessageId(id: string): ParsedMessageId | null {
+    const [executionId, indexStr] = id.split(":");
+    if (!executionId || !indexStr) {
+      return null;
+    }
+
+    const index = parseInt(indexStr, 10);
+    if (isNaN(index) || index < 0) {
+      return null;
+    }
+
+    return { entityId: executionId, index };
   }
 
   // ============================================================================
-  // Message-specific method
+  // Workflow-specific message methods
   // ============================================================================
 
   /**
@@ -150,37 +144,7 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
     offset?: number,
     orderBy: "asc" | "desc" = "asc",
   ): Promise<LLMMessage[]> {
-    const executionEntity = this.registry.get(executionId);
-    if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(
-        `Workflow execution not found: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(executionId);
-    if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(
-        `State coordinator not found for execution: ${executionId}`,
-        executionId,
-      );
-    }
-
-    let messages = stateCoordinator.getMessages() || [];
-
-    // Apply sorting
-    if (orderBy === "desc") {
-      messages.reverse();
-    }
-
-    // Implement pagination
-    if (offset !== undefined || limit !== undefined) {
-      const start = offset || 0;
-      const end = limit !== undefined ? start + limit : undefined;
-      messages = messages.slice(start, end);
-    }
-
-    return messages;
+    return this.getEntityMessagesWithOptions(executionId, limit, offset, orderBy);
   }
 
   /**
@@ -190,24 +154,7 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
    * @returns Array of messages
    */
   async getRecentMessages(executionId: string, count: number): Promise<LLMMessage[]> {
-    const executionEntity = this.registry.get(executionId);
-    if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(
-        `Workflow execution not found: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(executionId);
-    if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(
-        `State coordinator not found for execution: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const messages = stateCoordinator.getMessages() || [];
-    return messages.slice(-count);
+    return this.getRecentEntityMessages(executionId, count);
   }
 
   /**
@@ -217,70 +164,16 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
    * @returns Array of matching messages
    */
   async searchMessages(executionId: string, query: string): Promise<LLMMessage[]> {
-    const executionEntity = this.registry.get(executionId);
-    if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(
-        `Workflow execution not found: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(executionId);
-    if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(
-        `State coordinator not found for execution: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const messages = stateCoordinator.getMessages() || [];
-    return messages.filter((message: LLMMessage) => {
-      const content =
-        typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-      return content.toLowerCase().includes(query.toLowerCase());
-    });
+    return this.searchEntityMessages(executionId, query);
   }
 
   /**
    * Get message statistics information
-   * @param executionId: Execution ID
-   * @returns: Statistical information
+   * @param executionId Execution ID
+   * @returns Statistical information
    */
   async getMessageStats(executionId: string): Promise<MessageStats> {
-    const executionEntity = this.registry.get(executionId);
-    if (!executionEntity) {
-      throw new WorkflowExecutionNotFoundError(
-        `Workflow execution not found: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(executionId);
-    if (!stateCoordinator) {
-      throw new WorkflowExecutionNotFoundError(
-        `State coordinator not found for execution: ${executionId}`,
-        executionId,
-      );
-    }
-
-    const messages = stateCoordinator.getMessages() || [];
-
-    const stats: MessageStats = {
-      total: messages.length,
-      byRole: {},
-      byType: {},
-    };
-
-    for (const message of messages) {
-      // Count by role
-      stats.byRole[message.role] = (stats.byRole[message.role] || 0) + 1;
-
-      // Count by type
-      const type = typeof message.content === "string" ? "text" : "object";
-      stats.byType[type] = (stats.byType[type] || 0) + 1;
-    }
-
-    return stats;
+    return this.getEntityMessageStats(executionId);
   }
 
   /**
@@ -292,30 +185,12 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
     byExecution: Record<string, number>;
     byRole: Record<string, number>;
   }> {
-    const executionEntities = this.registry.getAll();
-    const stats = {
-      total: 0,
-      byExecution: {} as Record<string, number>,
-      byRole: {} as Record<string, number>,
+    const stats = await this.getGlobalMessagesStats();
+    return {
+      total: stats.total,
+      byExecution: stats.byEntity,
+      byRole: stats.byRole,
     };
-
-    for (const executionEntity of executionEntities) {
-      const stateCoordinator = this.registry.getStateCoordinator(executionEntity.id);
-      if (!stateCoordinator) {
-        continue;
-      }
-      const messages = stateCoordinator.getMessages() || [];
-      const executionId = executionEntity.id;
-
-      stats.byExecution[executionId] = messages.length;
-      stats.total += messages.length;
-
-      for (const message of messages) {
-        stats.byRole[message.role] = (stats.byRole[message.role] || 0) + 1;
-      }
-    }
-
-    return stats;
   }
 
   /**
@@ -325,13 +200,7 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
    * @returns Array of conversation history
    */
   async getConversationHistory(executionId: string, maxMessages?: number): Promise<LLMMessage[]> {
-    const messages = await this.getWorkflowExecutionMessages(executionId);
-
-    if (maxMessages && messages.length > maxMessages) {
-      return messages.slice(-maxMessages);
-    }
-
-    return messages;
+    return this.getEntityConversationHistory(executionId, maxMessages);
   }
 
   /**
@@ -340,5 +209,65 @@ export class MessageResourceAPI extends QueryableResourceAPI<LLMMessage, string,
    */
   getRegistry(): WorkflowExecutionRegistry {
     return this.registry;
+  }
+
+  /**
+   * Normalize the message history for a workflow execution
+   * Consolidates consecutive messages from the same role.
+   * @param executionId Execution ID
+   */
+  async normalizeHistory(executionId: string): Promise<void> {
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+    if (stateCoordinator) {
+      const normalizeFn = (stateCoordinator as unknown as Record<string, unknown>)["normalizeHistory"];
+      if (typeof normalizeFn === "function") {
+        normalizeFn();
+      }
+    }
+  }
+
+  /**
+   * Get the number of messages for a workflow execution
+   * @param executionId Execution ID
+   * @returns Number of messages
+   */
+  async getMessageCount(executionId: string): Promise<number> {
+    const messages = this.getEntityMessages(executionId);
+    return messages.length;
+  }
+
+  /**
+   * Get message stats with token usage information
+   * @param executionId Execution ID
+   * @returns Enhanced message statistics
+   */
+  async getEnhancedMessageStats(executionId: string): Promise<MessageStats> {
+    const messages = this.getEntityMessages(executionId);
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+
+    const byRole: Record<string, number> = {};
+    const byType: Record<string, number> = {};
+
+    messages.forEach((msg) => {
+      byRole[msg.role] = (byRole[msg.role] || 0) + 1;
+      const msgType = (msg as unknown as Record<string, unknown>)["type"] as string | undefined;
+      if (msgType) {
+        byType[msgType] = (byType[msgType] || 0) + 1;
+      }
+    });
+
+    // Extract token usage if available from state coordinator
+    let totalTokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    const tokenUsage = (stateCoordinator as unknown as Record<string, unknown>)["getTokenUsage"] as (() => { promptTokens: number; completionTokens: number; totalTokens: number }) | undefined;
+    if (typeof tokenUsage === "function") {
+      totalTokenUsage = tokenUsage();
+    }
+
+    return {
+      total: messages.length,
+      byRole,
+      byType,
+      totalTokenUsage,
+    };
   }
 }

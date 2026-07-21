@@ -418,6 +418,26 @@ export interface ExecutionPathAnalysis {
 }
 
 // ============================================================================
+// Optimization Opportunity Types
+// ============================================================================
+
+/**
+ * Optimization opportunity identified during iteration analysis
+ */
+export interface OptimizationOpportunity {
+  /** Type of optimization */
+  type: "iteration" | "quality" | "llm_cost" | "resource" | "error" | "retry" | "tool" | "recorded";
+  /** Opportunity description */
+  description: string;
+  /** Impact level */
+  impactLevel: "low" | "medium" | "high";
+  /** Estimated improvement description */
+  estimatedImprovement?: string;
+  /** Associated iteration number (if applicable) */
+  iteration?: number;
+}
+
+// ============================================================================
 // API Implementation
 // ============================================================================
 
@@ -741,6 +761,177 @@ export class AgentLoopIterationAPI extends QueryableResourceAPI<
     analysis.complexityScore = Math.min(1, analysis.averagePathLength / 20);
 
     return analysis;
+  }
+
+  /**
+   * Get optimization opportunities for an agent loop execution
+   *
+   * Analyzes iteration patterns to identify:
+   * - Repeated tool calls with high frequency
+   * - High-cost LLM invocations (token consumption)
+   * - State bloat (memory usage, error concentration)
+   * - Low-quality iterations requiring revision
+   * - Long-running iterations
+   *
+   * @param agentLoopId Agent Loop ID
+   * @returns Array of optimization opportunities sorted by impact level
+   *
+   * @example
+   * ```typescript
+   * const opportunities = await api.getOptimizationOpportunities(agentLoopId);
+   * opportunities.forEach(opp => console.log(`${opp.impactLevel}: ${opp.description}`));
+   * ```
+   */
+  async getOptimizationOpportunities(agentLoopId: ID): Promise<OptimizationOpportunity[]> {
+    const records = Array.from(this.iterationDetails.values()).filter(
+      r => r.agentLoopId === agentLoopId,
+    );
+    const opportunities: OptimizationOpportunity[] = [];
+
+    if (records.length === 0) {
+      return opportunities;
+    }
+
+    // Track tool usage frequency and timing
+    const toolFrequency: Record<string, { count: number; totalDuration: number }> = {};
+
+    records.forEach(record => {
+      // Check for long-running iterations
+      const duration = (record.endTime ?? record.startTime) - record.startTime;
+      if (duration > 30000) {
+        opportunities.push({
+          type: "iteration",
+          description: `Iteration ${record.iteration} took ${duration}ms - consider optimizing execution time`,
+          impactLevel: "medium",
+          estimatedImprovement: `Reduce duration from ${duration}ms`,
+          iteration: record.iteration,
+        });
+      }
+
+      // Check for iterations requiring revision
+      if (record.requiresRevision) {
+        opportunities.push({
+          type: "quality",
+          description: `Iteration ${record.iteration} required revision - review output quality`,
+          impactLevel: "high",
+          estimatedImprovement: "Improve LLM prompt or output validation",
+          iteration: record.iteration,
+        });
+      }
+
+      // Check for low quality scores
+      if (record.qualityScore !== undefined && record.qualityScore < 0.5) {
+        opportunities.push({
+          type: "quality",
+          description: `Iteration ${record.iteration} has low quality score (${record.qualityScore})`,
+          impactLevel: "high",
+          estimatedImprovement: "Improve context or refine LLM instructions",
+          iteration: record.iteration,
+        });
+      }
+
+      // Track tool usage
+      record.toolCalls?.forEach(tool => {
+        const toolStats = toolFrequency[tool.name] ?? { count: 0, totalDuration: 0 };
+        toolStats.count++;
+        toolStats.totalDuration +=
+          (tool.endTime ?? tool.startTime) - tool.startTime;
+        toolFrequency[tool.name] = toolStats;
+      });
+
+      // Check for high token consumption
+      if (record.llmMetrics) {
+        const totalTokens = record.llmMetrics.reduce(
+          (sum, m) => sum + m.inputTokens + m.outputTokens,
+          0,
+        );
+        const totalCost = record.llmMetrics.reduce((sum, m) => sum + m.costUsd, 0);
+        if (totalTokens > 10000) {
+          opportunities.push({
+            type: "llm_cost",
+            description: `Iteration ${record.iteration} consumed ${totalTokens} tokens ($${totalCost.toFixed(4)}) - consider optimizing prompts`,
+            impactLevel: "medium",
+            estimatedImprovement: `Reduce token usage from ${totalTokens}`,
+            iteration: record.iteration,
+          });
+        }
+      }
+
+      // Check for memory bloat
+      if (record.systemMetrics && record.systemMetrics.memoryPeakMb > 500) {
+        opportunities.push({
+          type: "resource",
+          description: `Iteration ${record.iteration} used ${record.systemMetrics.memoryPeakMb}MB peak memory`,
+          impactLevel: "medium",
+          estimatedImprovement: "Reduce context size or implement memory management",
+          iteration: record.iteration,
+        });
+      }
+
+      // Check for error concentration
+      if (record.errors && record.errors.length > 3) {
+        opportunities.push({
+          type: "error",
+          description: `Iteration ${record.iteration} has ${record.errors.length} errors - review error handling`,
+          impactLevel: "high",
+          estimatedImprovement: "Improve error handling and recovery strategies",
+          iteration: record.iteration,
+        });
+      }
+
+      // Check for excessive retries
+      if (record.retryCount && record.retryCount > 2) {
+        opportunities.push({
+          type: "retry",
+          description: `Iteration ${record.iteration} retried ${record.retryCount} times - review failure causes`,
+          impactLevel: "high",
+          estimatedImprovement: "Reduce retry count or improve reliability",
+          iteration: record.iteration,
+        });
+      }
+    });
+
+    // Check for repeated tool calls (high-frequency tools)
+    for (const [toolName, stats] of Object.entries(toolFrequency)) {
+      if (stats.count > 10) {
+        opportunities.push({
+          type: "tool",
+          description: `Tool "${toolName}" called ${stats.count} times - consider caching or batching`,
+          impactLevel: "low",
+          estimatedImprovement: `Reduce calls from ${stats.count}`,
+        });
+      }
+      if (stats.totalDuration > 60000) {
+        opportunities.push({
+          type: "tool",
+          description: `Tool "${toolName}" spent ${stats.totalDuration}ms total - consider optimization`,
+          impactLevel: "medium",
+          estimatedImprovement: `Reduce tool execution time from ${stats.totalDuration}ms`,
+        });
+      }
+    }
+
+    // Include recorded optimization opportunities from iteration details
+    records.forEach(record => {
+      if (record.optimizationOpportunities) {
+        record.optimizationOpportunities.forEach(opp => {
+          opportunities.push({
+            type: "recorded",
+            description: opp,
+            impactLevel: "low",
+            iteration: record.iteration,
+          });
+        });
+      }
+    });
+
+    // Sort by impact level (high first, then medium, then low)
+    const impactOrder = { high: 0, medium: 1, low: 2 };
+    return opportunities.sort((a, b) => {
+      const aOrder = impactOrder[a.impactLevel] ?? 3;
+      const bOrder = impactOrder[b.impactLevel] ?? 3;
+      return aOrder - bOrder;
+    });
   }
 
   /**

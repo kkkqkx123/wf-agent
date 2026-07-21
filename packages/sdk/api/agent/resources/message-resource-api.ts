@@ -1,49 +1,51 @@
 /**
  * AgentLoopMessageResourceAPI - Agent Loop Message Resource Management API
- * Inherits QueryableResourceAPI, provides read-only operations
- *
- * Responsibilities:
- * - Encapsulates MessageHistory, provides message history management functionality
- * - Supports message query, search, statistics and other functionalities
+ * Provides APIs for managing messages in agent loop executions.
+ * Extends the shared BaseMessageResourceAPI with agent-specific implementation.
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import {
+  BaseMessageResourceAPI,
+  type BaseMessageFilter,
+  type ParsedMessageId,
+  type GetAllMessagesResult,
+} from "../../shared/resources/message-base.js";
 import type { LLMMessage, ID } from "@wf-agent/types";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 
 /**
- * message filter
+ * Agent Loop Message Filter
  */
-export interface AgentLoopMessageFilter {
-  /** Agent Loop ID */
-  agentLoopId?: ID;
-  /** Role Filtering */
+export interface AgentLoopMessageFilter extends BaseMessageFilter {
+  /** Filter by role */
   role?: string;
-  /** Content Keywords */
+  /** Filter by content (fuzzy matching) */
   content?: string;
 }
 
 /**
- * Message Statistics
+ * Agent Loop Message Stats
  */
 export interface AgentLoopMessageStats {
-  /** aggregate */
+  /** Total number of messages */
   total: number;
-  /** Statistics by Role */
+  /** Distribution by role */
   byRole: Record<string, number>;
-  /** Statistics by type */
+  /** Distribution by type */
   byType: Record<string, number>;
+  /** Token usage statistics */
+  totalTokenUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
  * AgentLoopMessageResourceAPI - Agent Loop Message Resource Management API
  */
-export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
-  LLMMessage,
-  string,
-  AgentLoopMessageFilter
-> {
+export class AgentLoopMessageResourceAPI extends BaseMessageResourceAPI<AgentLoopMessageFilter> {
   private registry: AgentLoopRegistry;
 
   constructor(deps: APIDependencyManager) {
@@ -52,82 +54,60 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
   }
 
   // ============================================================================
-  // Implementing Abstract Methods
+  // Implement BaseMessageResourceAPI abstract methods
   // ============================================================================
 
   /**
-   * Get a single message
-   * @param id Message ID (format: agentLoopId:messageIndex)
-   * @returns the message object, or null if it doesn't exist.
+   * Get messages for a specific agent loop
    */
-  protected async getResource(id: string): Promise<LLMMessage | null> {
+  protected getEntityMessages(agentLoopId: string): LLMMessage[] {
+    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
+    return stateCoordinator?.getMessages() ?? [];
+  }
+
+  /**
+   * Get all messages across all agent loops
+   */
+  protected getAllEntityMessages(): GetAllMessagesResult {
+    const entities = this.registry.getAll();
+    const allMessages: LLMMessage[] = [];
+    const entityCounts: Record<string, number> = {};
+
+    for (const entity of entities) {
+      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
+      const messages = stateCoordinator?.getMessages() ?? [];
+      entityCounts[entity.id] = messages.length;
+      allMessages.push(...messages);
+    }
+
+    return { messages: allMessages, entityCounts };
+  }
+
+  /**
+   * Parse composite message ID (format: agentLoopId:messageIndex)
+   */
+  protected parseMessageId(id: string): ParsedMessageId | null {
     const [agentLoopId, indexStr] = id.split(":");
     if (!agentLoopId || !indexStr) {
       return null;
     }
 
-    const entity = await this.registry.get(agentLoopId);
-    if (!entity) {
-      return null;
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
-    const messages = stateCoordinator?.getMessages() ?? [];
     const index = parseInt(indexStr, 10);
-    if (isNaN(index) || index < 0 || index >= messages.length) {
+    if (isNaN(index) || index < 0) {
       return null;
     }
 
-    return messages[index]!;
-  }
-
-  /**
-   * Get all messages
-   * @returns the array of messages
-   */
-  protected async getAllResources(): Promise<LLMMessage[]> {
-    const entities = this.registry.getAll();
-    const allMessages: LLMMessage[] = [];
-
-    for (const entity of entities) {
-      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
-      const messages = stateCoordinator?.getMessages() ?? [];
-      allMessages.push(...messages);
-    }
-
-    return allMessages;
-  }
-
-  /**
-   * Applying Filter Criteria
-   */
-  protected override applyFilter(
-    messages: LLMMessage[],
-    filter: AgentLoopMessageFilter,
-  ): LLMMessage[] {
-    return messages.filter(message => {
-      if (filter.role && message.role !== filter.role) {
-        return false;
-      }
-      if (filter.content) {
-        const content =
-          typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-        if (!content.toLowerCase().includes(filter.content.toLowerCase())) {
-          return false;
-        }
-      }
-      return true;
-    });
+    return { entityId: agentLoopId, index };
   }
 
   // ============================================================================
-  // message-specific method
+  // Agent-specific message methods
   // ============================================================================
 
   /**
    * Get the list of messages in the Agent Loop
    * @param agentLoopId Agent Loop ID
-   * @param limit Limit the number of returns.
+   * @param limit Limit the number of returns
    * @param offset offset
    * @param orderBy Order by
    * @returns the message array
@@ -138,27 +118,7 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
     offset?: number,
     orderBy: "asc" | "desc" = "asc",
   ): Promise<LLMMessage[]> {
-    const entity = await this.registry.get(agentLoopId);
-    if (!entity) {
-      return [];
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
-    let messages = stateCoordinator?.getMessages() ?? [];
-
-    // Application Sorting
-    if (orderBy === "desc") {
-      messages = [...messages].reverse();
-    }
-
-    // application paging
-    if (offset !== undefined || limit !== undefined) {
-      const start = offset || 0;
-      const end = limit !== undefined ? start + limit : undefined;
-      messages = messages.slice(start, end);
-    }
-
-    return messages;
+    return this.getEntityMessagesWithOptions(agentLoopId, limit, offset, orderBy);
   }
 
   /**
@@ -168,13 +128,7 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
    * @returns array of messages
    */
   async getRecentMessages(agentLoopId: ID, count: number): Promise<LLMMessage[]> {
-    const entity = await this.registry.get(agentLoopId);
-    if (!entity) {
-      return [];
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
-    return stateCoordinator?.getRecentMessages(count) ?? [];
+    return this.getRecentEntityMessages(agentLoopId, count);
   }
 
   /**
@@ -184,18 +138,7 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
    * @returns Array of matching messages
    */
   async searchMessages(agentLoopId: ID, query: string): Promise<LLMMessage[]> {
-    const entity = await this.registry.get(agentLoopId);
-    if (!entity) {
-      return [];
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
-    const messages = stateCoordinator?.getMessages() ?? [];
-    return messages.filter(message => {
-      const content =
-        typeof message.content === "string" ? message.content : JSON.stringify(message.content);
-      return content.toLowerCase().includes(query.toLowerCase());
-    });
+    return this.searchEntityMessages(agentLoopId, query);
   }
 
   /**
@@ -203,12 +146,7 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
    * @param agentLoopId Agent Loop ID
    * @returns Statistics
    */
-  async getMessageStats(agentLoopId: ID): Promise<{
-    total: number;
-    byRole: Record<string, number>;
-    byType: Record<string, number>;
-    totalTokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
-  }> {
+  async getMessageStats(agentLoopId: ID): Promise<AgentLoopMessageStats> {
     const entity = await this.registry.get(agentLoopId);
     if (!entity) {
       return {
@@ -221,23 +159,26 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
 
     const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
     const messages = stateCoordinator?.getMessages() ?? [];
-    const tokenUsage = stateCoordinator?.getTokenUsage() ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const tokenUsage = stateCoordinator?.getTokenUsage() ?? {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    };
 
-    // Build stats from ConversationSession data
-    const roleDistribution: Record<string, number> = {};
-    const typeDistribution: Record<string, number> = {};
-    messages.forEach(msg => {
-      roleDistribution[msg.role] = (roleDistribution[msg.role] || 0) + 1;
+    const byRole: Record<string, number> = {};
+    const byType: Record<string, number> = {};
+    messages.forEach((msg) => {
+      byRole[msg.role] = (byRole[msg.role] || 0) + 1;
       const msgType = (msg as unknown as Record<string, unknown>)["type"] as string | undefined;
       if (msgType) {
-        typeDistribution[msgType] = (typeDistribution[msgType] || 0) + 1;
+        byType[msgType] = (byType[msgType] || 0) + 1;
       }
     });
 
     return {
       total: messages.length,
-      byRole: roleDistribution,
-      byType: typeDistribution,
+      byRole,
+      byType,
       totalTokenUsage: tokenUsage,
     };
   }
@@ -262,27 +203,12 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
     byAgentLoop: Record<string, number>;
     byRole: Record<string, number>;
   }> {
-    const entities = this.registry.getAll();
-    const stats = {
-      total: 0,
-      byAgentLoop: {} as Record<string, number>,
-      byRole: {} as Record<string, number>,
+    const stats = await this.getGlobalMessagesStats();
+    return {
+      total: stats.total,
+      byAgentLoop: stats.byEntity,
+      byRole: stats.byRole,
     };
-
-    for (const entity of entities) {
-      const stateCoordinator = this.registry.getStateCoordinator(entity.id);
-      const messages = stateCoordinator?.getMessages() ?? [];
-      const agentLoopId = entity.id;
-
-      stats.byAgentLoop[agentLoopId] = messages.length;
-      stats.total += messages.length;
-
-      for (const message of messages) {
-        stats.byRole[message.role] = (stats.byRole[message.role] || 0) + 1;
-      }
-    }
-
-    return stats;
   }
 
   /**
@@ -292,13 +218,7 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
    * @returns Conversation History Array
    */
   async getConversationHistory(agentLoopId: ID, maxMessages?: number): Promise<LLMMessage[]> {
-    const messages = await this.getAgentLoopMessages(agentLoopId);
-
-    if (maxMessages && messages.length > maxMessages) {
-      return messages.slice(-maxMessages);
-    }
-
-    return messages;
+    return this.getEntityConversationHistory(agentLoopId, maxMessages);
   }
 
   /**
@@ -307,13 +227,8 @@ export class AgentLoopMessageResourceAPI extends QueryableResourceAPI<
    * @returns Number of messages
    */
   async getMessageCount(agentLoopId: ID): Promise<number> {
-    const entity = await this.registry.get(agentLoopId);
-    if (!entity) {
-      return 0;
-    }
-
-    const stateCoordinator = this.registry.getStateCoordinator(agentLoopId);
-    return stateCoordinator?.getMessageCount() ?? 0;
+    const messages = await this.getEntityMessages(agentLoopId);
+    return messages.length;
   }
 
   /**

@@ -253,6 +253,55 @@ export class WorkflowExecutionRegistryAPI extends SimplifiedCrudResourceAPI<
     };
   }
 
+  // ============================================================================
+  // State Query Methods
+  // ============================================================================
+
+  /**
+   * Get running workflow executions
+   * @returns Array of running workflow executions
+   */
+  async getRunningExecutions(): Promise<WorkflowExecution[]> {
+    return this.getExecutionsByStatus("RUNNING");
+  }
+
+  /**
+   * Get paused workflow executions
+   * @returns Array of paused workflow executions
+   */
+  async getPausedExecutions(): Promise<WorkflowExecution[]> {
+    return this.getExecutionsByStatus("PAUSED");
+  }
+
+  /**
+   * Get completed workflow executions
+   * @returns Array of completed workflow executions
+   */
+  async getCompletedExecutions(): Promise<WorkflowExecution[]> {
+    return this.getExecutionsByStatus("COMPLETED");
+  }
+
+  /**
+   * Get failed workflow executions
+   * @returns Array of failed workflow executions
+   */
+  async getFailedExecutions(): Promise<WorkflowExecution[]> {
+    return this.getExecutionsByStatus("FAILED");
+  }
+
+  /**
+   * Get workflow executions by status
+   * @param status Status to filter by
+   * @returns Array of matching workflow executions
+   */
+  private getExecutionsByStatus(status: WorkflowExecutionStatus): WorkflowExecution[] {
+    const registry = this.dependencies.getWorkflowExecutionRegistry();
+    return registry
+      .getAll()
+      .filter((entity) => entity.getStatus() === status)
+      .map((entity) => entity.getWorkflowExecutionData());
+  }
+
   /**
    * Getting Workflow Execution Statistics
    * @returns Statistics
@@ -309,4 +358,204 @@ export class WorkflowExecutionRegistryAPI extends SimplifiedCrudResourceAPI<
   getRegistry() {
     return this.dependencies.getWorkflowExecutionRegistry();
   }
+
+  // ============================================================================
+  // Timeline & Execution Path Queries
+  // ============================================================================
+
+  /**
+   * Get execution timeline for a workflow execution
+   *
+   * Builds a chronological timeline of node execution events including
+   * start, completion, failures, and cancellations.
+   *
+   * @param executionId - Workflow execution ID
+   * @returns Array of timeline entries sorted by timestamp
+   */
+  async getExecutionTimeline(executionId: string): Promise<WorkflowExecutionTimelineEntry[]> {
+    const registry = this.dependencies.getWorkflowExecutionRegistry();
+    const entity = registry.get(executionId);
+    if (!entity) {
+      return [];
+    }
+
+    const timeline: WorkflowExecutionTimelineEntry[] = [];
+    const startTime = entity.getStartTime();
+    const endTime = entity.getEndTime();
+    const nodeResults = entity.getNodeResults();
+
+    // Add start event
+    if (startTime) {
+      timeline.push({
+        id: `${executionId}:start`,
+        timestamp: startTime,
+        type: 'execution_start',
+        description: 'Workflow execution started',
+      });
+    }
+
+    // Add node execution events
+    for (const result of nodeResults) {
+      if (result.startTime) {
+        timeline.push({
+          id: `${executionId}:node:${result.nodeId}:start`,
+          timestamp: result.startTime,
+          type: 'node_start',
+          description: `Node ${result.nodeId} (${result.nodeType}) started`,
+          nodeId: result.nodeId,
+          nodeType: result.nodeType,
+        });
+      }
+
+      if (result.endTime) {
+        const statusType = result.status === 'COMPLETED' ? 'node_completed'
+          : result.status === 'FAILED' ? 'node_failed'
+          : result.status === 'SKIPPED' ? 'node_skipped'
+          : result.status === 'CANCELLED' ? 'node_cancelled'
+          : 'node_end';
+
+        timeline.push({
+          id: `${executionId}:node:${result.nodeId}:end`,
+          timestamp: result.endTime,
+          type: statusType as WorkflowExecutionTimelineEntryType,
+          description: `Node ${result.nodeId} ${result.status.toLowerCase()} (${result.executionTime}ms)`,
+          nodeId: result.nodeId,
+          nodeType: result.nodeType,
+          duration: result.executionTime,
+        });
+      }
+    }
+
+    // Add end event
+    if (endTime) {
+      const statusType = entity.getStatus() === 'COMPLETED' ? 'execution_completed'
+        : entity.getStatus() === 'FAILED' ? 'execution_failed'
+        : entity.getStatus() === 'CANCELLED' ? 'execution_cancelled'
+        : 'execution_end';
+
+      timeline.push({
+        id: `${executionId}:end`,
+        timestamp: endTime,
+        type: statusType as WorkflowExecutionTimelineEntryType,
+        description: `Workflow execution ${entity.getStatus().toLowerCase()}`,
+        duration: endTime - (startTime || 0),
+      });
+    }
+
+    return timeline.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Get execution path for a workflow execution
+   *
+   * Builds the ordered execution path showing which nodes were executed,
+   * their status, and timing information.
+   *
+   * @param executionId - Workflow execution ID
+   * @returns Execution path summary, or null if execution not found
+   */
+  async getExecutionPath(executionId: string): Promise<WorkflowExecutionPath | null> {
+    const registry = this.dependencies.getWorkflowExecutionRegistry();
+    const entity = registry.get(executionId);
+    if (!entity) {
+      return null;
+    }
+
+    const nodeResults = entity.getNodeResults();
+    const startTime = entity.getStartTime();
+    const endTime = entity.getEndTime();
+
+    const pathSteps: WorkflowExecutionPathStep[] = nodeResults.map(result => ({
+      nodeId: result.nodeId,
+      nodeType: result.nodeType,
+      status: result.status,
+      step: result.step,
+      startTime: result.startTime,
+      endTime: result.endTime,
+      executionTime: result.executionTime,
+      error: result.error ?? undefined,
+    }));
+
+    return {
+      executionId,
+      status: entity.getStatus(),
+      totalNodes: nodeResults.length,
+      steps: pathSteps,
+      totalDuration: endTime && startTime ? endTime - startTime : undefined,
+    };
+  }
+}
+
+/**
+ * Workflow execution timeline entry type
+ */
+export type WorkflowExecutionTimelineEntryType =
+  | 'execution_start'
+  | 'execution_completed'
+  | 'execution_failed'
+  | 'execution_cancelled'
+  | 'execution_end'
+  | 'node_start'
+  | 'node_completed'
+  | 'node_failed'
+  | 'node_skipped'
+  | 'node_cancelled'
+  | 'node_end';
+
+/**
+ * Workflow execution timeline entry
+ */
+export interface WorkflowExecutionTimelineEntry {
+  /** Unique entry ID */
+  id: string;
+  /** Event timestamp */
+  timestamp: number;
+  /** Event type */
+  type: WorkflowExecutionTimelineEntryType;
+  /** Human-readable description */
+  description: string;
+  /** Node ID (if applicable) */
+  nodeId?: string;
+  /** Node type (if applicable) */
+  nodeType?: string;
+  /** Duration of event (if applicable) */
+  duration?: number;
+}
+
+/**
+ * Workflow execution path step
+ */
+export interface WorkflowExecutionPathStep {
+  /** Node ID */
+  nodeId: string;
+  /** Node type */
+  nodeType: string;
+  /** Execution status */
+  status: string;
+  /** Execution step number */
+  step: number;
+  /** Start time */
+  startTime?: number;
+  /** End time */
+  endTime?: number;
+  /** Execution duration (ms) */
+  executionTime?: number;
+  /** Error information (if failed) */
+  error?: unknown;
+}
+
+/**
+ * Workflow execution path summary
+ */
+export interface WorkflowExecutionPath {
+  /** Execution ID */
+  executionId: string;
+  /** Execution status */
+  status: string;
+  /** Total number of nodes executed */
+  totalNodes: number;
+  /** Ordered list of execution steps */
+  steps: WorkflowExecutionPathStep[];
+  /** Total duration (ms) */
+  totalDuration?: number;
 }

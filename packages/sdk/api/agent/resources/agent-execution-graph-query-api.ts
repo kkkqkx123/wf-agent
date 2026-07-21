@@ -733,4 +733,100 @@ export class AgentExecutionGraphQueryAPI extends QueryableResourceAPI<
       wastefulDecisions: Math.max(0, path.steps.length - shortestPathLength),
     };
   }
+
+  /**
+   * Get the critical path (longest path) through the decision graph.
+   * Based on the number of nodes in each path since DecisionNode does not have duration.
+   *
+   * @param agentLoopId Agent loop ID
+   * @returns Critical path node IDs or null
+   */
+  async getCriticalPath(agentLoopId: ID): Promise<string[] | null> {
+    const graph = this.decisionGraphs.get(agentLoopId as string);
+    if (!graph) return null;
+
+    const allPaths = await this.getAllPaths(agentLoopId);
+    if (allPaths.length === 0) return null;
+
+    // Return the longest path by node count
+    let criticalPath: string[] = [];
+    let maxLength = 0;
+
+    for (const path of allPaths) {
+      if (path.length > maxLength) {
+        maxLength = path.length;
+        criticalPath = path;
+      }
+    }
+
+    return criticalPath;
+  }
+
+  /**
+   * Analyze path probabilities across the decision graph.
+   *
+   * @param agentLoopId Agent loop ID
+   * @returns Path probability analysis or null
+   */
+  async getPathProbabilityAnalysis(
+    agentLoopId: ID,
+  ): Promise<{
+    agentLoopId: ID;
+    paths: Array<{
+      pathId: string;
+      nodeIds: string[];
+      probability: number;
+      isTaken: boolean;
+    }>;
+    mostLikelyPath: string[] | null;
+    pathDiversity: number;
+  } | null> {
+    const graph = this.decisionGraphs.get(agentLoopId as string);
+    if (!graph) return null;
+
+    const allPaths = await this.getAllPaths(agentLoopId);
+    const path = this.executionPaths.get(agentLoopId as string);
+
+    const paths = allPaths.map((nodeIds, index) => {
+      let probability = 1;
+      for (let i = 0; i < nodeIds.length - 1; i++) {
+        const edge = graph.edges.find(
+          (e) => e.fromNodeId === nodeIds[i] && e.toNodeId === nodeIds[i + 1],
+        );
+        if (edge?.probability !== undefined) {
+          probability *= edge.probability;
+        }
+      }
+
+      const isTaken = path
+        ? nodeIds.every((id) => path.steps.some((s) => s.nodeId === id))
+        : false;
+
+      return {
+        pathId: `path-${index}`,
+        nodeIds,
+        probability,
+        isTaken,
+      };
+    });
+
+    paths.sort((a, b) => b.probability - a.probability);
+
+    const mostLikelyPath = paths[0]?.nodeIds ?? null;
+    const totalProb = paths.reduce((sum, p) => sum + p.probability, 0);
+    const pathDiversity =
+      totalProb > 0
+        ? -paths.reduce((sum, p) => {
+            const normalizedP = p.probability / totalProb;
+            return sum + (normalizedP > 0 ? normalizedP * Math.log2(normalizedP) : 0);
+          }, 0) / Math.log2(paths.length)
+        : 0;
+
+    return {
+      agentLoopId,
+      paths,
+      mostLikelyPath,
+      pathDiversity: Math.round(pathDiversity * 100) / 100,
+    };
+  }
 }

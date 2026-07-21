@@ -357,6 +357,43 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
     }
     return jsons;
   }
+
+  /**
+   * Infer the trigger type from the shared TriggerTemplate's condition event type.
+   * Mirrors the agent's inferTriggerType for consistency across domains.
+   * @param template Trigger template
+   * @returns Inferred trigger type
+   */
+  inferTriggerType(template: TriggerTemplate): "event" | "condition" | "schedule" {
+    const eventType = template.condition?.eventType as string;
+    if (eventType && eventType.includes("SCHEDULE")) {
+      return "schedule";
+    } else if (eventType && eventType.includes("CONDITION")) {
+      return "condition";
+    }
+    return "event";
+  }
+
+  /**
+   * Infer the action type from the shared TriggerTemplate's action type.
+   * Mirrors the agent's inferActionType for consistency across domains.
+   * @param template Trigger template
+   * @returns Inferred action type
+   */
+  inferActionType(template: TriggerTemplate): "pause" | "stop" | "checkpoint" | "custom" {
+    const actionType = template.action?.type as string;
+    if (actionType === "pause_workflow_execution") {
+      return "pause";
+    } else if (
+      actionType === "stop_workflow_execution" ||
+      actionType === "cancel_workflow_execution"
+    ) {
+      return "stop";
+    } else if (actionType === "create_checkpoint") {
+      return "checkpoint";
+    }
+    return "custom";
+  }
 }
 
 /**

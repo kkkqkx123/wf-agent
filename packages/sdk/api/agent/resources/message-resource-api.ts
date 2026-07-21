@@ -22,6 +22,13 @@ export interface AgentLoopMessageFilter extends BaseMessageFilter {
   role?: string;
   /** Filter by content (fuzzy matching) */
   content?: string;
+  /** Filter by execution ID */
+  executionId?: string;
+  /** Filter by time range */
+  timeRange?: {
+    start?: number;
+    end?: number;
+  };
 }
 
 /**

@@ -17,16 +17,20 @@ import type { ID } from "@wf-agent/types";
 import type {
   IterationSystemMetrics,
   IterationLLMMetrics,
+} from "../../agent/resources/agent-loop-iteration-api.js";
+import type {
   ToolDependency,
   ExecutionPath,
   LLMReasoningRecord,
-} from "../../agent/resources/agent-loop-iteration-api.js";
-// Re-export types for external consumers
+  BaseOptimizationOpportunity,
+  ExecutionPathStep as BaseExecutionPathStep,
+} from "../../shared/types/iteration-types.js";
+// Re-export shared types for external consumers
 export type {
   ToolDependency,
   ExecutionPath,
   LLMReasoningRecord,
-} from "../../agent/resources/agent-loop-iteration-api.js";
+} from "../../shared/types/iteration-types.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ operation: "WorkflowIterationAnalysisAPI" });
@@ -39,13 +43,8 @@ const logger = createContextualLogger({ operation: "WorkflowIterationAnalysisAPI
  * Execution path step (Workflow-specific)
  * Enhanced version of ExecutionPath step with workflow-specific types
  */
-export interface ExecutionPathStep {
-  stepId: string;
+export interface ExecutionPathStep extends BaseExecutionPathStep {
   type: "node_execution" | "condition_check" | "branch_decision" | "tool_call";
-  description: string;
-  result?: unknown;
-  timestamp: number;
-  duration?: number;
 }
 
 // ============================================================================
@@ -218,17 +217,11 @@ export interface NodeExecutionStats {
 /**
  * Optimization opportunity
  */
-export interface OptimizationOpportunity {
+export interface OptimizationOpportunity extends BaseOptimizationOpportunity {
   /** Node ID */
   nodeId: string;
   /** Node name */
   nodeName: string;
-  /** Opportunity description */
-  description: string;
-  /** Impact level */
-  impactLevel: "low" | "medium" | "high";
-  /** Estimated improvement */
-  estimatedImprovement?: string;
 }
 
 // ============================================================================
@@ -380,13 +373,13 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
 
     const steps: Array<{
       stepId: string;
-      type: "decision" | "action" | "tool_call" | "branch";
+      type: "node_execution" | "condition_check" | "branch_decision" | "tool_call" | "decision" | "action";
       description: string;
       result?: unknown;
       timestamp: number;
     }> = executions.map(exec => ({
       stepId: exec.nodeId,
-      type: "action" as const, // Workflow nodes are actions
+      type: "node_execution" as const,
       description: `Execute ${exec.nodeName} (${exec.nodeType})`,
       result: exec.output,
       timestamp: exec.startTime,

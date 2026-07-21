@@ -22,6 +22,8 @@ import type {
  * Base file checkpoint filter - entity-specific filters extend this
  */
 export interface BaseFileCheckpointFilter {
+  /** Filter by entity ID */
+  entityId?: string;
   /** Filter by checkpoint type */
   type?: "full" | "incremental";
   /** Maximum number of results */
@@ -187,6 +189,28 @@ export class BaseFileCheckpointResourceAPI<
   async initialize(): Promise<void> {
     const manager = this.getManager();
     await manager.initialize();
+  }
+
+  // ============================================================================
+  // Filter methods
+  // ============================================================================
+
+  /**
+   * Apply filter criteria to file checkpoints
+   */
+  protected override applyFilter(
+    checkpoints: FileCheckpointMetadata[],
+    filter: TFilter,
+  ): FileCheckpointMetadata[] {
+    return checkpoints.filter(cp => {
+      if (filter.entityId && cp.entityId !== filter.entityId) {
+        return false;
+      }
+      if (filter.type && cp.type !== filter.type) {
+        return false;
+      }
+      return true;
+    });
   }
 
   /**

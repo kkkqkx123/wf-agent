@@ -14,7 +14,7 @@ export class VariableAdapter extends BaseAdapter {
     return this.executeWithErrorHandling(async () => {
       this.logOperation("listVariables", { executionId });
       const api = this.sdk.variables;
-      return await api.getAll({ executionId }) as unknown as Record<string, unknown>;
+      return await api.getWorkflowExecutionVariables(executionId) as unknown as Record<string, unknown>;
     }, "List variables");
   }
 

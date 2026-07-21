@@ -19,6 +19,7 @@ import type { ExecutionErrorRecord } from "@wf-agent/types";
 import type { IErrorAnalysisProvider } from "../../../shared/resources/errors/error-analysis-provider.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import type { BaseEvent } from "@wf-agent/types";
+import { WorkflowExecutionContextAPI } from "../workflow-execution-context-api.js";
 
 const logger = createContextualLogger({ operation: "WorkflowErrorAnalysisAPI" });
 
@@ -53,6 +54,12 @@ export interface WorkflowErrorContext {
     model: string;
     tokensUsed?: number;
   };
+  /** Variable snapshot at the time of error */
+  variableSnapshot?: Record<string, unknown>;
+  /** Call stack at the time of error */
+  callStack?: Array<{ id: string; name?: string }>;
+  /** Memory usage at the time of error (bytes) */
+  memoryUsage?: number;
 }
 
 /**
@@ -488,6 +495,105 @@ export class WorkflowErrorAnalysisAPI
       mostProblematicNodes: mostProblematicNodes.slice(0, 5),
       errorTrend,
     };
+  }
+
+  /**
+   * Get error context with execution state snapshot
+   *
+   * Retrieves the execution context (variables, call stack, memory usage)
+   * at the time of a specific error. Integrates with WorkflowExecutionContextAPI
+   * to provide enriched error context.
+   *
+   * @param executionId Execution ID
+   * @param errorId Error ID to get context for
+   * @returns Workflow error context with execution details, or null if not found
+   */
+  async getErrorContext(
+    executionId: ID,
+    errorId: string,
+  ): Promise<{ error: ExecutionErrorRecord; context: WorkflowErrorContext } | null> {
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+    const error = errorRecords.find(e => e.id === errorId);
+
+    if (!error) {
+      logger.warn("Error not found for context retrieval", { executionId, errorId });
+      return null;
+    }
+
+    // Try to get execution context snapshot
+    let variableSnapshot: Record<string, unknown> = {};
+    let callStack: Array<{ id: string; name?: string }> = [];
+    let memoryUsage: number | undefined;
+
+    try {
+      const contextApi = new WorkflowExecutionContextAPI(this.deps);
+      const executionContext = await contextApi.getExecutionContext(executionId);
+      if (executionContext) {
+        callStack = (executionContext.callStack ?? []).map((frame: any) => ({
+          id: frame.nodeId,
+          name: frame.nodeName,
+        }));
+        memoryUsage = executionContext.memoryUsage;
+
+        // Get variable snapshot near the error timestamp
+        const snapshots = await contextApi.getVariableSnapshotsByTimeRange(executionId, {
+          start: error.timestamp - 1000,
+          end: error.timestamp + 1000,
+        });
+        if (snapshots.length > 0) {
+          const closest = snapshots.reduce((prev: any, curr: any) =>
+            Math.abs(curr.timestamp - error.timestamp) < Math.abs(prev.timestamp - error.timestamp)
+              ? curr
+              : prev,
+          );
+          variableSnapshot = Object.fromEntries(
+            closest.variables.map((v: any) => [v.name, v.value]),
+          );
+        }
+      }
+    } catch (err) {
+      logger.debug("Failed to retrieve execution context", { executionId, error: err });
+    }
+
+    // Build enriched error context
+    const errorContext = error.context as WorkflowErrorContext | undefined;
+    const enrichedContext: WorkflowErrorContext = {
+      ...errorContext,
+      nodeId: errorContext?.nodeId || (error.context as any).nodeId,
+      nodeName: errorContext?.nodeName || (error.context as any).nodeName,
+      toolName: errorContext?.toolName || (error.context as any).toolName,
+      variableSnapshot: Object.keys(variableSnapshot).length > 0 ? variableSnapshot : undefined,
+      callStack: callStack.length > 0 ? callStack : undefined,
+      memoryUsage,
+    };
+
+    return { error, context: enrichedContext };
+  }
+
+  /**
+   * Get error context chain for an execution
+   *
+   * Retrieves enriched error contexts for all errors in the chain.
+   * Useful for debugging complex error scenarios.
+   *
+   * @param executionId Execution ID
+   * @returns Array of enriched error contexts
+   */
+  async getErrorContextChain(executionId: ID): Promise<Array<{
+    error: ExecutionErrorRecord;
+    context: WorkflowErrorContext;
+  }>> {
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+    const contexts: Array<{ error: ExecutionErrorRecord; context: WorkflowErrorContext }> = [];
+
+    for (const error of errorRecords) {
+      const result = await this.getErrorContext(executionId, error.id);
+      if (result) {
+        contexts.push(result);
+      }
+    }
+
+    return contexts;
   }
 
   // ============ Helper Methods ============

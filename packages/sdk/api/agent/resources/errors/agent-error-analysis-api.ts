@@ -745,6 +745,71 @@ export class AgentErrorAnalysisAPI
       logger.debug("Unsubscribed from error events", { executionId });
     };
   }
+
+  /**
+   * Get error context with iteration-level information for an execution.
+   *
+   * Provides the contextual information around errors in an agent execution,
+   * including which iterations had errors, what tools were involved,
+   * and the overall error pattern across iterations.
+   *
+   * Analogous to WorkflowErrorAnalysisAPI.getErrorContext but for agent iterations.
+   *
+   * @param executionId Execution ID
+   * @returns Error context with iteration-level details
+   */
+  async getErrorIterationContext(
+    executionId: ID,
+  ): Promise<{
+    executionId: ID;
+    errorCount: number;
+    iterationsWithErrors: Array<{
+      iteration: number;
+      errorCount: number;
+      errorTypes: string[];
+      toolsInvolved: string[];
+    }>;
+    totalIterations: number;
+    iterationsWithErrorsCount: number;
+    errorFreeIterations: number;
+  }> {
+    const errorRecords = await this.getExecutionErrorRecords(executionId);
+    const registry = this.deps.getAgentLoopRegistry();
+    const entity = await registry.get(executionId);
+    const totalIterations = entity?.state.currentIteration ?? 0;
+
+    // Group errors by iteration
+    const errorsByIteration: Record<number, ExecutionErrorRecord[]> = {};
+    for (const err of errorRecords) {
+      const iteration = err.iteration ?? 0;
+      if (!errorsByIteration[iteration]) {
+        errorsByIteration[iteration] = [];
+      }
+      errorsByIteration[iteration]!.push(err);
+    }
+
+    const iterationsWithErrors = Object.entries(errorsByIteration).map(([iteration, errors]) => ({
+      iteration: Number(iteration),
+      errorCount: errors.length,
+      errorTypes: Array.from(new Set(errors.map((e) => e.errorType))),
+      toolsInvolved: Array.from(
+        new Set(
+          errors
+            .map((e) => e.context?.toolName)
+            .filter((name): name is string => name !== undefined && name !== null),
+        ),
+      ),
+    }));
+
+    return {
+      executionId,
+      errorCount: errorRecords.length,
+      iterationsWithErrors,
+      totalIterations,
+      iterationsWithErrorsCount: iterationsWithErrors.length,
+      errorFreeIterations: Math.max(0, totalIterations - iterationsWithErrors.length),
+    };
+  }
 }
 
 // ============================================================================

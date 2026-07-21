@@ -6,7 +6,7 @@
  * This API is only available when file checkpointing is enabled in SDKOptions.
  */
 
-import { BaseFileCheckpointResourceAPI } from "../../shared/resources/file-checkpoint-base.js";
+import { BaseFileCheckpointResourceAPI, BaseFileCheckpointFilter } from "../../shared/resources/file-checkpoint-base.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
 import type { FileCheckpointMetadata, FileCheckpointInfo } from "@wf-agent/types";
 import type { ID } from "@wf-agent/types";
@@ -14,13 +14,9 @@ import type { ID } from "@wf-agent/types";
 /**
  * Agent file checkpoint filter options
  */
-export interface AgentFileCheckpointFilter {
+export interface AgentFileCheckpointFilter extends BaseFileCheckpointFilter {
   /** Filter by agent loop ID */
   agentLoopId?: ID;
-  /** Filter by checkpoint type */
-  type?: "full" | "incremental";
-  /** Maximum number of results */
-  limit?: number;
 }
 
 /**
@@ -38,15 +34,13 @@ export class AgentFileCheckpointResourceAPI extends BaseFileCheckpointResourceAP
     checkpoints: FileCheckpointMetadata[],
     filter: AgentFileCheckpointFilter,
   ): FileCheckpointMetadata[] {
-    return checkpoints.filter(cp => {
-      if (filter.agentLoopId && cp.entityId !== filter.agentLoopId) {
-        return false;
-      }
-      if (filter.type && cp.type !== filter.type) {
-        return false;
-      }
-      return true;
-    });
+    // Apply base filter (entityId, type)
+    let filtered = super.applyFilter(checkpoints, filter);
+    // Apply agent-specific filter: agentLoopId maps to entityId check
+    if (filter.agentLoopId) {
+      filtered = filtered.filter(cp => cp.entityId === filter.agentLoopId);
+    }
+    return filtered;
   }
 
   /**

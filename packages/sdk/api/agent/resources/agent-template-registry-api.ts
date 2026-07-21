@@ -40,6 +40,8 @@ export interface AgentTemplateSummary {
   tags?: string[];
   /** LLM profile type (e.g., "gpt-4", "claude-3-opus") */
   profileType?: string;
+  /** Number of times used */
+  usageCount?: number;
   /** Creation time */
   createdAt: Timestamp;
   /** Update time */
@@ -187,6 +189,20 @@ export class AgentTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    */
   async queryByProfileType(profileType: string): Promise<AgentTemplate[]> {
     return this.query({ profileType });
+  }
+
+  /**
+   * Get agent templates by author
+   * @param author Author to filter by
+   * @returns Array of templates by the author
+   */
+  async queryByAuthor(author: string): Promise<AgentTemplate[]> {
+    const allTemplates = await this.getAllResources();
+    return allTemplates.filter((t) => {
+      const metadata = t.metadata;
+      if (!metadata) return false;
+      return (metadata as Record<string, unknown>)["author"] === author;
+    });
   }
 
   /**

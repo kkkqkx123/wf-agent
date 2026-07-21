@@ -191,39 +191,6 @@ export class TriggerResourceAPI extends BaseTriggerResourceAPI<Trigger, TriggerF
   }
 
   /**
-   * Enable trigger (public API)
-   */
-  override async enableTrigger(executionId: string, triggerId: string): Promise<void> {
-    return this.enableEntityTrigger(executionId, triggerId);
-  }
-
-  /**
-   * Disable the trigger (public API)
-   */
-  override async disableTrigger(executionId: string, triggerId: string): Promise<void> {
-    return this.disableEntityTrigger(executionId, triggerId);
-  }
-
-  /**
-   * Check if the trigger is enabled (public API)
-   */
-  override async isTriggerEnabled(executionId: string, triggerId: string): Promise<boolean> {
-    return this.isEntityTriggerEnabled(executionId, triggerId);
-  }
-
-  /**
-   * Retrieve trigger statistics for a workflow execution
-   */
-  async getTriggerStatistics(executionId: string): Promise<{
-    total: number;
-    enabled: number;
-    disabled: number;
-    byType: Record<string, number>;
-  }> {
-    return this.getEntityTriggerStatistics(executionId);
-  }
-
-  /**
    * Get trigger statistics for all workflow executions
    */
   async getWorkflowGlobalTriggerStatistics(): Promise<{
@@ -262,19 +229,6 @@ export class TriggerResourceAPI extends BaseTriggerResourceAPI<Trigger, TriggerF
     }
 
     return stats;
-  }
-
-  /**
-   * Search Trigger
-   */
-  async searchTriggers(query: string): Promise<Trigger[]> {
-    const allTriggers = await this.getAllEntitiesTriggers();
-    const lowerQuery = query.toLowerCase();
-    return allTriggers.filter(
-      (trigger) =>
-        this.getTriggerName(trigger).toLowerCase().includes(lowerQuery) ||
-        this.getTriggerId(trigger).toLowerCase().includes(lowerQuery),
-    );
   }
 
   /**

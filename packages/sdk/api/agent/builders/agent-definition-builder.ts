@@ -15,7 +15,7 @@ import type {
   ID,
 } from "@wf-agent/types";
 import type { DynamicContextConfig } from "@wf-agent/types";
-import { BaseBuilder } from "../../shared/base-builder.js";
+import { TemplateBuilder } from "../../shared/template-builder.js";
 
 /**
  * Utility to generate unique IDs
@@ -29,7 +29,7 @@ function generateId(): string {
  * Extends BaseBuilder to share common builder functionality (description, metadata, tags, timestamps)
  * with other builders across Agent and Workflow domains.
  */
-export class AgentDefinitionBuilder extends BaseBuilder<AgentLoopDefinition> {
+export class AgentDefinitionBuilder extends TemplateBuilder<AgentLoopDefinition> {
   private _id?: ID;
   private _name?: string;
   private _version: string = "1.0.0";
@@ -413,5 +413,21 @@ export class AgentDefinitionBuilder extends BaseBuilder<AgentLoopDefinition> {
     cloned._checkpoint = this._checkpoint ? { ...this._checkpoint } : undefined;
     cloned._metadata = { ...this._metadata };
     return cloned;
+  }
+
+  /**
+   * Register the built definition as a template.
+   *
+   * Note: This implementation requires the caller to externally register the
+   * built definition through the AgentTemplateRegistryAPI. Subclasses can
+   * override this method to provide automatic registration.
+   *
+   * @param template The built agent loop definition to register
+   */
+  protected registerTemplate(_template: AgentLoopDefinition): void {
+    // Default implementation: no-op.
+    // The built definition can be registered externally via AgentTemplateRegistryAPI.
+    // Subclasses may override this to provide automatic registration
+    // when a registry is available.
   }
 }

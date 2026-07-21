@@ -190,37 +190,8 @@ export class AgentTriggerResourceAPI extends BaseTriggerResourceAPI<AgentTrigger
   }
 
   /**
-   * Enable trigger (public API)
-   */
-  override async enableTrigger(agentLoopId: string, triggerId: string): Promise<void> {
-    return this.enableEntityTrigger(agentLoopId, triggerId);
-  }
-
-  /**
-   * Disable the trigger (public API)
-   */
-  override async disableTrigger(agentLoopId: string, triggerId: string): Promise<void> {
-    return this.disableEntityTrigger(agentLoopId, triggerId);
-  }
-
-  /**
-   * Check if the trigger is enabled (public API)
-   */
-  override async isTriggerEnabled(agentLoopId: string, triggerId: string): Promise<boolean> {
-    return this.isEntityTriggerEnabled(agentLoopId, triggerId);
-  }
-
-  /**
    * Retrieve trigger statistics for an agent loop
    */
-  async getTriggerStatistics(agentLoopId: ID): Promise<{
-    total: number;
-    enabled: number;
-    disabled: number;
-    byType: Record<string, number>;
-  }> {
-    return this.getEntityTriggerStatistics(agentLoopId);
-  }
 
   /**
    * Get trigger statistics for all agent loops
@@ -263,19 +234,6 @@ export class AgentTriggerResourceAPI extends BaseTriggerResourceAPI<AgentTrigger
     }
 
     return stats;
-  }
-
-  /**
-   * Search Trigger
-   */
-  async searchTriggers(query: string): Promise<AgentTrigger[]> {
-    const allTriggers = await this.getAllEntitiesTriggers();
-    const lowerQuery = query.toLowerCase();
-    return allTriggers.filter(
-      (trigger) =>
-        this.getTriggerName(trigger).toLowerCase().includes(lowerQuery) ||
-        this.getTriggerId(trigger).toLowerCase().includes(lowerQuery),
-    );
   }
 
   /**

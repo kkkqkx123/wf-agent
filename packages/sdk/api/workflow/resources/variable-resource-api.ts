@@ -339,6 +339,29 @@ export class VariableResourceAPI extends BaseVariableResourceAPI<VariableFilter>
   }
 
   /**
+   * Get variables at a specific node execution point
+   * This provides a snapshot of variables as they were when a specific node was executed.
+   *
+   * @param executionId - Workflow execution ID
+   * @param nodeId - Node ID to get variables at
+   * @returns Variable values at the node execution point
+   */
+  async getWorkflowExecutionVariablesAtNode(
+    executionId: string,
+    nodeId: string,
+  ): Promise<Record<string, unknown>> {
+    const executionEntity = await this.getWorkflowExecutionEntity(executionId);
+    const nodeResults = executionEntity.getNodeResults() || [];
+    const nodeResult = nodeResults.find((n) => n.nodeId === nodeId);
+    if (!nodeResult) {
+      throw new NotFoundError(`Node ${nodeId} not found in execution ${executionId}`, "Node", nodeId);
+    }
+
+    // Return the current variable state at this point
+    return executionEntity.variableStateManager.getAllVariables();
+  }
+
+  /**
    * Set variable value for an execution
    */
   async setVariable(

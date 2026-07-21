@@ -6,45 +6,49 @@
  * This API is only available when file checkpointing is enabled in SDKOptions.
  */
 
-import { BaseFileCheckpointResourceAPI } from "../../shared/resources/file-checkpoint-base.js";
+import { BaseFileCheckpointResourceAPI, BaseFileCheckpointFilter } from "../../shared/resources/file-checkpoint-base.js";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
-import type { FileCheckpointMetadata } from "@wf-agent/types";
+import type { FileCheckpointInfo } from "@wf-agent/types";
 
 /**
  * File checkpoint filter options
  */
-export interface FileCheckpointFilter {
-  /** Filter by entity ID */
-  entityId?: string;
-  /** Filter by checkpoint type */
-  type?: "full" | "incremental";
-  /** Maximum number of results */
-  limit?: number;
-}
+export interface FileCheckpointFilter extends BaseFileCheckpointFilter {}
 
 /**
  * FileCheckpointResourceAPI - File checkpoint resource management API
  *
- * Handles all CRUD operations, createFileCheckpoint, restoreFileCheckpoint,
- * listByEntity, deleteByEntity, initialize, and close.
+ * Provides APIs for managing workspace file state checkpoints.
+ * Extends the shared BaseFileCheckpointResourceAPI with workflow-specific type annotations.
+ * This API is only available when file checkpointing is enabled in SDKOptions.
  */
 export class FileCheckpointResourceAPI extends BaseFileCheckpointResourceAPI<FileCheckpointFilter> {
   constructor(deps: APIDependencyManager) {
     super(deps);
   }
 
-  protected override applyFilter(
-    checkpoints: FileCheckpointMetadata[],
-    filter: FileCheckpointFilter,
-  ): FileCheckpointMetadata[] {
-    return checkpoints.filter(cp => {
-      if (filter.entityId && cp.entityId !== filter.entityId) {
-        return false;
-      }
-      if (filter.type && cp.type !== filter.type) {
-        return false;
-      }
-      return true;
-    });
+  /**
+   * List file checkpoints for a specific workflow execution
+   *
+   * @param executionId - Workflow execution ID to list checkpoints for
+   * @param options - Additional options (limit)
+   * @returns Array of checkpoint info
+   */
+  async listByWorkflowExecution(
+    executionId: string,
+    options?: { limit?: number },
+  ): Promise<FileCheckpointInfo[]> {
+    return this.listByEntity(executionId, options);
+  }
+
+  /**
+   * Delete all file checkpoints for a specific workflow execution
+   *
+   * @param executionId - Workflow execution ID
+   * @param keepLatest - Number of latest checkpoints to keep
+   * @returns Number of deleted checkpoints
+   */
+  async deleteByWorkflowExecution(executionId: string, keepLatest?: number): Promise<number> {
+    return this.deleteByEntity(executionId, keepLatest);
   }
 }

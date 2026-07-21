@@ -311,6 +311,29 @@ export abstract class BaseTriggerResourceAPI<TTrigger, TFilter extends BaseTrigg
   }
 
   /**
+   * Search triggers by keyword (public API)
+   * @param query Search keyword
+   * @returns Array of matching triggers
+   */
+  async searchTriggers(query: string): Promise<TTrigger[]> {
+    return this.searchTriggersByKeyword(query);
+  }
+
+  /**
+   * Get trigger statistics for an entity (public API)
+   * @param entityId Entity ID
+   * @returns Trigger statistics
+   */
+  async getTriggerStatistics(entityId: string): Promise<{
+    total: number;
+    enabled: number;
+    disabled: number;
+    byType: Record<string, number>;
+  }> {
+    return this.getEntityTriggerStatistics(entityId);
+  }
+
+  /**
    * Export triggers for an entity as JSON
    * @param entityId Entity ID
    * @returns JSON string

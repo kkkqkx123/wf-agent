@@ -553,7 +553,7 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
   }
 
   /**
-   * Get variable history
+   * Get variable history for a specific variable
    */
   async getVariableHistory(executionId: ID, variableName: string): Promise<VariableSnapshot[]> {
     const snapshots = this.variableSnapshots.get(executionId) ?? [];
@@ -562,6 +562,92 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
       .flatMap(s => s.variables)
       .filter(v => v.name === variableName)
       .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Get all variable histories for an execution
+   * Returns a map of variable name to its change history
+   *
+   * @param executionId Execution ID
+   * @returns Map of variable name to history entries
+   */
+  async getAllVariableHistories(executionId: ID): Promise<Record<string, VariableSnapshot[]>> {
+    const snapshots = this.variableSnapshots.get(executionId) ?? [];
+    const histories: Record<string, VariableSnapshot[]> = {};
+
+    for (const snapshot of snapshots) {
+      for (const variable of snapshot.variables) {
+        if (!histories[variable.name]) {
+          histories[variable.name] = [];
+        }
+        histories[variable.name]!.push(variable);
+      }
+    }
+
+    // Sort each history by timestamp
+    for (const name of Object.keys(histories)) {
+      histories[name] = histories[name]!.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    return histories;
+  }
+
+  /**
+   * Get variable snapshots within a time range
+   *
+   * @param executionId Execution ID
+   * @param timeRange Time range filter
+   * @returns Variable snapshots in the time range
+   */
+  async getVariableSnapshotsByTimeRange(
+    executionId: ID,
+    timeRange: { start: number; end: number },
+  ): Promise<VariableSnapshot[]> {
+    const snapshots = this.variableSnapshots.get(executionId) ?? [];
+
+    return snapshots
+      .flatMap(s => s.variables)
+      .filter(v => v.timestamp >= timeRange.start && v.timestamp <= timeRange.end)
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  /**
+   * Get variable mutation count for an execution
+   *
+   * @param executionId Execution ID
+   * @returns Total number of variable changes
+   */
+  async getVariableMutationCount(executionId: ID): Promise<number> {
+    const snapshots = this.variableSnapshots.get(executionId) ?? [];
+    const changedVariables = new Set<string>();
+
+    for (const snapshot of snapshots) {
+      for (const variable of snapshot.variables) {
+        changedVariables.add(variable.name);
+      }
+    }
+
+    return changedVariables.size;
+  }
+
+  /**
+   * Get most frequently changed variables
+   *
+   * @param executionId Execution ID
+   * @param limit Maximum number of variables to return
+   * @returns Variable names sorted by change frequency
+   */
+  async getMostChangedVariables(executionId: ID, limit: number = 10): Promise<string[]> {
+    const histories = await this.getAllVariableHistories(executionId);
+    const changeCounts = Object.entries(histories).map(([name, entries]) => ({
+      name,
+      count: entries.length,
+    }));
+
+    return changeCounts
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit)
+      .map(entry => entry.name);
   }
 
   // ============================================================================

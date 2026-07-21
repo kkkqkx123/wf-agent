@@ -10,6 +10,14 @@
  * - Performance bottleneck identification
  * - Node-by-node performance breakdown
  * - Cross-execution comparison
+ *
+ * @deprecated Use {@link PerformanceMetricsAPI} from "@sdk/api/shared/resources/metrics/performance-metrics-api.js" instead.
+ * The `PerformanceMetricsAPI` now provides `analyzePerformance` and `getNodeComparison`
+ * methods alongside its existing timeline and comparison capabilities.
+ * This class is kept for backward compatibility and will be removed in a future major version.
+ *
+ * Part of the performance API unification effort to reduce duplication between
+ * Agent and Workflow performance analysis implementations.
  */
 
 import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
@@ -25,6 +33,12 @@ import type {
   ExecutionTimelineEntry,
   ExecutionTimelineType,
 } from "../../shared/resources/metrics/performance-metrics-api.js";
+
+import {
+  classifyPerformance,
+  calculatePerformanceSummary,
+  identifyBottlenecks,
+} from "../../shared/utils/performance-utils.js";
 
 const logger = createContextualLogger({ operation: "WorkflowPerformanceAnalysisAPI" });
 
@@ -418,16 +432,7 @@ export class WorkflowPerformanceAnalysisAPI extends QueryableResourceAPI<
    * Classify performance into tiers
    */
   private classifyPerformance(duration: number): PerformanceTier {
-    const fastThreshold = 1000; // 1 second
-    const normalThreshold = 5000; // 5 seconds
-
-    if (duration < fastThreshold) {
-      return 'fast';
-    } else if (duration < normalThreshold) {
-      return 'normal';
-    } else {
-      return 'slow';
-    }
+    return classifyPerformance(duration);
   }
 
   /**
@@ -437,52 +442,7 @@ export class WorkflowPerformanceAnalysisAPI extends QueryableResourceAPI<
     nodeExecutions: NodeExecutionPerformance[],
     totalDuration: number,
   ): PerformanceSummary {
-    if (nodeExecutions.length === 0) {
-      return {
-        avgIterationDuration: 0,
-        minIterationDuration: 0,
-        maxIterationDuration: 0,
-        successRate: 0,
-        operationsPerSecond: 0,
-        recommendations: [],
-      };
-    }
-
-    const durations = nodeExecutions.map(n => n.duration);
-    const avgDuration = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
-    const minDuration = Math.min(...durations);
-    const maxDuration = Math.max(...durations);
-
-    const successCount = nodeExecutions.filter(n => n.success).length;
-    const successRate = (successCount / nodeExecutions.length) * 100;
-
-    const totalToolCalls = nodeExecutions.reduce((sum, n) => sum + n.toolCallCount, 0);
-    const operationsPerSecond = totalDuration > 0 ? Math.round((totalToolCalls / totalDuration) * 1000) : 0;
-
-    // Generate recommendations
-    const recommendations: string[] = [];
-
-    if (maxDuration / avgDuration > 2) {
-      recommendations.push('High variance in node execution duration detected. Investigate slow nodes.');
-    }
-
-    if (operationsPerSecond < 1 && totalToolCalls > 0) {
-      recommendations.push('Low throughput. Consider optimizing tool execution.');
-    }
-
-    if (successRate < 90) {
-      recommendations.push('High failure rate. Review error logs for patterns.');
-    }
-
-    return {
-      avgIterationDuration: avgDuration,
-      minIterationDuration: minDuration,
-      maxIterationDuration: maxDuration,
-      avgToolCallDuration: totalToolCalls > 0 ? Math.round(totalDuration / totalToolCalls) : 0,
-      successRate: Math.round(successRate * 100) / 100,
-      operationsPerSecond,
-      recommendations,
-    };
+    return calculatePerformanceSummary(nodeExecutions, totalDuration, "node");
   }
 
   /**
@@ -492,41 +452,11 @@ export class WorkflowPerformanceAnalysisAPI extends QueryableResourceAPI<
     nodeExecutions: NodeExecutionPerformance[],
     totalDuration: number,
   ): PerformanceBottleneck[] {
-    const bottlenecks: PerformanceBottleneck[] = [];
-
-    if (nodeExecutions.length === 0) {
-      return bottlenecks;
-    }
-
-    // Find slow nodes
-    const nodeDurations = nodeExecutions.map(n => n.duration);
-    const avgNodeDuration = nodeDurations.reduce((a, b) => a + b, 0) / nodeDurations.length;
-
-    for (const nodeExec of nodeExecutions) {
-      if (nodeExec.duration > avgNodeDuration * 1.5) {
-        bottlenecks.push({
-          type: 'iteration',
-          location: `${nodeExec.nodeName} (${nodeExec.nodeId})`,
-          duration: nodeExec.duration,
-          percentage: totalDuration > 0 ? (nodeExec.duration / totalDuration) * 100 : 0,
-          severity: nodeExec.duration > avgNodeDuration * 2.5 ? 'high' : 'medium',
-        });
-      }
-
-      // Find slow tool calls
-      for (const operation of nodeExec.operations) {
-        if (operation.type === 'tool_call' && operation.duration > 1000) {
-          bottlenecks.push({
-            type: 'tool_call',
-            location: operation.name,
-            duration: operation.duration,
-            percentage: totalDuration > 0 ? (operation.duration / totalDuration) * 100 : 0,
-            severity: operation.duration > 5000 ? 'high' : 'medium',
-          });
-        }
-      }
-    }
-
-    return bottlenecks.sort((a, b) => b.duration - a.duration).slice(0, 10);
+    return identifyBottlenecks(
+      nodeExecutions,
+      totalDuration,
+      (nodeExec) => `${nodeExec.nodeName} (${nodeExec.nodeId})`,
+      "node",
+    );
   }
 }

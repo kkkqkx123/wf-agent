@@ -115,3 +115,10 @@ export {
   type ExecutionTimelineEntry,
   type ExecutionTimelineType,
 } from "./workflow-performance-analysis-api.js";
+
+export {
+  WorkflowTemplateRegistryAPI,
+  type WorkflowTemplateFilter,
+  type WorkflowTemplateSummary,
+  type WorkflowTemplateDefinition,
+} from "./workflow-template-registry-api.js";

@@ -34,6 +34,12 @@ import type {
   ExecutionTimelineType,
 } from "../../shared/resources/metrics/performance-metrics-api.js";
 
+import {
+  classifyPerformance,
+  calculatePerformanceSummary,
+  identifyBottlenecks,
+} from "../../shared/utils/performance-utils.js";
+
 const logger = createContextualLogger({ operation: "AgentPerformanceAnalysisAPI" });
 
 // ============================================================================
@@ -333,17 +339,7 @@ export class AgentPerformanceAnalysisAPI extends QueryableResourceAPI<
    * Classify performance into tiers
    */
   private classifyPerformance(duration: number): PerformanceTier {
-    // Thresholds can be configured per use case
-    const fastThreshold = 1000; // 1 second
-    const normalThreshold = 5000; // 5 seconds
-
-    if (duration < fastThreshold) {
-      return 'fast';
-    } else if (duration < normalThreshold) {
-      return 'normal';
-    } else {
-      return 'slow';
-    }
+    return classifyPerformance(duration);
   }
 
   /**
@@ -353,52 +349,7 @@ export class AgentPerformanceAnalysisAPI extends QueryableResourceAPI<
     iterations: IterationPerformance[],
     totalDuration: number,
   ): PerformanceSummary {
-    if (iterations.length === 0) {
-      return {
-        avgIterationDuration: 0,
-        minIterationDuration: 0,
-        maxIterationDuration: 0,
-        successRate: 0,
-        operationsPerSecond: 0,
-        recommendations: [],
-      };
-    }
-
-    const durations = iterations.map(i => i.duration);
-    const avgDuration = Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
-    const minDuration = Math.min(...durations);
-    const maxDuration = Math.max(...durations);
-
-    const successCount = iterations.filter(i => i.success).length;
-    const successRate = (successCount / iterations.length) * 100;
-
-    const totalToolCalls = iterations.reduce((sum, i) => sum + i.toolCallCount, 0);
-    const operationsPerSecond = Math.round((totalToolCalls / totalDuration) * 1000);
-
-    // Generate recommendations
-    const recommendations: string[] = [];
-
-    if (maxDuration / avgDuration > 2) {
-      recommendations.push('High variance in iteration duration detected. Investigate slow iterations.');
-    }
-
-    if (operationsPerSecond < 1) {
-      recommendations.push('Low throughput. Consider optimizing tool execution.');
-    }
-
-    if (successRate < 90) {
-      recommendations.push('High failure rate. Review error logs for patterns.');
-    }
-
-    return {
-      avgIterationDuration: avgDuration,
-      minIterationDuration: minDuration,
-      maxIterationDuration: maxDuration,
-      avgToolCallDuration: Math.round(totalDuration / totalToolCalls),
-      successRate: Math.round(successRate * 100) / 100,
-      operationsPerSecond,
-      recommendations,
-    };
+    return calculatePerformanceSummary(iterations, totalDuration, "iteration");
   }
 
   /**
@@ -408,38 +359,11 @@ export class AgentPerformanceAnalysisAPI extends QueryableResourceAPI<
     iterations: IterationPerformance[],
     totalDuration: number,
   ): PerformanceBottleneck[] {
-    const bottlenecks: PerformanceBottleneck[] = [];
-
-    // Find slow iterations
-    const iterationDurations = iterations.map(i => i.duration);
-    const avgIterationDuration =
-      iterationDurations.reduce((a, b) => a + b, 0) / iterationDurations.length;
-
-    for (const iteration of iterations) {
-      if (iteration.duration > avgIterationDuration * 1.5) {
-        bottlenecks.push({
-          type: 'iteration',
-          location: iteration.iteration,
-          duration: iteration.duration,
-          percentage: (iteration.duration / totalDuration) * 100,
-          severity: iteration.duration > avgIterationDuration * 2.5 ? 'high' : 'medium',
-        });
-      }
-
-      // Find slow tool calls
-      for (const operation of iteration.operations) {
-        if (operation.type === 'tool_call' && operation.duration > 1000) {
-          bottlenecks.push({
-            type: 'tool_call',
-            location: operation.name,
-            duration: operation.duration,
-            percentage: (operation.duration / totalDuration) * 100,
-            severity: operation.duration > 5000 ? 'high' : 'medium',
-          });
-        }
-      }
-    }
-
-    return bottlenecks.sort((a, b) => b.duration - a.duration).slice(0, 10);
+    return identifyBottlenecks(
+      iterations,
+      totalDuration,
+      (iter) => iter.iteration,
+      "iteration",
+    );
   }
 }

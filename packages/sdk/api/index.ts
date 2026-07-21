@@ -207,6 +207,13 @@ export {
   type WorkflowExecutionGraphFilter,
 } from "./workflow/resources/workflow-execution-graph-query-api.js";
 
+export {
+  WorkflowTemplateRegistryAPI,
+  type WorkflowTemplateFilter,
+  type WorkflowTemplateSummary,
+  type WorkflowTemplateDefinition,
+} from "./workflow/resources/workflow-template-registry-api.js";
+
 // ============================================================================
 // Commands - Unified Command Interface
 // ============================================================================
@@ -267,6 +274,7 @@ export {
 export { WorkflowBuilder, ExecutionBuilder } from "./workflow/builders/index.js";
 export { NodeTemplateBuilder } from "./workflow/builders/node-template-builder.js";
 export { TriggerTemplateBuilder } from "./workflow/builders/trigger-template-builder.js";
+export { HookTemplateBuilder } from "./workflow/builders/hook-template-builder.js";
 
 // ============================================================================
 // Agent - Builders
@@ -277,6 +285,7 @@ export {
   AgentToolConfigBuilder,
   AgentHookBuilder,
   AgentTriggerBuilder,
+  AgentExecutionBuilder,
 } from "./agent/builders/index.js";
 
 // ============================================================================
@@ -334,9 +343,6 @@ export {
   type ExtendedIterationDetail,
   type ExtendedIterationHistorySummary,
   type DecisionOutcome,
-  type ToolDependency,
-  type ExecutionPath,
-  type LLMReasoningRecord,
   type ErrorContextRecord,
   type IterationSystemMetrics,
   type IterationLLMMetrics,
@@ -395,6 +401,30 @@ export {
   type ErrorStatistics,
   type ErrorRecoveryProposal,
 } from "./agent/resources/errors/index.js";
+
+export {
+  AgentPerformanceAnalysisAPI,
+  type ExecutionPerformanceProfile,
+  type IterationPerformance,
+  type IterationComparison,
+  type PerformanceTrend,
+  type PerformanceBottleneck,
+  type PerformanceSummary,
+  type ExecutionTimelineEntry,
+  type ExecutionTimelineType,
+  type PerformanceTier,
+} from "./agent/resources/agent-performance-analysis-api.js";
+
+// ============================================================================
+// Workflow - Error Analysis
+// ============================================================================
+export {
+  WorkflowErrorAnalysisAPI,
+  type WorkflowRootCauseAnalysis,
+  type WorkflowErrorStatistics,
+  type WorkflowRecoveryProposal,
+  type WorkflowErrorContext,
+} from "./workflow/resources/errors/index.js";
 
 // ============================================================================
 // Shared - Types

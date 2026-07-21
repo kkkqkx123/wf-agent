@@ -13,3 +13,5 @@ export { ExecutionBuilder } from "./execution-builder.js";
 export { NodeBuilder } from "./node-builder.js";
 export { NodeTemplateBuilder } from "./node-template-builder.js";
 export { TriggerTemplateBuilder } from "./trigger-template-builder.js";
+export { HookTemplateBuilder } from "./hook-template-builder.js";
+export { NodeToolConfigBuilder } from "./node-tool-config-builder.js";

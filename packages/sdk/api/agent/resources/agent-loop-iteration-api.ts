@@ -13,6 +13,12 @@ import { QueryableResourceAPI } from "../../shared/resources/generic-resource-ap
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 import type { ID, IterationRecord } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type {
+  ToolDependency,
+  ExecutionPath,
+  LLMReasoningRecord,
+  BaseOptimizationOpportunity,
+} from "../../shared/types/iteration-types.js";
 
 const logger = createContextualLogger({ operation: "AgentLoopIterationAPI" });
 
@@ -37,65 +43,6 @@ export interface DecisionOutcome {
   reasoning?: string;
   /** Confidence level (0-1) */
   confidence?: number;
-}
-
-/**
- * Tool Dependency Record
- * Represents dependency relationships between tool calls
- */
-export interface ToolDependency {
-  /** Tool call ID */
-  toolCallId: string;
-  /** Tool name */
-  toolName: string;
-  /** IDs of tools this call depends on */
-  dependsOn: string[];
-  /** Dependency type */
-  dependencyType: "sequential" | "parallel" | "conditional" | "result-dependent";
-  /** Why this dependency exists */
-  reason?: string;
-}
-
-/**
- * Execution Path Record
- * Tracks the control flow and branching decisions
- */
-export interface ExecutionPath {
-  /** Unique path identifier */
-  pathId: string;
-  /** Path description */
-  description: string;
-  /** Sequence of steps/decisions taken */
-  steps: Array<{
-    stepId: string;
-    type: "decision" | "action" | "tool_call" | "branch";
-    description: string;
-    result?: unknown;
-    timestamp: number;
-  }>;
-  /** Whether this path was optimal */
-  isOptimal?: boolean;
-  /** Alternative paths that were considered */
-  alternativePaths?: string[];
-}
-
-/**
- * LLM Reasoning Record
- * Captures the reasoning process of the LLM
- */
-export interface LLMReasoningRecord {
-  /** Reasoning step identifier */
-  stepId: string;
-  /** Type of reasoning (thinking, planning, analyzing, evaluating) */
-  reasoningType: "thinking" | "planning" | "analyzing" | "evaluating" | "synthesizing";
-  /** Reasoning content */
-  content: string;
-  /** Confidence in this reasoning */
-  confidence?: number;
-  /** Related entities (e.g., tools, data sources) */
-  relatedEntities?: string[];
-  /** Conclusions drawn */
-  conclusions?: string[];
 }
 
 /**
@@ -424,15 +371,9 @@ export interface ExecutionPathAnalysis {
 /**
  * Optimization opportunity identified during iteration analysis
  */
-export interface OptimizationOpportunity {
+export interface OptimizationOpportunity extends BaseOptimizationOpportunity {
   /** Type of optimization */
   type: "iteration" | "quality" | "llm_cost" | "resource" | "error" | "retry" | "tool" | "recorded";
-  /** Opportunity description */
-  description: string;
-  /** Impact level */
-  impactLevel: "low" | "medium" | "high";
-  /** Estimated improvement description */
-  estimatedImprovement?: string;
   /** Associated iteration number (if applicable) */
   iteration?: number;
 }

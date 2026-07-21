@@ -54,6 +54,7 @@ import { AgentLoopIterationAPI } from "../../agent/resources/agent-loop-iteratio
 import { AgentVariableResourceAPI } from "../../agent/resources/agent-variable-resource-api.js";
 import { AgentUserInteractionResourceAPI } from "../../agent/resources/agent-user-interaction-resource-api.js";
 import { AgentErrorAnalysisAPI } from "../../agent/resources/errors/agent-error-analysis-api.js";
+import { WorkflowErrorAnalysisAPI } from "../../workflow/resources/errors/workflow-error-analysis-api.js";
 import { AgentPerformanceAnalysisAPI } from "../../agent/resources/agent-performance-analysis-api.js";
 import { AgentExecutionRegistryAPI } from "../../agent/resources/agent-execution-registry-api.js";
 import { AgentExecutionStateAPI } from "../../agent/resources/agent-execution-state-api.js";
@@ -121,6 +122,8 @@ export interface AllAPIs {
   agentUserInteractions: AgentUserInteractionResourceAPI;
   /** Agent Error Analysis API */
   agentErrorAnalysis: AgentErrorAnalysisAPI;
+  /** Workflow Error Analysis API */
+  workflowErrorAnalysis: WorkflowErrorAnalysisAPI;
   /** Agent Performance Analysis API */
   agentPerformance: AgentPerformanceAnalysisAPI;
   /** Agent Execution Registry API */
@@ -468,6 +471,14 @@ export class APIFactory {
   }
 
   /**
+   * Create a Workflow Error Analysis API
+   * @returns WorkflowErrorAnalysisAPI instance
+   */
+  public createWorkflowErrorAnalysisAPI(): WorkflowErrorAnalysisAPI {
+    return this.createAPI("workflowErrorAnalysis", WorkflowErrorAnalysisAPI);
+  }
+
+  /**
    * Create an Agent Performance Analysis API
    * @returns AgentPerformanceAnalysisAPI instance
    */
@@ -563,6 +574,7 @@ export class APIFactory {
       agentVariables: this.createAgentVariableAPI(),
       agentUserInteractions: this.createAgentUserInteractionAPI(),
       agentErrorAnalysis: this.createAgentErrorAnalysisAPI(),
+      workflowErrorAnalysis: this.createWorkflowErrorAnalysisAPI(),
       agentPerformance: this.createAgentPerformanceAnalysisAPI(),
       agentExecutionRegistry: this.createAgentExecutionRegistryAPI(),
       agentExecutionState: this.createAgentExecutionStateAPI(),

@@ -578,5 +578,196 @@ export function createAgentCommands(): Command {
   // Add iteration analysis subcommand
   agentCmd.addCommand(createIterationCommands());
 
+  // ========================================================================
+  // Agent Trigger Subcommand Group
+  // ========================================================================
+  const agentTriggerCmd = new Command("trigger").description("Manage agent loop triggers");
+
+  agentTriggerCmd
+    .command("list <agent-loop-id>")
+    .description("List triggers for an agent loop")
+    .option("-t, --table", "Output in table format")
+    .option("-v, --verbose", "Detailed output")
+    .action(async (agentLoopId, options: CommandOptions) => {
+      try {
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+        const triggers = await sdk.triggers.getAll({ agentLoopId } as any);
+
+        router.render(triggers, {
+          type: "list",
+          entity: "agent-trigger",
+          format: () => {
+            if (triggers.length === 0) return "No triggers found for this agent loop";
+            if (options.table) {
+              const formatter = getFormatter();
+              const headers = ["ID", "Type", "Status"];
+              const rows = triggers.map((t: any) => [
+                t.id || "N/A",
+                t.type || "N/A",
+                t.status || "N/A",
+              ]);
+              return formatter.table(headers, rows);
+            }
+            return triggers.map((t: any) => `  ${t.id} - ${t.type || "N/A"} - ${t.status || "N/A"}`).join("\n");
+          },
+          metadata: { total: triggers.length },
+        });
+      } catch (error) {
+        handleError(error, { operation: "agent-trigger-list", additionalInfo: { agentLoopId } });
+      }
+    });
+
+  agentTriggerCmd
+    .command("enable <agent-loop-id> <trigger-id>")
+    .description("Enable an agent loop trigger")
+    .action(async (agentLoopId, triggerId) => {
+      try {
+        output.infoLog(`Enabling trigger ${triggerId} for agent loop ${agentLoopId}`);
+        const { EnableAgentTriggerCommand } = await import("@wf-agent/sdk/api");
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+        const deps = sdk.getFactory().getDependencies();
+        const cmd = new EnableAgentTriggerCommand({ agentLoopId, triggerId }, deps);
+        const result = await sdk.executeCommand(cmd);
+        if (result.result.isOk()) {
+          output.success(`Trigger enabled: ${triggerId}`);
+        } else {
+          throw new Error(result.result.error?.message || "Failed to enable trigger");
+        }
+      } catch (error) {
+        handleError(error, { operation: "agent-trigger-enable", additionalInfo: { agentLoopId, triggerId } });
+      }
+    });
+
+  agentTriggerCmd
+    .command("disable <agent-loop-id> <trigger-id>")
+    .description("Disable an agent loop trigger")
+    .action(async (agentLoopId, triggerId) => {
+      try {
+        output.infoLog(`Disabling trigger ${triggerId} for agent loop ${agentLoopId}`);
+        const { DisableAgentTriggerCommand } = await import("@wf-agent/sdk/api");
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+        const deps = sdk.getFactory().getDependencies();
+        const cmd = new DisableAgentTriggerCommand({ agentLoopId, triggerId }, deps);
+        const result = await sdk.executeCommand(cmd);
+        if (result.result.isOk()) {
+          output.success(`Trigger disabled: ${triggerId}`);
+        } else {
+          throw new Error(result.result.error?.message || "Failed to disable trigger");
+        }
+      } catch (error) {
+        handleError(error, { operation: "agent-trigger-disable", additionalInfo: { agentLoopId, triggerId } });
+      }
+    });
+
+  agentCmd.addCommand(agentTriggerCmd);
+
+  // ========================================================================
+  // Agent Variable Subcommand Group
+  // ========================================================================
+  const agentVariableCmd = new Command("variable").description("Manage agent loop variables");
+
+  agentVariableCmd
+    .command("list <agent-loop-id>")
+    .description("List variables for an agent loop")
+    .option("-t, --table", "Output in table format")
+    .option("-v, --verbose", "Detailed output")
+    .action(async (agentLoopId, options: CommandOptions) => {
+      try {
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+        const api = sdk.agentVariables;
+        const variables = await api.getExecutionVariables(agentLoopId);
+
+        const entries = Object.entries(variables);
+        router.render(variables, {
+          type: "list",
+          entity: "agent-variable",
+          format: () => {
+            if (entries.length === 0) return "No variables found for this agent loop";
+            if (options.table) {
+              const formatter = getFormatter();
+              const headers = ["Name", "Value"];
+              const rows = entries.map(([name, value]) => [
+                name,
+                value !== undefined ? String(value).substring(0, 40) : "N/A",
+              ]);
+              return formatter.table(headers, rows);
+            }
+            return entries
+              .map(([name, value]) => `  ${name} = ${value !== undefined ? JSON.stringify(value) : "N/A"}`)
+              .join("\n");
+          },
+          metadata: { total: entries.length },
+        });
+      } catch (error) {
+        handleError(error, { operation: "agent-variable-list", additionalInfo: { agentLoopId } });
+      }
+    });
+
+  agentVariableCmd
+    .command("show <agent-loop-id> <variable-name>")
+    .description("Show an agent loop variable value")
+    .action(async (agentLoopId, variableName) => {
+      try {
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+        const api = sdk.agentVariables;
+        const value = await api.getExecutionVariable(agentLoopId, variableName);
+
+        if (value === undefined || value === null) {
+          output.info(`Variable '${variableName}' not found`);
+          return;
+        }
+
+        output.newLine();
+        output.output(getFormatter().subsection(`Variable: ${variableName}`));
+        output.output(getFormatter().keyValue("Value", JSON.stringify(value)));
+      } catch (error) {
+        handleError(error, { operation: "agent-variable-show", additionalInfo: { agentLoopId, variableName } });
+      }
+    });
+
+  agentVariableCmd
+    .command("set <agent-loop-id> <variable-name> <value>")
+    .description("Set an agent loop variable value")
+    .option("-j, --json", "The value is in JSON format")
+    .action(async (agentLoopId, variableName, value, options: { json?: boolean }) => {
+      try {
+        output.infoLog(`Setting variable '${variableName}' on agent loop ${agentLoopId} is not directly supported via CLI. Use the agent loop execution context to set variables.`);
+        output.infoLog(`Variable value would be: ${options.json ? JSON.stringify(JSON.parse(value)) : value}`);
+      } catch (error) {
+        handleError(error, { operation: "agent-variable-set", additionalInfo: { agentLoopId, variableName } });
+      }
+    });
+
+  agentVariableCmd
+    .command("delete <agent-loop-id> <variable-name>")
+    .description("Delete an agent loop variable")
+    .option("-f, --force", "Skip confirmation")
+    .action(async (agentLoopId, variableName, options: { force?: boolean }) => {
+      try {
+        if (!options.force) {
+          output.warnLog(`About to delete variable: ${variableName}`);
+          output.infoLog("Use the --force option to skip confirmation.");
+          return;
+        }
+
+        output.infoLog(`Deleting variable '${variableName}' from agent loop ${agentLoopId}...`);
+        output.infoLog("Note: Agent variables are managed through execution context; deletion may not be persistent.");
+      } catch (error) {
+        handleError(error, { operation: "agent-variable-delete", additionalInfo: { agentLoopId, variableName } });
+      }
+    });
+
+  agentCmd.addCommand(agentVariableCmd);
+
   return agentCmd;
 }

@@ -35,6 +35,11 @@ import { createWorkflowGraphCommands } from "./commands/workflow-graph/index.js"
 import { createExecutionComparisonCommand } from "./commands/execution-comparison/index.js";
 import { createProgressCommand } from "./commands/progress/index.js";
 import { createWorkflowVersionCommand } from "./commands/workflow-version/index.js";
+import { createTaskCommands } from "./commands/task/index.js";
+import { createHookCommands } from "./commands/hook/index.js";
+import { createPredefinedCommands } from "./commands/predefined/index.js";
+import { createUserInteractionCommands } from "./commands/user-interaction/index.js";
+import { createQueryCommands } from "./commands/query/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
 import { setSDKInstance, getSDKInstance } from "./services/sdk-globals.js";
@@ -250,6 +255,21 @@ program.addCommand(createStorageCommands());
 
 // Add search command
 program.addCommand(createSearchCommand());
+
+// Add task command group
+program.addCommand(createTaskCommands());
+
+// Add hook template command group
+program.addCommand(createHookCommands());
+
+// Add predefined resources command group
+program.addCommand(createPredefinedCommands());
+
+// Add user interaction command group
+program.addCommand(createUserInteractionCommands());
+
+// Add query command group
+program.addCommand(createQueryCommands());
 
 // Add workflow graph command as subcommand under workflow
 const workflowCmd = program.commands.find(c => c.name() === "workflow");

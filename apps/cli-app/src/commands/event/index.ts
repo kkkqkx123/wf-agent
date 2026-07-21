@@ -187,5 +187,162 @@ export function createEventCommands(): Command {
       },
     );
 
+  // Subscribe to real-time events
+  eventCmd
+    .command("subscribe")
+    .description("Subscribe to real-time events (Ctrl+C to stop)")
+    .option("--type <type>", "Filter by event type")
+    .option("--execution-id <executionId>", "Filter by execution ID")
+    .option("--workflow-id <workflowId>", "Filter by workflow ID")
+    .action(async (options: { type?: string; executionId?: string; workflowId?: string }) => {
+      try {
+        output.infoLog("Starting event subscription...");
+        output.infoLog("Press Ctrl+C to stop listening.");
+
+        // Use the SDK-Kit EventManager if available, otherwise fall back to polling
+        try {
+          const { SDKKit } = await import("@wf-agent/sdk-kit");
+          const { getSDKInstance } = await import("../../services/sdk-globals.js");
+          const sdk = getSDKInstance();
+          if (sdk) {
+            const kit = new SDKKit(sdk);
+            const events = kit.events();
+
+            const { ExecutionEventType } = await import("@wf-agent/sdk-kit");
+
+            // Subscribe to execution events
+            const unsubStart = events.subscribe(
+              ExecutionEventType.EXECUTION_START,
+              (payload) => {
+                output.output(`[START] Execution ${payload.executionId} started`);
+              },
+            );
+
+            const unsubProgress = events.subscribe(
+              ExecutionEventType.EXECUTION_PROGRESS,
+              (payload) => {
+                output.output(`[PROGRESS] Execution ${payload.executionId}: ${JSON.stringify(payload.data)}`);
+              },
+            );
+
+            const unsubCompleted = events.subscribe(
+              ExecutionEventType.EXECUTION_COMPLETED,
+              (payload) => {
+                output.output(`[COMPLETED] Execution ${payload.executionId} completed`);
+              },
+            );
+
+            const unsubFailed = events.subscribe(
+              ExecutionEventType.EXECUTION_FAILED,
+              (payload) => {
+                output.output(`[FAILED] Execution ${payload.executionId}: ${payload.error?.message || "Unknown error"}`);
+              },
+            );
+
+            // Wait for Ctrl+C
+            await new Promise<void>((resolve) => {
+              process.on("SIGINT", () => {
+                output.infoLog("\nStopping event subscription...");
+                unsubStart();
+                unsubProgress();
+                unsubCompleted();
+                unsubFailed();
+                resolve();
+              });
+            });
+            return;
+          }
+        } catch {
+          // Fallback to polling approach
+        }
+
+        // Fallback: Poll events via EventAdapter
+        output.infoLog("Using polling fallback (SDK-Kit EventManager not available)");
+        const adapter = new EventAdapter();
+        const filter: Record<string, unknown> = { limit: 50 };
+        if (options.type) filter["type"] = options.type;
+        if (options.executionId) filter["executionId"] = options.executionId;
+        if (options.workflowId) filter["workflowId"] = options.workflowId;
+
+        let lastEventCount = 0;
+        const pollInterval = setInterval(async () => {
+          try {
+            const events = await adapter.listEvents(filter as any);
+            if (events.length > lastEventCount) {
+              const newEvents = events.slice(lastEventCount);
+              newEvents.forEach((event) => {
+                output.output(`[${event.type}] ${event.executionId} - ${new Date(event.timestamp).toISOString()}`);
+              });
+              lastEventCount = events.length;
+            }
+          } catch {
+            // Silently continue polling
+          }
+        }, 2000);
+
+        await new Promise<void>((resolve) => {
+          process.on("SIGINT", () => {
+            clearInterval(pollInterval);
+            output.infoLog("\nStopped event subscription.");
+            resolve();
+          });
+        });
+      } catch (error) {
+        handleError(error, { operation: "event-subscribe" });
+      }
+    });
+
+  // Event timeline command
+  eventCmd
+    .command("timeline <execution-id>")
+    .description("Show execution event timeline")
+    .option("--json", "Output as JSON")
+    .option("-v, --verbose", "Detailed output")
+    .action(async (executionId, options: { json?: boolean; verbose?: boolean }) => {
+      try {
+        const adapter = new EventAdapter();
+        const events = await adapter.listEvents({ executionId } as any);
+
+        if (events.length === 0) {
+          output.info("No events found for this execution");
+          return;
+        }
+
+        // Sort by timestamp
+        events.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+        if (options.json) {
+          output.output(getFormatter().json(events));
+          return;
+        }
+
+        output.newLine();
+        output.output(getFormatter().subsection(`Event Timeline for Execution: ${executionId}`));
+        output.output("─".repeat(60));
+
+        const startTime = events[0]?.timestamp || 0;
+        events.forEach((event, index) => {
+          const relative = ((event.timestamp || 0) - startTime).toFixed(0);
+          const time = new Date(event.timestamp || 0).toISOString();
+          output.output(`  ${index + 1}. [+${relative}ms] ${event.type}`);
+          if (options.verbose) {
+            output.output(`     Time: ${time}`);
+            output.output(`     ID: ${event.id}`);
+            if ((event as any).data) {
+              output.output(`     Data: ${JSON.stringify((event as any).data)}`);
+            }
+          }
+        });
+
+        output.newLine();
+        output.info(`Total events: ${events.length}`);
+      } catch (error) {
+        handleError(error, {
+          operation: "event-timeline",
+          additionalInfo: { executionId },
+        });
+      }
+    });
+
   return eventCmd;
 }

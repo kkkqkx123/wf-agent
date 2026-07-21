@@ -30,3 +30,7 @@ export { formatEvent, formatEventList } from "./event.js";
 export { formatAgentLoop, formatAgentLoopList, formatSkill, formatSkillList } from "./agent-loop.js";
 
 export { formatPlugin, formatPluginList } from "./plugin.js";
+
+export { formatTask, formatTaskList, formatTaskStats } from "./task.js";
+
+export { formatHookTemplate, formatHookTemplateList } from "./hook.js";

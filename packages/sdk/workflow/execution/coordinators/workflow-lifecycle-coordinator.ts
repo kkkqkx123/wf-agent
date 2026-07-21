@@ -447,7 +447,7 @@ export class WorkflowLifecycleCoordinator {
    * @param workflowExecutionId: Workflow Execution ID
    * @throws NotFoundError: The workflow execution context does not exist.
    */
-  async stopWorkflowExecution(executionId: string): Promise<void> {
+  async stopWorkflowExecution(executionId: string, reason?: string): Promise<void> {
     const workflowExecutionEntity = this.workflowExecutionRegistry.get(executionId);
     if (!workflowExecutionEntity) {
       throw new WorkflowExecutionNotFoundError(`WorkflowExecutionEntity not found`, executionId);
@@ -464,7 +464,7 @@ export class WorkflowLifecycleCoordinator {
     // Fully delegate the state transitions and event triggering to the Manager.
     await this.workflowStateTransitor.cancelWorkflowExecution(
       workflowExecutionEntity,
-      "user_requested",
+      reason || "user_requested",
     );
 
     // 3. Cascading cancellation of child workflow executions

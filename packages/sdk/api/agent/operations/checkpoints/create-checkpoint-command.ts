@@ -12,6 +12,7 @@ import {
 import { validateAgentCheckpointCreationParams } from "../../../shared/operations/validators/agent-validators.js";
 import type { CommandValidationResult } from "../../../shared/types/command.js";
 import type { ID, CheckpointMetadata } from "@wf-agent/types";
+import { AgentLoopNotFoundError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -54,7 +55,10 @@ export class CreateCheckpointCommand extends ManagementCommand<string> {
     // Getting the Agent Loop Entity
     const entity = await registry.get(this.params.agentLoopId);
     if (!entity) {
-      throw new Error(`Agent Loop not found: ${this.params.agentLoopId}`);
+      throw new AgentLoopNotFoundError(
+        `Agent Loop not found: ${this.params.agentLoopId}`,
+        this.params.agentLoopId,
+      );
     }
 
     // Creating Checkpoints

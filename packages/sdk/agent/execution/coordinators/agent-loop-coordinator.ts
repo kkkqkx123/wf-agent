@@ -9,7 +9,7 @@
 
 import type { ID } from "@wf-agent/types";
 import type { AgentLoopRuntimeConfig, AgentLoopResult, CheckpointTriggerType } from "@wf-agent/types";
-import { getAvailableTools, CheckpointTrigger } from "@wf-agent/types";
+import { getAvailableTools, CheckpointTrigger, AgentLoopNotFoundError } from "@wf-agent/types";
 import type {
   AgentLoopCheckpointConfig,
   AgentLoopCheckpointConfigContext,
@@ -1372,6 +1372,78 @@ export class AgentLoopCoordinator implements AgentTaskManager {
    */
   async cancelAgentLoop(id: ID): Promise<void> {
     await this.stop(id);
+  }
+
+  /**
+   * Enable a trigger for an agent loop execution.
+   * Delegates to the coordinator for proper lifecycle management,
+   * aligned with the trigger management pattern used by Workflow.
+   *
+   * @param agentLoopId Agent Loop ID
+   * @param triggerId Trigger ID to enable
+   * @throws Error if entity or trigger not found
+   */
+  async enableTrigger(agentLoopId: ID, triggerId: string): Promise<void> {
+    const entity = await this.registry.get(agentLoopId);
+    if (!entity) {
+      throw new AgentLoopNotFoundError(
+        `AgentLoop not found: ${agentLoopId}`,
+        agentLoopId,
+      );
+    }
+
+    const triggers = entity.config.triggers || [];
+    const trigger = triggers.find((t: any) => t.id === triggerId);
+    if (!trigger) {
+      throw new AgentLoopNotFoundError(
+        `Trigger not found: ${triggerId} in agent loop: ${agentLoopId}`,
+        agentLoopId,
+      );
+    }
+
+    trigger.enabled = true;
+
+    logger.info("Agent loop trigger enabled", {
+      agentLoopId,
+      triggerId,
+      triggerType: trigger.condition?.eventType,
+    });
+  }
+
+  /**
+   * Disable a trigger for an agent loop execution.
+   * Delegates to the coordinator for proper lifecycle management,
+   * aligned with the trigger management pattern used by Workflow.
+   *
+   * @param agentLoopId Agent Loop ID
+   * @param triggerId Trigger ID to disable
+   * @throws Error if entity or trigger not found
+   */
+  async disableTrigger(agentLoopId: ID, triggerId: string): Promise<void> {
+    const entity = await this.registry.get(agentLoopId);
+    if (!entity) {
+      throw new AgentLoopNotFoundError(
+        `AgentLoop not found: ${agentLoopId}`,
+        agentLoopId,
+      );
+    }
+
+    const triggers = entity.config.triggers || [];
+    const trigger = triggers.find((t: any) => t.id === triggerId);
+    if (!trigger) {
+      throw new AgentLoopNotFoundError(
+        `Trigger not found: ${triggerId} in agent loop: ${agentLoopId}`,
+        agentLoopId,
+      );
+    }
+
+    trigger.enabled = false;
+
+    logger.info("Agent loop trigger disabled", {
+      agentLoopId,
+      triggerId,
+      triggerType: trigger.condition?.eventType,
+    });
   }
 
   /**

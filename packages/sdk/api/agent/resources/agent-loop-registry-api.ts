@@ -5,9 +5,6 @@
  * It provides query methods for iteration history, timeline, variable history,
  * context evolution, and execution statistics.
  *
- * For writeable entity CRUD operations (create, update, delete agent loop entities),
- * use {@link AgentLoopResourceAPI} instead.
- *
  * Responsibilities:
  * - Query and retrieve Agent Loop instances from the underlying registry
  * - Provide execution analytics: iteration history, timeline, variable history, context evolution
@@ -62,7 +59,7 @@ export interface AgentLoopSummary {
   endTime: number | null;
   /** Execution time (milliseconds) */
   executionTime?: number;
-  /** Profile ID (from AgentLoopResourceAPI) */
+  /** Profile ID */
   profileId?: string;
 }
 
@@ -72,9 +69,6 @@ export interface AgentLoopSummary {
  * This is a **read-only query registry** focused on execution analytics.
  * It provides query methods for iteration history, timeline, variable history,
  * context evolution, and execution statistics.
- *
- * For writeable entity CRUD operations (create, update, delete agent loop entities),
- * use {@link AgentLoopResourceAPI} instead.
  *
  * Core Responsibilities:
  * - Query and retrieve Agent Loop instances from the underlying registry
@@ -123,7 +117,7 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
    * Create Agent Loop - Not supported
    *
    * @deprecated Agent Loop creation is not supported via this read-only query registry.
-   * Agent Loops are created through AgentLoopEntity. Use {@link AgentLoopResourceAPI} instead.
+   * Agent Loops are created through AgentLoopEntity.
    * @param resource Agent Loop entity
    */
   protected async createResource(_resource: AgentLoopEntity): Promise<void> {
@@ -136,7 +130,7 @@ export class AgentLoopRegistryAPI extends SimplifiedCrudResourceAPI<AgentLoopEnt
    * Update Agent Loop - Not supported
    *
    * @deprecated Agent Loop update is not supported via this read-only query registry.
-   * Agent Loop state is managed through AgentLoopEntity. Use {@link AgentLoopResourceAPI} instead.
+   * Agent Loop state is managed through AgentLoopEntity.
    * @param id Agent Loop ID
    * @param updates Partial updates
    */

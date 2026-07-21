@@ -48,7 +48,6 @@ import { StorageDiagnosticsAPI } from "../resources/diagnostics/storage-diagnost
 import { SearchAPI } from "../resources/search/search-api.js";
 import { FileCheckpointResourceAPI } from "../../workflow/resources/file-checkpoint-resource-api.js";
 import { AgentLoopRegistryAPI } from "../../agent/resources/agent-loop-registry-api.js";
-import { AgentLoopResourceAPI } from "../../agent/resources/agent-loop-resource-api.js";
 import { AgentLoopCheckpointResourceAPI } from "../../agent/resources/checkpoint-resource-api.js";
 import { AgentLoopMessageResourceAPI } from "../../agent/resources/message-resource-api.js";
 import { AgentLoopIterationAPI } from "../../agent/resources/agent-loop-iteration-api.js";
@@ -110,9 +109,6 @@ export interface AllAPIs {
   fileCheckpoints: FileCheckpointResourceAPI;
   /** Agent Loop Registry API */
   agentLoopRegistry: AgentLoopRegistryAPI;
-  /** Agent Loop Resource API (deprecated - use agentLoopRegistry instead) */
-  /** @deprecated Use {@link agentLoopRegistry} instead */
-  agentLoopResource: AgentLoopResourceAPI;
   /** Agent Loop Checkpoint API */
   agentLoopCheckpoints: AgentLoopCheckpointResourceAPI;
   /** Agent Loop Message API */
@@ -420,21 +416,6 @@ export class APIFactory {
   }
 
   /**
-   * Create an Agent Loop Resource API
-   *
-   * @deprecated Use {@link createAgentLoopRegistryAPI} instead. AgentLoopRegistryAPI now
-   * provides all state management methods previously only available in AgentLoopResourceAPI.
-   * This method will be removed in a future major version.
-   *
-   * @returns AgentLoopResourceAPI instance
-   *
-   * Note: This API doesn't require dependencies, using createAPIWithoutDeps for consistency
-   */
-  public createAgentLoopResourceAPI(): AgentLoopResourceAPI {
-    return this.createAPIWithoutDeps("agentLoopResource", AgentLoopResourceAPI);
-  }
-
-  /**
    * Create an Agent Loop Checkpoint API
    * @returns AgentLoopCheckpointResourceAPI instance
    *
@@ -576,7 +557,6 @@ export class APIFactory {
       search: this.createSearchAPI(),
       fileCheckpoints: this.createFileCheckpointAPI(),
       agentLoopRegistry: this.createAgentLoopRegistryAPI(),
-      agentLoopResource: this.createAgentLoopResourceAPI(),
       agentLoopCheckpoints: this.createAgentLoopCheckpointAPI(),
       agentLoopMessages: this.createAgentLoopMessageAPI(),
       agentLoopIteration: this.createAgentLoopIterationAPI(),

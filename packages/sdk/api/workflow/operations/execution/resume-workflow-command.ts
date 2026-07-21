@@ -7,12 +7,10 @@
 
 import {
   ManagementCommand,
-  CommandValidationResult,
-  validationSuccess,
-  validationFailure,
   type CommandMetadataDefinition,
 } from "../../../shared/types/command.js";
-import { validateRequiredId } from "../../../shared/operations/validation-utils.js";
+import { validateWorkflowLifecycleParams } from "../../../shared/operations/validators/workflow-validators.js";
+import type { CommandValidationResult } from "../../../shared/types/command.js";
 import type { WorkflowExecutionResult } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
@@ -54,7 +52,6 @@ export class ResumeWorkflowCommand extends ManagementCommand<WorkflowExecutionRe
   }
 
   validate(): CommandValidationResult {
-    const errors = validateRequiredId(this.params.executionId, "Execution ID");
-    return errors.length > 0 ? validationFailure(errors) : validationSuccess();
+    return validateWorkflowLifecycleParams(this.params.executionId);
   }
 }

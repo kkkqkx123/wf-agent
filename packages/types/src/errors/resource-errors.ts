@@ -196,3 +196,24 @@ export class HookTemplateNotFoundError extends NotFoundError {
     return "error";
   }
 }
+
+/**
+ * Agent Loop not found error type
+ *
+ * Specialized for agent loop not found scenarios
+ * Inherited from NotFoundError to maintain backward compatibility
+ */
+export class AgentLoopNotFoundError extends NotFoundError {
+  constructor(
+    message: string,
+    agentLoopId: string,
+    context?: Record<string, unknown>,
+    severity?: ErrorSeverity,
+  ) {
+    super(message, "AgentLoop", agentLoopId, context, severity);
+  }
+
+  protected override getDefaultSeverity(): ErrorSeverity {
+    return "error";
+  }
+}

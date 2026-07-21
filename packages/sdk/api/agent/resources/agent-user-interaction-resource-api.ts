@@ -20,6 +20,8 @@ import { validateRequiredFields } from "../../shared/validation/validation-strat
 import { now } from "@wf-agent/common-utils";
 import type {
   UserInteractionHandler,
+  ToolApprovalRequestedEvent,
+  FollowupQuestionRequestedEvent,
 } from "@wf-agent/types";
 import { ConfigurationError } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../shared/core/sdk-dependencies.js";
@@ -368,6 +370,38 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
   async exportInteractionHistory(executionId?: string): Promise<string> {
     const events = await this.getInteractionEventHistory(executionId);
     return JSON.stringify(events, null, 2);
+  }
+
+  // ============================================================================
+  // Agent-specific: Event Subscriptions
+  // ============================================================================
+
+  /**
+   * Subscribe to tool approval request events
+   * @param executionId Execution ID (required)
+   * @param listener Event listener
+   * @returns Unsubscribe function
+   */
+  onToolApprovalRequested(
+    executionId: string,
+    listener: (event: ToolApprovalRequestedEvent) => void,
+  ): () => void {
+    const emitter = this._deps!.getEventManager().getEmitter(executionId);
+    return emitter.on("TOOL_APPROVAL_REQUESTED", listener);
+  }
+
+  /**
+   * Subscribe to follow-up question request events
+   * @param executionId Execution ID (required)
+   * @param listener Event listener
+   * @returns Unsubscribe function
+   */
+  onFollowupQuestionRequested(
+    executionId: string,
+    listener: (event: FollowupQuestionRequestedEvent) => void,
+  ): () => void {
+    const emitter = this._deps!.getEventManager().getEmitter(executionId);
+    return emitter.on("FOLLOWUP_QUESTION_REQUESTED", listener);
   }
 
   /**

@@ -11,7 +11,7 @@ import {
 } from "../../../shared/types/command.js";
 import type { CommandValidationResult } from "../../../shared/types/command.js";
 import { validateAgentTriggerParams } from "../../../shared/operations/validators/agent-validators.js";
-import { NotFoundError, type ID } from "@wf-agent/types";
+import type { ID } from "@wf-agent/types";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -55,33 +55,11 @@ export class DisableAgentTriggerCommand extends ManagementCommand<void> {
   }
 
   /**
-   * Execute command
-   */
+ * Execute command
+ * Delegates to AgentLoopCoordinator for proper lifecycle management
+ */
   protected async executeInternal(): Promise<void> {
-    const registry = this.dependencies.getAgentLoopRegistry();
-    const agentLoop = await registry.get(this.params.agentLoopId);
-
-    if (!agentLoop) {
-      throw new NotFoundError(
-        `Agent Loop not found: ${this.params.agentLoopId}`,
-        "agent_loop",
-        this.params.agentLoopId,
-      );
-    }
-
-    // Get triggers from config
-    const triggers = agentLoop.config.triggers || [];
-    const trigger = triggers.find((t: any) => t.id === this.params.triggerId);
-
-    if (!trigger) {
-      throw new NotFoundError(
-        `Trigger not found: ${this.params.triggerId}`,
-        "trigger",
-        this.params.triggerId,
-      );
-    }
-
-    // Disable the trigger
-    trigger.enabled = false;
+    const coordinator = this.dependencies.getAgentLoopCoordinator();
+    await coordinator.disableTrigger(this.params.agentLoopId, this.params.triggerId);
   }
 }

@@ -7,12 +7,10 @@
 
 import {
   ManagementCommand,
-  CommandValidationResult,
-  validationSuccess,
-  validationFailure,
   type CommandMetadataDefinition,
 } from "../../../shared/types/command.js";
-import { validateRequiredId } from "../../../shared/operations/validation-utils.js";
+import { validateWorkflowLifecycleParams } from "../../../shared/operations/validators/workflow-validators.js";
+import type { CommandValidationResult } from "../../../shared/types/command.js";
 import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies.js";
 
 /**
@@ -21,6 +19,8 @@ import type { APIDependencyManager } from "../../../shared/core/sdk-dependencies
 export interface CancelWorkflowParams {
   /** Workflow execution ID (required) */
   executionId: string;
+  /** Optional reason for cancellation */
+  reason?: string;
 }
 
 /**
@@ -47,11 +47,13 @@ export class CancelWorkflowCommand extends ManagementCommand<void> {
 
   protected async executeInternal(): Promise<void> {
     const lifecycleCoordinator = this.dependencies.getWorkflowLifecycleCoordinator();
-    await lifecycleCoordinator.stopWorkflowExecution(this.params.executionId);
+    await lifecycleCoordinator.stopWorkflowExecution(
+      this.params.executionId,
+      this.params.reason,
+    );
   }
 
   validate(): CommandValidationResult {
-    const errors = validateRequiredId(this.params.executionId, "Execution ID");
-    return errors.length > 0 ? validationFailure(errors) : validationSuccess();
+    return validateWorkflowLifecycleParams(this.params.executionId);
   }
 }

@@ -219,10 +219,7 @@ export class MessageResourceAPI extends BaseMessageResourceAPI<MessageFilter> {
   async normalizeHistory(executionId: string): Promise<void> {
     const stateCoordinator = this.registry.getStateCoordinator(executionId);
     if (stateCoordinator) {
-      const normalizeFn = (stateCoordinator as unknown as Record<string, unknown>)["normalizeHistory"];
-      if (typeof normalizeFn === "function") {
-        normalizeFn();
-      }
+      stateCoordinator.normalizeHistory();
     }
   }
 

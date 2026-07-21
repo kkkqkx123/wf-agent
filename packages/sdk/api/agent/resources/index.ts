@@ -5,13 +5,6 @@
 
 export { AgentLoopRegistryAPI, type AgentLoopFilter, type AgentLoopSummary } from "./agent-loop-registry-api.js";
 export {
-  /** @deprecated Use {@link AgentLoopRegistryAPI} instead */
-  AgentLoopResourceAPI,
-  type AgentLoopFilter as AgentLoopEntityFilter,
-  type AgentLoopSummary as AgentLoopEntitySummary,
-  type AgentLoopStorage,
-} from "./agent-loop-resource-api.js";
-export {
   AgentLoopCheckpointResourceAPI,
   type AgentLoopCheckpointFilter,
   type CheckpointStorage,

@@ -318,14 +318,6 @@ export {
 } from "./agent/resources/agent-execution-registry-api.js";
 
 export {
-  /** @deprecated Use {@link AgentLoopRegistryAPI} instead */
-  AgentLoopResourceAPI,
-  type AgentLoopFilter as AgentLoopEntityFilter,
-  type AgentLoopSummary as AgentLoopEntitySummary,
-  type AgentLoopStorage,
-} from "./agent/resources/agent-loop-resource-api.js";
-
-export {
   AgentLoopCheckpointResourceAPI,
   type AgentLoopCheckpointFilter,
   type CheckpointStorage,

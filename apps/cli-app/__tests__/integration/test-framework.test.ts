@@ -57,7 +57,7 @@ describe("Test Framework Validation", () => {
 
   it("should extract IDs from output using patterns", async () => {
     const testOutput = "Agent Loop has been initiated: agent-12345";
-    const extractedId = helper.extractId(testOutput, /Agent Loop ID: ([\w-]+)/);
+    const extractedId = helper.extractId(testOutput, /Agent Loop has been initiated: ([\w-]+)/);
     expect(extractedId).toBe("agent-12345");
 
     const notFoundId = helper.extractId(testOutput, /Workflow ID: ([\w-]+)/);

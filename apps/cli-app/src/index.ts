@@ -174,8 +174,12 @@ program
 const originalAction = Command.prototype.action;
 Command.prototype.action = function (fn: (...args: unknown[]) => unknown) {
   const wrappedFn = async (...args: unknown[]) => {
+    let commandError: unknown = undefined;
     try {
       await fn(...args);
+    } catch (error) {
+      // Capture the error so we can exit with a non-zero code
+      commandError = error;
     } finally {
       // Run cleanup (storage close, SDK destroy) before exit.
       // This ensures SQLite connections are properly closed and WAL
@@ -185,7 +189,9 @@ Command.prototype.action = function (fn: (...args: unknown[]) => unknown) {
       } catch {
         // Ignore shutdown errors during process exit
       }
-      process.exit(0);
+      // Use the correct exit code: 0 for success, 1 for error
+      process.exitCode = commandError ? 1 : 0;
+      process.exit(process.exitCode);
     }
   };
   return originalAction.call(this, wrappedFn);

@@ -12,7 +12,7 @@ import { ok, err } from "@wf-agent/common-utils";
 import type { TriggerTemplate } from "@wf-agent/types";
 import { substituteParameters } from "../config-utils.js";
 import { ConfigFormat } from "../types.js";
-import { parseToml } from "../parsers/toml-parser.js";
+import { parseTomlRaw } from "../parsers/toml-parser.js";
 import { parseJson } from "../parsers/json-parser.js";
 
 /**
@@ -23,7 +23,7 @@ import { parseJson } from "../parsers/json-parser.js";
  * @returns The parsed TriggerTemplate.
  */
 export function parseTriggerTemplate(content: string, format: ConfigFormat): TriggerTemplate {
-  const raw: unknown = format === "toml" ? parseToml(content) : parseJson(content);
+  const raw: unknown = format === "toml" ? parseTomlRaw(content) : parseJson(content);
   return raw as TriggerTemplate;
 }
 

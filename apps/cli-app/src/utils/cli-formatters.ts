@@ -51,9 +51,57 @@ type WorkflowSummary = (
 export function formatWorkflow(workflow: WorkflowSummary, options?: { verbose?: boolean }): string {
   const formatter = getGlobalFormatter();
   if (options?.verbose) {
-    return formatter.json(workflow);
+    return formatWorkflowVerbose(workflow, formatter);
   }
   return formatter.workflow(workflow);
+}
+
+function formatWorkflowVerbose(workflow: WorkflowSummary, _formatter: Formatter): string {
+  const lines: string[] = [];
+
+  const id = 'id' in workflow ? workflow.id : (workflow as WorkflowExecutionResult).executionId;
+  lines.push(`ID: ${id ?? "N/A"}`);
+  lines.push(`Name: ${workflow.name ?? "Unnamed"}`);
+
+  const type = 'type' in workflow ? (workflow as Record<string, unknown>)['type'] : undefined;
+  if (type !== undefined) {
+    lines.push(`Type: ${String(type)}`);
+  }
+
+  const version = 'version' in workflow ? (workflow as Record<string, unknown>)['version'] : undefined;
+  if (version !== undefined) {
+    lines.push(`Version: ${String(version)}`);
+  }
+
+  const description = 'description' in workflow ? (workflow as Record<string, unknown>)['description'] : undefined;
+  if (description !== undefined && description !== "") {
+    lines.push(`Description: ${String(description)}`);
+  }
+
+  lines.push(`Status: ${workflow.status ?? "unknown"}`);
+  lines.push(`Creation time: ${String(workflow.createdAt ?? "N/A")}`);
+
+  const updatedAt = 'updatedAt' in workflow ? (workflow as Record<string, unknown>)['updatedAt'] : undefined;
+  if (updatedAt !== undefined && updatedAt !== "") {
+    lines.push(`Update time: ${String(updatedAt)}`);
+  }
+
+  const nodes = 'nodes' in workflow ? (workflow as Record<string, unknown>)['nodes'] : undefined;
+  if (Array.isArray(nodes)) {
+    lines.push(`Number of nodes: ${nodes.length}`);
+  }
+
+  const edges = 'edges' in workflow ? (workflow as Record<string, unknown>)['edges'] : undefined;
+  if (Array.isArray(edges)) {
+    lines.push(`Number of sides: ${edges.length}`);
+  }
+
+  const triggers = 'triggers' in workflow ? (workflow as Record<string, unknown>)['triggers'] : undefined;
+  if (Array.isArray(triggers)) {
+    lines.push(`Number of triggers: ${triggers.length}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function formatWorkflowList(
@@ -66,12 +114,16 @@ export function formatWorkflowList(
   }
 
   if (options?.table) {
-    const headers = ["ID", "Name", "Status", "Creation time"];
+    const headers = ["ID", "Name", "Type", "Version", "Status", "Creation time"];
     const rows = workflows.map(w => {
       const id = 'id' in w ? w.id : (w as WorkflowExecutionResult).executionId;
+      const type = 'type' in w ? String((w as Record<string, unknown>)['type'] ?? "") : "";
+      const version = 'version' in w ? String((w as Record<string, unknown>)['version'] ?? "") : "";
       return [
         id?.substring(0, 8) || "N/A",
         w.name || "unnamed",
+        type,
+        version,
         w.status || "unknown",
         String(w.createdAt || "N/A"),
       ];

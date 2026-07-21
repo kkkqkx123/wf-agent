@@ -8,6 +8,7 @@ export {
   initializeTomlParser,
   isTomlParserInitialized,
   parseToml,
+  parseTomlRaw,
   validateTomlSyntax,
 } from "./toml-parser.js";
 export { getConfigFormatFromPath } from "./format-detector.js";

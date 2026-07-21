@@ -96,6 +96,33 @@ function removeSymbolKeys<T>(obj: T): T {
 }
 
 /**
+ * Parse TOML content without requiring a [workflow] section.
+ * Used for non-workflow configs (trigger templates, etc.).
+ * @param content A string containing the TOML content
+ * @returns A parsed object
+ * @throws {ConfigurationError} Throws this exception if the TOML parsing fails
+ */
+export function parseTomlRaw(content: string): Record<string, unknown> {
+  try {
+    const toml = getTomlParser();
+    const rawParsed = toml.parse(content);
+
+    // Remove Symbol metadata keys added by @iarna/toml parser
+    return removeSymbolKeys(rawParsed) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      throw error;
+    }
+    if (isError(error)) {
+      throw new ConfigurationError(`TOML parsing failed: ${error.message}`, undefined, {
+        originalError: error.message,
+      });
+    }
+    throw new ConfigurationError("TOML parsing failure: unknown error");
+  }
+}
+
+/**
  * Parse TOML content
  * @param content A string containing the TOML content
  * @returns A parsed configuration object

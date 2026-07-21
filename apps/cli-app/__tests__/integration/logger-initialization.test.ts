@@ -34,7 +34,10 @@ describe('Logger Initialization Order', () => {
           setStream: () => {},
           info: () => {},
           debug: () => {},
-          warn: () => {},
+          warn: (msg: string) => {
+            // The lazy logger warns via instance.warn, so capture it
+            warnings.push(msg);
+          },
           error: () => {},
           child: () => ({} as Logger),
           getLevel: () => 'info' as const,

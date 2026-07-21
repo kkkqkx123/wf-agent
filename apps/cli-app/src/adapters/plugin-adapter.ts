@@ -7,31 +7,45 @@ import { BaseAdapter } from "./base-adapter.js";
 import { PluginManager } from "@wf-agent/sdk-kit";
 import type { PluginRecord } from "@wf-agent/sdk/plugin";
 import { CLINotFoundError } from "../types/cli-types.js";
+import { KitError } from "@wf-agent/sdk-kit";
 
 /**
  * Plugin Adapter
  */
 export class PluginAdapter extends BaseAdapter {
   private _pluginManager: PluginManager | null = null;
+  private _pluginManagerError: Error | null = null;
 
   /**
    * Get or create the PluginManager instance.
-   * The PluginManager constructor validates that pluginEngine is available
-   * and throws a clear error if plugins are not enabled in config.
+   * Returns null if the plugin system is not available, so callers can
+   * degrade gracefully (e.g. return an empty list for `plugin list`).
    */
-  private getPluginManager(): PluginManager {
+  private getPluginManager(): PluginManager | null {
+    if (this._pluginManagerError) return null;
     if (!this._pluginManager) {
-      this._pluginManager = new PluginManager(this.sdk as any);
+      try {
+        this._pluginManager = new PluginManager(this.sdk as any);
+      } catch (error) {
+        if (error instanceof KitError) {
+          this._pluginManagerError = error as Error;
+          return null;
+        }
+        throw error;
+      }
     }
     return this._pluginManager;
   }
 
   /**
    * List all registered plugins
+   * Returns an empty array when the plugin system is not available.
    */
   async listPlugins(): Promise<PluginRecord[]> {
+    const pm = this.getPluginManager();
+    if (!pm) return [];
     return this.executeWithErrorHandling(async () => {
-      return this.getPluginManager().list();
+      return pm.list();
     }, "List plugins");
   }
 
@@ -39,8 +53,12 @@ export class PluginAdapter extends BaseAdapter {
    * Get plugin details by ID
    */
   async getPlugin(pluginId: string): Promise<PluginRecord> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      const plugin = this.getPluginManager().get(pluginId);
+      const plugin = pm.get(pluginId);
       if (!plugin) {
         throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
       }
@@ -52,8 +70,12 @@ export class PluginAdapter extends BaseAdapter {
    * Load a plugin from a filesystem path
    */
   async loadPlugin(filePath: string): Promise<PluginRecord> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new Error(`Plugin system is not available. Enable plugins in SDK options.`);
+    }
     return this.executeWithErrorHandling(async () => {
-      return await this.getPluginManager().loadPluginFromPath(filePath);
+      return await pm.loadPluginFromPath(filePath);
     }, "Load plugin");
   }
 
@@ -61,8 +83,12 @@ export class PluginAdapter extends BaseAdapter {
    * Find a plugin by ID/name/entryPoint from configured plugin paths
    */
   async findPlugin(source: string): Promise<PluginRecord> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${source}`, "Plugin", source);
+    }
     return this.executeWithErrorHandling(async () => {
-      return await this.getPluginManager().findPlugin(source);
+      return await pm.findPlugin(source);
     }, "Find plugin");
   }
 
@@ -70,8 +96,12 @@ export class PluginAdapter extends BaseAdapter {
    * Activate a loaded plugin
    */
   async activatePlugin(pluginId: string): Promise<void> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      await this.getPluginManager().activate(pluginId);
+      await pm.activate(pluginId);
       this.logOperation(`Plugin activated: ${pluginId}`);
     }, "Activate plugin");
   }
@@ -80,8 +110,12 @@ export class PluginAdapter extends BaseAdapter {
    * Deactivate an active plugin
    */
   async deactivatePlugin(pluginId: string): Promise<void> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      await this.getPluginManager().deactivate(pluginId);
+      await pm.deactivate(pluginId);
       this.logOperation(`Plugin deactivated: ${pluginId}`);
     }, "Deactivate plugin");
   }
@@ -90,8 +124,12 @@ export class PluginAdapter extends BaseAdapter {
    * Hot-reload a plugin (deactivate -> re-discover -> re-activate)
    */
   async reloadPlugin(pluginId: string): Promise<void> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      await this.getPluginManager().reload(pluginId);
+      await pm.reload(pluginId);
       this.logOperation(`Plugin reloaded: ${pluginId}`);
     }, "Reload plugin");
   }
@@ -100,8 +138,12 @@ export class PluginAdapter extends BaseAdapter {
    * Fully remove a plugin from the registry
    */
   async unloadPlugin(pluginId: string): Promise<void> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      await this.getPluginManager().unload(pluginId);
+      await pm.unload(pluginId);
       this.logOperation(`Plugin unloaded: ${pluginId}`);
     }, "Unload plugin");
   }
@@ -110,8 +152,12 @@ export class PluginAdapter extends BaseAdapter {
    * Get plugin runtime configuration
    */
   async getPluginConfig(pluginId: string): Promise<Record<string, unknown>> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      return this.getPluginManager().getConfig(pluginId);
+      return pm.getConfig(pluginId);
     }, "Get plugin config");
   }
 
@@ -119,8 +165,12 @@ export class PluginAdapter extends BaseAdapter {
    * Update plugin configuration at runtime
    */
   async updatePluginConfig(pluginId: string, config: Record<string, unknown>): Promise<void> {
+    const pm = this.getPluginManager();
+    if (!pm) {
+      throw new CLINotFoundError(`Plugin not found: ${pluginId}`, "Plugin", pluginId);
+    }
     return this.executeWithErrorHandling(async () => {
-      await this.getPluginManager().updateConfig(pluginId, config);
+      await pm.updateConfig(pluginId, config);
       this.logOperation(`Plugin config updated: ${pluginId}`);
     }, "Update plugin config");
   }

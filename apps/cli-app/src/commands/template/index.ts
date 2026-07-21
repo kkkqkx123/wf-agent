@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { TemplateAdapter } from "../../adapters/template-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
-import { formatWorkflow, formatWorkflowList } from "../../utils/cli-formatters.js";
+import { formatWorkflow, formatWorkflowList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 

@@ -7,7 +7,7 @@ import { ScriptAdapter } from "../../adapters/script-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
-import { formatScript, formatScriptList } from "../../utils/cli-formatters.js";
+import { formatScript, formatScriptList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";

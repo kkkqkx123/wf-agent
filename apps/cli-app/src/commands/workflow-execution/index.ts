@@ -9,7 +9,7 @@ import { Command } from "commander";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
-import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../utils/cli-formatters.js";
+import { formatWorkflowExecution, formatWorkflowExecutionList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
@@ -94,7 +94,7 @@ export function createWorkflowExecutionCommands(): Command {
             router.render(result.result, {
               type: "detail",
               entity: "execution",
-              format: () => formatWorkflowExecution(result.result as any, { verbose: options.verbose }),
+              format: () => formatWorkflowExecution(result.result!, { verbose: options.verbose }),
             });
           } else if (mode === 'background') {
             // Background mode: Show background execution info

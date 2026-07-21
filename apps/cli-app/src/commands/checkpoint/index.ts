@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { WorkflowExecutionCheckpointAdapter } from "../../adapters/workflow-execution-checkpoint-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
-import { formatCheckpoint, formatCheckpointList } from "../../utils/cli-formatters.js";
+import { formatCheckpoint, formatCheckpointList } from "../../utils/formatters/index.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 

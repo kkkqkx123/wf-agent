@@ -7,7 +7,7 @@ import { ToolAdapter } from "../../adapters/tool-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
-import { formatTool, formatToolList } from "../../utils/cli-formatters.js";
+import { formatTool, formatToolList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";

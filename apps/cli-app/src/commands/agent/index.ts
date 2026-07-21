@@ -8,7 +8,7 @@ import { AgentLoopCheckpointAdapter } from "../../adapters/agent-loop-checkpoint
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
-import { formatAgentLoop, formatAgentLoopList } from "../../utils/cli-formatters.js";
+import { formatAgentLoop, formatAgentLoopList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import type { AgentLoopRuntimeConfig, AgentLoopCheckpoint, Message, LLMMessage } from "@wf-agent/types";
 import { handleError } from "../../utils/error-handler.js";

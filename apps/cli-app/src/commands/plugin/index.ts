@@ -5,7 +5,7 @@
 import { Command } from "commander";
 import { PluginAdapter } from "../../adapters/plugin-adapter.js";
 import { getRouter } from "../../utils/output-router.js";
-import { formatPlugin, formatPluginList } from "../../utils/cli-formatters.js";
+import { formatPlugin, formatPluginList } from "../../utils/formatters/index.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 
@@ -40,7 +40,7 @@ export function createPluginCommands(): Command {
         router.render(plugins, {
           type: "list",
           entity: "plugin",
-          format: () => formatPluginList(plugins as unknown as Record<string, unknown>[], {
+          format: () => formatPluginList(plugins as never, {
             table: options.table,
             verbose: options.verbose,
           }),
@@ -66,7 +66,7 @@ export function createPluginCommands(): Command {
         router.render(plugin, {
           type: "detail",
           entity: "plugin",
-          format: () => formatPlugin(plugin as unknown as Record<string, unknown>, { json: options.json, verbose: options.verbose }),
+          format: () => formatPlugin(plugin as never, { json: options.json, verbose: options.verbose }),
         });
       } catch (error) {
         handleError(error, {
@@ -88,7 +88,7 @@ export function createPluginCommands(): Command {
         router.render(plugin, {
           type: "detail",
           entity: "plugin",
-          format: () => formatPlugin(plugin as unknown as Record<string, unknown>),
+          format: () => formatPlugin(plugin as never),
           message: `Plugin loaded: ${plugin.manifest.name || plugin.manifest.id}`,
         });
       } catch (error) {
@@ -111,7 +111,7 @@ export function createPluginCommands(): Command {
         router.render(plugin, {
           type: "detail",
           entity: "plugin",
-          format: () => formatPlugin(plugin as unknown as Record<string, unknown>),
+          format: () => formatPlugin(plugin as never),
           message: `Plugin found: ${plugin.manifest.name || plugin.manifest.id}`,
         });
       } catch (error) {

@@ -7,7 +7,7 @@ import { MessageAdapter } from "../../adapters/message-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
 import { getFormatter } from "../../utils/formatter.js";
-import { formatMessage, formatMessageList } from "../../utils/cli-formatters.js";
+import { formatMessage, formatMessageList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { BaseEvent } from "@wf-agent/types";

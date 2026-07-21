@@ -11,7 +11,7 @@ import {
   formatTriggerList,
   formatTriggerTemplate,
   formatTriggerTemplateList,
-} from "../../utils/cli-formatters.js";
+} from "../../utils/formatters/index.js";
 import { handleError } from "../../utils/error-handler.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 

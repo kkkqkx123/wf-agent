@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { VariableAdapter } from "../../adapters/variable-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
-import { formatVariable, formatVariableList } from "../../utils/cli-formatters.js";
+import { formatVariable, formatVariableList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";
@@ -59,7 +59,7 @@ export function createVariableCommands(): Command {
         router.render(value, {
           type: "detail",
           entity: "variable",
-          format: () => formatVariable(variableName, value, { verbose: options.verbose }),
+          format: () => formatVariable({ name: variableName, value }, { verbose: options.verbose }),
         });
       } catch (error) {
         handleError(error, {

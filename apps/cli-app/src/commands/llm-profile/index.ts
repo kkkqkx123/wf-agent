@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { LLMProfileAdapter } from "../../adapters/llm-profile-adapter.js";
 import { getOutput } from "../../utils/output.js";
 import { getRouter } from "../../utils/output-router.js";
-import { formatLLMProfile, formatLLMProfileList } from "../../utils/cli-formatters.js";
+import { formatLLMProfile, formatLLMProfileList } from "../../utils/formatters/index.js";
 import type { CommandOptions } from "../../types/cli-types.js";
 import { handleError } from "../../utils/error-handler.js";
 import { CLIValidationError } from "../../types/cli-types.js";

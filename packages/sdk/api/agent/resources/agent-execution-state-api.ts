@@ -2,7 +2,7 @@
  * AgentExecutionStateAPI - Agent Execution State Query API
  *
  * Provides comprehensive execution state snapshot queries for Agent Loop.
- * Fills the gap of missing execution state tracking in Agent Loop.
+ * Fully independent execution state tracker.
  *
  * Features:
  * - Complete execution state snapshots
@@ -14,12 +14,12 @@
  * Phase 1 Implementation: Add missing execution state capabilities to Agent Loop
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 import type { PersistenceLayer } from "../../shared/core/persistence-interfaces.js";
 import { NoOpPersistenceLayer } from "../../shared/core/__tests__/no-op-persistence.js";
 import type { ID } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
+import type { BaseVariableStateSnapshot } from "../../shared/resources/execution-state-base.js";
 
 const logger = createContextualLogger({ operation: "AgentExecutionStateAPI" });
 
@@ -305,17 +305,13 @@ export interface StateTransitionAnalysis {
 /**
  * AgentExecutionStateAPI - Agent Execution State Query API
  */
-export class AgentExecutionStateAPI extends QueryableResourceAPI<
-  AgentExecutionState,
-  ID,
-  ExecutionStateFilter
-> {
+export class AgentExecutionStateAPI {
   private executionStates: Map<ID, AgentExecutionState> = new Map();
-  private variableSnapshots: Map<ID, VariableStateSnapshot[]> = new Map();
-  private contextSnapshots: Map<ID, ExecutionContextSnapshot[]> = new Map();
-  private stateTransitions: Map<ID, StateTransition[]> = new Map();
+  private _contextSnapshots: Map<ID, ExecutionContextSnapshot[]> = new Map();
   private timelines: Map<ID, ExecutionTimelineEntry[]> = new Map();
   private persistence: PersistenceLayer;
+  private variableSnapshots: Map<string, BaseVariableStateSnapshot[]> = new Map();
+  private stateTransitions: Map<string, unknown[]> = new Map();
 
   /**
    * Constructor
@@ -331,7 +327,6 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
    * @param deps APIDependencyManager instance
    */
   constructor(deps: APIDependencyManager) {
-    super();
     this.persistence = deps.getPersistenceLayer() || new NoOpPersistenceLayer();
 
     if (this.persistence instanceof NoOpPersistenceLayer) {
@@ -349,21 +344,21 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
   /**
    * Get execution state by ID
    */
-  protected override async getResource(id: ID): Promise<AgentExecutionState | null> {
+  protected async getResource(id: ID): Promise<AgentExecutionState | null> {
     return this.executionStates.get(id) ?? null;
   }
 
   /**
    * Get all execution states
    */
-  protected override async getAllResources(): Promise<AgentExecutionState[]> {
+  protected async getAllResources(): Promise<AgentExecutionState[]> {
     return Array.from(this.executionStates.values());
   }
 
   /**
    * Apply filters to execution states
    */
-  protected override applyFilter(
+  protected applyFilter(
     records: AgentExecutionState[],
     filter: ExecutionStateFilter,
   ): AgentExecutionState[] {
@@ -511,8 +506,7 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
       this.variableSnapshots.set(snapshot.executionId, []);
     }
 
-    const snapshots = this.variableSnapshots.get(snapshot.executionId)!;
-    snapshots.push(snapshot);
+    this.variableSnapshots.get(snapshot.executionId)!.push(snapshot);
 
     // Update execution state
     const state = await this.getExecutionState(snapshot.executionId);
@@ -558,10 +552,10 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
   async getVariableHistory(executionId: ID, variableName: string): Promise<VariableSnapshot[]> {
     const snapshots = this.variableSnapshots.get(executionId) ?? [];
 
-    return snapshots
+    return (snapshots
       .flatMap(s => s.variables)
       .filter(v => v.name === variableName)
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .sort((a, b) => a.timestamp - b.timestamp)) as VariableSnapshot[];
   }
 
   /**
@@ -580,7 +574,7 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
         if (!histories[variable.name]) {
           histories[variable.name] = [];
         }
-        histories[variable.name]!.push(variable);
+        histories[variable.name]!.push(variable as VariableSnapshot);
       }
     }
 
@@ -592,62 +586,53 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
     return histories;
   }
 
+  // ============================================================================
+  // Variable State Operations (delegating to base class helpers)
+  // ============================================================================
+
   /**
    * Get variable snapshots within a time range
-   *
-   * @param executionId Execution ID
-   * @param timeRange Time range filter
-   * @returns Variable snapshots in the time range
    */
   async getVariableSnapshotsByTimeRange(
     executionId: ID,
     timeRange: { start: number; end: number },
   ): Promise<VariableSnapshot[]> {
     const snapshots = this.variableSnapshots.get(executionId) ?? [];
-
     return snapshots
       .flatMap(s => s.variables)
       .filter(v => v.timestamp >= timeRange.start && v.timestamp <= timeRange.end)
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .sort((a, b) => a.timestamp - b.timestamp) as VariableSnapshot[];
   }
 
   /**
    * Get variable mutation count for an execution
-   *
-   * @param executionId Execution ID
-   * @returns Total number of variable changes
    */
   async getVariableMutationCount(executionId: ID): Promise<number> {
     const snapshots = this.variableSnapshots.get(executionId) ?? [];
     const changedVariables = new Set<string>();
-
     for (const snapshot of snapshots) {
       for (const variable of snapshot.variables) {
         changedVariables.add(variable.name);
       }
     }
-
     return changedVariables.size;
   }
 
   /**
    * Get most frequently changed variables
-   *
-   * @param executionId Execution ID
-   * @param limit Maximum number of variables to return
-   * @returns Variable names sorted by change frequency
    */
   async getMostChangedVariables(executionId: ID, limit: number = 10): Promise<string[]> {
-    const histories = await this.getAllVariableHistories(executionId);
-    const changeCounts = Object.entries(histories).map(([name, entries]) => ({
-      name,
-      count: entries.length,
-    }));
-
-    return changeCounts
-      .sort((a, b) => b.count - a.count)
+    const snapshots = this.variableSnapshots.get(executionId) ?? [];
+    const changeCounts = new Map<string, number>();
+    for (const snapshot of snapshots) {
+      for (const variable of snapshot.variables) {
+        changeCounts.set(variable.name, (changeCounts.get(variable.name) ?? 0) + 1);
+      }
+    }
+    return Array.from(changeCounts.entries())
+      .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
-      .map(entry => entry.name);
+      .map(([name]) => name);
   }
 
   // ============================================================================
@@ -658,12 +643,11 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
    * Record execution context
    */
   async recordExecutionContext(context: ExecutionContextSnapshot): Promise<void> {
-    if (!this.contextSnapshots.has(context.executionId)) {
-      this.contextSnapshots.set(context.executionId, []);
+    if (!this._contextSnapshots.has(context.executionId)) {
+      this._contextSnapshots.set(context.executionId, []);
     }
 
-    const snapshots = this.contextSnapshots.get(context.executionId)!;
-    snapshots.push(context);
+    this._contextSnapshots.get(context.executionId)!.push(context);
 
     // Update execution state
     const state = await this.getExecutionState(context.executionId);
@@ -694,14 +678,6 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
     return context?.callStack ?? [];
   }
 
-  /**
-   * Get memory usage
-   */
-  async getMemoryUsage(executionId: ID): Promise<number | null> {
-    const context = await this.getExecutionContext(executionId);
-    return context?.memoryUsage ?? null;
-  }
-
   // ============================================================================
   // State Transition Operations
   // ============================================================================
@@ -717,13 +693,12 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
       this.stateTransitions.set(executionId, []);
     }
 
-    const transitions = this.stateTransitions.get(executionId)!;
-    transitions.push(transition);
+    this.stateTransitions.get(executionId)!.push(transition);
 
     // Update execution state if available
     const state = await this.getExecutionState(executionId);
     if (state) {
-      state.recentTransitions = transitions.slice(-10); // Keep last 10
+      state.recentTransitions = ((this.stateTransitions.get(executionId) ?? []) as StateTransition[]).slice(-10); // Keep last 10
       this.executionStates.set(executionId, state);
     }
 
@@ -738,38 +713,38 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
    * Get state transitions
    */
   async getStateTransitions(executionId: ID): Promise<StateTransition[]> {
-    return (this.stateTransitions.get(executionId) ?? []).sort((a, b) => a.timestamp - b.timestamp);
+    return ((this.stateTransitions.get(executionId) ?? []) as StateTransition[]).sort((a, b) => a.timestamp - b.timestamp);
   }
 
   /**
    * Analyze state transitions
    */
   async analyzeStateTransitions(executionId: ID): Promise<StateTransitionAnalysis> {
-    const transitions = await this.getStateTransitions(executionId);
+    const transitions = this.stateTransitions.get(executionId) ?? [];
+    const typed = transitions as unknown as Array<{ fromState: string; toState: string; timestamp: number }>;
 
     const analysis: StateTransitionAnalysis = {
-      totalTransitions: transitions.length,
+      totalTransitions: typed.length,
       commonTransitions: [],
       stateEntryCount: {},
       averageTimeInState: {},
     };
 
-    if (transitions.length === 0) {
+    if (typed.length === 0) {
       return analysis;
     }
 
-    // Count transitions
     const transitionCounts: Record<string, number> = {};
     const stateEntries: Record<string, number> = {};
     const stateTimes: Record<string, number[]> = {};
 
-    transitions.forEach((t, i) => {
+    typed.forEach((t, i) => {
       const key = `${t.fromState}->${t.toState}`;
       transitionCounts[key] = (transitionCounts[key] || 0) + 1;
       stateEntries[t.toState] = (stateEntries[t.toState] || 0) + 1;
 
       if (i > 0) {
-        const prev = transitions[i - 1]!;
+        const prev = typed[i - 1]!;
         const duration = t.timestamp - prev.timestamp;
         if (!stateTimes[prev.toState]) {
           stateTimes[prev.toState] = [];
@@ -778,28 +753,21 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
       }
     });
 
-    // Build common transitions
     analysis.commonTransitions = Object.entries(transitionCounts)
       .map(([key, count]) => {
         const [from, to] = key.split("->") as [string, string];
-        return {
-          from,
-          to,
-          count,
-          frequency: (count / transitions.length) * 100,
-        };
+        return { from, to, count, frequency: (count / typed.length) * 100 };
       })
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
     analysis.stateEntryCount = stateEntries;
 
-    // Calculate average time in state
-    Object.entries(stateTimes).forEach(([state, times]) => {
+    for (const [state, times] of Object.entries(stateTimes)) {
       if (times.length > 0) {
         analysis.averageTimeInState[state] = times.reduce((a, b) => a + b, 0) / times.length;
       }
-    });
+    }
 
     return analysis;
   }
@@ -848,7 +816,7 @@ export class AgentExecutionStateAPI extends QueryableResourceAPI<
   async clearExecutionState(executionId: ID): Promise<void> {
     this.executionStates.delete(executionId);
     this.variableSnapshots.delete(executionId);
-    this.contextSnapshots.delete(executionId);
+    this._contextSnapshots.delete(executionId);
     this.stateTransitions.delete(executionId);
     this.timelines.delete(executionId);
     logger.debug("Cleared execution state", { executionId });

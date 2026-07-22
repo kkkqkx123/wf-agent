@@ -8,6 +8,8 @@
 
 import { QueryableResourceAPI } from "./generic-resource-api.js";
 import type { ExecutionResult } from "../types/execution-result.js";
+import { success, failure } from "../types/execution-result.js";
+import { SDKError } from "@wf-agent/types";
 
 /**
  * Base variable filter
@@ -36,6 +38,15 @@ export interface VariableStatistics {
 }
 
 /**
+ * Base context variable with scope information
+ */
+export interface BaseContextVariable {
+  name: string;
+  value: unknown;
+  scope: "execution" | "iteration" | "global";
+}
+
+/**
  * BaseVariableResourceAPI - Shared base class for variable resource management
  *
  * Entity-specific subclasses must implement:
@@ -47,6 +58,10 @@ export interface VariableStatistics {
  * - getEntityVariableDefinitions(entityId): Get variable definitions
  * - getEntityIdFromVariableId(id): Parse variable ID into entity ID and name
  * - getVariableStatistics(): Get global statistics
+ *
+ * Shared methods provided by this base class:
+ * - exportVariables / importVariables / batchSetVariables
+ * - getVariableScopes / getInputVariables / getOutputVariables
  */
 export abstract class BaseVariableResourceAPI<TFilter extends BaseVariableFilter> extends QueryableResourceAPI<
   unknown,
@@ -196,4 +211,73 @@ export abstract class BaseVariableResourceAPI<TFilter extends BaseVariableFilter
     const variables = await this.getEntityVariables(entityId);
     return JSON.stringify(variables, null, 2);
   }
+
+  // ============================================================================
+  // Shared Batch Operations
+  // ============================================================================
+
+  /**
+   * Export all variables for an execution as a record
+   * @param executionId Execution ID
+   * @returns Record of variable names to values
+   */
+  async exportVariables(executionId: string): Promise<Record<string, unknown>> {
+    return this.getEntityVariables(executionId);
+  }
+
+  /**
+   * Import variables into an execution from a record
+   * @param executionId Execution ID
+   * @param variables Record of variable names to values
+   * @param options Import options
+   */
+  async importVariables(
+    executionId: string,
+    variables: Record<string, unknown>,
+    options?: { overwrite?: boolean },
+  ): Promise<void> {
+    for (const [name, value] of Object.entries(variables)) {
+      if (options?.overwrite === false) {
+        const exists = await this.hasEntityVariable(executionId, name);
+        if (exists) continue;
+      }
+      await this.setEntityVariable(executionId, name, value);
+    }
+  }
+
+  /**
+   * Batch set multiple variables for an execution
+   * @param executionId Execution ID
+   * @param variables Record of variable names to values
+   * @returns Execution result
+   */
+  async batchSetVariables(
+    executionId: string,
+    variables: Record<string, unknown>,
+  ): Promise<ExecutionResult<void>> {
+    try {
+      for (const [name, value] of Object.entries(variables)) {
+        const result = await this.setEntityVariable(executionId, name, value);
+        if (result.result.isErr()) {
+          return failure(
+            new SDKError(`Failed to set variable: ${name}`, "error", undefined, result.result.error),
+            0,
+          );
+        }
+      }
+      return success(undefined, 0);
+    } catch (error) {
+      const sdkError =
+        error instanceof SDKError
+          ? error
+          : error instanceof Error
+            ? new SDKError(error.message, "error", undefined, error)
+            : new SDKError(String(error), "error");
+      return failure(sdkError, 0);
+    }
+  }
+
+  // ============================================================================
+  // Shared Input/Output Variable Methods
+  // ============================================================================
 }

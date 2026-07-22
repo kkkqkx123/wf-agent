@@ -1,12 +1,12 @@
 /**
- * WorkflowExecutionContextAPI - Workflow Execution Context Query API
+ * WorkflowExecutionStateAPI - Workflow Execution State Query API
  *
  * Provides comprehensive variable and context state queries for workflow execution.
- * Enables tracking of variable evolution and execution context throughout the workflow.
+ * Independent execution state tracker — does not use BaseExecutionStateAPI helpers.
  *
  * Features:
  * - Variable snapshot at specific timestamps
- * - Complete execution context state
+ * - Complete execution state context
  * - Node-level input context
  * - Variable history tracking
  * - Context state transitions
@@ -14,12 +14,11 @@
  * Phase 2 Implementation: Add variable and context state query capabilities to Workflow
  */
 
-import { QueryableResourceAPI } from "../../shared/resources/generic-resource-api.js";
 import type { APIDependencyManager } from "@sdk/api/shared/core/sdk-dependencies.js";
 import type { ID } from "@wf-agent/types";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
-const logger = createContextualLogger({ operation: "WorkflowExecutionContextAPI" });
+const logger = createContextualLogger({ operation: "WorkflowExecutionStateAPI" });
 
 // ============================================================================
 // Type Definitions: Variable Context
@@ -319,22 +318,18 @@ export interface ContextEvolutionFilter {
 // ============================================================================
 
 /**
- * WorkflowExecutionContextAPI - Workflow Execution Context Query API
+ * WorkflowExecutionStateAPI - Workflow Execution State Query API
  *
  * Provides queries for:
  * - Variable snapshots at specific times
- * - Complete execution context state
+ * - Complete execution state context
  * - Node-level input context
  * - Variable history and evolution
  * - Context transitions
  */
-export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
-  ExecutionContextSnapshot,
-  string,
-  ContextEvolutionFilter
-> {
-  private contextSnapshots: Map<string, ExecutionContextSnapshot> = new Map();
-  private variableSnapshots: Map<string, VariableSnapshot[]> = new Map();
+export class WorkflowExecutionStateAPI {
+  private _contextSnapshots: Map<string, ExecutionContextSnapshot> = new Map();
+  private _variableSnapshots: Map<string, VariableSnapshot[]> = new Map();
   private contextEvolutions: Map<string, ContextEvolution> = new Map();
   private variableHistories: Map<string, VariableHistory> = new Map();
 
@@ -343,7 +338,6 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @param deps APIDependencyManager instance
    */
   constructor(deps: APIDependencyManager) {
-    super();
     void deps; // Acknowledge parameter
   }
 
@@ -354,21 +348,21 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
   /**
    * Get execution context by ID
    */
-  protected override async getResource(id: string): Promise<ExecutionContextSnapshot | null> {
-    return this.contextSnapshots.get(id) ?? null;
+  protected async getResource(id: string): Promise<ExecutionContextSnapshot | null> {
+    return this._contextSnapshots.get(id) ?? null;
   }
 
   /**
    * Get all execution contexts
    */
-  protected override async getAllResources(): Promise<ExecutionContextSnapshot[]> {
-    return Array.from(this.contextSnapshots.values());
+  protected async getAllResources(): Promise<ExecutionContextSnapshot[]> {
+    return Array.from(this._contextSnapshots.values());
   }
 
   /**
    * Apply filters to context snapshots
    */
-  protected override applyFilter(
+  protected applyFilter(
     records: ExecutionContextSnapshot[],
     filter: ContextEvolutionFilter,
   ): ExecutionContextSnapshot[] {
@@ -408,7 +402,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
     executionId: ID,
     timestamp: number,
   ): Promise<VariableSnapshot | null> {
-    const snapshots = this.variableSnapshots.get(executionId as string);
+    const snapshots = this._variableSnapshots.get(executionId as string);
     if (!snapshots) {
       logger.debug(`No variable snapshots found for execution ${executionId}`);
       return null;
@@ -436,7 +430,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @returns All variable snapshots
    */
   async getVariableSnapshots(executionId: ID): Promise<VariableSnapshot[]> {
-    return this.variableSnapshots.get(executionId as string) ?? [];
+    return this._variableSnapshots.get(executionId as string) ?? [];
   }
 
   /**
@@ -450,7 +444,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
     executionId: ID,
     timeRange: { start: number; end: number },
   ): Promise<VariableSnapshot[]> {
-    const snapshots = this.variableSnapshots.get(executionId as string) ?? [];
+    const snapshots = this._variableSnapshots.get(executionId as string) ?? [];
     return snapshots.filter(
       s => s.timestamp >= timeRange.start && s.timestamp <= timeRange.end,
     );
@@ -467,7 +461,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @returns Current execution context snapshot
    */
   async getExecutionContext(executionId: ID): Promise<ExecutionContextSnapshot | null> {
-    return this.contextSnapshots.get(executionId as string) ?? null;
+    return this._contextSnapshots.get(executionId as string) ?? null;
   }
 
   /**
@@ -481,7 +475,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
     executionId: ID,
     nodeId: string,
   ): Promise<NodeInputContext | null> {
-    const context = this.contextSnapshots.get(executionId as string);
+    const context = this._contextSnapshots.get(executionId as string);
     if (!context) {
       logger.debug(`Context not found for execution ${executionId}`);
       return null;
@@ -689,7 +683,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @returns Call stack snapshot, or null if not available
    */
   async getCallStack(executionId: ID): Promise<WorkflowCallStack | null> {
-    const context = this.contextSnapshots.get(executionId as string);
+    const context = this._contextSnapshots.get(executionId as string);
     if (!context) {
       return null;
     }
@@ -711,7 +705,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @returns Memory usage in bytes, or null if not available
    */
   async getMemoryUsage(executionId: ID): Promise<number | null> {
-    const context = this.contextSnapshots.get(executionId as string);
+    const context = this._contextSnapshots.get(executionId as string);
     return context?.memoryUsage ?? null;
   }
 
@@ -722,7 +716,7 @@ export class WorkflowExecutionContextAPI extends QueryableResourceAPI<
    * @returns Peak memory usage in bytes, or null if not available
    */
   async getPeakMemoryUsage(executionId: ID): Promise<number | null> {
-    const context = this.contextSnapshots.get(executionId as string);
+    const context = this._contextSnapshots.get(executionId as string);
     return context?.peakMemoryUsage ?? null;
   }
 

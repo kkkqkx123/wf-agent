@@ -72,7 +72,7 @@ export {
 } from "./workflow-iteration-analysis-api.js";
 
 export {
-  WorkflowExecutionContextAPI,
+  WorkflowExecutionStateAPI,
   type VariableDefinitionWithScope,
   type VariableValueSnapshot,
   type VariableSnapshot,
@@ -87,7 +87,7 @@ export {
   type WorkflowStackFrame,
   type WorkflowCallStack,
   type WorkflowStateTransitionAnalysis,
-} from "./workflow-execution-context-api.js";
+} from "./workflow-execution-state-api.js";
 
 export {
   WorkflowExecutionGraphQueryAPI,

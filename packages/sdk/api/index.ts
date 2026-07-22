@@ -232,7 +232,7 @@ export { PauseWorkflowCommand, type PauseWorkflowParams } from "./workflow/opera
 export { ResumeWorkflowCommand, type ResumeWorkflowParams } from "./workflow/operations/execution/resume-workflow-command.js";
 export { CancelWorkflowCommand, type CancelWorkflowParams } from "./workflow/operations/execution/cancel-workflow-command.js";
 export { CreateCheckpointCommand as WorkflowCreateCheckpointCommand, type CreateCheckpointParams as WorkflowCreateCheckpointParams } from "./workflow/operations/checkpoints/create-checkpoint-command.js";
-export { RestoreFromCheckpointCommand, type RestoreFromCheckpointParams } from "./workflow/operations/checkpoints/restore-from-checkpoint-command.js";
+export { RestoreCheckpointCommand, type RestoreCheckpointParams } from "./workflow/operations/checkpoints/restore-checkpoint-command.js";
 export { EnableTriggerCommand, type EnableTriggerParams } from "./workflow/operations/triggers/enable-trigger-command.js";
 export { DisableTriggerCommand, type DisableTriggerParams } from "./workflow/operations/triggers/disable-trigger-command.js";
 

@@ -1,8 +1,8 @@
 /**
  * AgentUserInteractionResourceAPI - Agent User Interaction Resource Management API
  *
- * Extends BaseUserInteractionResourceAPI with agent-specific event recording capabilities.
- * Provides event history tracking, statistics, and export functionality.
+ * Extends BaseUserInteractionResourceAPI with agent-specific interaction handling.
+ * Uses the base class's optional event recording feature for event history tracking.
  *
  * Features:
  * - Event recording pattern: records all interaction events with timestamps
@@ -15,6 +15,7 @@ import {
   BaseUserInteractionResourceAPI,
   type BaseUserInteractionConfig,
   type BaseUserInteractionFilter,
+  type UserInteractionEventRecord,
 } from "../../shared/resources/user-interaction-base.js";
 import { validateRequiredFields } from "../../shared/validation/validation-strategy.js";
 import { now } from "@wf-agent/common-utils";
@@ -55,27 +56,9 @@ export interface AgentUserInteractionFilter extends BaseUserInteractionFilter {
 
 /**
  * Agent User Interaction Event Record
+ * Alias for the shared UserInteractionEventRecord from the base class.
  */
-export interface AgentUserInteractionEventRecord {
-  /** Event ID */
-  id: string;
-  /** Config ID */
-  configId: string;
-  /** Execution ID */
-  executionId: string;
-  /** Event type (requested, approved, rejected) */
-  eventType: string;
-  /** Event context */
-  context: Record<string, unknown>;
-  /** Event timestamp */
-  timestamp: number;
-  /** Response (if any) */
-  response?: unknown;
-  /** Response timestamp */
-  responseTimestamp?: number;
-  /** Response time (milliseconds) */
-  responseTime: number | null;
-}
+export type AgentUserInteractionEventRecord = UserInteractionEventRecord;
 
 /**
  * AgentUserInteractionResourceAPI - Agent User Interaction Resource Management API
@@ -85,8 +68,6 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
   AgentUserInteractionFilter
 > {
   private _deps?: APIDependencyManager;
-  private eventHistory: AgentUserInteractionEventRecord[] = [];
-  private eventIdCounter: number = 0;
 
   /**
    * Constructor
@@ -95,6 +76,8 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
   constructor(deps?: APIDependencyManager) {
     super();
     this._deps = deps;
+    // Enable event recording by default for agent user interactions
+    this.eventRecordingEnabled = true;
   }
 
   /**
@@ -207,27 +190,14 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
       throw new ConfigurationError(`User interaction configuration not found: ${configId}`);
     }
 
-    // Record event as requested
-    const eventId = this.generateEventId();
-    const requestTimestamp = now();
-
-    const event: AgentUserInteractionEventRecord = {
-      id: eventId,
-      configId,
-      executionId,
-      eventType: "requested",
-      context,
-      timestamp: requestTimestamp,
-      responseTime: null,
-    };
-
-    this.eventHistory.push(event);
+    // Record event as requested using base class method
+    const event = this.recordInteractionEvent(configId, executionId, "requested", context);
 
     try {
       // If a handler is registered, call it with the structured request
       if (this.userInteractionHandler) {
         const request = {
-          interactionId: eventId,
+          interactionId: event.id,
           operationType: (config.type || "TOOL_APPROVAL") as "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION" | "SCRIPT_INTERACTION",
           prompt: config.name,
           timeout: config.timeout ?? 30000,
@@ -239,7 +209,7 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
         };
 
         const interactionContext = this.createInteractionContext({
-          interactionId: eventId,
+          interactionId: event.id,
           operationType: "TOOL_APPROVAL",
           prompt: config.name,
           timeout: config.timeout ?? 30000,
@@ -248,21 +218,15 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
 
         const result = await this.userInteractionHandler.handle(request, interactionContext);
 
-        // Update event with response
-        const responseTimestamp = now();
-        event.response = result;
-        event.responseTimestamp = responseTimestamp;
-        event.responseTime = responseTimestamp - requestTimestamp;
+        // Update event with response using base class method
+        this.completeInteractionEvent(event, result);
         event.eventType = "approved";
 
         return result;
       }
 
       // No handler registered - return context as-is (simplified behavior)
-      const responseTimestamp = now();
-      event.response = context;
-      event.responseTimestamp = responseTimestamp;
-      event.responseTime = responseTimestamp - requestTimestamp;
+      this.completeInteractionEvent(event, context);
       event.eventType = "approved";
 
       return context;
@@ -270,7 +234,7 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
       // Record failure
       event.eventType = "rejected";
       event.responseTimestamp = now();
-      event.responseTime = (event.responseTimestamp ?? now()) - requestTimestamp;
+      event.responseTime = (event.responseTimestamp ?? now()) - event.timestamp;
       throw error;
     }
   }
@@ -280,96 +244,12 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
   // ============================================================================
 
   /**
-   * Get interaction event history
-   * @param executionId Optional execution ID to filter by
-   * @returns Array of interaction event records
-   */
-  async getInteractionEventHistory(executionId?: string): Promise<AgentUserInteractionEventRecord[]> {
-    if (executionId) {
-      return this.eventHistory.filter(event => event.executionId === executionId);
-    }
-    return [...this.eventHistory];
-  }
-
-  /**
-   * Get interaction statistics
-   * @returns Interaction statistics
-   */
-  async getInteractionStatistics(): Promise<{
-    totalEvents: number;
-    byEventType: Record<string, number>;
-    averageResponseTime: number;
-    maxResponseTime: number;
-    minResponseTime: number;
-    totalApproved: number;
-    totalRejected: number;
-  }> {
-    const events = this.eventHistory;
-    const byEventType: Record<string, number> = {};
-    let totalResponseTime = 0;
-    let responseTimeCount = 0;
-    let maxResponseTime = 0;
-    let minResponseTime = Infinity;
-    let totalApproved = 0;
-    let totalRejected = 0;
-
-    for (const event of events) {
-      byEventType[event.eventType] = (byEventType[event.eventType] || 0) + 1;
-
-      if (event.responseTime !== null) {
-        totalResponseTime += event.responseTime;
-        responseTimeCount++;
-        maxResponseTime = Math.max(maxResponseTime, event.responseTime);
-        minResponseTime = Math.min(minResponseTime, event.responseTime);
-      }
-
-      if (event.eventType === "approved") {
-        totalApproved++;
-      } else if (event.eventType === "rejected") {
-        totalRejected++;
-      }
-    }
-
-    return {
-      totalEvents: events.length,
-      byEventType,
-      averageResponseTime: responseTimeCount > 0 ? Math.round(totalResponseTime / responseTimeCount) : 0,
-      maxResponseTime,
-      minResponseTime: responseTimeCount > 0 ? minResponseTime : 0,
-      totalApproved,
-      totalRejected,
-    };
-  }
-
-  /**
    * Get configuration interaction history
    * @param configId Configuration ID
    * @returns Array of interaction event records for the specified config
    */
   async getConfigurationInteractionHistory(configId: string): Promise<AgentUserInteractionEventRecord[]> {
-    return this.eventHistory.filter(event => event.configId === configId);
-  }
-
-  /**
-   * Clear interaction history
-   * @param olderThanTimestamp Optional timestamp to clear events older than this
-   */
-  async clearInteractionHistory(olderThanTimestamp?: number): Promise<void> {
-    if (olderThanTimestamp !== undefined) {
-      this.eventHistory = this.eventHistory.filter(event => event.timestamp > olderThanTimestamp);
-    } else {
-      this.eventHistory = [];
-    }
-  }
-
-  /**
-   * Export interaction history as JSON string
-   * @param executionId Optional execution ID to filter by
-   * @returns JSON string of interaction history
-   */
-  async exportInteractionHistory(executionId?: string): Promise<string> {
-    const events = await this.getInteractionEventHistory(executionId);
-    return JSON.stringify(events, null, 2);
+    return (await this.getInteractionEventHistory()).filter(event => event.configId === configId);
   }
 
   // ============================================================================
@@ -402,14 +282,5 @@ export class AgentUserInteractionResourceAPI extends BaseUserInteractionResource
   ): () => void {
     const emitter = this._deps!.getEventManager().getEmitter(executionId);
     return emitter.on("FOLLOWUP_QUESTION_REQUESTED", listener);
-  }
-
-  /**
-   * Generate a unique event ID
-   * @returns Unique event ID
-   */
-  private generateEventId(): string {
-    this.eventIdCounter++;
-    return `interaction-${now()}-${this.eventIdCounter}`;
   }
 }

@@ -122,8 +122,8 @@ export interface AllAPIs {
   agentUserInteractions: AgentUserInteractionResourceAPI;
   /** Agent Error Analysis API */
   agentErrorAnalysis: AgentErrorAnalysisAPI;
-  /** Workflow Error Analysis API */
-  workflowErrorAnalysis: WorkflowErrorAnalysisAPI;
+  /** Error Analysis API */
+  errorAnalysis: WorkflowErrorAnalysisAPI;
   /** Agent Performance Analysis API */
   agentPerformance: AgentPerformanceAnalysisAPI;
   /** Agent Execution Registry API */
@@ -475,7 +475,7 @@ export class APIFactory {
    * @returns WorkflowErrorAnalysisAPI instance
    */
   public createWorkflowErrorAnalysisAPI(): WorkflowErrorAnalysisAPI {
-    return this.createAPI("workflowErrorAnalysis", WorkflowErrorAnalysisAPI);
+    return this.createAPI("errorAnalysis", WorkflowErrorAnalysisAPI);
   }
 
   /**
@@ -574,7 +574,7 @@ export class APIFactory {
       agentVariables: this.createAgentVariableAPI(),
       agentUserInteractions: this.createAgentUserInteractionAPI(),
       agentErrorAnalysis: this.createAgentErrorAnalysisAPI(),
-      workflowErrorAnalysis: this.createWorkflowErrorAnalysisAPI(),
+      errorAnalysis: this.createWorkflowErrorAnalysisAPI(),
       agentPerformance: this.createAgentPerformanceAnalysisAPI(),
       agentExecutionRegistry: this.createAgentExecutionRegistryAPI(),
       agentExecutionState: this.createAgentExecutionStateAPI(),

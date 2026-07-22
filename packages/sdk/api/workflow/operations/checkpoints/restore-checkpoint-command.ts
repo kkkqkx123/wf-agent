@@ -1,5 +1,5 @@
 /**
- * RestoreFromCheckpointCommand - Restore Workflow Execution from Checkpoint Command
+ * RestoreCheckpointCommand - Restore Workflow Execution from Checkpoint Command
  *
  * Category: Management
  * Restores a workflow execution state from a previously created checkpoint
@@ -19,17 +19,17 @@ import type { WorkflowExecutionRegistry } from "../../../../workflow/registry/wo
 /**
  * Restore from checkpoint command parameters
  */
-export interface RestoreFromCheckpointParams {
+export interface RestoreCheckpointParams {
   /** Checkpoint ID to restore from */
   checkpointId: string;
 }
 
 /**
- * RestoreFromCheckpointCommand - Restore workflow execution from a checkpoint
+ * RestoreCheckpointCommand - Restore workflow execution from a checkpoint
  */
-export class RestoreFromCheckpointCommand extends ManagementCommand<WorkflowExecution> {
+export class RestoreCheckpointCommand extends ManagementCommand<WorkflowExecution> {
   constructor(
-    private readonly params: RestoreFromCheckpointParams,
+    private readonly params: RestoreCheckpointParams,
     private readonly dependencies: APIDependencyManager,
   ) {
     super();
@@ -37,7 +37,7 @@ export class RestoreFromCheckpointCommand extends ManagementCommand<WorkflowExec
 
   protected override getMetadataDefinition(): CommandMetadataDefinition {
     return {
-      name: "RestoreFromCheckpointCommand",
+      name: "RestoreCheckpointCommand",
       description: "Restore workflow execution state from a checkpoint",
       category: "management",
       requiresAuth: false,

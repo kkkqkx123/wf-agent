@@ -19,7 +19,7 @@ import type { ExecutionErrorRecord } from "@wf-agent/types";
 import type { IErrorAnalysisProvider } from "../../../shared/resources/errors/error-analysis-provider.js";
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import type { BaseEvent } from "@wf-agent/types";
-import { WorkflowExecutionContextAPI } from "../workflow-execution-context-api.js";
+import { WorkflowExecutionStateAPI } from "../workflow-execution-state-api.js";
 
 const logger = createContextualLogger({ operation: "WorkflowErrorAnalysisAPI" });
 
@@ -501,7 +501,7 @@ export class WorkflowErrorAnalysisAPI
    * Get error context with execution state snapshot
    *
    * Retrieves the execution context (variables, call stack, memory usage)
-   * at the time of a specific error. Integrates with WorkflowExecutionContextAPI
+   * at the time of a specific error. Integrates with WorkflowExecutionStateAPI
    * to provide enriched error context.
    *
    * @param executionId Execution ID
@@ -526,7 +526,7 @@ export class WorkflowErrorAnalysisAPI
     let memoryUsage: number | undefined;
 
     try {
-      const contextApi = new WorkflowExecutionContextAPI(this.deps);
+      const contextApi = new WorkflowExecutionStateAPI(this.deps);
       const executionContext = await contextApi.getExecutionContext(executionId);
       if (executionContext) {
         callStack = (executionContext.callStack ?? []).map((frame: any) => ({

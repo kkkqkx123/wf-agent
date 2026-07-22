@@ -1,6 +1,6 @@
 /**
  * AgentLoopCheckpointResourceAPI - Agent Loop Checkpoint Resource Management API
- * Inherits GenericResourceAPI, provides unified CRUD operations
+ * Inherits BaseCheckpointResourceAPI, provides unified checkpoint operations
  *
  * Responsibilities:
  * - Encapsulates AgentLoopCheckpointCoordinator, provides checkpoint creation, restoration, and query functionality
@@ -8,7 +8,7 @@
  * - Provides checkpoint statistics
  */
 
-import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import { BaseCheckpointResourceAPI, type BaseCheckpointStatistics } from "../../shared/resources/checkpoint-base.js";
 import type { AgentLoopCheckpoint, ID } from "@wf-agent/types";
 import type { AgentLoopEntity } from "../../../agent/entities/agent-loop-entity.js";
 import {
@@ -32,6 +32,8 @@ export interface AgentLoopCheckpointFilter {
   agentLoopId?: ID;
   /** Checkpoint types */
   type?: "FULL" | "DELTA";
+  /** Tags to filter by */
+  tags?: string[];
   /** Time range */
   timestampRange?: {
     start?: number;
@@ -54,16 +56,21 @@ export interface CheckpointStorage {
 }
 
 /**
+ * Agent Loop checkpoint statistics with agent-specific breakdown
+ */
+export interface AgentLoopCheckpointStatistics extends BaseCheckpointStatistics {
+  byAgentLoop: Record<string, number>;
+}
+
+/**
  * AgentLoopCheckpointResourceAPI - Agent Loop Checkpoint Resource Management API
  */
-export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
+export class AgentLoopCheckpointResourceAPI extends BaseCheckpointResourceAPI<
   AgentLoopCheckpoint,
-  string,
   AgentLoopCheckpointFilter
 > {
   private storage: CheckpointStorage;
   private stateManager?: AgentLoopCheckpointStateManager;
-  private eventManager?: EventRegistry;
   private checkpoints: Map<string, AgentLoopCheckpoint> = new Map();
   private checkpointsByAgentLoop: Map<string, string[]> = new Map();
 
@@ -107,7 +114,34 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
   }
 
   // ============================================================================
-  // Implement the abstract method
+  // Implement BaseCheckpointResourceAPI abstract helpers
+  // ============================================================================
+
+  protected getEntityId(checkpoint: AgentLoopCheckpoint): string {
+    return checkpoint.agentLoopId;
+  }
+
+  protected getCheckpointType(checkpoint: AgentLoopCheckpoint): string {
+    return checkpoint.type || "FULL";
+  }
+
+  protected getCheckpointTimestamp(checkpoint: AgentLoopCheckpoint): number {
+    return checkpoint.timestamp;
+  }
+
+  protected getCheckpointPreviousId(checkpoint: AgentLoopCheckpoint): string | undefined {
+    return checkpoint.previousCheckpointId;
+  }
+
+  protected async getCheckpointById(id: string): Promise<AgentLoopCheckpoint | null> {
+    if (this.stateManager) {
+      return await this.stateManager.getCheckpoint(id);
+    }
+    return this.storage.getCheckpoint(id);
+  }
+
+  // ============================================================================
+  // Implement SimplifiedCrudResourceAPI abstract methods
   // ============================================================================
 
   /**
@@ -165,8 +199,8 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
 
   /**
    * Update checkpoint - Not supported, checkpoints are immutable
-   * @param id Checkpoint ID
-   * @param updates Partial updates
+   * @param _id Checkpoint ID
+   * @param _updates Partial updates
    */
   protected async updateResource(
     _id: string,
@@ -204,6 +238,12 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
       }
       if (filter.type && cp.type !== filter.type) {
         return false;
+      }
+      if (filter.tags && filter.tags.length > 0) {
+        const cpTags = cp.metadata?.tags ?? [];
+        if (!filter.tags.every(tag => cpTags.includes(tag))) {
+          return false;
+        }
       }
       if (filter.timestampRange?.start && cp.timestamp < filter.timestampRange.start) {
         return false;
@@ -310,44 +350,22 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
   }
 
   /**
-   * Get the latest checkpoint
-   * @param agentLoopId Agent Loop ID
-   * @returns The latest checkpoint; if it does not exist, return null
-   */
-  async getLatestCheckpoint(agentLoopId: string): Promise<AgentLoopCheckpoint | null> {
-    const checkpointIds = await this.storage.listCheckpoints(agentLoopId);
-    if (checkpointIds.length === 0) {
-      return null;
-    }
-
-    return this.storage.getCheckpoint(checkpointIds[0]!);
-  }
-
-  /**
-   * Retrieve checkpoint statistics information
+   * Get checkpoint statistics with agent-specific breakdown
    * @returns Statistical information
    */
-  async getCheckpointStatistics(): Promise<{
-    total: number;
-    byAgentLoop: Record<string, number>;
-    byType: Record<string, number>;
-  }> {
+  override async getCheckpointStatistics(): Promise<AgentLoopCheckpointStatistics> {
+    const baseStats = await super.getCheckpointStatistics();
     const checkpoints = await this.getAll();
 
     const byAgentLoop: Record<string, number> = {};
-    const byType: Record<string, number> = {};
-
     for (const checkpoint of checkpoints) {
       const agentLoopId = checkpoint.agentLoopId ?? "unknown";
-      const type = checkpoint.type ?? "unknown";
       byAgentLoop[agentLoopId] = (byAgentLoop[agentLoopId] || 0) + 1;
-      byType[type] = (byType[type] || 0) + 1;
     }
 
     return {
-      total: checkpoints.length,
+      ...baseStats,
       byAgentLoop,
-      byType,
     };
   }
 
@@ -366,87 +384,6 @@ export class AgentLoopCheckpointResourceAPI extends SimplifiedCrudResourceAPI<
     }
 
     return count;
-  }
-
-  /**
-   * Get the checkpoint chain
-   * @param checkpointId Checkpoint ID
-   * @returns Checkpoint chain (from the latest to the oldest)
-   */
-  async getCheckpointChain(checkpointId: string): Promise<AgentLoopCheckpoint[]> {
-    const chain: AgentLoopCheckpoint[] = [];
-    let currentId: string | undefined = checkpointId;
-
-    while (currentId) {
-      const checkpoint = await this.storage.getCheckpoint(currentId);
-      if (!checkpoint) {
-        break;
-      }
-      chain.push(checkpoint);
-      currentId = checkpoint.previousCheckpointId;
-    }
-
-    return chain;
-  }
-
-  /**
-   * Query checkpoints by filter
-   * @param filter Filter criteria
-   * @returns Filtered checkpoints
-   */
-  async query(filter: AgentLoopCheckpointFilter): Promise<AgentLoopCheckpoint[]> {
-    const all = await this.getAll();
-    return this.applyFilter(all, filter);
-  }
-
-  /**
-   * Get checkpoints in time range
-   * @param agentLoopId Agent Loop ID
-   * @param startTime Start timestamp (ms)
-   * @param endTime End timestamp (ms)
-   * @returns Checkpoints in time range
-   */
-  async getByTimeRange(
-    agentLoopId: string,
-    startTime: number,
-    endTime: number,
-  ): Promise<AgentLoopCheckpoint[]> {
-    return this.query({
-      agentLoopId,
-      timestampRange: { start: startTime, end: endTime },
-    });
-  }
-
-  /**
-   * Get checkpoints by type
-   * @param agentLoopId Agent Loop ID
-   * @param type Checkpoint type (FULL | DELTA)
-   * @returns Checkpoints of specified type
-   */
-  async getByType(
-    agentLoopId: string,
-    type: "FULL" | "DELTA",
-  ): Promise<AgentLoopCheckpoint[]> {
-    return this.query({ agentLoopId, type });
-  }
-
-  /**
-   * Get checkpoints by multiple IDs
-   * @param ids Checkpoint ID list
-   * @returns Checkpoints with matching IDs
-   */
-  async getByIds(ids: string[]): Promise<AgentLoopCheckpoint[]> {
-    return this.query({ ids });
-  }
-
-  /**
-   * Get checkpoints by tags
-   * @param agentLoopId Agent Loop ID
-   * @param tags Tags to filter by
-   * @returns Checkpoints with matching tags
-   */
-  async getByTags(agentLoopId: string, tags: string[]): Promise<AgentLoopCheckpoint[]> {
-    return this.query({ agentLoopId, tags } as unknown as AgentLoopCheckpointFilter);
   }
 
   /**

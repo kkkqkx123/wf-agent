@@ -1,9 +1,9 @@
 /**
  * CheckpointResourceAPI - Checkpoint Resource Management API
- *  Inherits from GenericResourceAPI, providing unified CRUD operations
+ * Inherits from BaseCheckpointResourceAPI, providing unified checkpoint operations
  */
 
-import { SimplifiedCrudResourceAPI } from "../../shared/resources/generic-resource-api.js";
+import { BaseCheckpointResourceAPI, type BaseCheckpointStatistics } from "../../shared/resources/checkpoint-base.js";
 import { CheckpointState } from "../../../workflow/checkpoint/checkpoint-state-manager.js";
 import type { Checkpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CheckpointCoordinator } from "../../../workflow/checkpoint/checkpoint-coordinator.js";
@@ -29,6 +29,8 @@ export interface CheckpointFilter {
   creator?: string;
   /** Tag array */
   tags?: string[];
+  /** Checkpoint type (FULL or DELTA) */
+  type?: "FULL" | "DELTA";
   /** Create a time range */
   timestampRange?: { start?: Timestamp; end?: Timestamp };
   /** Start time (from) */
@@ -98,11 +100,21 @@ export interface CheckpointChainAnalysis {
 }
 
 /**
+ * Workflow checkpoint statistics with workflow-specific breakdown
+ */
+export interface WorkflowCheckpointStatistics extends BaseCheckpointStatistics {
+  byExecution: Record<string, number>;
+  byWorkflow: Record<string, number>;
+}
+
+/**
  * CheckpointResourceAPI - Checkpoint resource management API
  */
-export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint, string, CheckpointFilter> {
+export class CheckpointResourceAPI extends BaseCheckpointResourceAPI<
+  Checkpoint,
+  CheckpointFilter
+> {
   private stateManager: CheckpointState;
-  private eventManager?: EventRegistry;
   private deps: APIDependencyManager;
 
   constructor(deps: APIDependencyManager, eventManager?: EventRegistry) {
@@ -115,7 +127,31 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
   }
 
   // ============================================================================
-  // Implement the abstract method
+  // Implement BaseCheckpointResourceAPI abstract helpers
+  // ============================================================================
+
+  protected getEntityId(checkpoint: Checkpoint): string {
+    return checkpoint.executionId;
+  }
+
+  protected getCheckpointType(checkpoint: Checkpoint): string {
+    return checkpoint.type || "FULL";
+  }
+
+  protected getCheckpointTimestamp(checkpoint: Checkpoint): number {
+    return checkpoint.timestamp;
+  }
+
+  protected getCheckpointPreviousId(checkpoint: Checkpoint): string | undefined {
+    return checkpoint.previousCheckpointId;
+  }
+
+  protected async getCheckpointById(id: string): Promise<Checkpoint | null> {
+    return this.stateManager.get(id) || null;
+  }
+
+  // ============================================================================
+  // Implement SimplifiedCrudResourceAPI abstract methods
   // ============================================================================
 
   /**
@@ -183,6 +219,9 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
         return false;
       }
       if (filter.workflowId && cp.workflowId !== filter.workflowId) {
+        return false;
+      }
+      if (filter.type && cp.type !== filter.type) {
         return false;
       }
       if (filter.timestampRange?.start && cp.timestamp < filter.timestampRange.start) {
@@ -304,30 +343,11 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
   }
 
   /**
-   * Get the latest checkpoint
-   * @param executionId Execution ID
-   * @returns The latest checkpoint; returns null if it does not exist
-   */
-  async getLatestCheckpoint(executionId: string): Promise<Checkpoint | null> {
-    const checkpoints = await this.getWorkflowExecutionCheckpoints(executionId);
-    if (checkpoints.length === 0) {
-      return null;
-    }
-
-    // Sort in descending order by timestamp and return the latest checkpoint.
-    const latest = checkpoints.sort((a, b) => b.timestamp - a.timestamp)[0];
-    return latest || null;
-  }
-
-  /**
-   * Get checkpoint statistics information
+   * Get checkpoint statistics with workflow-specific breakdown
    * @returns Statistical information
    */
-  async getCheckpointStatistics(): Promise<{
-    total: number;
-    byExecution: Record<string, number>;
-    byWorkflow: Record<string, number>;
-  }> {
+  override async getCheckpointStatistics(): Promise<WorkflowCheckpointStatistics> {
+    const baseStats = await super.getCheckpointStatistics();
     const checkpoints = await this.getAll();
 
     const byExecution: Record<string, number> = {};
@@ -339,7 +359,7 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
     }
 
     return {
-      total: checkpoints.length,
+      ...baseStats,
       byExecution,
       byWorkflow,
     };
@@ -415,56 +435,6 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
   }
 
   /**
-   * Get checkpoint chain starting from a specific checkpoint
-   * Follows previousCheckpointId links backwards
-   * @param checkpointId Starting checkpoint ID
-   * @returns Checkpoints in reverse chronological order (newest first)
-   */
-  async getCheckpointChainFrom(checkpointId: string): Promise<Checkpoint[]> {
-    const chain: Checkpoint[] = [];
-    let currentId: string | undefined = checkpointId;
-
-    while (currentId) {
-      const checkpoint = await this.stateManager.get(currentId);
-      if (!checkpoint) {
-        break;
-      }
-      chain.push(checkpoint);
-      currentId = checkpoint.previousCheckpointId;
-    }
-
-    return chain;
-  }
-
-  /**
-   * Query checkpoints by filter
-   * @param filter Filter criteria
-   * @returns Filtered checkpoints
-   */
-  async query(filter: CheckpointFilter): Promise<Checkpoint[]> {
-    const all = await this.getAll();
-    return this.applyFilter(all, filter);
-  }
-
-  /**
-   * Get checkpoints in time range
-   * @param executionId Execution ID
-   * @param startTime Start timestamp (ms)
-   * @param endTime End timestamp (ms)
-   * @returns Checkpoints in time range
-   */
-  async getByTimeRange(
-    executionId: string,
-    startTime: Timestamp,
-    endTime: Timestamp,
-  ): Promise<Checkpoint[]> {
-    return this.query({
-      executionId,
-      timestampRange: { start: startTime, end: endTime },
-    });
-  }
-
-  /**
    * Get checkpoints by workflow ID and time range
    * @param workflowId Workflow ID
    * @param startTime Start timestamp (ms)
@@ -479,25 +449,21 @@ export class CheckpointResourceAPI extends SimplifiedCrudResourceAPI<Checkpoint,
     return this.query({
       workflowId,
       timestampRange: { start: startTime, end: endTime },
-    });
+    } as CheckpointFilter);
   }
 
   /**
-   * Get checkpoints by tags
+   * Delete all checkpoints for an execution
    * @param executionId Execution ID
-   * @param tags Tag array
-   * @returns Checkpoints with matching tags
+   * @returns Number of checkpoints deleted
    */
-  async getByTags(executionId: string, tags: string[]): Promise<Checkpoint[]> {
-    return this.query({ executionId, tags });
-  }
-
-  /**
-   * Get checkpoints by multiple IDs
-   * @param ids Checkpoint ID list
-   * @returns Checkpoints with matching IDs
-   */
-  async getByIds(ids: string[]): Promise<Checkpoint[]> {
-    return this.query({ ids });
+  async deleteExecutionCheckpoints(executionId: string): Promise<number> {
+    const checkpoints = await this.getWorkflowExecutionCheckpoints(executionId);
+    let count = 0;
+    for (const cp of checkpoints) {
+      await this.stateManager.delete(cp.id);
+      count++;
+    }
+    return count;
   }
 }

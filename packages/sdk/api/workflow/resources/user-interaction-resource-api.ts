@@ -26,6 +26,7 @@ import {
   BaseUserInteractionResourceAPI,
   type BaseUserInteractionConfig,
   type BaseUserInteractionFilter,
+  type UserInteractionEventRecord,
 } from "../../shared/resources/user-interaction-base.js";
 import type { ExecutionResult } from "../../shared/types/execution-result.js";
 import { success, failure } from "../../shared/types/execution-result.js";
@@ -272,5 +273,89 @@ export class UserInteractionResourceAPI extends BaseUserInteractionResourceAPI<
     } catch (error) {
       return this.handleWorkflowError(error, "GET_CONFIG_COUNT", startTime) as ExecutionResult<number>;
     }
+  }
+
+  // ============================================================================
+  // Workflow-specific: Interaction Handling (with event recording)
+  // ============================================================================
+
+  /**
+   * Handle user interaction with event recording
+   * Extends the base handleInteraction with event history recording.
+   * @param configId Configuration ID
+   * @param executionId Execution ID
+   * @param context Interaction context
+   * @returns Handler response
+   */
+  async handleUserInteraction(
+    configId: string,
+    executionId: string,
+    context: Record<string, unknown>,
+  ): Promise<unknown> {
+    const config = await this.getResource(configId);
+    if (!config) {
+      throw new ConfigurationError(`User interaction configuration not found: ${configId}`);
+    }
+
+    // Record event as requested using base class method
+    const event = this.recordInteractionEvent(configId, executionId, "requested", context);
+
+    try {
+      // If a handler is registered, call it with the structured request
+      if (this.userInteractionHandler) {
+        const request = {
+          interactionId: event.id,
+          operationType: (config.type || "TOOL_APPROVAL") as "TOOL_APPROVAL" | "ASK_FOLLOWUP_QUESTION" | "SCRIPT_INTERACTION",
+          prompt: config.name,
+          timeout: config.defaultTimeout ?? 30000,
+          metadata: {
+            executionId,
+            configId,
+            ...context,
+          },
+        };
+
+        const interactionContext = this.createInteractionContext({
+          interactionId: event.id,
+          operationType: "TOOL_APPROVAL",
+          prompt: config.name,
+          timeout: config.defaultTimeout ?? 30000,
+          metadata: { executionId },
+        });
+
+        const result = await this.userInteractionHandler.handle(request, interactionContext);
+
+        // Update event with response using base class method
+        this.completeInteractionEvent(event, result);
+        event.eventType = "approved";
+
+        return result;
+      }
+
+      // No handler registered - return context as-is (simplified behavior)
+      this.completeInteractionEvent(event, context);
+      event.eventType = "approved";
+
+      return context;
+    } catch (error) {
+      // Record failure
+      event.eventType = "rejected";
+      event.responseTimestamp = now();
+      event.responseTime = (event.responseTimestamp ?? now()) - event.timestamp;
+      throw error;
+    }
+  }
+
+  // ============================================================================
+  // Workflow-specific: Event History
+  // ============================================================================
+
+  /**
+   * Get configuration interaction history
+   * @param configId Configuration ID
+   * @returns Array of interaction event records for the specified config
+   */
+  async getConfigurationInteractionHistory(configId: string): Promise<UserInteractionEventRecord[]> {
+    return (await this.getInteractionEventHistory()).filter(event => event.configId === configId);
   }
 }

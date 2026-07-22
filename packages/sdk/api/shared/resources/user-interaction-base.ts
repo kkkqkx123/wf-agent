@@ -5,6 +5,11 @@
  * Both Agent and Workflow versions extend this class, providing only entity-specific
  * type annotations and method naming.
  *
+ * Features:
+ * - Handler registration and interaction handling
+ * - Optional event recording (enabled via enableEventRecording)
+ * - Optional event subscriptions (via setEventManager)
+ *
  * Follows the same pattern as BaseMessageResourceAPI for shared base class design.
  *
  * Entity-specific subclasses must specify:
@@ -22,6 +27,7 @@ import type { ExecutionResult } from "../types/execution-result.js";
 import { success, failure } from "../types/execution-result.js";
 import { ConfigurationError, SDKError } from "@wf-agent/types";
 import { now, diffTimestamp } from "@wf-agent/common-utils";
+import type { EventRegistry } from "../../../shared/registry/event-registry.js";
 
 /**
  * Base user interaction config - entity-specific configs extend this
@@ -50,6 +56,30 @@ export interface BaseUserInteractionFilter {
 }
 
 /**
+ * User interaction event record for event history tracking
+ */
+export interface UserInteractionEventRecord {
+  /** Event ID */
+  id: string;
+  /** Config ID */
+  configId: string;
+  /** Execution ID */
+  executionId: string;
+  /** Event type (requested, approved, rejected) */
+  eventType: string;
+  /** Event context */
+  context: Record<string, unknown>;
+  /** Event timestamp */
+  timestamp: number;
+  /** Response (if any) */
+  response?: unknown;
+  /** Response timestamp */
+  responseTimestamp?: number;
+  /** Response time (milliseconds) */
+  responseTime: number | null;
+}
+
+/**
  * BaseUserInteractionResourceAPI - Shared base class for user interaction resource management
  *
  * Handles common user interaction operations:
@@ -63,6 +93,52 @@ export abstract class BaseUserInteractionResourceAPI<
 > extends SimplifiedCrudResourceAPI<TConfig, string, TFilter> {
   protected userInteractionHandler?: UserInteractionHandler;
   protected configs: Map<string, TConfig> = new Map();
+
+  // ============================================================================
+  // Optional Event Recording
+  // ============================================================================
+
+  /** Event history for optional event recording */
+  protected eventHistory: UserInteractionEventRecord[] = [];
+  /** Whether event recording is enabled */
+  protected eventRecordingEnabled: boolean = false;
+
+  /**
+   * Enable or disable event recording
+   * @param enabled Whether to enable event recording
+   */
+  setEventRecordingEnabled(enabled: boolean): void {
+    this.eventRecordingEnabled = enabled;
+  }
+
+  /**
+   * Check if event recording is enabled
+   */
+  isEventRecordingEnabled(): boolean {
+    return this.eventRecordingEnabled;
+  }
+
+  // ============================================================================
+  // Optional Event Subscriptions
+  // ============================================================================
+
+  /** Event manager for optional event subscriptions */
+  protected eventManager?: EventRegistry;
+
+  /**
+   * Set the event manager for event subscriptions
+   * @param em Event registry instance
+   */
+  setEventManager(em: EventRegistry): void {
+    this.eventManager = em;
+  }
+
+  /**
+   * Get the current event manager
+   */
+  getEventManager(): EventRegistry | undefined {
+    return this.eventManager;
+  }
 
   // ============================================================================
   // GenericResourceAPI abstract method implementation
@@ -221,5 +297,137 @@ export abstract class BaseUserInteractionResourceAPI<
       error instanceof SDKError ? error : new ConfigurationError(String(error), "interaction", { code: "INTERACTION_ERROR" }),
       diffTimestamp(startTime, now()),
     );
+  }
+
+  // ============================================================================
+  // Shared Event Recording Methods
+  // ============================================================================
+
+  /**
+   * Record an interaction event
+   * Only records if event recording is enabled.
+   * @param configId Configuration ID
+   * @param executionId Execution ID
+   * @param eventType Event type
+   * @param context Event context
+   * @returns The recorded event record
+   */
+  protected recordInteractionEvent(
+    configId: string,
+    executionId: string,
+    eventType: string,
+    context: Record<string, unknown>,
+  ): UserInteractionEventRecord {
+    const event: UserInteractionEventRecord = {
+      id: `${configId}:${executionId}:${now()}:${Math.random().toString(36).slice(2, 8)}`,
+      configId,
+      executionId,
+      eventType,
+      context,
+      timestamp: now(),
+      responseTime: null,
+    };
+
+    if (this.eventRecordingEnabled) {
+      this.eventHistory.push(event);
+    }
+
+    return event;
+  }
+
+  /**
+   * Update a recorded event with a response
+   * @param event The event to update
+   * @param response The response value
+   */
+  protected completeInteractionEvent(event: UserInteractionEventRecord, response: unknown): void {
+    const responseTimestamp = now();
+    event.response = response;
+    event.responseTimestamp = responseTimestamp;
+    event.responseTime = responseTimestamp - event.timestamp;
+  }
+
+  /**
+   * Get interaction event history
+   * @param executionId Optional execution ID to filter by
+   * @returns Array of interaction event records
+   */
+  async getInteractionEventHistory(executionId?: string): Promise<UserInteractionEventRecord[]> {
+    if (executionId) {
+      return this.eventHistory.filter(event => event.executionId === executionId);
+    }
+    return [...this.eventHistory];
+  }
+
+  /**
+   * Get interaction statistics
+   * @returns Interaction statistics
+   */
+  async getInteractionStatistics(): Promise<{
+    totalEvents: number;
+    byEventType: Record<string, number>;
+    averageResponseTime: number;
+    maxResponseTime: number;
+    minResponseTime: number;
+    totalApproved: number;
+    totalRejected: number;
+  }> {
+    const events = this.eventHistory;
+    const byEventType: Record<string, number> = {};
+    let totalResponseTime = 0;
+    let responseTimeCount = 0;
+    let maxResponseTime = 0;
+    let minResponseTime = Infinity;
+    let totalApproved = 0;
+    let totalRejected = 0;
+
+    for (const event of events) {
+      byEventType[event.eventType] = (byEventType[event.eventType] || 0) + 1;
+
+      if (event.responseTime !== null) {
+        totalResponseTime += event.responseTime;
+        responseTimeCount++;
+        maxResponseTime = Math.max(maxResponseTime, event.responseTime);
+        minResponseTime = Math.min(minResponseTime, event.responseTime);
+      }
+
+      if (event.eventType === "approved") {
+        totalApproved++;
+      } else if (event.eventType === "rejected") {
+        totalRejected++;
+      }
+    }
+
+    return {
+      totalEvents: events.length,
+      byEventType,
+      averageResponseTime: responseTimeCount > 0 ? Math.round(totalResponseTime / responseTimeCount) : 0,
+      maxResponseTime,
+      minResponseTime: responseTimeCount > 0 ? minResponseTime : 0,
+      totalApproved,
+      totalRejected,
+    };
+  }
+
+  /**
+   * Clear interaction history
+   * @param olderThanTimestamp Optional timestamp to clear events older than this
+   */
+  async clearInteractionHistory(olderThanTimestamp?: number): Promise<void> {
+    if (olderThanTimestamp !== undefined) {
+      this.eventHistory = this.eventHistory.filter(event => event.timestamp > olderThanTimestamp);
+    } else {
+      this.eventHistory = [];
+    }
+  }
+
+  /**
+   * Export interaction history as JSON string
+   * @param executionId Optional execution ID to filter by
+   * @returns JSON string of interaction history
+   */
+  async exportInteractionHistory(executionId?: string): Promise<string> {
+    const events = await this.getInteractionEventHistory(executionId);
+    return JSON.stringify(events, null, 2);
   }
 }

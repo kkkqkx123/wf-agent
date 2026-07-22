@@ -170,10 +170,33 @@ export class MessageResourceAPI extends BaseMessageResourceAPI<MessageFilter> {
   /**
    * Get message statistics information
    * @param executionId Execution ID
-   * @returns Statistical information
+   * @returns Statistical information with token usage
    */
   async getMessageStats(executionId: string): Promise<MessageStats> {
-    return this.getEntityMessageStats(executionId);
+    const messages = this.getEntityMessages(executionId);
+    const stateCoordinator = this.registry.getStateCoordinator(executionId);
+
+    const tokenUsage = (stateCoordinator as unknown as Record<string, unknown>)["getTokenUsage"] as
+      | (() => { promptTokens: number; completionTokens: number; totalTokens: number })
+      | undefined;
+
+    const byRole: Record<string, number> = {};
+    const byType: Record<string, number> = {};
+
+    messages.forEach((msg) => {
+      byRole[msg.role] = (byRole[msg.role] || 0) + 1;
+      const msgType = (msg as unknown as Record<string, unknown>)["type"] as string | undefined;
+      if (msgType) {
+        byType[msgType] = (byType[msgType] || 0) + 1;
+      }
+    });
+
+    return {
+      total: messages.length,
+      byRole,
+      byType,
+      totalTokenUsage: typeof tokenUsage === "function" ? tokenUsage() : undefined,
+    };
   }
 
   /**

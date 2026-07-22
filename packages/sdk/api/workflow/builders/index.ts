@@ -15,3 +15,4 @@ export { NodeTemplateBuilder } from "./node-template-builder.js";
 export { TriggerTemplateBuilder } from "./trigger-template-builder.js";
 export { HookTemplateBuilder } from "./hook-template-builder.js";
 export { NodeToolConfigBuilder } from "./node-tool-config-builder.js";
+export { WorkflowValidator } from "./workflow-validator.js";

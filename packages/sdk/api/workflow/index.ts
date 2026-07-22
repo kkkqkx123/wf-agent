@@ -79,7 +79,7 @@ export {
 } from "./resources/workflow-iteration-analysis-api.js";
 
 export {
-  WorkflowExecutionContextAPI,
+  WorkflowExecutionStateAPI,
   type VariableDefinitionWithScope,
   type VariableValueSnapshot,
   type VariableSnapshot,
@@ -94,7 +94,7 @@ export {
   type WorkflowStackFrame,
   type WorkflowCallStack,
   type WorkflowStateTransitionAnalysis,
-} from "./resources/workflow-execution-context-api.js";
+} from "./resources/workflow-execution-state-api.js";
 
 export {
   WorkflowExecutionGraphQueryAPI,
@@ -129,7 +129,7 @@ export {
 
 // Operations - Checkpoints
 export { CreateCheckpointCommand } from "./operations/checkpoints/create-checkpoint-command.js";
-export { RestoreFromCheckpointCommand } from "./operations/checkpoints/restore-from-checkpoint-command.js";
+export { RestoreCheckpointCommand } from "./operations/checkpoints/restore-checkpoint-command.js";
 
 // Operations - Triggers
 export { EnableTriggerCommand } from "./operations/triggers/enable-trigger-command.js";

@@ -13,6 +13,8 @@ export {
   AgentToolConfigBuilder,
   AgentHookBuilder,
   AgentTriggerBuilder,
+  AgentExecutionBuilder,
+  AgentValidator,
 } from "./builders/index.js";
 
 // ============================================================================

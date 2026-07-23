@@ -396,6 +396,7 @@ export {
   DEFAULT_SHELL_POLICY,
   DEFAULT_PYTHON_POLICY,
   DEFAULT_JS_POLICY,
+  SHELL_POLICY_PRESETS,
   ShellStaticAnalyzerStrategy,
   PythonBuiltinHookStrategy,
   PythonASTAnalyzerStrategy,

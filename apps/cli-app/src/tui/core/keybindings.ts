@@ -1,3 +1,4 @@
+import os from "node:os";
 import { type KeyId, matchesKey } from "./keys/index.js";
 
 /**
@@ -18,8 +19,6 @@ export interface Keybindings {
   "tui.editor.cursorWordRight": true;
   "tui.editor.cursorLineStart": true;
   "tui.editor.cursorLineEnd": true;
-  "tui.editor.jumpForward": true;
-  "tui.editor.jumpBackward": true;
   "tui.editor.pageUp": true;
   "tui.editor.pageDown": true;
   "tui.editor.deleteCharBackward": true;
@@ -29,7 +28,6 @@ export interface Keybindings {
   "tui.editor.deleteToLineStart": true;
   "tui.editor.deleteToLineEnd": true;
   "tui.editor.yank": true;
-  "tui.editor.yankPop": true;
   "tui.editor.undo": true;
   // Generic input actions
   "tui.input.newLine": true;
@@ -50,6 +48,9 @@ export interface Keybindings {
   "tui.navigate.halfPageDown": true;
   "tui.navigate.top": true;
   "tui.navigate.bottom": true;
+  // Global actions
+  "tui.redraw": true;       // Ctrl+L - force full redraw
+  "tui.global.cancel": true;  // Esc - universal cancel (close modal / unselect / switch to Normal)
 }
 
 export type Keybinding = keyof Keybindings;
@@ -97,16 +98,6 @@ export const TUI_KEYBINDINGS = {
     description: "Move to line end",
     context: "chat" as const,
   },
-  "tui.editor.jumpForward": {
-    defaultKeys: "ctrl+]",
-    description: "Jump forward to character",
-    context: "chat" as const,
-  },
-  "tui.editor.jumpBackward": {
-    defaultKeys: "ctrl+alt+]",
-    description: "Jump backward to character",
-    context: "chat" as const,
-  },
   "tui.editor.pageUp": { defaultKeys: "pageUp", description: "Page up", context: "chat" as const },
   "tui.editor.pageDown": { defaultKeys: "pageDown", description: "Page down", context: "chat" as const },
   "tui.editor.deleteCharBackward": {
@@ -140,7 +131,6 @@ export const TUI_KEYBINDINGS = {
     context: "chat" as const,
   },
   "tui.editor.yank": { defaultKeys: "ctrl+y", description: "Yank", context: "chat" as const },
-  "tui.editor.yankPop": { defaultKeys: "alt+y", description: "Yank pop", context: "chat" as const },
   "tui.editor.undo": { defaultKeys: "ctrl+-", description: "Undo", context: "chat" as const },
   "tui.input.newLine": {
     defaultKeys: "shift+enter",
@@ -201,6 +191,16 @@ export const TUI_KEYBINDINGS = {
     defaultKeys: ["G", "ctrl+end"],
     description: "Jump to latest message (Normal mode)",
     context: "chat" as const,
+  },
+  "tui.redraw": {
+    defaultKeys: "ctrl+l",
+    description: "Force full redraw (fix terminal artifacts)",
+    context: "global" as const,
+  },
+  "tui.global.cancel": {
+    defaultKeys: "escape",
+    description: "Universal cancel: close modal → cancel → Normal mode",
+    context: "global" as const,
   },
 } as const satisfies KeybindingDefinitions;
 
@@ -319,4 +319,42 @@ export function getKeybindings(): KeybindingsManager {
     globalKeybindings = new KeybindingsManager(TUI_KEYBINDINGS);
   }
   return globalKeybindings;
+}
+
+/**
+ * Default path for user keybinding configuration file.
+ */
+const KEYBINDINGS_CONFIG_PATH = "~/.config/modular-agent/keybindings.json";
+
+/**
+ * Load user keybindings from the config file and apply them.
+ * If the file doesn't exist or is invalid, silently falls back to defaults.
+ */
+export async function loadUserKeybindings(): Promise<void> {
+  const kb = getKeybindings();
+  const resolvedPath = KEYBINDINGS_CONFIG_PATH.replace(/^~/, os.homedir());
+
+  try {
+    const fs = await import("node:fs");
+    const content = fs.readFileSync(resolvedPath, "utf-8");
+    const config: { bindings: Array<{ context: string; bindings: Record<string, string | string[]> }> } =
+      JSON.parse(content);
+
+    if (!config.bindings || !Array.isArray(config.bindings)) {
+      return; // No user bindings, use defaults
+    }
+
+    // Flatten context-grouped bindings into a flat KeybindingsConfig
+    const flatConfig: KeybindingsConfig = {};
+    for (const group of config.bindings) {
+      if (!group.bindings || typeof group.bindings !== "object") continue;
+      for (const [keybinding, keys] of Object.entries(group.bindings)) {
+        flatConfig[keybinding] = keys as KeyId | KeyId[];
+      }
+    }
+
+    kb.setUserBindings(flatConfig);
+  } catch {
+    // File not found or parse error — fall back to defaults silently
+  }
 }

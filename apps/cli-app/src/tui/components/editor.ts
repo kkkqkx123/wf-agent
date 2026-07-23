@@ -436,10 +436,6 @@ export class Editor implements Component, Focusable {
       this.yank();
       return;
     }
-    if (kb.matches(data, "tui.editor.yankPop")) {
-      this.yankPop();
-      return;
-    }
 
     // Cursor movement actions
     if (kb.matches(data, "tui.editor.cursorLineStart")) {
@@ -1364,29 +1360,6 @@ export class Editor implements Component, Focusable {
   }
 
   /**
-   * Cycle through kill ring (only works immediately after yank or yank-pop).
-   * Replaces the last yanked text with the previous entry in the ring.
-   */
-  private yankPop(): void {
-    // Only works if we just yanked and have more than one entry
-    if (this.lastAction !== "yank" || this.killRing.length <= 1) return;
-
-    this.pushUndoSnapshot();
-
-    // Delete the previously yanked text (still at end of ring before rotation)
-    this.deleteYankedText();
-
-    // Rotate the ring: move end to front
-    this.killRing.rotate();
-
-    // Insert the new most recent entry (now at end after rotation)
-    const text = this.killRing.peek()!;
-    this.insertYankedText(text);
-
-    this.lastAction = "yank";
-  }
-
-  /**
    * Insert text at cursor position (used by yank operations).
    */
   private insertYankedText(text: string): void {
@@ -1421,47 +1394,6 @@ export class Editor implements Component, Focusable {
       // Update cursor position
       this.state.cursorLine = lastLineIndex;
       this.setCursorCol((lines[lines.length - 1] || "").length);
-    }
-
-    if (this.onChange) {
-      this.onChange(this.getText());
-    }
-  }
-
-  /**
-   * Delete the previously yanked text (used by yank-pop).
-   */
-  private deleteYankedText(): void {
-    const yankedText = this.killRing.peek();
-    if (!yankedText) return;
-
-    const yankLines = yankedText.split("\n");
-
-    if (yankLines.length === 1) {
-      // Single line - delete backward from cursor
-      const currentLine = this.state.lines[this.state.cursorLine] || "";
-      const deleteLen = yankedText.length;
-      const before = currentLine.slice(0, this.state.cursorCol - deleteLen);
-      const after = currentLine.slice(this.state.cursorCol);
-      this.state.lines[this.state.cursorLine] = before + after;
-      this.setCursorCol(this.state.cursorCol - deleteLen);
-    } else {
-      // Multi-line delete - cursor is at end of last yanked line
-      const startLine = this.state.cursorLine - (yankLines.length - 1);
-      const startCol = (this.state.lines[startLine] || "").length - (yankLines[0] || "").length;
-
-      // Get text after cursor on current line
-      const afterCursor = (this.state.lines[this.state.cursorLine] || "").slice(this.state.cursorCol);
-
-      // Get text before yank start position
-      const beforeYank = (this.state.lines[startLine] || "").slice(0, startCol);
-
-      // Remove all lines from startLine to cursorLine and replace with merged line
-      this.state.lines.splice(startLine, yankLines.length, beforeYank + afterCursor);
-
-      // Update cursor
-      this.state.cursorLine = startLine;
-      this.setCursorCol(startCol);
     }
 
     if (this.onChange) {

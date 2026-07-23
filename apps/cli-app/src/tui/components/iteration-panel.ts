@@ -1,8 +1,9 @@
 /**
  * Iteration Panel Component
- * 
+ *
  * Displays iteration progress for agent loop execution.
- * Shows iteration count, tool calls, messages, and status.
+ * Shows iteration count, tool calls, duration, and a time-consumption
+ * trend arrow comparing each completed iteration to its predecessor.
  */
 
 import type { Component } from "../core/tui.js";
@@ -28,6 +29,11 @@ export interface IterationPanelOptions {
   maxHeight?: number;
 }
 
+/**
+ * Trend direction between adjacent iteration durations.
+ */
+type Trend = "up" | "down" | "same" | "first";
+
 export class IterationPanel implements Component {
   private iterations: Map<number, IterationInfo> = new Map();
   private maxHeight: number;
@@ -41,11 +47,11 @@ export class IterationPanel implements Component {
    */
   updateIteration(data: AgentIterationData) {
     const existing = this.iterations.get(data.iteration);
-    
+
     if (existing) {
       // Update existing iteration
       existing.toolCallCount = data.toolCallCount ?? 0;
-      
+
       if (data.duration !== undefined) {
         existing.status = "completed";
         existing.endTime = Date.now();
@@ -100,7 +106,7 @@ export class IterationPanel implements Component {
 
   render(width?: number): string[] {
     const lines: string[] = [];
-    
+
     // Header
     lines.push("=== Iteration Progress ===");
     lines.push("");
@@ -112,19 +118,24 @@ export class IterationPanel implements Component {
     // Limit to max height
     const displayIterations = sortedIterations.slice(-this.maxHeight);
 
+    // Compute time-consumption trend per iteration
+    const trends: Map<number, Trend> = this.computeTrends(sortedIterations.map(([, info]) => info));
+
     for (const [_, info] of displayIterations) {
       const icon = this.getStatusIcon(info.status);
       const duration = info.duration ? `${Math.round(info.duration / 1000)}s` : "...";
-      
+      const trend = trends.get(info.number) ?? "first";
+      const trendIcon = this.getTrendIcon(trend);
+
       let line = `${icon} Iteration ${info.number}: ` +
         `${info.toolCallCount} tools, ` +
-        `${duration}`;
-      
+        `${duration} ${trendIcon}`;
+
       // If width is provided, truncate line if needed
       if (width !== undefined && line.length > width) {
         line = line.substring(0, width - 3) + "...";
       }
-      
+
       lines.push(line);
     }
 
@@ -132,16 +143,63 @@ export class IterationPanel implements Component {
     if (sortedIterations.length > this.maxHeight) {
       const hidden = sortedIterations.length - this.maxHeight;
       let summaryLine = `... and ${hidden} more iterations`;
-      
+
       // Truncate summary line if width is provided
       if (width !== undefined && summaryLine.length > width) {
         summaryLine = summaryLine.substring(0, width - 3) + "...";
       }
-      
+
       lines.push(summaryLine);
     }
 
     return lines;
+  }
+
+  /**
+   * Compute trend arrows for each iteration by comparing its duration
+   * against the previous completed iteration.
+   */
+  private computeTrends(iterations: IterationInfo[]): Map<number, Trend> {
+    const trends = new Map<number, Trend>();
+    let lastDuration: number | undefined;
+
+    for (const info of iterations) {
+      if (info.duration === undefined) {
+        trends.set(info.number, "first");
+        continue;
+      }
+
+      if (lastDuration === undefined) {
+        trends.set(info.number, "first");
+      } else if (info.duration > lastDuration * 1.1) {
+        trends.set(info.number, "up");
+      } else if (info.duration < lastDuration * 0.9) {
+        trends.set(info.number, "down");
+      } else {
+        trends.set(info.number, "same");
+      }
+
+      lastDuration = info.duration;
+    }
+
+    return trends;
+  }
+
+  /**
+   * Return a visual trend arrow for the given direction.
+   */
+  private getTrendIcon(trend: Trend): string {
+    switch (trend) {
+      case "up":
+        return "↑";
+      case "down":
+        return "↓";
+      case "same":
+        return "→";
+      case "first":
+      default:
+        return "";
+    }
   }
 
   private getStatusIcon(status: IterationInfo["status"]): string {

@@ -3,6 +3,7 @@
 // Components
 export { Box } from "../components/box.js";
 export { Editor, type EditorOptions, type EditorTheme } from "../components/editor.js";
+export { FoldableSection, type FoldableSectionOptions } from "../components/foldable-section.js";
 export { Input } from "../components/input.js";
 export {
   type LoaderIndicatorOptions,

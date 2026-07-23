@@ -329,6 +329,7 @@ export {
 export {
   AgentLoopCheckpointResourceAPI,
   type AgentLoopCheckpointFilter,
+  type AgentLoopCheckpointStatistics,
   type CheckpointStorage,
 } from "./agent/resources/checkpoint-resource-api.js";
 

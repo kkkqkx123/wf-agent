@@ -10,6 +10,7 @@ import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
+import { FoldableSection } from "../components/foldable-section.js";
 import type { TUI } from "../core/tui.js";
 
 const NORMAL_MODE_MAX_LOG_LINES = 20;
@@ -41,6 +42,9 @@ export class AgentScreen implements Screen {
   /** Reference to TUI for mode-aware input routing */
   private tui: TUI;
 
+  /** Foldable sections for collapsible panels */
+  private foldableSections: FoldableSection[] = [];
+
   constructor(onBack?: () => void, tui?: TUI) {
     this.onBack = onBack;
     this.tui = tui!;
@@ -48,7 +52,7 @@ export class AgentScreen implements Screen {
     this.statusPanel = new Box();
     this.logPanel = new Box();
     this.iterationPanel = new IterationPanel({ maxHeight: 8 });
-    this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5, showArguments: false });
+    this.toolCallPanel = new ToolCallIndicator({ maxDisplayCalls: 5 });
 
     this.setupLayout();
   }
@@ -64,15 +68,29 @@ export class AgentScreen implements Screen {
     statusBox.addChild(this.statusPanel);
     this.updateStatus("idle");
 
-    // Iteration panel (new)
+    // Iteration panel (new, wrapped in foldable section)
     const iterationBox = new Box();
     iterationBox.addChild(new Text("Iterations:", 1, 0));
-    iterationBox.addChild(this.iterationPanel as unknown as Component);
+    const foldableIterations = new FoldableSection(
+      "iterations",
+      "Iterations - agent iteration progress",
+      this.iterationPanel as unknown as Component,
+      { collapsed: false },
+    );
+    this.foldableSections.push(foldableIterations);
+    iterationBox.addChild(foldableIterations);
 
-    // Tool call panel (new)
+    // Tool call panel (new, wrapped in foldable section)
     const toolCallBox = new Box();
     toolCallBox.addChild(new Text("Tool Calls:", 1, 0));
-    toolCallBox.addChild(this.toolCallPanel as unknown as Component);
+    const foldableToolCalls = new FoldableSection(
+      "toolCalls",
+      "Tool Calls - active and recent tool invocations",
+      this.toolCallPanel as unknown as Component,
+      { collapsed: false },
+    );
+    this.foldableSections.push(foldableToolCalls);
+    toolCallBox.addChild(foldableToolCalls);
 
     // Log panel (scrollable area)
     const logBox = new Box();
@@ -264,6 +282,16 @@ export class AgentScreen implements Screen {
 
     // === Normal mode: vim-style log navigation ===
     if (this.mode === InputMode.Normal) {
+      // Space — toggle all foldable sections
+      if (data === " ") {
+        const anyCollapsed = this.foldableSections.some((s) => s.isCollapsed());
+        for (const section of this.foldableSections) {
+          section.setCollapsed(!anyCollapsed);
+        }
+        this.rebuildLogPanel();
+        return true;
+      }
+
       // Enter, Esc, or any printable char → switch back to Chat mode
       if (kb.matches(data, "tui.input.submit")) {
         this.mode = InputMode.Chat;

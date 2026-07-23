@@ -5,7 +5,7 @@
 
 import { ProcessTerminal, TUI, Container } from "./core/index.js";
 import type { InputContext } from "./core/keybindings.js";
-import { getKeybindings } from "./core/keybindings.js";
+import { getKeybindings, loadUserKeybindings } from "./core/keybindings.js";
 import type { Screen } from "./screens/screen.js";
 import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
@@ -51,7 +51,7 @@ export class CLIAppTUI {
 
     const workflowScreen = new WorkflowScreen(() => {
       this.showScreen("dashboard");
-    });
+    }, this.tui);
     this.screens.set("workflow", workflowScreen);
 
     const agentScreen = new AgentScreen(() => {
@@ -75,9 +75,31 @@ export class CLIAppTUI {
       const kb = getKeybindings();
       const currentScreen = this.screens.get(this.currentScreenId);
 
-      // Global keys (active regardless of context)
-      // Ctrl+D - exit when in global context and no active input
+      // Ctrl+L — force full redraw (fix terminal artifacts / screen corruption)
+      if (kb.matches(data, "tui.redraw")) {
+        this.tui.requestRender(true);
+        return true;
+      }
+
+      // Esc — universal cancel: close overlay if open, otherwise pass through
+      if (kb.matches(data, "tui.global.cancel")) {
+        if (this.tui.hasOverlay()) {
+          this.tui.hideOverlay();
+          return true;
+        }
+        // Fall through: let screen handle Esc (close modal → cancel → Normal)
+      }
+
+      // Ctrl+D — quit when no active input or in global context
       if (kb.matches(data, "tui.editor.deleteCharForward", "global")) {
+        // Check if current screen is AgentScreen with non-empty input
+        // If so, let it handle as normal delete-char-forward instead
+        if (currentScreen instanceof AgentScreen) {
+          const input = (currentScreen as unknown as { messageInput?: { getValue?: () => string } }).messageInput;
+          if (input?.getValue?.() !== "") {
+            return false; // Delegate to screen (delete char forward)
+          }
+        }
         this.quit();
         return true;
       }
@@ -94,12 +116,15 @@ export class CLIAppTUI {
   /**
    * Start the TUI application
    */
-  public start(): void {
+  public async start(): Promise<void> {
     if (this.isRunning) {
       return;
     }
 
     this.isRunning = true;
+
+    // Load user custom keybindings from config file
+    await loadUserKeybindings();
 
     this.tui.addChild(this.mainContainer);
 

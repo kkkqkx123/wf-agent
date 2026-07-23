@@ -876,6 +876,14 @@ export class SDKInstance {
   }
 
   /**
+   * Get Workflow Error Analysis API
+   */
+  get errorAnalysis() {
+    this.ensureReady();
+    return this.apiFactory.createWorkflowErrorAnalysisAPI();
+  }
+
+  /**
    * Get Agent Loop Registry API
    */
   get agentLoops() {

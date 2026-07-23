@@ -3,12 +3,16 @@
  * Real-time agent execution monitoring with streaming logs
  */
 
-import { Box, Container, Text, Input } from "../core/index.js";
+import { Box, Container, Text, Input, InputMode } from "../core/index.js";
+import { getKeybindings } from "../core/keybindings.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
+import type { TUI } from "../core/tui.js";
+
+const NORMAL_MODE_MAX_LOG_LINES = 20;
 
 interface LogEntry {
   timestamp: Date;
@@ -28,8 +32,18 @@ export class AgentScreen implements Screen {
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
 
-  constructor(onBack?: () => void) {
+  /** Current input mode: Chat (insert) or Normal (browse) */
+  private mode: InputMode = InputMode.Chat;
+
+  /** Scroll offset for Normal mode log browsing */
+  private scrollOffset: number = 0;
+
+  /** Reference to TUI for mode-aware input routing */
+  private tui: TUI;
+
+  constructor(onBack?: () => void, tui?: TUI) {
     this.onBack = onBack;
+    this.tui = tui!;
     this.container = new Container();
     this.statusPanel = new Box();
     this.logPanel = new Box();
@@ -95,9 +109,62 @@ export class AgentScreen implements Screen {
       error: "❌",
     }[status];
 
-    this.statusPanel.addChild(new Text(`Status: ${statusIcon} ${status.toUpperCase()}`, 1, 0));
+    const modeLabel = this.mode === InputMode.Normal ? " [NORMAL]" : "";
+
+    this.statusPanel.addChild(new Text(`Status: ${statusIcon} ${status.toUpperCase()}${modeLabel}`, 1, 0));
     this.statusPanel.addChild(new Text(`Agent ID: ${this.currentAgentId || "N/A"}`, 1, 0));
     this.statusPanel.addChild(new Text(`Messages: ${this.logEntries.length}`, 1, 0));
+  }
+
+  /**
+   * Rebuild log panel respecting scrollOffset (Normal mode) or showing latest (Chat mode).
+   */
+  private rebuildLogPanel(): void {
+    this.logPanel.clear();
+
+    if (this.mode === InputMode.Normal) {
+      const totalEntries = this.logEntries.length;
+      const endIndex = Math.min(totalEntries, this.scrollOffset + NORMAL_MODE_MAX_LOG_LINES);
+      const startIndex = Math.max(0, this.scrollOffset);
+
+      // Scroll indicator at top
+      if (startIndex > 0) {
+        this.logPanel.addChild(new Text(`--- ${startIndex} older entries above (j/k to scroll) ---`, 1, 0));
+      }
+
+      for (let i = startIndex; i < endIndex && i < totalEntries; i++) {
+        const entry = this.logEntries[i];
+        if (!entry) continue;
+        const timeStr = entry.timestamp.toLocaleTimeString();
+        const typeIcon = {
+          user: "👤",
+          assistant: "🤖",
+          system: "ℹ️",
+          tool: "🔧",
+        }[entry.type];
+        this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
+      }
+
+      // Scroll indicator at bottom
+      if (endIndex < totalEntries) {
+        this.logPanel.addChild(new Text(`--- ${totalEntries - endIndex} newer entries below ---`, 1, 0));
+      }
+    } else {
+      // Chat mode: show latest entries
+      const startIndex = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+      for (let i = startIndex; i < this.logEntries.length; i++) {
+        const entry = this.logEntries[i];
+        if (!entry) continue;
+        const timeStr = entry.timestamp.toLocaleTimeString();
+        const typeIcon = {
+          user: "👤",
+          assistant: "🤖",
+          system: "ℹ️",
+          tool: "🔧",
+        }[entry.type];
+        this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
+      }
+    }
   }
 
   private appendLog(
@@ -111,17 +178,15 @@ export class AgentScreen implements Screen {
       message,
     };
 
+    this.logEntries.push(entry);
+
+    // Keep only last 100 entries for performance
+    if (this.logEntries.length > 100) {
+      this.logEntries.shift();
+    }
+
     if (options?.stream) {
       // For streaming, append without full re-render (performance optimization)
-      // In a real implementation, this would use virtual scrolling or append-only updates
-      this.logEntries.push(entry);
-
-      // Only keep last 100 entries for performance
-      if (this.logEntries.length > 100) {
-        this.logEntries.shift();
-      }
-
-      // Append to log panel without full rebuild
       const timeStr = entry.timestamp.toLocaleTimeString();
       const typeIcon = {
         user: "👤",
@@ -129,31 +194,14 @@ export class AgentScreen implements Screen {
         system: "ℹ️",
         tool: "🔧",
       }[type];
-
       const formatted = `[${timeStr}] ${typeIcon} ${message}`;
       this.logPanel.addChild(new Text(formatted, 1, 0));
     } else {
-      // For non-streaming, add as new entry and rebuild
-      this.logEntries.push(entry);
-
-      // Keep only last 50 entries for performance
-      if (this.logEntries.length > 50) {
-        this.logEntries.shift();
+      // Auto-scroll in Chat mode (follow latest)
+      if (this.mode === InputMode.Chat) {
+        this.scrollOffset = 0;
       }
-
-      // Clear and rebuild log panel
-      this.logPanel.clear();
-      this.logEntries.forEach(entry => {
-        const timeStr = entry.timestamp.toLocaleTimeString();
-        const typeIcon = {
-          user: "👤",
-          assistant: "🤖",
-          system: "ℹ️",
-          tool: "🔧",
-        }[entry.type];
-
-        this.logPanel.addChild(new Text(`[${timeStr}] ${typeIcon} ${entry.message}`, 1, 0));
-      });
+      this.rebuildLogPanel();
     }
   }
 
@@ -193,7 +241,9 @@ export class AgentScreen implements Screen {
   }
 
   handleInput(data: string): boolean {
-    // Handle toolbar shortcuts
+    const kb = getKeybindings();
+
+    // Handle toolbar shortcuts (available in both modes)
     if (data === "b" || data === "B") {
       this.onBack?.();
       return true;
@@ -212,7 +262,102 @@ export class AgentScreen implements Screen {
       return true;
     }
 
-    // Delegate to message input when focused
+    // === Normal mode: vim-style log navigation ===
+    if (this.mode === InputMode.Normal) {
+      // Enter, Esc, or any printable char → switch back to Chat mode
+      if (kb.matches(data, "tui.input.submit")) {
+        this.mode = InputMode.Chat;
+        this.scrollOffset = 0;
+        this.rebuildLogPanel();
+        if (this.tui) this.tui.setInputMode(InputMode.Chat);
+        if (this.tui) this.tui.setContext("chat");
+        return true;
+      }
+
+      if (kb.matches(data, "tui.select.cancel")) {
+        // Esc in Normal mode also returns to Chat
+        this.mode = InputMode.Chat;
+        this.scrollOffset = 0;
+        this.rebuildLogPanel();
+        if (this.tui) this.tui.setInputMode(InputMode.Chat);
+        if (this.tui) this.tui.setContext("chat");
+        return true;
+      }
+
+      // j / Down — scroll down (toward newer entries)
+      if (kb.matches(data, "tui.navigate.up")) {
+        this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // k / Up — scroll up (toward older entries)
+      if (kb.matches(data, "tui.navigate.down")) {
+        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+        this.scrollOffset = Math.min(maxOffset, this.scrollOffset + 1);
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // Ctrl+u — scroll up half page
+      if (kb.matches(data, "tui.navigate.halfPageUp")) {
+        const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
+        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+        this.scrollOffset = Math.min(maxOffset, this.scrollOffset + halfPage);
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // Ctrl+d — scroll down half page
+      if (kb.matches(data, "tui.navigate.halfPageDown")) {
+        const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
+        this.scrollOffset = Math.max(0, this.scrollOffset - halfPage);
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // g / Ctrl+Home — jump to top (oldest entries)
+      if (kb.matches(data, "tui.navigate.top")) {
+        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+        this.scrollOffset = maxOffset;
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // G / Ctrl+End — jump to bottom (latest entries)
+      if (kb.matches(data, "tui.navigate.bottom")) {
+        this.scrollOffset = 0;
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      // Any printable character → switch to Chat mode
+      if (data.length === 1 && data.charCodeAt(0) >= 32) {
+        this.mode = InputMode.Chat;
+        this.scrollOffset = 0;
+        if (this.tui) this.tui.setInputMode(InputMode.Chat);
+        if (this.tui) this.tui.setContext("chat");
+        // Forward the character to the input
+        if (this.messageInput.handleInput) {
+          this.messageInput.handleInput(data);
+        }
+        this.rebuildLogPanel();
+        return true;
+      }
+
+      return true; // Consume all other input in Normal mode
+    }
+
+    // === Chat mode: handle Esc → switch to Normal ===
+    if (kb.matches(data, "tui.select.cancel")) {
+      this.mode = InputMode.Normal;
+      this.scrollOffset = 0;
+      this.rebuildLogPanel();
+      if (this.tui) this.tui.setInputMode(InputMode.Normal);
+      return true;
+    }
+
+    // === Chat mode: delegate to message input ===
     if (this.messageInput.handleInput) {
       this.messageInput.handleInput(data);
       return true;

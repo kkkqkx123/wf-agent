@@ -97,6 +97,51 @@ describe("Keybindings", () => {
       });
     });
 
+    describe("context-aware matches", () => {
+      const contextDefinitions: KeybindingDefinitions = {
+        "ctx.globalOnly": { defaultKeys: "a", description: "Global only", context: "global" },
+        "ctx.chatOnly": { defaultKeys: "b", description: "Chat only", context: "chat" },
+        "ctx.selectOnly": { defaultKeys: "c", description: "Select only", context: "selectList" },
+        "ctx.unrestricted": { defaultKeys: "d", description: "No context restriction" },
+      };
+
+      let contextManager: KeybindingsManager;
+
+      beforeEach(() => {
+        contextManager = new KeybindingsManager(contextDefinitions);
+      });
+
+      it("should match when context is specified and matches binding context", () => {
+        expect(contextManager.matches("a", "ctx.globalOnly" as any, "global")).toBe(true);
+        expect(contextManager.matches("b", "ctx.chatOnly" as any, "chat")).toBe(true);
+        expect(contextManager.matches("c", "ctx.selectOnly" as any, "selectList")).toBe(true);
+      });
+
+      it("should not match when context is specified but differs from binding context", () => {
+        expect(contextManager.matches("a", "ctx.globalOnly" as any, "chat")).toBe(false);
+        expect(contextManager.matches("b", "ctx.chatOnly" as any, "global")).toBe(false);
+        expect(contextManager.matches("c", "ctx.selectOnly" as any, "modal")).toBe(false);
+      });
+
+      it("should match unrestricted binding regardless of context", () => {
+        expect(contextManager.matches("d", "ctx.unrestricted" as any, "global")).toBe(true);
+        expect(contextManager.matches("d", "ctx.unrestricted" as any, "chat")).toBe(true);
+        expect(contextManager.matches("d", "ctx.unrestricted" as any, "modal")).toBe(true);
+      });
+
+      it("should match when no context is passed (backward-compatible)", () => {
+        // When context is omitted, all bindings are matchable regardless of their context field
+        expect(contextManager.matches("a", "ctx.globalOnly" as any)).toBe(true);
+        expect(contextManager.matches("b", "ctx.chatOnly" as any)).toBe(true);
+        expect(contextManager.matches("c", "ctx.selectOnly" as any)).toBe(true);
+        expect(contextManager.matches("d", "ctx.unrestricted" as any)).toBe(true);
+      });
+
+      it("should not match when wrong key is pressed even if context matches", () => {
+        expect(contextManager.matches("x", "ctx.chatOnly" as any, "chat")).toBe(false);
+      });
+    });
+
     describe("getKeys", () => {
       it("should return keys for binding", () => {
         const keys = manager.getKeys("test.action1" as any);

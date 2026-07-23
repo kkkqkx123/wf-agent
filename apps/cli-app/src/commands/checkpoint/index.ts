@@ -134,5 +134,192 @@ export function createCheckpointCommands(): Command {
       }
     });
 
+  // --- checkpoint latest <execution-id> ---
+  checkpointCmd
+    .command("latest <execution-id>")
+    .description("Get the latest checkpoint for a workflow execution")
+    .action(async (executionId: string) => {
+      try {
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoint = await adapter.getLatestCheckpoint(executionId);
+
+        router.render(checkpoint, {
+          type: "detail",
+          entity: "checkpoint",
+          format: () => formatCheckpoint(checkpoint as any, { verbose: false }),
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "checkpoint-latest",
+          additionalInfo: { executionId },
+        });
+      }
+    });
+
+  // --- checkpoint stats ---
+  checkpointCmd
+    .command("stats")
+    .description("Show checkpoint statistics")
+    .action(async () => {
+      try {
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const stats = await adapter.getStatistics();
+
+        router.render(stats, {
+          type: "detail",
+          entity: "checkpoint-stats",
+          format: () => JSON.stringify(stats, null, 2),
+        });
+      } catch (error) {
+        handleError(error, { operation: "checkpoint-stats" });
+      }
+    });
+
+  // --- checkpoint query ---
+  checkpointCmd
+    .command("query")
+    .description("Query checkpoints with filters")
+    .option("--execution-id <id>", "Filter by execution ID")
+    .option("--workflow-id <id>", "Filter by workflow ID")
+    .option("--type <type>", "Filter by checkpoint type (FULL, DELTA)")
+    .option("--tags <tags>", "Filter by tags (comma-separated)")
+    .action(async (options: Record<string, string>) => {
+      try {
+        const filter: Record<string, unknown> = {};
+        if (options["executionId"]) filter["executionId"] = options["executionId"];
+        if (options["workflowId"]) filter["workflowId"] = options["workflowId"];
+        if (options["type"]) filter["type"] = options["type"];
+        if (options["tags"]) filter["tags"] = options["tags"].split(",").map((t: string) => t.trim());
+
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoints = await adapter.queryCheckpoints(filter);
+
+        router.render(checkpoints, {
+          type: "list",
+          entity: "checkpoint",
+          format: () => formatCheckpointList(checkpoints, { table: true }),
+          metadata: { total: checkpoints.length },
+        });
+      } catch (error) {
+        handleError(error, { operation: "checkpoint-query" });
+      }
+    });
+
+  // --- checkpoint range <execution-id> <from> <to> ---
+  checkpointCmd
+    .command("range <execution-id> <from> <to>")
+    .description("Get checkpoints within a time range (timestamp in ms)")
+    .action(async (executionId: string, from: string, to: string) => {
+      try {
+        const startTime = parseInt(from, 10);
+        const endTime = parseInt(to, 10);
+
+        if (isNaN(startTime) || isNaN(endTime)) {
+          output.warnLog("Invalid timestamp. Use Unix timestamps in milliseconds.");
+          return;
+        }
+
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoints = await adapter.getCheckpointsByTimeRange(executionId, startTime, endTime);
+
+        router.render(checkpoints, {
+          type: "list",
+          entity: "checkpoint",
+          format: () => formatCheckpointList(checkpoints, { table: true }),
+          metadata: { total: checkpoints.length },
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "checkpoint-range",
+          additionalInfo: { executionId, from, to },
+        });
+      }
+    });
+
+  // --- checkpoint by-tags <execution-id> <tags...> ---
+  checkpointCmd
+    .command("by-tags <execution-id> <tags...>")
+    .description("Get checkpoints filtered by tags")
+    .action(async (executionId: string, tags: string[]) => {
+      try {
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoints = await adapter.getCheckpointsByTags(executionId, tags);
+
+        router.render(checkpoints, {
+          type: "list",
+          entity: "checkpoint",
+          format: () => formatCheckpointList(checkpoints, { table: true }),
+          metadata: { total: checkpoints.length },
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "checkpoint-by-tags",
+          additionalInfo: { executionId, tags },
+        });
+      }
+    });
+
+  // --- checkpoint batch <ids...> ---
+  checkpointCmd
+    .command("batch <ids...>")
+    .description("Batch query checkpoints by IDs")
+    .action(async (ids: string[]) => {
+      try {
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const checkpoints = await adapter.getCheckpointsById(ids);
+
+        router.render(checkpoints, {
+          type: "list",
+          entity: "checkpoint",
+          format: () => formatCheckpointList(checkpoints, { table: true }),
+          metadata: { total: checkpoints.length },
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "checkpoint-batch",
+          additionalInfo: { ids },
+        });
+      }
+    });
+
+  // --- checkpoint chain <id> ---
+  checkpointCmd
+    .command("chain <id>")
+    .description("Show checkpoint chain (parent chain from a checkpoint)")
+    .action(async (id: string) => {
+      try {
+        const adapter = new WorkflowExecutionCheckpointAdapter();
+        const chain = await adapter.getCheckpointChainFrom(id);
+
+        router.render(chain, {
+          type: "list",
+          entity: "checkpoint-chain",
+          format: () =>
+            chain.length === 0
+              ? "No chain entries found"
+              : chain
+                  .map((cp: any, i: number) =>
+                    [
+                      `[${i}] ${cp.id || cp.checkpointId}`,
+                      `    Type: ${cp.type || "unknown"}`,
+                      `    Timestamp: ${cp.timestamp || cp.createdAt || "unknown"}`,
+                      cp.previousCheckpointId
+                        ? `    Previous: ${cp.previousCheckpointId}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join("\n"),
+                  )
+                  .join("\n\n"),
+          metadata: { total: chain.length },
+        });
+      } catch (error) {
+        handleError(error, {
+          operation: "checkpoint-chain",
+          additionalInfo: { id },
+        });
+      }
+    });
+
   return checkpointCmd;
 }

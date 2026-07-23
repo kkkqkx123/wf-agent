@@ -87,6 +87,8 @@ export class Editor implements Component, Focusable {
 
   public onSubmit?: (text: string) => void;
   public onChange?: (text: string) => void;
+  /** Called when Esc is pressed and editor is empty — used to switch to Normal mode */
+  public onModeSwitch?: () => void;
   public disableSubmit: boolean = false;
 
   constructor(tui: TUI, theme: EditorTheme, options: EditorOptions = {}) {
@@ -394,6 +396,12 @@ export class Editor implements Component, Focusable {
     // Tab - trigger completion
     if (kb.matches(data, "tui.input.tab") && !this.autocompleteState) {
       this.handleTabCompletion();
+      return;
+    }
+
+    // Esc (when not in autocomplete mode) — notify parent for mode switch
+    if (kb.matches(data, "tui.select.cancel") && this.onModeSwitch) {
+      this.onModeSwitch();
       return;
     }
 

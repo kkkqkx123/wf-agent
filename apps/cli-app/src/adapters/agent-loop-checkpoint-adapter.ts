@@ -11,7 +11,7 @@ import {
   type CheckpointOptions,
   type AgentLoopEntity,
 } from "@wf-agent/sdk/agent";
-import { AgentLoopCheckpointResourceAPI } from "@wf-agent/sdk/api";
+import { AgentLoopCheckpointResourceAPI, type AgentLoopCheckpointStatistics } from "@wf-agent/sdk/api";
 import type { AgentLoopCheckpoint, CheckpointMetadata } from "@wf-agent/types";
 import { CLINotFoundError } from "../types/cli-types.js";
 
@@ -54,9 +54,10 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   async restoreCheckpoint(
     checkpointId: string,
     dependencies: CheckpointDependencies,
+    config?: import("@wf-agent/types").AgentLoopRuntimeConfig,
   ): Promise<AgentLoopEntity> {
     return this.executeWithErrorHandling(async () => {
-      const coordinator = new AgentLoopCheckpointCoordinator();
+      const coordinator = new AgentLoopCheckpointCoordinator(config);
       const entity = await coordinator.restoreFromCheckpoint(checkpointId, dependencies);
       this.output.infoLog(`Agent Loop restored from checkpoint: ${checkpointId}`);
       return entity;
@@ -147,7 +148,7 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
    */
   async getCheckpointChain(checkpointId: string): Promise<AgentLoopCheckpoint[]> {
     return this.executeWithErrorHandling(async () => {
-      const chain = await this.checkpointAPI.getCheckpointChain(checkpointId);
+      const chain = await this.checkpointAPI.getCheckpointChainFrom(checkpointId);
       return chain;
     }, "Get the Agent Loop checkpoint chain");
   }
@@ -155,7 +156,7 @@ export class AgentLoopCheckpointAdapter extends BaseAdapter {
   /**
    * Get checkpoint statistics
    */
-  async getStatistics(): Promise<Record<string, unknown>> {
+  async getStatistics(): Promise<AgentLoopCheckpointStatistics> {
     return this.executeWithErrorHandling(async () => {
       const stats = await this.checkpointAPI.getCheckpointStatistics();
       return stats;

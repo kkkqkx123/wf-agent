@@ -17,6 +17,11 @@ import { loadAgentLoopConfig } from "@wf-agent/config-processor";
 import { transformToAgentLoopConfig } from "@wf-agent/sdk/api";
 import { existsSync } from "fs";
 import { createIterationCommands } from "../agent-loop-iteration/index.js";
+import { createAgentErrorCommands } from "./error.js";
+import { createAgentPerfCommands } from "./perf.js";
+import { createAgentTemplateCommands } from "./template.js";
+import { createAgentTriggerTemplateCommands } from "./trigger-template.js";
+import { createAgentHookTemplateCommands } from "./hook-template.js";
 
 const output = getOutput();
 const router = getRouter();
@@ -444,7 +449,8 @@ export function createAgentCommands(): Command {
   agentCmd
     .command("restore <checkpoint-id>")
     .description("Restore the Agent Loop from checkpoint")
-    .action(async checkpointId => {
+    .option("-c, --config <file>", "Configuration file path (TOML or JSON) for restore")
+    .action(async (checkpointId, options: { config?: string }) => {
       try {
         output.infoLog(`Restoring from checkpoint: ${checkpointId}`);
 
@@ -473,7 +479,22 @@ export function createAgentCommands(): Command {
           },
         };
 
-        const result = await checkpointAdapter.restoreCheckpoint(checkpointId, dependencies);
+        // Load restore config if provided
+        let restoreConfig: AgentLoopRuntimeConfig | undefined;
+        if (options.config) {
+          if (!existsSync(options.config)) {
+            handleError(new CLIValidationError(`Config file not found: ${options.config}`), {
+              operation: "restoreFromCheckpoint",
+              additionalInfo: { checkpointId, config: options.config },
+            });
+            return;
+          }
+          output.infoLog(`Loading restore config from: ${options.config}`);
+          const parsedConfig = await loadAgentLoopConfig(options.config);
+          restoreConfig = transformToAgentLoopConfig(parsedConfig.config);
+        }
+
+        const result = await checkpointAdapter.restoreCheckpoint(checkpointId, dependencies, restoreConfig);
         output.newLine();
         output.info(`Restored from checkpoint: ${result.id}`);
       } catch (error) {
@@ -741,8 +762,18 @@ export function createAgentCommands(): Command {
     .option("-j, --json", "The value is in JSON format")
     .action(async (agentLoopId, variableName, value, options: { json?: boolean }) => {
       try {
-        output.infoLog(`Setting variable '${variableName}' on agent loop ${agentLoopId} is not directly supported via CLI. Use the agent loop execution context to set variables.`);
-        output.infoLog(`Variable value would be: ${options.json ? JSON.stringify(JSON.parse(value)) : value}`);
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+
+        const parsedValue = options.json ? JSON.parse(value) : value;
+        const result = await sdk.agentVariables.setExecutionVariable(agentLoopId, variableName, parsedValue);
+
+        if (result.result.isOk()) {
+          output.success(`Variable '${variableName}' set on agent loop ${agentLoopId}`);
+        } else {
+          throw new Error(result.result.error?.message || "Failed to set variable");
+        }
       } catch (error) {
         handleError(error, { operation: "agent-variable-set", additionalInfo: { agentLoopId, variableName } });
       }
@@ -760,14 +791,40 @@ export function createAgentCommands(): Command {
           return;
         }
 
-        output.infoLog(`Deleting variable '${variableName}' from agent loop ${agentLoopId}...`);
-        output.infoLog("Note: Agent variables are managed through execution context; deletion may not be persistent.");
+        const { getSDKInstance } = await import("../../services/sdk-globals.js");
+        const sdk = getSDKInstance();
+        if (!sdk) throw new Error("SDK not available");
+
+        const result = await sdk.agentVariables.deleteExecutionVariable(agentLoopId, variableName);
+
+        if (result.result.isOk()) {
+          output.success(`Variable '${variableName}' deleted from agent loop ${agentLoopId}`);
+        } else {
+          throw new Error(result.result.error?.message || "Failed to delete variable");
+        }
       } catch (error) {
         handleError(error, { operation: "agent-variable-delete", additionalInfo: { agentLoopId, variableName } });
       }
     });
 
   agentCmd.addCommand(agentVariableCmd);
+
+  // ========================================================================
+  // Agent Error Analysis Subcommand Group
+  // ========================================================================
+  agentCmd.addCommand(createAgentErrorCommands());
+
+  // ========================================================================
+  // Agent Performance Analysis Subcommand Group
+  // ========================================================================
+  agentCmd.addCommand(createAgentPerfCommands());
+
+  // ========================================================================
+  // Agent Template Registry Subcommand Groups
+  // ========================================================================
+  agentCmd.addCommand(createAgentTemplateCommands());
+  agentCmd.addCommand(createAgentTriggerTemplateCommands());
+  agentCmd.addCommand(createAgentHookTemplateCommands());
 
   return agentCmd;
 }

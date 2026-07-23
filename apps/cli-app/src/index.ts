@@ -35,11 +35,15 @@ import { createWorkflowGraphCommands } from "./commands/workflow-graph/index.js"
 import { createExecutionComparisonCommand } from "./commands/execution-comparison/index.js";
 import { createProgressCommand } from "./commands/progress/index.js";
 import { createWorkflowVersionCommand } from "./commands/workflow-version/index.js";
+import { createWorkflowErrorCommands } from "./commands/workflow/error.js";
 import { createTaskCommands } from "./commands/task/index.js";
 import { createHookCommands } from "./commands/hook/index.js";
 import { createPredefinedCommands } from "./commands/predefined/index.js";
 import { createUserInteractionCommands } from "./commands/user-interaction/index.js";
 import { createQueryCommands } from "./commands/query/index.js";
+import { createMcpCommands } from "./commands/mcp/index.js";
+import { createSandboxCommands } from "./commands/sandbox/index.js";
+import { createApprovalCommands } from "./commands/approval/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
 import { setSDKInstance, getSDKInstance } from "./services/sdk-globals.js";
@@ -271,12 +275,22 @@ program.addCommand(createUserInteractionCommands());
 // Add query command group
 program.addCommand(createQueryCommands());
 
+// Add MCP command group
+program.addCommand(createMcpCommands());
+
+// Add sandbox command group
+program.addCommand(createSandboxCommands());
+
+// Add approval command group
+program.addCommand(createApprovalCommands());
+
 // Add workflow graph command as subcommand under workflow
 const workflowCmd = program.commands.find(c => c.name() === "workflow");
 if (workflowCmd) {
   workflowCmd.addCommand(createWorkflowGraphCommands());
-  workflowCmd.addCommand(createWorkflowVersionCommand());
-}
+    workflowCmd.addCommand(createWorkflowVersionCommand());
+    workflowCmd.addCommand(createWorkflowErrorCommands());
+  }
 
 // Add execution comparison command as subcommand under workflow-execution
 const executionCmd = program.commands.find(c => c.name() === "workflow-execution");

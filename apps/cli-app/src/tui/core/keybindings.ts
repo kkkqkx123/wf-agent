@@ -1,6 +1,11 @@
 import { type KeyId, matchesKey } from "./keys/index.js";
 
 /**
+ * Input context for context-aware keybinding routing.
+ */
+export type InputContext = "global" | "chat" | "selectList" | "modal";
+
+/**
  * Global keybinding registry.
  */
 export interface Keybindings {
@@ -38,6 +43,13 @@ export interface Keybindings {
   "tui.select.pageDown": true;
   "tui.select.confirm": true;
   "tui.select.cancel": true;
+  // Normal-mode navigation actions
+  "tui.navigate.up": true;
+  "tui.navigate.down": true;
+  "tui.navigate.halfPageUp": true;
+  "tui.navigate.halfPageDown": true;
+  "tui.navigate.top": true;
+  "tui.navigate.bottom": true;
 }
 
 export type Keybinding = keyof Keybindings;
@@ -45,90 +57,150 @@ export type Keybinding = keyof Keybindings;
 export interface KeybindingDefinition {
   defaultKeys: KeyId | KeyId[];
   description?: string;
+  /** Context in which this binding is active. Omitted means all contexts. */
+  context?: InputContext;
 }
 
 export type KeybindingDefinitions = Record<string, KeybindingDefinition>;
 export type KeybindingsConfig = Record<string, KeyId | KeyId[] | undefined>;
 
 export const TUI_KEYBINDINGS = {
-  "tui.editor.cursorUp": { defaultKeys: "up", description: "Move cursor up" },
-  "tui.editor.cursorDown": { defaultKeys: "down", description: "Move cursor down" },
+  "tui.editor.cursorUp": { defaultKeys: "up", description: "Move cursor up", context: "chat" as const },
+  "tui.editor.cursorDown": { defaultKeys: "down", description: "Move cursor down", context: "chat" as const },
   "tui.editor.cursorLeft": {
     defaultKeys: ["left", "ctrl+b"],
     description: "Move cursor left",
+    context: "chat" as const,
   },
   "tui.editor.cursorRight": {
     defaultKeys: ["right", "ctrl+f"],
     description: "Move cursor right",
+    context: "chat" as const,
   },
   "tui.editor.cursorWordLeft": {
     defaultKeys: ["alt+left", "ctrl+left", "alt+b"],
     description: "Move cursor word left",
+    context: "chat" as const,
   },
   "tui.editor.cursorWordRight": {
     defaultKeys: ["alt+right", "ctrl+right", "alt+f"],
     description: "Move cursor word right",
+    context: "chat" as const,
   },
   "tui.editor.cursorLineStart": {
     defaultKeys: ["home", "ctrl+a"],
     description: "Move to line start",
+    context: "chat" as const,
   },
   "tui.editor.cursorLineEnd": {
     defaultKeys: ["end", "ctrl+e"],
     description: "Move to line end",
+    context: "chat" as const,
   },
   "tui.editor.jumpForward": {
     defaultKeys: "ctrl+]",
     description: "Jump forward to character",
+    context: "chat" as const,
   },
   "tui.editor.jumpBackward": {
     defaultKeys: "ctrl+alt+]",
     description: "Jump backward to character",
+    context: "chat" as const,
   },
-  "tui.editor.pageUp": { defaultKeys: "pageUp", description: "Page up" },
-  "tui.editor.pageDown": { defaultKeys: "pageDown", description: "Page down" },
+  "tui.editor.pageUp": { defaultKeys: "pageUp", description: "Page up", context: "chat" as const },
+  "tui.editor.pageDown": { defaultKeys: "pageDown", description: "Page down", context: "chat" as const },
   "tui.editor.deleteCharBackward": {
     defaultKeys: "backspace",
     description: "Delete character backward",
+    context: "chat" as const,
   },
   "tui.editor.deleteCharForward": {
     defaultKeys: ["delete", "ctrl+d"],
     description: "Delete character forward",
+    context: "chat" as const,
   },
   "tui.editor.deleteWordBackward": {
     defaultKeys: ["ctrl+w", "alt+backspace"],
     description: "Delete word backward",
+    context: "chat" as const,
   },
   "tui.editor.deleteWordForward": {
     defaultKeys: ["alt+d", "alt+delete"],
     description: "Delete word forward",
+    context: "chat" as const,
   },
   "tui.editor.deleteToLineStart": {
     defaultKeys: "ctrl+u",
     description: "Delete to line start",
+    context: "chat" as const,
   },
   "tui.editor.deleteToLineEnd": {
     defaultKeys: "ctrl+k",
     description: "Delete to line end",
+    context: "chat" as const,
   },
-  "tui.editor.yank": { defaultKeys: "ctrl+y", description: "Yank" },
-  "tui.editor.yankPop": { defaultKeys: "alt+y", description: "Yank pop" },
-  "tui.editor.undo": { defaultKeys: "ctrl+-", description: "Undo" },
-  "tui.input.newLine": { defaultKeys: "shift+enter", description: "Insert newline" },
-  "tui.input.submit": { defaultKeys: "enter", description: "Submit input" },
-  "tui.input.tab": { defaultKeys: "tab", description: "Tab / autocomplete" },
-  "tui.input.copy": { defaultKeys: "ctrl+c", description: "Copy selection" },
-  "tui.select.up": { defaultKeys: "up", description: "Move selection up" },
-  "tui.select.down": { defaultKeys: "down", description: "Move selection down" },
-  "tui.select.pageUp": { defaultKeys: "pageUp", description: "Selection page up" },
+  "tui.editor.yank": { defaultKeys: "ctrl+y", description: "Yank", context: "chat" as const },
+  "tui.editor.yankPop": { defaultKeys: "alt+y", description: "Yank pop", context: "chat" as const },
+  "tui.editor.undo": { defaultKeys: "ctrl+-", description: "Undo", context: "chat" as const },
+  "tui.input.newLine": {
+    defaultKeys: "shift+enter",
+    description: "Insert newline",
+    context: "chat" as const,
+  },
+  "tui.input.submit": { defaultKeys: "enter", description: "Submit input", context: "chat" as const },
+  "tui.input.tab": { defaultKeys: "tab", description: "Tab / autocomplete", context: "chat" as const },
+  "tui.input.copy": { defaultKeys: "ctrl+c", description: "Copy selection", context: "global" as const },
+  "tui.select.up": { defaultKeys: "up", description: "Move selection up", context: "selectList" as const },
+  "tui.select.down": { defaultKeys: "down", description: "Move selection down", context: "selectList" as const },
+  "tui.select.pageUp": {
+    defaultKeys: "pageUp",
+    description: "Selection page up",
+    context: "selectList" as const,
+  },
   "tui.select.pageDown": {
     defaultKeys: "pageDown",
     description: "Selection page down",
+    context: "selectList" as const,
   },
-  "tui.select.confirm": { defaultKeys: "enter", description: "Confirm selection" },
+  "tui.select.confirm": {
+    defaultKeys: "enter",
+    description: "Confirm selection",
+    context: "selectList" as const,
+  },
   "tui.select.cancel": {
     defaultKeys: ["escape", "ctrl+c"],
     description: "Cancel selection",
+    context: "selectList" as const,
+  },
+  "tui.navigate.up": {
+    defaultKeys: ["j", "down"],
+    description: "Scroll down (Normal mode)",
+    context: "chat" as const,
+  },
+  "tui.navigate.down": {
+    defaultKeys: ["k", "up"],
+    description: "Scroll up (Normal mode)",
+    context: "chat" as const,
+  },
+  "tui.navigate.halfPageUp": {
+    defaultKeys: "ctrl+u",
+    description: "Scroll up half page (Normal mode)",
+    context: "chat" as const,
+  },
+  "tui.navigate.halfPageDown": {
+    defaultKeys: "ctrl+d",
+    description: "Scroll down half page (Normal mode)",
+    context: "chat" as const,
+  },
+  "tui.navigate.top": {
+    defaultKeys: ["g", "ctrl+home"],
+    description: "Jump to log top (Normal mode)",
+    context: "chat" as const,
+  },
+  "tui.navigate.bottom": {
+    defaultKeys: ["G", "ctrl+end"],
+    description: "Jump to latest message (Normal mode)",
+    context: "chat" as const,
   },
 } as const satisfies KeybindingDefinitions;
 
@@ -190,7 +262,14 @@ export class KeybindingsManager {
     }
   }
 
-  matches(data: string, keybinding: Keybinding): boolean {
+  matches(data: string, keybinding: Keybinding, context?: InputContext): boolean {
+    // When context is specified, only match bindings active in that context
+    if (context !== undefined) {
+      const definition = this.definitions[keybinding];
+      if (definition?.context !== undefined && definition.context !== context) {
+        return false;
+      }
+    }
     const keys = this.keysById.get(keybinding) ?? [];
     for (const key of keys) {
       if (matchesKey(data, key)) return true;

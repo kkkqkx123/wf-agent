@@ -4,11 +4,22 @@
  */
 
 import { ProcessTerminal, TUI, Container } from "./core/index.js";
+import type { InputContext } from "./core/keybindings.js";
+import { getKeybindings } from "./core/keybindings.js";
 import type { Screen } from "./screens/screen.js";
 import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
+
+/**
+ * Map screen IDs to their input contexts.
+ */
+const SCREEN_CONTEXTS: Record<string, InputContext> = {
+  dashboard: "selectList",
+  workflow: "selectList",
+  agent: "chat",
+};
 
 export class CLIAppTUI {
   private tui: TUI;
@@ -26,6 +37,7 @@ export class CLIAppTUI {
 
     this.initializeScreens();
     this.setupGlobalKeybindings();
+    this.setupInputRouting();
   }
 
   /**
@@ -44,7 +56,7 @@ export class CLIAppTUI {
 
     const agentScreen = new AgentScreen(() => {
       this.showScreen("dashboard");
-    });
+    }, this.tui);
     this.screens.set("agent", agentScreen);
   }
 
@@ -52,8 +64,31 @@ export class CLIAppTUI {
    * Setup global keyboard shortcuts
    */
   private setupGlobalKeybindings() {
-    // Global shortcuts will be handled via handleInput
-    // Reserved for future use
+    // Global keybindings are handled via onInput routing (setupInputRouting)
+  }
+
+  /**
+   * Wire up screen-level input routing through TUI context system.
+   */
+  private setupInputRouting() {
+    this.tui.onInput = (data: string, _context: InputContext): boolean => {
+      const kb = getKeybindings();
+      const currentScreen = this.screens.get(this.currentScreenId);
+
+      // Global keys (active regardless of context)
+      // Ctrl+D - exit when in global context and no active input
+      if (kb.matches(data, "tui.editor.deleteCharForward", "global")) {
+        this.quit();
+        return true;
+      }
+
+      // Delegate to current screen's handleInput
+      if (currentScreen?.handleInput) {
+        return currentScreen.handleInput(data) || false;
+      }
+
+      return false;
+    };
   }
 
   /**
@@ -108,6 +143,11 @@ export class CLIAppTUI {
     this.mainContainer.clear();
 
     this.currentScreenId = screenId;
+
+    // Set TUI context based on screen
+    const context = SCREEN_CONTEXTS[screenId] ?? "global";
+    this.tui.setContext(context);
+
     if (screen.onActivate) {
       screen.onActivate();
     }

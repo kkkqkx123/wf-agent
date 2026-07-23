@@ -3,8 +3,17 @@
  */
 
 import { isKeyRelease } from "./keys/index.js";
+import type { InputContext } from "./keybindings.js";
 import type { Terminal } from "./terminal.js";
 import { visibleWidth } from "./utils.js";
+
+/**
+ * Input modes for cursor and focus management.
+ */
+export enum InputMode {
+  Chat = "chat",
+  Normal = "normal",
+}
 
 /**
  * Component interface - all components must implement this
@@ -189,6 +198,32 @@ export class TUI extends Container {
   constructor(terminal: Terminal) {
     super();
     this.terminal = terminal;
+  }
+
+  /**
+   * Current input context for context-aware keybinding routing.
+   */
+  currentContext: InputContext = "global";
+
+  /**
+   * Current input mode (Chat = insert, Normal = browse).
+   * Only meaningful when currentContext is "chat".
+   */
+  inputMode: InputMode = InputMode.Chat;
+
+  /**
+   * Set the current input context. Used to route keys differently
+   * depending on whether we're in global, chat, selectList, or modal context.
+   */
+  setContext(context: InputContext): void {
+    this.currentContext = context;
+  }
+
+  /**
+   * Set the current input mode.
+   */
+  setInputMode(mode: InputMode): void {
+    this.inputMode = mode;
   }
 
   get fullRedraws(): number {
@@ -404,12 +439,25 @@ export class TUI extends Container {
       return;
     }
 
+    // Route through context-aware screen input handler first
+    if (this.onInput?.(data, this.currentContext)) {
+      this.requestRender();
+      return;
+    }
+
     // Pass input to focused component
     if (this.focusedComponent?.handleInput) {
       this.focusedComponent.handleInput(data);
       this.requestRender();
     }
   }
+
+  /**
+   * Callback for screen-level input routing.
+   * When set, this is called before focused component input.
+   * Return true to consume the input (prevent focused component handling).
+   */
+  onInput?: (data: string, context: InputContext) => boolean;
 
   /**
    * Resolve overlay layout from options.

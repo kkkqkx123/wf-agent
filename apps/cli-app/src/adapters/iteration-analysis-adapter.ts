@@ -1,10 +1,11 @@
 /**
  * Iteration Analysis Adapter
- * Simplified version using AgentLoopRegistry for iteration tracking
+ * Uses AgentLoopIterationAPI from SDK for real iteration tracking
  */
 
 import { BaseAdapter } from "./base-adapter.js";
 import type { ID } from "@wf-agent/types";
+import type { AgentLoopIterationAPI } from "@wf-agent/sdk/api";
 
 export interface IterationSummary {
   iteration: number;
@@ -25,8 +26,16 @@ export interface LoopIterationSummary {
 /**
  * Iteration Analysis Adapter
  * Provides methods for querying and analyzing agent loop iterations
+ * using the SDK's AgentLoopIterationAPI for real data retrieval.
  */
 export class IterationAnalysisAdapter extends BaseAdapter {
+  /**
+   * Get the AgentLoopIterationAPI instance from SDK
+   */
+  private getAPI(): AgentLoopIterationAPI {
+    return this.sdk.agentLoopIteration;
+  }
+
   /**
    * Get iteration history summary for an agent loop
    */
@@ -34,21 +43,16 @@ export class IterationAnalysisAdapter extends BaseAdapter {
     agentLoopId: ID,
   ): Promise<LoopIterationSummary | null> {
     return this.executeWithErrorHandling(async () => {
-      const factory = this.sdk.getFactory();
-      const deps = factory?.getDependencies?.();
-      if (!deps) throw new Error("SDK dependencies not available");
+      const api = this.getAPI();
+      const summary = await api.getExtendedHistorySummary(agentLoopId);
 
-      const registry = deps.getAgentLoopRegistry?.();
-      if (!registry) throw new Error("Agent loop registry not available");
-
-      const entity = await registry.get(agentLoopId);
-      if (!entity) return null;
+      if (!summary) return null;
 
       return {
-        totalIterations: entity.state?.currentIteration ?? 0,
-        currentIteration: entity.state?.currentIteration,
-        maxIterations: entity.config?.maxIterations,
-        status: entity.state?.status ?? "unknown",
+        totalIterations: summary.totalIterations,
+        currentIteration: summary.totalIterations,
+        maxIterations: summary.totalIterations,
+        status: summary.status,
       };
     }, "getIterationHistorySummary");
   }
@@ -61,56 +65,47 @@ export class IterationAnalysisAdapter extends BaseAdapter {
     limit?: number,
   ): Promise<IterationSummary[]> {
     return this.executeWithErrorHandling(async () => {
-      const factory = this.sdk.getFactory();
-      const deps = factory?.getDependencies?.();
-      if (!deps) throw new Error("SDK dependencies not available");
+      const api = this.getAPI();
+      const details = await api.getAll({ agentLoopIds: [agentLoopId] });
 
-      const registry = deps.getAgentLoopRegistry?.();
-      if (!registry) throw new Error("Agent loop registry not available");
+      let iterations: IterationSummary[] = details.map(d => ({
+        iteration: d.iteration,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        status: d.errors && d.errors.length > 0 ? "error" : "completed",
+        toolCalls: d.toolCalls?.length ?? 0,
+        errors: d.errors?.length ?? 0,
+      }));
 
-      const entity = await registry.get(agentLoopId);
-      if (!entity) return [];
-
-      const iterations: IterationSummary[] = [];
-      const totalIterations = entity.state?.currentIteration ?? 0;
-
-      for (let i = 1; i <= totalIterations; i++) {
-        iterations.push({
-          iteration: i,
-          status: "completed",
-          toolCalls: 0,
-        });
+      if (limit) {
+        iterations = iterations.slice(0, limit);
       }
 
-      return limit ? iterations.slice(0, limit) : iterations;
+      return iterations;
     }, "listIterations");
   }
 
   /**
-   * Get iteration detail (simplified version)
+   * Get iteration detail
    */
   async getIterationDetail(
     agentLoopId: ID,
     iterationIndex: number,
   ): Promise<IterationSummary | null> {
     return this.executeWithErrorHandling(async () => {
-      const factory = this.sdk.getFactory();
-      const deps = factory?.getDependencies?.();
-      if (!deps) throw new Error("SDK dependencies not available");
+      const api = this.getAPI();
+      const id = `${agentLoopId}:${iterationIndex}`;
+      const detail = await api.get(id);
 
-      const registry = deps.getAgentLoopRegistry?.();
-      if (!registry) throw new Error("Agent loop registry not available");
-
-      const entity = await registry.get(agentLoopId);
-      if (!entity) return null;
-
-      const totalIterations = entity.state?.currentIteration ?? 0;
-      if (iterationIndex > totalIterations || iterationIndex < 1) return null;
+      if (!detail) return null;
 
       return {
-        iteration: iterationIndex,
-        status: "completed",
-        toolCalls: 0,
+        iteration: detail.iteration,
+        startTime: detail.startTime,
+        endTime: detail.endTime,
+        status: detail.errors && detail.errors.length > 0 ? "error" : "completed",
+        toolCalls: detail.toolCalls?.length ?? 0,
+        errors: detail.errors?.length ?? 0,
       };
     }, "getIterationDetail");
   }
@@ -120,27 +115,39 @@ export class IterationAnalysisAdapter extends BaseAdapter {
    */
   async getIterationMetrics(agentLoopId: ID, iterationIndex?: number) {
     return this.executeWithErrorHandling(async () => {
-      const factory = this.sdk.getFactory();
-      const deps = factory?.getDependencies?.();
-      if (!deps) throw new Error("SDK dependencies not available");
-
-      const registry = deps.getAgentLoopRegistry?.();
-      if (!registry) throw new Error("Agent loop registry not available");
-
-      const entity = await registry.get(agentLoopId);
-      if (!entity) return null;
+      const api = this.getAPI();
 
       if (iterationIndex !== undefined) {
+        const id = `${agentLoopId}:${iterationIndex}`;
+        const detail = await api.get(id);
+        if (!detail) return null;
+
         return {
-          iteration: iterationIndex,
-          status: "completed",
+          iteration: detail.iteration,
+          status: detail.errors && detail.errors.length > 0 ? "error" : "completed",
+          duration: detail.endTime ? detail.endTime - detail.startTime : undefined,
+          toolCalls: detail.toolCalls?.length ?? 0,
+          errors: detail.errors?.length ?? 0,
+          systemMetrics: detail.systemMetrics,
+          llmMetrics: detail.llmMetrics,
+          qualityScore: detail.qualityScore,
         };
       }
 
+      const summary = await api.getExtendedHistorySummary(agentLoopId);
+      if (!summary) return null;
+
       return {
-        totalIterations: entity.state?.currentIteration ?? 0,
-        currentIteration: entity.state?.currentIteration,
-        status: entity.state?.status ?? "unknown",
+        totalIterations: summary.totalIterations,
+        status: summary.status,
+        totalToolCalls: summary.totalToolCalls,
+        totalDuration: summary.totalDuration,
+        averageDuration: summary.averageDuration,
+        totalErrors: summary.totalErrors,
+        errorRate: summary.errorRate,
+        averageQualityScore: summary.averageQualityScore,
+        totalLLMTokens: summary.totalLLMTokens,
+        peakMemoryUsage: summary.peakMemoryUsage,
       };
     }, "getIterationMetrics");
   }
@@ -148,18 +155,44 @@ export class IterationAnalysisAdapter extends BaseAdapter {
   /**
    * Get error iterations
    */
-  async getErrorIterations(_agentLoopId: ID): Promise<IterationSummary[]> {
+  async getErrorIterations(agentLoopId: ID): Promise<IterationSummary[]> {
     return this.executeWithErrorHandling(async () => {
-      return [];
+      const api = this.getAPI();
+      const details = await api.getAll({
+        agentLoopIds: [agentLoopId],
+        hasErrors: true,
+      });
+
+      return details.map(d => ({
+        iteration: d.iteration,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        status: "error",
+        toolCalls: d.toolCalls?.length ?? 0,
+        errors: d.errors?.length ?? 0,
+      }));
     }, "getErrorIterations");
   }
 
   /**
    * Get revision iterations
    */
-  async getRevisionIterations(_agentLoopId: ID): Promise<IterationSummary[]> {
+  async getRevisionIterations(agentLoopId: ID): Promise<IterationSummary[]> {
     return this.executeWithErrorHandling(async () => {
-      return [];
+      const api = this.getAPI();
+      const details = await api.getAll({
+        agentLoopIds: [agentLoopId],
+        requiresRevision: true,
+      });
+
+      return details.map(d => ({
+        iteration: d.iteration,
+        startTime: d.startTime,
+        endTime: d.endTime,
+        status: "revision",
+        toolCalls: d.toolCalls?.length ?? 0,
+        errors: d.errors?.length ?? 0,
+      }));
     }, "getRevisionIterations");
   }
 
@@ -167,11 +200,17 @@ export class IterationAnalysisAdapter extends BaseAdapter {
    * Get iteration decisions
    */
   async getIterationDecisions(
-    _agentLoopId: ID,
-    _iterationIndex: number,
-  ): Promise<any[]> {
+    agentLoopId: ID,
+    iterationIndex: number,
+  ) {
     return this.executeWithErrorHandling(async () => {
-      return [];
+      const api = this.getAPI();
+      const id = `${agentLoopId}:${iterationIndex}`;
+      const detail = await api.get(id);
+
+      if (!detail || !detail.decisions) return [];
+
+      return detail.decisions;
     }, "getIterationDecisions");
   }
 
@@ -179,40 +218,37 @@ export class IterationAnalysisAdapter extends BaseAdapter {
    * Get iteration errors
    */
   async getIterationErrors(
-    _agentLoopId: ID,
-    _iterationIndex: number,
-  ): Promise<any[]> {
+    agentLoopId: ID,
+    iterationIndex: number,
+  ) {
     return this.executeWithErrorHandling(async () => {
-      return [];
+      const api = this.getAPI();
+      const id = `${agentLoopId}:${iterationIndex}`;
+      const detail = await api.get(id);
+
+      if (!detail || !detail.errors) return [];
+
+      return detail.errors;
     }, "getIterationErrors");
   }
 
   /**
-   * Analyze decisions
+   * Analyze decisions across all iterations
    */
-  async analyzeDecisions(_agentLoopId: ID): Promise<any | null> {
+  async analyzeDecisions(agentLoopId: ID) {
     return this.executeWithErrorHandling(async () => {
-      return {
-        totalDecisions: 0,
-        decisionTypes: {},
-        averageConfidence: 0,
-        frequentDecisions: [],
-        reversalCount: 0,
-      };
+      const api = this.getAPI();
+      return await api.analyzeDecisions(agentLoopId);
     }, "analyzeDecisions");
   }
 
   /**
-   * Analyze execution paths
+   * Analyze execution paths across all iterations
    */
-  async analyzeExecutionPaths(_agentLoopId: ID): Promise<any | null> {
+  async analyzeExecutionPaths(agentLoopId: ID) {
     return this.executeWithErrorHandling(async () => {
-      return {
-        totalPaths: 1,
-        averagePathLength: 0,
-        complexityScore: 0,
-        optimalPathCount: 1,
-      };
+      const api = this.getAPI();
+      return await api.analyzePaths(agentLoopId);
     }, "analyzeExecutionPaths");
   }
 }

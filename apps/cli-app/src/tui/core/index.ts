@@ -34,6 +34,7 @@ export { type FuzzyMatch, fuzzyFilter, fuzzyMatch } from "./fuzzy.js";
 // Keybindings
 export {
   getKeybindings,
+  type InputContext,
   type Keybinding,
   type KeybindingConflict,
   type KeybindingDefinition,
@@ -77,6 +78,7 @@ export {
   Container,
   CURSOR_MARKER,
   type Focusable,
+  InputMode,
   isFocusable,
   type OverlayAnchor,
   type OverlayHandle,

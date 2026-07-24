@@ -135,13 +135,12 @@ export class LayertwineCheckpointAdapter<
       const response = await this.executor.commit({
         message: commitMessage,
         author: String(creator),
-        parentId: parentId,
       });
 
       const duration = performance.now() - startTime;
 
       logger.info("Checkpoint saved to Layertwine", {
-        checkpointId: response.checkpointId,
+        checkpointId: response.checkpoint_id,
         checkpointType,
         parentId,
         branchName,
@@ -151,7 +150,7 @@ export class LayertwineCheckpointAdapter<
         timestamp: new Date().toISOString(),
       });
 
-      return response.checkpointId;
+      return response.checkpoint_id;
     } catch (error) {
       const duration = performance.now() - startTime;
       logger.error("Failed to save checkpoint to Layertwine", {
@@ -215,11 +214,11 @@ export class LayertwineCheckpointAdapter<
     const startTime = performance.now();
 
     try {
-      const restoreResponse = await this.executor.restoreCheckpoint({
-        checkpointId: id,
+      const restoreResponse = await this.executor.checkpointRestore({
+        checkpoint_id: id,
       });
 
-      if (!restoreResponse || !restoreResponse.snapshots) {
+      if (!restoreResponse || !restoreResponse.snapshots || restoreResponse.snapshots.length === 0) {
         logger.warn("Checkpoint restore returned no snapshots", { checkpointId: id });
         return null;
       }
@@ -238,30 +237,22 @@ export class LayertwineCheckpointAdapter<
         return null;
       }
 
-      const snapshotResponse = await this.executor.getSnapshot({
-        checkpointId: id,
-        snapshotId: checkpointFile.id,
-      });
-
-      if (!snapshotResponse || !snapshotResponse.content) {
-        logger.warn("Failed to retrieve checkpoint content", { checkpointId: id });
-        return null;
-      }
-
       const duration = performance.now() - startTime;
 
       try {
-        const content =
-          typeof snapshotResponse.content === "string"
-            ? snapshotResponse.content
-            : snapshotResponse.content.toString();
-
+        // Content is hex-encoded in content_hex — decode it
+        const contentHex = checkpointFile.content_hex;
+        if (!contentHex) {
+          logger.warn("Checkpoint snapshot missing content_hex", { checkpointId: id });
+          return null;
+        }
+        const content = Buffer.from(contentHex, "hex").toString("utf-8");
         const checkpoint = JSON.parse(content) as TCheckpoint;
         this.validateCheckpointStructure(checkpoint, id);
 
         logger.debug("Checkpoint retrieved from Layertwine", {
           checkpointId: id,
-          dataSize: snapshotResponse.size,
+          dataSize: content.length,
           checkpointType: checkpoint.type,
           duration: Math.round(duration),
         });
@@ -341,13 +332,9 @@ export class LayertwineCheckpointAdapter<
         return [];
       }
 
-      // Filter by structured parentId metadata first
+      // Filter by parentId encoded in commit message
       const checkpointIds = response.checkpoints
         .filter((cp) => {
-          if (cp.parentId !== undefined && cp.parentId !== null) {
-            return cp.parentId === parentId;
-          }
-          // Fallback to message parsing if metadata unavailable
           const parsed = this.parseParentIdFromMessage(cp.message);
           return parsed === parentId;
         })

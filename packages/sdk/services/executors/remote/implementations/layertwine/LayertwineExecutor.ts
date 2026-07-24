@@ -33,16 +33,12 @@ import type {
   LayertwineApproveResponse,
   LayertwineBackupRequest,
   LayertwineBackupResponse,
-  LayertwineRestoreRequest,
-  LayertwineRestoreResponse,
-  LayertwineSelectiveRestoreRequest,
-  LayertwineSelectiveRestoreResponse,
+  LayertwineCheckpointRestoreRequest,
+  LayertwineCheckpointRestoreResponse,
   LayertwineRestoreByTimeRequest,
   LayertwineRestoreByTimeResponse,
   LayertwineDiffRequest,
   LayertwineDiffResponse,
-  LayertwineGetSnapshotRequest,
-  LayertwineGetSnapshotResponse,
 } from "./types.js";
 
 const logger = createContextualLogger({ component: "LayertwineExecutor" });
@@ -524,20 +520,13 @@ export class LayertwineExecutor extends BaseRemoteExecutor {
   }
 
   /**
-   * Restore full checkpoint
+   * Restore full checkpoint (with optional source filter for selective restore)
    */
-  async restoreCheckpoint(request: LayertwineRestoreRequest): Promise<LayertwineRestoreResponse> {
-    return this.call<LayertwineRestoreRequest, LayertwineRestoreResponse>("RestoreCheckpoint", request);
-  }
-
-  /**
-   * Restore checkpoint selectively by source pattern
-   */
-  async restoreSelectiveCheckpoint(
-    request: LayertwineSelectiveRestoreRequest
-  ): Promise<LayertwineSelectiveRestoreResponse> {
-    return this.call<LayertwineSelectiveRestoreRequest, LayertwineSelectiveRestoreResponse>(
-      "RestoreSelectiveCheckpoint",
+  async checkpointRestore(
+    request: LayertwineCheckpointRestoreRequest
+  ): Promise<LayertwineCheckpointRestoreResponse> {
+    return this.call<LayertwineCheckpointRestoreRequest, LayertwineCheckpointRestoreResponse>(
+      "CheckpointRestore",
       request
     );
   }
@@ -545,11 +534,11 @@ export class LayertwineExecutor extends BaseRemoteExecutor {
   /**
    * Restore checkpoint at a specific timestamp
    */
-  async restoreCheckpointByTime(
+  async checkpointRestoreByTime(
     request: LayertwineRestoreByTimeRequest
   ): Promise<LayertwineRestoreByTimeResponse> {
     return this.call<LayertwineRestoreByTimeRequest, LayertwineRestoreByTimeResponse>(
-      "RestoreCheckpointByTime",
+      "CheckpointRestoreByTime",
       request
     );
   }
@@ -557,14 +546,7 @@ export class LayertwineExecutor extends BaseRemoteExecutor {
   /**
    * Diff two checkpoints
    */
-  async diffCheckpoints(request: LayertwineDiffRequest): Promise<LayertwineDiffResponse> {
-    return this.call<LayertwineDiffRequest, LayertwineDiffResponse>("DiffCheckpoints", request);
-  }
-
-  /**
-   * Get snapshot content
-   */
-  async getSnapshot(request: LayertwineGetSnapshotRequest): Promise<LayertwineGetSnapshotResponse> {
-    return this.call<LayertwineGetSnapshotRequest, LayertwineGetSnapshotResponse>("GetSnapshot", request);
+  async checkpointDiff(request: LayertwineDiffRequest): Promise<LayertwineDiffResponse> {
+    return this.call<LayertwineDiffRequest, LayertwineDiffResponse>("CheckpointDiff", request);
   }
 }

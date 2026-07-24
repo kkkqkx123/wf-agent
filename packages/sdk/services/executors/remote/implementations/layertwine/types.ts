@@ -2,19 +2,20 @@
  * Layertwine gRPC Executor Type Definitions
  *
  * Aligned with Layertwine Rust side gRPC proto definitions
+ * Field naming uses snake_case to match proto (GrpcClient uses keepCase: true)
  */
 
 // ── Init ──
 export interface LayertwineInitRequest {
-  dbPath?: string;
-  gitRepo?: string;
-  gitRef?: string;
+  db_path?: string;
+  git_repo?: string;
+  git_ref?: string;
 }
 
 export interface LayertwineInitResponse {
-  dbPath: string;
-  manualPartitionId: string;
-  stagedPartitionId: string;
+  db_path: string;
+  manual_partition_id: string;
+  staged_partition_id: string;
   branch: string;
 }
 
@@ -25,8 +26,8 @@ export interface LayertwineEditRequest {
 }
 
 export interface LayertwineEditResponse {
-  snapshotId: string;
-  stagedSnapshotId?: string;
+  snapshot_id: string;
+  staged_snapshot_id?: string;
 }
 
 // ── Status ──
@@ -37,19 +38,18 @@ export interface LayertwineStatusResponse {
 export interface LayertwinePartitionInfo {
   layer: string;
   name: string;
-  currentSnapshot: string;
-  historyLen: number;
+  current_snapshot: string;
+  history_len: number;
 }
 
 // ── Commit ──
 export interface LayertwineCommitRequest {
   message: string;
   author?: string;
-  parentId?: string;
 }
 
 export interface LayertwineCommitResponse {
-  checkpointId: string;
+  checkpoint_id: string;
   message: string;
 }
 
@@ -69,9 +69,8 @@ export interface LayertwineCheckpointInfo {
   message: string;
   parents: string[];
   snapshots: string[];
-  createdAt: number;
-  gitAnchor?: string;
-  parentId?: string;
+  created_at: number;
+  git_anchor?: string;
 }
 
 // ── Branch ──
@@ -90,7 +89,7 @@ export interface LayertwineBranchSwitchRequest {
 
 export interface LayertwineBranchSwitchResponse {
   name: string;
-  checkpointId: string;
+  checkpoint_id: string;
 }
 
 export interface LayertwineBranchListResponse {
@@ -101,31 +100,31 @@ export interface LayertwineBranchListResponse {
 export interface LayertwineBranchInfo {
   name: string;
   head: string;
-  updatedAt: string;
-  isCurrent: boolean;
+  updated_at: string;
+  is_current: boolean;
 }
 
 // ── Agent ──
 export interface LayertwineAgentEditRequest {
-  agentId: string;
+  agent_id: string;
   file: string;
   content?: string;
 }
 
 export interface LayertwineAgentEditResponse {
-  snapshotId: string;
+  snapshot_id: string;
 }
 
 export interface LayertwineAgentSubmitRequest {
-  agentId: string;
+  agent_id: string;
 }
 
 export interface LayertwineAgentSubmitResponse {
-  checkpointId: string;
+  checkpoint_id: string;
 }
 
 export interface LayertwineApproveRequest {
-  agentId: string;
+  agent_id: string;
 }
 
 export interface LayertwineApproveResponse {
@@ -133,90 +132,69 @@ export interface LayertwineApproveResponse {
 }
 
 export interface LayertwineBackupRequest {
-  targetPath: string;
+  target_path: string;
 }
 
 export interface LayertwineBackupResponse {
-  backupPath: string;
+  backup_path: string;
   size: number;
 }
 
 // ── Checkpoint Restore ──
-export interface LayertwineRestoreRequest {
-  checkpointId: string;
+// Maps to proto CheckpointRestoreRequest / CheckpointRestoreResponse
+export interface LayertwineCheckpointRestoreRequest {
+  checkpoint_id: string;
+  source_filter?: string;
 }
 
-export interface LayertwineSnapshotInfo {
-  id: string;
+export interface LayertwineRestoredSnapshotInfo {
+  snapshot_id: string;
   source: string;
-  contentType: string;
-  size: number;
-  createdAt: number;
+  content_hex: string;
+  content_type: string;
 }
 
-export interface LayertwineRestoreResponse {
-  checkpointId: string;
-  snapshots: LayertwineSnapshotInfo[];
+export interface LayertwineCheckpointInfoBrief {
+  id: string;
+  author: string;
+  message: string;
+  parents: string[];
+  snapshots: string[];
+  created_at: number;
+  git_anchor?: string;
+}
+
+export interface LayertwineCheckpointRestoreResponse {
+  checkpoint: LayertwineCheckpointInfoBrief;
+  snapshots: LayertwineRestoredSnapshotInfo[];
   ancestry: string[];
-  metadata: {
-    author: string;
-    message: string;
-    createdAt: number;
-    parentId?: string;
-  };
-}
-
-// ── Selective Restore ──
-export interface LayertwineSelectiveRestoreRequest {
-  checkpointId: string;
-  sources?: string[];
-}
-
-export interface LayertwineSelectiveRestoreResponse {
-  checkpointId: string;
-  snapshots: LayertwineSnapshotInfo[];
-  metadata: {
-    author: string;
-    message: string;
-    createdAt: number;
-    parentId?: string;
-  };
 }
 
 // ── Time-based Restore ──
+// Maps to proto CheckpointRestoreByTimeRequest / CheckpointRestoreByTimeResponse
 export interface LayertwineRestoreByTimeRequest {
-  timestamp: number;
-  source?: string;
+  target_time: number;
+  source_filter?: string;
 }
 
 export interface LayertwineRestoreByTimeResponse {
-  checkpointId: string;
-  snapshots: LayertwineSnapshotInfo[];
-  timestamp: number;
+  checkpoint: LayertwineCheckpointInfoBrief;
+  snapshots: LayertwineRestoredSnapshotInfo[];
+  ancestry: string[];
 }
 
 // ── Checkpoint Diff ──
+// Maps to proto CheckpointDiffRequest / CheckpointDiffResponse
 export interface LayertwineDiffRequest {
-  fromCheckpointId: string;
-  toCheckpointId: string;
+  from_id: string;
+  to_id: string;
 }
 
 export interface LayertwineDiffResponse {
+  from_id: string;
+  to_id: string;
   added: string[];
   removed: string[];
   modified: string[];
-}
-
-// ── Snapshot Content Retrieve ──
-export interface LayertwineGetSnapshotRequest {
-  checkpointId: string;
-  snapshotId: string;
-}
-
-export interface LayertwineGetSnapshotResponse {
-  snapshotId: string;
-  source: string;
-  contentType: string;
-  content: string | Buffer;
-  size: number;
+  total_changes: number;
 }

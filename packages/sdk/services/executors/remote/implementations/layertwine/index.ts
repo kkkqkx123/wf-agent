@@ -37,7 +37,6 @@ export type {
   LayertwineCheckpointRestoreRequest,
   LayertwineCheckpointRestoreResponse,
   LayertwineRestoredSnapshotInfo,
-  LayertwineCheckpointInfoBrief,
   LayertwineRestoreByTimeRequest,
   LayertwineRestoreByTimeResponse,
   LayertwineDiffRequest,

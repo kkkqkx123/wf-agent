@@ -120,7 +120,7 @@ export interface LayertwineAgentSubmitRequest {
 }
 
 export interface LayertwineAgentSubmitResponse {
-  checkpoint_id: string;
+  snapshot_id: string;
 }
 
 export interface LayertwineApproveRequest {
@@ -128,11 +128,13 @@ export interface LayertwineApproveRequest {
 }
 
 export interface LayertwineApproveResponse {
-  approved: boolean;
+  integrated_snapshot_id: string;
+  staged_snapshot_id: string;
 }
 
 export interface LayertwineBackupRequest {
-  target_path: string;
+  snapshot_id: string;
+  label?: string;
 }
 
 export interface LayertwineBackupResponse {
@@ -144,7 +146,7 @@ export interface LayertwineBackupResponse {
 // Maps to proto CheckpointRestoreRequest / CheckpointRestoreResponse
 export interface LayertwineCheckpointRestoreRequest {
   checkpoint_id: string;
-  source_filter?: string;
+  source_filter?: string[];
 }
 
 export interface LayertwineRestoredSnapshotInfo {
@@ -154,18 +156,8 @@ export interface LayertwineRestoredSnapshotInfo {
   content_type: string;
 }
 
-export interface LayertwineCheckpointInfoBrief {
-  id: string;
-  author: string;
-  message: string;
-  parents: string[];
-  snapshots: string[];
-  created_at: number;
-  git_anchor?: string;
-}
-
 export interface LayertwineCheckpointRestoreResponse {
-  checkpoint: LayertwineCheckpointInfoBrief;
+  checkpoint: LayertwineCheckpointInfo;
   snapshots: LayertwineRestoredSnapshotInfo[];
   ancestry: string[];
 }
@@ -174,11 +166,11 @@ export interface LayertwineCheckpointRestoreResponse {
 // Maps to proto CheckpointRestoreByTimeRequest / CheckpointRestoreByTimeResponse
 export interface LayertwineRestoreByTimeRequest {
   target_time: number;
-  source_filter?: string;
+  source_filter?: string[];
 }
 
 export interface LayertwineRestoreByTimeResponse {
-  checkpoint: LayertwineCheckpointInfoBrief;
+  checkpoint: LayertwineCheckpointInfo;
   snapshots: LayertwineRestoredSnapshotInfo[];
   ancestry: string[];
 }

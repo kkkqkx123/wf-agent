@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentScreen } from "../agent-screen.js";
-import { Container, Box, Text, Input, InputMode } from "../../index.js";
+import { Container, Box, Text, Input, InteractionPhase } from "../../index.js";
 import type { TUI } from "../../core/tui.js";
 
 // Mock the AgentLoopAdapter - vi.mock is hoisted, so we need to use a pattern that works
@@ -20,11 +20,19 @@ vi.mock("../../../src/adapters/agent-loop-adapter.js", () => {
 
 /** Create a minimal mock TUI for testing Normal mode interactions */
 function createMockTui(): TUI {
+  const phaseState = { current: InteractionPhase.Idle };
   return {
     setContext: vi.fn(),
     setInputMode: vi.fn(),
-    inputMode: InputMode.Chat,
+    inputMode: InteractionPhase.Idle as any,
     currentContext: "chat",
+    phaseManager: {
+      get phase() { return phaseState.current; },
+      transition: vi.fn((to: InteractionPhase) => { phaseState.current = to; return true; }),
+      handleInput: vi.fn(() => ({ consumed: false, buffered: false })),
+      clearBufferedInput: vi.fn(),
+    },
+    get phase() { return phaseState.current; },
   } as unknown as TUI;
 }
 
@@ -227,16 +235,16 @@ describe("AgentScreen", () => {
       // Simulate Esc key (escape sequence)
       const result = screenWithTui.handleInput!("\x1b");
       expect(result).toBe(true);
-      expect((screenWithTui as any).mode).toBe(InputMode.Normal);
+      expect(screenWithTui["tui"]["phaseManager"]["phase"]).toBe(InteractionPhase.Normal);
     });
 
     it("should switch back to Chat mode on Enter in Normal mode", () => {
       screenWithTui.handleInput!("\x1b"); // Enter Normal mode
-      expect((screenWithTui as any).mode).toBe(InputMode.Normal);
+      expect(screenWithTui["tui"]["phaseManager"]["phase"]).toBe(InteractionPhase.Normal);
 
       const result = screenWithTui.handleInput!("\r"); // Enter
       expect(result).toBe(true);
-      expect((screenWithTui as any).mode).toBe(InputMode.Chat);
+      expect(screenWithTui["tui"]["phaseManager"]["phase"]).toBe(InteractionPhase.Idle);
       expect((screenWithTui as any).scrollOffset).toBe(0);
     });
 
@@ -245,7 +253,7 @@ describe("AgentScreen", () => {
 
       const result = screenWithTui.handleInput!("\x1b"); // Esc again
       expect(result).toBe(true);
-      expect((screenWithTui as any).mode).toBe(InputMode.Chat);
+      expect(screenWithTui["tui"]["phaseManager"]["phase"]).toBe(InteractionPhase.Idle);
     });
 
     it("should scroll down (j key) and up (k key) in Normal mode", () => {
@@ -313,7 +321,7 @@ describe("AgentScreen", () => {
 
       // Type a printable character
       screenWithTui.handleInput!("h");
-      expect((screenWithTui as any).mode).toBe(InputMode.Chat);
+      expect(screenWithTui["tui"]["phaseManager"]["phase"]).toBe(InteractionPhase.Idle);
       expect((screenWithTui as any).scrollOffset).toBe(0);
     });
 
@@ -321,7 +329,7 @@ describe("AgentScreen", () => {
       const updateStatus = (screenWithTui as any).updateStatus.bind(screenWithTui);
 
       // In Chat mode, no [NORMAL] label
-      (screenWithTui as any).mode = InputMode.Normal;
+      screenWithTui["tui"]["phaseManager"].transition(InteractionPhase.Normal);
       updateStatus("idle");
       const renderContainer = screenWithTui.render() as Container;
       const statusBox = renderContainer.children[1] as Box;
@@ -338,6 +346,94 @@ describe("AgentScreen", () => {
 
       const result = tuiScreen.handleInput!("b");
       expect(result).toBe(true);
+      expect(onBack).toHaveBeenCalled();
+    });
+  });
+
+  describe("Streaming phase", () => {
+    let screenWithTui: AgentScreen;
+    let tui: TUI;
+
+    beforeEach(() => {
+      tui = createMockTui();
+      screenWithTui = new AgentScreen(vi.fn(), tui);
+      tui.phaseManager.transition(InteractionPhase.Streaming);
+      vi.clearAllMocks();
+    });
+
+    it("should block all printable input during Streaming", () => {
+      const result = screenWithTui.handleInput!("hello");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).not.toHaveBeenCalled();
+    });
+
+    it("should cancel turn on Ctrl+C during Streaming", () => {
+      const result = screenWithTui.handleInput!("\x03");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Idle);
+      expect(tui.phaseManager.clearBufferedInput).toHaveBeenCalled();
+    });
+
+    it("should still handle b/B to go back during Streaming", () => {
+      const onBack = vi.fn();
+      const s = new AgentScreen(onBack, createMockTui());
+      s.handleInput!("b");
+      expect(onBack).toHaveBeenCalled();
+    });
+  });
+
+  describe("Approval phase", () => {
+    let screenWithTui: AgentScreen;
+    let tui: TUI;
+
+    beforeEach(() => {
+      tui = createMockTui();
+      screenWithTui = new AgentScreen(vi.fn(), tui);
+      tui.phaseManager.transition(InteractionPhase.Approval);
+      vi.clearAllMocks();
+    });
+
+    it("should approve on y/Y key", () => {
+      const result = screenWithTui.handleInput!("y");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Streaming);
+    });
+
+    it("should reject on n/N key", () => {
+      const result = screenWithTui.handleInput!("n");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Idle);
+    });
+
+    it("should reject on Esc during Approval", () => {
+      const result = screenWithTui.handleInput!("\x1b");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Idle);
+    });
+
+    it("should approve on Enter during Approval", () => {
+      const result = screenWithTui.handleInput!("\r");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Streaming);
+    });
+
+    it("should cancel turn on Ctrl+C during Approval", () => {
+      const result = screenWithTui.handleInput!("\x03");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).toHaveBeenCalledWith(InteractionPhase.Idle);
+      expect(tui.phaseManager.clearBufferedInput).toHaveBeenCalled();
+    });
+
+    it("should block text input during Approval", () => {
+      const result = screenWithTui.handleInput!("x");
+      expect(result).toBe(true);
+      expect(tui.phaseManager.transition).not.toHaveBeenCalled();
+    });
+
+    it("should still handle b/B to go back during Approval", () => {
+      const onBack = vi.fn();
+      const s = new AgentScreen(onBack, createMockTui());
+      s.handleInput!("b");
       expect(onBack).toHaveBeenCalled();
     });
   });

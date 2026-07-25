@@ -1,20 +1,15 @@
-/**
- * Main TUI Application for CLI-App
- * Manages screens, navigation, and global keyboard shortcuts
- */
-
-import { ProcessTerminal, TUI, Container } from "./core/index.js";
+import { ProcessTerminal, TUI, Container, RetainedRenderer, PlainRenderer } from "./core/index.js";
+import type { Renderer } from "./core/renderer.js";
 import type { InputContext } from "./core/keybindings.js";
 import { getKeybindings, loadUserKeybindings } from "./core/keybindings.js";
+import { ConfigWatcher } from "./core/config-watcher.js";
 import type { Screen } from "./screens/screen.js";
 import { DashboardScreen } from "./screens/dashboard-screen.js";
 import { WorkflowScreen } from "./screens/workflow-screen.js";
 import { AgentScreen } from "./screens/agent-screen.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
+import { ModalManager } from "./modals/index.js";
 
-/**
- * Map screen IDs to their input contexts.
- */
 const SCREEN_CONTEXTS: Record<string, InputContext> = {
   dashboard: "selectList",
   workflow: "selectList",
@@ -23,26 +18,52 @@ const SCREEN_CONTEXTS: Record<string, InputContext> = {
 
 export class CLIAppTUI {
   private tui: TUI;
+  readonly modalManager: ModalManager;
   private terminal: ProcessTerminal;
+  private renderer: Renderer;
   private mainContainer: Container;
   private currentScreenId: string = "dashboard";
   private screens: Map<string, Screen> = new Map();
   private isRunning: boolean = false;
   private logger = createContextualLogger({ component: "CLIAppTUI" });
+  private configWatcher = new ConfigWatcher();
 
-  constructor() {
+  constructor(renderer?: Renderer) {
     this.terminal = new ProcessTerminal();
-    this.tui = new TUI(this.terminal);
+    this.renderer = renderer ?? this.detectRenderer();
+    this.tui = new TUI(this.terminal, this.renderer);
     this.mainContainer = new Container();
 
+    this.modalManager = new ModalManager(this.tui);
     this.initializeScreens();
     this.setupGlobalKeybindings();
     this.setupInputRouting();
+    this.setupConfigHotReload();
   }
 
-  /**
-   * Initialize all available screens
-   */
+  private setupConfigHotReload(): void {
+    const configDir = process.env["XDG_CONFIG_HOME"]
+      ? `${process.env["XDG_CONFIG_HOME"]}/modular-agent`
+      : `${process.env["HOME"] || process.env["USERPROFILE"] || "."}/.config/modular-agent`;
+    const configPath = `${configDir}/keybindings.json`;
+
+    this.configWatcher.watch(configPath, () => {
+      try {
+        loadUserKeybindings();
+        this.logger.info(`Config hot-reloaded`, {}, { path: configPath });
+        this.tui.requestRender(true);
+      } catch (err) {
+        this.logger.error(`Config reload failed`, {}, { path: configPath, error: String(err) });
+      }
+    });
+  }
+
+  private detectRenderer(): Renderer {
+    if (!process.stdout.isTTY) return new PlainRenderer();
+    if (this.terminal.capabilities.isWindowsConhost) return new PlainRenderer();
+    return new RetainedRenderer(this.terminal);
+  }
+
   private initializeScreens() {
     const dashboardScreen = new DashboardScreen((screenId) => {
       this.showScreen(screenId);
@@ -60,16 +81,10 @@ export class CLIAppTUI {
     this.screens.set("agent", agentScreen);
   }
 
-  /**
-   * Setup global keyboard shortcuts
-   */
   private setupGlobalKeybindings() {
     // Global keybindings are handled via onInput routing (setupInputRouting)
   }
 
-  /**
-   * Wire up screen-level input routing through TUI context system.
-   */
   private setupInputRouting() {
     this.tui.onInput = (data: string, _context: InputContext): boolean => {
       const kb = getKeybindings();
@@ -87,13 +102,11 @@ export class CLIAppTUI {
           this.tui.hideOverlay();
           return true;
         }
-        // Fall through: let screen handle Esc (close modal → cancel → Normal)
       }
 
       // Ctrl+D — quit when no active input or in global context
       if (kb.matches(data, "tui.editor.deleteCharForward", "global")) {
         // Check if current screen is AgentScreen with non-empty input
-        // If so, let it handle as normal delete-char-forward instead
         if (currentScreen instanceof AgentScreen) {
           const input = (currentScreen as unknown as { messageInput?: { getValue?: () => string } }).messageInput;
           if (input?.getValue?.() !== "") {
@@ -113,9 +126,6 @@ export class CLIAppTUI {
     };
   }
 
-  /**
-   * Start the TUI application
-   */
   public async start(): Promise<void> {
     if (this.isRunning) {
       return;
@@ -132,9 +142,6 @@ export class CLIAppTUI {
     this.tui.start();
   }
 
-  /**
-   * Stop the TUI application
-   */
   public stop(): void {
     if (!this.isRunning) {
       return;
@@ -150,9 +157,6 @@ export class CLIAppTUI {
     this.tui.stop();
   }
 
-  /**
-   * Switch to a different screen
-   */
   public showScreen(screenId: string): void {
     const screen = this.screens.get(screenId);
     if (!screen) {
@@ -181,16 +185,10 @@ export class CLIAppTUI {
     this.tui.requestRender();
   }
 
-  /**
-   * Get current screen ID
-   */
   public getCurrentScreenId(): string {
     return this.currentScreenId;
   }
 
-  /**
-   * Quit the application
-   */
   public quit(): void {
     this.stop();
     setTimeout(() => process.exit(0), 100);

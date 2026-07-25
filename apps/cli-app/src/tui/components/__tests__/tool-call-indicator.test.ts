@@ -201,17 +201,18 @@ describe("ToolCallIndicator Component", () => {
       expect(Array.isArray(wideResult)).toBe(true);
     });
 
-    it("should show arguments when enabled", () => {
-      const indicatorWithArgs = new ToolCallIndicator({ showArguments: true });
-      
-      indicatorWithArgs.handleToolCallStart({
+    it("should show arguments when expanded", () => {
+      indicator.handleToolCallStart({
         toolCallId: "call-1",
         toolName: "arg-tool",
         arguments: { key: "value", number: 42 },
         summary: "Arg tool",
       });
+      indicator.handleToolCallEnd({ toolCallId: "call-1", toolName: "arg-tool", success: true, duration: 100 });
+      // Expand completed call to show arguments
+      indicator.handleInput("\x0d");
       
-      const result = indicatorWithArgs.render();
+      const result = indicator.render();
       expect(result.some(line => line.includes("Args:"))).toBe(true);
     });
 
@@ -230,49 +231,53 @@ describe("ToolCallIndicator Component", () => {
 
   describe("formatArguments", () => {
     it("should format simple arguments", () => {
-      const indicatorWithArgs = new ToolCallIndicator({ showArguments: true });
-      
-      indicatorWithArgs.handleToolCallStart({
+      indicator.handleToolCallStart({
         toolCallId: "call-1",
         toolName: "test",
         arguments: { simple: "value" },
         summary: "Simple test",
       });
+      indicator.handleToolCallEnd({ toolCallId: "call-1", toolName: "test", success: true, duration: 100 });
+      // Expand to show arguments
+      indicator.handleInput("\x0d");
       
-      const result = indicatorWithArgs.render();
+      const result = indicator.render();
       expect(result.some(line => line.includes("simple"))).toBe(true);
     });
 
     it("should truncate long arguments", () => {
-      const indicatorWithArgs = new ToolCallIndicator({ showArguments: true });
       const longArgs = { veryLongKey: "A".repeat(200) };
       
-      indicatorWithArgs.handleToolCallStart({
+      indicator.handleToolCallStart({
         toolCallId: "call-1",
         toolName: "test",
         arguments: longArgs,
         summary: "Long args test",
       });
+      indicator.handleToolCallEnd({ toolCallId: "call-1", toolName: "test", success: true, duration: 100 });
+      // Expand to show arguments
+      indicator.handleInput("\x0d");
       
-      const result = indicatorWithArgs.render(40);
+      const result = indicator.render(40);
       expect(result.some(line => line.includes("..."))).toBe(true);
     });
 
     it("should handle invalid arguments gracefully", () => {
-      const indicatorWithArgs = new ToolCallIndicator({ showArguments: true });
-      
       // Create circular reference
       const circularArgs: any = { key: "value" };
       circularArgs.self = circularArgs;
       
-      indicatorWithArgs.handleToolCallStart({
+      indicator.handleToolCallStart({
         toolCallId: "call-1",
         toolName: "test",
         arguments: circularArgs,
         summary: "Circular test",
       });
+      indicator.handleToolCallEnd({ toolCallId: "call-1", toolName: "test", success: true, duration: 100 });
+      // Expand to show arguments
+      indicator.handleInput("\x0d");
       
-      const result = indicatorWithArgs.render();
+      const result = indicator.render();
       expect(result.some(line => line.includes("[Invalid arguments]"))).toBe(true);
     });
   });

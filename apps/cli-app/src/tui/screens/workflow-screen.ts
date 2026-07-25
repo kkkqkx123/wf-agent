@@ -5,25 +5,11 @@
 
 import { Box, Container, Text, SelectList } from "../core/index.js";
 import type { Screen } from "./screen.js";
-import type { Component, TUI, OverlayHandle } from "../core/tui.js";
+import type { TUI } from "../core/tui.js";
 import { WorkflowAdapter } from "../../adapters/workflow-adapter.js";
 import { WorkflowGraphAdapter } from "../../adapters/workflow-graph-adapter.js";
 import { createContextualLogger } from "@wf-agent/sdk/utils";
-
-/**
- * A simple Box-shaped component that renders fixed text lines.
- * Used for confirmation overlays.
- */
-class ConfirmBox implements Component {
-  private lines: string[];
-  constructor(lines: string[]) {
-    this.lines = lines;
-  }
-  render(_width: number): string[] {
-    return this.lines;
-  }
-  invalidate(): void {}
-}
+import { ConfirmModal } from "../modals/index.js";
 
 export class WorkflowScreen implements Screen {
   private container: Container;
@@ -199,47 +185,8 @@ export class WorkflowScreen implements Screen {
     action: string,
     workflowName: string,
   ): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const overlayLines = [
-        `┌─ Confirm ${action} ─────────────────────────────┐`,
-        `│                                                  │`,
-        `│  Are you sure you want to ${action}:              │`,
-        `│    "${workflowName}"                               │`,
-        `│                                                  │`,
-        `│  Press Enter to confirm, Esc to cancel.          │`,
-        `│                                                  │`,
-        `└──────────────────────────────────────────────────┘`,
-      ];
-
-      const confirmComponent = new ConfirmBox(overlayLines);
-      const overlayHandle: OverlayHandle = this.tui.showOverlay(confirmComponent, {
-        anchor: "center",
-        width: 60,
-      });
-
-      // Register a one-shot input handler on the TUI to capture confirm/cancel
-      const originalOnInput = this.tui.onInput;
-      this.tui.onInput = (data: string): boolean => {
-        const kb = require("../core/keybindings.js").getKeybindings();
-
-        if (kb.matches(data, "tui.select.confirm")) {
-          overlayHandle.hide();
-          this.tui.onInput = originalOnInput;
-          resolve(true);
-          return true;
-        }
-
-        if (kb.matches(data, "tui.select.cancel")) {
-          overlayHandle.hide();
-          this.tui.onInput = originalOnInput;
-          resolve(false);
-          return true;
-        }
-
-        return false;
-      };
-      this.tui.requestRender();
-    });
+    const message = `Are you sure you want to ${action}: "${workflowName}"?`;
+    return ConfirmModal.show(this.tui, `Confirm ${action}`, message);
   }
 
   /**

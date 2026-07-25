@@ -1,68 +1,39 @@
-/**
- * Minimal TUI implementation with differential rendering
- */
-
 import { isKeyRelease } from "./keys/index.js";
 import type { InputContext } from "./keybindings.js";
 import type { Terminal } from "./terminal.js";
 import { visibleWidth } from "./utils.js";
+import type { Renderer } from "./renderer.js";
+import { RetainedRenderer } from "./retained-renderer.js";
+import { PhaseManager, InteractionPhase } from "./interaction-phase.js";
+import { EventScheduler, Priority } from "./event-scheduler.js";
+import { TerminalGuard } from "./terminal-guard.js";
+import type { Modal, ModalHandle } from "./modal.js";
+import { ModalAction, modalToOverlayOptions } from "./modal.js";
 
-/**
- * Input modes for cursor and focus management.
- */
 export enum InputMode {
   Chat = "chat",
   Normal = "normal",
 }
 
-/**
- * Component interface - all components must implement this
- */
 export interface Component {
-  /**
-   * Render the component to lines for the given viewport width
-   */
   render(width: number): string[];
-
-  /**
-   * Optional handler for keyboard input when component has focus
-   */
   handleInput?(data: string): void;
-
-  /**
-   * If true, component receives key release events (Kitty protocol).
-   */
   wantsKeyRelease?: boolean;
-
-  /**
-   * Invalidate any cached rendering state.
-   */
   invalidate(): void;
 }
 
-/**
- * Interface for components that can receive focus and display a hardware cursor.
- */
 export interface Focusable {
-  /** Set by TUI when focus changes. Component should emit CURSOR_MARKER when true. */
   focused: boolean;
 }
 
-/** Type guard to check if a component implements Focusable */
 export function isFocusable(component: Component | null): component is Component & Focusable {
   return component !== null && "focused" in component;
 }
 
-/**
- * Cursor position marker - APC sequence.
- */
 export const CURSOR_MARKER = "\x1b_pi:c\x07";
 
 export { visibleWidth };
 
-/**
- * Anchor position for overlays
- */
 export type OverlayAnchor =
   | "center"
   | "top-left"
@@ -74,9 +45,6 @@ export type OverlayAnchor =
   | "left-center"
   | "right-center";
 
-/**
- * Margin configuration for overlays
- */
 export interface OverlayMargin {
   top?: number;
   right?: number;
@@ -84,10 +52,8 @@ export interface OverlayMargin {
   left?: number;
 }
 
-/** Value that can be absolute (number) or percentage (string like "50%") */
 export type SizeValue = number | `${number}%`;
 
-/** Parse a SizeValue into absolute value given a reference size */
 function parseSizeValue(value: SizeValue | undefined, referenceSize: number): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value === "number") return value;
@@ -98,9 +64,6 @@ function parseSizeValue(value: SizeValue | undefined, referenceSize: number): nu
   return undefined;
 }
 
-/**
- * Options for overlay positioning and sizing.
- */
 export interface OverlayOptions {
   width?: SizeValue;
   minWidth?: number;
@@ -115,9 +78,6 @@ export interface OverlayOptions {
   nonCapturing?: boolean;
 }
 
-/**
- * Handle returned by showOverlay for controlling the overlay
- */
 export interface OverlayHandle {
   hide(): void;
   setHidden(hidden: boolean): void;
@@ -127,9 +87,6 @@ export interface OverlayHandle {
   isFocused(): boolean;
 }
 
-/**
- * Container - a component that contains other components
- */
 export class Container implements Component {
   children: Component[] = [];
 
@@ -166,26 +123,16 @@ export class Container implements Component {
   }
 }
 
-/**
- * TUI - Main class for managing terminal UI with differential rendering
- */
 export class TUI extends Container {
   public terminal: Terminal;
-  private previousLines: string[] = [];
-  private previousWidth = 0;
-  private previousHeight = 0;
+  public renderer: Renderer;
   private focusedComponent: Component | null = null;
   private renderRequested = false;
   private renderTimer: NodeJS.Timeout | undefined;
   private lastRenderAt = 0;
   private static readonly MIN_RENDER_INTERVAL_MS = 16;
-  private cursorRow = 0;
-  private hardwareCursorRow = 0;
-  private maxLinesRendered = 0;
-  private fullRedrawCount = 0;
   private stopped = false;
 
-  // Overlay stack
   private focusOrderCounter = 0;
   private overlayStack: {
     component: Component;
@@ -195,39 +142,101 @@ export class TUI extends Container {
     focusOrder: number;
   }[] = [];
 
-  constructor(terminal: Terminal) {
+  readonly phaseManager = new PhaseManager();
+  readonly schedule = new EventScheduler();
+  readonly modalStack: { modal: Modal; handle: OverlayHandle }[] = [];
+
+  constructor(terminal: Terminal, renderer?: Renderer) {
     super();
     this.terminal = terminal;
+    this.renderer = renderer ?? new RetainedRenderer(terminal);
+    this.setupPhaseManager();
+    this.setupScheduler();
   }
 
-  /**
-   * Current input context for context-aware keybinding routing.
-   */
   currentContext: InputContext = "global";
-
-  /**
-   * Current input mode (Chat = insert, Normal = browse).
-   * Only meaningful when currentContext is "chat".
-   */
   inputMode: InputMode = InputMode.Chat;
 
-  /**
-   * Set the current input context. Used to route keys differently
-   * depending on whether we're in global, chat, selectList, or modal context.
-   */
   setContext(context: InputContext): void {
     this.currentContext = context;
   }
 
-  /**
-   * Set the current input mode.
-   */
   setInputMode(mode: InputMode): void {
     this.inputMode = mode;
   }
 
+  private setupPhaseManager(): void {
+    this.phaseManager.onPhaseChange = (_from, to) => {
+      if (to === InteractionPhase.Idle && this.modalStack.length > 0) {
+        const top = this.getTopModal();
+        if (top && top.capturesAllKeys()) {
+          this.closeModal(top);
+        }
+      }
+
+      const contextMap: Record<string, InputContext> = {
+        [InteractionPhase.Idle]: "chat",
+        [InteractionPhase.Streaming]: "chat",
+        [InteractionPhase.Approval]: "modal",
+        [InteractionPhase.Normal]: "chat",
+      };
+      this.currentContext = (contextMap[to] ?? "global") as InputContext;
+
+      const modeMap: Record<string, InputMode> = {
+        [InteractionPhase.Idle]: InputMode.Chat,
+        [InteractionPhase.Streaming]: InputMode.Chat,
+        [InteractionPhase.Approval]: InputMode.Chat,
+        [InteractionPhase.Normal]: InputMode.Normal,
+      };
+      this.inputMode = modeMap[to] ?? InputMode.Chat;
+
+      this.requestRender();
+    };
+
+    this.phaseManager.onInputRelease = (entries) => {
+      for (const entry of entries) {
+        this.handleInput(entry);
+      }
+    };
+  }
+
+  private setupScheduler(): void {
+    this.schedule.addSource("spinner", {
+      interval: 80,
+      handler: () => this.requestRender(),
+      priority: Priority.Animation,
+      enabled: () => !this.stopped && this.phaseManager.phase === InteractionPhase.Streaming,
+    });
+    this.schedule.addSource("configPoll", {
+      interval: 500,
+      handler: () => {
+        if (this._configPollHandler) this._configPollHandler();
+      },
+      priority: Priority.Poll,
+      enabled: () => !this.stopped && !!this._configPollHandler,
+    });
+    this.schedule.addSource("renderTick", {
+      interval: 50,
+      handler: () => this.requestRender(),
+      priority: Priority.Render,
+      enabled: () => !this.stopped,
+    });
+  }
+
+  private _configPollHandler?: () => void;
+  set onConfigPoll(handler: (() => void) | undefined) {
+    this._configPollHandler = handler;
+  }
+
+  get phase(): InteractionPhase {
+    return this.phaseManager.phase;
+  }
+
   get fullRedraws(): number {
-    return this.fullRedrawCount;
+    if (this.renderer instanceof RetainedRenderer) {
+      return this.renderer.stats.fullRedraws;
+    }
+    return 0;
   }
 
   setFocus(component: Component | null): void {
@@ -242,9 +251,6 @@ export class TUI extends Container {
     }
   }
 
-  /**
-   * Show an overlay component with configurable positioning and sizing.
-   */
   showOverlay(component: Component, options?: OverlayOptions): OverlayHandle {
     const entry = {
       component,
@@ -254,7 +260,7 @@ export class TUI extends Container {
       focusOrder: ++this.focusOrderCounter,
     };
     this.overlayStack.push(entry);
-    
+
     if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
       this.setFocus(component);
     }
@@ -309,7 +315,6 @@ export class TUI extends Container {
     };
   }
 
-  /** Hide the topmost overlay and restore previous focus. */
   hideOverlay(): void {
     const overlay = this.overlayStack.pop();
     if (!overlay) return;
@@ -321,12 +326,10 @@ export class TUI extends Container {
     this.requestRender();
   }
 
-  /** Check if there are any visible overlays */
   hasOverlay(): boolean {
     return this.overlayStack.some((o) => this.isOverlayVisible(o));
   }
 
-  /** Check if an overlay entry is currently visible */
   private isOverlayVisible(entry: (typeof this.overlayStack)[number]): boolean {
     if (entry.hidden) return false;
     if (entry.options?.visible) {
@@ -335,7 +338,6 @@ export class TUI extends Container {
     return true;
   }
 
-  /** Find the topmost visible capturing overlay, if any */
   private getTopmostVisibleOverlay(): (typeof this.overlayStack)[number] | undefined {
     for (let i = this.overlayStack.length - 1; i >= 0; i--) {
       const entry = this.overlayStack[i];
@@ -355,10 +357,14 @@ export class TUI extends Container {
 
   start(): void {
     this.stopped = false;
-    this.terminal.start(
-      (data) => this.handleInput(data),
-      () => this.requestRender(),
-    );
+    const onInput = (data: string) => this.handleInput(data);
+    const onResize = () => {
+      this.renderer.reset();
+      this.requestRender();
+    };
+    TerminalGuard.getInstance().arm(this.terminal, onInput, onResize);
+    this.terminal.start(onInput, onResize);
+    this.schedule.start();
     this.terminal.hideCursor();
     this.requestRender();
   }
@@ -369,31 +375,17 @@ export class TUI extends Container {
       clearTimeout(this.renderTimer);
       this.renderTimer = undefined;
     }
-    
-    // Move cursor to end of content
-    if (this.previousLines.length > 0) {
-      const targetRow = this.previousLines.length;
-      const lineDiff = targetRow - this.hardwareCursorRow;
-      if (lineDiff > 0) {
-        this.terminal.write(`\x1b[${lineDiff}B`);
-      } else if (lineDiff < 0) {
-        this.terminal.write(`\x1b[${-lineDiff}A`);
-      }
-      this.terminal.write("\r\n");
-    }
 
+    this.schedule.stop();
+    TerminalGuard.getInstance().disarm();
+    this.renderer.shutdown();
     this.terminal.showCursor();
     this.terminal.stop();
   }
 
   requestRender(force = false): void {
     if (force) {
-      this.previousLines = [];
-      this.previousWidth = -1;
-      this.previousHeight = -1;
-      this.cursorRow = 0;
-      this.hardwareCursorRow = 0;
-      this.maxLinesRendered = 0;
+      this.renderer.reset();
       if (this.renderTimer) {
         clearTimeout(this.renderTimer);
         this.renderTimer = undefined;
@@ -407,7 +399,7 @@ export class TUI extends Container {
       });
       return;
     }
-    
+
     if (this.renderRequested) return;
     this.renderRequested = true;
     process.nextTick(() => this.scheduleRender());
@@ -415,18 +407,18 @@ export class TUI extends Container {
 
   private scheduleRender(): void {
     if (this.stopped || this.renderTimer || !this.renderRequested) return;
-    
+
     const elapsed = performance.now() - this.lastRenderAt;
     const delay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
-    
+
     this.renderTimer = setTimeout(() => {
       this.renderTimer = undefined;
       if (this.stopped || !this.renderRequested) return;
-      
+
       this.renderRequested = false;
       this.lastRenderAt = performance.now();
       this.doRender();
-      
+
       if (this.renderRequested) {
         this.scheduleRender();
       }
@@ -434,34 +426,97 @@ export class TUI extends Container {
   }
 
   private handleInput(data: string): void {
-    // Filter out key release events unless component opts in
     if (isKeyRelease(data) && this.focusedComponent && !this.focusedComponent.wantsKeyRelease) {
       return;
     }
 
-    // Route through context-aware screen input handler first
+    // Phase manager gets first look (buffers printable input during streaming)
+    const phaseResult = this.phaseManager.handleInput(data);
+    if (phaseResult.consumed) {
+      return;
+    }
+
+    // Active modal with capturesAllKeys intercepts all input
+    const activeModal = this.getTopModal();
+    if (activeModal && activeModal.capturesAllKeys()) {
+      const action = activeModal.handleKey(data);
+      if (action === ModalAction.Close) {
+        this.closeModal(activeModal);
+      }
+      this.requestRender();
+      return;
+    }
+
+    // App-level onInput (screen routing, global keybindings)
     if (this.onInput?.(data, this.currentContext)) {
       this.requestRender();
       return;
     }
 
-    // Pass input to focused component
+    // Non-capturing modal still gets a chance
+    if (activeModal) {
+      const action = activeModal.handleKey(data);
+      if (action === ModalAction.Close) {
+        this.closeModal(activeModal);
+      }
+      this.requestRender();
+      return;
+    }
+
     if (this.focusedComponent?.handleInput) {
       this.focusedComponent.handleInput(data);
       this.requestRender();
     }
   }
 
-  /**
-   * Callback for screen-level input routing.
-   * When set, this is called before focused component input.
-   * Return true to consume the input (prevent focused component handling).
-   */
   onInput?: (data: string, context: InputContext) => boolean;
 
-  /**
-   * Resolve overlay layout from options.
-   */
+  showModal(modal: Modal, options?: { width?: string | number; anchor?: string; margin?: number }): ModalHandle {
+    const overlayOptions = modalToOverlayOptions({
+      ...options,
+      nonCapturing: !modal.capturesAllKeys(),
+    });
+    if (modal.capturesAllKeys()) {
+      this.setFocus(modal.component);
+    }
+    const handle = this.showOverlay(modal.component, overlayOptions);
+    modal.onOpen?.();
+    this.modalStack.push({ modal, handle });
+    this.requestRender();
+    return {
+      close: () => {
+        this.closeModal(modal);
+      },
+      isOpen: () => this.modalStack.some((m) => m.modal === modal),
+    };
+  }
+
+  closeModal(modal: Modal): void {
+    const idx = this.modalStack.findIndex((m) => m.modal === modal);
+    if (idx === -1) return;
+    const entry = this.modalStack[idx]!;
+    entry.handle.hide();
+    this.modalStack.splice(idx, 1);
+    modal.onClose?.();
+    this.requestRender();
+  }
+
+  private getTopModal(): Modal | undefined {
+    for (let i = this.modalStack.length - 1; i >= 0; i--) {
+      const entry = this.modalStack[i];
+      if (!entry) continue;
+      const handle = entry.handle;
+      if (!handle.isHidden()) {
+        return entry.modal;
+      }
+    }
+    return undefined;
+  }
+
+  get hasModal(): boolean {
+    return this.modalStack.length > 0;
+  }
+
   private resolveOverlayLayout(
     options: OverlayOptions | undefined,
     overlayHeight: number,
@@ -577,7 +632,6 @@ export class TUI extends Container {
     }
   }
 
-  /** Composite all overlays into content lines */
   private compositeOverlays(lines: string[], termWidth: number, termHeight: number): string[] {
     if (this.overlayStack.length === 0) return lines;
     const result = [...lines];
@@ -587,7 +641,7 @@ export class TUI extends Container {
 
     const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
     visibleEntries.sort((a, b) => a.focusOrder - b.focusOrder);
-    
+
     for (const entry of visibleEntries) {
       const { component, options } = entry;
       const { width, maxHeight } = this.resolveOverlayLayout(options, 0, termWidth, termHeight);
@@ -637,26 +691,22 @@ export class TUI extends Container {
     overlayWidth: number,
     totalWidth: number,
   ): string {
-    // Simple compositing: replace section of base line with overlay
     const before = baseLine.slice(0, startCol);
     const after = baseLine.slice(startCol + overlayWidth);
     const result = before + overlayLine + after;
-    
-    // Ensure we don't exceed terminal width
+
     if (visibleWidth(result) > totalWidth) {
       return result.slice(0, totalWidth);
     }
-    
+
     return result;
   }
 
   private doRender(): void {
     if (this.stopped) return;
-    
+
     const width = this.terminal.columns;
     const height = this.terminal.rows;
-    const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
-    const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
 
     // Render all components
     let newLines = this.render(width);
@@ -666,106 +716,7 @@ export class TUI extends Container {
       newLines = this.compositeOverlays(newLines, width, height);
     }
 
-    // Helper to clear and render all new lines
-    const fullRender = (clear: boolean): void => {
-      this.fullRedrawCount += 1;
-      let buffer = "\x1b[?2026h"; // Begin synchronized output
-      if (clear) buffer += "\x1b[2J\x1b[H\x1b[3J";
-      
-      for (let i = 0; i < newLines.length; i++) {
-        if (i > 0) buffer += "\r\n";
-        buffer += newLines[i];
-      }
-      
-      buffer += "\x1b[?2026l"; // End synchronized output
-      this.terminal.write(buffer);
-      
-      this.cursorRow = Math.max(0, newLines.length - 1);
-      this.hardwareCursorRow = this.cursorRow;
-      this.maxLinesRendered = newLines.length;
-      
-      this.previousLines = newLines;
-      this.previousWidth = width;
-      this.previousHeight = height;
-    };
-
-    // First render
-    if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
-      fullRender(false);
-      return;
-    }
-
-    // Width changes need full re-render
-    if (widthChanged) {
-      fullRender(true);
-      return;
-    }
-
-    // Height changes need full re-render
-    if (heightChanged) {
-      fullRender(true);
-      return;
-    }
-
-    // Find first and last changed lines
-    let firstChanged = -1;
-    let lastChanged = -1;
-    const maxLines = Math.max(newLines.length, this.previousLines.length);
-    
-    for (let i = 0; i < maxLines; i++) {
-      const oldLine = i < this.previousLines.length ? this.previousLines[i] : "";
-      const newLine = i < newLines.length ? newLines[i] : "";
-
-      if (oldLine !== newLine) {
-        if (firstChanged === -1) firstChanged = i;
-        lastChanged = i;
-      }
-    }
-
-    // No changes
-    if (firstChanged === -1) {
-      return;
-    }
-
-    // Differential rendering
-    let buffer = "\x1b[?2026h"; // Begin synchronized output
-
-    // Move cursor to first changed line
-    const lineDiff = firstChanged - this.hardwareCursorRow;
-    if (lineDiff > 0) {
-      buffer += `\x1b[${lineDiff}B`;
-    } else if (lineDiff < 0) {
-      buffer += `\x1b[${-lineDiff}A`;
-    }
-
-    buffer += "\r"; // Move to column 0
-
-    // Render changed lines
-    for (let i = firstChanged; i <= lastChanged && i < newLines.length; i++) {
-      if (i > firstChanged) buffer += "\r\n";
-      buffer += "\x1b[2K"; // Clear current line
-      buffer += newLines[i];
-    }
-
-    // Clear extra lines if content shrunk
-    if (this.previousLines.length > newLines.length) {
-      const extraLines = this.previousLines.length - newLines.length;
-      for (let i = 0; i < extraLines; i++) {
-        buffer += "\r\n\x1b[2K";
-      }
-      buffer += `\x1b[${extraLines}A`;
-    }
-
-    buffer += "\x1b[?2026l"; // End synchronized output
-
-    this.terminal.write(buffer);
-
-    this.cursorRow = Math.max(0, newLines.length - 1);
-    this.hardwareCursorRow = lastChanged;
-    this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-
-    this.previousLines = newLines;
-    this.previousWidth = width;
-    this.previousHeight = height;
+    // Delegate to renderer
+    this.renderer.render(newLines, width, height);
   }
 }

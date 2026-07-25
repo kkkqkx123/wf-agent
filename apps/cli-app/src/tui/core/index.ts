@@ -19,6 +19,8 @@ export {
 } from "../components/select-list.js";
 export { Spacer } from "../components/spacer.js";
 export { Text } from "../components/text.js";
+export { MarkdownRenderer } from "../components/markdown-renderer.js";
+export { DiffPanel } from "../components/diff-panel.js";
 
 // Autocomplete support
 export {
@@ -66,12 +68,42 @@ export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "
 
 // Terminal interface and implementations
 export { ProcessTerminal, type Terminal } from "./terminal.js";
+export type { TerminalCapabilities } from "./terminal-detector.js";
+
+// Terminal capability detection
+export { detectCapabilities } from "./terminal-detector.js";
+
+// Terminal safety guard (RAII + signal handling)
+export { TerminalGuard } from "./terminal-guard.js";
+
+// Signal handling (suspend/resume/interrupt)
+export { SignalHandler } from "./signal-handler.js";
+
+// Configuration hot-reload watcher
+export { ConfigWatcher } from "./config-watcher.js";
 
 // Kill ring for Emacs-style operations
 export { KillRing } from "./kill-ring.js";
 
 // Undo stack
 export { UndoStack } from "./undo-stack.js";
+
+// Renderer system
+export { type Renderer, SYNCHRONIZED_OUTPUT_BEGIN, SYNCHRONIZED_OUTPUT_END } from "./renderer.js";
+export { RetainedRenderer } from "./retained-renderer.js";
+export { PlainRenderer } from "./plain-renderer.js";
+
+// Event scheduler with priority support
+export { EventScheduler, Priority, type TickSource } from "./event-scheduler.js";
+
+// Interaction phase manager (Idle/Streaming/Approval/Normal)
+export { InteractionPhase, PhaseManager, type PhaseChangeHandler, type InputReleaseHandler } from "./interaction-phase.js";
+
+// Input buffer for pending user input during Streaming
+export { InputBuffer } from "./input-buffer.js";
+
+// Modal system
+export { ModalAction, type Modal, type ModalHandle, isModal, modalToOverlayOptions } from "./modal.js";
 
 // Core TUI engine
 export {
@@ -88,6 +120,13 @@ export {
   type SizeValue,
   TUI,
 } from "./tui.js";
+
+// Scrollback buffer
+export { MAX_SCROLLBACK_ROWS, ScrollbackBuffer, type ScrollbackEntry } from "./scrollback.js";
+
+// Theme system
+export { ColorRole, createTheme, isLightTerminal } from "./theme.js";
+export type { Theme, ThemeConfig } from "./theme.js";
 
 // Utilities
 export {

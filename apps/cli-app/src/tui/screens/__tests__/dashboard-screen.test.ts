@@ -6,6 +6,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DashboardScreen } from "../dashboard-screen.js";
 import { Container, Box, Text, SelectList } from "../../index.js";
 
+vi.mock("../../../adapters/agent-loop-adapter.js", () => ({
+  AgentLoopAdapter: class MockAgentLoopAdapter {
+    listRunningAgentLoops = vi.fn().mockReturnValue([]);
+  },
+}));
+
+vi.mock("../../../adapters/workflow-execution-adapter.js", () => ({
+  WorkflowExecutionAdapter: class MockWorkflowExecutionAdapter {
+    listWorkflowExecutions = vi.fn().mockResolvedValue([]);
+  },
+}));
+
 describe("DashboardScreen", () => {
   let screen: DashboardScreen;
   let onNavigateMock: ReturnType<typeof vi.fn>;
@@ -179,16 +191,16 @@ describe("DashboardScreen", () => {
       expect(typeof screen.handleInput).toBe("function");
     });
 
-    it("should not have onActivate method (optional)", () => {
-      expect((screen as any).onActivate).toBeUndefined();
+    it("should have onActivate method (optional)", () => {
+      expect(typeof (screen as any).onActivate).toBe("function");
     });
 
     it("should not have onDeactivate method (optional)", () => {
       expect((screen as any).onDeactivate).toBeUndefined();
     });
 
-    it("should not have destroy method (optional)", () => {
-      expect((screen as any).destroy).toBeUndefined();
+    it("should have destroy method (optional)", () => {
+      expect(typeof (screen as any).destroy).toBe("function");
     });
   });
 });

@@ -1,9 +1,13 @@
 import { setKittyProtocolActive, isKittyProtocolActive } from "./keys/index.js";
 import { StdinBuffer } from "./stdin-buffer.js";
+import type { TerminalCapabilities } from "./terminal-detector.js";
+import { detectCapabilities } from "./terminal-detector.js";
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = "\x1b]9;4;3\x07";
 const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
+
+export type { TerminalCapabilities };
 
 /**
  * Minimal terminal interface for TUI
@@ -45,6 +49,9 @@ export interface Terminal {
 
   // Progress indicator (OSC 9;4)
   setProgress(active: boolean): void;
+
+  // Terminal capabilities detection
+  get capabilities(): TerminalCapabilities;
 }
 
 /**
@@ -58,7 +65,18 @@ export class ProcessTerminal implements Terminal {
   private stdinBuffer?: StdinBuffer;
   private stdinDataHandler?: (data: string) => void;
   private progressInterval?: ReturnType<typeof setInterval>;
+  private _capabilities: TerminalCapabilities;
+  private resizeTimer?: ReturnType<typeof setTimeout>;
+  private pendingResize = false;
 
+
+  constructor() {
+    this._capabilities = detectCapabilities();
+  }
+
+  get capabilities(): TerminalCapabilities {
+    return this._capabilities;
+  }
 
   start(onInput: (data: string) => void, onResize: () => void): void {
     this.inputHandler = onInput;
@@ -75,8 +93,8 @@ export class ProcessTerminal implements Terminal {
     // Enable bracketed paste mode
     process.stdout.write("\x1b[?2004h");
 
-    // Set up resize handler
-    process.stdout.on("resize", this.resizeHandler);
+    // Set up resize handler with coalescing
+    process.stdout.on("resize", () => this.coalescedResize());
 
     // Refresh terminal dimensions
     if (process.platform !== "win32") {
@@ -135,6 +153,17 @@ export class ProcessTerminal implements Terminal {
   /**
    * Query terminal for Kitty keyboard protocol support and enable if available.
    */
+  private coalescedResize(): void {
+    if (this.pendingResize) return;
+    this.pendingResize = true;
+    if (this.resizeTimer) clearTimeout(this.resizeTimer);
+    this.resizeTimer = setTimeout(() => {
+      this.pendingResize = false;
+      this.resizeTimer = undefined;
+      this.resizeHandler?.();
+    }, 50);
+  }
+
   private queryAndEnableKittyProtocol(): void {
     this.setupStdinBuffer();
     process.stdin.on("data", this.stdinDataHandler!);
@@ -190,6 +219,11 @@ export class ProcessTerminal implements Terminal {
       clearInterval(this.progressInterval);
       this.progressInterval = undefined;
       process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
+    }
+
+    if (this.resizeTimer) {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = undefined;
     }
 
     // Disable bracketed paste mode

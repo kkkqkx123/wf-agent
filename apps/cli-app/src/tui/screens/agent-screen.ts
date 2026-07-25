@@ -3,15 +3,15 @@
  * Real-time agent execution monitoring with streaming logs
  */
 
-import { Box, Container, Text, Input, InputMode } from "../core/index.js";
+import { Box, Container, Text, Input, InteractionPhase } from "../core/index.js";
 import { getKeybindings } from "../core/keybindings.js";
 import type { Screen } from "./screen.js";
 import type { Component } from "../core/tui.js";
 import type { AgentLoopRuntimeConfig } from "@wf-agent/types";
 import { IterationPanel } from "../components/iteration-panel.js";
 import { ToolCallIndicator } from "../components/tool-call-indicator.js";
-import { FoldableSection } from "../components/foldable-section.js";
 import type { TUI } from "../core/tui.js";
+import { FoldableSection } from "../components/foldable-section.js";
 
 const NORMAL_MODE_MAX_LOG_LINES = 20;
 
@@ -32,9 +32,6 @@ export class AgentScreen implements Screen {
   private isRunning: boolean = false;
   private logEntries: LogEntry[] = [];
   private onBack?: () => void;
-
-  /** Current input mode: Chat (insert) or Normal (browse) */
-  private mode: InputMode = InputMode.Chat;
 
   /** Scroll offset for Normal mode log browsing */
   private scrollOffset: number = 0;
@@ -127,11 +124,20 @@ export class AgentScreen implements Screen {
       error: "❌",
     }[status];
 
-    const modeLabel = this.mode === InputMode.Normal ? " [NORMAL]" : "";
+    const phaseLabel = this.getPhaseLabel();
 
-    this.statusPanel.addChild(new Text(`Status: ${statusIcon} ${status.toUpperCase()}${modeLabel}`, 1, 0));
+    this.statusPanel.addChild(new Text(`Status: ${statusIcon} ${status.toUpperCase()}${phaseLabel}`, 1, 0));
     this.statusPanel.addChild(new Text(`Agent ID: ${this.currentAgentId || "N/A"}`, 1, 0));
     this.statusPanel.addChild(new Text(`Messages: ${this.logEntries.length}`, 1, 0));
+  }
+
+  private getPhaseLabel(): string {
+    switch (this.tui?.phase) {
+      case InteractionPhase.Streaming: return " [STREAMING]";
+      case InteractionPhase.Approval: return " [APPROVAL]";
+      case InteractionPhase.Normal: return " [NORMAL]";
+      default: return "";
+    }
   }
 
   /**
@@ -140,7 +146,7 @@ export class AgentScreen implements Screen {
   private rebuildLogPanel(): void {
     this.logPanel.clear();
 
-    if (this.mode === InputMode.Normal) {
+    if (this.tui?.phase === InteractionPhase.Normal) {
       const totalEntries = this.logEntries.length;
       const endIndex = Math.min(totalEntries, this.scrollOffset + NORMAL_MODE_MAX_LOG_LINES);
       const startIndex = Math.max(0, this.scrollOffset);
@@ -216,7 +222,7 @@ export class AgentScreen implements Screen {
       this.logPanel.addChild(new Text(formatted, 1, 0));
     } else {
       // Auto-scroll in Chat mode (follow latest)
-      if (this.mode === InputMode.Chat) {
+      if (this.tui?.phase !== InteractionPhase.Normal) {
         this.scrollOffset = 0;
       }
       this.rebuildLogPanel();
@@ -261,137 +267,158 @@ export class AgentScreen implements Screen {
   handleInput(data: string): boolean {
     const kb = getKeybindings();
 
-    // Handle toolbar shortcuts (available in both modes)
+    // Handle toolbar shortcuts (available in all phases)
     if (data === "b" || data === "B") {
       this.onBack?.();
       return true;
     }
 
     if (data === "s" || data === "S") {
-      // TODO: Show configuration dialog and start agent
       this.appendLog("Start agent - configuration dialog to be implemented", "system");
       return true;
     }
 
-    if (data === "c" || data === "C") {
-      this.isRunning = false;
-      this.updateStatus("idle");
-      this.appendLog("Agent cancelled", "system");
-      return true;
-    }
-
-    // === Normal mode: vim-style log navigation ===
-    if (this.mode === InputMode.Normal) {
-      // Space — toggle all foldable sections
-      if (data === " ") {
-        const anyCollapsed = this.foldableSections.some((s) => s.isCollapsed());
-        for (const section of this.foldableSections) {
-          section.setCollapsed(!anyCollapsed);
+    // === Phase-specific routing ===
+    switch (this.tui?.phase) {
+      case InteractionPhase.Streaming: {
+        if (data === "\x03") {
+          this.cancelTurn();
+          return true;
         }
-        this.rebuildLogPanel();
+        if (data === "\x0f") {
+          this.appendLog("Tool skip requested (pending implementation)", "system");
+          return true;
+        }
         return true;
       }
 
-      // Enter, Esc, or any printable char → switch back to Chat mode
-      if (kb.matches(data, "tui.input.submit")) {
-        this.mode = InputMode.Chat;
-        this.scrollOffset = 0;
-        this.rebuildLogPanel();
-        if (this.tui) this.tui.setInputMode(InputMode.Chat);
-        if (this.tui) this.tui.setContext("chat");
+      case InteractionPhase.Approval: {
+        if (data === "\x03") {
+          this.cancelTurn();
+          return true;
+        }
+        if (data === "\x0f") {
+          this.appendLog("Tool skip requested (pending implementation)", "system");
+          return true;
+        }
+        if (data === "y" || data === "Y" || data === "\r") {
+          this.tui?.phaseManager.transition(InteractionPhase.Streaming);
+          this.updateStatus("running");
+          this.appendLog("Tool call approved", "system");
+          return true;
+        }
+        if (data === "n" || data === "N" || data === "\x1b") {
+          this.tui?.phaseManager.transition(InteractionPhase.Idle);
+          this.updateStatus("idle");
+          this.appendLog("Tool call rejected", "system");
+          return true;
+        }
         return true;
       }
 
-      if (kb.matches(data, "tui.select.cancel")) {
-        // Esc in Normal mode also returns to Chat
-        this.mode = InputMode.Chat;
-        this.scrollOffset = 0;
-        this.rebuildLogPanel();
-        if (this.tui) this.tui.setInputMode(InputMode.Chat);
-        if (this.tui) this.tui.setContext("chat");
+      case InteractionPhase.Normal: {
+        // Space — toggle all foldable sections
+        if (data === " ") {
+          const anyCollapsed = this.foldableSections.some((s) => s.isCollapsed());
+          for (const section of this.foldableSections) {
+            section.setCollapsed(!anyCollapsed);
+          }
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.input.submit")) {
+          this.scrollOffset = 0;
+          this.rebuildLogPanel();
+          this.tui?.phaseManager.transition(InteractionPhase.Idle);
+          return true;
+        }
+
+        if (kb.matches(data, "tui.select.cancel")) {
+          this.scrollOffset = 0;
+          this.rebuildLogPanel();
+          this.tui?.phaseManager.transition(InteractionPhase.Idle);
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.up")) {
+          this.scrollOffset = Math.max(0, this.scrollOffset - 1);
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.down")) {
+          const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+          this.scrollOffset = Math.min(maxOffset, this.scrollOffset + 1);
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.halfPageUp")) {
+          const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
+          const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+          this.scrollOffset = Math.min(maxOffset, this.scrollOffset + halfPage);
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.halfPageDown")) {
+          const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
+          this.scrollOffset = Math.max(0, this.scrollOffset - halfPage);
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.top")) {
+          const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
+          this.scrollOffset = maxOffset;
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (kb.matches(data, "tui.navigate.bottom")) {
+          this.scrollOffset = 0;
+          this.rebuildLogPanel();
+          return true;
+        }
+
+        if (data.length === 1 && data.charCodeAt(0) >= 32) {
+          this.scrollOffset = 0;
+          this.tui?.phaseManager.transition(InteractionPhase.Idle);
+          if (this.messageInput.handleInput) {
+            this.messageInput.handleInput(data);
+          }
+          this.rebuildLogPanel();
+          return true;
+        }
+
         return true;
       }
 
-      // j / Down — scroll down (toward newer entries)
-      if (kb.matches(data, "tui.navigate.up")) {
-        this.scrollOffset = Math.max(0, this.scrollOffset - 1);
-        this.rebuildLogPanel();
-        return true;
-      }
+      default: {
+        if (kb.matches(data, "tui.select.cancel")) {
+          this.scrollOffset = 0;
+          this.rebuildLogPanel();
+          this.tui?.phaseManager.transition(InteractionPhase.Normal);
+          return true;
+        }
 
-      // k / Up — scroll up (toward older entries)
-      if (kb.matches(data, "tui.navigate.down")) {
-        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
-        this.scrollOffset = Math.min(maxOffset, this.scrollOffset + 1);
-        this.rebuildLogPanel();
-        return true;
-      }
-
-      // Ctrl+u — scroll up half page
-      if (kb.matches(data, "tui.navigate.halfPageUp")) {
-        const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
-        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
-        this.scrollOffset = Math.min(maxOffset, this.scrollOffset + halfPage);
-        this.rebuildLogPanel();
-        return true;
-      }
-
-      // Ctrl+d — scroll down half page
-      if (kb.matches(data, "tui.navigate.halfPageDown")) {
-        const halfPage = Math.max(1, Math.floor(NORMAL_MODE_MAX_LOG_LINES / 2));
-        this.scrollOffset = Math.max(0, this.scrollOffset - halfPage);
-        this.rebuildLogPanel();
-        return true;
-      }
-
-      // g / Ctrl+Home — jump to top (oldest entries)
-      if (kb.matches(data, "tui.navigate.top")) {
-        const maxOffset = Math.max(0, this.logEntries.length - NORMAL_MODE_MAX_LOG_LINES);
-        this.scrollOffset = maxOffset;
-        this.rebuildLogPanel();
-        return true;
-      }
-
-      // G / Ctrl+End — jump to bottom (latest entries)
-      if (kb.matches(data, "tui.navigate.bottom")) {
-        this.scrollOffset = 0;
-        this.rebuildLogPanel();
-        return true;
-      }
-
-      // Any printable character → switch to Chat mode
-      if (data.length === 1 && data.charCodeAt(0) >= 32) {
-        this.mode = InputMode.Chat;
-        this.scrollOffset = 0;
-        if (this.tui) this.tui.setInputMode(InputMode.Chat);
-        if (this.tui) this.tui.setContext("chat");
-        // Forward the character to the input
         if (this.messageInput.handleInput) {
           this.messageInput.handleInput(data);
+          return true;
         }
-        this.rebuildLogPanel();
-        return true;
+
+        return false;
       }
-
-      return true; // Consume all other input in Normal mode
     }
+  }
 
-    // === Chat mode: handle Esc → switch to Normal ===
-    if (kb.matches(data, "tui.select.cancel")) {
-      this.mode = InputMode.Normal;
-      this.scrollOffset = 0;
-      this.rebuildLogPanel();
-      if (this.tui) this.tui.setInputMode(InputMode.Normal);
-      return true;
-    }
-
-    // === Chat mode: delegate to message input ===
-    if (this.messageInput.handleInput) {
-      this.messageInput.handleInput(data);
-      return true;
-    }
-
-    return false;
+  private cancelTurn(): void {
+    this.tui?.phaseManager.transition(InteractionPhase.Idle);
+    this.tui?.phaseManager.clearBufferedInput();
+    this.isRunning = false;
+    this.updateStatus("idle");
+    this.appendLog("Turn cancelled", "system");
   }
 
   destroy(): void {

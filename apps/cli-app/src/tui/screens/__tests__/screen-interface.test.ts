@@ -2,9 +2,35 @@
  * Unit tests for Screen interface and exports
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { Screen } from "../screen.js";
 import { DashboardScreen, WorkflowScreen, AgentScreen } from "../index.js";
+
+vi.mock("../../../adapters/agent-loop-adapter.js", () => ({
+  AgentLoopAdapter: class MockAgentLoopAdapter {
+    listRunningAgentLoops = vi.fn().mockReturnValue([]);
+  },
+}));
+
+vi.mock("../../../adapters/workflow-execution-adapter.js", () => ({
+  WorkflowExecutionAdapter: class MockWorkflowExecutionAdapter {
+    listWorkflowExecutions = vi.fn().mockResolvedValue([]);
+  },
+}));
+
+vi.mock("../../../adapters/workflow-adapter.js", () => ({
+  WorkflowAdapter: class MockWorkflowAdapter {
+    listWorkflows = vi.fn().mockResolvedValue([]);
+    getWorkflow = vi.fn().mockResolvedValue(null);
+  },
+}));
+
+vi.mock("../../../adapters/workflow-graph-adapter.js", () => ({
+  WorkflowGraphAdapter: class MockWorkflowGraphAdapter {
+    getNodes = vi.fn().mockResolvedValue([]);
+    getEdges = vi.fn().mockResolvedValue([]);
+  },
+}));
 
 describe("Screen Interface", () => {
   describe("type definition", () => {

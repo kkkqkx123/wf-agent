@@ -86,9 +86,9 @@ export function createWorkflowExecutionCommands(): Command {
             }
           }
 
-          // Determine execution mode
+          // Determine execution mode (default: foreground)
           const mode = options.blocking ? 'blocking' : 
-                      options.background ? 'background' : 'detached';
+                      options.background ? 'background' : 'foreground';
 
           // Execute via ExecutionService (unified path through SDK)
           const result = await getExecutionService().execute(workflowId, inputData, mode);
@@ -118,12 +118,12 @@ export function createWorkflowExecutionCommands(): Command {
               metadata: { executionId: result.executionId, pid: result.pid, mode: 'background' },
             });
           } else {
-            // Detached mode: Show terminal info
+            // Foreground mode: Show terminal info
             router.render(result, {
               type: "detail",
               entity: "execution",
               format: () => {
-                let text = "\nThe workflow execution has been started in a separate terminal.\n";
+                let text = "\nThe workflow execution has been started in a foreground terminal.\n";
                 text += getFormatter().keyValue("Execution ID", result.executionId) + "\n";
                 if (result.terminalId) {
                   text += getFormatter().keyValue("Terminal ID", result.terminalId) + "\n";
@@ -133,8 +133,8 @@ export function createWorkflowExecutionCommands(): Command {
                 text += `\nUse 'modular-agent execution status ${result.executionId}' to check execution status\n`;
                 return text;
               },
-              message: `Workflow execution started in detached terminal: ${result.executionId}`,
-              metadata: { executionId: result.executionId, pid: result.pid, terminalId: result.terminalId, mode: 'detached' },
+              message: `Workflow execution started in foreground terminal: ${result.executionId}`,
+              metadata: { executionId: result.executionId, pid: result.pid, terminalId: result.terminalId, mode: 'foreground' },
             });
           }
         } catch (error) {

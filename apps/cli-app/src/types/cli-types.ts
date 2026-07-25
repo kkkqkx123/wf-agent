@@ -47,7 +47,7 @@ export interface WorkflowCommandOptions extends CommandOptions {
  */
 export interface WorkflowExecutionCommandOptions extends CommandOptions {
   input?: string;
-  detached?: boolean;
+  foreground?: boolean;
   timeout?: number;
 }
 

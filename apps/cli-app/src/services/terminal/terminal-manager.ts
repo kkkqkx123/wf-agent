@@ -115,7 +115,7 @@ export class TerminalManager {
     shell: string,
     options: TerminalOptions,
   ): TerminalSession {
-    const logFile = options.logFile || `logs/task-${sessionId}.log`;
+    const logFile = options.logFile || `logs/workflow-${sessionId}.log`;
 
     // Create a background process
     const childProcess = spawn(shell, [], {

@@ -13,6 +13,7 @@ import { loadConfigWithEnvOverride } from "./config/index.js";
 import { createAppSDK } from "@wf-agent/runtime/bootstrap";
 import { ExitManager } from "./utils/exit-manager.js";
 import { isHeadless, getMode, getOutputFormat } from "./utils/mode-detector.js";
+import type { ExecutionMode } from "@wf-agent/runtime/mode";
 import { createWorkflowCommands } from "./commands/workflow/index.js";
 import { createWorkflowExecutionCommands } from "./commands/workflow-execution/index.js";
 import { createCheckpointCommands } from "./commands/checkpoint/index.js";
@@ -47,6 +48,10 @@ import { createApprovalCommands } from "./commands/approval/index.js";
 import { CLIUserInteractionManager } from "./handlers/user-interaction/index.js";
 import { initializeContainer, getContainer } from "./services/container.js";
 import { setSDKInstance, getSDKInstance } from "./services/sdk-globals.js";
+
+// Module-level config executionMode for mode detection fallback.
+// Set during preAction hook after config loading; consumed by getMode().
+let configExecutionMode: ExecutionMode | undefined;
 
 // Create an instance of the main program.
 const program = new Command();
@@ -84,6 +89,8 @@ program
 
     // 1. Load the global configuration with environment variable overrides
     const config = await loadConfigWithEnvOverride(options.config);
+    // Store executionMode for mode detection fallback (getMode() reads this)
+    configExecutionMode = config.executionMode;
 
     // 2. Initialize/reconfigure the output system in-place
     //    (command files captured getOutput() at module load; reconfigure
@@ -178,33 +185,21 @@ program
     }
   });
 
-// Ensure headless-mode exit after command completion
-// MUST be before any command registration so .action() is wrapped for all commands
-const originalAction = Command.prototype.action;
-Command.prototype.action = function (fn: (...args: unknown[]) => unknown) {
-  const wrappedFn = async (...args: unknown[]) => {
-    let commandError: unknown = undefined;
-    try {
-      await fn(...args);
-    } catch (error) {
-      // Capture the error so we can exit with a non-zero code
-      commandError = error;
-    } finally {
-      // Run cleanup (storage close, SDK destroy) before exit.
-      // This ensures SQLite connections are properly closed and WAL
-      // is checkpointed, preventing data loss or corruption.
-      try {
-        await shutdown();
-      } catch {
-        // Ignore shutdown errors during process exit
-      }
-      // Use the correct exit code: 0 for success, 1 for error
-      process.exitCode = commandError ? 1 : 0;
-      process.exit(process.exitCode);
-    }
-  };
-  return originalAction.call(this, wrappedFn);
-};
+// Post-action hook: cleanup after every command.
+// Uses Commander's native hook API instead of Command.prototype monkey-patch,
+// avoiding global side effects and forced process.exit() that could truncate output.
+program.hook('postAction', async () => {
+  try {
+    await shutdown();
+  } catch {
+    // Ignore shutdown errors during process exit
+  }
+  // In headless mode, drain output then exit cleanly.
+  // In interactive mode, the process exits naturally when the event loop drains.
+  if (isHeadless()) {
+    await ExitManager.exit(Number(process.exitCode) || 0);
+  }
+});
 
 // Add workflow command groups
 program.addCommand(createWorkflowCommands());
@@ -305,7 +300,7 @@ program.parse(process.argv);
 // Check if TUI mode is requested (using commander's parsed options)
 const cliOpts = program.opts();
 const hasTuiFlag = cliOpts["tui"] ?? false;
-const executionMode = getMode().mode;
+const executionMode = getMode(configExecutionMode).mode;
 const outputFormat = getOutputFormat();
 
 // Determine if TUI mode should be started
@@ -329,11 +324,9 @@ if (!process.argv.slice(2).length) {
     }
   } else {
     program.outputHelp();
-    // In headless mode, exit immediately if no commands are executed.
+    // In headless mode, exit after ensuring output is drained.
     if (isHeadless()) {
-      setTimeout(() => {
-        ExitManager.exit(0);
-      }, 100);
+      ExitManager.exit(0).catch(() => process.exit(0));
     }
   }
 }

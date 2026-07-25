@@ -29,13 +29,13 @@ export interface ExecutionResult {
   executionId: string;
   /** Workflow ID */
   workflowId: string;
-  /** Status */
+  /** Execution status */
   status: string;
   /** Start time */
   startTime: Date;
-  /** Terminal session ID (for detached/background modes) */
+  /** Terminal session ID (for foreground/background modes) */
   terminalId?: string;
-  /** Process ID (for detached/background modes) */
+  /** Process ID (for foreground/background modes) */
   pid?: number;
   /** Log file path (for background mode) */
   logFile?: string;
@@ -62,13 +62,13 @@ export class ExecutionService {
    * Execute workflow with specified mode
    * @param workflowId Workflow ID to execute
    * @param input Input data for the workflow
-   * @param mode Execution mode (blocking/detached/background)
+   * @param mode Execution mode (blocking/foreground/background)
    * @returns Execution result
    */
   async execute(
     workflowId: string,
     input: Record<string, unknown>,
-    mode: WorkflowExecutionMode = 'detached'
+    mode: WorkflowExecutionMode = 'foreground'
   ): Promise<ExecutionResult> {
     output.infoLog(`Executing workflow ${workflowId} in ${mode} mode`);
 
@@ -78,8 +78,8 @@ export class ExecutionService {
     switch (validatedMode) {
       case 'blocking':
         return this.executeBlocking(workflowId, input);
-      case 'detached':
-        return this.executeDetached(workflowId, input);
+      case 'foreground':
+        return this.executeForeground(workflowId, input);
       case 'background':
         return this.executeBackground(workflowId, input);
       default:
@@ -94,11 +94,11 @@ export class ExecutionService {
    * Validate application runtime mode × workflow execution mode combination.
    *
    * Mode combination matrix:
-   *   app mode ↓  \  exec mode → | detached (default) | blocking | background
-   *   ---------------------------|--------------------|----------|------------
-   *   interactive                | ✓ (default)        | ✓        | ✓
-   *   headless                   | ⚠ → blocking      | ✓        | ⚠ → blocking
-   *   programmatic               | ⚠ → blocking      | ✓        | ✓
+   *   app mode ↓  \  exec mode → | foreground (default) | blocking | background
+   *   ---------------------------|-----------------------|----------|------------
+   *   interactive                | ✓ (default)           | ✓        | ✓
+   *   headless                   | ⚠ → blocking         | ✓        | ⚠ → blocking
+   *   programmatic               | ⚠ → blocking         | ✓        | ✓
    *
    * Legend:
    *   ✓ = valid, used as-is
@@ -115,9 +115,9 @@ export class ExecutionService {
       return requestedMode;
     }
 
-    // Headless mode: detached and background create unnecessary terminals/logging
+    // Headless mode: foreground and background create unnecessary terminals/logging.
     if (appMode.isHeadless) {
-      if (requestedMode === 'detached' || requestedMode === 'background') {
+      if (requestedMode === 'foreground' || requestedMode === 'background') {
         output.warnLog(
           `Headless mode does not support '${requestedMode}' execution. ` +
           "Falling back to 'blocking' mode for clean output."
@@ -127,11 +127,11 @@ export class ExecutionService {
       return requestedMode;
     }
 
-    // Programmatic mode: detached creates an unwanted terminal, fall back to blocking
+    // Programmatic mode: foreground creates an unwanted terminal, fall back to blocking
     if (appMode.isProgrammatic) {
-      if (requestedMode === 'detached') {
+      if (requestedMode === 'foreground') {
         output.warnLog(
-          "Programmatic mode does not support 'detached' execution. " +
+          "Programmatic mode does not support 'foreground' execution. " +
           "Falling back to 'blocking' mode for structured result output."
         );
         return 'blocking';
@@ -174,7 +174,7 @@ export class ExecutionService {
   }
 
   /**
-   * Detached mode: SDK async execution + real-time event display via terminal
+   * Foreground mode: SDK async execution + real-time event display via terminal
    *
    * - Single SDK instance (shared with CLI process)
    * - Asynchronous execution — CLI returns immediately
@@ -183,15 +183,15 @@ export class ExecutionService {
    * - If the CLI exits, the in-process workflow execution is terminated
    * - User can view progress via the pseudo-terminal, but cannot interact with it
    *
-   * NOTE: Despite the name "detached", the workflow runs in the same process as
-   * the CLI. True OS-level detachment is NOT provided by this mode. For background
-   * execution that survives CLI exit, use --background mode.
+   * NOTE: The workflow runs in the same process as the CLI. True OS-level
+   * detachment is NOT provided by this mode. For background execution that
+   * survives CLI exit, use --background mode.
    */
-  private async executeDetached(
+  private async executeForeground(
     workflowId: string,
     input: Record<string, unknown>
   ): Promise<ExecutionResult> {
-    output.debugLog('Starting detached execution');
+    output.debugLog('Starting foreground execution');
 
     // 1. Start workflow via SDK (single initialization)
     const execution = await this.adapter.executeWorkflow(workflowId, input);
@@ -204,24 +204,22 @@ export class ExecutionService {
       background: false,
     });
 
-    output.infoLog(`Detached execution started in terminal ${terminal.id}`);
+    output.infoLog(`Foreground execution started in terminal ${terminal.id}`);
 
     // 3. Display initial information in terminal
     this.displayExecutionInfo(terminal, {
       workflowId,
       executionId: executionId || '',
-      mode: 'detached',
+      mode: 'foreground',
     });
 
     // 4. Stream events to terminal (if SDK supports event subscription)
-    // Note: This is a placeholder for future event streaming implementation
-    // For now, the terminal will show the CLI command output if user runs commands manually
     this.setupEventStreaming(executionId || '', terminal).catch(error => {
       output.errorLog(`Failed to setup event streaming: ${error.message}`);
     });
 
     return {
-      mode: 'detached',
+      mode: 'foreground',
       executionId: executionId || '',
       workflowId,
       status: execution.status || 'running',
@@ -450,7 +448,7 @@ export class ExecutionService {
 
   /**
    * Follow an execution in real-time by streaming events to stdout.
-   * Unlike detached mode (which uses node-pty), this writes directly to
+   * Unlike foreground mode (which uses node-pty), this writes directly to
    * the main terminal so users can observe execution progress in headless
    * or remote scenarios.
    *

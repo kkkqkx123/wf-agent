@@ -38,8 +38,9 @@
 #### 0.1 创建 Cargo Workspace
 
 ```
+Cargo.toml               # workspace 定义（根目录）
+rust-toolchain.toml      # Rust 工具链配置
 crates/
-├── Cargo.toml          # workspace 定义
 ├── wf-types/           # 类型定义
 ├── wf-common/          # 公共工具
 ├── wf-storage/         # 存储层
@@ -81,7 +82,7 @@ crates/
 ### 验收标准
 
 ```bash
-cd crates && cargo build --workspace  # 全量构建通过
+cargo build --workspace  # 全量构建通过
 cd crates/wf-sdk && npm test          # napi-rs 桥接测试通过
 ```
 
@@ -175,8 +176,8 @@ pub trait CheckpointStorage: Send + Sync {
 ### 验收标准
 
 ```bash
-cd crates/wf-types && cargo test
-cd crates/wf-storage && cargo test
+cargo test -p wf-types
+cargo test -p wf-storage
 pnpm --filter @wf-agent/storage test  # 原有 TS 测试仍通过
 # 新增：Rust 存储层通过 TS 侧的集成测试
 ```
@@ -280,8 +281,8 @@ impl Checkpoint {
 ### 验收标准
 
 ```bash
-cd crates/wf-core && cargo test
-cd crates/wf-checkpoint && cargo test
+cargo test -p wf-core
+cargo test -p wf-checkpoint
 # 事件系统：10K 事件/秒广播无丢失
 # Checkpoint：序列化速度提升 3x 以上
 ```
@@ -457,8 +458,8 @@ impl LlmProvider for OpenAiClient {
 ### 验收标准
 
 ```bash
-cd crates/wf-executor && cargo test
-cd crates/wf-llm && cargo test
+cargo test -p wf-executor
+cargo test -p wf-llm
 # 端到端：运行 apps/cli-app 的核心工作流场景，功能正常
 # 性能：100 节点 workflow 执行时间 < TS 版本的 1/5
 ```
@@ -569,8 +570,8 @@ impl AgentLoopCoordinator {
 ### 验收标准
 
 ```bash
-cd crates/wf-tools && cargo test
-cd crates/wf-agent && cargo test
+cargo test -p wf-tools
+cargo test -p wf-agent
 # MCP：连接主流 MCP 服务器（filesystem, github, slack）功能正常
 # Agent：cli-app 中 agent 模式运行正常
 ```

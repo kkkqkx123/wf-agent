@@ -1,13 +1,28 @@
+target
+/data
+/logs
+test_logs
+default_db_path
+**/repomix-output.xml
+.mypy_cache
+tests/c_api/build
+.translator
+*.exe
+*.db
+Cargo.lock
+__pycache__
+*.pyc
+*.log
 *.repomix-output.xml
 .translator
 
-# 依赖
+# Dependencies
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# 构建输出
+# Build outputs
 dist/
 build/
 *.tsbuildinfo
@@ -15,43 +30,32 @@ target
 .turbo
 pnpm-lock.yaml
 
-# 环境变量
+# Env
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# 日志
+# Log
 logs/
 *.log
 
-# 运行时数据
+# Runtime data
 pids/
 *.pid
 *.seed
 *.pid.lock
 **/__tests__/**/storage
 
-# 覆盖率报告
-coverage/
-*.lcov
-
-# nyc测试覆盖率
-.nyc_output
-
-# 依赖锁定文件
-package-lock.json
-yarn.lock
-
-# IDE和编辑器
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# 操作系统
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -60,32 +64,16 @@ yarn.lock
 ehthumbs.db
 Thumbs.db
 
-# 临时文件
-*.tmp
-*.temp
-
-# 测试
-.jest/
-
-# 调试
-.vscode/launch.json
-
-# 本地配置
-config/local.json
-config/local.*.json
-config/local.*.yaml
-config/local.*.toml
-
-# 数据库
+# Database
 *.sqlite
 *.sqlite3
 *.db
 
-# 缓存
+# Cache
 .cache/
 .parcel-cache/
 
-# 压缩文件
+# Compressed
 *.7z
 *.dmg
 *.gz
@@ -95,9 +83,6 @@ config/local.*.toml
 *.tar
 *.zip
 
-# 文档生成
-docs/generated/
-
-# 性能分析
+# Performance
 *.cpuprofile
 *.heapprofile

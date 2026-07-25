@@ -1,0 +1,23 @@
+[package]
+name = "wf-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+uuid.workspace = true
+
+sqlx = { workspace = true, optional = true }
+
+[features]
+default = ["sqlite", "postgres"]
+sqlite = ["dep:sqlx"]
+postgres = ["dep:sqlx"]

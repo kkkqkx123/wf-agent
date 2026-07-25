@@ -1,5 +1,3 @@
-[submodule "crates/layertwine"]
-	path = crates/layertwine
+[submodule "layertwine"]
+	path = layertwine
 	url = https://github.com/kkkqkx123/layertwine.git
-
-

@@ -3,13 +3,20 @@
 This document provides essential information for AI agents working with the Modular Agent Framework.
 
 **No-backward-compatible**
-At present, the project is in the development stage and there is no need to specifically consider backward compatibility. Prioritize ensuring the long-term maintainability of the architecture and refactoring design defects as early as possible.
+At present, the project is in the development stage and there is no need to specifically consider backward compatibility. It is important to maintain a reasonable architecture.
+
+## Language
+
+Always use English in code, comments, logging, error info. Use Chinese in docs.
+**Never use any Chinese in any code files.**
 
 ## Project Overview
 
-The Modular Agent Framework is a monorepo containing:
+The Modular Agent Framework is a monorepo undergoing **Rust migration** (see `docs/plan/rust迁移-分阶段方案.md`). Currently in hybrid state:
 
-- **SDK Module**: TypeScript workflow execution engine with 15 node types
+### TypeScript Layer (stable)
+
+- **SDK Module**: TypeScript workflow execution engine with 15+ node types
 - **Multi-model LLM integration**: OpenAI, Anthropic, Gemini, Mock
 - **Flexible tool system**: Built-in, native, REST, MCP
 - **Fork/Join support**: Parallel execution capabilities
@@ -18,151 +25,93 @@ The Modular Agent Framework is a monorepo containing:
 - **Shared packages**: Reusable utilities and components
 - **Application modules**: Ready-to-deploy applications
 
-## Development Environment Setup
+### Rust Crate Layer (in progress, P0-P1 completed)
 
-### Prerequisites
+Crates under `crates/` with a strict dependency DAG:
 
-Node.js v22.0.0+, pnpm v10.28.2, Turbo v2.8.3
-
-### Install Dependencies
-
-```bash
-pnpm install
-```
-
-### Build
-
-**build first when there are module cross-module issues**
-
-```bash
-pnpm build
-```
-
-### Testing
-
-```bash
-pnpm test
-# Run specific package test
-pnpm --filter <package-name> test
-```
+- `wf-types` - All type definitions (serde), 20 node types, workflow/agent/checkpoint types
+- `wf-common` - Common utilities (error, result, time, id)
+- `wf-storage` - Storage adapter traits + in-memory/SQLite/PostgreSQL implementations
 
 ## Code Architecture
 
 ### Monorepo Structure
 
-**Apps Layer** (`apps/`)
-
-- Contains application modules
-- Uses packages as dependencies
-- Deployable applications
-
-**Packages Layer** (`packages/`)
-
-- Shared utility packages
-- Reusable components and libraries
-- Cross-project functionality
-- Contains SDK packages (`sdk/`, `sdk-kit/`)
-
-### Directory Structure
-
 ```
 wf-agent/
-├── apps/  # Application modules
-├── packages/  # Shared packages
-│   ├── common-utils/  # Common utilities
-│   ├── config-processor/  # Configuration processing
-│   ├── sdk/  # Core SDK package
-│   ├── sdk-kit/  # SDK toolkit package
-│   ├── storage/  # Storage utilities
-│   └── types/  # Type definitions
-├── package.json  # Root workspace config
-├── pnpm-workspace.yaml  # Workspace definitions
-└── turbo.json  # Build orchestration
+├── apps/               # Application modules (TS)
+├── packages/           # Shared TS packages
+│   ├── common-utils/   # Common utilities
+│   ├── config-processor/
+│   ├── sdk/            # Core SDK package
+│   ├── sdk-kit/        # SDK toolkit package
+│   ├── storage/        # Storage utilities
+│   └── types/          # Type definitions (Zod schemas)
+├── Cargo.toml           # Workspace definition
+├── rust-toolchain.toml  # Rust toolchain config
+├── crates/              # Rust crates (migration target)
+│   ├── wf-types/        # Type definitions (serde)
+│   ├── wf-common/       # Common utilities
+│   ├── wf-storage/      # Storage implementations
+│   └── ...              # Future: wf-core, wf-checkpoint, wf-executor, etc.
+├── crates/layertwine/   # Standalone file-edit history (not in workspace)
+├── package.json
+├── pnpm-workspace.yaml
+└── turbo.json
 ```
 
-## Dependency Management
+### Rust Crate Dependency DAG
 
-### Centralized Dependencies
+```
+wf-types  ←  wf-storage  →  wf-common
+```
 
-- Common devDependencies defined in root `package.json`
-- Shared TypeScript, Vitest, ESLint configurations
-- Consistent versions across all packages
+:## Rust Development Conventions
 
-### Workspace Protocol
+### Module Structure
 
-- Use `workspace:*` for internal package references
-- Automatic linking between packages
-- Version consistency guaranteed
+Each crate uses `include!` instead of `mod` in `lib.rs`. The crate root file is named after the directory (e.g., `wf_types.rs` for `wf-types`). Sub-files use flat includes — no nested module directories.
 
-## Development Process
+### File Layout Pattern
 
-### 1. Package Development
+```
+crates/<name>/src/
+├── lib.rs              ← include!("<crate_name>.rs");
+└── <crate_name>.rs     ← root, has all imports, includes sub-files
+```
 
-- Create new packages in `packages/` directory
-- Add to workspace in parent `package.json`
-- Use `workspace:*` for internal dependencies
+## Building and Running
 
-### 2. App Development
+Prerequisites: rustc 1.88.0, cargo 1.88.0
 
-- Create new apps in `apps/` directory
-- Reference packages using `workspace:*`
-- Follow consistent build and test patterns
+```shell
+cargo clippy --all-targets --all-features            # full compile check
+cargo check -p graphdb --features server,fulltext-search,c_api,grpc,qdrant  # check with all features
+```
 
-### 3. Testing Strategy
+## Development Conventions
 
-- **Unit tests**: In `__tests__` folders of current path
-  Note: The `__tests__` directory where the unit tests are located must be exactly the same directory as the original file. It is forbidden to create any unit tests at the upper level.
+- Rust standard formatting (`cargo fmt`)
+- Modular design following Rust conventions
 
-- **Integration tests**: In `__tests__` folders of current package root
-  (Example: source code in `<package>/`, then test file in `<package>/__tests__/<domain>[optional]/feature.int.test.ts`)
-  Focus: Cross-module functional collaboration.
+## Testing
 
-- **Public type tests (SDK-only)**: In `<package>/__tests__/test-d/`
-  File: `<package>/__tests__/test-d/<domain>[optional]/<type>.test-d.ts` (run via `tsd`)
-  Focus: Validate exported public APIs/interfaces/types from user perspective.
+```shell
+cargo test --lib -- --nocapture               # lib tests
+cargo test --test '*' -- --nocapture           # integration tests
+cargo test <test_name>                         # specific test(s)
+```
 
-- **End-to-end tests**: In `apps/` for complete workflows
+Test organization: unit tests in same file (`#[cfg(test)]`), separate `test.rs` for large files, integration tests in `tests/`, benchmarks in `benches/`.
 
-- **Run Tests**:
-  - Unit&integration: `cd <package>; pnpm test <path>`
-  - Type: `cd <package>; pnpm test:type`
-  - Typecheck for test: `cd <package>; pnpm typecheck:type`
-    **Never run all tests at once. `pnpm test` without path is forbidden.**
+## Coding Standards
 
-### 4. Build Orchestration
-
-- Use Turbo for efficient task execution
-- Leverage caching and incremental builds
-- Dependency-aware task ordering
-
-## Design Principles
-
-### 1. Modularity
-
-- Clear separation between apps and packages
-- Independent deployability of components
-- Loose coupling with explicit contracts
-
-### 2. Consistency
-
-- Uniform tooling across all packages
-- Shared linting and formatting rules
-- Standardized project templates
-
-### 3. Scalability
-
-- Efficient dependency management
-- Fast builds with caching
-- Parallel task execution
+- **Security**: Never use unwrap (use expect in tests). No unsafe except low-level ops, documented in `docs/archive/unsafe.md`.
+- **Types**: Minimize `dyn`, prefer concrete types. All dynamic dispatch documented in `docs/archive/dynamic.md`.
+- **Dependencies**: All sub-crates form a strict DAG (no circular deps between crates).
 
 ## Important Notes
 
-1. **Version Management**: Use root `package.json` for common dependencies
-2. **Workspace Protocol**: Always use `workspace:*` for internal references
-3. Avoid importing and dynamically using static types within the module. Use explicit type annotations and avoid indirect type resolution or dynamic type imports. (Only use when really need lazy import)
-4. **Plan/Design Document**: Avoid including complete code snippets. Mainly using concise natural language descriptions.
-
-## Language
-
-Always use English in code, comments, logging, error info or other string literal. Use Chinese in docs (except code block)
-**Never use any Chinese in any code files or code block.**
+1. **Rust deps**: Centralized in root `Cargo.toml` workspace section
+2. **Plan/Design Document**: Avoid including complete code snippets. Mainly using concise natural language descriptions.
+3. **Migration Phase**: Currently P0-P1 (infrastructure + types + storage). See `docs/plan/rust迁移-分阶段方案.md`

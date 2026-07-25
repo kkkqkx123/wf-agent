@@ -1,0 +1,200 @@
+一、当前包结构分析
+现有结构
+packages/
+├── types/           # 类型定义 (Zod schemas + TS interfaces)
+├── storage/         # 存储层 (Postgres/SQLite/Memory)
+├── common-utils/    # 通用工具
+├── config-processor/# 配置处理
+├── sdk/             # 核心执行引擎 ⭐
+│   ├── workflow/    # Workflow 执行 (coordinators, executors, checkpoint)
+│   ├── agent/       # Agent 执行 (类似 workflow 结构)
+│   ├── services/    # 服务层 (LLM, tools, MCP, sandbox)
+│   ├── shared/      # 共享组件 (registry, events, checkpoint)
+│   ├── resources/   # 资源管理
+│   ├── api/         # API 封装层
+│   └── plugin/      # 插件系统
+├── sdk-kit/         # 高级封装层 (Builder pattern + Result 模式)
+└── runtime/         # 运行时环境
+二、Rust 迁移建议的包结构调整
+🔴 必须拆分的核心模块
+1. 将 sdk 拆分为多个独立 Crate
+当前 sdk 包过于庞大（~50+ 协调器/执行器），应拆分为：
+toml
+# 新的 Cargo workspace 结构
+packages-rust/
+├── wf-types/           # ← 从 types 迁移 (serde + 自定义类型)
+├── wf-storage/         # ← 从 storage 迁移 (sqlx + 连接池)
+├── wf-common/          # ← 从 common-utils 迁移
+├── wf-config/          # ← 从 config-processor 迁移
+│
+├── wf-core/            # ⭐ 新拆分 - 核心基础设施
+│   ├── event-bus       # EventRegistry → tokio::sync::broadcast
+│   ├── registry        # Tool/Skill/Task Registry → DashMap
+│   ├── checkpoint-core # Checkpoint 基础抽象
+│   └── errors          # 统一错误类型
+│
+├── wf-executor/        # ⭐ 新拆分 - 执行引擎
+│   ├── workflow-coordinator  # WorkflowExecutionCoordinator
+│   ├── node-coordinator      # NodeExecutionCoordinator  
+│   ├── llm-coordinator       # LLMExecutionCoordinator
+│   ├── tool-executor         # ToolCallExecutor
+│   └── script-executor       # ScriptExecutor
+│
+├── wf-checkpoint/      # ⭐ 新拆分 - Checkpoint 系统
+│   ├── coordinator     # CheckpointCoordinator (59KB 大文件)
+│   ├── branch-manager  # BranchManager
+│   ├── version-mgr     # CheckpointVersionManager
+│   └── strategy        # CheckpointStrategy
+│
+├── wf-llm/             # ⭐ 新拆分 - LLM 服务
+│   ├── client          # LLM Client (OpenAI/Gemini 协议)
+│   ├── message-stream  # Stream 处理 + SSE 解析
+│   ├── formatters      # Tool Call 格式化
+│   └── token-counter   # Token 计数 (tiktoken-rs)
+│
+├── wf-tools/           # ⭐ 新拆分 - 工具执行
+│   ├── mcp-client      # MCP 协议实现
+│   ├── builtin-tools   # 内置工具 (fs, shell, etc.)
+│   ├── approval-engine # 审批引擎
+│   └── sandbox-intf    # 沙箱接口 (实际执行保持 TS)
+│
+├── wf-agent/           # ⭐ 新拆分 - Agent 循环
+│   ├── loop-coordinator  # AgentLoopCoordinator (1.5KB 状态机)
+│   ├── state-transitor   # AgentLoopStateTransitor
+│   └── session-manager   # ConversationSession
+│
+└── wf-sdk/             # ⭐ 新拆分 - 统一导出 + napi-rs 绑定
+    ├── lib.rs          # Re-export all crates
+    └── napi/           # TypeScript 绑定层
+🟡 SDK 细分策略
+当前问题
+typescript
+// 现状：单一 sdk 包导出所有内容
+import { WorkflowExecutor, ToolRegistry, CheckpointCoordinator } from "@wf-agent/sdk"
+缺点：
+编译时间长
+无法按需加载
+Rust 迁移时难以分阶段进行
+依赖耦合严重
+推荐的细分方案
+新包名
+包含内容
+依赖关系
+迁移优先级
+@wf-agent/core
+EventRegistry, ToolRegistry, TaskRegistry, 基础类型
+wf-types, wf-common
+P0
+@wf-agent/storage
+所有存储适配器
+wf-types, sqlx
+P0
+@wf-agent/checkpoint
+CheckpointCoordinator, BranchManager, 版本管理
+wf-core, wf-storage
+P1
+@wf-agent/executor
+Workflow/Node/LLM Coordinators, ToolExecutor
+wf-core, wf-checkpoint
+P1
+@wf-agent/llm
+LLM Client, MessageStream, Formatters
+wf-types, reqwest
+P2
+@wf-agent/tools
+MCP, Builtin Tools, Approval
+wf-core, wf-executor
+P2
+@wf-agent/agent
+AgentLoopCoordinator, Session
+wf-executor, wf-checkpoint
+P3
+@wf-agent/sdk
+统一导出 + napi-rs 桥接
+All above
+P4
+🟢 保持 TypeScript 的模块
+以下模块不建议迁移到 Rust，应保持 TS 实现：
+typescript
+12345678
+三、关键改造点
+1. 依赖解耦
+当前问题：
+typescript
+12345
+Rust 改造：
+rust
+12345678910
+2. 存储层抽象
+当前：
+typescript
+123
+Rust 改造：
+rust
+123456789101112131415
+3. 事件系统重构
+当前：
+typescript
+12345
+Rust 改造：
+rust
+1234567891011121314151617
+4. Checkpoint 序列化
+当前：
+typescript
+123
+Rust 改造：
+rust
+1234567891011121314151617181920
+四、迁移路线图
+Phase 1: 基础设施 (2-3 周)
+✅ wf-types: 类型定义 + serde
+✅ wf-storage: 存储 trait + Postgres/SQLite实现
+✅ wf-common: 工具函数迁移
+Phase 2: 核心引擎 (4-6 周)
+⭐ wf-core: EventRegistry, ToolRegistry
+⭐ wf-checkpoint: CheckpointCoordinator (PoC)
+⭐ wf-executor: ToolCallExecutor
+Phase 3: 执行协调 (6-8 周)
+wf-executor: Workflow/Node Coordinators
+wf-llm: LLM Client + MessageStream
+wf-tools: MCP + Builtin Tools
+Phase 4: 集成与绑定 (4 周)
+wf-agent: AgentLoopCoordinator
+wf-sdk: napi-rs 绑定层
+混合架构联调
+五、预期收益
+指标
+当前 TS
+目标 Rust
+提升
+执行性能
+1x
+5-10x
+⬆️ 500%
+内存占用
+100%
+40-50%
+⬇️ 50%+
+Checkpoint 序列化
+JSON (慢)
+Bincode (快)
+⬆️ 3-5x
+并发能力
+Event Loop
+Tokio Runtime
+⬆️ 10x+
+类型安全
+运行时 Zod
+编译时检查
+⬆️ 100%
+六、风险与建议
+⚠️ 高风险区域
+Checkpoint 版本迁移: 需保证向后兼容
+事件系统重写: 订阅模型差异大
+MCP 协议: Rust 生态不成熟
+✅ 建议策略
+渐进式迁移: 先用 napi-rs 实现混合架构
+保持 TS API: sdk-kit 层保持 TS，用户无感知
+并行运行: Rust 核心 + TS 外壳，逐步替换
+充分测试: 每个模块迁移后跑完整 E2E 测试

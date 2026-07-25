@@ -12,7 +12,7 @@ describe("IterationPanel Component", () => {
   describe("Initialization", () => {
     it("should initialize with empty iterations", () => {
       const result = panel.render();
-      expect(result).toContain("=== Iteration Progress ===");
+      expect(result).toEqual([]);
     });
 
     it("should accept maxHeight option", () => {
@@ -127,18 +127,17 @@ describe("IterationPanel Component", () => {
       panel.updateIteration({ iteration: 1, toolCallCount: 1 });
       panel.updateIteration({ iteration: 2, toolCallCount: 2 });
       panel.clear();
-      
+
       const result = panel.render();
-      // Header still contains "Iteration" but no iteration lines should appear
-      const iterationLines = result.filter(line => line.includes("Iteration") && !line.includes("=== Iteration Progress ==="));
+      const iterationLines = result.filter(line => line.includes("Iteration"));
       expect(iterationLines.length).toBe(0);
     });
   });
 
   describe("render", () => {
-    it("should render header", () => {
+    it("should render empty when no iterations", () => {
       const result = panel.render();
-      expect(result).toContain("=== Iteration Progress ===");
+      expect(result).toEqual([]);
     });
 
     it("should show iteration information", () => {
@@ -177,15 +176,14 @@ describe("IterationPanel Component", () => {
       panel.updateIteration({ iteration: 3, toolCallCount: 3 });
       panel.updateIteration({ iteration: 1, toolCallCount: 1 });
       panel.updateIteration({ iteration: 2, toolCallCount: 2 });
-      
+
       const result = panel.render();
       const lines = result.filter(line => line.includes("Iteration"));
-      
-      // Check that they appear in order
-      const indices = [1, 2, 3].map(num => 
+
+      const indices = [1, 2, 3].map(num =>
         lines.findIndex(line => line.includes(`Iteration ${num}`))
       );
-      
+
       expect(indices[0]!).toBeLessThan(indices[1]!);
       expect(indices[1]!).toBeLessThan(indices[2]!);
     });

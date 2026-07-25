@@ -141,45 +141,45 @@ describe("ToolCallIndicator Component", () => {
   });
 
   describe("render", () => {
-    it("should render active calls section", () => {
+    it("should render active tool calls without section header", () => {
       indicator.handleToolCallStart({ toolCallId: "call-1", toolName: "active-tool", arguments: {}, summary: "Active" });
       const result = indicator.render();
-      
-      expect(result.some(line => line.includes("Active Tool Calls"))).toBe(true);
+
+      expect(result.some(line => line.includes("active-tool"))).toBe(true);
+      expect(result.some(line => line.includes("Active Tool Calls"))).toBe(false);
     });
 
-    it("should render completed calls section", () => {
+    it("should render completed calls without section header", () => {
       indicator.handleToolCallStart({ toolCallId: "call-1", toolName: "completed-tool", arguments: {}, summary: "Completed" });
       indicator.handleToolCallEnd({ toolCallId: "call-1", toolName: "completed-tool", success: true, duration: 100 });
-      
+
       const result = indicator.render();
-      expect(result.some(line => line.includes("Recent Tool Calls"))).toBe(true);
+      expect(result.some(line => line.includes("completed-tool"))).toBe(true);
+      expect(result.some(line => line.includes("Recent Tool Calls"))).toBe(false);
     });
 
     it("should limit displayed completed calls", () => {
       const limitedIndicator = new ToolCallIndicator({ maxDisplayCalls: 2 });
-      
-      // Add 5 completed calls
+
       for (let i = 1; i <= 5; i++) {
-        limitedIndicator.handleToolCallStart({ 
-          toolCallId: `call-${i}`, 
+        limitedIndicator.handleToolCallStart({
+          toolCallId: `call-${i}`,
           toolName: `tool${i}`,
           arguments: {},
           summary: `Tool ${i}`,
         });
-        limitedIndicator.handleToolCallEnd({ 
-          toolCallId: `call-${i}`, 
+        limitedIndicator.handleToolCallEnd({
+          toolCallId: `call-${i}`,
           toolName: `tool${i}`,
-          success: true, 
-          duration: 100 
+          success: true,
+          duration: 100,
         });
       }
-      
+
       const result = limitedIndicator.render();
       const completedLines = result.filter(line => line.includes("tool"));
-      
-      // Should only show last 2
-      expect(completedLines.length).toBeLessThanOrEqual(4); // 2 tools + headers
+
+      expect(completedLines.length).toBeLessThanOrEqual(2);
     });
 
     it("should show elapsed time for active calls", () => {

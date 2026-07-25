@@ -107,10 +107,6 @@ export class IterationPanel implements Component {
   render(width?: number): string[] {
     const lines: string[] = [];
 
-    // Header
-    lines.push("=== Iteration Progress ===");
-    lines.push("");
-
     // Sort iterations by number
     const sortedIterations = Array.from(this.iterations.entries())
       .sort((a, b) => a[0] - b[0]);

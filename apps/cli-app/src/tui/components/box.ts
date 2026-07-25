@@ -9,7 +9,8 @@ type RenderCache = {
 };
 
 /**
- * Box component - a container that applies padding and background to all children
+ * Box component - a container that applies padding and background to all children.
+ * Default padding is 0,0 for flat layouts. Use padding only for modals/overlays.
  */
 export class Box implements Component {
   children: Component[] = [];
@@ -20,7 +21,7 @@ export class Box implements Component {
   // Cache for rendered output
   private cache?: RenderCache;
 
-  constructor(paddingX = 1, paddingY = 1, bgFn?: (text: string) => string) {
+  constructor(paddingX = 0, paddingY = 0, bgFn?: (text: string) => string) {
     this.paddingX = paddingX;
     this.paddingY = paddingY;
     this.bgFn = bgFn;

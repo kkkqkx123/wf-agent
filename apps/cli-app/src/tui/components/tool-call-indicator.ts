@@ -102,44 +102,31 @@ export class ToolCallIndicator implements Component {
   render(width?: number): string[] {
     const lines: string[] = [];
 
-    // Active calls section
-    if (this.activeCalls.size > 0) {
-      lines.push("=== Active Tool Calls ===");
-      lines.push("");
-
-      for (const call of this.activeCalls.values()) {
-        const icon = "🔄";
-        const elapsed = Math.round((Date.now() - call.startTime) / 1000);
-
-        lines.push(`  ${icon} ${call.name} (${elapsed}s)`);
-      }
-
-      lines.push("");
+    // Active calls
+    for (const call of this.activeCalls.values()) {
+      const elapsed = Math.round((Date.now() - call.startTime) / 1000);
+      lines.push(`🔄 ${call.name} (${elapsed}s)`);
     }
 
     // Recent completed calls
     if (this.completedCalls.length > 0) {
-      lines.push("=== Recent Tool Calls (Enter to expand/collapse) ===");
-      lines.push("");
 
       const recentCalls = this.completedCalls.slice(-this.maxDisplayCalls);
       const offset = this.completedCalls.length - recentCalls.length;
 
       for (let i = 0; i < recentCalls.length; i++) {
         const call = recentCalls[i]!;
-        const globalIndex = offset + i;
-        const isExpanded = globalIndex === this.expandedIndex;
+        const isExpanded = (offset + i) === this.expandedIndex;
         const icon = call.status === "completed" ? "✓" : "✗";
         const duration = call.duration ? `${Math.round(call.duration)}ms` : "N/A";
-        const expandMarker = isExpanded ? "▼" : "▶";
+        const marker = isExpanded ? "▼" : "▶";
 
-        lines.push(`  ${expandMarker} ${icon} ${call.name} (${duration})`);
+        lines.push(` ${marker} ${icon} ${call.name} (${duration})`);
 
-        // Show details when expanded
         if (isExpanded && call.arguments) {
           const argsStr = this.formatArguments(call.arguments, width);
           if (argsStr) {
-            lines.push(`     Args: ${argsStr}`);
+            lines.push(`    Args: ${argsStr}`);
           }
         }
       }

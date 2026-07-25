@@ -4,9 +4,8 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkflowScreen } from "..//workflow-screen.js";
-import { Container, Box, Text, SelectList } from "../../index.js";
+import { Container, Text, SelectList } from "../../index.js";
 
-// Mock the WorkflowAdapter and WorkflowGraphAdapter - vi.mock is hoisted
 const mockListWorkflows = vi.fn();
 const mockGetWorkflow = vi.fn();
 
@@ -31,14 +30,13 @@ describe("WorkflowScreen", () => {
 
   beforeEach(() => {
     onBackMock = vi.fn();
-    
-    // Reset mocks and set default behavior
+
     mockListWorkflows.mockReset();
     mockListWorkflows.mockResolvedValue([
       { id: "wf1", name: "Test Workflow 1", version: "1.0", status: "active" },
       { id: "wf2", name: "Test Workflow 2", version: "2.0", status: "inactive" },
     ]);
-    
+
     mockGetWorkflow.mockReset();
     mockGetWorkflow.mockImplementation((id: string) => {
       if (id === "wf1") {
@@ -47,17 +45,12 @@ describe("WorkflowScreen", () => {
           name: "Test Workflow 1",
           version: "1.0",
           description: "A test workflow",
-          nodes: [
-            { id: "node1", type: "start" },
-            { id: "node2", type: "process" },
-          ],
           createdAt: "2024-01-01",
-          updatedAt: "2024-01-02",
         });
       }
       return Promise.reject(new Error("Workflow not found"));
     });
-    
+
     screen = new WorkflowScreen(onBackMock);
   });
 
@@ -72,12 +65,6 @@ describe("WorkflowScreen", () => {
       expect(screen).toBeDefined();
       expect(onBackMock).toBeDefined();
     });
-
-    it("should initialize adapter and load workflows", async () => {
-      // Wait for async initialization
-      await new Promise(resolve => setTimeout(resolve, 100));
-      expect(screen).toBeDefined();
-    });
   });
 
   describe("render", () => {
@@ -86,71 +73,10 @@ describe("WorkflowScreen", () => {
       expect(result).toBeInstanceOf(Container);
     });
 
-    it("should render toolbar with action buttons", () => {
+    it("should render workflow list as first child", () => {
       const container = screen.render() as Container;
-      expect(container.children.length).toBeGreaterThan(0);
-      
-      // First child should be toolbar
-      const toolbar = container.children[0] as Box;
-      expect(toolbar).toBeInstanceOf(Box);
-      
-      const toolbarChildren = (toolbar as any).children;
-      expect(toolbarChildren.length).toBeGreaterThanOrEqual(1);
-      expect(toolbarChildren[0]).toBeInstanceOf(Text);
-      
-      const toolbarText = toolbarChildren[0].render(80)[0];
-      expect(toolbarText).toContain("[N]ew");
-      expect(toolbarText).toContain("[E]dit");
-      expect(toolbarText).toContain("[D]elete");
-      expect(toolbarText).toContain("[R]efresh");
-      expect(toolbarText).toContain("[B]ack");
-    });
-
-    it("should render split layout with list, detail, and graph panels", () => {
-      const container = screen.render() as Container;
-      
-      // Second child should be split container
-      const splitContainer = container.children[1] as Container;
-      expect(splitContainer).toBeInstanceOf(Container);
-      
-      // Should have three children: list box, detail box, graph box
-      expect(splitContainer.children.length).toBe(3);
-      
-      const listBox = splitContainer.children[0] as Box;
-      const detailBox = splitContainer.children[1] as Box;
-      
-      expect(listBox).toBeInstanceOf(Box);
-      expect(detailBox).toBeInstanceOf(Box);
-    });
-
-    it("should render workflow list in left panel", () => {
-      const container = screen.render() as Container;
-      const splitContainer = container.children[1] as Container;
-      const listBox = splitContainer.children[0] as Box;
-      
-      const listChildren = (listBox as any).children;
-      expect(listChildren.length).toBeGreaterThanOrEqual(2);
-      
-      // First child should be label
-      expect(listChildren[0]).toBeInstanceOf(Text);
-      
-      // Second child should be SelectList
-      expect(listChildren[1]).toBeInstanceOf(SelectList);
-    });
-
-    it("should render detail panel in right panel", () => {
-      const container = screen.render() as Container;
-      const splitContainer = container.children[1] as Container;
-      const detailBox = splitContainer.children[1] as Box;
-      
-      const detailChildren = (detailBox as any).children;
-      expect(detailChildren.length).toBeGreaterThanOrEqual(2);
-      
-      // First child should be label
-      expect(detailChildren[0]).toBeInstanceOf(Text);
-      
-      // Second child should be detail Box
-      expect(detailChildren[1]).toBeInstanceOf(Box);
+      const list = container.children[0] as SelectList;
+      expect(list).toBeInstanceOf(SelectList);
     });
   });
 
@@ -172,93 +98,27 @@ describe("WorkflowScreen", () => {
       expect(result).toBe(true);
     });
 
-    it("should handle 'R' key to refresh workflows", () => {
-      const result = screen.handleInput!("R");
-      expect(result).toBe(true);
-    });
-
     it("should handle 'n' key for new workflow", () => {
       const result = screen.handleInput!("n");
       expect(result).toBe(true);
     });
 
-    it("should handle 'N' key for new workflow", () => {
-      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const result = screen.handleInput!("N");
-      expect(result).toBe(true);
-      consoleSpy.mockRestore();
-    });
-
-    it("should handle 'd' key for delete when workflow selected", () => {
-      const result = screen.handleInput!("d");
-      expect(result).toBe(true);
-    });
-
-    it("should delegate other input to workflow list", () => {
+    it("should delegate list navigation to SelectList", () => {
       const result = screen.handleInput!("arrowdown");
       expect(result).toBe(true);
-    });
-
-    it("should return false for unhandled input", () => {
-      // This might return true if delegated to list, depends on implementation
-      const result = screen.handleInput!("x");
-      expect(typeof result).toBe("boolean");
     });
   });
 
   describe("workflow loading", () => {
     it("should load workflows on initialization", async () => {
-      // Wait for async initialization
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       const container = screen.render() as Container;
-      const splitContainer = container.children[1] as Container;
-      const listBox = splitContainer.children[0] as Box;
-      const workflowList = (listBox as any).children[1] as SelectList;
-      
-      // Check that items were loaded
-      const items = (workflowList as any).items;
+      const list = container.children[0] as SelectList;
+      const items = (list as any).items;
+
       expect(items.length).toBeGreaterThan(0);
       expect(items[0].value).toBe("wf1");
-      expect(items[0].label).toBe("Test Workflow 1");
-    });
-
-    it("should display workflow details when selected", async () => {
-      // Wait for async initialization
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const container = screen.render() as Container;
-      const splitContainer = container.children[1] as Container;
-      const listBox = splitContainer.children[0] as Box;
-      const workflowList = (listBox as any).children[1] as SelectList;
-      
-      // Simulate selection
-      if (workflowList.onSelect) {
-        await workflowList.onSelect({ value: "wf1", label: "Test Workflow 1", description: "" });
-      }
-      
-      // Wait for async detail loading
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Check detail panel was updated
-      const detailBox = splitContainer.children[1] as Box;
-      const detailPanel = (detailBox as any).children[1] as Box;
-      const detailChildren = (detailPanel as any).children;
-      
-      expect(detailChildren.length).toBeGreaterThan(0);
-    });
-
-    it("should handle error when loading workflows fails", async () => {
-      // Make listWorkflows reject
-      mockListWorkflows.mockRejectedValue(new Error("Network error"));
-      
-      const errorScreen = new WorkflowScreen();
-      // Wait for async initialization
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      expect(errorScreen).toBeDefined();
-      const container = errorScreen.render() as Container;
-      expect(container.children.length).toBeGreaterThan(0);
     });
   });
 

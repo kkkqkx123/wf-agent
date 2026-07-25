@@ -7,6 +7,10 @@
  *
  * Detection priority (highest to lowest):
  *   1. Environment variables (CLI_MODE, HEADLESS, TEST_MODE)
+ *      Note: CLI_MODE=test or TEST_MODE=true maps to "test".
+ *            TEST_MODE=true was previously equivalent to headless;
+ *            it now maps to "test" so foreground/background modes
+ *            are not downgraded during testing.
  *   2. Config-provided default (passed via getMode())
  *   3. Hard-coded default ("interactive")
  *
@@ -32,10 +36,10 @@ export interface ModeDetectionResult {
   colorEnabled: boolean;
   /** Whether running in headless mode (shortcut) */
   isHeadless: boolean;
-  /** Whether running in programmatic mode (shortcut) */
-  isProgrammatic: boolean;
   /** Whether running in interactive mode (shortcut) */
   isInteractive: boolean;
+  /** Whether running in test mode (shortcut) */
+  isTest: boolean;
 }
 
 /**
@@ -47,22 +51,46 @@ const ENV = ExecutionModeEnvVars;
  * Detect execution mode from environment, with optional config fallback.
  * Priority: env vars > config fallback > hard-coded default ("interactive")
  *
+ * Detection logic:
+ *   CLI_MODE=test       -> test       (highest priority)
+ *   CLI_MODE=headless   -> headless
+ *   TEST_MODE=true      -> test       (was headless before reform)
+ *   HEADLESS=true       -> headless
+ *   configFallback      -> as specified (only when no env var matches)
+ *   default             -> interactive
+ *
  * @param configFallback Optional mode from app configuration as fallback
  */
 function detectMode(configFallback?: ExecutionMode): ExecutionMode {
   const cliMode = process.env[ENV.CLI_MODE];
-  if (cliMode === "programmatic") return "programmatic";
-  if (
-    cliMode === "headless" ||
-    process.env[ENV.HEADLESS] === "true" ||
-    process.env[ENV.TEST_MODE] === "true"
-  ) {
+
+  // CLI_MODE=test takes highest priority
+  if (cliMode === "test") {
+    return "test";
+  }
+
+  // CLI_MODE=headless (or legacy "programmatic") -> headless
+  if (cliMode === "headless" || cliMode === "programmatic") {
     return "headless";
   }
+
+  // TEST_MODE=true now maps to "test" (not headless)
+  // This allows foreground/background modes to work in tests
+  // without being downgraded to blocking.
+  if (process.env[ENV.TEST_MODE] === "true") {
+    return "test";
+  }
+
+  // HEADLESS=true -> headless
+  if (process.env[ENV.HEADLESS] === "true") {
+    return "headless";
+  }
+
   // Fallback to config value if provided
-  if (configFallback === "headless" || configFallback === "programmatic") {
+  if (configFallback === "headless" || configFallback === "test") {
     return configFallback;
   }
+
   return "interactive";
 }
 
@@ -74,9 +102,13 @@ function detectOutputFormat(mode?: ExecutionMode): OutputFormat {
   const format = process.env[ENV.OUTPUT_FORMAT] as OutputFormat | undefined;
   if (format === "json" || format === "silent" || format === "text") return format;
 
-  // Headless mode defaults to json output
   const currentMode = mode ?? detectMode();
+
+  // Headless mode defaults to json output
   if (currentMode === "headless") return "json";
+
+  // Test mode defaults to text output (easier for test assertions)
+  if (currentMode === "test") return "text";
 
   return "text";
 }
@@ -122,8 +154,8 @@ export function getMode(configFallback?: ExecutionMode): ModeDetectionResult {
     outputFormat: detectOutputFormat(mode),
     colorEnabled: detectColorEnabled(),
     isHeadless: mode === "headless",
-    isProgrammatic: mode === "programmatic",
     isInteractive: mode === "interactive",
+    isTest: mode === "test",
   };
 
   cachedResult = result;
@@ -160,15 +192,15 @@ export function isHeadless(): boolean {
 }
 
 /**
- * Quick check: programmatic mode
- */
-export function isProgrammatic(): boolean {
-  return getMode().isProgrammatic;
-}
-
-/**
  * Quick check: interactive mode
  */
 export function isInteractive(): boolean {
   return getMode().isInteractive;
+}
+
+/**
+ * Quick check: test mode
+ */
+export function isTest(): boolean {
+  return getMode().isTest;
 }

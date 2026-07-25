@@ -38,4 +38,4 @@ export type { DefaultAppConfigValidated } from "./config/schema.js";
 
 // Mode - Shared execution mode detection
 export type { ExecutionMode, OutputFormat, ModeDetectionResult } from "./mode/index.js";
-export { ExecutionModeEnvVars, getMode, getOutputFormat, isJsonMode, isSilentMode, isHeadless, isProgrammatic, isInteractive, invalidateModeCache } from "./mode/index.js";
+export { ExecutionModeEnvVars, getMode, getOutputFormat, isJsonMode, isSilentMode, isHeadless, isInteractive, invalidateModeCache } from "./mode/index.js";

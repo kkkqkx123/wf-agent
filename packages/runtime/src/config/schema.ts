@@ -28,7 +28,7 @@ export const DefaultAppConfigSchema = z.object({
   logLevel: z.enum(["error", "warn", "info", "debug"]).default("warn"),
   outputFormat: z.enum(["json", "table", "plain"]).default("table"),
   maxConcurrentExecutions: z.number().positive().default(5),
-  executionMode: z.enum(["interactive", "headless", "programmatic"]).optional(),
+  executionMode: z.enum(["interactive", "headless"]).optional(),
   storage: StorageConfigSchema.optional(),
   output: OutputConfigSchema.optional(),
   presets: PresetsConfigSchema.optional(),

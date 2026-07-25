@@ -92,7 +92,7 @@ export class TriggerTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @param resource Trigger template
    */
   protected async createResource(resource: TriggerTemplate): Promise<void> {
-    this.dependencies.getTriggerTemplateRegistry().register(resource);
+    await this.dependencies.getTriggerTemplateRegistry().registerAsync(resource);
   }
 
   /**

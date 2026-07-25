@@ -118,24 +118,28 @@ export function createWorkflowExecutionCommands(): Command {
               metadata: { executionId: result.executionId, pid: result.pid, mode: 'background' },
             });
           } else {
-            // Foreground mode: Show terminal info
+            // Foreground mode: Show terminal info and wait for completion
             router.render(result, {
               type: "detail",
               entity: "execution",
               format: () => {
                 let text = "\nThe workflow execution has been started in a foreground terminal.\n";
                 text += getFormatter().keyValue("Execution ID", result.executionId) + "\n";
-                if (result.terminalId) {
-                  text += getFormatter().keyValue("Terminal ID", result.terminalId) + "\n";
-                }
                 text += getFormatter().keyValue("Process ID", String(result.pid)) + "\n";
                 text += getFormatter().keyValue("Startup time", result.startTime.toISOString()) + "\n";
-                text += `\nUse 'modular-agent execution status ${result.executionId}' to check execution status\n`;
+                text += getFormatter().keyValue("Detached", String(result.detached)) + "\n";
                 return text;
               },
               message: `Workflow execution started in foreground terminal: ${result.executionId}`,
-              metadata: { executionId: result.executionId, pid: result.pid, terminalId: result.terminalId, mode: 'foreground' },
+              metadata: { executionId: result.executionId, pid: result.pid, mode: 'foreground', detached: result.detached },
             });
+
+            // Wait for execution to complete before returning (prevents postAction
+            // shutdown from killing the in-process execution prematurely)
+            if (result.completion) {
+              await result.completion;
+              output.infoLog('Foreground execution completed');
+            }
           }
         } catch (error) {
           handleError(error, {

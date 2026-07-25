@@ -9,7 +9,7 @@
  * This type was extracted from apps/cli-app and apps/server to eliminate
  * duplication (cli-app had a type union, server had an enum).
  * It is deliberately distinct from @wf-agent/runtime's ExecutionMode
- * (which controls app-level context: interactive/headless/programmatic).
+ * (which controls app-level context: interactive/headless).
  */
 
 /**

@@ -12,8 +12,8 @@ export {
   isJsonMode,
   isSilentMode,
   isHeadless,
-  isProgrammatic,
   isInteractive,
+  isTest,
   invalidateModeCache,
 } from "@wf-agent/runtime/mode";
 

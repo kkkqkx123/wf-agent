@@ -370,7 +370,7 @@ export class CLIOutput {
   private _getDefaultLogPath(): string {
     const outputDir =
       this._config.outputDir ??
-      (process.env["TEST_MODE"] && process.env["LOG_DIR"]
+      (process.env["CLI_MODE"] === "test" && process.env["LOG_DIR"]
         ? process.env["LOG_DIR"]
         : path.join(process.cwd(), "logs"));
 

@@ -22,6 +22,10 @@ export default defineConfig({
     // Test timeout (milliseconds)
     testTimeout: 60000,
 
+    // Hook timeout (milliseconds) - beforeEach hooks may register multiple
+    // workflows via CLI (~2-3s each), so set a generous limit
+    hookTimeout: 30000,
+
     // Teardown timeout
     teardownTimeout: 10000,
 
@@ -38,8 +42,7 @@ export default defineConfig({
 
     // Environment variables for integration tests
     env: {
-      CLI_MODE: "programmatic",
-      TEST_MODE: "true",
+      CLI_MODE: "test",
     },
   },
 

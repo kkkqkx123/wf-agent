@@ -10,8 +10,9 @@ export {
   isJsonMode,
   isSilentMode,
   isHeadless,
-  isProgrammatic,
   isInteractive,
+  isTest,
   invalidateModeCache,
 } from "./detector.js";
+// isProgrammatic is intentionally excluded — it has been merged into isHeadless.
 export type { ModeDetectionResult } from "./detector.js";

@@ -19,13 +19,17 @@ import type { SDKInstance } from "@wf-agent/sdk/api";
 import { WorkflowExecutionAdapter } from "../../adapters/workflow-execution-adapter.js";
 import { TerminalManager } from "../terminal/terminal-manager.js";
 import type { TerminalSession } from "../terminal/types.js";
-import type { WorkflowExecutionResult, BaseEvent, NodeCompletedEvent, WorkflowExecutionMode } from "@wf-agent/types";
+import type { WorkflowExecutionResult, BaseEvent, NodeCompletedEvent, WorkflowExecutionCompletedEvent, WorkflowExecutionFailedEvent, WorkflowExecutionMode } from "@wf-agent/types";
 import { createExecutionScopedSubscription } from "@wf-agent/sdk/api";
 import { CLIError, ErrorCode } from "../../types/cli-types.js";
 import { getMode } from "../../utils/mode-detector.js";
 
 const output = getOutput();
 
+/**
+ * Execution result interface
+ * Uses shared WorkflowExecutionMode from @wf-agent/types.
+ */
 export interface ExecutionResult {
   mode: WorkflowExecutionMode;
   executionId: string;
@@ -39,6 +43,10 @@ export interface ExecutionResult {
   completion?: Promise<void>;
 }
 
+/**
+ * Execution Service
+ * Provides unified interface for workflow execution across different modes.
+ */
 export class ExecutionService {
   private terminalManager: TerminalManager;
   private adapter: WorkflowExecutionAdapter;
@@ -217,7 +225,7 @@ export class ExecutionService {
         resolve();
       }, dependencies).subscribe();
 
-      createExecutionScopedSubscription(executionId, 'WORKFLOW_EXECUTION_FAILED', () => {
+      createExecutionScopedSubscription(executionId, 'WORKFLOW_EXECUTION_FAILED', (event: BaseEvent) => {
         nodeStartedUnsubscribe();
         nodeCompletedUnsubscribe();
         resolve();

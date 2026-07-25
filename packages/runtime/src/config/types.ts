@@ -51,8 +51,9 @@ export type DefaultAppConfig = AppConfig & {
   maxConcurrentExecutions: number;
   /** Presets configuration */
   presets?: PresetsConfig;
-  /** Default application runtime mode (interactive/headless/programmatic).
+  /** Default application runtime mode (interactive/headless).
    *  When set, this serves as the fallback if no environment variable overrides it.
-   *  If not set, defaults to "interactive". */
+   *  If not set, defaults to "interactive".
+   *  @note "programmatic" has been removed — use "headless" instead. */
   executionMode?: ExecutionMode;
 };

@@ -35,7 +35,7 @@ export class CLIRunner {
     this.defaultEnv = {
       ...process.env,
       NODE_ENV: "test",
-      TEST_MODE: "true",
+      CLI_MODE: "test",
       CLI_OUTPUT_FORMAT: "text",
       LOG_DIR: this.outputDir,
       DISABLE_LOG_TERMINAL: "true",

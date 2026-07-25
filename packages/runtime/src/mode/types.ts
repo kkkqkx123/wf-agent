@@ -9,10 +9,13 @@
 /**
  * Execution mode type
  * - interactive: Full terminal UI with user interaction
- * - headless: Automated mode with JSON output, no user prompts
- * - programmatic: Controlled by another program, structured output
+ * - headless: Automated mode with JSON/no-interaction output.
+ *   Backward-compat: the legacy name "programmatic" maps to headless.
+ * - test: Automated mode for integration testing. All workflow execution
+ *   modes (blocking/foreground/background) are valid; no mode downgrade.
+ *   Output defaults to text for test assertion convenience.
  */
-export type ExecutionMode = "interactive" | "headless" | "programmatic";
+export type ExecutionMode = "interactive" | "headless" | "test";
 
 /**
  * Output format type
@@ -30,7 +33,7 @@ export const ExecutionModeEnvVars = {
   CLI_MODE: "CLI_MODE",
   /** Legacy headless flag */
   HEADLESS: "HEADLESS",
-  /** Legacy test mode flag */
+  /** Legacy test mode flag (maps to HEADLESS — equivalent behavior) */
   TEST_MODE: "TEST_MODE",
   /** Output format */
   OUTPUT_FORMAT: "CLI_OUTPUT_FORMAT",

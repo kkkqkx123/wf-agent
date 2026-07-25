@@ -27,12 +27,14 @@ export { gracefulShutdown, registerShutdownHandlers } from "./lifecycle/graceful
 export { BaseAppAdapter, AdapterError } from "./adapters/base-adapter.js";
 
 // Config - Shared configuration types and utilities
-export type { RuntimeStorageConfig, AppConfig } from "./config/types.js";
+export type { RuntimeStorageConfig, AppConfig, DefaultAppConfig } from "./config/types.js";
 export { parseConfigContent, loadConfigFromFile, loadConfigFile, tryLoadConfigFile, readConfigFile, createAppConfigLoader } from "./config/loader.js";
 export type { ConfigFormat, LoadedConfig, AppConfigLoaderOptions, AppConfigLoader } from "./config/loader.js";
 export { DEFAULT_CONFIG } from "./config/defaults.js";
 export { ConfigAccessor } from "./config/accessor.js";
 export { ConfigValidator, validateConfig, validateConfigOrThrow } from "./config/validator.js";
+export { DefaultAppConfigSchema } from "./config/schema.js";
+export type { DefaultAppConfigValidated } from "./config/schema.js";
 
 // Mode - Shared execution mode detection
 export type { ExecutionMode, OutputFormat, ModeDetectionResult } from "./mode/index.js";

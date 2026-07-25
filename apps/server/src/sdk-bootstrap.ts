@@ -13,14 +13,14 @@
 import type { SDKInstance } from "@wf-agent/sdk/api";
 import { createAppSDK } from "@wf-agent/runtime/bootstrap";
 import { gracefulShutdown } from "@wf-agent/runtime/lifecycle";
-import type { CLIConfig } from "./config/index.js";
+import type { ServerConfig } from "./config/index.js";
 import { getOutput } from "./utils/output.js";
 import { initLogger, initSDKLogger, type LoggerOptions } from "./utils/logger.js";
 
 /**
  * Bootstrap SDK instance with complete initialization
  */
-export async function bootstrapSDK(config: CLIConfig): Promise<{
+export async function bootstrapSDK(config: ServerConfig): Promise<{
   sdk: SDKInstance;
   storageManager: import("@wf-agent/runtime/storage").StorageManager;
 }> {

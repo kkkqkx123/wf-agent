@@ -12,18 +12,18 @@ export {
 } from "./cli/loader.js";
 
 export {
-  CLIConfigAccessor,
-  getCLIConfigAccessor,
-  initCLIConfigAccessor,
-  resetCLIConfigAccessor,
+  ServerConfigAccessor,
+  getServerConfigAccessor,
+  initServerConfigAccessor,
+  resetServerConfigAccessor,
 } from "./cli/accessor.js";
 
 export { DEFAULT_CONFIG } from "./cli/defaults.js";
 
-export { CLIConfigSchema } from "./cli/schema.js";
+export { ServerConfigSchema } from "./cli/schema.js";
 
 export type {
-  CLIConfig,
+  ServerConfig,
 } from "./cli/types.js";
 
 // Re-export configuration types

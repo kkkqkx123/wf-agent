@@ -10,7 +10,7 @@
 import { createAppConfigLoader } from "@wf-agent/runtime/config";
 import type { EnvMappingEntry } from "@wf-agent/sdk/api";
 import type { LogLevel, OutputFormat } from "@wf-agent/types";
-import { CLIConfigSchema } from "./schema.js";
+import { ServerConfigSchema } from "./schema.js";
 import { DEFAULT_CONFIG } from "./defaults.js";
 import { getOutput } from "../../utils/output.js";
 
@@ -31,7 +31,7 @@ const CLI_ENV_MAPPING: Record<string, EnvMappingEntry> = {
 
 const { loadConfig, loadConfigWithEnvOverride } = createAppConfigLoader({
   defaultConfigFileName: "./.modular-agent.toml",
-  schema: CLIConfigSchema,
+  schema: ServerConfigSchema,
   defaults: DEFAULT_CONFIG,
   envMapping: CLI_ENV_MAPPING,
   warn: (msg: string) => output.warnLog(msg),

@@ -6,7 +6,7 @@
  */
 
 import type { SDKInstance } from "@wf-agent/sdk/api";
-import type { CLIConfig } from "../config/index.js";
+import type { ServerConfig } from "../config/index.js";
 
 /**
  * Server Dependency Container
@@ -14,11 +14,11 @@ import type { CLIConfig } from "../config/index.js";
  */
 export class ServerDependencyContainer {
   private sdk: SDKInstance;
-  private config: CLIConfig;
+  private config: ServerConfig;
   private adapters: Map<string, unknown> = new Map();
   private services: Map<string, unknown> = new Map();
 
-  constructor(sdk: SDKInstance, config: CLIConfig) {
+  constructor(sdk: SDKInstance, config: ServerConfig) {
     this.sdk = sdk;
     this.config = config;
   }
@@ -69,7 +69,7 @@ export class ServerDependencyContainer {
   /**
    * Get the configuration
    */
-  getConfig(): CLIConfig {
+  getConfig(): ServerConfig {
     return this.config;
   }
 
@@ -107,7 +107,7 @@ let globalContainer: ServerDependencyContainer | null = null;
  */
 export function initializeContainer(
   sdk: SDKInstance,
-  config: CLIConfig
+  config: ServerConfig
 ): ServerDependencyContainer {
   globalContainer = new ServerDependencyContainer(sdk, config);
   return globalContainer;

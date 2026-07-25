@@ -4,7 +4,7 @@
  * server-specific validation rules.
  */
 
-import type { CLIConfig } from "./cli/types.js";
+import type { ServerConfig } from "./cli/types.js";
 import { getOutput } from "../utils/output.js";
 
 const output = getOutput();
@@ -19,7 +19,7 @@ export class ConfigValidator {
    * @param config Configuration object to validate
    * @returns Validation result with errors if any
    */
-  static validate(config: CLIConfig): { valid: boolean; errors: string[] } {
+  static validate(config: ServerConfig): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
     if (config.storage) {
@@ -47,7 +47,7 @@ export class ConfigValidator {
    * @param config Configuration object to validate
    * @throws Error if configuration is invalid
    */
-  static validateOrThrow(config: CLIConfig): void {
+  static validateOrThrow(config: ServerConfig): void {
     const { valid, errors } = this.validate(config);
     if (!valid) {
       throw new Error(`Configuration validation failed:\n${errors.join("\n")}`);

@@ -47,15 +47,19 @@ function getWorkflowExecutionAdapter() {
 export function createWorkflowExecutionCommands(): Command {
   const workflowExecutionCmd = new Command("execution").description("Manage workflow executions");
 
-  // Execute workflow execution commands - The default mode is foreground detached.
+  // Execute workflow execution commands
+  // Modes:
+  //   - default (no flag): async in-process execution with real-time event display via node-pty terminal
+  //   - --blocking: synchronous execution, waits for completion in the current terminal
+  //   - --background: async execution, output redirected to log file, no terminal window
   workflowExecutionCmd
     .command("run <workflow-id>")
-    .description("Execute workflow")
+    .description("Execute a workflow (default: async in-process with real-time event terminal)")
     .option("-i, --input <json>", "Input data (JSON format)")
     .option("-v, --verbose", "Detailed output")
-    .option("-b, --blocking", "Run in the current terminal (in a blocking manner).")
-    .option("--background", "Running in the background (without displaying a terminal window)")
-    .option("--log-file <path>", "Log file path during backend runtime")
+    .option("-b, --blocking", "Run synchronously in the current terminal and wait for completion")
+    .option("--background", "Run asynchronously in the background with output redirected to log file")
+    .option("--log-file <path>", "Log file path for background execution")
     .action(
       async (
         workflowId,
@@ -185,6 +189,22 @@ export function createWorkflowExecutionCommands(): Command {
       } catch (error) {
         handleError(error, {
           operation: "cancelExecution",
+          additionalInfo: { executionId },
+        });
+      }
+    });
+
+  // Follow execution in real-time: stream events to the main terminal
+  workflowExecutionCmd
+    .command("follow <execution-id>")
+    .description("Follow execution progress in real-time by streaming events to stdout")
+    .action(async (executionId: string) => {
+      try {
+        output.infoLog(`Following execution: ${executionId} (press Ctrl+C to stop watching)`);
+        await getExecutionService().followExecution(executionId);
+      } catch (error) {
+        handleError(error, {
+          operation: "followExecution",
           additionalInfo: { executionId },
         });
       }

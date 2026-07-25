@@ -4,14 +4,14 @@
  * Extends the base defaults from @wf-agent/runtime.
  */
 
-import type { CLIConfig } from "./types.js";
+import type { ServerConfig } from "./types.js";
 import { DEFAULT_CONFIG as BASE_DEFAULTS } from "@wf-agent/runtime";
 
 /**
- * Default Configuration
+ * Default Server Configuration
  * Merges base defaults with server-specific defaults.
  */
-export const DEFAULT_CONFIG: CLIConfig = {
+export const DEFAULT_CONFIG: ServerConfig = {
   ...BASE_DEFAULTS,
   outputFormat: "json",
   maxConcurrentExecutions: 10,

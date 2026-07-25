@@ -5,6 +5,11 @@
  * Extracted from apps/cli-app/src/utils/mode-detector.ts to eliminate
  * duplication between cli-app and server.
  *
+ * Detection priority (highest to lowest):
+ *   1. Environment variables (CLI_MODE, HEADLESS, TEST_MODE)
+ *   2. Config-provided default (passed via getMode())
+ *   3. Hard-coded default ("interactive")
+ *
  * Usage:
  *   import { getMode, isHeadless, isJsonMode } from "@wf-agent/runtime/mode";
  *
@@ -39,9 +44,12 @@ export interface ModeDetectionResult {
 const ENV = ExecutionModeEnvVars;
 
 /**
- * Detect execution mode from environment
+ * Detect execution mode from environment, with optional config fallback.
+ * Priority: env vars > config fallback > hard-coded default ("interactive")
+ *
+ * @param configFallback Optional mode from app configuration as fallback
  */
-function detectMode(): ExecutionMode {
+function detectMode(configFallback?: ExecutionMode): ExecutionMode {
   const cliMode = process.env[ENV.CLI_MODE];
   if (cliMode === "programmatic") return "programmatic";
   if (
@@ -50,6 +58,10 @@ function detectMode(): ExecutionMode {
     process.env[ENV.TEST_MODE] === "true"
   ) {
     return "headless";
+  }
+  // Fallback to config value if provided
+  if (configFallback === "headless" || configFallback === "programmatic") {
+    return configFallback;
   }
   return "interactive";
 }
@@ -95,13 +107,16 @@ export function invalidateModeCache(): void {
 /**
  * Get the current mode detection result.
  * Results are cached until invalidateModeCache() is called.
+ *
+ * @param configFallback Optional mode from app configuration as fallback
+ *        (only used when no env var is set)
  */
-export function getMode(): ModeDetectionResult {
+export function getMode(configFallback?: ExecutionMode): ModeDetectionResult {
   if (cacheValid && cachedResult) {
     return cachedResult;
   }
 
-  const mode = detectMode();
+  const mode = detectMode(configFallback);
   const result: ModeDetectionResult = {
     mode,
     outputFormat: detectOutputFormat(mode),

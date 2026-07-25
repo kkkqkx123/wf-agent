@@ -6,24 +6,24 @@
  * server-specific getter methods.
  */
 
-import type { CLIConfig } from "./types.js";
+import type { ServerConfig } from "./types.js";
 import { ConfigValidator } from "../config-validator.js";
 import { ConfigAccessor as BaseConfigAccessor } from "@wf-agent/runtime";
 
 /**
  * Server Configuration Accessor
- * Wraps CLIConfig with convenient getter methods.
+ * Wraps ServerConfig with convenient getter methods.
  * Extends the base ConfigAccessor from runtime with server-specific functionality.
  */
-export class CLIConfigAccessor extends BaseConfigAccessor<CLIConfig> {
-  constructor(config?: CLIConfig) {
+export class ServerConfigAccessor extends BaseConfigAccessor<ServerConfig> {
+  constructor(config?: ServerConfig) {
     super(config);
   }
 
   /**
    * Get the underlying accessor for generic operations.
    */
-  getAccessor(): BaseConfigAccessor<CLIConfig> {
+  getAccessor(): BaseConfigAccessor<ServerConfig> {
     return this;
   }
 
@@ -105,14 +105,14 @@ export class CLIConfigAccessor extends BaseConfigAccessor<CLIConfig> {
   /**
    * Get the full configuration object.
    */
-  getFullConfig(): CLIConfig {
+  getFullConfig(): ServerConfig {
     return this.get();
   }
 
   /**
    * Get a specific configuration value by key.
    */
-  getValue<K extends keyof CLIConfig>(key: K): CLIConfig[K] {
+  getValue<K extends keyof ServerConfig>(key: K): ServerConfig[K] {
     return this.get()[key];
   }
 
@@ -134,34 +134,34 @@ export class CLIConfigAccessor extends BaseConfigAccessor<CLIConfig> {
 /**
  * Global server configuration accessor instance.
  */
-let globalCLIConfigAccessor: CLIConfigAccessor | null = null;
+let globalServerConfigAccessor: ServerConfigAccessor | null = null;
 
 /**
  * Get the global server configuration accessor instance.
  * @param config Optional configuration to initialize with
  * @returns Server configuration accessor instance
  */
-export function getCLIConfigAccessor(config?: CLIConfig): CLIConfigAccessor {
-  if (!globalCLIConfigAccessor && config) {
-    globalCLIConfigAccessor = new CLIConfigAccessor(config);
+export function getServerConfigAccessor(config?: ServerConfig): ServerConfigAccessor {
+  if (!globalServerConfigAccessor && config) {
+    globalServerConfigAccessor = new ServerConfigAccessor(config);
   }
-  if (!globalCLIConfigAccessor) {
-    throw new Error("CLIConfigAccessor not initialized. Call initCLIConfigAccessor first.");
+  if (!globalServerConfigAccessor) {
+    throw new Error("ServerConfigAccessor not initialized. Call initServerConfigAccessor first.");
   }
-  return globalCLIConfigAccessor;
+  return globalServerConfigAccessor;
 }
 
 /**
  * Initialize the global server configuration accessor.
  * @param config Configuration to initialize with
  */
-export function initCLIConfigAccessor(config: CLIConfig): void {
-  globalCLIConfigAccessor = new CLIConfigAccessor(config);
+export function initServerConfigAccessor(config: ServerConfig): void {
+  globalServerConfigAccessor = new ServerConfigAccessor(config);
 }
 
 /**
  * Reset the global server configuration accessor.
  */
-export function resetCLIConfigAccessor(): void {
-  globalCLIConfigAccessor = null;
+export function resetServerConfigAccessor(): void {
+  globalServerConfigAccessor = null;
 }

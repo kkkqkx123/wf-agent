@@ -5,17 +5,25 @@
  */
 
 import type { SDKInstance } from "@wf-agent/sdk/api";
+import {
+  ExecuteWorkflowCommand,
+  PauseWorkflowCommand,
+  ResumeWorkflowCommand,
+  CancelWorkflowCommand,
+  isSuccess,
+  getData,
+  getError,
+} from "@wf-agent/sdk/api";
 import { getOutput } from "../utils/output.js";
 import { EventManager, type ExecutionEvent } from "./event-manager.js";
+import type { WorkflowExecutionMode, WorkflowExecution } from "@wf-agent/types";
 
 /**
- * Execution status types
+ * Workflow dispatch execution mode.
+ * Reuses shared WorkflowExecutionMode from @wf-agent/types to eliminate
+ * duplicate enum/type definitions between cli-app and server.
  */
-export enum ExecutionMode {
-  BLOCKING = "blocking",
-  DETACHED = "detached",
-  BACKGROUND = "background",
-}
+export type ExecutionMode = WorkflowExecutionMode;
 
 export enum ExecutionStatus {
   PENDING = "pending",
@@ -60,7 +68,6 @@ export class ExecutionService {
   private logger = getOutput();
   private activeExecutions = new Map<string, ExecutionDetails>();
   private eventManager: EventManager;
-  // @ts-ignore - SDK will be used in Phase 2 for integration
   private sdk: SDKInstance;
 
   constructor(sdk: SDKInstance, eventManager: EventManager) {
@@ -99,8 +106,8 @@ export class ExecutionService {
    */
   async execute(
     workflowId: string,
-    _input?: Record<string, any>,
-    mode?: ExecutionMode
+    input?: Record<string, any>,
+    _mode?: ExecutionMode
   ): Promise<string> {
     this.logger.debugLog(`Executing workflow: ${workflowId}`);
 
@@ -109,17 +116,27 @@ export class ExecutionService {
         throw new Error("Workflow ID is required");
       }
 
-      // TODO: Implement SDK integration
-      // const executionId = await this.sdk.workflow.execute(workflowId, _input);
-      // this.trackExecution(executionId, workflowId);
-      // return executionId;
+      // Execute via SDK command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new ExecuteWorkflowCommand({
+        workflowId,
+        options: { input: input as Record<string, unknown> | undefined },
+      }, dependencies);
+      const result = await this.sdk.executeCommand(command);
 
-      const modeLabel = mode || ExecutionMode.DETACHED;
-      this.logger.debugLog("Execution mode: " + modeLabel);
+      if (!isSuccess(result)) {
+        const err = getError(result);
+        throw new Error(err?.message || "Workflow execution failed");
+      }
 
-      // Placeholder
-      const executionId = `exec_${Date.now()}`;
+      const executionResult = getData(result);
+      if (!executionResult) {
+        throw new Error("Workflow execution result is null");
+      }
+
+      const executionId = executionResult.executionId;
       this.trackExecution(executionId, workflowId);
+      this.logger.infoLog(`Workflow execution started: ${executionId}`);
       return executionId;
     } catch (error) {
       this.logger.errorLog(
@@ -140,17 +157,19 @@ export class ExecutionService {
         throw new Error("Execution ID is required");
       }
 
-      // Check if tracked locally
+      // Check if tracked locally first
       const tracked = this.activeExecutions.get(executionId);
       if (tracked) {
         return tracked;
       }
 
-      // TODO: Implement SDK integration
-      // const execution = await this.sdk.execution.get(executionId);
-      // return execution;
+      // Fallback: query from SDK storage
+      const execution = await this.sdk.executions.get(executionId);
+      if (!execution) {
+        throw new Error(`Execution not found: ${executionId}`);
+      }
 
-      throw new Error(`Execution not found: ${executionId}`);
+      return this.toExecutionDetails(execution as WorkflowExecution);
     } catch (error) {
       this.logger.errorLog(
         `Failed to get execution status: ${error instanceof Error ? error.message : String(error)}`
@@ -170,8 +189,15 @@ export class ExecutionService {
         throw new Error("Execution ID is required");
       }
 
-      // TODO: Implement SDK integration
-      // await this.sdk.execution.pause(executionId);
+      // Execute via SDK command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new PauseWorkflowCommand({ executionId }, dependencies);
+      const result = await this.sdk.executeCommand(command);
+
+      if (!isSuccess(result)) {
+        const err = getError(result);
+        throw new Error(err?.message || "Failed to pause execution");
+      }
 
       // Update local tracking
       const tracked = this.activeExecutions.get(executionId);
@@ -201,8 +227,15 @@ export class ExecutionService {
         throw new Error("Execution ID is required");
       }
 
-      // TODO: Implement SDK integration
-      // await this.sdk.execution.resume(executionId);
+      // Execute via SDK command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new ResumeWorkflowCommand({ executionId }, dependencies);
+      const result = await this.sdk.executeCommand(command);
+
+      if (!isSuccess(result)) {
+        const err = getError(result);
+        throw new Error(err?.message || "Failed to resume execution");
+      }
 
       // Update local tracking
       const tracked = this.activeExecutions.get(executionId);
@@ -232,8 +265,15 @@ export class ExecutionService {
         throw new Error("Execution ID is required");
       }
 
-      // TODO: Implement SDK integration
-      // await this.sdk.execution.stop(executionId);
+      // Execute via SDK command
+      const dependencies = this.sdk.getFactory().getDependencies();
+      const command = new CancelWorkflowCommand({ executionId }, dependencies);
+      const result = await this.sdk.executeCommand(command);
+
+      if (!isSuccess(result)) {
+        const err = getError(result);
+        throw new Error(err?.message || "Failed to stop execution");
+      }
 
       // Update local tracking
       const tracked = this.activeExecutions.get(executionId);
@@ -261,7 +301,7 @@ export class ExecutionService {
    */
   async getLogs(
     executionId: string,
-    pagination?: { offset?: number; limit?: number }
+    _pagination?: { offset?: number; limit?: number }
   ): Promise<LogEntry[]> {
     this.logger.debugLog(`Getting logs for execution: ${executionId}`);
 
@@ -270,16 +310,11 @@ export class ExecutionService {
         throw new Error("Execution ID is required");
       }
 
-      // TODO: Implement SDK integration
-      // const logs = await this.sdk.execution.getLogs(executionId);
-
-      const logs: LogEntry[] = [];
-
-      // Apply pagination
-      const offset = pagination?.offset || 0;
-      const limit = pagination?.limit || 100;
-
-      return logs.slice(offset, offset + limit);
+      // Note: SDK does not currently expose a dedicated log query API.
+      // This is a placeholder for future implementation.
+      // In the future, logs can be retrieved from the SDK's event system
+      // or a dedicated log storage adapter.
+      return [];
     } catch (error) {
       this.logger.errorLog(
         `Failed to get execution logs: ${error instanceof Error ? error.message : String(error)}`
@@ -331,6 +366,23 @@ export class ExecutionService {
     };
 
     this.eventManager.emit(event);
+  }
+
+  /**
+   * Convert SDK WorkflowExecution to ExecutionDetails
+   * @internal
+   */
+  private toExecutionDetails(execution: WorkflowExecution): ExecutionDetails {
+    return {
+      id: execution.id,
+      workflowId: execution.workflowId,
+      status: (execution as any).metadata?.status || ExecutionStatus.RUNNING,
+      startTime: (execution as any).startTime || new Date().toISOString(),
+      endTime: (execution as any).endTime,
+      error: (execution as any).error,
+      progress: (execution as any).progress,
+      currentNode: (execution as any).currentNodeId,
+    };
   }
 
   /**

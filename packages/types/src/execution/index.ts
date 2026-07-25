@@ -7,3 +7,4 @@
 
 export * from './hierarchy.js';
 export * from './failure-policy.js';
+export * from './workflow-execution-mode.js';

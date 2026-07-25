@@ -6,4 +6,4 @@
  */
 
 export { ExecutionService } from "./execution-service.js";
-export type { ExecutionMode, ExecutionResult } from "./execution-service.js";
+export type { ExecutionResult } from "./execution-service.js";

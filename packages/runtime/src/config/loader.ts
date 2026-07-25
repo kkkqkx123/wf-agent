@@ -137,7 +137,7 @@ export async function loadConfigFromFile(configPath: string): Promise<LoadedConf
 /**
  * Options for creating an app-specific config loader.
  */
-export interface AppConfigLoaderOptions<T extends Record<string, unknown>> {
+export interface AppConfigLoaderOptions<T extends object> {
   /** Default config file name (e.g., ".modular-agent.toml") */
   defaultConfigFileName: string;
   /** Zod schema for validation */
@@ -153,7 +153,7 @@ export interface AppConfigLoaderOptions<T extends Record<string, unknown>> {
 /**
  * App-specific config loader with loadConfig and loadConfigWithEnvOverride.
  */
-export interface AppConfigLoader<T extends Record<string, unknown>> {
+export interface AppConfigLoader<T extends object> {
   /** Load config from file, falling back to defaults if no explicit path is given. */
   loadConfig: (configPath?: string) => Promise<T>;
   /** Load config then apply environment variable overrides. */
@@ -177,7 +177,7 @@ export interface AppConfigLoader<T extends Record<string, unknown>> {
  * const config = await loader.loadConfigWithEnvOverride();
  * ```
  */
-export function createAppConfigLoader<T extends Record<string, unknown>>(
+export function createAppConfigLoader<T extends object>(
   options: AppConfigLoaderOptions<T>,
 ): AppConfigLoader<T> {
   const {

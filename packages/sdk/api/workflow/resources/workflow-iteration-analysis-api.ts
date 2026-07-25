@@ -487,7 +487,7 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
     let durationSum = 0;
     let dependencySum = 0;
     let totalLLMTokens = 0;
-    let totalApiCalls = 0;
+    const totalApiCalls = 0;
     let peakMemory = 0;
 
     executions.forEach(exec => {

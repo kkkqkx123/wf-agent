@@ -135,10 +135,8 @@ export class WorkflowExecutionCoordinator {
           // Phase 5: Node Completion Timeout
           // Register a per-node timeout on the entity's TimeoutManager
           const nodeTimeoutMs = this.workflowExecutionEntity.getNodeTimeout();
-          let nodeTimeoutHandle: TimeoutHandle | undefined;
           const nodeAbortController = new AbortController();
-
-          nodeTimeoutHandle = this.workflowExecutionEntity.timeoutManager.register({
+          const nodeTimeoutHandle: TimeoutHandle | undefined = this.workflowExecutionEntity.timeoutManager.register({
             id: `node-${currentNodeId}-${Date.now()}`,
             duration: nodeTimeoutMs,
             onTimeout: () => {

@@ -25,7 +25,7 @@ import type { HookTemplateRegistry } from "../../../shared/registry/hook-templat
 import type { WorkflowGraphRegistry } from "../../../workflow/registry/workflow-graph-registry.js";
 import type { SkillRegistry } from "../../../shared/registry/skill-registry.js";
 import type { AgentLoopRegistry } from "../../../agent/registry/agent-loop-registry.js";
-import type { AgentTemplateRegistry } from "../../../agent/registry/agent-template-registry.js";
+import { AgentTemplateRegistry } from "../../../agent/registry/agent-template-registry.js";
 import type { AgentLoopCoordinator } from "../../../agent/execution/coordinators/agent-loop-coordinator.js";
 import type { AgentLoopExecutor } from "../../../agent/execution/executors/agent-loop-executor.js";
 import type { AgentProfileRegistry } from "../../../shared/registry/agent-profile-registry.js";
@@ -199,8 +199,7 @@ export class APIDependencyManager {
 
   getAgentTemplateRegistry(): AgentTemplateRegistry {
     if (!this._agentTemplateRegistry) {
-      const { AgentTemplateRegistry: RegistryClass } = require("../../../agent/registry/agent-template-registry.js");
-      this._agentTemplateRegistry = new RegistryClass() as AgentTemplateRegistry;
+      this._agentTemplateRegistry = new AgentTemplateRegistry() as AgentTemplateRegistry;
     }
     return this._agentTemplateRegistry;
   }

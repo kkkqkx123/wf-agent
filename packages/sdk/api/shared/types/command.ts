@@ -55,7 +55,7 @@ export interface CommandMetadataDefinition {
 /**
  * Command metadata (runtime representation)
  */
-export interface CommandMetadata extends CommandMetadataDefinition {}
+export type CommandMetadata = CommandMetadataDefinition;
 
 /**
  * Command validation results

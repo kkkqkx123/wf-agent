@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global console, setTimeout */
 /**
  * 改进验证脚本
  * 验证 UnifiedTaskScheduler 和批处理持久化功能

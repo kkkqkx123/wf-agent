@@ -45,50 +45,46 @@ export async function interactiveScriptHandler(
 ): Promise<unknown> {
   const config = node.config as InteractiveScriptNodeConfig;
 
-  try {
-    const coordinator = new ScriptInteractionCoordinator(
-      globalContext,
-      workflowExecutionEntity,
-      context?.inputProvider,
-    );
+  const coordinator = new ScriptInteractionCoordinator(
+    globalContext,
+    workflowExecutionEntity,
+    context?.inputProvider,
+  );
 
-    const result = await coordinator.executeWithInteraction(
-      config.scriptName,
-      config,
-      context?.abortSignal,
-    );
+  const result = await coordinator.executeWithInteraction(
+    config.scriptName,
+    config,
+    context?.abortSignal,
+  );
 
-    if (!result.success) {
-      throw new Error(result.error || "Interactive script execution failed");
-    }
+  if (!result.success) {
+    throw new Error(result.error || "Interactive script execution failed");
+  }
 
-    // Apply output mappings to persist script output to workflow data
-    if (config.outputMapping) {
-      const mappings = Array.isArray(config.outputMapping)
-        ? config.outputMapping
-        : [config.outputMapping];
+  // Apply output mappings to persist script output to workflow data
+  if (config.outputMapping) {
+    const mappings = Array.isArray(config.outputMapping)
+      ? config.outputMapping
+      : [config.outputMapping];
 
-      for (const mapping of mappings) {
-        let value: unknown = result.output;
+    for (const mapping of mappings) {
+      let value: unknown = result.output;
 
-        if (mapping.path) {
-          value = extractPath(result, mapping.path);
-        }
+      if (mapping.path) {
+        value = extractPath(result, mapping.path);
+      }
 
-        if (mapping.target === "variable") {
-          workflowExecutionEntity.setVariable(mapping.key, value);
-        } else {
-          const currentOutput = workflowExecutionEntity.getOutput();
-          workflowExecutionEntity.setOutput({
-            ...currentOutput,
-            [mapping.key]: value,
-          });
-        }
+      if (mapping.target === "variable") {
+        workflowExecutionEntity.setVariable(mapping.key, value);
+      } else {
+        const currentOutput = workflowExecutionEntity.getOutput();
+        workflowExecutionEntity.setOutput({
+          ...currentOutput,
+          [mapping.key]: value,
+        });
       }
     }
-
-    return result;
-  } catch (error) {
-    throw error;
   }
+
+  return result;
 }

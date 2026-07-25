@@ -13,7 +13,7 @@ import type { FileCheckpointInfo } from "@wf-agent/types";
 /**
  * File checkpoint filter options
  */
-export interface FileCheckpointFilter extends BaseFileCheckpointFilter {}
+export type FileCheckpointFilter = BaseFileCheckpointFilter;
 
 /**
  * FileCheckpointResourceAPI - File checkpoint resource management API

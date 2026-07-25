@@ -69,7 +69,7 @@ export abstract class BaseCheckpointCoordinator<
       previousCount: checkpointCount,
     });
 
-    let previousCheckpoint: TCheckpoint | null = null;
+    let previousCheckpoint: TCheckpoint | null;
     let chainPosition: number | undefined;
     
     if (checkpointCount > 0 && checkpointType === "DELTA") {

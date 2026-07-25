@@ -535,10 +535,10 @@ export class AgentLoopIterationAPI extends QueryableResourceAPI<
     let decisionSum = 0;
     let errorSum = 0;
     let recoverySum = 0;
-    let recoverySuccessSum = 0;
+    const recoverySuccessSum = 0;
     let tokenSum = 0;
     let maxMemory = 0;
-    let apiCallSum = 0;
+    const apiCallSum = 0;
     const toolFrequency: Record<string, number> = {};
     const toolTiming: Record<string, number[]> = {};
     const optimizations: Record<string, number> = {};

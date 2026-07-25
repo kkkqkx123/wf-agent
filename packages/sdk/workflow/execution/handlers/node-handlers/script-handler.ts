@@ -57,84 +57,80 @@ export async function scriptHandler(
 ): Promise<unknown> {
   const config = node.config as ScriptNodeConfig;
 
-  try {
-    const scriptService = globalContext.container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
-    const scriptExecutor = globalContext.container.get(Identifiers.ScriptExecutionService) as ScriptExecutionService;
+  const scriptService = globalContext.container.get(Identifiers.ScriptRegistry) as ScriptRegistry;
+  const scriptExecutor = globalContext.container.get(Identifiers.ScriptExecutionService) as ScriptExecutionService;
 
-    let result;
+  let result;
 
-    if (config.flowId) {
-      result = await scriptExecutor.executeFlow(config.flowId, scriptService);
-    } else if (config.template) {
-      const { ScriptEngine } = await import("../../../../services/script/engine/script-engine.js");
-      const engine = new ScriptEngine();
+  if (config.flowId) {
+    result = await scriptExecutor.executeFlow(config.flowId, scriptService);
+  } else if (config.template) {
+    const { ScriptEngine } = await import("../../../../services/script/engine/script-engine.js");
+    const engine = new ScriptEngine();
 
-      // Resolve executor mode: if sandboxConfig is provided, auto-select sandbox mode.
-      // Defaults to 'direct' when no executor mode is configured.
-      const executorMode: import("@wf-agent/types").ExecutorMode = config.sandboxConfig
-        ? "sandbox-shell"
-        : (config.executor?.mode ?? "direct");
+    // Resolve executor mode: if sandboxConfig is provided, auto-select sandbox mode.
+    // Defaults to 'direct' when no executor mode is configured.
+    const executorMode: import("@wf-agent/types").ExecutorMode = config.sandboxConfig
+      ? "sandbox-shell"
+      : (config.executor?.mode ?? "direct");
 
-      const script: import("@wf-agent/types").Script = {
-        id: node.id,
-        name: config.scriptName || "inline",
-        description: "Inline script from node config",
-        template: config.template,
-        executor: config.executor
-          ? { ...config.executor, mode: executorMode }
-          : { mode: executorMode, shell: "auto" as const },
-        options: {
-          timeout: 30000,
-          sandboxConfig: config.sandboxConfig as
-            | import("@wf-agent/types").SandboxConfig
-            | undefined,
-        },
-        language: config.sandboxConfig ? "auto" : undefined,
-      };
-      result = await engine.execute(script);
-    } else {
-      result = await scriptExecutor.execute(config.scriptName, {}, scriptService);
-    }
-
-    if (
-      result &&
-      typeof result === "object" &&
-      "isErr" in result &&
-      typeof result.isErr === "function"
-    ) {
-      if (result.isErr()) {
-        throw result.error;
-      }
-      result = result.value;
-    }
-
-    // Apply output mappings to persist script result to workflow data
-    if (config.outputMapping) {
-      const mappings = Array.isArray(config.outputMapping)
-        ? config.outputMapping
-        : [config.outputMapping];
-
-      for (const mapping of mappings) {
-        let value: unknown = result;
-
-        if (mapping.path) {
-          value = extractPath(result, mapping.path);
-        }
-
-        if (mapping.target === "variable") {
-          workflowExecutionEntity.setVariable(mapping.key, value);
-        } else {
-          const currentOutput = workflowExecutionEntity.getOutput();
-          workflowExecutionEntity.setOutput({
-            ...currentOutput,
-            [mapping.key]: value,
-          });
-        }
-      }
-    }
-
-    return result;
-  } catch (error) {
-    throw error;
+    const script: import("@wf-agent/types").Script = {
+      id: node.id,
+      name: config.scriptName || "inline",
+      description: "Inline script from node config",
+      template: config.template,
+      executor: config.executor
+        ? { ...config.executor, mode: executorMode }
+        : { mode: executorMode, shell: "auto" as const },
+      options: {
+        timeout: 30000,
+        sandboxConfig: config.sandboxConfig as
+          | import("@wf-agent/types").SandboxConfig
+          | undefined,
+      },
+      language: config.sandboxConfig ? "auto" : undefined,
+    };
+    result = await engine.execute(script);
+  } else {
+    result = await scriptExecutor.execute(config.scriptName, {}, scriptService);
   }
+
+  if (
+    result &&
+    typeof result === "object" &&
+    "isErr" in result &&
+    typeof result.isErr === "function"
+  ) {
+    if (result.isErr()) {
+      throw result.error;
+    }
+    result = result.value;
+  }
+
+  // Apply output mappings to persist script result to workflow data
+  if (config.outputMapping) {
+    const mappings = Array.isArray(config.outputMapping)
+      ? config.outputMapping
+      : [config.outputMapping];
+
+    for (const mapping of mappings) {
+      let value: unknown = result;
+
+      if (mapping.path) {
+        value = extractPath(result, mapping.path);
+      }
+
+      if (mapping.target === "variable") {
+        workflowExecutionEntity.setVariable(mapping.key, value);
+      } else {
+        const currentOutput = workflowExecutionEntity.getOutput();
+        workflowExecutionEntity.setOutput({
+          ...currentOutput,
+          [mapping.key]: value,
+        });
+      }
+    }
+  }
+
+  return result;
 }

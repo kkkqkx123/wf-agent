@@ -31,7 +31,8 @@ function ensureInitialized(): Promise<XXHashInstance> {
           xxhashInstance = await xxhash();
         } catch (error) {
           throw new Error(
-            `Failed to initialize xxhash-wasm: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to initialize xxhash-wasm: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error }
           );
         }
       }

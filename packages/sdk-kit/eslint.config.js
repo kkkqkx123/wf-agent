@@ -1,10 +1,11 @@
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
+import rootConfig from "../../eslint.config.js";
 
 export default [
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...rootConfig,
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**']
-  }
+    files: ["**/*.ts"],
+    rules: {
+      // sdk-kit specific rules can be added here
+    },
+  },
 ];

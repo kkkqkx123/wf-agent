@@ -139,6 +139,7 @@ export abstract class BaseCheckpointStateManager<
         timestamp: Date.now(),
       });
     } catch {
+      // intentional no-op: delta tracking is best-effort
     }
   }
 

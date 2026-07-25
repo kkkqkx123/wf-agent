@@ -519,7 +519,6 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
        hierarchyRegistry: ExecutionHierarchyRegistry | undefined,
      ): Promise<ChildRestoreDependencies> {
        const strategyRegistry = new RestoreStrategyRegistry();
-       const self = this;
 
        strategyRegistry.register({
          executionType: "AGENT_LOOP",
@@ -528,14 +527,14 @@ export class AgentLoopCheckpointCoordinator extends BaseCheckpointCoordinator<
            return ids.length > 0 ? ids[ids.length - 1] : undefined;
          },
           restoreEntity: async (checkpointId, _parentId) => {
-            const entity = await self.restoreAgentLoopFromCheckpoint(
-              checkpointId,
-              dependencies,
-              self.restoreConfig!,
-            );
-            return entity as unknown as AnyExecutionEntity;
-          },
-         registerChild: (parent, child, childRef) => {
+             const entity = await this.restoreAgentLoopFromCheckpoint(
+               checkpointId,
+               dependencies,
+               this.restoreConfig!,
+             );
+             return entity as unknown as AnyExecutionEntity;
+           },
+          registerChild: (parent, child, childRef) => {
            parent.registerChild(childRef);
            if (hierarchyRegistry) {
              hierarchyRegistry.register(child as AnyExecutionEntity);

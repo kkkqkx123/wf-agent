@@ -306,7 +306,7 @@ export class MetricsResourceAPI {
 
     const byModel: Record<string, { tokens: number; costUsd: number }> = {};
     let totalTokens = 0;
-    let totalCostUsd = 0;
+    const totalCostUsd = 0;
 
     const tokenMetric = tokenResult.metrics.get("agent.loop.tokens_per_iteration");
     if (tokenMetric) {

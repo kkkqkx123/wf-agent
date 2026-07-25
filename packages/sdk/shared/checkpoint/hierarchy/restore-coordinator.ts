@@ -161,6 +161,7 @@ export class ExecutionRestoreCoordinator {
         await deps.fileCheckpointManager.restoreCheckpoint(entityId, fileCheckpoints[0]!.id);
       }
     } catch {
+      // intentional no-op: fallback restoration is best-effort
     }
   }
 

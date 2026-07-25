@@ -863,7 +863,6 @@ export class AgentLoopCoordinator implements AgentTaskManager {
     // Phase 6: Clear the checkpoint interval timer
     if (checkpointInterval) {
       clearInterval(checkpointInterval);
-      checkpointInterval = undefined;
     }
 
     const cleanedCount = this.globalContext.eventRegistry.cleanupExecutionListeners(entity.id);

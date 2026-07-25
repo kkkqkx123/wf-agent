@@ -20,6 +20,7 @@
 import { now } from "@wf-agent/common-utils";
 import type { TimeoutPolicy } from "../types/index.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
+import { cpus } from "os";
 
 const logger = createContextualLogger({ component: "UnifiedTaskScheduler" });
 
@@ -441,8 +442,7 @@ export class UnifiedTaskScheduler {
    */
   private getDefaultMaxConcurrent(): number {
     try {
-      const os = require("os");
-      return Math.max(2, os.cpus().length - 1);
+      return Math.max(2, cpus().length - 1);
     } catch {
       return 4;  // Fallback
     }

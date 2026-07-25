@@ -5,6 +5,7 @@
  * Ensures data consistency between related components (messages, state, tools, etc).
  */
 
+import { createHash } from "crypto";
 import { createContextualLogger } from "../utils/contextual-logger.js";
 import type { Tool } from "@wf-agent/types";
 
@@ -166,7 +167,6 @@ export class MessageStateConsistencyValidator extends BaseConsistencyValidator {
   }
 
   private calculateFingerprint(messages: any[]): string {
-    const { createHash } = require("crypto");
     const messageString = JSON.stringify(messages);
     return createHash("sha256").update(messageString).digest("hex");
   }

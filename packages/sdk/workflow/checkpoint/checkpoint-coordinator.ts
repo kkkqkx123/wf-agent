@@ -1351,7 +1351,6 @@ protected async buildCheckpoint(
      ): Promise<ChildRestoreDependencies> {
        const strategyRegistry = new RestoreStrategyRegistry();
 
-       const self = this;
        strategyRegistry.register({
          executionType: "WORKFLOW",
          findCheckpoint: async (childId) => {
@@ -1361,10 +1360,10 @@ protected async buildCheckpoint(
            return checkpointIds.length > 0 ? checkpointIds[checkpointIds.length - 1] : undefined;
          },
           restoreEntity: async (checkpointId, _parentId) => {
-            const result = await self.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
-            return result.workflowExecutionEntity as AnyExecutionEntity;
-          },
-         registerChild: (parent, child, childRef) => {
+             const result = await this.restoreWorkflowFromCheckpoint(checkpointId, dependencies);
+             return result.workflowExecutionEntity as AnyExecutionEntity;
+           },
+          registerChild: (parent, child, childRef) => {
            parent.registerChild(childRef);
            if (hierarchyRegistry) {
              hierarchyRegistry.register(child as AnyExecutionEntity);

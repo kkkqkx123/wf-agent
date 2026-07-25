@@ -46,7 +46,7 @@ export class SHA256Algorithm implements IHashAlgorithm {
       const str = typeof input === 'string' ? input : JSON.stringify(input);
       return createHash('sha256').update(str).digest('hex');
     } catch (error) {
-      throw new Error(`SHA256 hash failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`SHA256 hash failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
   }
 

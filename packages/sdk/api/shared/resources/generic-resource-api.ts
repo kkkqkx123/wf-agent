@@ -87,7 +87,7 @@ import type { DeleteCheckResult } from "../../../shared/registry/types.js";
  * @template ID - Resource ID type (string or number)
  * @template Filter - Filter type
  */
-export interface QueryableResourceAPI<T, ID extends string | number, Filter = unknown> {
+export interface IQueryableResourceAPI<T, ID extends string | number, Filter = unknown> {
   /**
    * Get a single resource
    * @param id Resource ID
@@ -228,8 +228,11 @@ export abstract class BaseResourceAPI {
  */
 export abstract class QueryableResourceAPI<T, ID extends string | number, Filter = unknown>
   extends BaseResourceAPI
-  implements QueryableResourceAPI<T, ID, Filter>
 {
+  // Note: This class shares its name with the IQueryableResourceAPI interface.
+  // TypeScript declaration merging combines the interface's method signatures
+  // (get, getAll, has, count) into this class type automatically.
+  // The subclass implementations below satisfy that contract.
   /**
    * Get a single resource from the registry
    * @param id Resource ID

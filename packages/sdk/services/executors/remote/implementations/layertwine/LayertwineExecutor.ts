@@ -161,7 +161,7 @@ export class LayertwineExecutor extends BaseRemoteExecutor {
         stack: error instanceof Error ? error.stack : undefined,
       });
 
-      throw new Error(`Layertwine connection failed: ${errorMsg}`);
+      throw new Error(`Layertwine connection failed: ${errorMsg}`, { cause: error });
     }
   }
 

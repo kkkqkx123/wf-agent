@@ -44,7 +44,7 @@ async function loadJsonFile(
         return null;
       }
       if (error instanceof SyntaxError) {
-        throw new Error(`Failed to parse JSON file: ${filePath} - ${error.message}`);
+        throw new Error(`Failed to parse JSON file: ${filePath} - ${error.message}`, { cause: error });
       }
     }
     throw error;

@@ -275,9 +275,6 @@ export async function subgraphHandler(
         retryDelayMs,
       });
 
-      let lastError: Error = errorObj;
-      let lastOriginalError: unknown;
-
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         // Exponential backoff delay
         const backoffDelay = retryDelayMs * Math.pow(2, attempt - 1);
@@ -326,21 +323,28 @@ export async function subgraphHandler(
             duration: executionDuration + retryDuration,
           };
         } catch (retryError) {
-          lastError = getErrorOrNew(retryError);
-          lastOriginalError = retryError;
+          const isLastAttempt = attempt === maxRetries;
           logger.warn("Subgraph retry attempt failed", {
             nodeId: node.id,
             subworkflowId,
             attempt,
-            error: lastError,
+            error: getErrorOrNew(retryError),
           });
+
+          // All retries exhausted, throw with the caught error as cause
+          if (isLastAttempt) {
+            throw new Error(
+              `Subgraph execution failed for node '${node.id}' after ${maxRetries} retries: ${getErrorOrNew(retryError).message}`,
+              { cause: retryError },
+            );
+          }
         }
       }
 
-      // All retries exhausted, fall through to fail
+      // If retries never ran (maxRetries === 0 or no catch executed), fall through
       throw new Error(
-        `Subgraph execution failed for node '${node.id}' after ${maxRetries} retries: ${lastError.message}`,
-        { cause: lastOriginalError ?? errorObj },
+        `Subgraph execution failed for node '${node.id}' after ${maxRetries} retries: ${errorObj.message}`,
+        { cause: error },
       );
     }
 

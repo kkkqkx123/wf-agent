@@ -22,6 +22,7 @@ import { now } from "@wf-agent/common-utils";
 import type { TaskStorageMetadata } from "@wf-agent/types";
 import {
   TaskStatus,
+  type TimeoutPolicy,
   type TaskInfo,
   type StoredTaskInfo,
   type ExecutionInstance,
@@ -274,8 +275,8 @@ export class TaskRegistry {
             startTime: snapshot.startTime,
             completeTime: snapshot.completeTime,
             timeout: snapshot.timeout,
-            deadlineTime: (snapshot as any).deadlineTime,
-            timeoutPolicy: (snapshot as any).timeoutPolicy ?? 'cancel',
+            deadlineTime: (snapshot as unknown as Record<string, unknown>)['deadlineTime'] as number | undefined,
+            timeoutPolicy: ((snapshot as unknown as Record<string, unknown>)['timeoutPolicy'] as TimeoutPolicy | undefined) ?? 'cancel',
           };
 
           if (snapshot.result) {
@@ -312,13 +313,13 @@ export class TaskRegistry {
 
     try {
       const codec = new StateCodec();
-      let snapshot: TaskSnapshot;
+      let snapshot: any;
 
       if (taskInfo && hasLoadedInstance(taskInfo)) {
         snapshot = TaskSerializationUtils.createTaskSnapshotFromTaskInfo(taskInfo);
         // Preserve deadline and timeout policy
-        (snapshot as any).deadlineTime = taskInfo.deadlineTime;
-        (snapshot as any).timeoutPolicy = taskInfo.timeoutPolicy ?? 'cancel';
+        (snapshot as unknown as Record<string, unknown>)['deadlineTime'] = taskInfo.deadlineTime;
+        (snapshot as unknown as Record<string, unknown>)['timeoutPolicy'] = taskInfo.timeoutPolicy ?? 'cancel';
       } else if (archivedInfo) {
         const storedTask = archivedInfo;
         const instanceId =
@@ -339,11 +340,11 @@ export class TaskRegistry {
           startTime: storedTask.startTime,
           completeTime: storedTask.completeTime,
           timeout: storedTask.timeout,
-        } as any;
+        } as unknown as Record<string, unknown>;
 
         // Preserve deadline and timeout policy
-        (snapshot as any).deadlineTime = storedTask.deadlineTime;
-        (snapshot as any).timeoutPolicy = storedTask.timeoutPolicy ?? 'cancel';
+        (snapshot as unknown as Record<string, unknown>)['deadlineTime'] = storedTask.deadlineTime;
+        (snapshot as unknown as Record<string, unknown>)['timeoutPolicy'] = storedTask.timeoutPolicy ?? 'cancel';
 
         if (
           storedTask.instanceRef.type === "loaded" &&
@@ -485,7 +486,7 @@ export class TaskRegistry {
       submitTime,
       timeout,
       deadlineTime,
-      timeoutPolicy: (timeoutPolicy as any) ?? 'cancel',
+      timeoutPolicy: (timeoutPolicy as TimeoutPolicy) ?? 'cancel',
     };
 
     // Store in active pool, not archived refs

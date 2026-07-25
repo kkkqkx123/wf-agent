@@ -51,7 +51,7 @@ import type { ToolFailureProtectionConfig } from "../../shared/protection/tool-f
 import type { InterruptionState } from "../../shared/utils/interruption/interruption-state.js";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { TimeoutManager } from "../../shared/protection/timeout-manager.js";
-import { TriggerStateManager } from "../../shared/triggers/trigger-state-manager.js";
+import { TriggerStateManager, type TriggerState } from "../../shared/triggers/trigger-state-manager.js";
 
 const logger = createContextualLogger({ component: "AgentLoopEntity" });
 
@@ -204,10 +204,10 @@ export class AgentLoopEntity implements IExecutionEntity {
    * Restore trigger state from checkpoint data
    * @param triggerState Serialized trigger state from checkpoint
    */
-  restoreTriggerState(triggerState?: Record<string, any>): void {
+  restoreTriggerState(triggerState?: Record<string, TriggerState>): void {
     if (triggerState) {
       for (const [triggerId, state] of Object.entries(triggerState)) {
-        this.triggerStateManager.setState(triggerId, state as any);
+        this.triggerStateManager.setState(triggerId, state);
       }
     }
   }
@@ -215,7 +215,7 @@ export class AgentLoopEntity implements IExecutionEntity {
   /**
    * Export trigger state for checkpoint
    */
-  exportTriggerState(): Record<string, any> {
+  exportTriggerState(): Record<string, TriggerState> {
     return this.triggerStateManager.toJSON();
   }
 
@@ -953,7 +953,7 @@ export class AgentLoopEntity implements IExecutionEntity {
 
     // Restore trigger state from snapshot
     if (snapshot['triggerState']) {
-      entity.restoreTriggerState(snapshot['triggerState'] as Record<string, any>);
+      entity.restoreTriggerState(snapshot['triggerState'] as Record<string, TriggerState>);
     }
 
     // Invalidate cache after restoration to ensure fresh computation

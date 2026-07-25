@@ -219,7 +219,7 @@ async function executeAgentLoopWithFailurePolicy(
   retryBudget?: RetryBudget,
 ): Promise<AgentLoopResult> {
   const maxAttempts = onFailure === "retry" ? (maxMainLoopRetries + 1) : 1;
-  let lastError: any = undefined;
+  let lastError: unknown = undefined;
   let mainLoopRetryCount = 0;
   const mainLoopRetryDelays: number[] = [];
 
@@ -329,14 +329,14 @@ async function executeAgentLoopWithFailurePolicy(
   }
 
   // Return error enriched with statistics
-  return enrichResultWithMainLoopStats(lastError, mainLoopRetryCount, mainLoopRetryDelays);
+  return enrichResultWithMainLoopStats(lastError as AgentLoopResult, mainLoopRetryCount, mainLoopRetryDelays);
 }
 
 /**
  * Enrich result with main loop retry statistics
  */
 function enrichResultWithMainLoopStats(
-  result: any,
+  result: AgentLoopResult,
   mainLoopRetryCount: number,
   mainLoopRetryDelays: number[],
 ): AgentLoopResult {

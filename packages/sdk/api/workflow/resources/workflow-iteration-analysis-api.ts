@@ -485,7 +485,6 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
 
     let qualityScoreSum = 0;
     let durationSum = 0;
-    let dependencySum = 0;
     let totalLLMTokens = 0;
     const totalApiCalls = 0;
     let peakMemory = 0;
@@ -507,7 +506,6 @@ export class WorkflowIterationAnalysisAPI extends QueryableResourceAPI<
 
       if (exec.toolDependencies) {
         stats.totalDependencies += exec.toolDependencies.length;
-        dependencySum += exec.toolDependencies.length;
       }
 
       if (exec.duration) {

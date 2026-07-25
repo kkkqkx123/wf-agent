@@ -68,7 +68,7 @@ export interface HookExecutorConfig {
   executionContext?: Record<string, unknown>;
   /** Conversation session for accessing messages (optional) */
   conversationSession?: {
-    getMessages: () => any[];
+    getMessages: () => unknown[];
   };
 }
 

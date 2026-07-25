@@ -10,17 +10,18 @@ import { validationSuccess, validationFailure } from "../../types/command.js";
 /**
  * Validate agent loop run parameters
  */
-export function validateAgentLoopRunParams(config: any): CommandValidationResult {
+export function validateAgentLoopRunParams(config: unknown): CommandValidationResult {
+  const c = config as Record<string, unknown>;
   const errors = combineErrors(
     validateRequiredEntity(config, "Config"),
-    validateOptionalPositiveInt(config?.maxIterations, "maxIterations")
+    validateOptionalPositiveInt(c?.['maxIterations'] as number | undefined, "maxIterations")
   );
 
   // Validate profileId if provided (must be non-empty string)
   if (
-    config?.profileId !== undefined &&
-    typeof config.profileId === "string" &&
-    config.profileId.trim().length === 0
+    c?.['profileId'] !== undefined &&
+    typeof c['profileId'] === "string" &&
+    c['profileId'].trim().length === 0
   ) {
     errors.push("`profileId` cannot be an empty string.");
   }

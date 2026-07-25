@@ -9,7 +9,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { Plugin, PluginManifest, ValidationResult, DiscoveredPlugin } from "./types.js";
+import type { ContributionType, Plugin, PluginManifest, ValidationResult, DiscoveredPlugin } from "./types.js";
 import semver from "semver";
 
 /**
@@ -336,7 +336,7 @@ export class PluginLoader {
         dependencies: (pluginConfig['dependencies'] as Record<string, string>) || (pkg['dependencies'] as Record<string, string>),
         optionalDependencies: (pluginConfig['optionalDependencies'] as Record<string, string>) || (pkg['optionalDependencies'] as Record<string, string>),
         config: pluginConfig['config'] as Record<string, unknown>,
-        contributions: (pluginConfig['contributions'] as string[]) as any,
+        contributions: (pluginConfig['contributions'] as ContributionType[]) || (pkg['contributions'] as ContributionType[] || []),
         hooks: pluginConfig['hooks'] as Record<string, string>,
         _basePath: pkgDir,
       };

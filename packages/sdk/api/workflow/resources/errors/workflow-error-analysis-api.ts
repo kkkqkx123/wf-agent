@@ -20,6 +20,8 @@ import type { IErrorAnalysisProvider } from "../../../shared/resources/errors/er
 import { createContextualLogger } from "../../../../utils/contextual-logger.js";
 import type { BaseEvent } from "@wf-agent/types";
 import { WorkflowExecutionStateAPI } from "../workflow-execution-state-api.js";
+import type { WorkflowStackFrame } from "../workflow-execution-state-api.js";
+import type { VariableSnapshot, VariableValueSnapshot } from "../workflow-execution-state-api.js";
 
 const logger = createContextualLogger({ operation: "WorkflowErrorAnalysisAPI" });
 
@@ -322,8 +324,8 @@ export class WorkflowErrorAnalysisAPI
       }
 
       // Workflow-specific: track by node
-      const nodeId = (err.context as any).nodeId;
-      const nodeName = (err.context as any).nodeName;
+      const nodeId = (err.context as WorkflowErrorContext).nodeId;
+      const nodeName = (err.context as WorkflowErrorContext).nodeName;
 
       if (nodeId) {
         byNodeId[nodeId] = (byNodeId[nodeId] ?? 0) + 1;
@@ -445,8 +447,8 @@ export class WorkflowErrorAnalysisAPI
       errorFrequency[err.errorType] = (errorFrequency[err.errorType] ?? 0) + 1;
 
       // Node problems
-      const nodeId = (err.context as any).nodeId;
-      const nodeName = (err.context as any).nodeName;
+      const nodeId = (err.context as WorkflowErrorContext).nodeId;
+      const nodeName = (err.context as WorkflowErrorContext).nodeName;
       if (nodeId) {
         if (!nodeProblems[nodeId]) {
           nodeProblems[nodeId] = { count: 0, types: new Set(), names: [], severity: err.severity };
@@ -529,8 +531,8 @@ export class WorkflowErrorAnalysisAPI
       const contextApi = new WorkflowExecutionStateAPI(this.deps);
       const executionContext = await contextApi.getExecutionContext(executionId);
       if (executionContext) {
-        callStack = (executionContext.callStack ?? []).map((frame: any) => ({
-          id: frame.nodeId,
+        callStack = (executionContext.callStack ?? []).map((frame: WorkflowStackFrame) => ({
+          id: frame.nodeId ?? frame.frameId,
           name: frame.nodeName,
         }));
         memoryUsage = executionContext.memoryUsage;
@@ -541,13 +543,13 @@ export class WorkflowErrorAnalysisAPI
           end: error.timestamp + 1000,
         });
         if (snapshots.length > 0) {
-          const closest = snapshots.reduce((prev: any, curr: any) =>
+          const closest = snapshots.reduce((prev: VariableSnapshot, curr: VariableSnapshot) =>
             Math.abs(curr.timestamp - error.timestamp) < Math.abs(prev.timestamp - error.timestamp)
               ? curr
               : prev,
           );
           variableSnapshot = Object.fromEntries(
-            closest.variables.map((v: any) => [v.name, v.value]),
+            closest.variables.map((v: VariableValueSnapshot) => [v.name, v.value]),
           );
         }
       }
@@ -559,9 +561,9 @@ export class WorkflowErrorAnalysisAPI
     const errorContext = error.context as WorkflowErrorContext | undefined;
     const enrichedContext: WorkflowErrorContext = {
       ...errorContext,
-      nodeId: errorContext?.nodeId || (error.context as any).nodeId,
-      nodeName: errorContext?.nodeName || (error.context as any).nodeName,
-      toolName: errorContext?.toolName || (error.context as any).toolName,
+      nodeId: errorContext?.nodeId || (error.context as WorkflowErrorContext).nodeId,
+      nodeName: errorContext?.nodeName || (error.context as WorkflowErrorContext).nodeName,
+      toolName: errorContext?.toolName || (error.context as WorkflowErrorContext).toolName,
       variableSnapshot: Object.keys(variableSnapshot).length > 0 ? variableSnapshot : undefined,
       callStack: callStack.length > 0 ? callStack : undefined,
       memoryUsage,
@@ -655,7 +657,7 @@ export class WorkflowErrorAnalysisAPI
 
   private generateWorkflowRecoverySteps(error: ExecutionErrorRecord, action: string): string[] {
     const steps: string[] = [];
-    const nodeInfo = (error.context as any).nodeId ? ` in node ${(error.context as any).nodeId}` : '';
+    const nodeInfo = (error.context as WorkflowErrorContext).nodeId ? ` in node ${(error.context as WorkflowErrorContext).nodeId}` : '';
 
     switch (action) {
       case "retry":
@@ -688,14 +690,14 @@ export class WorkflowErrorAnalysisAPI
   private extractAffectedNodes(errorChain: ExecutionErrorRecord[]): string[] {
     const nodeSet = new Set<string>();
     errorChain.forEach(err => {
-      const nodeId = (err.context as any).nodeId;
+      const nodeId = (err.context as WorkflowErrorContext).nodeId;
       if (nodeId) nodeSet.add(nodeId);
     });
     return Array.from(nodeSet);
   }
 
   private extractNodeContext(error: ExecutionErrorRecord): { id: string; name?: string } | undefined {
-    const ctx = error.context as any;
+    const ctx = error.context as WorkflowErrorContext;
     if (ctx.nodeId) {
       return { id: ctx.nodeId, name: ctx.nodeName };
     }
@@ -732,7 +734,7 @@ export class WorkflowErrorAnalysisAPI
       return error.causedBy.reason;
     }
 
-    const nodeInfo = (error.context as any).nodeId ? ` in ${(error.context as any).nodeId}` : '';
+    const nodeInfo = (error.context as WorkflowErrorContext).nodeId ? ` in ${(error.context as WorkflowErrorContext).nodeId}` : '';
     return `${error.errorType}${nodeInfo}: ${action} is recommended based on error properties`;
   }
 

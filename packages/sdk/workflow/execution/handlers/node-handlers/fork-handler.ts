@@ -31,6 +31,7 @@ import {
 } from "../../../../shared/events/builders/index.js";
 import * as Identifiers from "../../../../di/service-identifiers.js";
 import { cleanupChildExecution } from "../../utils/child-execution-cleanup.js";
+import type { WorkflowExecutor } from "../../executors/workflow-executor.js";
 
 /**
  * Internal result type for a single fork branch execution,
@@ -70,7 +71,7 @@ async function executeBranchWithRetry(
   branchEntity: WorkflowExecutionEntity,
   nodeId: string,
   config: ForkNodeConfig,
-  executor: any, // WorkflowExecutor type
+  executor: WorkflowExecutor, // WorkflowExecutor type
   parentEntity: WorkflowExecutionEntity,
 ): Promise<BranchExecutionOutcome> {
   const retryPolicy = config.retryPolicy;

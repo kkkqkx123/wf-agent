@@ -341,7 +341,7 @@ export function executeBatchUpdate(
           typedValue
         );
         if (!updated) {
-          (workflowExecution['variables'] as Array<any>).push({
+          (workflowExecution['variables'] as Array<Record<string, unknown>>).push({
             name: update.name,
             value: typedValue,
             type: update.type,

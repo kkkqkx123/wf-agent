@@ -184,7 +184,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
       };
 
       // Store deadline for timeout recovery
-      (queueTask as any).deadlineTime = deadlineTime;
+      (queueTask as unknown as Record<string, unknown>)['deadlineTime'] = deadlineTime;
 
       this.pendingQueue.push(queueTask);
       this.abortControllers.set(taskId, abortController);
@@ -224,7 +224,7 @@ export class ExecutionQueue<T extends ExecutionInstance> {
     };
 
     // Store deadline for timeout recovery
-    (queueTask as any).deadlineTime = deadlineTime;
+    (queueTask as unknown as Record<string, unknown>)['deadlineTime'] = deadlineTime;
 
     this.pendingQueue.push(queueTask);
     this.abortControllers.set(taskId, abortController);

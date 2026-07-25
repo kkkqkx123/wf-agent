@@ -54,7 +54,7 @@ export class ExecutionPool<T> {
   /**
    * Static pool instances - for testing and isolated pool management
    */
-  private static instances: Map<string, ExecutionPool<any>> = new Map();
+  private static instances: Map<string, ExecutionPool<unknown>> = new Map();
 
   /**
    * All executors

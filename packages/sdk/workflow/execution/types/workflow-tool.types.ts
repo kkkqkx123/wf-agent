@@ -58,7 +58,7 @@ export interface WorkflowToolExecutionContext {
   /** Workflow execution builder */
   workflowExecutionBuilder?: WorkflowExecutionBuilder;
   /** Task queue manager (deprecated) */
-  taskQueueManager?: any;
+  taskQueueManager?: unknown;
   /** Workflow registry */
   workflowRegistry?: WorkflowRegistry;
   /** Graph registry */

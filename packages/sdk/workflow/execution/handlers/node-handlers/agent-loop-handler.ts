@@ -447,7 +447,7 @@ export async function agentLoopHandler(
       // The catch block below will forward them to the AgentLoopExecutionResult.
       const thrownError = result.error || new Error("Agent loop failed");
       if (result.innerErrorRecords && result.innerErrorRecords.length > 0) {
-        (thrownError as any).innerErrorRecords = result.innerErrorRecords;
+        (thrownError as Error & { innerErrorRecords?: AgentLoopExecutionResult["innerErrorRecords"] }).innerErrorRecords = result.innerErrorRecords;
       }
       throw thrownError;
     }
@@ -511,9 +511,7 @@ export async function agentLoopHandler(
     };
   } catch (error) {
     // Extract inner error records attached by the throw path above
-    const innerErrorRecords = (error as any)?.innerErrorRecords as
-      | AgentLoopExecutionResult["innerErrorRecords"]
-      | undefined;
+    const innerErrorRecords = (error as Error & { innerErrorRecords?: AgentLoopExecutionResult["innerErrorRecords"] })?.innerErrorRecords;
 
     return {
       status: "FAILED",

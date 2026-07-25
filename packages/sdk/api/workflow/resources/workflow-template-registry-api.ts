@@ -152,7 +152,7 @@ export class WorkflowTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
         const nameLower = filter.name.toLowerCase();
         if (
           !template.name.toLowerCase().includes(nameLower) &&
-          !(template as any).templateName?.toLowerCase().includes(nameLower)
+          !(template as unknown as Record<string, unknown>)['templateName']?.toString().toLowerCase().includes(nameLower)
         ) {
           return false;
         }
@@ -166,7 +166,7 @@ export class WorkflowTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
           return false;
         }
       }
-      if (filter.author && (template as any).author !== filter.author) {
+      if (filter.author && (template as unknown as Record<string, unknown>)['author'] !== filter.author) {
         return false;
       }
       return true;
@@ -263,9 +263,10 @@ export class WorkflowTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
   async incrementUsageCount(templateId: string): Promise<void> {
     const template = this.dependencies.getWorkflowRegistry().get(templateId);
     if (template) {
-      const metadata = (template as any).metadata ?? {};
-      metadata.usageCount = (metadata.usageCount ?? 0) + 1;
-      await this.dependencies.getWorkflowRegistry().update(templateId, { metadata } as any);
+      const metadata = (template as unknown as Record<string, unknown>)['metadata'] ?? {} as Record<string, unknown>;
+      const currentCount = (metadata as Record<string, unknown>)['usageCount'];
+      (metadata as Record<string, unknown>)['usageCount'] = (typeof currentCount === 'number' ? currentCount : 0) + 1;
+      await this.dependencies.getWorkflowRegistry().update(templateId, { metadata } as unknown as WorkflowTemplate);
     }
   }
 
@@ -275,14 +276,14 @@ export class WorkflowTemplateRegistryAPI extends SimplifiedCrudResourceAPI<
    * @returns Extended workflow template definition
    */
   private toWorkflowTemplateDefinition(template: WorkflowTemplate): WorkflowTemplateDefinition {
-    const metadata = (template as any).metadata ?? {};
+    const metadata = (template as unknown as Record<string, unknown>)['metadata'] as Record<string, unknown> ?? {};
     return {
       ...template,
-      templateCategory: metadata.category,
-      templateTags: metadata.tags,
-      isPublic: metadata.isPublic !== false,
-      usageCount: metadata.usageCount ?? 0,
-      enabled: metadata.enabled !== false,
+      templateCategory: (metadata as Record<string, unknown>)['category'] as string | undefined,
+      templateTags: (metadata as Record<string, unknown>)['tags'] as string[] | undefined,
+      isPublic: (metadata as Record<string, unknown>)['isPublic'] !== false,
+      usageCount: ((metadata as Record<string, unknown>)['usageCount'] ?? 0) as number,
+      enabled: (metadata as Record<string, unknown>)['enabled'] !== false,
     };
   }
 }

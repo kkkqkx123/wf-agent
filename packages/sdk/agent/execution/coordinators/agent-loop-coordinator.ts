@@ -8,7 +8,7 @@
  */
 
 import type { ID } from "@wf-agent/types";
-import type { AgentLoopRuntimeConfig, AgentLoopResult, CheckpointTriggerType } from "@wf-agent/types";
+import type { AgentLoopRuntimeConfig, AgentLoopResult, CheckpointTriggerType, AgentTrigger } from "@wf-agent/types";
 import { getAvailableTools, CheckpointTrigger, AgentLoopNotFoundError } from "@wf-agent/types";
 import type {
   AgentLoopCheckpointConfig,
@@ -40,6 +40,7 @@ import type { CheckpointMetricsEvent, CheckpointErrorContext, CheckpointCreation
 import { getExecutionEventBus } from "../../../shared/events/execution-event-bus.js";
 import type { ExecutionErrorRecord } from "@wf-agent/types";
 import type { TimeoutHandle } from "../../../shared/types/timeout.js";
+import { TriggeredAgentExecutionManager } from "./triggered-agent-execution-manager.js";
 
 const logger = createContextualLogger({ component: "AgentLoopCoordinator" });
 
@@ -495,7 +496,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
       const triggeredAgentManager = this.globalContext.container.get(
         Identifiers.TriggeredAgentExecutionManager,
       );
-      return await (triggeredAgentManager as any).submitTriggeredExecution(
+      const result = await (triggeredAgentManager as TriggeredAgentExecutionManager).submitTriggeredExecution(
         {
           executionId: entity.id,
           parentEntity: entity,
@@ -505,6 +506,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
         entity,
         config,
       );
+      return result as AgentLoopResult;
     }
 
     // Root execution: proceed with standard execution path
@@ -1392,7 +1394,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
     }
 
     const triggers = entity.config.triggers || [];
-    const trigger = triggers.find((t: any) => t.id === triggerId);
+    const trigger = triggers.find((t: AgentTrigger) => t.id === triggerId);
     if (!trigger) {
       throw new AgentLoopNotFoundError(
         `Trigger not found: ${triggerId} in agent loop: ${agentLoopId}`,
@@ -1428,7 +1430,7 @@ export class AgentLoopCoordinator implements AgentTaskManager {
     }
 
     const triggers = entity.config.triggers || [];
-    const trigger = triggers.find((t: any) => t.id === triggerId);
+    const trigger = triggers.find((t: AgentTrigger) => t.id === triggerId);
     if (!trigger) {
       throw new AgentLoopNotFoundError(
         `Trigger not found: ${triggerId} in agent loop: ${agentLoopId}`,

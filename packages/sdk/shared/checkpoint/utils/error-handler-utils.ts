@@ -6,6 +6,9 @@
  */
 
 import type { CheckpointErrorHandler } from "../hierarchy/error-handler.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "CheckpointErrorHandler" });
 
 /**
  * Handle file checkpoint errors with configurable error strategy.
@@ -62,9 +65,11 @@ export async function handleFileCheckpointError(
   }
   if (fallbackBehavior === "warn") {
     const operationText = operation === "create" ? "creation" : "restore";
-    console.warn(
+    logger.warn(
       `[Checkpoint] File checkpoint ${operationText} failed (non-fatal) for ${entityLabel}: ${entityId}`,
-      error.message,
+      undefined,
+      undefined,
+      error,
     );
   }
   // "ignore" behavior: silently continue

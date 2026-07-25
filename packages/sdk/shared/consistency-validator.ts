@@ -41,14 +41,14 @@ export interface ValidationResult {
  * Validator interface
  */
 export interface Validator {
-  validate(entity: any): Promise<ValidationResult>;
+  validate(entity: unknown): Promise<ValidationResult>;
 }
 
 /**
  * Base consistency validator
  */
 export abstract class BaseConsistencyValidator implements Validator {
-  abstract validate(entity: any): Promise<ValidationResult>;
+  abstract validate(entity: unknown): Promise<ValidationResult>;
 
   protected createError(type: string, message: string, details?: Record<string, unknown>): ConsistencyError {
     return { type, message, details };
@@ -76,13 +76,21 @@ export abstract class BaseConsistencyValidator implements Validator {
  * - No orphaned messages or unmatched state entries
  */
 export class MessageStateConsistencyValidator extends BaseConsistencyValidator {
-  async validate(execution: any): Promise<ValidationResult> {
+  async validate(execution: unknown): Promise<ValidationResult> {
     const errors: ConsistencyError[] = [];
     const warnings: string[] = [];
 
     try {
+      const ex = execution as {
+        getConversationManager(): { getMessages(): { role: string; toolCallId?: string; toolCalls?: { id: string }[] }[] };
+        state: {
+          messageCount?: number;
+          messageMetadata?: { fingerprint?: string };
+        };
+      } | null;
+
       // Check if execution has required properties
-      if (!execution?.getConversationManager || !execution?.state) {
+      if (!ex?.getConversationManager || !ex?.state) {
         return this.createResult([
           this.createError(
             "MISSING_COMPONENTS",
@@ -91,8 +99,8 @@ export class MessageStateConsistencyValidator extends BaseConsistencyValidator {
         ]);
       }
 
-      const conversationManager = execution.getConversationManager();
-      const state = execution.state;
+      const conversationManager = ex.getConversationManager();
+      const state = ex.state;
       const messages = conversationManager.getMessages();
 
       // Validate message count consistency
@@ -166,7 +174,7 @@ export class MessageStateConsistencyValidator extends BaseConsistencyValidator {
     }
   }
 
-  private calculateFingerprint(messages: any[]): string {
+  private calculateFingerprint(messages: unknown[]): string {
     const messageString = JSON.stringify(messages);
     return createHash("sha256").update(messageString).digest("hex");
   }
@@ -181,23 +189,26 @@ export class MessageStateConsistencyValidator extends BaseConsistencyValidator {
  * - No broken tool references
  */
 export class ToolRegistryConsistencyValidator extends BaseConsistencyValidator {
-  constructor(private toolRegistry: any) {
+  constructor(private toolRegistry: unknown) {
     super();
   }
 
-  async validate(execution: any): Promise<ValidationResult> {
+  async validate(execution: unknown): Promise<ValidationResult> {
     const errors: ConsistencyError[] = [];
     const warnings: string[] = [];
 
     try {
-      if (!execution?.state) {
+      const ex = execution as { state?: { usedTools?: string[] } } | null;
+      const registry = this.toolRegistry as { keys(): Iterable<string>; get(id: string): Tool | undefined } | null;
+
+      if (!ex?.state) {
         return this.createResult([
           this.createError("MISSING_STATE", "Execution missing state"),
         ]);
       }
 
-      const usedTools = execution.state.usedTools || [];
-      const registryTools = new Set(this.toolRegistry.keys());
+      const usedTools = ex.state.usedTools || [];
+      const registryTools = new Set(registry?.keys());
 
       for (const toolId of usedTools) {
         if (!registryTools.has(toolId)) {
@@ -205,7 +216,7 @@ export class ToolRegistryConsistencyValidator extends BaseConsistencyValidator {
             `Tool "${toolId}" was used in execution but no longer exists in registry`,
           );
         } else {
-          const tool = this.toolRegistry.get(toolId) as Tool;
+          const tool = registry?.get(toolId) as Tool | undefined;
           if (!tool) {
             errors.push(
               this.createError(
@@ -243,36 +254,43 @@ export class ToolRegistryConsistencyValidator extends BaseConsistencyValidator {
  */
 export class ExecutionHierarchyConsistencyValidator extends BaseConsistencyValidator {
   constructor(
-    private executionRegistry: any,
+    private executionRegistry: unknown,
   ) {
     super();
   }
 
-  async validate(execution: any): Promise<ValidationResult> {
+  async validate(execution: unknown): Promise<ValidationResult> {
     const errors: ConsistencyError[] = [];
     const warnings: string[] = [];
 
     try {
-      if (!execution?.id) {
+      const ex = execution as {
+        id?: string;
+        parentId?: string;
+        childExecutionIds?: string[];
+      } | null;
+      const registry = this.executionRegistry as { get?(id: string): { parentId?: string } | undefined } | null;
+
+      if (!ex?.id) {
         return this.createResult([
           this.createError("MISSING_ID", "Execution missing ID"),
         ]);
       }
 
       // Check parent execution
-      if (execution.parentId) {
-        const parent = this.executionRegistry?.get?.(execution.parentId);
+      if (ex.parentId) {
+        const parent = registry?.get?.(ex.parentId);
         if (!parent) {
           warnings.push(
-            `Parent execution "${execution.parentId}" referenced but not found`,
+            `Parent execution "${ex.parentId}" referenced but not found`,
           );
         }
       }
 
       // Check child executions
-      const children = execution.childExecutionIds || [];
+      const children = ex.childExecutionIds || [];
       for (const childId of children) {
-        const child = this.executionRegistry?.get?.(childId);
+        const child = registry?.get?.(childId);
         if (!child) {
           warnings.push(
             `Child execution "${childId}" referenced but not found`,
@@ -281,7 +299,7 @@ export class ExecutionHierarchyConsistencyValidator extends BaseConsistencyValid
       }
 
       // Check for circular dependencies (basic check)
-      if (this.hasCircularDependency(execution.id, execution.parentId)) {
+      if (this.hasCircularDependency(ex.parentId)) {
         errors.push(
           this.createError(
             "CIRCULAR_DEPENDENCY",
@@ -310,7 +328,8 @@ export class ExecutionHierarchyConsistencyValidator extends BaseConsistencyValid
     if (visited.has(parentId)) return true;
 
     visited.add(parentId);
-    const parent = this.executionRegistry?.get?.(parentId);
+    const registry = this.executionRegistry as { get?(id: string): { parentId?: string } | undefined } | null;
+    const parent = registry?.get?.(parentId);
     if (!parent) return false;
 
     return this.hasCircularDependency(parent.parentId, visited);
@@ -327,7 +346,7 @@ export class CompositeValidator extends BaseConsistencyValidator {
     super();
   }
 
-  async validate(entity: any): Promise<ValidationResult> {
+  async validate(entity: unknown): Promise<ValidationResult> {
     const allErrors: ConsistencyError[] = [];
     const allWarnings: string[] = [];
 
@@ -349,9 +368,9 @@ export class ConsistencyChecker {
    * Create a default validator for execution entities
    */
   static createDefaultValidator(
-    toolRegistry?: any,
-    hierarchyRegistry?: any,
-    executionRegistry?: any,
+    toolRegistry?: unknown,
+    hierarchyRegistry?: unknown,
+    executionRegistry?: unknown,
   ): Validator {
     const validators: Validator[] = [
       new MessageStateConsistencyValidator(),
@@ -374,7 +393,7 @@ export class ConsistencyChecker {
    * Validate and throw on critical errors
    */
   static async validateOrThrow(
-    entity: any,
+    entity: unknown,
     validator: Validator,
   ): Promise<ValidationResult> {
     const result = await validator.validate(entity);

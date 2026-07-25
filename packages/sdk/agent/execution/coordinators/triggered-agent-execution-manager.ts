@@ -38,7 +38,7 @@ export interface TriggeredAgentExecutionConfig {
   executionId: string;
 
   /** Parent execution entity (workflow) */
-  parentEntity: any;
+  parentEntity: unknown;
 
   /** Type of parent (currently WORKFLOW, future: AGENT_LOOP) */
   parentType: "WORKFLOW" | "AGENT_LOOP";

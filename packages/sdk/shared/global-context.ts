@@ -267,7 +267,7 @@ export class GlobalContext {
   async shutdownExecutionPools(): Promise<void> {
     const pools = Array.from(this.executionPools.values());
     for (const pool of pools) {
-      await (pool as any).shutdown?.();
+      await (pool as { shutdown?: () => Promise<void> }).shutdown?.();
     }
     this.executionPools.clear();
   }

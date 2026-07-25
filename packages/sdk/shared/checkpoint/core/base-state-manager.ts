@@ -241,7 +241,6 @@ export abstract class BaseCheckpointStateManager<
     const startTime = performance.now();
     const results = await this.storageAdapter.loadBatch(ids);
     const map = new Map<string, TCheckpoint | null>();
-    let successCount = 0;
     let failCount = 0;
 
     for (const { id, data } of results) {
@@ -249,7 +248,6 @@ export abstract class BaseCheckpointStateManager<
         try {
           const checkpoint = await this.codec.deserialize<TCheckpoint>(data);
           map.set(id, checkpoint);
-          successCount++;
         } catch {
           logger.warn("Failed to deserialize checkpoint in batch load", { id });
           map.set(id, null);

@@ -118,7 +118,7 @@ class ToolRegistry extends RegistryImpl<Tool> {
           this.executors.set(type, new entry.executor());
         } catch (error) {
           // Log error but continue with other executors
-          console.error(`Failed to instantiate plugin executor '${type}' from plugin '${entry.pluginId}':`, error);
+          logger.error(`Failed to instantiate plugin executor '${type}' from plugin '${entry.pluginId}':`, undefined, undefined, error instanceof Error ? error : new Error(String(error)));
         }
       }
     }

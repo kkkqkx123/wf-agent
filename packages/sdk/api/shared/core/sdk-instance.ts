@@ -36,8 +36,9 @@ import {
   createMultistream,
 } from "@wf-agent/common-utils";
 import { SDKError as SDKErrorClass } from "@wf-agent/types";
-import type { LLMProfile } from "@wf-agent/types";
-import type { LogStream, LogLevel } from "@wf-agent/common-utils";
+import type { AgentLoopRegistry } from "@sdk/agent/registry/agent-loop-registry.js";
+import type { LLMProfile, StaticNodeType } from "@wf-agent/types";
+import type { LogStream, LogLevel, ServiceIdentifier } from "@wf-agent/common-utils";
 import { WorkflowBuilder } from "../../workflow/builders/workflow-builder.js";
 import { NodeBuilder } from "../../workflow/builders/node-builder.js";
 import { McpServerRegistry } from "../../../services/executors/mcp/index.js";
@@ -49,6 +50,7 @@ import { failure } from "../types/execution-result.js";
 import { GracefulShutdownManager } from "../../../services/shutdown/graceful-shutdown-manager.js";
 import { PluginEngine } from "../../../plugin/engine.js";
 import type { SDKRegistries } from "../../../plugin/contributions/bridge.js";
+import type { ContributionManager } from "../../../plugin/contributions/manager.js";
 import { formatterRegistry } from "../../../services/llm/formatters/registry.js";
 
 const _require = createRequire(import.meta.url);
@@ -552,8 +554,8 @@ export class SDKInstance {
           nodeTemplateRegistry: this.globalContext.nodeTemplateRegistry,
           hookTemplateRegistry: this.globalContext.hookTemplateRegistry,
           agentLoopRegistry: this.globalContext.container.get(
-            ServiceIdentifiers.AgentLoopRegistry as import("@wf-agent/common-utils").ServiceIdentifier<any>,
-          ),
+            ServiceIdentifiers.AgentLoopRegistry as ServiceIdentifier<unknown>,
+          ) as AgentLoopRegistry,
         },
         presets,
         undefined,
@@ -574,11 +576,11 @@ export class SDKInstance {
       try {
         // Get the shared ContributionManager singleton from the DI container
         // so PluginEngine doesn't create a separate instance.
-        let contributionManager: import("../../../plugin/contributions/manager.js").ContributionManager | undefined;
+        let contributionManager: ContributionManager | undefined;
         try {
           contributionManager = this.globalContext.container.get(
             ServiceIdentifiers.ContributionManager,
-          ) as import("../../../plugin/contributions/manager.js").ContributionManager;
+          ) as ContributionManager;
         } catch {
           // Container not yet configured with ContributionManager — engine will create one
         }
@@ -820,7 +822,7 @@ export class SDKInstance {
    * @param type Node type
    * @returns NodeTemplateBuilder instance
    */
-  createNodeTemplateBuilder(name: string, type: import("@wf-agent/types").StaticNodeType) {
+  createNodeTemplateBuilder(name: string, type: StaticNodeType) {
     this.ensureReady();
     return NodeTemplateBuilder.create(this.globalContext, name, type);
   }

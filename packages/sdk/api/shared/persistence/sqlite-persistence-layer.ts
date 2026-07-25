@@ -609,8 +609,8 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
 
       const results = stmt?.all(executionId) || [];
 
-      return results
-        .map((r: any) => {
+      return (results as Record<string, unknown>[])
+        .map((r) => {
           if (r !== null && typeof r === 'object' && 'checkpoint_id' in r && 'timestamp' in r) {
             return {
               checkpointId: (r as Record<string, unknown>)['checkpoint_id'] as string,
@@ -619,7 +619,7 @@ export class SQLitePersistenceLayer implements PersistenceLayer {
           }
           return null;
         })
-        .filter((c: any): c is { checkpointId: string; timestamp: number } => c !== null);
+        .filter((c: Record<string, unknown> | null): c is { checkpointId: string; timestamp: number } => c !== null);
     } catch (error) {
       logger.error("Failed to get checkpoint history", { error });
       return [];

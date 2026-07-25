@@ -65,6 +65,9 @@ import { AgentHookTemplateRegistryAPI } from "../../agent/resources/agent-hook-t
 import { AgentTemplateRegistryAPI } from "../../agent/resources/agent-template-registry-api.js";
 import { APIDependencyManager } from "./sdk-dependencies.js";
 import { ExecutionEventLogger } from "../../../shared/events/execution-event-logger.js";
+import { createContextualLogger } from "../../../utils/contextual-logger.js";
+
+const logger = createContextualLogger({ component: "APIFactory" });
 
 /**
  * Collection of all API instances
@@ -596,7 +599,7 @@ export class APIFactory {
       eventLogger.subscribe();
     } catch (error) {
       // If initialization fails, log but don't crash
-      console.error("Failed to initialize event-driven systems", error);
+      logger.error("Failed to initialize event-driven systems", undefined, undefined, error instanceof Error ? error : new Error(String(error)));
     }
 
     return apis;

@@ -10,12 +10,13 @@ import { validationSuccess, validationFailure } from "../../types/command.js";
 /**
  * Validate LLM generate request parameters
  */
-export function validateGenerateParams(request: any): CommandValidationResult {
+export function validateGenerateParams(request: unknown): CommandValidationResult {
+  const r = request as Record<string, unknown>;
   const errors: string[] = [];
 
   if (!request) {
     errors.push("LLM request must be provided.");
-  } else if (!request.messages || request.messages.length === 0) {
+  } else if (!r['messages'] || (r['messages'] as unknown[]).length === 0) {
     errors.push("The message list cannot be empty.");
   }
 
@@ -25,7 +26,7 @@ export function validateGenerateParams(request: any): CommandValidationResult {
 /**
  * Validate tool execution parameters
  */
-export function validateToolExecutionParams(toolId: string, parameters: any): CommandValidationResult {
+export function validateToolExecutionParams(toolId: string, parameters: unknown): CommandValidationResult {
   const errors: string[] = [];
 
   errors.push(...validateRequiredId(toolId, "Tool ID"));
@@ -48,12 +49,13 @@ export function validateScriptExecutionParams(scriptName: string): CommandValida
 /**
  * Validate event dispatch parameters
  */
-export function validateEventDispatchParams(event: any): CommandValidationResult {
+export function validateEventDispatchParams(event: unknown): CommandValidationResult {
+  const e = event as Record<string, unknown>;
   const errors: string[] = [];
 
   if (!event) {
     errors.push("Event object cannot be empty");
-  } else if (!event.type) {
+  } else if (!e['type']) {
     errors.push("Event type cannot be empty");
   }
 

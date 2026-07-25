@@ -28,6 +28,7 @@ import type { WorkflowExecutionRegistry } from "../../registry/workflow-executio
 import type { GlobalContext } from "../../../shared/global-context.js";
 import * as Identifiers from "../../../di/service-identifiers.js";
 import type { ExecutionHierarchyRegistry } from "../../../shared/registry/execution-hierarchy-registry.js";
+import type { TriggeredWorkflowExecutionManager } from "../coordinators/triggered-workflow-execution-manager.js";
 import { CheckpointCoordinator } from "../../checkpoint/checkpoint-coordinator.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 import type { MetricsRegistry } from "../../../metrics/metrics-registry.js";
@@ -133,7 +134,7 @@ export class WorkflowLifecycleCoordinator {
       const triggeredWorkflowManager = this.globalContext.container.get(
         Identifiers.TriggeredWorkflowExecutionManager,
       );
-      return await (triggeredWorkflowManager as any).submitTriggeredExecution(
+      const result = await (triggeredWorkflowManager as TriggeredWorkflowExecutionManager).submitTriggeredExecution(
         {
           executionId,
           parentEntity: workflowExecutionEntity,
@@ -142,6 +143,7 @@ export class WorkflowLifecycleCoordinator {
         },
         workflowExecutionEntity,
       );
+      return result as unknown as WorkflowExecutionResult;
     }
 
     // Root execution: proceed with standard execution path

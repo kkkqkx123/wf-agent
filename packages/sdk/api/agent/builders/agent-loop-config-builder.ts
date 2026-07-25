@@ -296,7 +296,7 @@ export class AgentLoopConfigBuilder extends BaseBuilder<AgentLoopRuntimeConfig> 
     // Attach metadata if present (note: standard AgentLoopRuntimeConfig might not have this field,
     // but we include it for future extensibility)
     if (Object.keys(this._metadata).length > 0) {
-      (config as any).metadata = this._metadata;
+      (config as unknown as Record<string, unknown>)['metadata'] = this._metadata;
     }
 
     return config;

@@ -971,7 +971,7 @@ export function configureContainerBindings(
         taskRegistry,
         workflowExecutionRegistryAdapter,
         c.get(Identifiers.WorkflowExecutionBuilder) as WorkflowExecutionBuilder,
-        undefined, // taskQueueManager is no longer used
+        undefined as any, // taskQueueManager is no longer used
         eventManager,
         workflowExecutionPool,
         c.get(Identifiers.AgentExecutionRegistry) as IAgentExecutionRegistry,
@@ -1343,7 +1343,7 @@ export function configureContainerBindings(
   container
     .bind(Identifiers.TriggeredAgentExecutionManager)
     .toDynamicValue((c: IContainer): TriggeredAgentExecutionManager => {
-      const agentCoordinator = c.get(Identifiers.AgentLoopCoordinator) as any;
+      const agentCoordinator = c.get(Identifiers.AgentLoopCoordinator) as AgentLoopCoordinator;
 
       // Create executor callback that delegates to coordinator
       const executorCallback: AgentExecutorCallback = async (entity, config) => {

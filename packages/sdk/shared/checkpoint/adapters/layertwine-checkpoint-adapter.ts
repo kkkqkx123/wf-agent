@@ -57,9 +57,9 @@ export class LayertwineCheckpointAdapter<
    */
   protected getCheckpointParentId(checkpoint: TCheckpoint): string {
     const parentId =
-      (checkpoint as any).agentLoopId ||
-      (checkpoint as any).executionId ||
-      (checkpoint as any).parentId;
+      (checkpoint as Record<string, unknown>)['agentLoopId'] ||
+      (checkpoint as Record<string, unknown>)['executionId'] ||
+      (checkpoint as Record<string, unknown>)['parentId'];
     return String(parentId || "unknown");
   }
 
@@ -69,7 +69,7 @@ export class LayertwineCheckpointAdapter<
   protected getCheckpointBranchType(
     checkpoint: TCheckpoint
   ): "agent-loop" | "execution" {
-    if ((checkpoint as any).executionId) {
+    if ((checkpoint as Record<string, unknown>)['executionId']) {
       return "execution";
     }
     return "agent-loop";

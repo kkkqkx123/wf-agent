@@ -19,7 +19,7 @@ import { ok, err, isError, now, diffTimestamp } from "@wf-agent/common-utils";
 function extractErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error;
   if (error && typeof error === 'object' && 'message' in error) {
-    return (error as any).message || '';
+    return (error as { message: string }).message || '';
   }
   try {
     return JSON.stringify(error);

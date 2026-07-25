@@ -154,7 +154,7 @@ export class OnceEventSubscription<T extends BaseEvent = BaseEvent> extends Base
 export function createOnEventSubscription<T extends BaseEvent = BaseEvent>(
   eventType: EventType,
   listener: EventListener<T>,
-  dependencies: any, // APIDependencyManager type (avoid circular dependency)
+  dependencies: unknown, // APIDependencyManager type (avoid circular dependency)
   options: {
     priority?: number;
     filter?: (event: T) => boolean;
@@ -162,7 +162,7 @@ export function createOnEventSubscription<T extends BaseEvent = BaseEvent>(
     executionId: string;
   },
 ): OnEventSubscription<T> {
-  const eventManager = dependencies.getEventManager();
+  const eventManager = (dependencies as { getEventManager: () => EventRegistry }).getEventManager();
   return new OnEventSubscription(eventType, listener, eventManager, options);
 }
 
@@ -173,7 +173,7 @@ export function createOnEventSubscription<T extends BaseEvent = BaseEvent>(
 export function createOnceEventSubscription<T extends BaseEvent = BaseEvent>(
   eventType: EventType,
   listener: EventListener<T>,
-  dependencies: any, // APIDependencyManager type (avoid circular dependency)
+  dependencies: unknown, // APIDependencyManager type (avoid circular dependency)
   options: {
     priority?: number;
     filter?: (event: T) => boolean;
@@ -181,7 +181,7 @@ export function createOnceEventSubscription<T extends BaseEvent = BaseEvent>(
     executionId: string;
   },
 ): OnceEventSubscription<T> {
-  const eventManager = dependencies.getEventManager();
+  const eventManager = (dependencies as { getEventManager: () => EventRegistry }).getEventManager();
   return new OnceEventSubscription(eventType, listener, eventManager, options);
 }
 
@@ -193,7 +193,7 @@ export function createExecutionScopedSubscription<T extends BaseEvent = BaseEven
   executionId: string,
   eventType: EventType,
   listener: EventListener<T>,
-  dependencies: any, // APIDependencyManager type
+  dependencies: unknown, // APIDependencyManager type
   additionalOptions?: Omit<
     {
       priority?: number;
@@ -218,7 +218,7 @@ export function createExecutionScopedOnceSubscription<T extends BaseEvent = Base
   executionId: string,
   eventType: EventType,
   listener: EventListener<T>,
-  dependencies: any, // APIDependencyManager type
+  dependencies: unknown, // APIDependencyManager type
   additionalOptions?: Omit<
     {
       priority?: number;

@@ -19,7 +19,7 @@
 import type { EventRegistry } from "../../registry/event-registry.js";
 import type { InterruptionType } from "../../types/interruption-types.js";
 import type { ExecutionDomainContext, BaseEvent } from "@wf-agent/types";
-import { getExecutionEventBus } from "../../../shared/events/execution-event-bus.js";
+import { getExecutionEventBus, type ExecutionEvent } from "../../../shared/events/execution-event-bus.js";
 import { createContextualLogger } from "../../../utils/contextual-logger.js";
 
 const logger = createContextualLogger({ component: "InterruptionState" });
@@ -522,7 +522,7 @@ export class InterruptionState {
           status: type === "PAUSE" ? "pending" : type === "RESUME" ? "resumed" : "pending",
         },
         context: this.context,
-      } as any);
+      } as unknown as ExecutionEvent);
 
       logger.debug("Interruption event published to ExecutionEventBus", {
         contextId: this.contextId,

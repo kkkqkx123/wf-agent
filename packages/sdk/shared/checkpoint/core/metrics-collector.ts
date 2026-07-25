@@ -26,9 +26,35 @@ interface EventEmitter {
   (eventType: string, payload: unknown): Promise<void>;
 }
 
+interface MetricsData {
+  lastCreationDuration?: number;
+  lastCreationSize?: number;
+  lastCreationTimestamp?: number;
+  totalCreations?: number;
+  successfulCreations?: number;
+  failedCreations?: number;
+  creationDurations?: number[];
+  lastLoadDuration?: number;
+  lastLoadTimestamp?: number;
+  totalLoads?: number;
+  successfulLoads?: number;
+  failedLoads?: number;
+  loadDurations?: number[];
+  lastCleanupDuration?: number;
+  lastCleanupTimestamp?: number;
+  totalCleanups?: number;
+  successfulCleanups?: number;
+  failedCleanups?: number;
+  totalCheckpointsCleaned?: number;
+  totalSpaceFreed?: number;
+  lastChainLength?: number;
+  lastChainLengthTimestamp?: number;
+  averageChainLength?: number;
+}
+
 export class CheckpointMetricsCollector implements MetricCollector {
   private logger: Logger;
-  private metrics = new Map<string, any>();
+  private metrics = new Map<string, MetricsData>();
   private runningAverages: {
     creationDuration: number[];
     loadDuration: number[];
@@ -55,7 +81,7 @@ export class CheckpointMetricsCollector implements MetricCollector {
 
   recordCreation(metrics: CheckpointCreationMetrics): void {
     const entityKey = `${metrics.entityId}:creation`;
-    const existing = this.metrics.get(entityKey) ?? {};
+    const existing = this.metrics.get(entityKey) ?? ({} as MetricsData);
     const updated = {
       ...existing,
       lastCreationDuration: metrics.duration,
@@ -86,7 +112,7 @@ export class CheckpointMetricsCollector implements MetricCollector {
 
   recordLoad(metrics: CheckpointLoadMetrics): void {
     const entityKey = `${metrics.entityId}:load`;
-    const existing = this.metrics.get(entityKey) ?? {};
+    const existing = this.metrics.get(entityKey) ?? ({} as MetricsData);
     const updated = {
       ...existing,
       lastLoadDuration: metrics.duration,
@@ -111,7 +137,7 @@ export class CheckpointMetricsCollector implements MetricCollector {
 
   recordCleanup(metrics: CheckpointCleanupMetrics): void {
     const entityKey = `${metrics.entityId}:cleanup`;
-    const existing = this.metrics.get(entityKey) ?? {};
+    const existing = this.metrics.get(entityKey) ?? ({} as MetricsData);
     const updated = {
       ...existing,
       lastCleanupDuration: metrics.duration,
@@ -134,7 +160,7 @@ export class CheckpointMetricsCollector implements MetricCollector {
 
   recordChainLength(metrics: CheckpointChainLengthMetric): void {
     const entityKey = `${metrics.entityId}:chain`;
-    const existing = this.metrics.get(entityKey) ?? {};
+    const existing = this.metrics.get(entityKey) ?? ({} as MetricsData);
     const updated = {
       ...existing,
       lastChainLength: metrics.chainLength,
@@ -148,17 +174,17 @@ export class CheckpointMetricsCollector implements MetricCollector {
     this.emitEvent("chainLength", metrics);
   }
 
-  getMetrics(entityId: string): any {
+  getMetrics(entityId: string): unknown {
     const creationKey = `${entityId}:creation`;
     const loadKey = `${entityId}:load`;
     const cleanupKey = `${entityId}:cleanup`;
     const chainKey = `${entityId}:chain`;
 
     return {
-      ...this.metrics.get(creationKey) ?? {},
-      ...this.metrics.get(loadKey) ?? {},
-      ...this.metrics.get(cleanupKey) ?? {},
-      ...this.metrics.get(chainKey) ?? {},
+      ...this.metrics.get(creationKey) ?? ({} as MetricsData),
+      ...this.metrics.get(loadKey) ?? ({} as MetricsData),
+      ...this.metrics.get(cleanupKey) ?? ({} as MetricsData),
+      ...this.metrics.get(chainKey) ?? ({} as MetricsData),
     };
   }
 

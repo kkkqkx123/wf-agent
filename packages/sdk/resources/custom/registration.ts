@@ -21,7 +21,7 @@ import type {
   CustomPromptDefinition,
   CustomResources,
 } from "./types.js";
-import type { PromptTemplate, PromptVariableDefinition } from "@wf-agent/types";
+import type { EventType, PromptTemplate, PromptVariableDefinition } from "@wf-agent/types";
 import type { CustomResourcesRegistrationResult } from "../registration/types.js";
 
 const logger = createContextualLogger({ component: "CustomResourcesRegistration" });
@@ -124,7 +124,7 @@ export function registerCustomTriggers(
         name: triggerDef.name,
         description: triggerDef.description,
         condition: {
-          eventType: "CUSTOM_EVENT" as any,
+          eventType: "CUSTOM_EVENT" as EventType,
           eventName: triggerDef.condition.value,
         },
         action: {

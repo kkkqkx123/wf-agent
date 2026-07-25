@@ -14,6 +14,14 @@
 
 import type { PresetsConfig, CustomResources } from "@wf-agent/sdk/resources";
 import type { RegistrationResult, ResourceRegistries } from "./types.js";
+import type { AgentLoopEntity } from "../../agent/entities/agent-loop-entity.js";
+import type {
+  WorkflowTemplate,
+  NodeTemplate,
+  TriggerTemplate,
+  HookTemplate,
+  PromptTemplate,
+} from "@wf-agent/types";
 import { createContextualLogger } from "../../utils/contextual-logger.js";
 import { registerPredefinedContent } from "../predefined/registration.js";
 import { registerAllPredefinedPrompts } from "./prompts-registration.js";
@@ -179,27 +187,27 @@ export async function registerAllResources(
       // Build StarterRegistries from SDK registries
       const sdkRegistries = {
         workflowRegistry: {
-          register: (wf: any) => registries.workflowRegistry.register(wf),
+          register: (wf: WorkflowTemplate) => registries.workflowRegistry.register(wf),
           unregister: (id: string) => registries.workflowRegistry.unregister(id),
         },
         agentLoopRegistry: {
-          register: (loop: any) => registries.agentLoopRegistry.register(loop),
+          register: (loop: AgentLoopEntity) => registries.agentLoopRegistry.register(loop),
           unregister: (id: string) => registries.agentLoopRegistry.unregister(id),
         },
         nodeTemplateRegistry: {
-          register: (nt: any) => registries.nodeTemplateRegistry.register(nt),
+          register: (nt: NodeTemplate) => registries.nodeTemplateRegistry.register(nt),
           unregister: (name: string) => registries.nodeTemplateRegistry.unregister(name),
         },
         triggerTemplateRegistry: {
-          register: (tt: any) => registries.triggerRegistry.register(tt),
+          register: (tt: TriggerTemplate) => registries.triggerRegistry.register(tt),
           unregister: (name: string) => registries.triggerRegistry.unregister(name),
         },
         hookTemplateRegistry: {
-          register: (ht: any) => registries.hookTemplateRegistry.register(ht),
+          register: (ht: HookTemplate) => registries.hookTemplateRegistry.register(ht),
           unregister: (name: string) => registries.hookTemplateRegistry.unregister(name),
         },
         promptTemplateRegistry: {
-          register: (key: string, pt: any) => registries.promptTemplateRegistry.register(key, pt),
+          register: (key: string, pt: PromptTemplate) => registries.promptTemplateRegistry.register(key, pt),
           unregister: (key: string) => registries.promptTemplateRegistry.unregister(key),
         },
       };

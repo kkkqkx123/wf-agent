@@ -623,7 +623,7 @@ class EventRegistry {
     // Record event metrics with dimensional labels for aggregation
     const labels: EventMetricLabels = {
       workflow_id: event.workflowId,
-      agent_loop_id: (event as any).agentLoopId, // Support agent events with agentLoopId
+      agent_loop_id: (event as Record<string, unknown>)['agentLoopId'] as string | undefined, // Support agent events with agentLoopId
     };
 
     // Remove undefined labels to avoid polluting metrics data

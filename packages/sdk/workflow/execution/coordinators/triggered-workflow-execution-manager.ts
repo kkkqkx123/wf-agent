@@ -14,6 +14,7 @@
  */
 
 import type { WorkflowExecutionEntity } from "../../entities/index.js";
+import type { WorkflowExecutor } from "../executors/workflow-executor.js";
 import type { TaskSubmissionResult, ExecutedSubworkflowResult } from "../types/triggered-subworkflow.types.js";
 import { TaskRegistry, type TaskManager } from "../../../shared/registry/task-registry.js";
 import type { WorkflowExecutionPool } from "../workflow-execution-pool.js";
@@ -210,7 +211,7 @@ export class TriggeredWorkflowExecutionManager implements TaskManager {
   private async executeTask(
     taskId: string,
     taskInfo: PendingTaskInfo,
-    executor: any,
+    executor: WorkflowExecutor,
   ): Promise<void> {
     const startTime = now();
 

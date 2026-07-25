@@ -48,6 +48,7 @@ import { RuntimeValidationError, SDKError } from "@wf-agent/types";
 import { logError, emitErrorEvent } from "../../../shared/utils/error-utils.js";
 import { cleanupChildExecution } from "../utils/child-execution-cleanup.js";
 import type { MessageContextRegistry, WorkflowExecution } from "@wf-agent/types";
+import type { QueueStats } from "../../../shared/types/index.js";
 
 /**
  * Workflow Execution Build Result (simplified interface for TriggeredSubworkflowHandler)
@@ -56,6 +57,18 @@ interface WorkflowExecutionBuildResultSimple {
   workflowExecutionEntity: WorkflowExecutionEntity;
   stateCoordinator: WorkflowStateCoordinator;
   conversationManager: ConversationSession;
+}
+
+/**
+ * Task Queue Manager interface matching how it's used.
+ * (deprecated, kept for backward compatibility)
+ */
+interface TaskQueueManager {
+  submitSync(taskId: string, instance: WorkflowExecutionEntity, timeout?: number): Promise<ExecutedSubworkflowResult>;
+  submitAsync(taskId: string, instance: WorkflowExecutionEntity, timeout?: number): TaskSubmissionResult;
+  cancelTask(taskId: string): boolean;
+  getQueueStats(): QueueStats;
+  drain(): Promise<void>;
 }
 
 /**
@@ -75,7 +88,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
   /**
    * Task Queue Manager (deprecated, kept for backward compatibility)
    */
-  private taskQueueManager?: any;
+  private taskQueueManager?: TaskQueueManager;
 
   /**
    * Event Manager
@@ -157,7 +170,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
         options: { type: ChildExecutionType; config: ChildExecutionConfig },
       ) => Promise<WorkflowExecutionBuildResultSimple>;
     },
-    taskQueueManager: any,
+    taskQueueManager: TaskQueueManager,
     eventManager: EventRegistry,
     workflowExecutionPool: WorkflowExecutionPool,
     agentExecutionRegistry: IAgentExecutionRegistry,
@@ -408,7 +421,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const taskId = this.taskRegistry.register(subgraphEntity, "workflowExecution", this, timeout);
 
     try {
-      const result = await this.taskQueueManager.submitSync(taskId, subgraphEntity, timeout);
+      const result = await this.taskQueueManager!.submitSync(taskId, subgraphEntity, timeout);
 
       // Cleanup on success
       await this.cleanupCompletedTask(subgraphEntity, taskId);
@@ -437,7 +450,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     const taskId = this.taskRegistry.register(subgraphEntity, "workflowExecution", this, timeout);
 
     // Submit to the task queue
-    const submissionResult = this.taskQueueManager.submitAsync(taskId, subgraphEntity, timeout);
+    const submissionResult = this.taskQueueManager!.submitAsync(taskId, subgraphEntity, timeout);
 
     // Register the completion handler directly without creating a Promise.
     // This can prevent memory leaks caused by uncleaned Promise references.
@@ -660,7 +673,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Whether the cancellation was successful
    */
   async cancelTask(taskId: string): Promise<boolean> {
-    const success = this.taskQueueManager.cancelTask(taskId);
+    const success = this.taskQueueManager!.cancelTask(taskId);
 
     if (success) {
       const taskInfo = this.taskRegistry.get(taskId);
@@ -683,7 +696,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
    * @returns Queue statistics information
    */
   getQueueStats() {
-    return this.taskQueueManager.getQueueStats();
+    return this.taskQueueManager!.getQueueStats();
   }
 
   /**
@@ -734,7 +747,7 @@ export class TriggeredSubworkflowHandler implements TaskManager {
     await this.callbackState.cleanup();
 
     // Wait for all tasks to complete.
-    await this.taskQueueManager.drain();
+    await this.taskQueueManager!.drain();
 
     // Close the workflow execution pool.
     await this.workflowExecutionPool.shutdown();

@@ -111,7 +111,7 @@ export function validateTriggerTemplate(template: TriggerTemplate): void {
     });
   }
 
-  if (!TRIGGER_TEMPLATE_EVENT_TYPES.includes(template.condition.eventType as any)) {
+  if (!(TRIGGER_TEMPLATE_EVENT_TYPES as readonly string[]).includes(template.condition.eventType)) {
     throw new ConfigurationValidationError(
       `Invalid event type: ${template.condition.eventType}`,
       {
@@ -128,7 +128,7 @@ export function validateTriggerTemplate(template: TriggerTemplate): void {
     });
   }
 
-  if (!TRIGGER_TEMPLATE_ACTION_TYPES.includes(template.action.type as any)) {
+  if (!(TRIGGER_TEMPLATE_ACTION_TYPES as readonly string[]).includes(template.action.type)) {
     throw new ConfigurationValidationError(`Invalid action type: ${template.action.type}`, {
       configType: "trigger",
       configPath: "template.action.type",

@@ -6,7 +6,12 @@ use wf_types::storage::CheckpointStorageMetadata;
 pub trait CheckpointStateManager: Send + Sync {
     type Checkpoint: Send + Sync;
 
-    async fn save(&self, checkpoint: &Self::Checkpoint) -> Result<(), CheckpointError>;
+    async fn save(
+        &self,
+        checkpoint: &Self::Checkpoint,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<(), CheckpointError>;
     async fn load(&self, id: &str) -> Result<Option<Self::Checkpoint>, CheckpointError>;
     async fn delete(&self, id: &str) -> Result<bool, CheckpointError>;
     async fn list_by_entity(

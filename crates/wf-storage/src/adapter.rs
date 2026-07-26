@@ -1,3 +1,4 @@
+pub mod r#macro;
 pub mod base;
 pub mod workflow;
 pub mod execution;
@@ -6,6 +7,7 @@ pub mod task;
 pub mod agent_loop;
 pub mod metrics;
 pub mod file_checkpoint;
+pub mod concrete;
 
 pub use base::*;
 pub use workflow::*;
@@ -15,3 +17,4 @@ pub use task::*;
 pub use agent_loop::*;
 pub use metrics::*;
 pub use file_checkpoint::*;
+pub use concrete::*;

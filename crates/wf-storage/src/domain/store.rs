@@ -1,14 +1,48 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::StorageError;
 
 #[derive(Debug, Clone, Default)]
-pub struct MetadataFilter {
+pub struct QueryFilter {
     pub entity_type: Option<String>,
     pub status: Option<String>,
     pub offset: Option<u64>,
     pub limit: Option<u64>,
+    pub fields: HashMap<String, String>,
+}
+
+impl QueryFilter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_entity_type(mut self, entity_type: &str) -> Self {
+        self.entity_type = Some(entity_type.to_string());
+        self
+    }
+
+    pub fn with_status(mut self, status: &str) -> Self {
+        self.status = Some(status.to_string());
+        self
+    }
+
+    pub fn with_field(mut self, key: &str, value: &str) -> Self {
+        self.fields.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn with_offset(mut self, offset: u64) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
 }
 
 pub struct BatchItem {
@@ -42,7 +76,7 @@ pub trait Store: Send + Sync {
     async fn delete(&self, id: &str) -> Result<(), StorageError>;
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError>;
     async fn exists(&self, id: &str) -> Result<bool, StorageError>;
 

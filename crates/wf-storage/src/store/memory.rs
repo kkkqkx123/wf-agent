@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::domain::store::{BatchItem, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, QueryFilter, Store};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
@@ -59,29 +59,24 @@ fn current_timestamp() -> i64 {
 
 fn apply_filter(
     records: &HashMap<String, StoredRecord>,
-    filter: Option<&MetadataFilter>,
+    filter: Option<&QueryFilter>,
 ) -> Vec<(String, Value)> {
     let mut results: Vec<(String, Value)> = records
         .iter()
         .filter(|(_, rec)| {
             if let Some(f) = filter {
                 if let Some(ref entity_type) = f.entity_type {
-                    let rec_type = rec
-                        .metadata
-                        .get("entityType")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if rec_type != entity_type {
+                    if !matches_meta_str(&rec.metadata, "entityType", entity_type) {
                         return false;
                     }
                 }
                 if let Some(ref status) = f.status {
-                    let rec_status = rec
-                        .metadata
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if rec_status != status {
+                    if !matches_meta_str(&rec.metadata, "status", status) {
+                        return false;
+                    }
+                }
+                for (key, value) in &f.fields {
+                    if !matches_meta_str(&rec.metadata, key, value) {
                         return false;
                     }
                 }
@@ -96,6 +91,14 @@ fn apply_filter(
 
     results = results.into_iter().skip(offset).take(limit).collect();
     results
+}
+
+fn matches_meta_str(metadata: &Value, key: &str, expected: &str) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|v| v == expected)
+        .unwrap_or(false)
 }
 
 #[async_trait]
@@ -139,7 +142,7 @@ impl Store for MemoryStorage {
 
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         let store = self.inner.read().await;
         Ok(apply_filter(&store.records, filter))
@@ -229,21 +232,11 @@ mod tests {
             .await
             .unwrap();
 
-        let filter = MetadataFilter {
-            entity_type: Some("A".into()),
-            status: None,
-            offset: None,
-            limit: None,
-        };
+        let filter = QueryFilter::new().with_entity_type("A");
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 2);
 
-        let filter = MetadataFilter {
-            entity_type: None,
-            status: Some("inactive".into()),
-            offset: None,
-            limit: None,
-        };
+        let filter = QueryFilter::new().with_status("inactive");
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 2);
     }

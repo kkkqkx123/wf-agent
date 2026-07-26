@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
 use crate::adapter::base::BaseStorageAdapter;
 
@@ -8,6 +9,23 @@ pub struct WorkflowListOptions {
     pub limit: Option<u64>,
     pub name_filter: Option<String>,
     pub type_filter: Option<String>,
+}
+
+impl From<WorkflowListOptions> for QueryFilter {
+    fn from(opts: WorkflowListOptions) -> Self {
+        let mut filter = QueryFilter {
+            offset: opts.offset,
+            limit: opts.limit,
+            ..Default::default()
+        };
+        if let Some(typ) = opts.type_filter {
+            filter.fields.insert("type".to_string(), typ);
+        }
+        if let Some(name) = opts.name_filter {
+            filter.fields.insert("name".to_string(), name);
+        }
+        filter
+    }
 }
 
 pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowDefinition, WorkflowListOptions> {

@@ -1,9 +1,13 @@
 pub mod branch;
 pub mod cache;
 pub mod cleanup;
+pub mod content;
 pub mod coordinator;
 pub mod delta;
 pub mod error;
+pub mod event;
+pub mod file;
+pub mod layertwine;
 pub mod metrics;
 pub mod restore;
 pub mod serializer;
@@ -14,3 +18,4 @@ pub mod version;
 pub use error::CheckpointError;
 pub use cache::CheckpointCache;
 pub use serializer::{CheckpointCodec, CheckpointSerializer};
+pub use event::{CheckpointEvent, CheckpointEventBus};

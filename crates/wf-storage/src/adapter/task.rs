@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
 use crate::adapter::base::BaseStorageAdapter;
 
@@ -8,6 +9,23 @@ pub struct TaskListOptions {
     pub limit: Option<u64>,
     pub status_filter: Option<String>,
     pub task_type_filter: Option<String>,
+}
+
+impl From<TaskListOptions> for QueryFilter {
+    fn from(opts: TaskListOptions) -> Self {
+        let mut filter = QueryFilter {
+            offset: opts.offset,
+            limit: opts.limit,
+            ..Default::default()
+        };
+        if let Some(status) = opts.status_filter {
+            filter.status = Some(status);
+        }
+        if let Some(task_type) = opts.task_type_filter {
+            filter.fields.insert("taskType".to_string(), task_type);
+        }
+        filter
+    }
 }
 
 pub trait TaskStorageAdapter:

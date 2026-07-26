@@ -3,7 +3,7 @@ use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 
 fn to_sqlite_url(path: &str) -> String {
@@ -218,17 +218,24 @@ impl Store for SqliteStorage {
 
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         let mut sql = format!("SELECT id, metadata FROM {}", self.table_name);
         let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
 
         if let Some(f) = filter {
-            if f.entity_type.is_some() {
+            if let Some(ref entity_type) = f.entity_type {
                 conditions.push("json_extract(metadata, '$.entityType') = ?".into());
+                params.push(entity_type.clone());
             }
-            if f.status.is_some() {
+            if let Some(ref status) = f.status {
                 conditions.push("json_extract(metadata, '$.status') = ?".into());
+                params.push(status.clone());
+            }
+            for (key, value) in &f.fields {
+                conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
+                params.push(value.clone());
             }
         }
 
@@ -247,13 +254,8 @@ impl Store for SqliteStorage {
         }
 
         let mut query = sqlx::query_as::<_, (String, String)>(&sql);
-        if let Some(f) = filter {
-            if let Some(ref entity_type) = f.entity_type {
-                query = query.bind(entity_type);
-            }
-            if let Some(ref status) = f.status {
-                query = query.bind(status);
-            }
+        for param in &params {
+            query = query.bind(param);
         }
 
         let rows = query.fetch_all(&self.pool).await.map_err(|e| {
@@ -459,12 +461,7 @@ mod tests {
             .await
             .unwrap();
 
-        let filter = MetadataFilter {
-            entity_type: Some("A".into()),
-            status: None,
-            offset: None,
-            limit: None,
-        };
+        let filter = QueryFilter::new().with_entity_type("A");
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "id1");

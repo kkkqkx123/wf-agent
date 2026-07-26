@@ -4,7 +4,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::domain::entity::Entity;
-use crate::domain::store::{BatchItem, BatchStore, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, QueryFilter, Store};
 use crate::util::compression::{maybe_compress, maybe_decompress};
 use crate::util::hash::compute_hash;
 use crate::error::StorageError;
@@ -75,7 +75,7 @@ where
 
     pub async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<T>, StorageError> {
         let entries = self.storage.list(filter).await?;
         let mut results = Vec::with_capacity(entries.len());
@@ -89,7 +89,7 @@ where
 
     pub async fn list_metadata(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         self.storage.list(filter).await
     }

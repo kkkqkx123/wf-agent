@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
 
@@ -184,17 +184,28 @@ impl Store for PostgresStorage {
 
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         let mut sql = format!("SELECT id, metadata FROM {}", self.table_name);
         let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<&str> = Vec::new();
 
         if let Some(f) = filter {
-            if f.entity_type.is_some() {
-                conditions.push("(metadata->>'entityType') = $1".into());
+            let mut idx = 1;
+            if let Some(ref entity_type) = f.entity_type {
+                conditions.push(format!("(metadata->>'entityType') = ${}", idx));
+                idx += 1;
+                params.push(entity_type.as_str());
             }
-            if f.status.is_some() {
-                conditions.push("(metadata->>'status') = $2".into());
+            if let Some(ref status) = f.status {
+                conditions.push(format!("(metadata->>'status') = ${}", idx));
+                idx += 1;
+                params.push(status.as_str());
+            }
+            for (key, value) in &f.fields {
+                conditions.push(format!("(metadata->>'{}') = ${}", key, idx));
+                idx += 1;
+                params.push(value.as_str());
             }
         }
 
@@ -213,13 +224,8 @@ impl Store for PostgresStorage {
         }
 
         let mut query = sqlx::query_as::<_, (String, Value)>(&sql);
-        if let Some(f) = filter {
-            if let Some(ref entity_type) = f.entity_type {
-                query = query.bind(entity_type);
-            }
-            if let Some(ref status) = f.status {
-                query = query.bind(status);
-            }
+        for param in &params {
+            query = query.bind(param);
         }
 
         let rows = query.fetch_all(&self.pool).await.map_err(|e| {

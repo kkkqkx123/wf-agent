@@ -20,7 +20,11 @@ pub trait CheckpointCoordinator: Send + Sync {
         state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError>;
 
-    async fn persist(&self, checkpoint: &Self::Checkpoint) -> Result<(), CheckpointError>;
+    async fn persist(
+        &self,
+        checkpoint: &Self::Checkpoint,
+        entity_id: &str,
+    ) -> Result<(), CheckpointError>;
 
     async fn restore(&self, checkpoint_id: &str) -> Result<Self::Entity, CheckpointError>;
 

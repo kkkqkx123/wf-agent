@@ -5,7 +5,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 
 #[derive(Default)]
@@ -112,7 +112,7 @@ impl<S: Store> Store for InstrumentedStore<S> {
 
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         let start = Instant::now();
         let result = self.inner.list(filter).await;

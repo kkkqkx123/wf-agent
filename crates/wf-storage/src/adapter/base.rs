@@ -1,4 +1,15 @@
+use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
+
+impl From<ListOptions> for QueryFilter {
+    fn from(opts: ListOptions) -> Self {
+        Self {
+            offset: opts.offset,
+            limit: opts.limit,
+            ..Default::default()
+        }
+    }
+}
 
 pub trait BaseStorageAdapter<TEntity, TListOptions>: Send + Sync {
     async fn initialize(&self) -> Result<(), StorageError>;

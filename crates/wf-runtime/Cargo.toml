@@ -1,0 +1,20 @@
+[package]
+name = "wf-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-storage = { path = "../wf-storage" }
+
+[features]
+default = ["sqlite", "postgres"]
+sqlite = ["wf-storage/sqlite"]
+postgres = ["wf-storage/postgres"]

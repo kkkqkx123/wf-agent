@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
 use crate::adapter::base::BaseStorageAdapter;
 
@@ -7,6 +8,20 @@ pub struct AgentLoopListOptions {
     pub offset: Option<u64>,
     pub limit: Option<u64>,
     pub status_filter: Option<String>,
+}
+
+impl From<AgentLoopListOptions> for QueryFilter {
+    fn from(opts: AgentLoopListOptions) -> Self {
+        let mut filter = QueryFilter {
+            offset: opts.offset,
+            limit: opts.limit,
+            ..Default::default()
+        };
+        if let Some(status) = opts.status_filter {
+            filter.status = Some(status);
+        }
+        filter
+    }
 }
 
 pub trait AgentLoopStorageAdapter:

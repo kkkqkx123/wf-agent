@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use moka::sync::Cache;
 use serde_json::Value;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, MetadataFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 
 pub struct CacheConfig {
@@ -155,7 +155,7 @@ impl<S: Store> Store for CachingStore<S> {
 
     async fn list(
         &self,
-        filter: Option<&MetadataFilter>,
+        filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         self.inner.list(filter).await
     }

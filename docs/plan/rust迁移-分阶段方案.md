@@ -31,7 +31,7 @@
 │  wf-sandbox — Script execution (JS/Python/Lua/Shell)          │
 ├──────────────────────────────────────────────────────────────┤
 │                      Infrastructure Layer                     │
-│  wf-storage — StorageAdapter + SQLite/Postgres/Memory backends │
+│  wf-storage — Store + EntityStore + domain adapters           │
 │  wf-config — Config loaders + orchestrator                    │
 │  wf-runtime — Bootstrap, lifecycle, storage manager           │
 ├──────────────────────────────────────────────────────────────┤
@@ -68,54 +68,132 @@ wf-storage ← wf-config
 
 ### 已完成内容
 
-- [x] Cargo workspace 骨架，3 个 crate 可独立编译
-- [x] `wf-types` — 20 种节点类型 + workflow/agent/checkpoint 类型定义
+- [x] Cargo workspace 骨架，Cargo.toml + rust-toolchain.toml
+- [x] `wf-types` — 20 种节点类型 + workflow/agent/checkpoint/execution 类型定义 + 12 storage 元数据类型
 - [x] `wf-common` — Error、Result、时间、UUID 工具
-- [x] `wf-storage` — trait 定义 + 三后端骨架（待补完）
+- [x] `wf-storage` — Store/BatchStore/Maintainable trait + Memory/SQLite/Postgres 三后端 + EntityStore + 8 adapter traits + CachingStore/InstrumentedStore decorator + 压缩/哈希/错误体系
+- [x] `wf-storage` 查询层 — `QueryFilter`（支持任意 metadata 字段过滤）+ `From<*ListOptions>` 转换 + 三后端 SQL 下推
+- [x] `wf-core` — EventBus（`tokio::sync::broadcast`）+ Registry（泛型 `DashMap`）+ NodeState/WorkflowState 状态机（30 tests）
+- [x] `wf-checkpoint` — CheckpointCoordinator + BranchManager + VersionManager + Delta/Diff + RestoreRegistry + Serializer + Strategy + Cleanup + Layertwine 集成（78 tests）
+- [x] `wf-runtime` — bootstrap、lifecycle、mode、logger、storage_manager、error（完整实现，35 tests）
 
 ### 验收状态
 
 ```bash
-cargo build --workspace  # ✅ 通过
-cargo test -p wf-types   # ✅ 通过
+cargo build --workspace         # ✅ 通过
+cargo clippy --all-targets       # ✅ 通过
+cargo test -p wf-types           # ✅ 通过
+cargo test -p wf-storage         # ✅ 11 passed
+cargo test -p wf-core            # ✅ 30 passed
+cargo test -p wf-checkpoint      # ✅ 78 passed
+cargo test -p wf-runtime         # ✅ 35 passed
 ```
 
 ---
 
-## 三、Phase 1: 存储层补完（3 周）
-
-> 详见 [storage-补完方案.md](migration/storage-补完方案.md)
+## 三、Phase 1: 存储层补完（当前阶段）
 
 ### 目标
 
-将 `crates/wf-storage` 从骨架状态补完为生产级实现，完全对标 TS `packages/storage` 的设计。
+为 `wf-storage` 实现所有领域 storage adapter 的具体 struct（当前只有 trait 定义，无具体实现），使上层 crate 可以通过具体类型或 trait 引用完成数据持久化。
 
-### 核心设计决策
+### 已完成
 
-- **数据模型**：BLOB + 元数据列分离（沿用 TS 版验证方案）
-- **缓存**：moka 并发 LRU（TTL + 容量限制 + 读写穿透）
-- **完整性**：SHA-256 采样哈希 + 读写验证
-- **维护**：VACUUM / ANALYZE / WAL checkpoint / 碎片监控
-- **错误**：5 类错误体系对齐 TS
+- [x] `QueryFilter` — 替换 `MetadataFilter`，新增 `fields: HashMap<String, String>` 支持任意 metadata 字段过滤
+- [x] Memory/SQLite/Postgres 三后端均支持 `fields` 下推（JSON path → SQL 条件）  
+- [x] `From<WorkflowListOptions> for QueryFilter` 等 6 个转换实现
+- [x] `wf-checkpoint::StorageBackedStateManager.list_by_entity` 从内存过滤升级为 `QueryFilter` 下推
+
+### 剩余工作
+
+```
+wf-storage/src/
+├── adapter/            # 8 个 adapter trait 定义（已有，无 impl）
+│   ├── base.rs         #     BaseStorageAdapter<TEntity, TListOptions>
+│   ├── workflow.rs     #     WorkflowStorageAdapter
+│   ├── execution.rs    #     WorkflowExecutionStorageAdapter
+│   ├── checkpoint.rs   #     CheckpointStorageAdapter
+│   ├── task.rs         #     TaskStorageAdapter
+│   ├── agent_loop.rs   #     AgentLoopStorageAdapter
+│   ├── metrics.rs      #     MetricsStorageAdapter
+│   └── file_checkpoint.rs  # FileCheckpointStorageAdapter
+├── store/
+│   ├── memory.rs       #     MemoryStorage (impl Store + BatchStore)
+│   ├── sqlite.rs       #     SqliteStorage (impl Store + BatchStore + Maintainable)
+│   ├── postgres.rs     #     PostgresStorage (impl Store + BatchStore + Maintainable)
+│   └── entity_store.rs #     EntityStore<S, T> — 泛型类型安全包装
+```
+
+### 1.1 为已有的 8 个 trait 实现具体 struct ✅ 已完成
+
+**实现方式**：通过 `make_base_adapter!` 宏在 `adapter/macro.rs` 中定义，`adapter/concrete.rs` 调用宏 + 手写领域方法。每个 adapter 为泛型 `WorkflowStorage<S: Store>`，自动生成 Memory/SQLite/Postgres 三后端类型别名。
+
+| Trait | 实体类型 | 新增文件 |
+|-------|---------|---------|
+| `WorkflowStorageAdapter` | `WorkflowDefinition` | `entity_impl.rs` + `adapter/concrete.rs` |
+| `WorkflowExecutionStorageAdapter` | `WorkflowExecution` | `entity_impl.rs` + `adapter/concrete.rs` |
+| `CheckpointStorageAdapter` | `CheckpointStorageMetadata` | `entity_impl.rs` + `adapter/concrete.rs` |
+| `TaskStorageAdapter` | `TaskStorageMetadata` | `entity_impl.rs` + `adapter/concrete.rs` |
+| `AgentLoopStorageAdapter` | `AgentLoopStorageMetadata` | `entity_impl.rs` + `adapter/concrete.rs` |
+| `MetricsStorageAdapter` | `MetricsDataPoint` | `adapter/concrete.rs`（独立实现，非 CRUD） |
+| `FileCheckpointStorageAdapter` | `FileCheckpointStorageMetadata` | `entity_impl.rs` + `adapter/concrete.rs` |
+
+**新增模块**：
+
+```
+src/
+├── entity_impl.rs           # Entity trait 实现（6 个 domain 类型）
+├── adapter/
+│   ├── macro.rs             # make_base_adapter! 宏
+│   └── concrete.rs          # 所有 8 个 adapter 的具体实现
+```
+
+**实现模式**：
+- `make_base_adapter!` 宏生成泛型 struct + `BaseStorageAdapter` impl（CRUD 委托给 EntityStore，`list()` 通过 `From<*ListOptions> for QueryFilter` 转换）
+- 领域方法（`update_status`, `list_versions`, `get_stats` 等）手写在 `concrete.rs` 的 `impl<S: Store> TraitName for Name<S>` 中
+- `MetricsStorageAdapter` 不继承 `BaseStorageAdapter`，直接包装 `Store`
+
+### 1.2 新增缺失的 adapter trait + 实现
+
+TS 有以下 adapter 但 Rust 中既无 trait 也无实现：
+
+| Adapter | TS 来源 | 需要 | 领域方法 |
+|---------|---------|------|---------|
+| `TriggerStorageAdapter` | packages/storage | trait + impl | CRUD + list_by_event |
+| `ToolStorageAdapter` | packages/storage | trait + impl | CRUD + get_stats |
+| `ScriptStorageAdapter` | packages/storage | trait + impl | CRUD + list_by_type |
+| `NodeTemplateStorageAdapter` | packages/storage | trait + impl | CRUD + list_by_node_type |
+| `HookTemplateStorageAdapter` | packages/storage | trait + impl | CRUD + list_by_hook_type |
+| `AgentProfileStorageAdapter` | packages/storage | trait + impl | CRUD + get_default |
+
+每个 trait 定义在 `adapter/` 下，struct 实现同时在 `store/` 下（与已有 8 个一致）。共计 6 trait × 3 backend = 18 个 struct。
+
+### 1.3 更新 wf-runtime::StorageManager
+
+当具体 adapter struct 实现后，wf-runtime 的 StorageManager 需同步更新：
+
+- `StorageBackend` 枚举从 3 个字段扩展到全量 adapter 字段
+- accessor 从返回 `&dyn Store` 改为返回具体 adapter 类型（如 `&SqliteWorkflowStorage`）
+- 同时提供 `as_dyn()` 方法返回 `&dyn WorkflowStorageAdapter` 供上层 crate 使用
 
 ### 任务概要
 
-| 子阶段 | 内容 | 工作量 |
-|--------|------|--------|
-| A | 数据模型重构 + 批量操作 + Checkpoint 补全 + 完整性校验 + 错误体系 + 工作流版本 | 1.5 周 |
-| B | LRU 缓存 + 指标收集 + SQLite 维护 + Postgres 连接池 + 压缩 + Memory 增强 | 1.5 周 |
+| 编号 | 内容 | 工作量 | 状态 |
+|------|------|--------|------|
+| 1.0 | `QueryFilter` 查询层改造（fields 下推 + From 转换 + 三后端适配） | 0.5 周 | ✅ |
+| 1.1 | 为 8 个已有 trait 实现 concrete struct（Memory/SQLite/Postgres × 8） | 1.5 周 | ✅ |
+| 1.2 | 新增 6 个缺失 adapter trait 定义 + 3 后端实现 | 1 周 | ❌ |
+| 1.3 | 更新 wf-runtime StorageManager 以使用具体 adapter 类型 | 0.5 周 | ❌ |
+| 1.4 | 集成测试：verify 每个 adapter 的 CRUD + 领域方法 | 0.5 周 | ❌ |
+| 2.3 | wf-config 配置加载 + 验证（移至 Phase 1 并行） | 0.5 周 | ❌ |
 
 ---
 
-## 四、Phase 2: 核心基础设施（4 周）
+## 四、Phase 2: 核心基础设施 ✅ 已完成（除 wf-config）
 
-### 目标
+### 2.1 wf-core ✅ 已完成
 
-构建 wf-core（事件系统 + 注册系统 + 状态机）和 wf-checkpoint（分支/版本管理），以及 wf-config 和 wf-runtime。
-
-### 2.1 wf-core（2 周）
-
-**迁移内容**：
+**已实现模块**：
 
 | 来源 TS 模块 | Rust 实现 | 技术选型 |
 |-------------|----------|---------|
@@ -126,71 +204,38 @@ cargo test -p wf-types   # ✅ 通过
 | `Registry` (通用) | `Registry<T>` | 泛型 DashMap 封装 |
 | `ExecutionState` / 状态机 | `NodeState` enum + 转换逻辑 | 状态机模式 |
 
-**EventBus 设计**：
-```rust
-pub struct EventBus {
-    sender: broadcast::Sender<Event>,
-}
+### 2.2 wf-checkpoint ✅ 已完成
 
-impl EventBus {
-    pub fn subscribe(&self) -> Receiver<Event> { self.sender.subscribe() }
-    pub async fn publish(&self, event: Event) -> Result<usize, EventError> {
-        Ok(self.sender.send(event)?)
-    }
-}
-```
+**已实现模块**：
 
-**Registry 设计**：
-```rust
-pub struct Registry<T> {
-    items: DashMap<String, Arc<T>>,
-}
+| 来源 TS 模块 | Rust 实现 | 模块 |
+|-------------|----------|------|
+| `CheckpointCoordinator` | `coordinator/` | Agent/Workflow 协调器 + restore |
+| `BranchManager` | `branch/manager.rs` | 分支命名/解析 + 层级恢复 |
+| `CheckpointVersionManager` | `version/manager.rs` | 版本管理 + 迁移 |
+| `CheckpointStrategy` | `strategy/inner.rs` | 策略触发条件 |
+| Delta 系统 | `delta/` | Diff 计算 + 增量恢复 |
+| 序列化 | `serializer.rs` | JSON/Bincode + 自动检测 |
+| 文件快照 | `file.rs` | Unified diff 生成/应用 |
+| Layertwine 集成 | `layertwine.rs` | 文件编辑历史快照 |
+| 缓存 | `cache.rs` | LRU checkpoint 缓存 |
+| 指标 | `metrics/collector.rs` | 创建/恢复统计 |
 
-impl<T> Registry<T> {
-    pub fn register(&self, key: String, item: Arc<T>) -> Result<(), RegistryError> { ... }
-    pub fn get(&self, key: &str) -> Option<Arc<T>> { ... }
-    pub fn list(&self) -> Vec<String> { ... }
-    pub fn unregister(&self, key: &str) -> bool { ... }
-}
-```
-
-### 2.2 wf-checkpoint（1.5 周）
-
-**迁移内容**：
-
-| 来源 TS 模块 | Rust 实现 |
-|-------------|----------|
-| `CheckpointCoordinator` | `CheckpointCoordinator` |
-| `BranchManager` | `BranchManager` |
-| `CheckpointVersionManager` | `VersionManager` |
-| `CheckpointStrategy` | `CheckpointStrategy` trait |
-
-**关键技术决策**：
-- 序列化：bincode（新数据）+ JSON（兼容读取）
-- 并发：`RwLock<DashMap<String, Branch>>`
-- 版本管理：增量快照 + 引用计数
-
-### 2.3 wf-config（0.5 周，可与 2.1 并行）
+### 2.3 wf-config ❌ 待实现（0.5 周）
 
 **迁移内容**：
 - `ConfigProcessor` — 配置文件加载器（skill, mcp, preset, config-index）
 - `Orchestrator` — 配置编排器
 - 继承 TS 的配置验证和合并逻辑
 
-### 2.4 wf-runtime（0.5 周）
+### 2.4 wf-runtime ✅ 已完成
 
-**迁移内容**：
-- `Bootstrap` — 应用启动流程
-- `StorageManager` — 存储生命周期管理
-- `Lifecycle` — 优雅关闭
-- `ModeDetector` — 运行模式检测（CLI/Server/Extension）
+**当前状态**：全部 7 个模块已实现并通过测试。
 
-### 交付物
-
-- [ ] wf-core: EventBus + Registry 通过并发压力测试
-- [ ] wf-checkpoint: CheckpointCoordinator 通过 E2E 测试
-- [ ] wf-config: 配置加载 + 验证
-- [ ] wf-runtime: 启动/关闭生命周期
+**剩余修改**（Phase 1 adapter 就绪后）：
+- `StorageManager` accessor 从 `&dyn Store` 改为具体 adapter 类型
+- `StorageBackend` 枚举扩展为全量 adapter 字段
+- bootstrap 添加 `RuntimeHooks` 为上层预留回调点
 
 ---
 
@@ -202,16 +247,12 @@ impl<T> Registry<T> {
 
 ### 3.1 wf-executor — 工具执行器（1.5 周）
 
-**迁移内容**：
-
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
 | `ToolCallExecutor` | `ToolCallExecutor` |
 | `ApprovalEngine` | `ApprovalEngine` |
 
 ### 3.2 wf-executor — Workflow/Node 协调器（3 周）
-
-**迁移内容**：
 
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
@@ -220,31 +261,6 @@ impl<T> Registry<T> {
 | `GraphBuilder` | `GraphBuilder` |
 | `StateManager` | `StateManager` |
 | 15 种节点执行逻辑 | `NodeHandler` trait + 具体实现 |
-
-**状态机设计**：
-```rust
-pub enum NodeState {
-    Pending,
-    Running,
-    Completed(NodeOutput),
-    Failed(NodeError),
-    Skipped,
-    Paused,
-}
-```
-
-**Fork/Join 并行执行**：
-```rust
-async fn execute_fork_node(&self, node_id: &str) -> Result<NodeOutput, NodeError> {
-    let branches = self.graph.get_fork_branches(node_id)?;
-    let handles: Vec<_> = branches.into_iter().map(|branch| {
-        let coordinator = self.clone();
-        tokio::spawn(async move { coordinator.execute_branch(branch).await })
-    }).collect();
-    let results = join_all(handles).await;
-    NodeOutput::merge(results)
-}
-```
 
 ### 3.3 wf-checkpoint 集成（1.5 周）
 
@@ -263,13 +279,7 @@ async fn execute_fork_node(&self, node_id: &str) -> Result<NodeOutput, NodeError
 
 ## 六、Phase 4: Services 层（5 周）
 
-### 目标
-
-迁移 LLM 服务、MCP 工具系统、沙箱执行。
-
 ### 4.1 wf-llm（2 周）
-
-**迁移内容**：
 
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
@@ -278,14 +288,7 @@ async fn execute_fork_node(&self, node_id: &str) -> Result<NodeOutput, NodeError
 | Tool Call 格式化器 | `ToolFormatter` trait |
 | Token 计数器 | `tiktoken-rs` |
 
-**关键技术决策**：
-- SSE 解析：`eventsource-stream` 或自定义
-- 多 Provider：trait 对象 + 工厂模式
-- 流式工具调用：部分 JSON 拼接
-
 ### 4.2 wf-tools（2 周）
-
-**迁移内容**：
 
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
@@ -294,20 +297,7 @@ async fn execute_fork_node(&self, node_id: &str) -> Result<NodeOutput, NodeError
 | 审批引擎 | `ApprovalEngine` |
 | 使用分析 | `UsageAnalytics` |
 
-**MCP 传输层**：
-```rust
-#[async_trait]
-pub trait McpTransport: Send + Sync {
-    async fn connect(&mut self) -> Result<(), McpError>;
-    async fn list_tools(&self) -> Result<Vec<McpTool>, McpError>;
-    async fn call_tool(&self, name: &str, args: Value) -> Result<Value, McpError>;
-    async fn close(&mut self) -> Result<(), McpError>;
-}
-```
-
 ### 4.3 wf-sandbox（1 周）
-
-**迁移内容**：
 
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
@@ -325,13 +315,7 @@ pub trait McpTransport: Send + Sync {
 
 ## 七、Phase 5: API 层（3 周）
 
-### 目标
-
-迁移 `packages/sdk` 的公开 API 和 `packages/sdk-kit` 的高级封装。
-
 ### 5.1 wf-api（2 周）
-
-**迁移内容**：
 
 | 来源 TS 模块 | Rust 实现 |
 |-------------|----------|
@@ -340,23 +324,40 @@ pub trait McpTransport: Send + Sync {
 | Resources（registry/execution/message） | `Resource` trait |
 | Config Processors（20+） | 具体实现 |
 
-### 5.2 wf-sdk-kit 等价封装（1 周）
+### 5.2 SDK 生命周期集成
 
-- `WorkflowManager` / `AgentManager`
-- `Executor` / `Converter` 等高级 API
+在 `wf-api` 中组合 `wf-runtime` 的 `Runtime` 与 SDK 核心逻辑：
+
+```rust
+pub struct AppRuntime {
+    runtime: wf_runtime::Runtime,
+    sdk: wf_api::SDK,
+}
+
+impl AppRuntime {
+    pub async fn bootstrap(config: AppConfig) -> Result<Self> {
+        let runtime = wf_runtime::Runtime::bootstrap(config.runtime).await?;
+        let adapters = runtime.storage().collect_adapters(); // &dyn WorkflowStorageAdapter, etc.
+        let sdk = wf_api::SDK::new(adapters).await?;
+        sdk.wait_for_ready().await?;
+        Ok(Self { runtime, sdk })
+    }
+
+    pub async fn shutdown(self) -> Result<()> {
+        self.sdk.destroy().await?;
+        self.runtime.shutdown().await
+    }
+}
+```
 
 ### 交付物
 
 - [ ] wf-api: 完整公开 API 表面
-- [ ] SDK 兼容性：与原 sdk-kit API 语义对齐
+- [ ] AppRuntime: Runtime + SDK 生命周期集成
 
 ---
 
 ## 八、Phase 6: 应用层（3 周）
-
-### 目标
-
-构建 Rust 原生应用替代 TS apps。
 
 ### 6.1 wf-cli（1 周）
 
@@ -388,12 +389,12 @@ pub trait McpTransport: Send + Sync {
 
 ## 九、Phase 7: 测试与验证（2 周）
 
-### 9.1 全量测试迁移
+### 7.1 全量测试迁移
 
 - 将 TS 测试用例翻译为 Rust 测试
 - E2E 测试覆盖核心 workflow 场景
 
-### 9.2 性能基准
+### 7.2 性能基准
 
 | 指标 | 目标 |
 |------|------|
@@ -402,7 +403,7 @@ pub trait McpTransport: Send + Sync {
 | 事件广播 | > 10K events/sec |
 | 存储读取（缓存命中） | < 1ms P99 |
 
-### 9.3 兼容性验证
+### 7.3 兼容性验证
 
 - Checkpoint 数据兼容：Rust 可读取 TS 生成的 checkpoint
 - 配置文件格式兼容
@@ -427,10 +428,7 @@ pub trait McpTransport: Send + Sync {
 
 | Crate | 用途 | 引入 Phase |
 |-------|------|-----------|
-| `moka` | 并发 LRU 缓存 | Phase 1 |
-| `sha2` + `digest` | SHA-256 哈希 | Phase 1 |
-| `flate2` | zlib 压缩 | Phase 1 |
-| `dashmap` | 并发 HashMap | Phase 2 |
+| `dashmap` | 并发 HashMap | Phase 0 (已引入) |
 | `eventsource-stream` | SSE 解析 | Phase 4 |
 | `tiktoken-rs` | Token 计数 | Phase 4 |
 | `reqwest` | HTTP 客户端 | Phase 4 |
@@ -441,49 +439,50 @@ pub trait McpTransport: Send + Sync {
 
 ### 已有依赖（无需新增）
 
-serde, serde_json, chrono, thiserror, uuid, tokio, tracing, sqlx
+serde, serde_json, chrono, thiserror, uuid, tokio, tracing, tracing-subscriber, sqlx, async-trait, moka, sha2, flate2
 
 ---
 
 ## 十二、时间线
 
 ```
-Week  1-3   │ Phase 1: 存储层补完
-            │ ├── 数据模型 + 批量操作 + Checkpoint 补全
-            │ └── 缓存 + 指标 + 维护 + 连接池 + 压缩
+Week  1-4   │ Phase 0: 基础设施 — 全部完成
+            │ ├── wf-types / wf-common ✅
+            │ ├── wf-storage (Store + 3 backend + adapter traits) ✅
+            │ ├── wf-core (EventBus + Registry + State) ✅
+            │ ├── wf-checkpoint (Coordinator + Branch + Version + ...) ✅
+            │ └── wf-runtime (Bootstrap + Lifecycle + ...) ✅
 ────────────┼────────────────────────────────────
-Week  4-7   │ Phase 2: 核心基础设施
-            │ ├── wf-core (事件 + 注册)
-            │ ├── wf-checkpoint (分支 + 版本)
-            │ ├── wf-config
-            │ └── wf-runtime
+Week  5-6   │ Phase 1: 存储层补完（当前）
+            │ ├── [✅] QueryFilter 查询层
+            │ ├── [✅] 8 adapter trait → 24 concrete struct
+            │ ├── [❌] 6 新 adapter trait + 3 后端 (18 struct)
+            │ ├── [❌] wf-config
+            │ └── [❌] StorageManager 适配器集成
 ────────────┼────────────────────────────────────
-Week  8-13  │ Phase 3: 执行引擎
-            │ ├── 工具执行器
-            │ ├── Workflow/Node 协调器
+Week  6-10  │ Phase 3: 执行引擎
+            │ ├── wf-executor (工具执行器 + 协调器)
             │ └── Checkpoint 集成
 ────────────┼────────────────────────────────────
-Week 14-18  │ Phase 4: Services 层
+Week 11-15  │ Phase 4: Services 层
             │ ├── wf-llm (多 Provider)
             │ ├── wf-tools (MCP + 内置工具)
             │ └── wf-sandbox
 ────────────┼────────────────────────────────────
-Week 19-21  │ Phase 5: API 层
+Week 16-18  │ Phase 5: API 层
             │ ├── wf-api
-            │ └── SDK Kit 封装
+            │ └── AppRuntime SDK 生命周期集成
 ────────────┼────────────────────────────────────
-Week 22-24  │ Phase 6: 应用层
+Week 19-21  │ Phase 6: 应用层
             │ ├── wf-cli
             │ ├── wf-server
             │ └── (wf-vscode)
 ────────────┼────────────────────────────────────
-Week 25-26  │ Phase 7: 测试与验证
+Week 22-23  │ Phase 7: 测试与验证
 ────────────┼────────────────────────────────────
-Week 27     │ Phase 8: 收尾清理
+Week 24     │ Phase 8: 收尾清理
 ────────────┴────────────────────────────────────
 ```
-
-**总计约 27 周（约 7 个月）**，建议 2-3 名 Rust 开发人员全职投入。
 
 ---
 
@@ -495,6 +494,7 @@ Week 27     │ Phase 8: 收尾清理
 | 桥接层 | napi-rs 绑定（2 周） | 不存在 |
 | 存储模型 | 简化 JSON blob | BLOB + 元数据分离（继承 TS 设计） |
 | 缓存 | 未规划 | moka LRU（对标 TS 实现） |
+| adapter 归属 | — | 具体实现在 wf-storage，trait 定义 + backend + EntityStore 统一管理 |
 | 数据兼容 | 双写验证 | 单向读取兼容（Rust 可读 TS 数据） |
 | 迁移验证 | 对比 TS vs Rust | 功能正确性 + 性能基准 |
 | 收尾 | 移除 TS 回退代码 | 移除全部 TS 源码 |

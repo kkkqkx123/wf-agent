@@ -2,4 +2,4 @@ pub mod entity;
 pub mod store;
 
 pub use entity::Entity;
-pub use store::{BatchItem, MetadataFilter, Store};
+pub use store::{BatchItem, QueryFilter, Store};

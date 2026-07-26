@@ -147,3 +147,19 @@ pub struct AgentFailedEvent {
     pub tool_call_count: u32,
     pub error: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentSteeringInjectedEvent {
+    pub base: super::BaseEvent,
+    pub agent_loop_id: super::super::Id,
+    pub iteration: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentFollowupQueuedEvent {
+    pub base: super::BaseEvent,
+    pub agent_loop_id: super::super::Id,
+    pub iteration: u32,
+    pub followup_text: Option<String>,
+}

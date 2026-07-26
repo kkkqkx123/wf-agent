@@ -6,5 +6,14 @@ pub struct AgentLoopExecution {
     pub definition_id: super::super::Id,
     pub status: super::AgentLoopStatus,
     pub current_iteration: u32,
+    pub tool_call_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iteration_history: Option<Vec<super::IterationRecord>>,
+    pub start_time: super::super::Timestamp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<super::super::Timestamp>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<super::AgentLoopRuntimeConfig>,
 }

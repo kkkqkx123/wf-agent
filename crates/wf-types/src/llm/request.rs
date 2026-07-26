@@ -1,12 +1,65 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeadLoopDetectionConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_sequence_window: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_repeat_unit_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_repeat_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_period_length: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCallProtocolViolationPolicy {
+    Ignore,
+    Warn,
+    Fail,
+    AutoConvert,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LlmRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    pub messages: Vec<super::super::message::Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<super::super::tool::Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_format: Option<super::ToolCallFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_tool_call_format: Option<super::tool_call_format::ToolCallFormatConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub violation_policy: Option<ToolCallProtocolViolationPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dead_loop_detection: Option<DeadLoopDetectionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
 }

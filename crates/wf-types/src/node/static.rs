@@ -32,4 +32,6 @@ pub struct BaseStaticNode {
     pub name: Option<String>,
     pub description: Option<String>,
     pub config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_config: Option<super::NodeExecutionConfig>,
 }

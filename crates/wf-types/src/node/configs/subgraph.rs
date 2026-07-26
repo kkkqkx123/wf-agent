@@ -2,8 +2,32 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubgraphNodeConfig {
-    pub workflow_id: String,
-    pub input_mapping: Option<serde_json::Value>,
-    pub output_mapping: Option<serde_json::Value>,
-    pub wait_for_completion: Option<bool>,
+    pub subgraph_id: Option<String>,
+    pub embed_id: Option<String>,
+    pub async_: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_failure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_delay_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_output: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_inputs: Option<Vec<super::super::super::workflow::WorkflowVariableInput>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_outputs: Option<Vec<super::super::super::workflow::WorkflowVariableOutput>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubgraphNodeOutput {
+    pub execution_result: SubgraphExecutionResult,
+    pub duration: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubgraphExecutionResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,
+    pub status: String,
 }

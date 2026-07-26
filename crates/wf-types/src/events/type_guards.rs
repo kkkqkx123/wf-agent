@@ -7,6 +7,13 @@ pub fn is_node_event(event_type: &EventType) -> bool {
             | EventType::NodeCompleted
             | EventType::NodeFailed
             | EventType::NodeCustomEvent
+            | EventType::ForkStarted
+            | EventType::ForkBranchStarted
+            | EventType::ForkBranchCompleted
+            | EventType::ForkCompleted
+            | EventType::NodeSyncStarted
+            | EventType::NodeSyncCompleted
+            | EventType::NodeSyncFailed
     )
 }
 
@@ -17,6 +24,8 @@ pub fn is_checkpoint_event(event_type: &EventType) -> bool {
             | EventType::CheckpointRestored
             | EventType::CheckpointDeleted
             | EventType::CheckpointFailed
+            | EventType::CheckpointRestoreStarted
+            | EventType::CheckpointRestoreCompleted
     )
 }
 
@@ -26,7 +35,13 @@ pub fn is_tool_event(event_type: &EventType) -> bool {
         EventType::ToolCallStarted
             | EventType::ToolCallCompleted
             | EventType::ToolCallFailed
+            | EventType::ToolCallBlocked
             | EventType::ToolAdded
+            | EventType::ToolVisibilityChanged
+            | EventType::ToolCallEdited
+            | EventType::ToolCallApproved
+            | EventType::ToolCallDenied
+            | EventType::ToolConfigUpdated
     )
 }
 
@@ -48,6 +63,9 @@ pub fn is_workflow_execution_event(event_type: &EventType) -> bool {
             | EventType::WorkflowExecutionJoinFailed
             | EventType::WorkflowExecutionCopyStarted
             | EventType::WorkflowExecutionCopyCompleted
+            | EventType::WorkflowExecutionTriggered
+            | EventType::WorkflowExecutionSubgraphStarted
+            | EventType::WorkflowExecutionSubgraphCompleted
     )
 }
 
@@ -65,6 +83,12 @@ pub fn is_agent_event(event_type: &EventType) -> bool {
             | EventType::AgentIterationStarted
             | EventType::AgentIterationCompleted
             | EventType::AgentHookTriggered
+            | EventType::AgentPaused
+            | EventType::AgentCancelled
+            | EventType::AgentResumed
+            | EventType::AgentFailed
+            | EventType::AgentSteeringInjected
+            | EventType::AgentFollowupQueued
     )
 }
 
@@ -80,6 +104,8 @@ pub fn is_error_event(event_type: &EventType) -> bool {
             | EventType::FollowupQuestionFailed
             | EventType::TriggeredSubgraphFailed
             | EventType::SkillLoadFailed
+            | EventType::LlmStreamError
+            | EventType::ExecutionTimeoutExpired
     )
 }
 
@@ -132,5 +158,24 @@ pub fn is_triggered_subgraph_event(event_type: &EventType) -> bool {
         EventType::TriggeredSubgraphStarted
             | EventType::TriggeredSubgraphCompleted
             | EventType::TriggeredSubgraphFailed
+    )
+}
+
+pub fn is_llm_stream_event(event_type: &EventType) -> bool {
+    matches!(
+        event_type,
+        EventType::LlmStreamAborted
+            | EventType::LlmStreamError
+            | EventType::LlmStreamChunk
+            | EventType::LlmStreamDone
+    )
+}
+
+pub fn is_script_event(event_type: &EventType) -> bool {
+    matches!(
+        event_type,
+        EventType::ScriptStarted
+            | EventType::ScriptCompleted
+            | EventType::ScriptFailed
     )
 }

@@ -2,8 +2,18 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmExecutionConfig {
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f64>,
-    pub top_p: Option<f64>,
-    pub stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tool_calls_per_request: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_token_tracking: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_warning_threshold: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_limit: Option<u32>,
 }

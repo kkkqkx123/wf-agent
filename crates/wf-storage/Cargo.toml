@@ -9,7 +9,6 @@ serde_json.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-async-trait.workspace = true
 tracing.workspace = true
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }

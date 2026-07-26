@@ -17,7 +17,6 @@ chrono = { version = "0.4.38", features = ["serde"] }
 thiserror = "2.0.17"
 uuid = { version = "1.19.0", features = ["v4", "v5", "v7", "serde"] }
 tokio = { version = "1.48.0", features = ["rt-multi-thread", "macros", "sync", "time"] }
-async-trait = "0.1"
 tracing = "0.1"
 
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "sqlite", "chrono"] }

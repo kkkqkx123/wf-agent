@@ -10,7 +10,7 @@ pub struct WorkflowListOptions {
     pub type_filter: Option<String>,
 }
 
-pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowTemplate, WorkflowListOptions> {
+pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowDefinition, WorkflowListOptions> {
     async fn update_metadata(
         &self,
         id: &str,
@@ -21,19 +21,19 @@ pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowTemplate,
         &self,
         workflow_id: &str,
         version: &str,
-        template: &wf_types::WorkflowTemplate,
+        template: &wf_types::WorkflowDefinition,
     ) -> Result<(), StorageError>;
 
     async fn list_versions(
         &self,
         workflow_id: &str,
-    ) -> Result<Vec<wf_types::WorkflowTemplate>, StorageError>;
+    ) -> Result<Vec<wf_types::WorkflowDefinition>, StorageError>;
 
     async fn load_version(
         &self,
         workflow_id: &str,
         version: &str,
-    ) -> Result<Option<wf_types::WorkflowTemplate>, StorageError>;
+    ) -> Result<Option<wf_types::WorkflowDefinition>, StorageError>;
 
     async fn delete_version(
         &self,

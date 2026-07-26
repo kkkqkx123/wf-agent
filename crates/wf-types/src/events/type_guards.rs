@@ -174,8 +174,6 @@ pub fn is_llm_stream_event(event_type: &EventType) -> bool {
 pub fn is_script_event(event_type: &EventType) -> bool {
     matches!(
         event_type,
-        EventType::ScriptStarted
-            | EventType::ScriptCompleted
-            | EventType::ScriptFailed
+        EventType::ScriptStarted | EventType::ScriptCompleted | EventType::ScriptFailed
     )
 }

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::Metadata;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum VariableValueType {
@@ -20,7 +22,7 @@ pub struct VariableDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readonly: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<crate::Metadata>,
+    pub metadata: Option<Metadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,5 +1,7 @@
+pub mod config;
 pub mod definition;
-pub mod static_config;
+pub mod hook;
 
+pub use config::*;
 pub use definition::*;
-pub use static_config::*;
+pub use hook::*;

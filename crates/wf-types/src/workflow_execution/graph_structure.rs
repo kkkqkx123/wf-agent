@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::workflow::EdgeType;
+use crate::Id;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowNode {
-    pub id: super::super::Id,
+    pub id: Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub node_type: String,
@@ -13,10 +16,10 @@ pub struct WorkflowNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowEdge {
-    pub id: super::super::Id,
+    pub id: Id,
     pub source_node_id: String,
     pub target_node_id: String,
-    pub r#type: super::super::workflow::EdgeType,
+    pub r#type: EdgeType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

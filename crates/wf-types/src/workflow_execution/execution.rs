@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use super::NodeExecutionResult;
+use super::WorkflowExecutionStatus;
+use crate::Id;
+use crate::Timestamp;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RetryBudgetOption {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,9 +45,9 @@ pub struct WorkflowExecutionOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowExecutionResultMetadata {
-    pub status: super::WorkflowExecutionStatus,
-    pub start_time: super::super::Timestamp,
-    pub end_time: super::super::Timestamp,
+    pub status: WorkflowExecutionStatus,
+    pub start_time: Timestamp,
+    pub end_time: Timestamp,
     pub execution_time: i64,
     pub node_count: u32,
     pub error_count: u32,
@@ -50,12 +55,12 @@ pub struct WorkflowExecutionResultMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowExecutionResult {
-    pub execution_id: super::super::Id,
+    pub execution_id: Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<serde_json::Value>,
     pub execution_time: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_results: Option<Vec<super::NodeExecutionResult>>,
+    pub node_results: Option<Vec<NodeExecutionResult>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<WorkflowExecutionResultMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]

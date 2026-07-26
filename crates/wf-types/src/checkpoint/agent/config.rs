@@ -15,7 +15,7 @@ pub struct AgentCheckpointContentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentLoopCheckpointConfig {
+pub struct AgentCheckpointConfig {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interval_iterations: Option<u32>,

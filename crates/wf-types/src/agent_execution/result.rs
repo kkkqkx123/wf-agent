@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentLoopResult {
+pub struct AgentExecutionResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,

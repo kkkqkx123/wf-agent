@@ -95,7 +95,11 @@ impl WfError {
         }
     }
 
-    pub fn execution(message: impl Into<String>, node_id: Option<String>, workflow_id: Option<String>) -> Self {
+    pub fn execution(
+        message: impl Into<String>,
+        node_id: Option<String>,
+        workflow_id: Option<String>,
+    ) -> Self {
         let mut ctx = HashMap::new();
         if let Some(v) = node_id {
             ctx.insert("node_id".into(), serde_json::Value::String(v));
@@ -117,7 +121,10 @@ impl WfError {
         let rt: String = resource_type.into();
         let ri: String = resource_id.into();
         let mut ctx = HashMap::new();
-        ctx.insert("resource_type".into(), serde_json::Value::String(rt.clone()));
+        ctx.insert(
+            "resource_type".into(),
+            serde_json::Value::String(rt.clone()),
+        );
         ctx.insert("resource_id".into(), serde_json::Value::String(ri.clone()));
         Self {
             message: format!("{} not found: {}", rt, ri),
@@ -152,7 +159,11 @@ impl WfError {
 
 impl std::fmt::Display for WfError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{:?}:{:?}] {}: {}", self.kind, self.severity, self.name, self.message)
+        write!(
+            f,
+            "[{:?}:{:?}] {}: {}",
+            self.kind, self.severity, self.name, self.message
+        )
     }
 }
 

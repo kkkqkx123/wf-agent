@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::Id;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ForkJoinContext {
     pub fork_id: String,
@@ -9,8 +11,8 @@ pub struct ForkJoinContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TriggeredSubworkflowContext {
-    pub parent_execution_id: super::super::Id,
+    pub parent_execution_id: Id,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub child_execution_ids: Option<Vec<super::super::Id>>,
+    pub child_execution_ids: Option<Vec<Id>>,
     pub triggered_subworkflow_id: String,
 }

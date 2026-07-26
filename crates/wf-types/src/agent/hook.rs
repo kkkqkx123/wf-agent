@@ -1,9 +1,18 @@
 use serde::{Deserialize, Serialize};
 
-use super::super::agent_execution::AgentHookType;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AgentHookType {
+    BeforeIteration,
+    AfterIteration,
+    BeforeToolCall,
+    AfterToolCall,
+    BeforeLlmCall,
+    AfterLlmCall,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentHookStatic {
+pub struct AgentHookConfig {
     pub hook_type: AgentHookType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,

@@ -1,8 +1,18 @@
 use serde::{Deserialize, Serialize};
 
+use super::Edge;
+use super::WorkflowConfig;
+use crate::node::BaseStaticNode;
+use crate::tool::AvailableTools;
+use crate::trigger::TriggerDefinition;
+use crate::workflow_execution::VariableDefinition;
+use crate::Id;
+use crate::Timestamp;
+use crate::Version;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum WorkflowTemplateType {
+pub enum WorkflowDefinitionType {
     TriggeredSubworkflow,
     Standalone,
     Dependent,
@@ -29,26 +39,42 @@ pub struct TriggeredSubworkflowConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WorkflowTemplate {
-    pub id: super::super::Id,
+pub struct WorkflowDefinition {
+    pub id: Id,
     pub name: String,
     pub description: Option<String>,
-    pub r#type: Option<WorkflowTemplateType>,
-    pub version: Option<super::super::Version>,
-    pub nodes: Vec<super::super::node::BaseStaticNode>,
-    pub edges: Vec<super::Edge>,
+    pub r#type: Option<WorkflowDefinitionType>,
+    pub version: Option<Version>,
+    pub nodes: Vec<BaseStaticNode>,
+    pub edges: Vec<Edge>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<super::WorkflowConfig>,
+    pub config: Option<WorkflowConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub variables: Option<Vec<super::super::workflow_execution::VariableDefinition>>,
+    pub variables: Option<Vec<VariableDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggers: Option<Vec<super::super::trigger::TriggerDefinition>>,
+    pub triggers: Option<Vec<TriggerDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggered_subworkflow_config: Option<TriggeredSubworkflowConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<WorkflowMetadata>,
-    pub created_at: super::super::Timestamp,
-    pub updated_at: super::super::Timestamp,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub available_tools: Option<crate::tool::AvailableTools>,
+    pub available_tools: Option<AvailableTools>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorkflowTemplate {
+    pub id: Id,
+    pub name: String,
+    pub description: String,
+    pub definition: WorkflowDefinition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_public: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }

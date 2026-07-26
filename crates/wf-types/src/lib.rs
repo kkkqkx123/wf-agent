@@ -47,9 +47,9 @@ pub use tool_description::*;
 pub use user_config::*;
 
 pub use execution::ExecutionStatus;
-pub use workflow::WorkflowTemplate;
-pub use workflow_execution::WorkflowExecution;
-pub use storage::Checkpoint;
-pub use storage::TaskStorageMetadata;
 pub use storage::AgentLoopStorageMetadata;
+pub use storage::Checkpoint;
 pub use storage::FileCheckpointStorageMetadata;
+pub use storage::TaskStorageMetadata;
+pub use workflow::WorkflowDefinition;
+pub use workflow_execution::WorkflowExecution;

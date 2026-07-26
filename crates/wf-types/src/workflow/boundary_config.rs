@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::message::Message;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowVariableInput {
     pub source_path: String,
@@ -27,7 +29,7 @@ pub struct WorkflowMessageInput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_messages: Option<Vec<crate::message::Message>>,
+    pub default_messages: Option<Vec<Message>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }

@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use super::super::agent_execution::AgentHookType;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentHookStatic {
-    pub hook_type: String,
+    pub hook_type: AgentHookType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
     pub event_name: String,
@@ -17,25 +18,4 @@ pub struct AgentHookStatic {
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentTriggerStatic {
-    pub id: super::super::Id,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub r#type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub condition: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-    pub action: AgentTriggerAction,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentTriggerAction {
-    pub r#type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<HashMap<String, serde_json::Value>>,
 }

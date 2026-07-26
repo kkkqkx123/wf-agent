@@ -24,6 +24,7 @@ pub mod interruption;
 pub mod llm;
 pub mod message;
 pub mod node;
+pub mod node_execution;
 pub mod script;
 pub mod storage;
 pub mod tool;
@@ -45,9 +46,9 @@ pub use todo::*;
 pub use tool_description::*;
 pub use user_config::*;
 
+pub use execution::ExecutionStatus;
 pub use workflow::WorkflowTemplate;
 pub use workflow_execution::WorkflowExecution;
-pub use workflow_execution::ExecutionStatus;
 pub use storage::Checkpoint;
 pub use storage::TaskStorageMetadata;
 pub use storage::AgentLoopStorageMetadata;

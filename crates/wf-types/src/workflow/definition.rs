@@ -50,5 +50,5 @@ pub struct WorkflowTemplate {
     pub created_at: super::super::Timestamp,
     pub updated_at: super::super::Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub available_tools: Option<super::AvailableTools>,
+    pub available_tools: Option<crate::tool::AvailableTools>,
 }

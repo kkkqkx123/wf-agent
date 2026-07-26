@@ -2,12 +2,16 @@ pub mod context;
 pub mod definition;
 pub mod event;
 pub mod hooks;
+pub mod record;
+pub mod result;
+pub mod status;
 pub mod triggers;
-pub mod types;
 
 pub use context::*;
 pub use definition::*;
 pub use event::*;
 pub use hooks::*;
+pub use record::*;
+pub use result::*;
+pub use status::*;
 pub use triggers::*;
-pub use types::*;

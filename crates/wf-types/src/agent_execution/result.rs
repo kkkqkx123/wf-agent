@@ -1,13 +1,17 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentCheckpointDelta {
+pub struct AgentLoopResult {
+    pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_messages: Option<Vec<super::super::super::message::Message>>,
+    pub content: Option<String>,
+    pub iterations: u32,
+    pub tool_call_count: u32,
+    pub iteration_level_retry_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_iterations: Option<Vec<u32>>,
+    pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status_change: Option<String>,
+    pub agent_loop_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub other_changes: Option<crate::Metadata>,
+    pub completion_data: Option<serde_json::Value>,
 }

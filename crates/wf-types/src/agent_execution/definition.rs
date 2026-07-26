@@ -9,9 +9,9 @@ pub struct AgentLoopExecution {
     pub tool_call_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_history: Option<Vec<super::IterationRecord>>,
-    pub start_time: super::super::Timestamp,
+    pub started_at: super::super::Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<super::super::Timestamp>,
+    pub completed_at: Option<super::super::Timestamp>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

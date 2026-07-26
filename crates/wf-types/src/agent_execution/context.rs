@@ -47,13 +47,13 @@ pub struct AgentLoopRuntimeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_format: Option<super::super::llm::tool_call_format::ToolCallFormatConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_failure: Option<String>,
+    pub on_failure: Option<super::super::execution::FailureAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback_output: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<Vec<super::hooks::AgentHook>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggers: Option<Vec<super::triggers::AgentTrigger>>,
+    pub triggers: Option<Vec<crate::trigger::TriggerDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic_context_config: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

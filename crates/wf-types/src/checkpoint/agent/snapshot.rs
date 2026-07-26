@@ -17,8 +17,8 @@ pub struct AgentLoopStateSnapshot {
     pub variable_snapshots: Option<HashMap<String, VariableSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub start_time: Option<super::super::super::Timestamp>,
-    pub end_time: Option<super::super::super::Timestamp>,
+    pub started_at: Option<super::super::super::Timestamp>,
+    pub completed_at: Option<super::super::super::Timestamp>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

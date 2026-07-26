@@ -30,7 +30,7 @@ pub struct AgentLoopDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<Vec<super::AgentHookStatic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggers: Option<Vec<super::AgentTriggerStatic>>,
+    pub triggers: Option<Vec<crate::trigger::TriggerDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic_context: Option<super::super::dynamic_context::DynamicContextConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]

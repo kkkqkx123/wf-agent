@@ -1,75 +1,39 @@
-#[derive(Debug, Clone)]
-pub struct CommonError {
-    pub kind: CommonErrorKind,
-    pub message: String,
-    pub source: Option<Arc<dyn std::error::Error + Send + Sync>>,
+#[derive(thiserror::Error, Debug)]
+pub enum CommonError {
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Already exists: {0}")]
+    AlreadyExists(String),
+
+    #[error("Timeout: {0}")]
+    Timeout(String),
+
+    #[error("Internal: {0}")]
+    Internal(String),
+
+    #[error("Serialization: {0}")]
+    Serialization(String),
+
+    #[error("IO: {0}")]
+    Io(#[from] std::io::Error),
+
+
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum CommonErrorKind {
-    InvalidArgument,
-    NotFound,
-    AlreadyExists,
-    Timeout,
-    Internal,
-    Serialization,
-    Io,
-}
-
-impl fmt::Display for CommonError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{:?}] {}", self.kind, self.message)
+impl From<serde_json::Error> for CommonError {
+    fn from(e: serde_json::Error) -> Self {
+        CommonError::Serialization(e.to_string())
     }
 }
 
-impl std::error::Error for CommonError {}
-
-impl CommonError {
-    pub fn invalid_argument(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::InvalidArgument,
-            message: msg.into(),
-            source: None,
-        }
-    }
-
-    pub fn not_found(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::NotFound,
-            message: msg.into(),
-            source: None,
-        }
-    }
-
-    pub fn already_exists(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::AlreadyExists,
-            message: msg.into(),
-            source: None,
-        }
-    }
-
-    pub fn timeout(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::Timeout,
-            message: msg.into(),
-            source: None,
-        }
-    }
-
-    pub fn internal(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::Internal,
-            message: msg.into(),
-            source: None,
-        }
-    }
-
-    pub fn serialization(msg: impl Into<String>) -> Self {
-        Self {
-            kind: CommonErrorKind::Serialization,
-            message: msg.into(),
-            source: None,
-        }
+impl From<chrono::ParseError> for CommonError {
+    fn from(e: chrono::ParseError) -> Self {
+        CommonError::Serialization(e.to_string())
     }
 }
+
+pub type CommonResult<T> = Result<T, CommonError>;

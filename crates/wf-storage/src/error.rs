@@ -1,25 +1,74 @@
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
-    #[error("Entity not found: {0}")]
-    NotFound(String),
-    #[error("Entity already exists: {0}")]
-    AlreadyExists(String),
-    #[error("Storage connection failed: {0}")]
-    ConnectionFailed(String),
-    #[error("Write operation failed: {0}")]
-    WriteFailed(String),
-    #[error("Read operation failed: {0}")]
-    ReadFailed(String),
-    #[error("Serialization error: {0}")]
-    SerializationError(String),
-    #[error("Internal error: {0}")]
-    Internal(String),
+    #[error("Storage error in {operation}: {message}")]
+    General {
+        operation: String,
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+
+    #[error("Entity not found: type={entity_type}, id={entity_id}")]
+    NotFound {
+        entity_type: String,
+        entity_id: String,
+    },
+
+    #[error("Storage quota exceeded: required={required}, available={available}")]
+    QuotaExceeded { required: u64, available: u64 },
+
+    #[error("Storage initialization failed: {backend}: {message}")]
+    Initialization {
+        backend: String,
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+
+    #[error("Serialization failed for entity {entity}: {message}")]
+    Serialization {
+        entity: String,
+        message: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+
+    #[error("Integrity check failed for {id}: expected={expected}, actual={actual}")]
+    Integrity {
+        id: String,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("Connection pool error: {backend}: {message}")]
+    Pool { backend: String, message: String },
+
     #[error("Invalid query: {0}")]
     InvalidQuery(String),
+
+    #[error("Storage state error: expected {expected}, actual {actual}")]
+    StateError { expected: String, actual: String },
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 impl From<serde_json::Error> for StorageError {
     fn from(e: serde_json::Error) -> Self {
-        StorageError::SerializationError(e.to_string())
+        StorageError::Serialization {
+            entity: String::new(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        }
+    }
+}
+
+impl From<sqlx::Error> for StorageError {
+    fn from(e: sqlx::Error) -> Self {
+        StorageError::General {
+            operation: "sqlx".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        }
     }
 }

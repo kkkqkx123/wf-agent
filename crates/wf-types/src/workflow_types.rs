@@ -81,6 +81,8 @@ pub struct WorkflowMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_fields: Option<HashMap<String, serde_json::Value>>,
 }
 
 // ============================================================================
@@ -96,6 +98,59 @@ pub struct WorkflowConfig {
     pub max_retries: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_failure: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_steps: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable_checkpoints: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_config: Option<CheckpointConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_policy: Option<WorkflowRetryPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_approval: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_tools: Option<AvailableTools>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_messages: Option<Vec<Message>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_template_variables: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_contexts: Option<Vec<StaticContextConfig>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckpointConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_before_node: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_after_node: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowRetryPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_delay: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backoff_multiplier: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticContextConfig {
+    pub id: String,
+    pub messages: Vec<Message>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -104,6 +159,14 @@ pub struct TriggeredSubworkflowConfig {
     pub trigger_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event_filter: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable_checkpoints: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_config: Option<CheckpointConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
 }
 
 // ============================================================================

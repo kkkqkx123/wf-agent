@@ -568,3 +568,227 @@ pub struct AgentLoopInlineConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_timeout: Option<u64>,
 }
+
+// ============================================================================
+// Node Output Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StartNodeOutput {
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EndNodeOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VariableNodeOutput {
+    pub variable_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<serde_json::Value>,
+    pub new_value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkNodeOutput {
+    pub launched_branches: Vec<ForkBranchInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkBranchInfo {
+    pub path_id: String,
+    pub child_node_id: String,
+    pub strategy: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinNodeOutput {
+    pub completed_branches: Vec<String>,
+    pub failed_branches: Vec<JoinFailedBranch>,
+    pub skipped_branches: Vec<String>,
+    pub strategy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aggregated_output: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinFailedBranch {
+    pub path_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncNodeOutput {
+    pub synced_from_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_variables: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_variable_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_data_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_message_count: Option<u32>,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubgraphNodeOutput {
+    pub execution_result: SubgraphExecutionResult,
+    pub duration: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubgraphExecutionResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptNodeOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InteractiveScriptNodeOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmNodeOutput {
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<LlmNodeToolCall>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmNodeToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolVisibilityNodeOutput {
+    pub action: String,
+    pub tool_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UserInteractionNodeOutput {
+    pub operation_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_input: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_variables: Option<Vec<UpdatedVariableInfo>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_messages: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedVariableInfo {
+    pub variable_name: String,
+    pub new_value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RouteNodeOutput {
+    pub next_node_id: String,
+    pub evaluated_conditions: Vec<EvaluatedCondition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluatedCondition {
+    pub condition: String,
+    pub result: bool,
+    pub target_node_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextProcessorNodeOutput {
+    pub operation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_variables: Option<Vec<ModifiedVariableInfo>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_time: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<HashMap<String, serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModifiedVariableInfo {
+    pub name: String,
+    pub new_value: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub var_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopStartNodeOutput {
+    pub loop_id: String,
+    pub iteration_count: u32,
+    pub max_iterations: u32,
+    pub has_more_iterations: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopEndNodeOutput {
+    pub loop_id: String,
+    pub break_triggered: bool,
+    pub iteration_count: u32,
+    pub next_iteration: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_node_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedGraphNodeOutput {
+    pub embed_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLoopNodeOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_response: Option<String>,
+    pub tool_call_count: u32,
+    pub iteration_count: u32,
+}

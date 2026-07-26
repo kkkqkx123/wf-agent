@@ -1,220 +1,139 @@
-# Rust 迁移分阶段实施方案
+# Rust 重写分阶段实施方案
 
-## 一、迁移策略总览
+## 一、策略总览
 
 ### 核心原则
 
-1. **渐进式迁移**：通过 napi-rs 实现 Rust 核心 + TS 外壳的混合架构，用户无感知
-2. **自底向上**：先迁移基础设施，再迁移执行引擎，最后迁移 API 绑定层
-3. **保持兼容**：sdk-kit 层维持 TS API 不变，底层逐步替换为 Rust 实现
-4. **充分验证**：每个阶段完成后运行完整 E2E 测试套件
+1. **纯 Rust 重写**：目标是用 Rust 完全替代 TypeScript/Node.js 运行时，不保留任何 TS 生产代码
+2. **设计继承**：TS 版的设计经过生产验证，Rust 重写时直接借鉴其数据模型和架构决策，不重复试错
+3. **BLOB 优先**：存储层采用 TS 版验证的 BLOB + 元数据分离模型，而非简化的 JSON blob
+4. **自底向上**：先基础设施，再执行引擎，最后应用层
+5. **可独立交付**：每个阶段产出可编译、可测试的完整模块
 
 ### 架构目标
 
 ```
-┌─────────────────────────────────────────────────┐
-│              TypeScript 外壳层                    │
-│  sdk-kit / runtime / apps (保持不变)              │
-├─────────────────────────────────────────────────┤
-│              napi-rs 绑定层                       │
-│  wf-sdk (自动生成的 TS 类型包装)                   │
-├─────────────────────────────────────────────────┤
-│              Rust 核心层                          │
-│  wf-core / wf-executor / wf-checkpoint / wf-llm  │
-│  wf-tools / wf-agent / wf-storage / wf-types     │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Application Layer                        │
+│  wf-cli (CLI) │ wf-server (HTTP/WS) │ wf-vscode (Extension)  │
+├──────────────────────────────────────────────────────────────┤
+│                      Public API Layer                         │
+│  wf-api — Workflow/Agent builders, commands, resources        │
+├──────────────────────────────────────────────────────────────┤
+│                      Core Engine Layer                        │
+│  wf-core — EventBus, Registry, Graph, State Machine           │
+│  wf-executor — Workflow/Node coordinators, Tool executor      │
+│  wf-checkpoint — Branch/Version/Strategy managers             │
+├──────────────────────────────────────────────────────────────┤
+│                      Services Layer                           │
+│  wf-llm — Multi-provider LLM client + formatters              │
+│  wf-tools — MCP client + built-in tools + approval            │
+│  wf-sandbox — Script execution (JS/Python/Lua/Shell)          │
+├──────────────────────────────────────────────────────────────┤
+│                      Infrastructure Layer                     │
+│  wf-storage — StorageAdapter + SQLite/Postgres/Memory backends │
+│  wf-config — Config loaders + orchestrator                    │
+│  wf-runtime — Bootstrap, lifecycle, storage manager           │
+├──────────────────────────────────────────────────────────────┤
+│                      Foundation Layer                         │
+│  wf-types — Type definitions (serde)                          │
+│  wf-common — Error, Result, time, ID                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Rust Crate 依赖 DAG
+
+```
+wf-types  ←  wf-common
+    ↓           ↓
+wf-storage ← wf-config
+    ↓           ↓
+    └────→ wf-core ←────┬────→ wf-llm
+                         │       ↓
+                         ├────→ wf-tools
+                         │       ↓
+                         ├────→ wf-sandbox
+                         │       ↓
+                         └────→ wf-executor → wf-checkpoint
+                                        ↓
+                                     wf-api
+                                        ↓
+                              ┌────┬────┬────┐
+                            wf-cli wf-server wf-runtime
 ```
 
 ---
 
-## 二、Phase 0: 基础设施准备（1-2 周）
+## 二、Phase 0: 基础设施准备 ✅ 已完成
 
-### 目标
+### 已完成内容
 
-建立 Rust workspace 基础结构，配置构建工具链，验证 napi-rs 桥接可行性。
+- [x] Cargo workspace 骨架，3 个 crate 可独立编译
+- [x] `wf-types` — 20 种节点类型 + workflow/agent/checkpoint 类型定义
+- [x] `wf-common` — Error、Result、时间、UUID 工具
+- [x] `wf-storage` — trait 定义 + 三后端骨架（待补完）
 
-### 任务清单
-
-#### 0.1 创建 Cargo Workspace
-
-```
-Cargo.toml               # workspace 定义（根目录）
-rust-toolchain.toml      # Rust 工具链配置
-crates/
-├── wf-types/           # 类型定义
-├── wf-common/          # 公共工具
-├── wf-storage/         # 存储层
-├── wf-core/            # 核心基础设施
-├── wf-checkpoint/      # Checkpoint 系统
-├── wf-executor/        # 执行引擎
-├── wf-llm/             # LLM 服务
-├── wf-tools/           # 工具执行
-├── wf-agent/           # Agent 循环
-└── wf-sdk/             # napi-rs 绑定
-```
-
-#### 0.2 配置工具链
-
-- `rust-toolchain.toml`：指定 stable channel + targets（跨平台）
-- `.cargo/config.toml`：构建优化配置（LTO, codegen-units）
-- `clippy.toml`：统一 lint 规则
-- CI 集成：在现有 GitHub Actions 中增加 Rust 构建/测试 job
-
-#### 0.3 验证 napi-rs 桥接
-
-- 编写最小可行性示例：TS 调用 Rust 函数并返回结构化数据
-- 验证 napi-rs 生成的 `.node` 文件与现有 pnpm workspace 的兼容性
-- 测试跨平台构建（Windows/macOS/Linux）
-
-#### 0.4 共享类型定义约定
-
-- 确定 Rust 类型与 TS 类型的映射规则（serde → napi-rs 自动生成）
-- 制定错误类型统一规范（`thiserror` → napi-rs 错误转换）
-- 制定异步接口规范（`async-trait` + `tokio` → napi-rs `napi::bindgen_prelude::Promise`）
-
-### 交付物
-
-- [ ] Cargo workspace 骨架，所有 crate 可独立编译
-- [ ] napi-rs 最小示例通过 TS 调用成功
-- [ ] CI 配置更新，Rust 构建/测试纳入流水线
-- [ ] 类型映射规范文档
-
-### 验收标准
+### 验收状态
 
 ```bash
-cargo build --workspace  # 全量构建通过
-cd crates/wf-sdk && npm test          # napi-rs 桥接测试通过
+cargo build --workspace  # ✅ 通过
+cargo test -p wf-types   # ✅ 通过
 ```
 
 ---
 
-## 三、Phase 1: 基础类型与存储层（2-3 周）
+## 三、Phase 1: 存储层补完（3 周）
+
+> 详见 [storage-补完方案.md](migration/storage-补完方案.md)
 
 ### 目标
 
-迁移最底层、耦合度最低的模块，验证 Rust 与 TS 的互操作模式。
+将 `crates/wf-storage` 从骨架状态补完为生产级实现，完全对标 TS `packages/storage` 的设计。
 
-### 任务清单
+### 核心设计决策
 
-#### 1.1 wf-types（1 周）
+- **数据模型**：BLOB + 元数据列分离（沿用 TS 版验证方案）
+- **缓存**：moka 并发 LRU（TTL + 容量限制 + 读写穿透）
+- **完整性**：SHA-256 采样哈希 + 读写验证
+- **维护**：VACUUM / ANALYZE / WAL checkpoint / 碎片监控
+- **错误**：5 类错误体系对齐 TS
 
-**迁移内容**：
-- 所有 Zod schema → serde `Serialize/Deserialize` derive
-- 枚举类型 → Rust enum + serde `rename_all`
-- 联合类型 → Rust enum + serde `tag` 属性
-- 15 种节点类型定义 → Rust enum + 配置 struct
+### 任务概要
 
-**关键技术决策**：
-```rust
-// 节点类型映射示例
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum NodeType {
-    Start,
-    End,
-    Llm,
-    Fork,
-    Join,
-    // ...
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct LlmNodeConfig {
-    pub model: String,
-    pub temperature: Option<f64>,
-    pub max_tokens: Option<u32>,
-    pub tools: Vec<ToolReference>,
-}
-```
-
-**挑战与对策**：
-- Zod 的 `refine`/`transform` → Rust 的 `TryFrom` 或自定义 deserializer
-- Zod 的 `discriminatedUnion` → serde 的 `tag = "type"` 属性
-- 保持序列化后的 JSON 结构完全一致，确保与现有 TS 代码互操作
-
-#### 1.2 wf-storage（1-2 周）
-
-**迁移内容**：
-- 存储 trait 定义（StorageAdapter trait）
-- SQLite 实现（sqlx + rusqlite 混合）
-- PostgreSQL 实现（sqlx + tokio-postgres）
-- 连接池管理（sqlx::Pool）
-- 实体 CRUD 操作
-
-**关键技术决策**：
-```rust
-#[async_trait]
-pub trait CheckpointStorage: Send + Sync {
-    async fn save(&self, checkpoint: &Checkpoint) -> Result<(), StorageError>;
-    async fn load(&self, id: &str) -> Result<Option<Checkpoint>, StorageError>;
-    async fn list_by_session(&self, session_id: &str) -> Result<Vec<Checkpoint>, StorageError>;
-    async fn delete(&self, id: &str) -> Result<bool, StorageError>;
-}
-```
-
-**挑战与对策**：
-- better-sqlite3 是同步的 → Rust 端使用 `tokio::task::spawn_blocking` 包装 rusqlite
-- 或完全异步化，使用 sqlx 的 SQLite 驱动
-- 迁移期间保持双写策略：TS 和 Rust 存储层同时写入，验证一致性
-
-#### 1.3 wf-common（并行进行）
-
-**迁移内容**：
-- Result 类型 → Rust `Result<T, E>`
-- 错误处理工具 → `thiserror` derive
-- 日志接口 → `tracing` crate
-- 哈希工具（xxhash, SHA256）→ `xxhash-rust` + `sha2`
-- 压缩工具 → `zstd` crate
-
-### 交付物
-
-- [ ] wf-types: 所有类型定义迁移完成，serde 序列化与 TS Zod 输出一致
-- [ ] wf-storage: SQLite + PostgreSQL 实现通过现有集成测试
-- [ ] wf-common: 工具函数迁移完成，tracing 日志集成
-- [ ] 双写验证报告：TS 和 Rust 存储层数据一致性 100%
-
-### 验收标准
-
-```bash
-cargo test -p wf-types
-cargo test -p wf-storage
-pnpm --filter @wf-agent/storage test  # 原有 TS 测试仍通过
-# 新增：Rust 存储层通过 TS 侧的集成测试
-```
+| 子阶段 | 内容 | 工作量 |
+|--------|------|--------|
+| A | 数据模型重构 + 批量操作 + Checkpoint 补全 + 完整性校验 + 错误体系 + 工作流版本 | 1.5 周 |
+| B | LRU 缓存 + 指标收集 + SQLite 维护 + Postgres 连接池 + 压缩 + Memory 增强 | 1.5 周 |
 
 ---
 
-## 四、Phase 2: 核心基础设施（3-4 周）
+## 四、Phase 2: 核心基础设施（4 周）
 
 ### 目标
 
-迁移事件系统、注册系统、Checkpoint 核心，构建 Rust 执行引擎的基础。
+构建 wf-core（事件系统 + 注册系统 + 状态机）和 wf-checkpoint（分支/版本管理），以及 wf-config 和 wf-runtime。
 
-### 任务清单
-
-#### 2.1 wf-core（2 周）
+### 2.1 wf-core（2 周）
 
 **迁移内容**：
 
-| TS 模块 | Rust 实现 | 技术选型 |
-|---------|----------|---------|
-| EventRegistry | EventBus | `tokio::sync::broadcast` + `flume` |
-| ToolRegistry | ToolRegistry | `DashMap` + `Arc<dyn Tool>` |
-| TaskRegistry | TaskRegistry | `DashMap` |
-| CheckpointCore | CheckpointCore | trait + 状态机 |
+| 来源 TS 模块 | Rust 实现 | 技术选型 |
+|-------------|----------|---------|
+| `EventRegistry` | `EventBus` | `tokio::sync::broadcast` |
+| `ToolRegistry` | `ToolRegistry` | `DashMap<String, Arc<dyn Tool>>` |
+| `TaskRegistry` | `TaskRegistry` | `DashMap` |
+| `NodeRegistry` / `NodeTypeRegistry` | `NodeTypeRegistry` | `DashMap` |
+| `Registry` (通用) | `Registry<T>` | 泛型 DashMap 封装 |
+| `ExecutionState` / 状态机 | `NodeState` enum + 转换逻辑 | 状态机模式 |
 
 **EventBus 设计**：
 ```rust
 pub struct EventBus {
     sender: broadcast::Sender<Event>,
-    // 订阅者管理
 }
 
 impl EventBus {
-    pub fn subscribe(&self) -> Receiver<Event> {
-        self.sender.subscribe()
-    }
-    
+    pub fn subscribe(&self) -> Receiver<Event> { self.sender.subscribe() }
     pub async fn publish(&self, event: Event) -> Result<usize, EventError> {
         Ok(self.sender.send(event)?)
     }
@@ -223,126 +142,87 @@ impl EventBus {
 
 **Registry 设计**：
 ```rust
-pub struct ToolRegistry {
-    tools: DashMap<String, Arc<dyn Tool>>,
-    categories: DashMap<String, Vec<String>>,
+pub struct Registry<T> {
+    items: DashMap<String, Arc<T>>,
 }
 
-#[async_trait]
-pub trait Tool: Send + Sync {
-    fn name(&self) -> &str;
-    fn description(&self) -> &str;
-    async fn execute(&self, input: Value) -> Result<Value, ToolError>;
+impl<T> Registry<T> {
+    pub fn register(&self, key: String, item: Arc<T>) -> Result<(), RegistryError> { ... }
+    pub fn get(&self, key: &str) -> Option<Arc<T>> { ... }
+    pub fn list(&self) -> Vec<String> { ... }
+    pub fn unregister(&self, key: &str) -> bool { ... }
 }
 ```
 
-#### 2.2 wf-checkpoint（1-2 周）
+### 2.2 wf-checkpoint（1.5 周）
 
 **迁移内容**：
-- CheckpointCoordinator（当前 59KB 大文件）
-- BranchManager
-- CheckpointVersionManager
-- CheckpointStrategy
 
-**序列化方案**：
-```rust
-// 使用 bincode 替代 JSON，性能提升 3-5x
-#[derive(Serialize, Deserialize)]
-pub struct Checkpoint {
-    pub id: String,
-    pub session_id: String,
-    pub state: WorkflowState,
-    pub created_at: DateTime<Utc>,
-    pub metadata: HashMap<String, Value>,
-}
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| `CheckpointCoordinator` | `CheckpointCoordinator` |
+| `BranchManager` | `BranchManager` |
+| `CheckpointVersionManager` | `VersionManager` |
+| `CheckpointStrategy` | `CheckpointStrategy` trait |
 
-impl Checkpoint {
-    pub fn to_bytes(&self) -> Result<Vec<u8>, bincode::Error> {
-        bincode::serialize(self)
-    }
-    
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::Error> {
-        bincode::deserialize(bytes)
-    }
-}
-```
+**关键技术决策**：
+- 序列化：bincode（新数据）+ JSON（兼容读取）
+- 并发：`RwLock<DashMap<String, Branch>>`
+- 版本管理：增量快照 + 引用计数
 
-**挑战与对策**：
-- Checkpoint 版本迁移：保留 JSON 反序列化路径，新数据用 bincode
-- Branch 并发访问：`RwLock<DashMap<String, Branch>>`
-- 大状态序列化：考虑使用 `rkyv` 实现零拷贝反序列化
+### 2.3 wf-config（0.5 周，可与 2.1 并行）
+
+**迁移内容**：
+- `ConfigProcessor` — 配置文件加载器（skill, mcp, preset, config-index）
+- `Orchestrator` — 配置编排器
+- 继承 TS 的配置验证和合并逻辑
+
+### 2.4 wf-runtime（0.5 周）
+
+**迁移内容**：
+- `Bootstrap` — 应用启动流程
+- `StorageManager` — 存储生命周期管理
+- `Lifecycle` — 优雅关闭
+- `ModeDetector` — 运行模式检测（CLI/Server/Extension）
 
 ### 交付物
 
 - [ ] wf-core: EventBus + Registry 通过并发压力测试
-- [ ] wf-checkpoint: CheckpointCoordinator 通过现有 E2E 测试
-- [ ] 性能基准报告：Rust 实现 vs TS 实现的延迟/吞吐对比
-
-### 验收标准
-
-```bash
-cargo test -p wf-core
-cargo test -p wf-checkpoint
-# 事件系统：10K 事件/秒广播无丢失
-# Checkpoint：序列化速度提升 3x 以上
-```
+- [ ] wf-checkpoint: CheckpointCoordinator 通过 E2E 测试
+- [ ] wf-config: 配置加载 + 验证
+- [ ] wf-runtime: 启动/关闭生命周期
 
 ---
 
-## 五、Phase 3: 执行引擎（6-8 周）
+## 五、Phase 3: 执行引擎（6 周）
 
 ### 目标
 
-迁移核心执行引擎，包括 Workflow/Node/LLM 协调器、Tool 执行器。
+迁移核心执行引擎：Workflow/Node 协调器、Tool 执行器。
 
-### 任务清单
-
-#### 3.1 wf-executor — 工具执行器（2 周）
+### 3.1 wf-executor — 工具执行器（1.5 周）
 
 **迁移内容**：
-- ToolCallExecutor
-- ScriptExecutor（保持 TS 沙箱，Rust 仅做调度）
-- 审批引擎（ApprovalEngine）
 
-```rust
-pub struct ToolCallExecutor {
-    registry: Arc<ToolRegistry>,
-    event_bus: Arc<EventBus>,
-    approval_engine: Arc<ApprovalEngine>,
-}
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| `ToolCallExecutor` | `ToolCallExecutor` |
+| `ApprovalEngine` | `ApprovalEngine` |
 
-impl ToolCallExecutor {
-    pub async fn execute(&self, call: ToolCall) -> Result<ToolResult, ExecutorError> {
-        let tool = self.registry.get(&call.tool_name)?;
-        
-        if tool.requires_approval() {
-            self.approval_engine.request(&call).await?;
-        }
-        
-        let result = tool.execute(call.input).await?;
-        
-        self.event_bus.publish(Event::ToolExecuted {
-            call_id: call.id,
-            result: result.clone(),
-        })?;
-        
-        Ok(result)
-    }
-}
-```
-
-#### 3.2 wf-executor — Workflow/Node 协调器（3-4 周）
+### 3.2 wf-executor — Workflow/Node 协调器（3 周）
 
 **迁移内容**：
-- WorkflowExecutionCoordinator
-- NodeExecutionCoordinator
-- GraphBuilder
-- StateManager
-- 15 种节点的执行逻辑
+
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| `WorkflowExecutionCoordinator` | `WorkflowCoordinator` |
+| `NodeExecutionCoordinator` | `NodeCoordinator` |
+| `GraphBuilder` | `GraphBuilder` |
+| `StateManager` | `StateManager` |
+| 15 种节点执行逻辑 | `NodeHandler` trait + 具体实现 |
 
 **状态机设计**：
 ```rust
-#[derive(Debug, Clone, PartialEq)]
 pub enum NodeState {
     Pending,
     Running,
@@ -351,144 +231,71 @@ pub enum NodeState {
     Skipped,
     Paused,
 }
-
-pub struct NodeExecutionCoordinator {
-    state: Arc<RwLock<HashMap<String, NodeState>>>,
-    graph: Arc<WorkflowGraph>,
-    executor: Arc<ToolCallExecutor>,
-}
-
-impl NodeExecutionCoordinator {
-    pub async fn execute_node(&self, node_id: &str) -> Result<NodeOutput, NodeError> {
-        let node = self.graph.get_node(node_id)?;
-        
-        self.set_state(node_id, NodeState::Running).await;
-        
-        let result = match &node.config {
-            NodeConfig::Llm(config) => self.execute_llm_node(node_id, config).await,
-            NodeConfig::Tool(config) => self.execute_tool_node(node_id, config).await,
-            NodeConfig::Script(config) => self.execute_script_node(node_id, config).await,
-            NodeConfig::Fork => self.execute_fork_node(node_id).await,
-            NodeConfig::Route(config) => self.execute_route_node(node_id, config).await,
-            // ... 其他节点类型
-        };
-        
-        match &result {
-            Ok(output) => self.set_state(node_id, NodeState::Completed(output.clone())).await,
-            Err(err) => self.set_state(node_id, NodeState::Failed(err.clone())).await,
-        }
-        
-        result
-    }
-}
 ```
 
 **Fork/Join 并行执行**：
 ```rust
 async fn execute_fork_node(&self, node_id: &str) -> Result<NodeOutput, NodeError> {
     let branches = self.graph.get_fork_branches(node_id)?;
-    
     let handles: Vec<_> = branches.into_iter().map(|branch| {
         let coordinator = self.clone();
-        tokio::spawn(async move {
-            coordinator.execute_branch(branch).await
-        })
+        tokio::spawn(async move { coordinator.execute_branch(branch).await })
     }).collect();
-    
-    let results: Vec<Result<NodeOutput, NodeError>> = join_all(handles).await
-        .into_iter()
-        .map(|r| r.unwrap_or_else(|e| Err(NodeError::JoinError(e.to_string()))))
-        .collect();
-    
+    let results = join_all(handles).await;
     NodeOutput::merge(results)
 }
 ```
 
-#### 3.3 wf-llm（2-3 周）
+### 3.3 wf-checkpoint 集成（1.5 周）
 
-**迁移内容**：
-- LLM Client（OpenAI/Gemini/Anthropic）
-- MessageStream（SSE 解析 + 流式处理）
-- Tool Call 格式化器
-- Token 计数器（tiktoken-rs）
-
-```rust
-#[async_trait]
-pub trait LlmProvider: Send + Sync {
-    async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LlmError>;
-    async fn stream_chat(&self, request: ChatRequest) -> Pin<Box<dyn Stream<Item = Result<ChatChunk, LlmError>> + Send>>;
-}
-
-pub struct OpenAiClient {
-    client: reqwest::Client,
-    api_key: String,
-    base_url: String,
-}
-
-#[async_trait]
-impl LlmProvider for OpenAiClient {
-    async fn stream_chat(&self, request: ChatRequest) -> Pin<Box<dyn Stream<Item = Result<ChatChunk, LlmError>> + Send>> {
-        let response = self.client
-            .post(format!("{}/chat/completions", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await?;
-        
-        let stream = response.bytes_stream()
-            .map(|chunk| self.parse_sse_chunk(chunk));
-        
-        Box::pin(stream)
-    }
-}
-```
-
-**挑战与对策**：
-- SSE 解析：使用 `eventsource-stream` 或自定义解析器
-- 流式工具调用：部分 JSON 拼接处理
-- 多 Provider 适配：trait 对象 + 工厂模式
+- 将 checkpoint 系统集成到 executor
+- 执行过程中自动创建 checkpoint
+- 失败恢复机制
 
 ### 交付物
 
-- [ ] wf-executor: ToolCallExecutor 通过所有工具相关测试
-- [ ] wf-executor: Workflow/Node Coordinators 通过现有 workflow E2E 测试
-- [ ] wf-llm: LLM Client 通过 formatter 测试（OpenAI/Gemini/Anthropic）
-- [ ] 性能基准：workflow 执行速度提升 5x 以上
-
-### 验收标准
-
-```bash
-cargo test -p wf-executor
-cargo test -p wf-llm
-# 端到端：运行 apps/cli-app 的核心工作流场景，功能正常
-# 性能：100 节点 workflow 执行时间 < TS 版本的 1/5
-```
+- [ ] wf-executor: 工具执行 + 审批引擎
+- [ ] wf-executor: Workflow/Node 全类型支持
+- [ ] Fork/Join 并行执行正确
+- [ ] Checkpoint 集成到执行流程
 
 ---
 
-## 六、Phase 4: 工具链与 Agent（4-5 周）
+## 六、Phase 4: Services 层（5 周）
 
 ### 目标
 
-迁移 MCP 工具系统、Agent 循环，完善 Rust 执行引擎的全部功能。
+迁移 LLM 服务、MCP 工具系统、沙箱执行。
 
-### 任务清单
-
-#### 4.1 wf-tools（2-3 周）
+### 4.1 wf-llm（2 周）
 
 **迁移内容**：
-- MCP Client（stdio/SSE/StreamableHTTP 传输）
-- 内置工具（filesystem, shell, workflow, agent）
-- 工具审批引擎
-- 使用分析
 
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| LLM Client（OpenAI/Gemini/Anthropic） | `LlmProvider` trait + 具体实现 |
+| `MessageStream` | SSE 流式解析 + `tokio_stream::Stream` |
+| Tool Call 格式化器 | `ToolFormatter` trait |
+| Token 计数器 | `tiktoken-rs` |
+
+**关键技术决策**：
+- SSE 解析：`eventsource-stream` 或自定义
+- 多 Provider：trait 对象 + 工厂模式
+- 流式工具调用：部分 JSON 拼接
+
+### 4.2 wf-tools（2 周）
+
+**迁移内容**：
+
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| MCP Client（stdio/SSE/StreamableHTTP） | `McpClient` + `McpTransport` trait |
+| 内置工具（filesystem, shell, workflow） | `BuiltinTool` trait + 具体实现 |
+| 审批引擎 | `ApprovalEngine` |
+| 使用分析 | `UsageAnalytics` |
+
+**MCP 传输层**：
 ```rust
-pub struct McpClient {
-    transport: Box<dyn McpTransport>,
-    tools: DashMap<String, McpTool>,
-    approval_engine: Arc<ApprovalEngine>,
-}
-
 #[async_trait]
 pub trait McpTransport: Send + Sync {
     async fn connect(&mut self) -> Result<(), McpError>;
@@ -496,272 +303,210 @@ pub trait McpTransport: Send + Sync {
     async fn call_tool(&self, name: &str, args: Value) -> Result<Value, McpError>;
     async fn close(&mut self) -> Result<(), McpError>;
 }
-
-pub struct StdioTransport {
-    child: tokio::process::Child,
-    stdin: tokio::io::BufWriter<tokio::process::ChildStdout>,
-    stdout: tokio::io::BufReader<tokio::process::ChildStdin>,
-}
-
-pub struct SseTransport {
-    client: reqwest::Client,
-    base_url: String,
-    event_source: Option<EventSource>,
-}
 ```
 
-**挑战与对策**：
-- MCP Rust 生态不完善：需自行实现 JSON-RPC 2.0 协议
-- stdio 进程管理：`tokio::process` + 行级 JSON-RPC
-- 连接池与重试：`tower` crate 的 retry layer
-
-#### 4.2 wf-agent（2 周）
+### 4.3 wf-sandbox（1 周）
 
 **迁移内容**：
-- AgentLoopCoordinator
-- AgentLoopStateTransitor
-- ConversationSession 管理
 
-```rust
-pub struct AgentLoopCoordinator {
-    llm: Arc<dyn LlmProvider>,
-    tool_executor: Arc<ToolCallExecutor>,
-    checkpoint_coordinator: Arc<CheckpointCoordinator>,
-    max_iterations: usize,
-}
-
-impl AgentLoopCoordinator {
-    pub async fn run(&self, session: &mut Session, initial_message: Message) -> Result<AgentResult, AgentError> {
-        let mut messages = session.history.clone();
-        messages.push(initial_message);
-        
-        for i in 0..self.max_iterations {
-            let response = self.llm.chat(ChatRequest {
-                messages: messages.clone(),
-                tools: self.tool_executor.available_tools(),
-            }).await?;
-            
-            messages.push(response.message.clone());
-            
-            if response.is_final() {
-                return Ok(AgentResult::new(messages, response));
-            }
-            
-            for tool_call in response.tool_calls {
-                let result = self.tool_executor.execute(tool_call).await?;
-                messages.push(Message::tool_result(result));
-            }
-            
-            self.checkpoint_coordinator.save(Checkpoint::new(&messages)).await?;
-        }
-        
-        Err(AgentError::MaxIterationsReached)
-    }
-}
-```
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| JS/Python/Lua/Shell 沙箱 | `Sandbox` trait + 具体实现 |
+| OS hooks（seccomp/proot/job-object） | 平台特定实现 |
+| VFS | `VirtualFileSystem` |
 
 ### 交付物
 
-- [ ] wf-tools: MCP Client 通过 MCP 协议兼容性测试
-- [ ] wf-tools: 内置工具通过现有工具执行测试
-- [ ] wf-agent: AgentLoopCoordinator 通过 Agent E2E 测试
-- [ ] 完整工作流验证：从 trigger 到 agent 响应的全链路
-
-### 验收标准
-
-```bash
-cargo test -p wf-tools
-cargo test -p wf-agent
-# MCP：连接主流 MCP 服务器（filesystem, github, slack）功能正常
-# Agent：cli-app 中 agent 模式运行正常
-```
+- [ ] wf-llm: 多 Provider LLM 调用 + 流式
+- [ ] wf-tools: MCP 协议兼容 + 内置工具
+- [ ] wf-sandbox: 脚本安全执行
 
 ---
 
-## 七、Phase 5: napi-rs 绑定与集成（3-4 周）
+## 七、Phase 5: API 层（3 周）
 
 ### 目标
 
-构建 Rust 到 TypeScript 的绑定层，实现混合架构的最终集成。
+迁移 `packages/sdk` 的公开 API 和 `packages/sdk-kit` 的高级封装。
 
-### 任务清单
-
-#### 5.1 wf-sdk napi-rs 绑定层（2 周）
+### 5.1 wf-api（2 周）
 
 **迁移内容**：
-- 自动生成 TS 类型定义
-- 错误类型映射
-- Promise/Future 转换
-- Stream 转换为 AsyncIterator
 
-```rust
-#[napi]
-pub struct WorkflowExecutor {
-    inner: Arc<WorkflowExecutionCoordinator>,
-}
+| 来源 TS 模块 | Rust 实现 |
+|-------------|----------|
+| WorkflowBuilder / NodeBuilder | `WorkflowBuilder` / `NodeBuilder` |
+| API Commands（execute/pause/resume/checkpoint） | `Command` trait + 具体实现 |
+| Resources（registry/execution/message） | `Resource` trait |
+| Config Processors（20+） | 具体实现 |
 
-#[napi]
-impl WorkflowExecutor {
-    #[napi(constructor)]
-    pub fn new(config: WorkflowConfig) -> Result<Self> {
-        let coordinator = WorkflowExecutionCoordinator::new(config)?;
-        Ok(Self { inner: Arc::new(coordinator) })
-    }
-    
-    #[napi]
-    pub async fn execute(&self, input: Value) -> Result<WorkflowOutput> {
-        self.inner.execute(input).await
-    }
-    
-    #[napi]
-    pub fn on_event(&self, callback: JsFunction) -> Result<()> {
-        let ts_receiver = callback.threadsafe_function()?;
-        let mut rx = self.inner.event_bus.subscribe();
-        
-        tokio::spawn(async move {
-            while let Ok(event) = rx.recv().await {
-                let _ = ts_receiver.call(Ok(event), napi::threadsafe_function::ThreadsafeFunctionMode::NonBlocking);
-            }
-        });
-        
-        Ok(())
-    }
-}
-```
+### 5.2 wf-sdk-kit 等价封装（1 周）
 
-#### 5.2 混合架构集成（1-2 周）
-
-**集成策略**：
-
-```
-┌──────────────────────────────────────────────┐
-│                apps/cli-app                   │
-│                  (TypeScript)                 │
-├──────────────────────────────────────────────┤
-│              @wf-agent/sdk-kit                │
-│        (TypeScript API 保持不变)               │
-├──────────────────────────────────────────────┤
-│              @wf-agent/sdk                    │
-│         (napi-rs 生成的 .node)                 │
-├──────────────────────────────────────────────┤
-│          Rust Core (wf-*)                     │
-│    wf-core / wf-executor / wf-checkpoint     │
-│    wf-llm / wf-tools / wf-agent / wf-storage │
-└──────────────────────────────────────────────┘
-```
-
-**回退机制**：
-- 每个 Rust 调用封装 try-catch，失败时回退到 TS 实现
-- 特性开关控制：`USE_RUST_CORE=true/false`
-- 灰度发布：按用户/会话比例逐步切换
-
-#### 5.3 性能优化与监控
-
-- 内存 profiling：`dhat` 或 `valgrind` 检测内存泄漏
-- CPU profiling：`perf` / `flamegraph` 定位热点
-- 延迟追踪：`tracing` + OpenTelemetry 导出
-- 基准测试：criterion 持续跟踪关键路径性能
+- `WorkflowManager` / `AgentManager`
+- `Executor` / `Converter` 等高级 API
 
 ### 交付物
 
-- [ ] wf-sdk: 完整的 napi-rs 绑定，覆盖所有公开 API
-- [ ] 混合架构运行正常，特性开关工作正常
-- [ ] 性能监控 Dashboard（对比 TS vs Rust）
-- [ ] 回归测试通过率 100%
-
-### 验收标准
-
-```bash
-cd crates/wf-sdk && npm test           # napi-rs 绑定测试
-pnpm --filter @wf-agent/sdk test       # SDK 集成测试
-pnpm --filter @wf-agent/cli-app test   # CLI E2E 测试
-# 全量回归：所有 apps 和 packages 的测试通过
-# 性能目标：内存占用降低 50%，执行速度提升 5x
-```
+- [ ] wf-api: 完整公开 API 表面
+- [ ] SDK 兼容性：与原 sdk-kit API 语义对齐
 
 ---
 
-## 八、Phase 6: 清理与优化（2 周）
+## 八、Phase 6: 应用层（3 周）
 
 ### 目标
 
-移除 TS 旧实现，清理过渡代码，完成迁移收尾。
+构建 Rust 原生应用替代 TS apps。
 
-### 任务清单
+### 6.1 wf-cli（1 周）
 
-- [ ] 移除 TS 端的 Rust 回退实现
-- [ ] 删除特性开关和条件分支
-- [ ] 清理双写逻辑
-- [ ] 更新文档和架构图
-- [ ] 移除不再需要的 TS 依赖（如 better-sqlite3 的本地编译依赖）
-- [ ] 最终性能基准测试与报告
+**来源**: `apps/cli-app`
+- CLI 参数解析：`clap`
+- 终端交互：复用 TS 的 commander 逻辑
+- PTY 支持：`portable-pty`
+
+### 6.2 wf-server（1.5 周）
+
+**来源**: `apps/server`
+- HTTP 框架：`axum`
+- WebSocket：`tokio-tungstenite`
+- SSE：`axum` 原生支持
+
+### 6.3 wf-vscode（0.5 周，可选）
+
+**来源**: `apps/vscode-app`
+- VSCode Extension 需保持 TS（DAP/Extension API 限制）
+- 核心逻辑通过 WASM 或子进程调用 Rust
+
+### 交付物
+
+- [ ] wf-cli: CLI 应用功能完整
+- [ ] wf-server: HTTP/WS 服务功能完整
+- [ ] E2E 测试通过
 
 ---
 
-## 九、风险与缓解措施
+## 九、Phase 7: 测试与验证（2 周）
 
-| 风险 | 影响 | 概率 | 缓解措施 |
-|------|------|------|---------|
-| napi-rs 跨平台构建失败 | 阻塞发布 | 中 | CI 多平台构建验证；准备预编译二进制分发 |
-| Checkpoint 数据不兼容 | 数据丢失 | 低 | 双写验证；保留 JSON 反序列化路径 |
-| MCP Rust 生态不足 | 功能缺失 | 高 | 自行实现 JSON-RPC；优先支持 stdio 传输 |
-| 性能未达预期 | 用户无感知收益 | 中 | 每个 Phase 设定性能门禁；及时回退 |
-| 异步运行时差异 | 死锁/竞态 | 中 | 充分并发测试；使用 tokio-console 调试 |
-| 团队 Rust 经验不足 | 进度延迟 | 高 | 前期培训；结对编程；代码 Review |
+### 9.1 全量测试迁移
+
+- 将 TS 测试用例翻译为 Rust 测试
+- E2E 测试覆盖核心 workflow 场景
+
+### 9.2 性能基准
+
+| 指标 | 目标 |
+|------|------|
+| 100 节点 workflow 执行 | < TS 版本的 1/5 |
+| 内存占用 | < TS 版本的 50% |
+| 事件广播 | > 10K events/sec |
+| 存储读取（缓存命中） | < 1ms P99 |
+
+### 9.3 兼容性验证
+
+- Checkpoint 数据兼容：Rust 可读取 TS 生成的 checkpoint
+- 配置文件格式兼容
 
 ---
 
-## 十、时间线与里程碑
+## 十、Phase 8: 收尾（1 周）
+
+### 任务
+
+- [ ] 移除 pnpm workspace / package.json / tsconfig
+- [ ] 移除全部 TypeScript 源码（apps + packages）
+- [ ] 更新 README 和文档
+- [ ] CI 流水线简化（移除 Node.js 构建步骤）
+- [ ] 最终性能基准报告
+
+---
+
+## 十一、依赖清单
+
+### 新增 Rust Crates
+
+| Crate | 用途 | 引入 Phase |
+|-------|------|-----------|
+| `moka` | 并发 LRU 缓存 | Phase 1 |
+| `sha2` + `digest` | SHA-256 哈希 | Phase 1 |
+| `flate2` | zlib 压缩 | Phase 1 |
+| `dashmap` | 并发 HashMap | Phase 2 |
+| `eventsource-stream` | SSE 解析 | Phase 4 |
+| `tiktoken-rs` | Token 计数 | Phase 4 |
+| `reqwest` | HTTP 客户端 | Phase 4 |
+| `axum` | HTTP 框架 | Phase 6 |
+| `tokio-tungstenite` | WebSocket | Phase 6 |
+| `clap` | CLI 解析 | Phase 6 |
+| `portable-pty` | PTY 支持 | Phase 6 |
+
+### 已有依赖（无需新增）
+
+serde, serde_json, chrono, thiserror, uuid, tokio, tracing, sqlx
+
+---
+
+## 十二、时间线
 
 ```
-Week  1-2  │ Phase 0: 基础设施准备
-           │ ├── Cargo workspace 搭建
-           │ └── napi-rs 可行性验证
-───────────┼────────────────────────────────────
-Week  3-5  │ Phase 1: 基础类型与存储层
-           │ ├── wf-types 迁移完成
-           │ └── wf-storage 迁移完成
-───────────┼────────────────────────────────────
-Week  6-9  │ Phase 2: 核心基础设施
-           │ ├── wf-core 迁移完成
-           │ └── wf-checkpoint 迁移完成
-───────────┼────────────────────────────────────
-Week 10-17 │ Phase 3: 执行引擎
-           │ ├── ToolCallExecutor 迁移完成
-           │ ├── Workflow/Node Coordinator 迁移完成
-           │ └── wf-llm 迁移完成
-───────────┼────────────────────────────────────
-Week 18-22 │ Phase 4: 工具链与 Agent
-           │ ├── wf-tools (MCP) 迁移完成
-           │ └── wf-agent 迁移完成
-───────────┼────────────────────────────────────
-Week 23-26 │ Phase 5: napi-rs 绑定与集成
-           │ ├── 绑定层完成
-           │ └── 混合架构联调通过
-───────────┼────────────────────────────────────
-Week 27-28 │ Phase 6: 清理与优化
-           │ └── 全量 TS 旧代码移除
-───────────┴────────────────────────────────────
+Week  1-3   │ Phase 1: 存储层补完
+            │ ├── 数据模型 + 批量操作 + Checkpoint 补全
+            │ └── 缓存 + 指标 + 维护 + 连接池 + 压缩
+────────────┼────────────────────────────────────
+Week  4-7   │ Phase 2: 核心基础设施
+            │ ├── wf-core (事件 + 注册)
+            │ ├── wf-checkpoint (分支 + 版本)
+            │ ├── wf-config
+            │ └── wf-runtime
+────────────┼────────────────────────────────────
+Week  8-13  │ Phase 3: 执行引擎
+            │ ├── 工具执行器
+            │ ├── Workflow/Node 协调器
+            │ └── Checkpoint 集成
+────────────┼────────────────────────────────────
+Week 14-18  │ Phase 4: Services 层
+            │ ├── wf-llm (多 Provider)
+            │ ├── wf-tools (MCP + 内置工具)
+            │ └── wf-sandbox
+────────────┼────────────────────────────────────
+Week 19-21  │ Phase 5: API 层
+            │ ├── wf-api
+            │ └── SDK Kit 封装
+────────────┼────────────────────────────────────
+Week 22-24  │ Phase 6: 应用层
+            │ ├── wf-cli
+            │ ├── wf-server
+            │ └── (wf-vscode)
+────────────┼────────────────────────────────────
+Week 25-26  │ Phase 7: 测试与验证
+────────────┼────────────────────────────────────
+Week 27     │ Phase 8: 收尾清理
+────────────┴────────────────────────────────────
 ```
 
-**总计约 28 周（7 个月）**，建议 2-3 名 Rust 开发人员全职投入。
+**总计约 27 周（约 7 个月）**，建议 2-3 名 Rust 开发人员全职投入。
 
 ---
 
-## 十一、团队与资源建议
+## 十三、与原方案的关键差异
 
-### 人员配置
+| 维度 | 原方案（napi-rs 混合） | 本方案（纯 Rust） |
+|------|----------------------|------------------|
+| 目标架构 | Rust 核心 + TS 外壳 | 纯 Rust，无 TS 运行时 |
+| 桥接层 | napi-rs 绑定（2 周） | 不存在 |
+| 存储模型 | 简化 JSON blob | BLOB + 元数据分离（继承 TS 设计） |
+| 缓存 | 未规划 | moka LRU（对标 TS 实现） |
+| 数据兼容 | 双写验证 | 单向读取兼容（Rust 可读 TS 数据） |
+| 迁移验证 | 对比 TS vs Rust | 功能正确性 + 性能基准 |
+| 收尾 | 移除 TS 回退代码 | 移除全部 TS 源码 |
 
-| 角色 | 数量 | 职责 |
-|------|------|------|
-| Rust 核心开发 | 2 | 编写 Rust crate、性能优化 |
-| TS/Rust 桥接开发 | 1 | napi-rs 绑定、混合架构集成 |
-| QA/测试 | 1 | 跨语言集成测试、E2E 验证 |
+---
 
-### 技术储备
+## 十四、风险与缓解
 
-- Rust 异步编程（tokio, async-trait）
-- napi-rs 绑定开发经验
-- 序列化协议（serde, bincode, JSON）
-- 状态机与并发模式
-- 现有 TS 代码架构深度理解
+| 风险 | 影响 | 概率 | 缓解 |
+|------|------|------|------|
+| 执行引擎复杂度高 | 进度延迟 | 高 | 分节点类型逐步迁移；优先核心 5 种节点 |
+| MCP Rust 生态不足 | 功能缺失 | 高 | 自行实现 JSON-RPC 2.0；优先 stdio |
+| Checkpoint 数据不兼容 | 数据丢失 | 低 | 保留 JSON 反序列化路径；充分测试 |
+| 异步运行时竞态 | 死锁/数据竞争 | 中 | tokio-console 调试；并发压力测试 |
+| 团队 Rust 经验 | 进度延迟 | 中 | 代码 Review；遵循 TS 已验证的设计 |

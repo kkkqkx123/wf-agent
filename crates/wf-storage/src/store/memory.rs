@@ -12,11 +12,7 @@ use crate::error::StorageError;
 struct StoredRecord {
     data: Vec<u8>,
     metadata: Value,
-    hash: String,
-    data_size: u64,
-    compressed: bool,
     created_at: i64,
-    updated_at: i64,
 }
 
 #[derive(Debug)]
@@ -112,22 +108,14 @@ impl Store for MemoryStorage {
     ) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
         let now = current_timestamp();
-        let existing = store.records.get(id);
-        let created_at = existing.map(|r| r.created_at).unwrap_or(now);
-
-        let hash = crate::util::hash::compute_hash(data);
-        let data_size = data.len() as u64;
+        let created_at = store.records.get(id).map(|r| r.created_at).unwrap_or(now);
 
         store.records.insert(
             id.to_string(),
             StoredRecord {
                 data: data.to_vec(),
                 metadata: metadata.clone(),
-                hash,
-                data_size,
-                compressed: false,
                 created_at,
-                updated_at: now,
             },
         );
         Ok(())
@@ -175,17 +163,12 @@ impl crate::domain::store::BatchStore for MemoryStorage {
         let mut store = self.inner.write().await;
         let now = current_timestamp();
         for item in items {
-            let hash = crate::util::hash::compute_hash(&item.data);
             store.records.insert(
                 item.id.clone(),
                 StoredRecord {
                     data: item.data.clone(),
                     metadata: item.metadata.clone(),
-                    hash,
-                    data_size: item.data.len() as u64,
-                    compressed: false,
                     created_at: now,
-                    updated_at: now,
                 },
             );
         }

@@ -115,3 +115,8 @@ Test organization: unit tests in same file (`#[cfg(test)]`), separate `test.rs` 
 1. **Rust deps**: Centralized in root `Cargo.toml` workspace section
 2. **Plan/Design Document**: Avoid including complete code snippets. Mainly using concise natural language descriptions.
 3. **Migration Phase**: Currently P0-P1 (infrastructure + types + storage). See `docs/plan/rust迁移-分阶段方案.md`
+
+## Package Structure Management
+
+The use of `mod.rs` files is prohibited. All modules must be defined as `<module_name>.rs` files in the parent directory (e.g., `foo.rs` instead of `foo/mod.rs`).
+

@@ -1,0 +1,132 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EventType {
+    WorkflowExecutionStarted,
+    WorkflowExecutionCompleted,
+    WorkflowExecutionFailed,
+    WorkflowExecutionPaused,
+    WorkflowExecutionResumed,
+    WorkflowExecutionCancelled,
+    WorkflowExecutionStateChanged,
+    WorkflowExecutionForkStarted,
+    WorkflowExecutionForkCompleted,
+    WorkflowExecutionJoinStarted,
+    WorkflowExecutionJoinConditionMet,
+    WorkflowExecutionJoinCompleted,
+    WorkflowExecutionJoinFailed,
+    WorkflowExecutionCopyStarted,
+    WorkflowExecutionCopyCompleted,
+    NodeStarted,
+    NodeCompleted,
+    NodeFailed,
+    NodeCustomEvent,
+    ForkStarted,
+    ForkBranchStarted,
+    ForkBranchCompleted,
+    ForkCompleted,
+    TokenLimitExceeded,
+    TokenUsageWarning,
+    ContextCompressionRequested,
+    ContextCompressionCompleted,
+    MessageAdded,
+    ToolCallStarted,
+    ToolCallCompleted,
+    ToolCallFailed,
+    ToolCallBlocked,
+    ToolAdded,
+    ToolVisibilityChanged,
+    ConversationStateChanged,
+    Error,
+    CheckpointCreated,
+    CheckpointRestored,
+    CheckpointDeleted,
+    CheckpointFailed,
+    SubgraphStarted,
+    SubgraphCompleted,
+    TriggeredSubgraphStarted,
+    TriggeredSubgraphCompleted,
+    TriggeredSubgraphFailed,
+    VariableChanged,
+    ToolApprovalRequested,
+    ToolApprovalResponded,
+    ToolApprovalFailed,
+    FollowupQuestionRequested,
+    FollowupQuestionResponded,
+    FollowupQuestionFailed,
+    LlmStreamAborted,
+    LlmStreamError,
+    SkillLoadStarted,
+    SkillLoadCompleted,
+    SkillLoadFailed,
+    AsyncCompletionRegistered,
+    AsyncCompletionTriggered,
+    AsyncCompletionErrorTriggered,
+    AsyncCompletionFailed,
+    AsyncCompletionCleanedUp,
+    AgentStarted,
+    AgentCompleted,
+    AgentTurnStarted,
+    AgentTurnCompleted,
+    AgentMessageStarted,
+    AgentMessageCompleted,
+    AgentToolExecutionStarted,
+    AgentToolExecutionCompleted,
+    TimeoutRegistered,
+    TimeoutExpired,
+    TimeoutCancelled,
+    TimeoutWarning,
+    AgentIterationStarted,
+    AgentIterationCompleted,
+    AgentHookTriggered,
+    AgentPaused,
+    AgentCancelled,
+    AgentResumed,
+    AgentFailed,
+    ExecutionPaused,
+    ExecutionCancelled,
+    ExecutionResumed,
+    ProgressiveToolExecutionStart,
+    ProgressiveToolExecutionEnd,
+    ToolQueueUpdate,
+    ToolApprovalAnnotated,
+    NodeSyncStarted,
+    NodeSyncCompleted,
+    NodeSyncFailed,
+    AttemptCompletion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BaseEvent {
+    pub id: super::super::Id,
+    pub r#type: EventType,
+    pub timestamp: super::super::Timestamp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<super::super::Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<super::super::Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_loop_id: Option<super::super::Id>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<super::super::Metadata>,
+}
+
+pub type EventListener = Box<dyn Fn(&BaseEvent) + Send + Sync>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EventHandler {
+    pub event_type: EventType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ListenerOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_cleanup: Option<bool>,
+}

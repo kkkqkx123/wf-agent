@@ -9,7 +9,6 @@ use crate::domain::store::{BatchItem, MetadataFilter, Store};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct StoredRecord {
     data: Vec<u8>,
     metadata: Value,

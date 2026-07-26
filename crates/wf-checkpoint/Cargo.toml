@@ -1,0 +1,23 @@
+[package]
+name = "wf-checkpoint"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+dashmap = { workspace = true }
+async-trait = { workspace = true }
+bincode = { workspace = true }
+moka = { workspace = true }
+
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-storage = { path = "../wf-storage" }
+wf-core = { path = "../wf-core" }
+uuid.workspace = true

@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::error::ExecutionSharedResult;
-
 pub struct TimeoutManager {
     timeouts: HashMap<String, Duration>,
+}
+
+impl Default for TimeoutManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TimeoutManager {

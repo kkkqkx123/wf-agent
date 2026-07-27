@@ -14,5 +14,8 @@ pub mod types;
 pub use condition::ConditionEvaluator;
 pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 pub use error::{ExecutionSharedError, ExecutionSharedResult};
-pub use interruption::InterruptionState;
+pub use interruption::{
+    check_execution_interruption, execute_with_interruption_handling, InterruptionSignal,
+    InterruptionState,
+};
 pub use retry::budget::RetryBudget;

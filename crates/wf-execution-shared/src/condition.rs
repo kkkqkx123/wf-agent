@@ -31,8 +31,8 @@ impl ConditionEvaluator {
 
     fn parse_args(input: &str) -> Vec<&str> {
         let inner = input.trim();
-        let inner = if inner.ends_with(')') {
-            &inner[..inner.len() - 1]
+        let inner = if let Some(stripped) = inner.strip_suffix(')') {
+            stripped
         } else {
             inner
         };

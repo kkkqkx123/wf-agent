@@ -18,3 +18,4 @@ tracing.workspace = true
 dashmap.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
+futures.workspace = true

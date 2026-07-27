@@ -2,7 +2,6 @@ use async_trait::async_trait;
 
 use wf_types::message::Message;
 
-use crate::error::ExecutionSharedResult;
 use crate::types::state_manager::StateManager;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -13,6 +12,12 @@ pub struct ConversationState {
 
 pub struct ConversationSession {
     state: ConversationState,
+}
+
+impl Default for ConversationSession {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConversationSession {

@@ -1,15 +1,9 @@
 use wf_types::Id;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum InterruptionType {
-    Pause,
-    Stop,
-}
-
 #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
 #[error("Interruption: type={interruption_type:?}, execution_id={execution_id}, iteration={iteration:?}")]
 pub struct InterruptedException {
-    pub interruption_type: InterruptionType,
+    pub interruption_type: String,
     pub execution_id: Id,
     pub iteration: Option<u32>,
 }

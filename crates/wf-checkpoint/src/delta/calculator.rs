@@ -16,8 +16,11 @@ impl Default for WorkflowDiffCalculator {
 }
 
 #[async_trait::async_trait]
-impl DiffCalculator<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot, wf_types::checkpoint::workflow::WorkflowCheckpointDelta>
-    for WorkflowDiffCalculator
+impl
+    DiffCalculator<
+        wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
+        wf_types::checkpoint::workflow::WorkflowCheckpointDelta,
+    > for WorkflowDiffCalculator
 {
     async fn calculate_diff(
         &self,
@@ -82,7 +85,8 @@ impl DiffCalculator<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapsh
         &self,
         base: &wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
         delta: &wf_types::checkpoint::workflow::WorkflowCheckpointDelta,
-    ) -> Result<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot, CheckpointError> {
+    ) -> Result<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot, CheckpointError>
+    {
         let mut result = base.clone();
 
         if let Some(ref messages) = delta.added_messages {
@@ -132,8 +136,11 @@ impl Default for AgentDiffCalculator {
 }
 
 #[async_trait::async_trait]
-impl DiffCalculator<wf_types::checkpoint::agent::AgentStateSnapshot, wf_types::checkpoint::agent::AgentCheckpointDelta>
-    for AgentDiffCalculator
+impl
+    DiffCalculator<
+        wf_types::checkpoint::agent::AgentStateSnapshot,
+        wf_types::checkpoint::agent::AgentCheckpointDelta,
+    > for AgentDiffCalculator
 {
     async fn calculate_diff(
         &self,

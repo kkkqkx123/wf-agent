@@ -107,18 +107,12 @@ impl NodeStateMachine {
     pub fn transition(&mut self, new_state: NodeState) -> Result<(), CoreError> {
         if self.is_terminal() {
             return Err(CoreError::InvalidStateTransition {
-                message: format!(
-                    "cannot transition from terminal state: {}",
-                    self.state
-                ),
+                message: format!("cannot transition from terminal state: {}", self.state),
             });
         }
         if !self.is_valid_transition(&new_state) {
             return Err(CoreError::InvalidStateTransition {
-                message: format!(
-                    "cannot transition from {} to {}",
-                    self.state, new_state
-                ),
+                message: format!("cannot transition from {} to {}", self.state, new_state),
             });
         }
         let transition = StateTransition {
@@ -270,18 +264,12 @@ impl WorkflowStateMachine {
     fn transition(&mut self, new_state: WorkflowState) -> Result<(), CoreError> {
         if self.is_terminal() {
             return Err(CoreError::InvalidStateTransition {
-                message: format!(
-                    "cannot transition from terminal state: {}",
-                    self.state
-                ),
+                message: format!("cannot transition from terminal state: {}", self.state),
             });
         }
         if !self.is_valid_transition(&new_state) {
             return Err(CoreError::InvalidStateTransition {
-                message: format!(
-                    "cannot transition from {} to {}",
-                    self.state, new_state
-                ),
+                message: format!("cannot transition from {} to {}", self.state, new_state),
             });
         }
         let transition = StateTransition {
@@ -299,11 +287,20 @@ impl WorkflowStateMachine {
             (&self.state, new_state),
             (WorkflowState::Created, WorkflowState::Running { .. })
                 | (WorkflowState::Running { .. }, WorkflowState::Paused { .. })
-                | (WorkflowState::Running { .. }, WorkflowState::Completed { .. })
+                | (
+                    WorkflowState::Running { .. },
+                    WorkflowState::Completed { .. }
+                )
                 | (WorkflowState::Running { .. }, WorkflowState::Failed { .. })
-                | (WorkflowState::Running { .. }, WorkflowState::Cancelled { .. })
+                | (
+                    WorkflowState::Running { .. },
+                    WorkflowState::Cancelled { .. }
+                )
                 | (WorkflowState::Paused { .. }, WorkflowState::Running { .. })
-                | (WorkflowState::Paused { .. }, WorkflowState::Cancelled { .. })
+                | (
+                    WorkflowState::Paused { .. },
+                    WorkflowState::Cancelled { .. }
+                )
         )
     }
 }
@@ -349,7 +346,8 @@ mod tests {
         let mut sm = NodeStateMachine::new("node-1");
         sm.transition(NodeState::Running { started_at: 0 }).unwrap();
         sm.transition(NodeState::Paused { paused_at: 50 }).unwrap();
-        sm.transition(NodeState::Running { started_at: 100 }).unwrap();
+        sm.transition(NodeState::Running { started_at: 100 })
+            .unwrap();
         assert!(matches!(*sm.state(), NodeState::Running { .. }));
     }
 
@@ -385,7 +383,8 @@ mod tests {
     #[test]
     fn test_node_transition_history() {
         let mut sm = NodeStateMachine::new("node-1");
-        sm.transition(NodeState::Running { started_at: 10 }).unwrap();
+        sm.transition(NodeState::Running { started_at: 10 })
+            .unwrap();
         sm.transition(NodeState::Completed {
             completed_at: 100,
             output: None,

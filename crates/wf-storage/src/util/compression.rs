@@ -8,13 +8,11 @@ use crate::error::StorageError;
 
 pub fn compress(data: &[u8]) -> Result<Vec<u8>, StorageError> {
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(data)
-        .map_err(|e| StorageError::General {
-            operation: "compress".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
-        })?;
+    encoder.write_all(data).map_err(|e| StorageError::General {
+        operation: "compress".into(),
+        message: e.to_string(),
+        source: Some(Box::new(e)),
+    })?;
     encoder.finish().map_err(|e| StorageError::General {
         operation: "compress".into(),
         message: e.to_string(),

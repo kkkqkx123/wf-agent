@@ -78,7 +78,11 @@ fn apply_filter(
                     }
                 }
                 if let Some((start, end)) = f.timestamp_range {
-                    let ts = rec.metadata.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let ts = rec
+                        .metadata
+                        .get("timestamp")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
                     if ts < start || ts > end {
                         return false;
                     }
@@ -106,12 +110,7 @@ fn matches_meta_str(metadata: &Value, key: &str, expected: &str) -> bool {
 
 #[async_trait]
 impl Store for MemoryStorage {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
         let now = current_timestamp();
         let created_at = store.records.get(id).map(|r| r.created_at).unwrap_or(now);
@@ -127,14 +126,12 @@ impl Store for MemoryStorage {
         Ok(())
     }
 
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         let store = self.inner.read().await;
-        Ok(store.records.get(id).map(|rec| {
-            (rec.data.clone(), rec.metadata.clone())
-        }))
+        Ok(store
+            .records
+            .get(id)
+            .map(|rec| (rec.data.clone(), rec.metadata.clone())))
     }
 
     async fn delete(&self, id: &str) -> Result<(), StorageError> {
@@ -237,15 +234,27 @@ mod tests {
     async fn test_list_with_filter() {
         let store = MemoryStorage::new("test");
         store
-            .save("id1", b"data1", &serde_json::json!({"entityType": "A", "status": "active"}))
+            .save(
+                "id1",
+                b"data1",
+                &serde_json::json!({"entityType": "A", "status": "active"}),
+            )
             .await
             .unwrap();
         store
-            .save("id2", b"data2", &serde_json::json!({"entityType": "B", "status": "inactive"}))
+            .save(
+                "id2",
+                b"data2",
+                &serde_json::json!({"entityType": "B", "status": "inactive"}),
+            )
             .await
             .unwrap();
         store
-            .save("id3", b"data3", &serde_json::json!({"entityType": "A", "status": "inactive"}))
+            .save(
+                "id3",
+                b"data3",
+                &serde_json::json!({"entityType": "A", "status": "inactive"}),
+            )
             .await
             .unwrap();
 

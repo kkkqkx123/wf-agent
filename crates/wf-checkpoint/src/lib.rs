@@ -15,7 +15,7 @@ pub mod state;
 pub mod strategy;
 pub mod version;
 
-pub use error::CheckpointError;
 pub use cache::CheckpointCache;
-pub use serializer::{CheckpointCodec, CheckpointSerializer};
+pub use error::CheckpointError;
 pub use event::{CheckpointEvent, CheckpointEventBus};
+pub use serializer::{CheckpointCodec, CheckpointSerializer};

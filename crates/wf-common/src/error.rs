@@ -20,8 +20,6 @@ pub enum CommonError {
 
     #[error("IO: {0}")]
     Io(#[from] std::io::Error),
-
-
 }
 
 impl From<serde_json::Error> for CommonError {

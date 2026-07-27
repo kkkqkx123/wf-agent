@@ -173,8 +173,10 @@ mod tests {
         let filter = EventFilter::default().with_execution_id("exec-1".to_string());
         let mut sub = bus.subscribe(filter);
 
-        bus.publish(make_event(Some("exec-2"), EventType::Heartbeat)).unwrap();
-        bus.publish(make_event(Some("exec-1"), EventType::NodeStarted)).unwrap();
+        bus.publish(make_event(Some("exec-2"), EventType::Heartbeat))
+            .unwrap();
+        bus.publish(make_event(Some("exec-1"), EventType::NodeStarted))
+            .unwrap();
 
         let received = sub.recv().await.unwrap();
         assert_eq!(received.execution_id, Some("exec-1".to_string()));
@@ -191,7 +193,8 @@ mod tests {
         let mut sub = bus.subscribe(filter);
 
         bus.publish(make_event(None, EventType::Heartbeat)).unwrap();
-        bus.publish(make_event(None, EventType::NodeStarted)).unwrap();
+        bus.publish(make_event(None, EventType::NodeStarted))
+            .unwrap();
 
         let received = sub.recv().await.unwrap();
         assert_eq!(received.r#type, EventType::NodeStarted);
@@ -203,7 +206,8 @@ mod tests {
         let mut sub = bus.subscribe_global();
 
         bus.publish(make_event(None, EventType::Heartbeat)).unwrap();
-        bus.publish(make_event(None, EventType::NodeStarted)).unwrap();
+        bus.publish(make_event(None, EventType::NodeStarted))
+            .unwrap();
 
         let r1 = sub.recv().await.unwrap();
         let r2 = sub.recv().await.unwrap();
@@ -223,7 +227,8 @@ mod tests {
         let mut sub = bus.subscribe_global();
 
         bus.publish(make_event(None, EventType::Heartbeat)).unwrap();
-        bus.publish(make_event(None, EventType::NodeStarted)).unwrap();
+        bus.publish(make_event(None, EventType::NodeStarted))
+            .unwrap();
 
         let result = sub.try_recv();
         assert!(matches!(result, Err(EventError::Lagged(1))));

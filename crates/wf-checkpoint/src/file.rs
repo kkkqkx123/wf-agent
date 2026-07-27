@@ -38,10 +38,7 @@ impl FileCheckpointManager {
         format!("{:016x}", hasher.finish())
     }
 
-    pub fn compute_diff(
-        previous: &[FileState],
-        current: &[FileState],
-    ) -> FileCheckpointDelta {
+    pub fn compute_diff(previous: &[FileState], current: &[FileState]) -> FileCheckpointDelta {
         let prev_map: HashMap<&str, &FileState> =
             previous.iter().map(|f| (f.path.as_str(), f)).collect();
         let curr_map: HashMap<&str, &FileState> =
@@ -73,10 +70,8 @@ impl FileCheckpointManager {
     }
 
     pub fn apply_diff(files: &[FileState], delta: &FileCheckpointDelta) -> Vec<FileState> {
-        let mut file_map: HashMap<String, FileState> = files
-            .iter()
-            .map(|f| (f.path.clone(), f.clone()))
-            .collect();
+        let mut file_map: HashMap<String, FileState> =
+            files.iter().map(|f| (f.path.clone(), f.clone())).collect();
 
         for path in &delta.deleted {
             file_map.remove(path);
@@ -149,7 +144,10 @@ mod tests {
         let hash1 = FileCheckpointManager::compute_file_hash(b"hello world");
         let hash2 = FileCheckpointManager::compute_file_hash(b"hello world");
         assert_eq!(hash1, hash2);
-        assert_ne!(hash1, FileCheckpointManager::compute_file_hash(b"different"));
+        assert_ne!(
+            hash1,
+            FileCheckpointManager::compute_file_hash(b"different")
+        );
     }
 
     #[test]

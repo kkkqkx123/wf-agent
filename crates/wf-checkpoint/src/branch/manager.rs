@@ -1,8 +1,6 @@
 use crate::error::CheckpointError;
-use async_trait::async_trait;
 use dashmap::DashMap;
 
-#[async_trait]
 pub trait BranchStorageAdapter: Send + Sync {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError>;
     async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError>;
@@ -10,9 +8,12 @@ pub trait BranchStorageAdapter: Send + Sync {
     async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError>;
 }
 
-#[async_trait]
 pub trait BranchManager: Send + Sync {
-    async fn create_branch(&self, branch_name: &str, base_branch: Option<&str>) -> Result<(), CheckpointError>;
+    async fn create_branch(
+        &self,
+        branch_name: &str,
+        base_branch: Option<&str>,
+    ) -> Result<(), CheckpointError>;
     async fn switch_branch(&self, branch_name: &str) -> Result<(), CheckpointError>;
     async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError>;
     async fn delete_branch(&self, branch_name: &str) -> Result<(), CheckpointError>;
@@ -43,9 +44,12 @@ impl<S: BranchStorageAdapter> ExecutionBranchManager<S> {
     }
 }
 
-#[async_trait]
 impl<S: BranchStorageAdapter> BranchManager for ExecutionBranchManager<S> {
-    async fn create_branch(&self, branch_name: &str, base_branch: Option<&str>) -> Result<(), CheckpointError> {
+    async fn create_branch(
+        &self,
+        branch_name: &str,
+        base_branch: Option<&str>,
+    ) -> Result<(), CheckpointError> {
         self.storage.create_branch(branch_name, base_branch).await?;
         self.cache.insert(
             branch_name.to_string(),

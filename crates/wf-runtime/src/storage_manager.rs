@@ -2,15 +2,13 @@ use std::path::PathBuf;
 
 use tracing::{info, warn};
 
-use wf_storage::domain::Store;
 use wf_storage::adapter::concrete::{
     MemoryAgentLoopStorage, MemoryAgentProfileStorage, MemoryCheckpointStorage,
     MemoryFileCheckpointStorage, MemoryHookTemplateStorage, MemoryMetricsStorage,
-    MemoryNodeTemplateStorage, MemoryScriptStorage, MemoryTaskStorage,
-    MemoryToolStorage, MemoryTriggerStorage, MemoryWorkflowExecutionStorage,
-    MemoryWorkflowStorage,
+    MemoryNodeTemplateStorage, MemoryScriptStorage, MemoryTaskStorage, MemoryToolStorage,
+    MemoryTriggerStorage, MemoryWorkflowExecutionStorage, MemoryWorkflowStorage,
 };
-
+use wf_storage::domain::Store;
 
 use crate::error::{RuntimeError, RuntimeResult};
 
@@ -201,19 +199,37 @@ impl StorageManager {
     async fn initialize_memory(&mut self) -> RuntimeResult<()> {
         info!("Initializing in-memory storage");
 
-        let workflow = MemoryWorkflowStorage::new(wf_storage::store::memory::MemoryStorage::new("workflow"));
-        let execution = MemoryWorkflowExecutionStorage::new(wf_storage::store::memory::MemoryStorage::new("execution"));
-        let checkpoint = MemoryCheckpointStorage::new(wf_storage::store::memory::MemoryStorage::new("checkpoint"));
+        let workflow =
+            MemoryWorkflowStorage::new(wf_storage::store::memory::MemoryStorage::new("workflow"));
+        let execution = MemoryWorkflowExecutionStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("execution"),
+        );
+        let checkpoint = MemoryCheckpointStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("checkpoint"),
+        );
         let task = MemoryTaskStorage::new(wf_storage::store::memory::MemoryStorage::new("task"));
-        let agent_loop = MemoryAgentLoopStorage::new(wf_storage::store::memory::MemoryStorage::new("agent_loop"));
-        let metrics = MemoryMetricsStorage::new(wf_storage::store::memory::MemoryStorage::new("metrics"));
-        let file_checkpoint = MemoryFileCheckpointStorage::new(wf_storage::store::memory::MemoryStorage::new("file_checkpoint"));
-        let trigger = MemoryTriggerStorage::new(wf_storage::store::memory::MemoryStorage::new("trigger"));
+        let agent_loop = MemoryAgentLoopStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("agent_loop"),
+        );
+        let metrics =
+            MemoryMetricsStorage::new(wf_storage::store::memory::MemoryStorage::new("metrics"));
+        let file_checkpoint = MemoryFileCheckpointStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("file_checkpoint"),
+        );
+        let trigger =
+            MemoryTriggerStorage::new(wf_storage::store::memory::MemoryStorage::new("trigger"));
         let tool = MemoryToolStorage::new(wf_storage::store::memory::MemoryStorage::new("tool"));
-        let script = MemoryScriptStorage::new(wf_storage::store::memory::MemoryStorage::new("script"));
-        let node_template = MemoryNodeTemplateStorage::new(wf_storage::store::memory::MemoryStorage::new("node_template"));
-        let hook_template = MemoryHookTemplateStorage::new(wf_storage::store::memory::MemoryStorage::new("hook_template"));
-        let agent_profile = MemoryAgentProfileStorage::new(wf_storage::store::memory::MemoryStorage::new("agent_profile"));
+        let script =
+            MemoryScriptStorage::new(wf_storage::store::memory::MemoryStorage::new("script"));
+        let node_template = MemoryNodeTemplateStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("node_template"),
+        );
+        let hook_template = MemoryHookTemplateStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("hook_template"),
+        );
+        let agent_profile = MemoryAgentProfileStorage::new(
+            wf_storage::store::memory::MemoryStorage::new("agent_profile"),
+        );
 
         self.backend = Some(StorageBackend::Memory {
             workflow,
@@ -240,9 +256,8 @@ impl StorageManager {
         use wf_storage::adapter::concrete::{
             SqliteAgentLoopStorage, SqliteAgentProfileStorage, SqliteCheckpointStorage,
             SqliteFileCheckpointStorage, SqliteHookTemplateStorage, SqliteMetricsStorage,
-            SqliteNodeTemplateStorage, SqliteScriptStorage, SqliteTaskStorage,
-            SqliteToolStorage, SqliteTriggerStorage, SqliteWorkflowExecutionStorage,
-            SqliteWorkflowStorage,
+            SqliteNodeTemplateStorage, SqliteScriptStorage, SqliteTaskStorage, SqliteToolStorage,
+            SqliteTriggerStorage, SqliteWorkflowExecutionStorage, SqliteWorkflowStorage,
         };
         use wf_storage::store::sqlite::SqliteStorage;
 
@@ -258,18 +273,26 @@ impl StorageManager {
         info!("Initializing SQLite storage at {:?}", db_path);
 
         let workflow = SqliteWorkflowStorage::new(SqliteStorage::new(&path_str, "workflow").await?);
-        let execution = SqliteWorkflowExecutionStorage::new(SqliteStorage::new(&path_str, "execution").await?);
-        let checkpoint = SqliteCheckpointStorage::new(SqliteStorage::new(&path_str, "checkpoint").await?);
+        let execution =
+            SqliteWorkflowExecutionStorage::new(SqliteStorage::new(&path_str, "execution").await?);
+        let checkpoint =
+            SqliteCheckpointStorage::new(SqliteStorage::new(&path_str, "checkpoint").await?);
         let task = SqliteTaskStorage::new(SqliteStorage::new(&path_str, "task").await?);
-        let agent_loop = SqliteAgentLoopStorage::new(SqliteStorage::new(&path_str, "agent_loop").await?);
+        let agent_loop =
+            SqliteAgentLoopStorage::new(SqliteStorage::new(&path_str, "agent_loop").await?);
         let metrics = SqliteMetricsStorage::new(SqliteStorage::new(&path_str, "metrics").await?);
-        let file_checkpoint = SqliteFileCheckpointStorage::new(SqliteStorage::new(&path_str, "file_checkpoint").await?);
+        let file_checkpoint = SqliteFileCheckpointStorage::new(
+            SqliteStorage::new(&path_str, "file_checkpoint").await?,
+        );
         let trigger = SqliteTriggerStorage::new(SqliteStorage::new(&path_str, "trigger").await?);
         let tool = SqliteToolStorage::new(SqliteStorage::new(&path_str, "tool").await?);
         let script = SqliteScriptStorage::new(SqliteStorage::new(&path_str, "script").await?);
-        let node_template = SqliteNodeTemplateStorage::new(SqliteStorage::new(&path_str, "node_template").await?);
-        let hook_template = SqliteHookTemplateStorage::new(SqliteStorage::new(&path_str, "hook_template").await?);
-        let agent_profile = SqliteAgentProfileStorage::new(SqliteStorage::new(&path_str, "agent_profile").await?);
+        let node_template =
+            SqliteNodeTemplateStorage::new(SqliteStorage::new(&path_str, "node_template").await?);
+        let hook_template =
+            SqliteHookTemplateStorage::new(SqliteStorage::new(&path_str, "hook_template").await?);
+        let agent_profile =
+            SqliteAgentProfileStorage::new(SqliteStorage::new(&path_str, "agent_profile").await?);
 
         self.backend = Some(StorageBackend::SQLite {
             workflow,
@@ -309,19 +332,45 @@ impl StorageManager {
 
         info!("Initializing PostgreSQL storage");
 
-        let workflow = PostgresWorkflowStorage::new(PostgresStorage::new(&pg_config.connection_string, "workflow").await?);
-        let execution = PostgresWorkflowExecutionStorage::new(PostgresStorage::new(&pg_config.connection_string, "execution").await?);
-        let checkpoint = PostgresCheckpointStorage::new(PostgresStorage::new(&pg_config.connection_string, "checkpoint").await?);
-        let task = PostgresTaskStorage::new(PostgresStorage::new(&pg_config.connection_string, "task").await?);
-        let agent_loop = PostgresAgentLoopStorage::new(PostgresStorage::new(&pg_config.connection_string, "agent_loop").await?);
-        let metrics = PostgresMetricsStorage::new(PostgresStorage::new(&pg_config.connection_string, "metrics").await?);
-        let file_checkpoint = PostgresFileCheckpointStorage::new(PostgresStorage::new(&pg_config.connection_string, "file_checkpoint").await?);
-        let trigger = PostgresTriggerStorage::new(PostgresStorage::new(&pg_config.connection_string, "trigger").await?);
-        let tool = PostgresToolStorage::new(PostgresStorage::new(&pg_config.connection_string, "tool").await?);
-        let script = PostgresScriptStorage::new(PostgresStorage::new(&pg_config.connection_string, "script").await?);
-        let node_template = PostgresNodeTemplateStorage::new(PostgresStorage::new(&pg_config.connection_string, "node_template").await?);
-        let hook_template = PostgresHookTemplateStorage::new(PostgresStorage::new(&pg_config.connection_string, "hook_template").await?);
-        let agent_profile = PostgresAgentProfileStorage::new(PostgresStorage::new(&pg_config.connection_string, "agent_profile").await?);
+        let workflow = PostgresWorkflowStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "workflow").await?,
+        );
+        let execution = PostgresWorkflowExecutionStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "execution").await?,
+        );
+        let checkpoint = PostgresCheckpointStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "checkpoint").await?,
+        );
+        let task = PostgresTaskStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "task").await?,
+        );
+        let agent_loop = PostgresAgentLoopStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "agent_loop").await?,
+        );
+        let metrics = PostgresMetricsStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "metrics").await?,
+        );
+        let file_checkpoint = PostgresFileCheckpointStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "file_checkpoint").await?,
+        );
+        let trigger = PostgresTriggerStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "trigger").await?,
+        );
+        let tool = PostgresToolStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "tool").await?,
+        );
+        let script = PostgresScriptStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "script").await?,
+        );
+        let node_template = PostgresNodeTemplateStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "node_template").await?,
+        );
+        let hook_template = PostgresHookTemplateStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "hook_template").await?,
+        );
+        let agent_profile = PostgresAgentProfileStorage::new(
+            PostgresStorage::new(&pg_config.connection_string, "agent_profile").await?,
+        );
 
         self.backend = Some(StorageBackend::Postgres {
             workflow,
@@ -344,33 +393,39 @@ impl StorageManager {
     }
 
     pub fn workflow(&self) -> RuntimeResult<&dyn wf_storage::domain::store::Store> {
-        Ok(match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
-            StorageBackend::Memory { workflow, .. } => workflow.store(),
-            #[cfg(feature = "sqlite")]
-            StorageBackend::SQLite { workflow, .. } => workflow.store(),
-            #[cfg(feature = "postgres")]
-            StorageBackend::Postgres { workflow, .. } => workflow.store(),
-        })
+        Ok(
+            match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
+                StorageBackend::Memory { workflow, .. } => workflow.store(),
+                #[cfg(feature = "sqlite")]
+                StorageBackend::SQLite { workflow, .. } => workflow.store(),
+                #[cfg(feature = "postgres")]
+                StorageBackend::Postgres { workflow, .. } => workflow.store(),
+            },
+        )
     }
 
     pub fn execution(&self) -> RuntimeResult<&dyn wf_storage::domain::store::Store> {
-        Ok(match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
-            StorageBackend::Memory { execution, .. } => execution.store(),
-            #[cfg(feature = "sqlite")]
-            StorageBackend::SQLite { execution, .. } => execution.store(),
-            #[cfg(feature = "postgres")]
-            StorageBackend::Postgres { execution, .. } => execution.store(),
-        })
+        Ok(
+            match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
+                StorageBackend::Memory { execution, .. } => execution.store(),
+                #[cfg(feature = "sqlite")]
+                StorageBackend::SQLite { execution, .. } => execution.store(),
+                #[cfg(feature = "postgres")]
+                StorageBackend::Postgres { execution, .. } => execution.store(),
+            },
+        )
     }
 
     pub fn checkpoint(&self) -> RuntimeResult<&dyn wf_storage::domain::store::Store> {
-        Ok(match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
-            StorageBackend::Memory { checkpoint, .. } => checkpoint.store(),
-            #[cfg(feature = "sqlite")]
-            StorageBackend::SQLite { checkpoint, .. } => checkpoint.store(),
-            #[cfg(feature = "postgres")]
-            StorageBackend::Postgres { checkpoint, .. } => checkpoint.store(),
-        })
+        Ok(
+            match self.backend.as_ref().ok_or(RuntimeError::NotInitialized)? {
+                StorageBackend::Memory { checkpoint, .. } => checkpoint.store(),
+                #[cfg(feature = "sqlite")]
+                StorageBackend::SQLite { checkpoint, .. } => checkpoint.store(),
+                #[cfg(feature = "postgres")]
+                StorageBackend::Postgres { checkpoint, .. } => checkpoint.store(),
+            },
+        )
     }
 
     pub async fn close(&mut self) -> RuntimeResult<()> {

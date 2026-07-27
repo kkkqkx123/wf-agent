@@ -1,7 +1,7 @@
+pub mod agent;
 mod base;
 pub mod workflow;
-pub mod agent;
 
+pub use agent::{AgentCheckpointCoordinator, AgentLoopEntity};
 pub use base::CheckpointCoordinator;
 pub use workflow::{WorkflowCheckpointCoordinator, WorkflowExecutionEntity};
-pub use agent::{AgentCheckpointCoordinator, AgentLoopEntity};

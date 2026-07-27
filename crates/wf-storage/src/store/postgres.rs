@@ -12,10 +12,7 @@ pub struct PostgresStorage {
 }
 
 impl PostgresStorage {
-    pub async fn new(
-        connection_string: &str,
-        table_name: &str,
-    ) -> Result<Self, StorageError> {
+    pub async fn new(connection_string: &str, table_name: &str) -> Result<Self, StorageError> {
         let pool = create_pg_pool(connection_string).await?;
         Self::with_pool(pool, table_name).await
     }
@@ -74,11 +71,7 @@ impl PostgresStorage {
         &self.table_name
     }
 
-    pub async fn update_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<(), StorageError> {
+    pub async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let sql = format!(
             "UPDATE {} SET metadata = jsonb_set(metadata, '{{status}}', $1::jsonb), updated_at = $2 WHERE id = $3",
@@ -101,12 +94,7 @@ impl PostgresStorage {
 
 #[async_trait]
 impl Store for PostgresStorage {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let hash = crate::util::hash::compute_hash(data);
         let data_size = data.len() as i64;
@@ -146,24 +134,20 @@ impl Store for PostgresStorage {
         Ok(())
     }
 
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         let sql = format!(
             "SELECT data, metadata FROM {} WHERE id = $1",
             self.table_name
         );
-        let result: Option<(Vec<u8>, Value)> =
-            sqlx::query_as(&sql)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::General {
-                    operation: "load".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+        let result: Option<(Vec<u8>, Value)> = sqlx::query_as(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "load".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
 
         Ok(result)
     }
@@ -233,13 +217,14 @@ impl Store for PostgresStorage {
             query = query.bind(param.as_str());
         }
 
-        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
-            StorageError::General {
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
                 operation: "list".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
-            }
-        })?;
+            })?;
 
         Ok(rows)
     }
@@ -295,32 +280,29 @@ impl Store for PostgresStorage {
             query = query.bind(param.as_str());
         }
 
-        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
-            StorageError::General {
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
                 operation: "list_data".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
-            }
-        })?;
+            })?;
 
         Ok(rows)
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE id = $1 LIMIT 1",
-            self.table_name
-        );
-        let result: Option<(i32,)> =
-            sqlx::query_as(&sql)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::General {
-                    operation: "exists".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+        let sql = format!("SELECT 1 FROM {} WHERE id = $1 LIMIT 1", self.table_name);
+        let result: Option<(i32,)> = sqlx::query_as(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "exists".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
         Ok(result.is_some())
     }
 
@@ -369,8 +351,10 @@ impl BatchStore for PostgresStorage {
         let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
         let datas: Vec<&[u8]> = items.iter().map(|i| i.data.as_slice()).collect();
         let metadatas: Vec<&Value> = items.iter().map(|i| &i.metadata).collect();
-        let hashes: Vec<String> =
-            items.iter().map(|i| crate::util::hash::compute_hash(&i.data)).collect();
+        let hashes: Vec<String> = items
+            .iter()
+            .map(|i| crate::util::hash::compute_hash(&i.data))
+            .collect();
         let hashes_ref: Vec<&str> = hashes.iter().map(|h| h.as_str()).collect();
         let sizes: Vec<i64> = items.iter().map(|i| i.data.len() as i64).collect();
         let compresseds: Vec<bool> = items
@@ -417,10 +401,7 @@ impl BatchStore for PostgresStorage {
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
-        let sql = format!(
-            "DELETE FROM {} WHERE id = ANY($1)",
-            self.table_name
-        );
+        let sql = format!("DELETE FROM {} WHERE id = ANY($1)", self.table_name);
         sqlx::query(&sql)
             .bind(ids)
             .execute(&self.pool)

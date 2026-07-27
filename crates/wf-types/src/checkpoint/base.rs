@@ -3,6 +3,15 @@ use serde::{Deserialize, Serialize};
 pub type SnapshotVersion = u32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckpointStatus {
+    Active,
+    Completed,
+    Expired,
+    Corrupted,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SnapshotBase {
     pub _version: SnapshotVersion,
     pub _timestamp: super::super::Timestamp,

@@ -1,8 +1,6 @@
 use crate::error::CheckpointError;
-use async_trait::async_trait;
 use wf_types::checkpoint::{CheckpointContext, CheckpointTrigger, DeltaStorageConfig};
 
-#[async_trait]
 pub trait CheckpointCoordinator: Send + Sync {
     type Checkpoint: Send + Sync;
     type Entity: Send + Sync;

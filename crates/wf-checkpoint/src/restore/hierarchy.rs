@@ -89,8 +89,7 @@ impl ChildCheckpointResolver for CachedChildResolver {
             return cached.clone();
         }
         let children = self.inner.resolve_children(parent_id);
-        self.cache
-            .insert(parent_id.to_string(), children.clone());
+        self.cache.insert(parent_id.to_string(), children.clone());
         children
     }
 
@@ -173,16 +172,20 @@ impl HierarchyRestorer {
 }
 
 pub trait CheckpointLoader: Send + Sync {
-    fn load_metadata(
-        &self,
-        id: &str,
-    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
+    fn load_metadata(&self, id: &str)
+        -> Result<Option<CheckpointStorageMetadata>, CheckpointError>;
 }
 
 #[derive(Debug, Clone)]
 pub enum RestoreResult {
-    Success { checkpoint_id: String, depth: usize },
-    Failed { checkpoint_id: String, error: String },
+    Success {
+        checkpoint_id: String,
+        depth: usize,
+    },
+    Failed {
+        checkpoint_id: String,
+        error: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -317,7 +320,7 @@ mod tests {
                     entity_id: "test-entity".to_string(),
                     checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
                     timestamp: 0,
-                    status: "completed".to_string(),
+                    status: wf_types::checkpoint::CheckpointStatus::Completed,
                 }))
             }
         }

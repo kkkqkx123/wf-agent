@@ -83,6 +83,27 @@ impl Entity for wf_types::TaskStorageMetadata {
     }
 }
 
+impl Entity for wf_types::AgentExecution {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "agent_execution"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "definitionId": self.definition_id,
+            "status": self.status,
+            "currentIteration": self.current_iteration,
+            "toolCallCount": self.tool_call_count,
+        })
+    }
+}
+
 impl Entity for wf_types::AgentLoopStorageMetadata {
     type Metadata = Value;
 

@@ -1,7 +1,6 @@
 use crate::error::CheckpointError;
-use crate::state::CheckpointStateManager;
 use crate::state::storage::StorageBackedStateManager;
-use async_trait::async_trait;
+use crate::state::CheckpointStateManager;
 use std::sync::Arc;
 use wf_storage::domain::store::Store;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
@@ -26,13 +25,12 @@ impl<S: Store> WorkflowCheckpointStateManager<S> {
 
 impl Default for WorkflowCheckpointStateManager<wf_storage::store::memory::MemoryStorage> {
     fn default() -> Self {
-        Self::new(std::sync::Arc::new(wf_storage::store::memory::MemoryStorage::new(
-            "default",
-        )))
+        Self::new(std::sync::Arc::new(
+            wf_storage::store::memory::MemoryStorage::new("default"),
+        ))
     }
 }
 
-#[async_trait]
 impl<S: Store + Send + Sync> CheckpointStateManager for WorkflowCheckpointStateManager<S> {
     type Checkpoint = WorkflowCheckpoint;
 
@@ -136,9 +134,7 @@ mod tests {
             let mut cp = make_checkpoint();
             cp.id = format!("cp-{}", i);
             cp.timestamp = i as i64 * 1000;
-            mgr.save(&cp, "workflow_execution", "exec-1")
-                .await
-                .unwrap();
+            mgr.save(&cp, "workflow_execution", "exec-1").await.unwrap();
         }
 
         let all = mgr.list_by_entity("exec-1").await.unwrap();

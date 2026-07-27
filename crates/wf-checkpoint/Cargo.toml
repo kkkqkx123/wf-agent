@@ -10,9 +10,9 @@ chrono.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+async-trait.workspace = true
 
 dashmap = { workspace = true }
-async-trait = { workspace = true }
 bincode = { workspace = true }
 moka = { workspace = true }
 

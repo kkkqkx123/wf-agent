@@ -6,7 +6,6 @@ use crate::event::CheckpointEventBus;
 use crate::state::CheckpointStateManager;
 use crate::state::WorkflowCheckpoint;
 use crate::state::WorkflowCheckpointStateManager;
-use async_trait::async_trait;
 use wf_storage::domain::store::Store;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
@@ -47,7 +46,6 @@ impl Default for WorkflowCheckpointCoordinator<wf_storage::store::memory::Memory
     }
 }
 
-#[async_trait]
 impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordinator<S> {
     type Checkpoint = WorkflowCheckpoint;
     type Entity = WorkflowExecutionEntity;
@@ -166,16 +164,17 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
 
         match checkpoint.r#type {
             Some(CheckpointType::Full) => {
-                let snapshot = checkpoint.snapshot.ok_or_else(|| {
-                    CheckpointError::Corrupted {
+                let snapshot = checkpoint
+                    .snapshot
+                    .ok_or_else(|| CheckpointError::Corrupted {
                         id: checkpoint_id.to_string(),
                         reason: "full checkpoint missing snapshot".to_string(),
-                    }
-                })?;
+                    })?;
 
                 Ok(WorkflowExecutionEntity {
-                    execution_id: snapshot.execution_id,
-                    status: snapshot.status,
+                    execution_id: snapshot.execution_id.clone(),
+                    status: snapshot.status.clone(),
+                    snapshot,
                 })
             }
             Some(CheckpointType::Delta) => {
@@ -187,20 +186,20 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
                 })?;
                 let base_id = base_id.clone();
 
-                let base_checkpoint = self
-                    .state_manager
-                    .load(&base_id)
-                    .await?
-                    .ok_or_else(|| CheckpointError::NotFound {
-                        id: base_id.clone(),
+                let base_checkpoint =
+                    self.state_manager.load(&base_id).await?.ok_or_else(|| {
+                        CheckpointError::NotFound {
+                            id: base_id.clone(),
+                        }
                     })?;
 
-                let mut state = base_checkpoint.snapshot.ok_or_else(|| {
-                    CheckpointError::Corrupted {
-                        id: base_id.clone(),
-                        reason: "base checkpoint missing snapshot".to_string(),
-                    }
-                })?;
+                let mut state =
+                    base_checkpoint
+                        .snapshot
+                        .ok_or_else(|| CheckpointError::Corrupted {
+                            id: base_id.clone(),
+                            reason: "base checkpoint missing snapshot".to_string(),
+                        })?;
 
                 let mut current_id = checkpoint.previous_checkpoint_id.clone();
                 let mut chain = Vec::new();
@@ -226,8 +225,9 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
                 }
 
                 Ok(WorkflowExecutionEntity {
-                    execution_id: state.execution_id,
-                    status: state.status,
+                    execution_id: state.execution_id.clone(),
+                    status: state.status.clone(),
+                    snapshot: state,
                 })
             }
             None => Err(CheckpointError::Corrupted {
@@ -262,6 +262,7 @@ impl<S: Store> WorkflowCheckpointCoordinator<S> {
 pub struct WorkflowExecutionEntity {
     pub execution_id: String,
     pub status: String,
+    pub snapshot: WorkflowExecutionStateSnapshot,
 }
 
 #[cfg(test)]

@@ -69,16 +69,8 @@ impl BatchItem {
 
 #[async_trait]
 pub trait Store: Send + Sync {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError>;
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError>;
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError>;
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError>;
     async fn delete(&self, id: &str) -> Result<(), StorageError>;
     async fn list(
         &self,

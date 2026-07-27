@@ -46,6 +46,7 @@ pub use todo::*;
 pub use tool_description::*;
 pub use user_config::*;
 
+pub use agent_execution::AgentExecution;
 pub use execution::ExecutionStatus;
 pub use storage::AgentLoopStorageMetadata;
 pub use storage::AgentProfileStorageMetadata;

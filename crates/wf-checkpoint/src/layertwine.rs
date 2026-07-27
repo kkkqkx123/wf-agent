@@ -1,8 +1,6 @@
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[async_trait]
 pub trait GitCheckpointAdapter: Send + Sync {
     async fn save_checkpoint(
         &self,
@@ -11,9 +9,13 @@ pub trait GitCheckpointAdapter: Send + Sync {
         metadata: &HashMap<String, String>,
     ) -> Result<(), LayertwineError>;
 
-    async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<Vec<u8>>, LayertwineError>;
+    async fn get_checkpoint(&self, checkpoint_id: &str)
+        -> Result<Option<Vec<u8>>, LayertwineError>;
 
-    async fn list_checkpoints(&self, parent_id: Option<&str>) -> Result<Vec<String>, LayertwineError>;
+    async fn list_checkpoints(
+        &self,
+        parent_id: Option<&str>,
+    ) -> Result<Vec<String>, LayertwineError>;
 
     async fn batch_save(
         &self,
@@ -56,7 +58,6 @@ impl Default for InMemoryGitAdapter {
     }
 }
 
-#[async_trait]
 impl GitCheckpointAdapter for InMemoryGitAdapter {
     async fn save_checkpoint(
         &self,
@@ -71,7 +72,10 @@ impl GitCheckpointAdapter for InMemoryGitAdapter {
         Ok(())
     }
 
-    async fn get_checkpoint(&self, checkpoint_id: &str) -> Result<Option<Vec<u8>>, LayertwineError> {
+    async fn get_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> Result<Option<Vec<u8>>, LayertwineError> {
         let branches = self.branches.read().await;
         Ok(branches.get(checkpoint_id).cloned())
     }
@@ -123,7 +127,9 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
             "timestamp".to_string(),
             chrono::Utc::now().timestamp_millis().to_string(),
         );
-        self.adapter.save_checkpoint(checkpoint_id, data, &meta).await
+        self.adapter
+            .save_checkpoint(checkpoint_id, data, &meta)
+            .await
     }
 
     pub async fn load(&self, checkpoint_id: &str) -> Result<Option<Vec<u8>>, LayertwineError> {

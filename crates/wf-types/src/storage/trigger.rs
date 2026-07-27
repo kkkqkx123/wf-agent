@@ -10,5 +10,3 @@ pub struct TriggerStorageMetadata {
     pub created_at: super::super::Timestamp,
     pub updated_at: super::super::Timestamp,
 }
-
-

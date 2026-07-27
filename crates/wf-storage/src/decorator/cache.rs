@@ -120,27 +120,20 @@ impl<S: Store> CachingStore<S> {
 
 #[async_trait]
 impl<S: Store> Store for CachingStore<S> {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         self.inner.save(id, data, metadata).await?;
         self.cache.invalidate(id);
         Ok(())
     }
 
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         if let Some(entry) = self.cache.get(id) {
             return Ok(Some(entry));
         }
         match self.inner.load(id).await? {
             Some(entry) => {
-                self.cache.insert(id.to_string(), entry.0.clone(), entry.1.clone());
+                self.cache
+                    .insert(id.to_string(), entry.0.clone(), entry.1.clone());
                 Ok(Some(entry))
             }
             None => Ok(None),

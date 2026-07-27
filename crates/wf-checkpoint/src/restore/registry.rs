@@ -1,7 +1,8 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 
-pub type RestoreFn = Arc<dyn Fn(&str, &[u8]) -> Result<(), crate::error::CheckpointError> + Send + Sync>;
+pub type RestoreFn =
+    Arc<dyn Fn(&str, &[u8]) -> Result<(), crate::error::CheckpointError> + Send + Sync>;
 
 pub struct RestoreStrategyRegistry {
     strategies: DashMap<String, RestoreFn>,
@@ -19,7 +20,9 @@ impl RestoreStrategyRegistry {
     }
 
     pub fn get(&self, entity_type: &str) -> Option<RestoreFn> {
-        self.strategies.get(entity_type).map(|entry| entry.value().clone())
+        self.strategies
+            .get(entity_type)
+            .map(|entry| entry.value().clone())
     }
 
     pub fn is_registered(&self, entity_type: &str) -> bool {
@@ -69,13 +72,16 @@ mod tests {
     #[test]
     fn execute_handler() {
         let registry = RestoreStrategyRegistry::new();
-        registry.register("test", Arc::new(|id, _data| {
-            if id == "ok" {
-                Ok(())
-            } else {
-                Err(crate::error::CheckpointError::Internal("bad".to_string()))
-            }
-        }));
+        registry.register(
+            "test",
+            Arc::new(|id, _data| {
+                if id == "ok" {
+                    Ok(())
+                } else {
+                    Err(crate::error::CheckpointError::Internal("bad".to_string()))
+                }
+            }),
+        );
 
         let handler = registry.get("test").unwrap();
         assert!(handler("ok", b"").is_ok());

@@ -10,12 +10,12 @@ chrono.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+async-trait.workspace = true
 wf-types = { path = "../wf-types" }
 uuid.workspace = true
 
 sqlx = { workspace = true, optional = true }
 
-async-trait = "0.1"
 moka = { version = "0.12", features = ["sync"] }
 sha2 = "0.10"
 flate2 = "1.0"

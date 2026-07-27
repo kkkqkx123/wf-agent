@@ -6,6 +6,7 @@ pub mod record;
 pub mod result;
 pub mod runtime_config;
 pub mod status;
+pub mod task;
 pub mod triggers;
 
 pub use context::*;
@@ -16,4 +17,5 @@ pub use record::*;
 pub use result::*;
 pub use runtime_config::*;
 pub use status::*;
+pub use task::*;
 pub use triggers::*;

@@ -1,7 +1,6 @@
 use crate::error::CheckpointError;
-use crate::state::CheckpointStateManager;
 use crate::state::storage::StorageBackedStateManager;
-use async_trait::async_trait;
+use crate::state::CheckpointStateManager;
 use std::sync::Arc;
 use wf_storage::domain::store::Store;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
@@ -25,13 +24,12 @@ impl<S: Store> AgentCheckpointStateManager<S> {
 
 impl Default for AgentCheckpointStateManager<wf_storage::store::memory::MemoryStorage> {
     fn default() -> Self {
-        Self::new(std::sync::Arc::new(wf_storage::store::memory::MemoryStorage::new(
-            "default",
-        )))
+        Self::new(std::sync::Arc::new(
+            wf_storage::store::memory::MemoryStorage::new("default"),
+        ))
     }
 }
 
-#[async_trait]
 impl<S: Store + Send + Sync> CheckpointStateManager for AgentCheckpointStateManager<S> {
     type Checkpoint = AgentCheckpoint;
 

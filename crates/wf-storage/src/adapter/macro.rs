@@ -40,48 +40,35 @@ macro_rules! make_base_adapter {
                 Ok(())
             }
 
-                async fn save(
-                    &self,
-                    entity: &$entity,
-                ) -> Result<(), $crate::error::StorageError> {
-                    self.entity_store.save(entity).await
-                }
+            async fn save(&self, entity: &$entity) -> Result<(), $crate::error::StorageError> {
+                self.entity_store.save(entity).await
+            }
 
-                async fn load(
-                    &self,
-                    id: &str,
-                ) -> Result<Option<$entity>, $crate::error::StorageError> {
-                    self.entity_store.load(id).await
-                }
+            async fn load(&self, id: &str) -> Result<Option<$entity>, $crate::error::StorageError> {
+                self.entity_store.load(id).await
+            }
 
-                async fn delete(
-                    &self,
-                    id: &str,
-                ) -> Result<bool, $crate::error::StorageError> {
-                    let existed = self.entity_store.exists(id).await?;
-                    self.entity_store.delete(id).await?;
-                    Ok(existed)
-                }
+            async fn delete(&self, id: &str) -> Result<bool, $crate::error::StorageError> {
+                let existed = self.entity_store.exists(id).await?;
+                self.entity_store.delete(id).await?;
+                Ok(existed)
+            }
 
-                async fn list(
-                    &self,
-                    options: Option<$list_ty>,
-                ) -> Result<Vec<$entity>, $crate::error::StorageError> {
-                    let filter: Option<$crate::domain::QueryFilter> =
-                        options.map(Into::into);
-                    self.entity_store.list(filter.as_ref()).await
-                }
+            async fn list(
+                &self,
+                options: Option<$list_ty>,
+            ) -> Result<Vec<$entity>, $crate::error::StorageError> {
+                let filter: Option<$crate::domain::QueryFilter> = options.map(Into::into);
+                self.entity_store.list(filter.as_ref()).await
+            }
 
-                async fn clear(&self) -> Result<(), $crate::error::StorageError> {
-                    self.entity_store.clear().await
-                }
+            async fn clear(&self) -> Result<(), $crate::error::StorageError> {
+                self.entity_store.clear().await
+            }
 
-                async fn exists(
-                    &self,
-                    id: &str,
-                ) -> Result<bool, $crate::error::StorageError> {
-                    self.entity_store.exists(id).await
-                }
+            async fn exists(&self, id: &str) -> Result<bool, $crate::error::StorageError> {
+                self.entity_store.exists(id).await
+            }
         }
     };
 }

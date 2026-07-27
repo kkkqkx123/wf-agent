@@ -1,6 +1,6 @@
+use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
-use crate::adapter::base::BaseStorageAdapter;
 
 #[derive(Debug, Clone, Default)]
 pub struct TriggerListOptions {
@@ -21,7 +21,9 @@ impl From<TriggerListOptions> for QueryFilter {
             filter.fields.insert("event".to_string(), event);
         }
         if let Some(enabled) = opts.enabled_filter {
-            filter.fields.insert("enabled".to_string(), enabled.to_string());
+            filter
+                .fields
+                .insert("enabled".to_string(), enabled.to_string());
         }
         filter
     }

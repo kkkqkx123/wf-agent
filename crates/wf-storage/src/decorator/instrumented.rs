@@ -76,12 +76,7 @@ impl<S: Store> InstrumentedStore<S> {
 
 #[async_trait]
 impl<S: Store> Store for InstrumentedStore<S> {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let start = Instant::now();
         let result = self.inner.save(id, data, metadata).await;
         let elapsed = start.elapsed().as_millis() as u64;
@@ -89,10 +84,7 @@ impl<S: Store> Store for InstrumentedStore<S> {
         result
     }
 
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         let start = Instant::now();
         let result = self.inner.load(id).await;
         let elapsed = start.elapsed().as_millis() as u64;

@@ -10,5 +10,3 @@ pub struct FileCheckpointStorageMetadata {
     pub compressed: bool,
     pub created_at: super::super::Timestamp,
 }
-
-

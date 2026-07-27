@@ -114,7 +114,7 @@ mod tests {
             entity_id: "entity-1".to_string(),
             checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
             timestamp: timestamp_ms,
-            status: "completed".to_string(),
+            status: wf_types::checkpoint::CheckpointStatus::Completed,
         }
     }
 
@@ -126,8 +126,12 @@ mod tests {
             make_checkpoint("new", now - 1_000),
         ];
         let executor = CleanupExecutor::new();
-        let to_remove =
-            executor.evaluate(&checkpoints, &CleanupStrategy::TimeBased { max_age_seconds: 1800 });
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::TimeBased {
+                max_age_seconds: 1800,
+            },
+        );
         assert_eq!(to_remove, vec!["old"]);
     }
 
@@ -140,8 +144,10 @@ mod tests {
             make_checkpoint("c3", now - 3000),
         ];
         let executor = CleanupExecutor::new();
-        let to_remove =
-            executor.evaluate(&checkpoints, &CleanupStrategy::CountBased { max_checkpoints: 2 });
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::CountBased { max_checkpoints: 2 },
+        );
         assert_eq!(to_remove, vec!["c1"]);
     }
 
@@ -150,8 +156,12 @@ mod tests {
         let now = chrono::Utc::now().timestamp_millis();
         let checkpoints = vec![make_checkpoint("c1", now - 5000)];
         let executor = CleanupExecutor::new();
-        let to_remove =
-            executor.evaluate(&checkpoints, &CleanupStrategy::CountBased { max_checkpoints: 10 });
+        let to_remove = executor.evaluate(
+            &checkpoints,
+            &CleanupStrategy::CountBased {
+                max_checkpoints: 10,
+            },
+        );
         assert!(to_remove.is_empty());
     }
 
@@ -168,7 +178,9 @@ mod tests {
             &checkpoints,
             &CleanupStrategy::Tiered(vec![
                 CleanupStrategy::CountBased { max_checkpoints: 2 },
-                CleanupStrategy::TimeBased { max_age_seconds: 7200 },
+                CleanupStrategy::TimeBased {
+                    max_age_seconds: 7200,
+                },
             ]),
         );
         assert!(to_remove.contains(&"old".to_string()));

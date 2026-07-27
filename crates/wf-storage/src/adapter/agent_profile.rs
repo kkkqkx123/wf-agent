@@ -1,6 +1,6 @@
+use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
-use crate::adapter::base::BaseStorageAdapter;
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentProfileListOptions {
@@ -21,7 +21,9 @@ impl From<AgentProfileListOptions> for QueryFilter {
             filter.fields.insert("name".to_string(), name);
         }
         if let Some(is_default) = opts.is_default {
-            filter.fields.insert("isDefault".to_string(), is_default.to_string());
+            filter
+                .fields
+                .insert("isDefault".to_string(), is_default.to_string());
         }
         filter
     }
@@ -30,5 +32,7 @@ impl From<AgentProfileListOptions> for QueryFilter {
 pub trait AgentProfileStorageAdapter:
     BaseStorageAdapter<wf_types::AgentProfileStorageMetadata, AgentProfileListOptions>
 {
-    async fn get_first(&self) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError>;
+    async fn get_first(
+        &self,
+    ) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError>;
 }

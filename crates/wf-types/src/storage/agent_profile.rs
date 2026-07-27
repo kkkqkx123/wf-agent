@@ -9,5 +9,3 @@ pub struct AgentProfileStorageMetadata {
     pub created_at: super::super::Timestamp,
     pub updated_at: super::super::Timestamp,
 }
-
-

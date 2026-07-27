@@ -1,8 +1,6 @@
 use crate::error::CheckpointError;
-use async_trait::async_trait;
 use wf_types::storage::CheckpointStorageMetadata;
 
-#[async_trait]
 pub trait CheckpointStateManager: Send + Sync {
     type Checkpoint: Send + Sync;
 

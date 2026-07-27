@@ -4,9 +4,9 @@ use serde_json::Value;
 
 use crate::domain::entity::Entity;
 use crate::domain::store::{BatchItem, BatchStore, QueryFilter, Store};
+use crate::error::StorageError;
 use crate::util::compression::{maybe_compress, maybe_decompress};
 use crate::util::hash::compute_hash;
-use crate::error::StorageError;
 
 pub struct EntityStore<S, T> {
     storage: S,
@@ -72,10 +72,7 @@ where
         self.storage.delete(id).await
     }
 
-    pub async fn list(
-        &self,
-        filter: Option<&QueryFilter>,
-    ) -> Result<Vec<T>, StorageError> {
+    pub async fn list(&self, filter: Option<&QueryFilter>) -> Result<Vec<T>, StorageError> {
         let entries = self.storage.list_data(filter).await?;
         let mut results = Vec::with_capacity(entries.len());
         for (data, metadata) in entries {
@@ -139,7 +136,11 @@ where
                     full_metadata = Value::Object(map);
                 }
 
-                Ok(BatchItem::new(e.entity_id().to_string(), compressed, full_metadata))
+                Ok(BatchItem::new(
+                    e.entity_id().to_string(),
+                    compressed,
+                    full_metadata,
+                ))
             })
             .collect();
         self.storage.save_batch(&items?).await
@@ -149,5 +150,3 @@ where
         self.storage.delete_batch(ids).await
     }
 }
-
-

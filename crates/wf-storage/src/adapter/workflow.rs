@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
-use crate::adapter::base::BaseStorageAdapter;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowListOptions {
@@ -28,7 +28,9 @@ impl From<WorkflowListOptions> for QueryFilter {
     }
 }
 
-pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowDefinition, WorkflowListOptions> {
+pub trait WorkflowStorageAdapter:
+    BaseStorageAdapter<wf_types::WorkflowDefinition, WorkflowListOptions>
+{
     async fn update_metadata(
         &self,
         id: &str,
@@ -53,9 +55,5 @@ pub trait WorkflowStorageAdapter: BaseStorageAdapter<wf_types::WorkflowDefinitio
         version: &str,
     ) -> Result<Option<wf_types::WorkflowDefinition>, StorageError>;
 
-    async fn delete_version(
-        &self,
-        workflow_id: &str,
-        version: &str,
-    ) -> Result<bool, StorageError>;
+    async fn delete_version(&self, workflow_id: &str, version: &str) -> Result<bool, StorageError>;
 }

@@ -108,11 +108,7 @@ impl SqliteStorage {
         &self.table_name
     }
 
-    pub async fn update_status(
-        &self,
-        id: &str,
-        status: &str,
-    ) -> Result<(), StorageError> {
+    pub async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let sql = format!(
             "UPDATE {} SET metadata = json_set(metadata, '$.status', ?1), updated_at = ?2 WHERE id = ?3",
@@ -135,12 +131,7 @@ impl SqliteStorage {
 
 #[async_trait]
 impl Store for SqliteStorage {
-    async fn save(
-        &self,
-        id: &str,
-        data: &[u8],
-        metadata: &Value,
-    ) -> Result<(), StorageError> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let hash = crate::util::hash::compute_hash(data);
         let data_size = data.len() as i64;
@@ -174,24 +165,20 @@ impl Store for SqliteStorage {
         Ok(())
     }
 
-    async fn load(
-        &self,
-        id: &str,
-    ) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         let sql = format!(
             "SELECT data, metadata FROM {} WHERE id = ?1",
             self.table_name
         );
-        let result: Option<(Vec<u8>, String)> =
-            sqlx::query_as(&sql)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::General {
-                    operation: "load".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+        let result: Option<(Vec<u8>, String)> = sqlx::query_as(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "load".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
 
         match result {
             Some((data, metadata_str)) => {
@@ -263,13 +250,14 @@ impl Store for SqliteStorage {
             query = query.bind(param);
         }
 
-        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
-            StorageError::General {
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
                 operation: "list".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
-            }
-        })?;
+            })?;
 
         rows.into_iter()
             .map(|(id, metadata_str)| {
@@ -326,13 +314,14 @@ impl Store for SqliteStorage {
             query = query.bind(param);
         }
 
-        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
-            StorageError::General {
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
                 operation: "list_data".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
-            }
-        })?;
+            })?;
 
         rows.into_iter()
             .map(|(data, metadata_str)| {
@@ -343,20 +332,16 @@ impl Store for SqliteStorage {
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE id = ?1 LIMIT 1",
-            self.table_name
-        );
-        let result: Option<(i64,)> =
-            sqlx::query_as(&sql)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StorageError::General {
-                    operation: "exists".into(),
-                    message: e.to_string(),
-                    source: Some(Box::new(e)),
-                })?;
+        let sql = format!("SELECT 1 FROM {} WHERE id = ?1 LIMIT 1", self.table_name);
+        let result: Option<(i64,)> = sqlx::query_as(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "exists".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
         Ok(result.is_some())
     }
 
@@ -383,8 +368,7 @@ impl BatchStore for SqliteStorage {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let placeholders: Vec<String> =
-            (0..ids.len()).map(|_| "?".to_string()).collect();
+        let placeholders: Vec<String> = (0..ids.len()).map(|_| "?".to_string()).collect();
         let sql = format!(
             "SELECT id, data, metadata FROM {} WHERE id IN ({})",
             self.table_name,
@@ -394,13 +378,14 @@ impl BatchStore for SqliteStorage {
         for id in ids {
             query = query.bind(id);
         }
-        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
-            StorageError::General {
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
                 operation: "load_batch".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
-            }
-        })?;
+            })?;
         rows.into_iter()
             .map(|(id, data, metadata_str)| {
                 let metadata: Value = serde_json::from_str(&metadata_str)?;
@@ -410,12 +395,10 @@ impl BatchStore for SqliteStorage {
     }
 
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            StorageError::General {
-                operation: "save_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            }
+        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
+            operation: "save_batch".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
         })?;
 
         for chunk in items.chunks(500) {
@@ -450,13 +433,14 @@ impl BatchStore for SqliteStorage {
                     .bind(now)
                     .bind(now);
             }
-            query.execute(&mut *tx).await.map_err(|e| {
-                StorageError::General {
+            query
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| StorageError::General {
                     operation: "save_batch".into(),
                     message: e.to_string(),
                     source: Some(Box::new(e)),
-                }
-            })?;
+                })?;
         }
 
         tx.commit().await.map_err(|e| StorageError::General {
@@ -468,17 +452,14 @@ impl BatchStore for SqliteStorage {
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            StorageError::General {
-                operation: "delete_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            }
+        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
+            operation: "delete_batch".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
         })?;
 
         for chunk in ids.chunks(999) {
-            let placeholders: Vec<String> =
-                (1..=chunk.len()).map(|i| format!("?{}", i)).collect();
+            let placeholders: Vec<String> = (1..=chunk.len()).map(|i| format!("?{}", i)).collect();
             let sql = format!(
                 "DELETE FROM {} WHERE id IN ({})",
                 self.table_name,
@@ -488,13 +469,14 @@ impl BatchStore for SqliteStorage {
             for id in chunk {
                 query = query.bind(id);
             }
-            query.execute(&mut *tx).await.map_err(|e| {
-                StorageError::General {
+            query
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| StorageError::General {
                     operation: "delete_batch".into(),
                     message: e.to_string(),
                     source: Some(Box::new(e)),
-                }
-            })?;
+                })?;
         }
 
         tx.commit().await.map_err(|e| StorageError::General {
@@ -554,7 +536,11 @@ mod tests {
     async fn test_sqlite_save_load() {
         let store = SqliteStorage::new(":memory:", "test").await.unwrap();
         store
-            .save("id1", b"hello world", &serde_json::json!({"entityType": "test"}))
+            .save(
+                "id1",
+                b"hello world",
+                &serde_json::json!({"entityType": "test"}),
+            )
             .await
             .unwrap();
         let (data, meta) = store.load("id1").await.unwrap().unwrap();
@@ -566,11 +552,19 @@ mod tests {
     async fn test_sqlite_list_filter() {
         let store = SqliteStorage::new(":memory:", "test").await.unwrap();
         store
-            .save("id1", b"data1", &serde_json::json!({"entityType": "A", "status": "active"}))
+            .save(
+                "id1",
+                b"data1",
+                &serde_json::json!({"entityType": "A", "status": "active"}),
+            )
             .await
             .unwrap();
         store
-            .save("id2", b"data2", &serde_json::json!({"entityType": "B", "status": "inactive"}))
+            .save(
+                "id2",
+                b"data2",
+                &serde_json::json!({"entityType": "B", "status": "inactive"}),
+            )
             .await
             .unwrap();
 
@@ -600,7 +594,11 @@ mod tests {
     async fn test_sqlite_update_status() {
         let store = SqliteStorage::new(":memory:", "test").await.unwrap();
         store
-            .save("exec1", b"data", &serde_json::json!({"entityType": "execution", "status": "pending"}))
+            .save(
+                "exec1",
+                b"data",
+                &serde_json::json!({"entityType": "execution", "status": "pending"}),
+            )
             .await
             .unwrap();
         store.update_status("exec1", "running").await.unwrap();

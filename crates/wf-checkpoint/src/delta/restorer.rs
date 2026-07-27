@@ -39,10 +39,12 @@ where
 
         chain.sort_by_key(|meta| meta.timestamp);
 
-        let base = chain.first().ok_or_else(|| CheckpointError::DeltaChainBroken {
-            checkpoint_id: target_checkpoint_id.to_string(),
-            missing_id: "base".to_string(),
-        })?;
+        let base = chain
+            .first()
+            .ok_or_else(|| CheckpointError::DeltaChainBroken {
+                checkpoint_id: target_checkpoint_id.to_string(),
+                missing_id: "base".to_string(),
+            })?;
 
         let base_data = loader
             .load_checkpoint_data(&base.id)
@@ -116,11 +118,7 @@ impl<SS, DS> GenericDeltaRestorer<SS, DS> {
         })
     }
 
-    async fn apply_delta_to_state(
-        &self,
-        base: SS,
-        _delta: &DS,
-    ) -> Result<SS, CheckpointError> {
+    async fn apply_delta_to_state(&self, base: SS, _delta: &DS) -> Result<SS, CheckpointError> {
         let _ = (base, _delta);
         Err(CheckpointError::Coordinator(
             "delta application not implemented for this type".to_string(),

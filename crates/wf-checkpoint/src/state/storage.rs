@@ -1,6 +1,5 @@
 use crate::error::CheckpointError;
 use crate::serializer::{CheckpointCodec, CheckpointSerializer};
-use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -43,7 +42,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S, T> super::CheckpointStateManager for StorageBackedStateManager<S, T>
 where
     S: Store + Send + Sync,
@@ -62,8 +60,7 @@ where
         let timestamp = extract_field_as_i64(checkpoint, "timestamp")?;
 
         let data = CheckpointSerializer::serialize(checkpoint, CheckpointCodec::Json)?;
-        let metadata =
-            self.build_metadata(&id, entity_type, entity_id, checkpoint_type, timestamp);
+        let metadata = self.build_metadata(&id, entity_type, entity_id, checkpoint_type, timestamp);
 
         self.storage
             .save(&id, &data, &metadata)
@@ -72,7 +69,12 @@ where
     }
 
     async fn load(&self, id: &str) -> Result<Option<Self::Checkpoint>, CheckpointError> {
-        match self.storage.load(id).await.map_err(CheckpointError::Storage)? {
+        match self
+            .storage
+            .load(id)
+            .await
+            .map_err(CheckpointError::Storage)?
+        {
             Some((data, _)) => {
                 let checkpoint = CheckpointSerializer::auto_deserialize(&data)?;
                 Ok(Some(checkpoint))
@@ -82,9 +84,16 @@ where
     }
 
     async fn delete(&self, id: &str) -> Result<bool, CheckpointError> {
-        let exists = self.storage.exists(id).await.map_err(CheckpointError::Storage)?;
+        let exists = self
+            .storage
+            .exists(id)
+            .await
+            .map_err(CheckpointError::Storage)?;
         if exists {
-            self.storage.delete(id).await.map_err(CheckpointError::Storage)?;
+            self.storage
+                .delete(id)
+                .await
+                .map_err(CheckpointError::Storage)?;
             Ok(true)
         } else {
             Ok(false)
@@ -122,11 +131,16 @@ where
                     .unwrap_or(CheckpointType::Full);
 
                 let timestamp = meta.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-                let status = meta
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
+                let status =
+                    meta.get("status")
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| {
+                            serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(
+                                &format!("\"{}\"", s),
+                            )
+                            .ok()
+                        })
+                        .unwrap_or(wf_types::checkpoint::CheckpointStatus::Active);
 
                 CheckpointStorageMetadata {
                     id,
@@ -180,10 +194,7 @@ where
     }
 }
 
-fn extract_field_as_str<T: Serialize>(
-    value: &T,
-    field: &str,
-) -> Result<String, CheckpointError> {
+fn extract_field_as_str<T: Serialize>(value: &T, field: &str) -> Result<String, CheckpointError> {
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
     })?;
@@ -199,11 +210,11 @@ fn extract_field_as_i64<T: Serialize>(value: &T, field: &str) -> Result<i64, Che
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
     })?;
-    json.get(field).and_then(|v| v.as_i64()).ok_or_else(|| {
-        CheckpointError::Validation {
+    json.get(field)
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| CheckpointError::Validation {
             reason: format!("missing field: {}", field),
-        }
-    })
+        })
 }
 
 fn extract_checkpoint_type<T: Serialize>(value: &T) -> Result<CheckpointType, CheckpointError> {

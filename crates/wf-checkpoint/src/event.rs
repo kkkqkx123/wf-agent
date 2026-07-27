@@ -67,7 +67,10 @@ impl CheckpointEventBus {
         })
     }
 
-    pub fn restored(checkpoint_id: impl Into<String>, execution_id: impl Into<String>) -> CheckpointEvent {
+    pub fn restored(
+        checkpoint_id: impl Into<String>,
+        execution_id: impl Into<String>,
+    ) -> CheckpointEvent {
         let exec_id: String = execution_id.into();
         CheckpointEvent::Restored(CheckpointRestoredEvent {
             base: BaseEvent {

@@ -6,7 +6,6 @@ use crate::event::CheckpointEventBus;
 use crate::state::AgentCheckpoint;
 use crate::state::AgentCheckpointStateManager;
 use crate::state::CheckpointStateManager;
-use async_trait::async_trait;
 use wf_storage::domain::store::Store;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
@@ -41,7 +40,6 @@ impl<S: Store> AgentCheckpointCoordinator<S> {
     }
 }
 
-#[async_trait]
 impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinator<S> {
     type Checkpoint = AgentCheckpoint;
     type Entity = AgentLoopEntity;
@@ -155,17 +153,18 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinato
 
         match checkpoint.r#type {
             Some(CheckpointType::Full) => {
-                let snapshot = checkpoint.snapshot.ok_or_else(|| {
-                    CheckpointError::Corrupted {
+                let snapshot = checkpoint
+                    .snapshot
+                    .ok_or_else(|| CheckpointError::Corrupted {
                         id: checkpoint_id.to_string(),
                         reason: "full checkpoint missing snapshot".to_string(),
-                    }
-                })?;
+                    })?;
 
                 Ok(AgentLoopEntity {
-                    agent_loop_id: snapshot.agent_loop_id,
-                    status: snapshot.status,
+                    agent_loop_id: snapshot.agent_loop_id.clone(),
+                    status: snapshot.status.clone(),
                     current_iteration: snapshot.current_iteration,
+                    snapshot,
                 })
             }
             Some(CheckpointType::Delta) => {
@@ -177,20 +176,20 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinato
                 })?;
                 let base_id = base_id.clone();
 
-                let base_checkpoint = self
-                    .state_manager
-                    .load(&base_id)
-                    .await?
-                    .ok_or_else(|| CheckpointError::NotFound {
-                        id: base_id.clone(),
+                let base_checkpoint =
+                    self.state_manager.load(&base_id).await?.ok_or_else(|| {
+                        CheckpointError::NotFound {
+                            id: base_id.clone(),
+                        }
                     })?;
 
-                let mut state = base_checkpoint.snapshot.ok_or_else(|| {
-                    CheckpointError::Corrupted {
-                        id: base_id.clone(),
-                        reason: "base checkpoint missing snapshot".to_string(),
-                    }
-                })?;
+                let mut state =
+                    base_checkpoint
+                        .snapshot
+                        .ok_or_else(|| CheckpointError::Corrupted {
+                            id: base_id.clone(),
+                            reason: "base checkpoint missing snapshot".to_string(),
+                        })?;
 
                 let mut current_id = checkpoint.previous_checkpoint_id.clone();
                 let mut chain = Vec::new();
@@ -216,9 +215,10 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinato
                 }
 
                 Ok(AgentLoopEntity {
-                    agent_loop_id: state.agent_loop_id,
-                    status: state.status,
+                    agent_loop_id: state.agent_loop_id.clone(),
+                    status: state.status.clone(),
                     current_iteration: state.current_iteration,
+                    snapshot: state,
                 })
             }
             None => Err(CheckpointError::Corrupted {
@@ -254,6 +254,7 @@ pub struct AgentLoopEntity {
     pub agent_loop_id: String,
     pub status: String,
     pub current_iteration: u32,
+    pub snapshot: AgentStateSnapshot,
 }
 
 #[cfg(test)]

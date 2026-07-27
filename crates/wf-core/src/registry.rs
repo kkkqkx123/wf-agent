@@ -128,7 +128,8 @@ mod tests {
     #[test]
     fn test_register_and_get() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("value_a".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("value_a".to_string()))
+            .unwrap();
         assert_eq!(reg.get("a"), Some(Arc::new("value_a".to_string())));
         assert!(reg.has("a"));
         assert_eq!(reg.len(), 1);
@@ -137,7 +138,8 @@ mod tests {
     #[test]
     fn test_register_duplicate() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("v1".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("v1".to_string()))
+            .unwrap();
         let result = reg.register("a".to_string(), Arc::new("v2".to_string()));
         assert!(matches!(result, Err(RegistryError::AlreadyExists { .. })));
     }
@@ -145,7 +147,8 @@ mod tests {
     #[test]
     fn test_unregister() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("value_a".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("value_a".to_string()))
+            .unwrap();
         let removed = reg.unregister("a");
         assert_eq!(removed, Some(Arc::new("value_a".to_string())));
         assert!(!reg.has("a"));
@@ -161,8 +164,10 @@ mod tests {
     #[test]
     fn test_list() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("b".to_string(), Arc::new("v_b".to_string())).unwrap();
-        reg.register("a".to_string(), Arc::new("v_a".to_string())).unwrap();
+        reg.register("b".to_string(), Arc::new("v_b".to_string()))
+            .unwrap();
+        reg.register("a".to_string(), Arc::new("v_a".to_string()))
+            .unwrap();
         let mut keys = reg.list();
         keys.sort();
         assert_eq!(keys, vec!["a", "b"]);
@@ -171,8 +176,10 @@ mod tests {
     #[test]
     fn test_clear() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("v_a".to_string())).unwrap();
-        reg.register("b".to_string(), Arc::new("v_b".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("v_a".to_string()))
+            .unwrap();
+        reg.register("b".to_string(), Arc::new("v_b".to_string()))
+            .unwrap();
         reg.clear();
         assert!(reg.is_empty());
         assert_eq!(reg.len(), 0);
@@ -192,21 +199,31 @@ mod tests {
     #[test]
     fn test_register_batch_partial_failure() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("v_a".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("v_a".to_string()))
+            .unwrap();
         let items = vec![
             ("a".to_string(), Arc::new("v_a2".to_string())),
             ("b".to_string(), Arc::new("v_b".to_string())),
         ];
         let result = reg.register_batch(items);
-        assert!(matches!(result, Err(RegistryError::BatchPartialFailure { succeeded: 1, total: 2 })));
+        assert!(matches!(
+            result,
+            Err(RegistryError::BatchPartialFailure {
+                succeeded: 1,
+                total: 2
+            })
+        ));
     }
 
     #[test]
     fn test_unregister_batch() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("v_a".to_string())).unwrap();
-        reg.register("b".to_string(), Arc::new("v_b".to_string())).unwrap();
-        reg.register("c".to_string(), Arc::new("v_c".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("v_a".to_string()))
+            .unwrap();
+        reg.register("b".to_string(), Arc::new("v_b".to_string()))
+            .unwrap();
+        reg.register("c".to_string(), Arc::new("v_c".to_string()))
+            .unwrap();
         let results = reg.unregister_batch(&["a".to_string(), "c".to_string()]);
         assert_eq!(results.len(), 2);
         assert!(results[0].is_some());

@@ -13,8 +13,10 @@ tracing-subscriber.workspace = true
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }
+wf-checkpoint = { path = "../wf-checkpoint", optional = true }
 
 [features]
 default = ["sqlite", "postgres"]
 sqlite = ["wf-storage/sqlite"]
 postgres = ["wf-storage/postgres"]
+checkpoint = ["wf-checkpoint"]

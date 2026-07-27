@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
-use crate::adapter::base::BaseStorageAdapter;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskListOptions {

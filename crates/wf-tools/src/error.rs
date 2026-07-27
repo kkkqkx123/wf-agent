@@ -46,6 +46,9 @@ pub enum ToolError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Execution error: {0}")]
+    ExecutionError(String),
 }
 
 pub type ToolResult<T> = Result<T, ToolError>;

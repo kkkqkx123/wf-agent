@@ -57,7 +57,16 @@ wf-agent/
 │   ├── wf-types/        # Type definitions (serde)
 │   ├── wf-common/       # Common utilities
 │   ├── wf-storage/      # Storage implementations
-│   └── ...              # Future: wf-core, wf-checkpoint, wf-executor, etc.
+│   ├── wf-core/         # EventBus, StateMachine, Registry
+│   ├── wf-checkpoint/    # Checkpoint system
+│   ├── wf-config/        # Configuration processing
+│   ├── wf-tools/         # Tool registry, executors, MCP
+│   ├── wf-llm/           # LLM client abstraction
+│   ├── wf-execution-shared/  # Shared execution infrastructure
+│   ├── wf-agent/         # Agent loop execution engine
+│   ├── wf-workflow/      # Workflow graph execution engine
+│   ├── wf-runtime/       # Runtime bootstrap
+│   └── wf-sandbox/       # Script sandbox
 ├── crates/layertwine/   # Standalone file-edit history (not in workspace)
 ├── package.json
 ├── pnpm-workspace.yaml
@@ -68,6 +77,14 @@ wf-agent/
 
 ```
 wf-types  ←  wf-storage  →  wf-common
+    ↓           ↓
+wf-core ←──────┘
+    ↓
+wf-tools ←──── wf-execution-shared
+    ↓                ↓
+wf-llm         wf-agent
+                   ↓
+              wf-workflow
 ```
 
 :## Rust Development Conventions

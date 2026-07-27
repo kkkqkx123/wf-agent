@@ -15,7 +15,8 @@ pub fn compute_hash(data: &[u8]) -> String {
         hasher.update(&data[mid - SAMPLE_SIZE / 2..mid + SAMPLE_SIZE / 2]);
         hasher.update(&data[data.len() - SAMPLE_SIZE..]);
     }
-    format!("{:x}", hasher.finalize())
+    let result = hasher.finalize();
+    result.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 pub fn verify_integrity(id: &str, data: &[u8], expected: &str) -> Result<(), StorageError> {

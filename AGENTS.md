@@ -14,7 +14,11 @@ Always use English in code, comments, logging, error info. Use Chinese in docs.
 
 The Modular Agent Framework is a monorepo undergoing **Rust migration** (see `docs/plan/rust迁移-分阶段方案.md`). Currently in hybrid state:
 
-### TypeScript Layer (stable)
+### TypeScript Layer (deprecated, read-only reference)
+
+**⚠️ DO NOT MODIFY ANY FILES UNDER `packages/`**
+
+The TypeScript codebase is fully deprecated and serves **only** as a behavioral reference for Rust migration. Do not fix bugs, refactor, add features, or run `tsc`/`lint` on TS files. Any TS changes are wasted effort.
 
 - **SDK Module**: TypeScript workflow execution engine with 15+ node types
 - **Multi-model LLM integration**: OpenAI, Anthropic, Gemini, Mock

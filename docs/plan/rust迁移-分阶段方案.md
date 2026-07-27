@@ -104,25 +104,7 @@ cargo test -p wf-runtime         # ✅ 35 passed
 - [x] `From<WorkflowListOptions> for QueryFilter` 等 6 个转换实现
 - [x] `wf-checkpoint::StorageBackedStateManager.list_by_entity` 从内存过滤升级为 `QueryFilter` 下推
 
-### 剩余工作
-
-```
-wf-storage/src/
-├── adapter/            # 8 个 adapter trait 定义（已有，无 impl）
-│   ├── base.rs         #     BaseStorageAdapter<TEntity, TListOptions>
-│   ├── workflow.rs     #     WorkflowStorageAdapter
-│   ├── execution.rs    #     WorkflowExecutionStorageAdapter
-│   ├── checkpoint.rs   #     CheckpointStorageAdapter
-│   ├── task.rs         #     TaskStorageAdapter
-│   ├── agent_loop.rs   #     AgentLoopStorageAdapter
-│   ├── metrics.rs      #     MetricsStorageAdapter
-│   └── file_checkpoint.rs  # FileCheckpointStorageAdapter
-├── store/
-│   ├── memory.rs       #     MemoryStorage (impl Store + BatchStore)
-│   ├── sqlite.rs       #     SqliteStorage (impl Store + BatchStore + Maintainable)
-│   ├── postgres.rs     #     PostgresStorage (impl Store + BatchStore + Maintainable)
-│   └── entity_store.rs #     EntityStore<S, T> — 泛型类型安全包装
-```
+Phase 1 已全部完成。所有 14 个 adapter 的 trait 定义 + 3 后端具体实现 + EntityStore 绑定已完成。165 测试通过，clippy 无警告。
 
 ### 1.1 为已有的 8 个 trait 实现具体 struct ✅ 已完成
 
@@ -153,7 +135,7 @@ src/
 - 领域方法（`update_status`, `list_versions`, `get_stats` 等）手写在 `concrete.rs` 的 `impl<S: Store> TraitName for Name<S>` 中
 - `MetricsStorageAdapter` 不继承 `BaseStorageAdapter`，直接包装 `Store`
 
-### 1.2 新增缺失的 adapter trait + 实现
+### 1.2 新增缺失的 adapter trait + 实现 ✅ 已完成
 
 TS 有以下 adapter 但 Rust 中既无 trait 也无实现：
 
@@ -166,15 +148,28 @@ TS 有以下 adapter 但 Rust 中既无 trait 也无实现：
 | `HookTemplateStorageAdapter` | packages/storage | trait + impl | CRUD + list_by_hook_type |
 | `AgentProfileStorageAdapter` | packages/storage | trait + impl | CRUD + get_default |
 
-每个 trait 定义在 `adapter/` 下，struct 实现同时在 `store/` 下（与已有 8 个一致）。共计 6 trait × 3 backend = 18 个 struct。
+**实现方式**：与 1.1 相同模式 — `make_base_adapter!` 宏 + 领域方法手写。每个 trait 定义在独立的 `adapter/*.rs` 文件。
 
-### 1.3 更新 wf-runtime::StorageManager
+**新增实体类型**（`wf-types/src/storage/`）：
 
-当具体 adapter struct 实现后，wf-runtime 的 StorageManager 需同步更新：
+| 类型 | 关键字段 | 领域方法 |
+|------|---------|---------|
+| `TriggerStorageMetadata` | id, name, event, enabled | `list_by_event` |
+| `ToolStorageMetadata` | id, tool_id, tool_type, enabled | `get_stats` (按 type 分组) |
+| `ScriptStorageMetadata` | id, name, language, enabled | `list_by_language` |
+| `NodeTemplateStorageMetadata` | id, name, node_type | `list_by_node_type` |
+| `HookTemplateStorageMetadata` | id, name, hook_type | `list_by_hook_type` |
+| `AgentProfileStorageMetadata` | id, profile_id, name | `get_default` (返回第一个) |
 
-- `StorageBackend` 枚举从 3 个字段扩展到全量 adapter 字段
-- accessor 从返回 `&dyn Store` 改为返回具体 adapter 类型（如 `&SqliteWorkflowStorage`）
-- 同时提供 `as_dyn()` 方法返回 `&dyn WorkflowStorageAdapter` 供上层 crate 使用
+**新增文件**：
+- `wf-types/src/storage/trigger.rs` 等 6 文件 — 追加 Metadata struct
+- `wf-storage/src/adapter/trigger.rs` 等 6 文件 — trait + ListOptions + From 转换
+- `wf-storage/src/entity_impl.rs` — 追加 6 个 Entity impl
+- `wf-storage/src/adapter/concrete.rs` — 追加宏调用 + 领域方法 + 18 个 type alias
+
+### 1.3 更新 wf-runtime::StorageManager ✅ 已完成
+
+**实现**：`StorageBackend` 枚举每个 variant 包含 14 个 adapter 字段。accessor 保持返回 `&dyn Store`（通过 adapter 的 `store()` 方法），`clear()` 遍历所有 14 个 adapter 调用 `store().clear()`。
 
 ### 任务概要
 
@@ -182,14 +177,14 @@ TS 有以下 adapter 但 Rust 中既无 trait 也无实现：
 |------|------|--------|------|
 | 1.0 | `QueryFilter` 查询层改造（fields 下推 + From 转换 + 三后端适配） | 0.5 周 | ✅ |
 | 1.1 | 为 8 个已有 trait 实现 concrete struct（Memory/SQLite/Postgres × 8） | 1.5 周 | ✅ |
-| 1.2 | 新增 6 个缺失 adapter trait 定义 + 3 后端实现 | 1 周 | ❌ |
-| 1.3 | 更新 wf-runtime StorageManager 以使用具体 adapter 类型 | 0.5 周 | ❌ |
-| 1.4 | 集成测试：verify 每个 adapter 的 CRUD + 领域方法 | 0.5 周 | ❌ |
+| 1.2 | 新增 6 个缺失 adapter trait 定义 + 3 后端实现 | 1 周 | ✅ |
+| 1.3 | 更新 wf-runtime StorageManager 以使用具体 adapter 类型 | 0.5 周 | ✅ |
+| 1.4 | 集成测试：verify 每个 adapter 的 CRUD + 领域方法 | 0.5 周 | ✅ |
 | 2.3 | wf-config 配置加载 + 验证（移至 Phase 1 并行） | 0.5 周 | ❌ |
 
 ---
 
-## 四、Phase 2: 核心基础设施 ✅ 已完成（除 wf-config）
+## 四、Phase 2: 核心基础设施 ✅ 已完成（除 2.3 wf-config）
 
 ### 2.1 wf-core ✅ 已完成
 
@@ -221,7 +216,7 @@ TS 有以下 adapter 但 Rust 中既无 trait 也无实现：
 | 缓存 | `cache.rs` | LRU checkpoint 缓存 |
 | 指标 | `metrics/collector.rs` | 创建/恢复统计 |
 
-### 2.3 wf-config ❌ 待实现（0.5 周）
+### 2.3 wf-config ❌ 待实现（0.5 周，已从 Phase 1 移入）
 
 **迁移内容**：
 - `ConfigProcessor` — 配置文件加载器（skill, mcp, preset, config-index）
@@ -453,12 +448,13 @@ Week  1-4   │ Phase 0: 基础设施 — 全部完成
             │ ├── wf-checkpoint (Coordinator + Branch + Version + ...) ✅
             │ └── wf-runtime (Bootstrap + Lifecycle + ...) ✅
 ────────────┼────────────────────────────────────
-Week  5-6   │ Phase 1: 存储层补完（当前）
+Week  5-6   │ Phase 1: 存储层补完 ✅
             │ ├── [✅] QueryFilter 查询层
             │ ├── [✅] 8 adapter trait → 24 concrete struct
-            │ ├── [❌] 6 新 adapter trait + 3 后端 (18 struct)
-            │ ├── [❌] wf-config
-            │ └── [❌] StorageManager 适配器集成
+            │ ├── [✅] 6 新 adapter trait + 3 后端 (18 struct)
+            │ ├── [✅] StorageManager 14 字段适配器集成
+            │ ├── [✅] 11 个集成测试
+            │ └── [❌] wf-config（移至 Phase 2）
 ────────────┼────────────────────────────────────
 Week  6-10  │ Phase 3: 执行引擎
             │ ├── wf-executor (工具执行器 + 协调器)

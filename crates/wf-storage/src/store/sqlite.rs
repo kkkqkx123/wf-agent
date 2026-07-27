@@ -237,6 +237,11 @@ impl Store for SqliteStorage {
                 conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
                 params.push(value.clone());
             }
+            if let Some((start, end)) = f.timestamp_range {
+                conditions.push("(json_extract(metadata, '$.timestamp') >= ? AND json_extract(metadata, '$.timestamp') <= ?)".into());
+                params.push(start.to_string());
+                params.push(end.to_string());
+            }
         }
 
         if !conditions.is_empty() {
@@ -270,6 +275,69 @@ impl Store for SqliteStorage {
             .map(|(id, metadata_str)| {
                 let metadata: Value = serde_json::from_str(&metadata_str)?;
                 Ok((id, metadata))
+            })
+            .collect()
+    }
+
+    async fn list_data(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let mut sql = format!("SELECT data, metadata FROM {}", self.table_name);
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(f) = filter {
+            if let Some(ref entity_type) = f.entity_type {
+                conditions.push("json_extract(metadata, '$.entityType') = ?".into());
+                params.push(entity_type.clone());
+            }
+            if let Some(ref status) = f.status {
+                conditions.push("json_extract(metadata, '$.status') = ?".into());
+                params.push(status.clone());
+            }
+            for (key, value) in &f.fields {
+                conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
+                params.push(value.clone());
+            }
+            if let Some((start, end)) = f.timestamp_range {
+                conditions.push("(json_extract(metadata, '$.timestamp') >= ? AND json_extract(metadata, '$.timestamp') <= ?)".into());
+                params.push(start.to_string());
+                params.push(end.to_string());
+            }
+        }
+
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        if let Some(f) = filter {
+            if let Some(limit) = f.limit {
+                sql.push_str(&format!(" LIMIT {}", limit));
+            }
+            if let Some(offset) = f.offset {
+                sql.push_str(&format!(" OFFSET {}", offset));
+            }
+        }
+
+        let mut query = sqlx::query_as::<_, (Vec<u8>, String)>(&sql);
+        for param in &params {
+            query = query.bind(param);
+        }
+
+        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
+            StorageError::General {
+                operation: "list_data".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            }
+        })?;
+
+        rows.into_iter()
+            .map(|(data, metadata_str)| {
+                let metadata: Value = serde_json::from_str(&metadata_str)?;
+                Ok((data, metadata))
             })
             .collect()
     }
@@ -308,6 +376,39 @@ impl Store for SqliteStorage {
 
 #[async_trait]
 impl BatchStore for SqliteStorage {
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders: Vec<String> =
+            (0..ids.len()).map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT id, data, metadata FROM {} WHERE id IN ({})",
+            self.table_name,
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query_as::<_, (String, Vec<u8>, String)>(&sql);
+        for id in ids {
+            query = query.bind(id);
+        }
+        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
+            StorageError::General {
+                operation: "load_batch".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            }
+        })?;
+        rows.into_iter()
+            .map(|(id, data, metadata_str)| {
+                let metadata: Value = serde_json::from_str(&metadata_str)?;
+                Ok((id, data, metadata))
+            })
+            .collect()
+    }
+
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let mut tx = self.pool.begin().await.map_err(|e| {
             StorageError::General {
@@ -425,6 +526,18 @@ impl Maintainable for SqliteStorage {
             .await
             .map_err(|e| StorageError::General {
                 operation: "checkpoint".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(())
+    }
+
+    async fn sync(&self) -> Result<(), StorageError> {
+        sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "sync".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;

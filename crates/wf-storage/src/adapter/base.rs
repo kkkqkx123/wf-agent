@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use crate::domain::store::QueryFilter;
 use crate::error::StorageError;
 
@@ -23,6 +25,36 @@ pub trait BaseStorageAdapter<TEntity, TListOptions>: Send + Sync {
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         Ok(self.load(id).await?.is_some())
+    }
+
+    async fn save_batch(&self, entities: &[TEntity]) -> Result<(), StorageError>
+    where
+        TEntity: Serialize,
+    {
+        for entity in entities {
+            self.save(entity).await?;
+        }
+        Ok(())
+    }
+
+    async fn load_batch(&self, ids: &[String]) -> Result<Vec<(String, TEntity)>, StorageError> {
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(entity) = self.load(id).await? {
+                results.push((id.clone(), entity));
+            }
+        }
+        Ok(results)
+    }
+
+    async fn delete_batch(&self, ids: &[String]) -> Result<u64, StorageError> {
+        let mut count = 0u64;
+        for id in ids {
+            if self.delete(id).await? {
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 }
 

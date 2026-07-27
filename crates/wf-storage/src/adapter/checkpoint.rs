@@ -59,4 +59,10 @@ pub trait CheckpointStorageAdapter:
         entity_id: &str,
         metadata: &HashMap<String, serde_json::Value>,
     ) -> Result<(), StorageError>;
+
+    async fn list_by_entities_with_metadata(
+        &self,
+        entity_ids: &[String],
+        entity_type: &str,
+    ) -> Result<Vec<wf_types::Checkpoint>, StorageError>;
 }

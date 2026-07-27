@@ -31,15 +31,12 @@ impl InnerStore {
 #[derive(Debug, Clone)]
 pub struct MemoryStorage {
     inner: Arc<RwLock<InnerStore>>,
-    #[allow(dead_code)]
-    name: String,
 }
 
 impl MemoryStorage {
-    pub fn new(name: &str) -> Self {
+    pub fn new(_name: &str) -> Self {
         Self {
             inner: Arc::new(RwLock::new(InnerStore::new())),
-            name: name.to_string(),
         }
     }
 }
@@ -77,6 +74,12 @@ fn apply_filter(
                 }
                 for (key, value) in &f.fields {
                     if !matches_meta_str(&rec.metadata, key, value) {
+                        return false;
+                    }
+                }
+                if let Some((start, end)) = f.timestamp_range {
+                    let ts = rec.metadata.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                    if ts < start || ts > end {
                         return false;
                     }
                 }
@@ -176,6 +179,20 @@ impl crate::domain::store::BatchStore for MemoryStorage {
             );
         }
         Ok(())
+    }
+
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        let store = self.inner.read().await;
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(rec) = store.records.get(id) {
+                results.push((id.clone(), rec.data.clone(), rec.metadata.clone()));
+            }
+        }
+        Ok(results)
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {

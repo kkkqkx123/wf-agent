@@ -1,6 +1,5 @@
 pub mod cache;
 pub mod instrumented;
 
-pub use cache::{CacheConfig, EntityCache};
-pub use instrumented::InstrumentedStore;
-pub use cache::CachingStore;
+pub use cache::{CacheConfig, EntityCache, CachingStore};
+pub use instrumented::{InstrumentedStore, StorageMetrics};

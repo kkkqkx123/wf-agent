@@ -16,7 +16,7 @@ impl Entity for wf_types::WorkflowDefinition {
     fn metadata(&self) -> Self::Metadata {
         serde_json::json!({
             "name": self.name,
-            "type": self.r#type.as_ref().map(|t| format!("{:?}", t)),
+            "type": self.r#type.as_ref().and_then(|t| serde_json::to_value(t).ok()),
         })
     }
 }
@@ -102,9 +102,127 @@ impl Entity for wf_types::AgentLoopStorageMetadata {
     }
 }
 
+impl Entity for wf_types::TriggerStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "trigger"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "event": self.event,
+            "enabled": self.enabled,
+        })
+    }
+}
+
+impl Entity for wf_types::ToolStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "tool"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "toolId": self.tool_id,
+            "toolType": self.tool_type,
+            "enabled": self.enabled,
+        })
+    }
+}
+
+impl Entity for wf_types::ScriptStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "script"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "language": self.language,
+            "enabled": self.enabled,
+        })
+    }
+}
+
+impl Entity for wf_types::NodeTemplateStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "node_template"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "nodeType": self.node_type,
+        })
+    }
+}
+
+impl Entity for wf_types::HookTemplateStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "hook_template"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "hookType": self.hook_type,
+        })
+    }
+}
+
+impl Entity for wf_types::AgentProfileStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "agent_profile"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "profileId": self.profile_id,
+            "name": self.name,
+        })
+    }
+}
+
 impl Entity for wf_types::FileCheckpointStorageMetadata {
     type Metadata = Value;
 
+    #[allow(clippy::misnamed_getters)]
     fn entity_id(&self) -> &str {
         &self.id
     }
@@ -115,6 +233,7 @@ impl Entity for wf_types::FileCheckpointStorageMetadata {
 
     fn metadata(&self) -> Self::Metadata {
         serde_json::json!({
+            "entityId": self.entity_id,
             "filePath": self.file_path,
             "checkpointId": self.checkpoint_id,
             "sizeBytes": self.size_bytes,

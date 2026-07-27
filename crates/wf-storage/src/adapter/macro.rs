@@ -58,8 +58,9 @@ macro_rules! make_base_adapter {
                     &self,
                     id: &str,
                 ) -> Result<bool, $crate::error::StorageError> {
+                    let existed = self.entity_store.exists(id).await?;
                     self.entity_store.delete(id).await?;
-                    Ok(true)
+                    Ok(existed)
                 }
 
                 async fn list(

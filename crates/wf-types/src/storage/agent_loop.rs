@@ -10,8 +10,4 @@ pub struct AgentLoopStorageMetadata {
     pub updated_at: super::super::Timestamp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentLoopStorageConfig {
-    pub storage_type: String,
-    pub connection_string: Option<String>,
-}
+

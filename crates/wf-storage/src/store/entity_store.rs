@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -77,10 +76,15 @@ where
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<T>, StorageError> {
-        let entries = self.storage.list(filter).await?;
+        let entries = self.storage.list_data(filter).await?;
         let mut results = Vec::with_capacity(entries.len());
-        for (id, _metadata) in entries {
-            if let Some(entity) = self.load(&id).await? {
+        for (data, metadata) in entries {
+            let compressed = metadata
+                .get("compressed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let decompressed = maybe_decompress(&data, compressed)?;
+            if let Some(entity) = T::from_bytes(&decompressed).map(Some)? {
                 results.push(entity);
             }
         }
@@ -116,12 +120,12 @@ where
     T: Entity,
 {
     pub async fn save_batch(&self, entities: &[T]) -> Result<(), StorageError> {
-        let items: Vec<BatchItem> = entities
+        let items: Result<Vec<BatchItem>, StorageError> = entities
             .iter()
             .map(|e| {
-                let metadata_json = serde_json::to_value(e.metadata()).unwrap_or_default();
-                let data = e.to_bytes().unwrap_or_default();
-                let (compressed, was_compressed) = maybe_compress(&data).unwrap_or_default();
+                let metadata_json = serde_json::to_value(e.metadata())?;
+                let data = e.to_bytes()?;
+                let (compressed, was_compressed) = maybe_compress(&data)?;
 
                 let mut full_metadata = serde_json::json!({
                     "entityType": T::entity_type(),
@@ -135,10 +139,10 @@ where
                     full_metadata = Value::Object(map);
                 }
 
-                BatchItem::new(e.entity_id().to_string(), compressed, full_metadata)
+                Ok(BatchItem::new(e.entity_id().to_string(), compressed, full_metadata))
             })
             .collect();
-        self.storage.save_batch(&items).await
+        self.storage.save_batch(&items?).await
     }
 
     pub async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
@@ -146,4 +150,4 @@ where
     }
 }
 
-pub type SharedEntityStore<S, T> = Arc<EntityStore<S, T>>;
+

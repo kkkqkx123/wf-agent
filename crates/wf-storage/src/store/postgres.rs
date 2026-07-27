@@ -109,7 +109,7 @@ impl Store for PostgresStorage {
     ) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let hash = crate::util::hash::compute_hash(data);
-        let data_size = data.len() as i32;
+        let data_size = data.len() as i64;
         let compressed = metadata
             .get("compressed")
             .and_then(|v| v.as_bool())
@@ -188,24 +188,29 @@ impl Store for PostgresStorage {
     ) -> Result<Vec<(String, Value)>, StorageError> {
         let mut sql = format!("SELECT id, metadata FROM {}", self.table_name);
         let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<&str> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
 
         if let Some(f) = filter {
             let mut idx = 1;
             if let Some(ref entity_type) = f.entity_type {
                 conditions.push(format!("(metadata->>'entityType') = ${}", idx));
                 idx += 1;
-                params.push(entity_type.as_str());
+                params.push(entity_type.clone());
             }
             if let Some(ref status) = f.status {
                 conditions.push(format!("(metadata->>'status') = ${}", idx));
                 idx += 1;
-                params.push(status.as_str());
+                params.push(status.clone());
             }
             for (key, value) in &f.fields {
                 conditions.push(format!("(metadata->>'{}') = ${}", key, idx));
                 idx += 1;
-                params.push(value.as_str());
+                params.push(value.clone());
+            }
+            if let Some((start, end)) = f.timestamp_range {
+                conditions.push(format!("((metadata->>'timestamp')::bigint >= ${} AND (metadata->>'timestamp')::bigint <= ${}", idx, idx + 1));
+                params.push(start.to_string());
+                params.push(end.to_string());
             }
         }
 
@@ -225,12 +230,74 @@ impl Store for PostgresStorage {
 
         let mut query = sqlx::query_as::<_, (String, Value)>(&sql);
         for param in &params {
-            query = query.bind(param);
+            query = query.bind(param.as_str());
         }
 
         let rows = query.fetch_all(&self.pool).await.map_err(|e| {
             StorageError::General {
                 operation: "list".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            }
+        })?;
+
+        Ok(rows)
+    }
+
+    async fn list_data(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let mut sql = format!("SELECT data, metadata FROM {}", self.table_name);
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<String> = Vec::new();
+
+        if let Some(f) = filter {
+            let mut idx = 1;
+            if let Some(ref entity_type) = f.entity_type {
+                conditions.push(format!("(metadata->>'entityType') = ${}", idx));
+                idx += 1;
+                params.push(entity_type.clone());
+            }
+            if let Some(ref status) = f.status {
+                conditions.push(format!("(metadata->>'status') = ${}", idx));
+                idx += 1;
+                params.push(status.clone());
+            }
+            for (key, value) in &f.fields {
+                conditions.push(format!("(metadata->>'{}') = ${}", key, idx));
+                idx += 1;
+                params.push(value.clone());
+            }
+            if let Some((start, end)) = f.timestamp_range {
+                conditions.push(format!("((metadata->>'timestamp')::bigint >= ${} AND (metadata->>'timestamp')::bigint <= ${}", idx, idx + 1));
+                params.push(start.to_string());
+                params.push(end.to_string());
+            }
+        }
+
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        if let Some(f) = filter {
+            if let Some(limit) = f.limit {
+                sql.push_str(&format!(" LIMIT {}", limit));
+            }
+            if let Some(offset) = f.offset {
+                sql.push_str(&format!(" OFFSET {}", offset));
+            }
+        }
+
+        let mut query = sqlx::query_as::<_, (Vec<u8>, Value)>(&sql);
+        for param in &params {
+            query = query.bind(param.as_str());
+        }
+
+        let rows = query.fetch_all(&self.pool).await.map_err(|e| {
+            StorageError::General {
+                operation: "list_data".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             }
@@ -273,6 +340,29 @@ impl Store for PostgresStorage {
 
 #[async_trait]
 impl BatchStore for PostgresStorage {
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT id, data, metadata FROM {} WHERE id = ANY($1)",
+            self.table_name
+        );
+        let rows = sqlx::query_as::<_, (String, Vec<u8>, Value)>(&sql)
+            .bind(ids)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "load_batch".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(rows)
+    }
+
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -282,7 +372,7 @@ impl BatchStore for PostgresStorage {
         let hashes: Vec<String> =
             items.iter().map(|i| crate::util::hash::compute_hash(&i.data)).collect();
         let hashes_ref: Vec<&str> = hashes.iter().map(|h| h.as_str()).collect();
-        let sizes: Vec<i32> = items.iter().map(|i| i.data.len() as i32).collect();
+        let sizes: Vec<i64> = items.iter().map(|i| i.data.len() as i64).collect();
         let compresseds: Vec<bool> = items
             .iter()
             .map(|i| {
@@ -296,7 +386,7 @@ impl BatchStore for PostgresStorage {
 
         let sql = format!(
             "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
-             SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::jsonb[], $4::text[], $5::int4[], $6::boolean[], $7::bigint[], $8::bigint[])
+             SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::jsonb[], $4::text[], $5::int8[], $6::boolean[], $7::bigint[], $8::bigint[])
              ON CONFLICT (id) DO UPDATE SET
                 data = EXCLUDED.data,
                 metadata = EXCLUDED.metadata,
@@ -346,6 +436,18 @@ impl BatchStore for PostgresStorage {
 
 #[async_trait]
 impl Maintainable for PostgresStorage {
+    async fn checkpoint(&self) -> Result<(), StorageError> {
+        sqlx::query("CHECKPOINT")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "checkpoint".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(())
+    }
+
     async fn vacuum(&self) -> Result<(), StorageError> {
         sqlx::query("VACUUM ANALYZE")
             .execute(&self.pool)
@@ -355,6 +457,10 @@ impl Maintainable for PostgresStorage {
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;
+        Ok(())
+    }
+
+    async fn sync(&self) -> Result<(), StorageError> {
         Ok(())
     }
 }

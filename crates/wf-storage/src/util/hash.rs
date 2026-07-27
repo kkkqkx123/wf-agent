@@ -18,11 +18,11 @@ pub fn compute_hash(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub fn verify_integrity(data: &[u8], expected: &str) -> Result<(), StorageError> {
+pub fn verify_integrity(id: &str, data: &[u8], expected: &str) -> Result<(), StorageError> {
     let actual = compute_hash(data);
     if actual != expected {
         return Err(StorageError::Integrity {
-            id: String::new(),
+            id: id.to_string(),
             expected: expected.into(),
             actual,
         });

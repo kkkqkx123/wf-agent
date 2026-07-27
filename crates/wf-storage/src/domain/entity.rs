@@ -17,8 +17,4 @@ pub trait Entity: Serialize + DeserializeOwned + Send + Sync {
     fn from_bytes(bytes: &[u8]) -> Result<Self, StorageError> {
         serde_json::from_slice(bytes).map_err(StorageError::from)
     }
-
-    fn should_compress(data_len: usize) -> bool {
-        data_len > 1024
-    }
 }

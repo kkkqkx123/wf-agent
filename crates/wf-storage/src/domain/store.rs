@@ -12,6 +12,7 @@ pub struct QueryFilter {
     pub offset: Option<u64>,
     pub limit: Option<u64>,
     pub fields: HashMap<String, String>,
+    pub timestamp_range: Option<(i64, i64)>,
 }
 
 impl QueryFilter {
@@ -41,6 +42,11 @@ impl QueryFilter {
 
     pub fn with_limit(mut self, limit: u64) -> Self {
         self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_timestamp_range(mut self, start: i64, end: i64) -> Self {
+        self.timestamp_range = Some((start, end));
         self
     }
 }
@@ -78,6 +84,19 @@ pub trait Store: Send + Sync {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError>;
+    async fn list_data(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let entries = self.list(filter).await?;
+        let mut results = Vec::with_capacity(entries.len());
+        for (id, _) in entries {
+            if let Some((data, metadata)) = self.load(&id).await? {
+                results.push((data, metadata));
+            }
+        }
+        Ok(results)
+    }
     async fn exists(&self, id: &str) -> Result<bool, StorageError>;
 
     async fn clear(&self) -> Result<(), StorageError>;
@@ -90,6 +109,19 @@ pub trait BatchStore: Store {
             self.save(&item.id, &item.data, &item.metadata).await?;
         }
         Ok(())
+    }
+
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        let mut results = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some((data, metadata)) = self.load(id).await? {
+                results.push((id.clone(), data, metadata));
+            }
+        }
+        Ok(results)
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
@@ -106,6 +138,13 @@ pub trait Maintainable: Store {
         Ok(())
     }
     async fn checkpoint(&self) -> Result<(), StorageError> {
+        Ok(())
+    }
+    /// Flush pending writes to durable storage.
+    /// For SQLite with WAL mode, this runs a WAL checkpoint to ensure committed
+    /// transactions are written to the main database file.
+    /// For PostgreSQL this is a no-op (fsync on every commit is guaranteed).
+    async fn sync(&self) -> Result<(), StorageError> {
         Ok(())
     }
 }

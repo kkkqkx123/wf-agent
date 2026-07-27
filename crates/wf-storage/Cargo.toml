@@ -11,7 +11,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 wf-types = { path = "../wf-types" }
-wf-common = { path = "../wf-common" }
 uuid.workspace = true
 
 sqlx = { workspace = true, optional = true }

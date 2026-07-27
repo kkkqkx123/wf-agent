@@ -14,6 +14,8 @@ pub struct StorageMetrics {
     pub load: OperationMetrics,
     pub delete: OperationMetrics,
     pub list: OperationMetrics,
+    pub exists: OperationMetrics,
+    pub clear: OperationMetrics,
     pub batch: OperationMetrics,
 }
 
@@ -122,11 +124,19 @@ impl<S: Store> Store for InstrumentedStore<S> {
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        self.inner.exists(id).await
+        let start = Instant::now();
+        let result = self.inner.exists(id).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.exists.record(elapsed, 0);
+        result
     }
 
     async fn clear(&self) -> Result<(), StorageError> {
-        self.inner.clear().await
+        let start = Instant::now();
+        let result = self.inner.clear().await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.clear.record(elapsed, 0);
+        result
     }
 }
 
@@ -138,6 +148,21 @@ impl<S: Store + BatchStore> BatchStore for InstrumentedStore<S> {
         let elapsed = start.elapsed().as_millis() as u64;
         let total_bytes: u64 = items.iter().map(|i| i.data.len() as u64).sum();
         self.metrics.batch.record(elapsed, total_bytes);
+        result
+    }
+
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.load_batch(ids).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let bytes = match &result {
+            Ok(items) => items.iter().map(|(_, d, _)| d.len() as u64).sum(),
+            Err(_) => 0,
+        };
+        self.metrics.load.record(elapsed, bytes);
         result
     }
 
@@ -162,5 +187,9 @@ impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
 
     async fn checkpoint(&self) -> Result<(), StorageError> {
         self.inner.checkpoint().await
+    }
+
+    async fn sync(&self) -> Result<(), StorageError> {
+        self.inner.sync().await
     }
 }

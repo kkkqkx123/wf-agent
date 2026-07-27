@@ -48,8 +48,14 @@ pub use user_config::*;
 
 pub use execution::ExecutionStatus;
 pub use storage::AgentLoopStorageMetadata;
+pub use storage::AgentProfileStorageMetadata;
 pub use storage::Checkpoint;
 pub use storage::FileCheckpointStorageMetadata;
+pub use storage::HookTemplateStorageMetadata;
+pub use storage::NodeTemplateStorageMetadata;
+pub use storage::ScriptStorageMetadata;
 pub use storage::TaskStorageMetadata;
+pub use storage::ToolStorageMetadata;
+pub use storage::TriggerStorageMetadata;
 pub use workflow::WorkflowDefinition;
 pub use workflow_execution::WorkflowExecution;

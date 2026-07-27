@@ -65,10 +65,16 @@ impl From<serde_json::Error> for StorageError {
 
 impl From<sqlx::Error> for StorageError {
     fn from(e: sqlx::Error) -> Self {
-        StorageError::General {
-            operation: "sqlx".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
+        match e {
+            sqlx::Error::RowNotFound => StorageError::NotFound {
+                entity_type: String::new(),
+                entity_id: String::new(),
+            },
+            _ => StorageError::General {
+                operation: "sqlx".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            },
         }
     }
 }

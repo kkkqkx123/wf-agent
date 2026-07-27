@@ -184,6 +184,13 @@ impl<S: Store + BatchStore> BatchStore for CachingStore<S> {
         Ok(())
     }
 
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        self.inner.load_batch(ids).await
+    }
+
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
         self.inner.delete_batch(ids).await?;
         for id in ids {
@@ -201,5 +208,9 @@ impl<S: Store + Maintainable> Maintainable for CachingStore<S> {
 
     async fn checkpoint(&self) -> Result<(), StorageError> {
         self.inner.checkpoint().await
+    }
+
+    async fn sync(&self) -> Result<(), StorageError> {
+        self.inner.sync().await
     }
 }

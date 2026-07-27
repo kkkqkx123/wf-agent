@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use serde_json::Value;
 
-use crate::adapter::base::ListOptions;
+use crate::adapter::file_checkpoint::FileCheckpointListOptions;
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use crate::adapter::execution::{WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter};
 use crate::adapter::checkpoint::{CheckpointListOptions, CheckpointStorageAdapter};
@@ -9,6 +9,12 @@ use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
 use crate::adapter::agent_loop::{AgentLoopListOptions, AgentLoopStorageAdapter};
 use crate::adapter::file_checkpoint::FileCheckpointStorageAdapter;
 use crate::adapter::metrics::{MetricsDataPoint, MetricsStorageAdapter};
+use crate::adapter::trigger::{TriggerListOptions, TriggerStorageAdapter};
+use crate::adapter::tool::{ToolListOptions, ToolStorageAdapter};
+use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
+use crate::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
+use crate::adapter::hook_template::{HookTemplateListOptions, HookTemplateStorageAdapter};
+use crate::adapter::agent_profile::{AgentProfileListOptions, AgentProfileStorageAdapter};
 use crate::domain::Store;
 use crate::domain::QueryFilter;
 use crate::error::StorageError;
@@ -26,7 +32,13 @@ make_base_adapter!(WorkflowExecutionStorage, wf_types::WorkflowExecution, Workfl
 make_base_adapter!(CheckpointStorage, wf_types::Checkpoint, CheckpointListOptions);
 make_base_adapter!(TaskStorage, wf_types::TaskStorageMetadata, TaskListOptions);
 make_base_adapter!(AgentLoopStorage, wf_types::AgentLoopStorageMetadata, AgentLoopListOptions);
-make_base_adapter!(FileCheckpointStorage, wf_types::FileCheckpointStorageMetadata, ListOptions);
+make_base_adapter!(FileCheckpointStorage, wf_types::FileCheckpointStorageMetadata, FileCheckpointListOptions);
+make_base_adapter!(TriggerStorage, wf_types::TriggerStorageMetadata, TriggerListOptions);
+make_base_adapter!(ToolStorage, wf_types::ToolStorageMetadata, ToolListOptions);
+make_base_adapter!(ScriptStorage, wf_types::ScriptStorageMetadata, ScriptListOptions);
+make_base_adapter!(NodeTemplateStorage, wf_types::NodeTemplateStorageMetadata, NodeTemplateListOptions);
+make_base_adapter!(HookTemplateStorage, wf_types::HookTemplateStorageMetadata, HookTemplateListOptions);
+make_base_adapter!(AgentProfileStorage, wf_types::AgentProfileStorageMetadata, AgentProfileListOptions);
 
 // ─── Type aliases ───
 
@@ -36,6 +48,12 @@ pub type MemoryCheckpointStorage = CheckpointStorage<MemoryStorage>;
 pub type MemoryTaskStorage = TaskStorage<MemoryStorage>;
 pub type MemoryAgentLoopStorage = AgentLoopStorage<MemoryStorage>;
 pub type MemoryFileCheckpointStorage = FileCheckpointStorage<MemoryStorage>;
+pub type MemoryTriggerStorage = TriggerStorage<MemoryStorage>;
+pub type MemoryToolStorage = ToolStorage<MemoryStorage>;
+pub type MemoryScriptStorage = ScriptStorage<MemoryStorage>;
+pub type MemoryNodeTemplateStorage = NodeTemplateStorage<MemoryStorage>;
+pub type MemoryHookTemplateStorage = HookTemplateStorage<MemoryStorage>;
+pub type MemoryAgentProfileStorage = AgentProfileStorage<MemoryStorage>;
 
 #[cfg(feature = "sqlite")]
 pub type SqliteWorkflowStorage = WorkflowStorage<SqliteStorage>;
@@ -49,6 +67,18 @@ pub type SqliteTaskStorage = TaskStorage<SqliteStorage>;
 pub type SqliteAgentLoopStorage = AgentLoopStorage<SqliteStorage>;
 #[cfg(feature = "sqlite")]
 pub type SqliteFileCheckpointStorage = FileCheckpointStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteTriggerStorage = TriggerStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteToolStorage = ToolStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteScriptStorage = ScriptStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteNodeTemplateStorage = NodeTemplateStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteHookTemplateStorage = HookTemplateStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteAgentProfileStorage = AgentProfileStorage<SqliteStorage>;
 
 #[cfg(feature = "postgres")]
 pub type PostgresWorkflowStorage = WorkflowStorage<PostgresStorage>;
@@ -62,6 +92,18 @@ pub type PostgresTaskStorage = TaskStorage<PostgresStorage>;
 pub type PostgresAgentLoopStorage = AgentLoopStorage<PostgresStorage>;
 #[cfg(feature = "postgres")]
 pub type PostgresFileCheckpointStorage = FileCheckpointStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresTriggerStorage = TriggerStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresToolStorage = ToolStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresScriptStorage = ScriptStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresNodeTemplateStorage = NodeTemplateStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresHookTemplateStorage = HookTemplateStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresAgentProfileStorage = AgentProfileStorage<PostgresStorage>;
 
 // ─── WorkflowStorageAdapter ───
 
@@ -157,6 +199,19 @@ impl<S: Store> WorkflowExecutionStorageAdapter for WorkflowExecutionStorage<S> {
 // ─── CheckpointStorageAdapter ───
 
 impl<S: Store> CheckpointStorageAdapter for CheckpointStorage<S> {
+    async fn list_by_entities_with_metadata(
+        &self,
+        entity_ids: &[String],
+        entity_type: &str,
+    ) -> Result<Vec<wf_types::Checkpoint>, StorageError> {
+        let mut results = Vec::new();
+        for eid in entity_ids {
+            let entries = self.list_by_entity(eid, entity_type).await?;
+            results.extend(entries);
+        }
+        Ok(results)
+    }
+
     async fn list_by_entity(
         &self,
         entity_id: &str,
@@ -290,6 +345,84 @@ impl<S: Store> FileCheckpointStorageAdapter for FileCheckpointStorage<S> {
         let all = self.entity_store.list(None).await?;
         Ok(all.into_iter().find(|e| e.file_path == file_path))
     }
+
+    async fn list_by_entity(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<wf_types::FileCheckpointStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("entityId", entity_id);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── TriggerStorageAdapter ───
+
+impl<S: Store> TriggerStorageAdapter for TriggerStorage<S> {
+    async fn list_by_event(
+        &self,
+        event: &str,
+    ) -> Result<Vec<wf_types::TriggerStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("event", event);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── ToolStorageAdapter ───
+
+impl<S: Store> ToolStorageAdapter for ToolStorage<S> {
+    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
+        let all = self.entity_store.list(None).await?;
+        let mut stats = HashMap::new();
+        for entry in &all {
+            *stats.entry(entry.tool_type.clone()).or_insert(0) += 1;
+        }
+        Ok(stats)
+    }
+}
+
+// ─── ScriptStorageAdapter ───
+
+impl<S: Store> ScriptStorageAdapter for ScriptStorage<S> {
+    async fn list_by_language(
+        &self,
+        language: &str,
+    ) -> Result<Vec<wf_types::ScriptStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("language", language);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── NodeTemplateStorageAdapter ───
+
+impl<S: Store> NodeTemplateStorageAdapter for NodeTemplateStorage<S> {
+    async fn list_by_node_type(
+        &self,
+        node_type: &str,
+    ) -> Result<Vec<wf_types::NodeTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("nodeType", node_type);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── HookTemplateStorageAdapter ───
+
+impl<S: Store> HookTemplateStorageAdapter for HookTemplateStorage<S> {
+    async fn list_by_hook_type(
+        &self,
+        hook_type: &str,
+    ) -> Result<Vec<wf_types::HookTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("hookType", hook_type);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── AgentProfileStorageAdapter ───
+
+impl<S: Store> AgentProfileStorageAdapter for AgentProfileStorage<S> {
+    async fn get_first(&self) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError> {
+        let all = self.entity_store.list(None).await?;
+        Ok(all.into_iter().next())
+    }
 }
 
 // ─── MetricsStorageAdapter (standalone, no BaseStorageAdapter) ───
@@ -337,15 +470,14 @@ impl<S: Store> MetricsStorageAdapter for MetricsStorage<S> {
         end_time: i64,
     ) -> Result<Vec<MetricsDataPoint>, StorageError> {
         let filter = QueryFilter::new()
-            .with_field("metricName", name);
+            .with_field("metricName", name)
+            .with_timestamp_range(start_time, end_time);
         let entries = self.store.list(Some(&filter)).await?;
         let mut results = Vec::new();
         for (id, _) in entries {
             if let Some((data, _)) = self.store.load(&id).await? {
                 if let Ok(point) = serde_json::from_slice::<MetricsDataPoint>(&data) {
-                    if point.timestamp >= start_time && point.timestamp <= end_time {
-                        results.push(point);
-                    }
+                    results.push(point);
                 }
             }
         }

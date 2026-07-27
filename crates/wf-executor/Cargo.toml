@@ -1,0 +1,18 @@
+[package]
+name = "wf-executor"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-tools = { path = "../wf-tools" }
+wf-llm = { path = "../wf-llm" }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true

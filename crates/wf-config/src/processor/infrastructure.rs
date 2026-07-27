@@ -5,7 +5,7 @@ use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::schemas::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
-use wf_types::script::sandbox::SandboxConfig;
+use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
 
 pub const WAIT_FOREVER: i64 = -1;
 
@@ -59,19 +59,33 @@ pub fn merge_storage_with_defaults(user: &StorageConfig) -> StorageConfig {
 
 pub fn merge_sandbox_with_defaults(user: &SandboxConfig) -> SandboxConfig {
     SandboxConfig {
-        enabled: user.enabled,
+        mode: user.mode.clone().or(Some(SandboxMode::Strict)),
+        policy: user.policy.clone(),
+        shell_strategy: user.shell_strategy.clone(),
+        python_strategy: user.python_strategy.clone(),
+        javascript_strategy: user.javascript_strategy.clone(),
+        lua_strategy: user.lua_strategy.clone(),
+        vfs: user.vfs.clone(),
+        legacy_type: user.legacy_type.clone(),
+        image: user.image.clone(),
+        resource_limits: user.resource_limits.clone().or(Some(ResourceLimits {
+            cpu: None,
+            memory: Some(512),
+            disk: Some(1024),
+        })),
+        network_enabled: user.network_enabled,
         allowed_paths: user.allowed_paths.clone(),
-        max_cpu_time_ms: user.max_cpu_time_ms.or(Some(30_000)),
-        max_memory_mb: user.max_memory_mb.or(Some(512)),
     }
 }
 
 pub fn validate_sandbox_config(config: &SandboxConfig) -> ConfigResult<()> {
-    if let Some(max_cpu) = config.max_cpu_time_ms {
-        validate_min(max_cpu, 1, "max_cpu_time_ms")?;
-    }
-    if let Some(max_mem) = config.max_memory_mb {
-        validate_min(max_mem, 1, "max_memory_mb")?;
+    if let Some(ref limits) = config.resource_limits {
+        if let Some(mem) = limits.memory {
+            validate_min(mem, 1, "resource_limits.memory")?;
+        }
+        if let Some(disk) = limits.disk {
+            validate_min(disk, 1, "resource_limits.disk")?;
+        }
     }
     Ok(())
 }
@@ -143,33 +157,67 @@ mod tests {
     #[test]
     fn test_merge_sandbox_with_defaults() {
         let user = SandboxConfig {
-            enabled: true,
-            allowed_paths: vec!["/tmp".to_string()],
-            max_cpu_time_ms: None,
-            max_memory_mb: None,
+            mode: Some(SandboxMode::Lenient),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            legacy_type: None,
+            image: None,
+            resource_limits: None,
+            network_enabled: Some(false),
+            allowed_paths: Some(vec!["/tmp".to_string()]),
         };
         let merged = merge_sandbox_with_defaults(&user);
-        assert!(merged.enabled);
-        assert_eq!(merged.allowed_paths, vec!["/tmp".to_string()]);
-        assert_eq!(merged.max_cpu_time_ms, Some(30_000));
-        assert_eq!(merged.max_memory_mb, Some(512));
+        assert_eq!(merged.mode, Some(SandboxMode::Lenient));
+        assert_eq!(merged.allowed_paths, Some(vec!["/tmp".to_string()]));
+        assert_eq!(
+            merged.resource_limits.as_ref().unwrap().memory,
+            Some(512)
+        );
     }
 
     #[test]
     fn test_validate_sandbox_config() {
         let config = SandboxConfig {
-            enabled: true,
-            allowed_paths: vec![],
-            max_cpu_time_ms: Some(0),
-            max_memory_mb: Some(100),
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            legacy_type: None,
+            image: None,
+            resource_limits: Some(ResourceLimits {
+                cpu: None,
+                memory: Some(0),
+                disk: Some(100),
+            }),
+            network_enabled: None,
+            allowed_paths: None,
         };
         assert!(validate_sandbox_config(&config).is_err());
 
         let config = SandboxConfig {
-            enabled: true,
-            allowed_paths: vec![],
-            max_cpu_time_ms: Some(1000),
-            max_memory_mb: Some(100),
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            legacy_type: None,
+            image: None,
+            resource_limits: Some(ResourceLimits {
+                cpu: None,
+                memory: Some(512),
+                disk: Some(1024),
+            }),
+            network_enabled: None,
+            allowed_paths: None,
         };
         assert!(validate_sandbox_config(&config).is_ok());
     }

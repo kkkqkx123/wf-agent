@@ -4,6 +4,7 @@ use std::sync::Arc;
 use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, VfsProvider};
+use crate::security::SecurityValidator;
 
 use super::base::{ShellAnalysisContext, ShellAnalyzer, ShellType};
 use super::bash::BashAnalyzer;
@@ -133,10 +134,49 @@ fn parse_command_chain(command: &str) -> Vec<String> {
     commands
 }
 
+fn extract_file_paths(command: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    // Match redirect targets: >path, >>path, 2>path, &>path, <path
+    let redirect_re = Regex::new(r#"(?:\d*[>&]+\s*)([^\s;|&"'<>`]+)"#).unwrap();
+    for cap in redirect_re.captures_iter(command) {
+        let raw = cap[1].trim_matches('\'').trim_matches('"').to_string();
+        if !raw.is_empty() && !raw.starts_with('-') && !paths.contains(&raw) {
+            paths.push(raw);
+        }
+    }
+    // Match positional args that look like file paths
+    let path_re = Regex::new(r#"(?:^|\s)(/[^\s;|&"'<>`]+|\.\S+)"#).unwrap();
+    for cap in path_re.captures_iter(command) {
+        let raw = cap[1].trim_matches('\'').trim_matches('"').to_string();
+        if !raw.is_empty() && !paths.contains(&raw) {
+            paths.push(raw);
+        }
+    }
+    paths
+}
+
 async fn check_vfs_paths(
-    _sub_command: &str,
-    _vfs: &Arc<dyn VfsProvider>,
+    sub_command: &str,
+    vfs: &Arc<dyn VfsProvider>,
 ) -> Option<String> {
+    let paths = extract_file_paths(sub_command);
+    if paths.is_empty() {
+        return None;
+    }
+    for path in &paths {
+        let violations = SecurityValidator::validate_path(path);
+        if !violations.is_empty() {
+            return Some(format!(
+                "Path '{}' security violation: {}",
+                path, violations[0].reason
+            ));
+        }
+        if vfs.exists(path).await {
+            if let Err(e) = vfs.read_file(path).await {
+                return Some(format!("VFS denied read access to '{path}': {e}"));
+            }
+        }
+    }
     None
 }
 
@@ -205,6 +245,14 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
         let command = options.command.clone();
         if command.is_empty() {
             return Ok(deny("Empty command"));
+        }
+
+        let sv_violations = SecurityValidator::validate_expression(&command);
+        if !sv_violations.is_empty() {
+            return Ok(deny(&format!(
+                "Security validation failed: {}",
+                sv_violations[0].reason
+            )));
         }
 
         let shell_type = Self::resolve_shell_type(&options);

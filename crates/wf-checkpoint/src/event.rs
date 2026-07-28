@@ -54,7 +54,7 @@ impl CheckpointEventBus {
     pub fn created(checkpoint_id: impl Into<String>) -> CheckpointEvent {
         CheckpointEvent::Created(CheckpointCreatedEvent {
             base: BaseEvent {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: wf_common::generate_id(),
                 r#type: EventType::CheckpointCreated,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 workflow_id: None,
@@ -74,7 +74,7 @@ impl CheckpointEventBus {
         let exec_id: String = execution_id.into();
         CheckpointEvent::Restored(CheckpointRestoredEvent {
             base: BaseEvent {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: wf_common::generate_id(),
                 r#type: EventType::CheckpointRestored,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 workflow_id: None,
@@ -91,7 +91,7 @@ impl CheckpointEventBus {
     pub fn deleted(checkpoint_id: impl Into<String>) -> CheckpointEvent {
         CheckpointEvent::Deleted(CheckpointDeletedEvent {
             base: BaseEvent {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: wf_common::generate_id(),
                 r#type: EventType::CheckpointDeleted,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 workflow_id: None,
@@ -107,7 +107,7 @@ impl CheckpointEventBus {
     pub fn failed(operation: impl Into<String>, error: impl Into<String>) -> CheckpointEvent {
         CheckpointEvent::Failed(CheckpointFailedEvent {
             base: BaseEvent {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: wf_common::generate_id(),
                 r#type: EventType::CheckpointFailed,
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 workflow_id: None,

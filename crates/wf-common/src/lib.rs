@@ -3,6 +3,7 @@ pub mod id;
 pub mod time;
 
 pub use error::{CommonError, CommonResult};
+pub use id::generate_id;
 pub use time::{
     datetime_from_timestamp, diff_millis, now, timestamp_from_datetime, timestamp_to_iso, Timestamp,
 };

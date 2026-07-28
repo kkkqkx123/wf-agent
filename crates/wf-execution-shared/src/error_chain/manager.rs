@@ -65,7 +65,7 @@ impl ErrorChainManager {
         node_id: Option<String>,
         metadata: ErrorMetadata,
     ) -> Id {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = wf_common::generate_id();
         let mut records = self.records.lock().unwrap();
         let entry = records.entry(execution_id.clone()).or_default();
 

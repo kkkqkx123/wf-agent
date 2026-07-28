@@ -16,6 +16,5 @@ tracing.workspace = true
 reqwest.workspace = true
 once_cell.workspace = true
 eventsource-stream.workspace = true
-uuid.workspace = true
 dashmap.workspace = true
 futures.workspace = true

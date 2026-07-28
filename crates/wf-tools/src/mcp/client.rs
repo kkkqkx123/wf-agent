@@ -141,7 +141,7 @@ impl McpClient {
     }
 
     fn build_request(&self, method: &str, params: Value) -> JsonRpcRequest {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = wf_common::generate_id();
         JsonRpcRequest {
             jsonrpc: "2.0".into(),
             id,

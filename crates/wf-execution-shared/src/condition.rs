@@ -1,3 +1,7 @@
+pub mod cache;
+
+pub use cache::{ConditionCache, ConditionCacheConfig};
+
 use std::collections::HashMap;
 
 use serde_json::Value;
@@ -32,6 +36,20 @@ impl ConditionEvaluator {
         } else {
             Self::eval_exists(condition, context)
         }
+    }
+
+    pub fn evaluate_with_cache(
+        condition: &str,
+        context: &HashMap<String, Value>,
+        cache: &ConditionCache,
+    ) -> ExecutionSharedResult<bool> {
+        if let Some(result) = cache.get_execution_result(condition, context) {
+            return Ok(result);
+        }
+
+        let result = Self::evaluate(condition, context)?;
+        cache.put_execution_result(condition, context, result);
+        Ok(result)
     }
 
     pub fn generate_cache_key(condition: &str) -> String {
@@ -341,5 +359,17 @@ mod tests {
         let key1 = ConditionEvaluator::generate_cache_key("a === b");
         let key2 = ConditionEvaluator::generate_cache_key("a == b");
         assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_evaluate_with_cache() {
+        let cache = ConditionCache::new(ConditionCacheConfig::default());
+        let ctx = ctx(&[("x", Value::Number(42.into()))]);
+
+        let r1 = ConditionEvaluator::evaluate_with_cache("gt(x, 10)", &ctx, &cache).unwrap();
+        assert!(r1);
+
+        let r2 = ConditionEvaluator::evaluate_with_cache("gt(x, 10)", &ctx, &cache).unwrap();
+        assert!(r2);
     }
 }

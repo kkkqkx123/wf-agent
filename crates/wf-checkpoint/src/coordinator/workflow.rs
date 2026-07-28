@@ -82,7 +82,7 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
 
         match checkpoint_type {
             CheckpointType::Full => Ok(BaseCheckpointCore {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: wf_common::generate_id(),
                 r#type: Some(CheckpointType::Full),
                 base_checkpoint_id: None,
                 previous_checkpoint_id: previous.map(|p| p.id),
@@ -124,7 +124,7 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
                 };
 
                 Ok(BaseCheckpointCore {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: wf_common::generate_id(),
                     r#type: Some(CheckpointType::Delta),
                     base_checkpoint_id: previous.clone().map(|p| p.id),
                     previous_checkpoint_id: previous.map(|p| p.id),

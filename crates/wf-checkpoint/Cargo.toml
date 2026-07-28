@@ -20,4 +20,3 @@ wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }
 wf-core = { path = "../wf-core" }
-uuid.workspace = true

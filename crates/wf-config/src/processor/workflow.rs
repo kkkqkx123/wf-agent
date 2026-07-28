@@ -93,8 +93,7 @@ fn parse_node_type(type_str: &str) -> StaticNodeType {
 }
 
 fn generate_edge_id() -> String {
-    let uuid = uuid::Uuid::new_v4();
-    uuid.to_string()
+    wf_common::generate_id()
 }
 
 #[derive(Debug, Clone)]

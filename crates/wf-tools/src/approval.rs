@@ -39,7 +39,7 @@ impl ToolApprovalCoordinator {
         &self,
         tools: Vec<ToolApprovalRequestData>,
     ) -> ToolBatch {
-        let batch_id = uuid::Uuid::new_v4().to_string();
+        let batch_id = wf_common::generate_id();
         let mut auto_approved = Vec::new();
         let mut pending = Vec::new();
 

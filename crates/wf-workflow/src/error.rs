@@ -29,6 +29,9 @@ pub enum WorkflowError {
     #[error("Variable error: {0}")]
     VariableError(String),
 
+    #[error("Operation error: {0}")]
+    OperationError(String),
+
     #[error("State transition error: {0}")]
     StateTransitionError(String),
 

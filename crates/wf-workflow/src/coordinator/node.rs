@@ -1,7 +1,14 @@
-use wf_execution_shared::context::NodeExecutionContext;
+use std::collections::HashMap;
+use wf_core::EventBus;
+use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::hooks::executor::HookExecutor;
+use wf_execution_shared::hooks::types::{BaseHookContext, BaseHookDefinition, HookExecutorConfig};
+use wf_execution_shared::interruption::check_execution_interruption;
 use wf_execution_shared::retry::budget::RetryBudget;
+use wf_types::events::{BaseEvent, EventType};
 
-use crate::error::WorkflowResult;
+use crate::entity::WorkflowExecutionEntity;
+use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 
 pub struct NodeCoordinator;
@@ -13,18 +20,125 @@ impl NodeCoordinator {
 
     pub async fn execute_node(
         &self,
-        _handler: &dyn NodeHandler,
-        _ctx: &mut NodeExecutionContext,
-    ) -> WorkflowResult<crate::handler::NodeHandlerResult> {
-        Ok(crate::handler::NodeHandlerResult::simple(serde_json::Value::Null))
+        entity: &WorkflowExecutionEntity,
+        handler: &dyn NodeHandler,
+        ctx: &mut NodeExecutionContext,
+        event_bus: &EventBus,
+        hooks: &[BaseHookDefinition],
+        retry_budget: Option<&mut RetryBudget>,
+    ) -> WorkflowResult<NodeExecutionResult> {
+        let node_id = ctx.node_id.clone();
+        let node_name = ctx.node_name.clone().unwrap_or_default();
+
+        Self::emit_event(event_bus, EventType::NodeStarted, &entity, &node_id, &serde_json::json!({
+            "node_name": node_name,
+        })).await;
+
+        Self::execute_hooks(hooks, &entity, "BEFORE_EXECUTE").await;
+
+        let check = check_execution_interruption(entity.interruption(), None);
+        if !matches!(check, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+            return Err(WorkflowError::CoordinatorError(
+                format!("Execution interrupted before node {}: {:?}", node_id, check)
+            ));
+        }
+
+        let result = if let Some(budget) = retry_budget {
+            self.execute_with_retry(handler, ctx, budget).await
+        } else {
+            handler.execute(ctx).await
+        };
+
+        match &result {
+            Ok(output) => {
+                entity.state.write().await.mark_node_completed(node_id.clone());
+
+                Self::execute_hooks(hooks, &entity, "AFTER_EXECUTE").await;
+
+                Self::emit_event(event_bus, EventType::NodeCompleted, &entity, &node_id, &serde_json::json!({
+                    "has_next_nodes": !output.next_node_ids.is_empty(),
+                })).await;
+
+                Ok(NodeExecutionResult {
+                    output: output.output.clone(),
+                    next_node_ids: output.next_node_ids.clone(),
+                    metadata: output.metadata.clone(),
+                })
+            }
+            Err(e) => {
+                Self::emit_event(event_bus, EventType::NodeFailed, &entity, &node_id, &serde_json::json!({
+                    "error": e.to_string(),
+                })).await;
+
+                Err(WorkflowError::NodeExecutionFailed {
+                    node_id: node_id.clone(),
+                    reason: e.to_string(),
+                })
+            }
+        }
     }
 
     pub async fn execute_with_retry(
         &self,
-        _handler: &dyn NodeHandler,
-        _ctx: &mut NodeExecutionContext,
-        _retry_budget: &mut RetryBudget,
-    ) -> WorkflowResult<crate::handler::NodeHandlerResult> {
-        Ok(crate::handler::NodeHandlerResult::simple(serde_json::Value::Null))
+        handler: &dyn NodeHandler,
+        ctx: &mut NodeExecutionContext,
+        retry_budget: &mut RetryBudget,
+    ) -> WorkflowResult<NodeExecutionResult> {
+        loop {
+            match handler.execute(ctx).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    if !retry_budget.can_retry() {
+                        return Err(e);
+                    }
+                    let delay = std::time::Duration::from_millis(1000 * 2_u64.pow(retry_budget.attempts()));
+                    retry_budget.record_attempt(delay);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    async fn execute_hooks(hooks: &[BaseHookDefinition], entity: &WorkflowExecutionEntity, hook_type: &str) {
+        let filtered = HookExecutor::filter_and_sort_hooks(hooks, hook_type);
+        if filtered.is_empty() {
+            return;
+        }
+
+        let mut data = std::collections::HashMap::new();
+        data.insert("entity_id".to_string(), serde_json::Value::String(entity.id().to_string()));
+        data.insert("hook_type".to_string(), serde_json::Value::String(hook_type.to_string()));
+        let status = entity.state.read().await.status();
+        data.insert("status".to_string(), serde_json::Value::String(format!("{:?}", status)));
+
+        let hook_ctx = BaseHookContext {
+            execution_id: entity.id().to_string(),
+            data,
+        };
+
+        let executor = HookExecutor::new();
+        let config = HookExecutorConfig {
+            parallel: false,
+            continue_on_error: true,
+            warn_on_condition_failure: false,
+        };
+        let _ = executor.execute_hooks(&filtered, &hook_ctx, &config).await;
+    }
+
+    async fn emit_event(event_bus: &EventBus, event_type: EventType, entity: &WorkflowExecutionEntity, _node_id: &str, data: &serde_json::Value) {
+        let metadata = data.as_object().map(|obj| {
+            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<_, _>>()
+        });
+
+        let event = BaseEvent {
+            id: wf_types::Id::new(),
+            r#type: event_type,
+            timestamp: wf_common::now(),
+            workflow_id: Some(entity.workflow_id().clone()),
+            execution_id: Some(entity.id().clone()),
+            agent_loop_id: None,
+            metadata,
+        };
+        let _ = event_bus.publish(event);
     }
 }

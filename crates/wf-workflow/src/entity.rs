@@ -6,7 +6,6 @@ use wf_execution_shared::interruption::InterruptionState;
 use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
 use wf_types::Id;
 
-use crate::error::{WorkflowError, WorkflowResult};
 use crate::state::WorkflowExecutionState;
 
 pub struct WorkflowExecutionEntity {
@@ -16,6 +15,10 @@ pub struct WorkflowExecutionEntity {
     interruption: InterruptionState,
     cancellation: tokio_util::sync::CancellationToken,
     variables: Arc<DashMap<String, Value>>,
+    node_results: Arc<DashMap<String, Value>>,
+    pub current_node_id: Arc<tokio::sync::RwLock<Option<String>>>,
+    parent_execution_id: Option<Id>,
+    child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
 }
 
 impl WorkflowExecutionEntity {
@@ -27,7 +30,16 @@ impl WorkflowExecutionEntity {
             interruption: InterruptionState::new(),
             cancellation: tokio_util::sync::CancellationToken::new(),
             variables: Arc::new(DashMap::new()),
+            node_results: Arc::new(DashMap::new()),
+            current_node_id: Arc::new(tokio::sync::RwLock::new(None)),
+            parent_execution_id: None,
+            child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
         }
+    }
+
+    pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
+        self.parent_execution_id = Some(parent_id);
+        self
     }
 
     pub fn id(&self) -> &Id {
@@ -46,12 +58,40 @@ impl WorkflowExecutionEntity {
         &self.interruption
     }
 
+    pub fn node_results(&self) -> &Arc<DashMap<String, Value>> {
+        &self.node_results
+    }
+
+    pub fn child_execution_ids(&self) -> &Arc<tokio::sync::RwLock<Vec<Id>>> {
+        &self.child_execution_ids
+    }
+
+    pub fn parent_execution_id(&self) -> Option<&Id> {
+        self.parent_execution_id.as_ref()
+    }
+
     pub fn get_variable(&self, name: &str) -> Option<Value> {
         self.variables.get(name).map(|v| v.clone())
     }
 
     pub fn set_variable(&self, name: impl Into<String>, value: Value) {
         self.variables.insert(name.into(), value);
+    }
+
+    pub fn get_node_result(&self, node_id: &str) -> Option<Value> {
+        self.node_results.get(node_id).map(|v| v.clone())
+    }
+
+    pub fn set_node_result(&self, node_id: impl Into<String>, value: Value) {
+        self.node_results.insert(node_id.into(), value);
+    }
+
+    pub async fn register_child(&self, child_id: Id) {
+        self.child_execution_ids.write().await.push(child_id);
+    }
+
+    pub async fn unregister_child(&self, child_id: &Id) {
+        self.child_execution_ids.write().await.retain(|id| id != child_id);
     }
 }
 

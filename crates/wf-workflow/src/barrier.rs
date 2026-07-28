@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
-use crate::error::WorkflowResult;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BranchResult {

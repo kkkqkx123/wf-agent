@@ -6,10 +6,14 @@ use wf_common::now;
 use wf_core::EventBus;
 use wf_execution_shared::condition::ConditionEvaluator;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
-use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
+use wf_types::workflow_execution::WorkflowGraphStructure;
 
+use crate::coordinator::NodeCoordinator;
+use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
@@ -44,6 +48,7 @@ fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
 
 pub struct WorkflowCoordinator {
     ctx: ExecutorContext,
+    entity: Option<WorkflowExecutionEntity>,
     traversal: GraphTraversal,
     handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
     current_node_id: Option<String>,
@@ -51,6 +56,7 @@ pub struct WorkflowCoordinator {
     node_outputs: HashMap<String, Value>,
     node_errors: Vec<String>,
     start_time: i64,
+    hooks: Vec<BaseHookDefinition>,
 }
 
 impl WorkflowCoordinator {
@@ -66,6 +72,7 @@ impl WorkflowCoordinator {
 
         Ok(Self {
             ctx,
+            entity: None,
             traversal,
             handlers,
             current_node_id: Some(start_node_id),
@@ -73,17 +80,67 @@ impl WorkflowCoordinator {
             node_outputs: HashMap::new(),
             node_errors: Vec::new(),
             start_time: now(),
+            hooks: Vec::new(),
         })
     }
 
-    pub async fn execute(&mut self) -> WorkflowResult<Value> {
-        self.emit_event(EventType::WorkflowExecutionStarted, serde_json::json!({
-            "workflow_id": self.ctx.workflow_id,
-        })).await?;
+    pub fn with_entity(mut self, entity: WorkflowExecutionEntity) -> Self {
+        self.completed_nodes = {
+            if let Ok(state) = entity.state.try_read() {
+                state.completed_nodes().to_vec()
+            } else {
+                Vec::new()
+            }
+        };
+        self.entity = Some(entity);
+        self
+    }
 
-        while let Some(node_id) = &self.current_node_id {
+    pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
+        self.hooks = hooks;
+        self
+    }
+
+    pub fn completed_nodes(&self) -> &[String] {
+        &self.completed_nodes
+    }
+
+    pub async fn execute(&mut self) -> WorkflowResult<Value> {
+        let entity = self.entity.as_ref().ok_or_else(|| {
+            WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
+        })?;
+
+        let event_bus = &self.ctx.event_bus;
+
+        self.emit_event(event_bus, EventType::WorkflowExecutionStarted, entity, &serde_json::json!({
+            "workflow_id": self.ctx.workflow_id,
+        })).await;
+
+        while let Some(node_id) = &self.current_node_id.clone() {
+            let interruption_check = check_execution_interruption(entity.interruption(), None);
+            match interruption_check {
+                wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
+                    self.emit_event(event_bus, EventType::WorkflowExecutionCancelled, entity, &serde_json::json!({
+                        "reason": "interrupted",
+                    })).await;
+                    return Err(WorkflowError::CoordinatorError("Execution stopped by interruption".to_string()));
+                }
+                wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
+                    self.emit_event(event_bus, EventType::WorkflowExecutionPaused, entity, &serde_json::json!({
+                        "node_id": node_id,
+                    })).await;
+                    return Err(WorkflowError::CoordinatorError("Execution paused".to_string()));
+                }
+                _ => {}
+            }
+
             if self.ctx.options.max_steps.is_some_and(|max| self.completed_nodes.len() as u32 >= max) {
                 break;
+            }
+
+            if self.completed_nodes.contains(node_id) {
+                self.current_node_id = self.determine_next_node_without_output().await?;
+                continue;
             }
 
             let node = self.traversal.get_node(node_id)
@@ -100,14 +157,15 @@ impl WorkflowCoordinator {
                     node_type: node.node_type.clone(),
                 })?;
 
-            self.emit_event(EventType::NodeStarted, serde_json::json!({
-                "node_id": node_id,
-                "node_type": &node.node_type,
-            })).await?;
-
-            let execute_start = now();
-            let result = handler.execute(&mut node_ctx).await;
-            let execute_time = now() - execute_start;
+            let coordinator = NodeCoordinator::new();
+            let result = coordinator.execute_node(
+                entity,
+                handler.as_ref(),
+                &mut node_ctx,
+                event_bus,
+                &self.hooks,
+                None,
+            ).await;
 
             match result {
                 Ok(output) => {
@@ -118,24 +176,13 @@ impl WorkflowCoordinator {
                         self.ctx.variables.insert(k.clone(), v.clone());
                     }
 
-                    self.emit_event(EventType::NodeCompleted, serde_json::json!({
-                        "node_id": node_id,
-                        "execution_time": execute_time,
-                    })).await?;
+                    entity.state.write().await.mark_node_completed(node_id.clone());
 
                     self.current_node_id = self.determine_next_node(&output).await?;
                 }
                 Err(e) => {
                     self.node_errors.push(format!("Node {}: {}", node_id, e));
-                    self.emit_event(EventType::NodeFailed, serde_json::json!({
-                        "node_id": node_id,
-                        "error": e.to_string(),
-                    })).await?;
-
-                    return Err(WorkflowError::NodeExecutionFailed {
-                        node_id: node_id.clone(),
-                        reason: e.to_string(),
-                    });
+                    return Err(e);
                 }
             }
         }
@@ -143,12 +190,47 @@ impl WorkflowCoordinator {
         let result = self.compute_final_output();
         let execution_time = now() - self.start_time;
 
-        self.emit_event(EventType::WorkflowExecutionCompleted, serde_json::json!({
+        entity.state.write().await.complete();
+
+        self.emit_event(event_bus, EventType::WorkflowExecutionCompleted, entity, &serde_json::json!({
             "execution_time": execution_time,
             "node_count": self.completed_nodes.len(),
-        })).await?;
+        })).await;
 
         Ok(result)
+    }
+
+    async fn determine_next_node_without_output(&self) -> WorkflowResult<Option<String>> {
+        let current_id = match &self.current_node_id {
+            Some(id) => id.clone(),
+            None => return Ok(None),
+        };
+
+        let outgoing = self.traversal.get_outgoing_edges(&current_id);
+        if outgoing.is_empty() {
+            return Ok(None);
+        }
+
+        if outgoing.len() == 1 {
+            return Ok(Some(outgoing[0].target_node_id.clone()));
+        }
+
+        for edge in &outgoing {
+            if let Some(ref condition) = edge.condition {
+                let mut context_map = HashMap::new();
+                for entry in self.ctx.variables.iter() {
+                    context_map.insert(entry.key().clone(), entry.value().clone());
+                }
+                match ConditionEvaluator::evaluate(condition, &context_map) {
+                    Ok(true) => return Ok(Some(edge.target_node_id.clone())),
+                    _ => continue,
+                }
+            } else {
+                return Ok(Some(edge.target_node_id.clone()));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn build_node_context(
@@ -158,6 +240,10 @@ impl WorkflowCoordinator {
     ) -> WorkflowResult<NodeExecutionContext> {
         let input = self.compute_node_input(node_id);
 
+        let node = self.traversal.get_node(node_id);
+        let node_name = node.and_then(|n| n.name.clone());
+        let node_config = node.map(|n| n.inner.clone());
+
         let mut ctx = NodeExecutionContext::new(
             self.ctx.execution_id.clone(),
             node_id.to_string(),
@@ -166,6 +252,12 @@ impl WorkflowCoordinator {
             self.ctx.variables.clone(),
         );
 
+        if let Some(name) = node_name {
+            ctx = ctx.with_node_name(name);
+        }
+        if let Some(config) = node_config {
+            ctx = ctx.with_node_config(config);
+        }
         if let Some(ref parent_id) = self.ctx.parent_execution_id {
             ctx = ctx.with_parent_execution(parent_id.clone());
         }
@@ -203,14 +295,17 @@ impl WorkflowCoordinator {
             return Ok(result.next_node_ids.first().cloned());
         }
 
-        let current_id = self.current_node_id.as_ref().unwrap();
-        let outgoing = self.traversal.get_outgoing_edges(current_id);
+        let current_id = match &self.current_node_id {
+            Some(id) => id.clone(),
+            None => return Ok(None),
+        };
+        let outgoing = self.traversal.get_outgoing_edges(&current_id);
 
         if outgoing.is_empty() {
             return Ok(None);
         }
 
-        if self.traversal.is_end_node(current_id) {
+        if self.traversal.is_end_node(&current_id) {
             return Ok(None);
         }
 
@@ -260,25 +355,20 @@ impl WorkflowCoordinator {
         }
     }
 
-    async fn emit_event(&self, event_type: EventType, data: serde_json::Value) -> WorkflowResult<()> {
+    async fn emit_event(&self, event_bus: &EventBus, event_type: EventType, entity: &WorkflowExecutionEntity, data: &serde_json::Value) {
+        let metadata = data.as_object().map(|obj| {
+            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<_, _>>()
+        });
+
         let event = BaseEvent {
             id: wf_types::Id::new(),
             r#type: event_type,
             timestamp: now(),
-            workflow_id: Some(self.ctx.workflow_id.clone()),
-            execution_id: Some(self.ctx.execution_id.clone()),
+            workflow_id: Some(entity.workflow_id().clone()),
+            execution_id: Some(entity.id().clone()),
             agent_loop_id: None,
-            metadata: Some({
-                let mut m = std::collections::HashMap::new();
-                m.insert("data".to_string(), data);
-                m
-            }),
+            metadata,
         };
-
-        self.ctx.event_bus.publish(event).map_err(|e| {
-            WorkflowError::Internal(format!("Event publish failed: {}", e))
-        })?;
-
-        Ok(())
+        let _ = event_bus.publish(event);
     }
 }

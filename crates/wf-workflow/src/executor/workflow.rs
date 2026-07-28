@@ -1,19 +1,55 @@
-use crate::error::WorkflowResult;
-use crate::handler::{NodeHandler, NodeHandlerResult};
-use crate::graph::GraphTraversal;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-pub struct WorkflowExecutor;
+use serde_json::Value;
+use wf_core::EventBus;
+use wf_types::node::StaticNodeType;
+use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
+
+use crate::coordinator::{WorkflowExecutionParams, WorkflowLifecycleCoordinator};
+use crate::error::WorkflowResult;
+use crate::handler::{HandlerRegistry, NodeHandler};
+
+pub struct WorkflowExecutor {
+    event_bus: Arc<EventBus>,
+}
 
 impl WorkflowExecutor {
-    pub fn new() -> Self {
-        Self
+    pub fn new(event_bus: Arc<EventBus>) -> Self {
+        Self { event_bus }
+    }
+
+    pub fn new_default() -> Self {
+        Self {
+            event_bus: Arc::new(EventBus::new(1024)),
+        }
     }
 
     pub async fn execute_workflow(
         &self,
-        _graph: GraphTraversal,
-        _handlers: &std::collections::HashMap<wf_types::node::StaticNodeType, std::sync::Arc<dyn NodeHandler>>,
-    ) -> WorkflowResult<serde_json::Value> {
-        Ok(serde_json::Value::Null)
+        workflow_id: wf_types::Id,
+        graph: WorkflowGraphStructure,
+        options: WorkflowExecutionOptions,
+        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+        handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+    ) -> WorkflowResult<Value> {
+        let handlers = handlers.unwrap_or_else(|| {
+            let mut registry = HandlerRegistry::new();
+            registry.register_defaults();
+            registry.into_arc()
+        });
+
+        let params = WorkflowExecutionParams {
+            execution_id: wf_types::Id::new(),
+            workflow_id,
+            graph,
+            options,
+            handlers,
+            tool_registry,
+            input: None,
+        };
+
+        let lifecycle = WorkflowLifecycleCoordinator::new(self.event_bus.clone());
+        lifecycle.execute_workflow(params).await
     }
 }

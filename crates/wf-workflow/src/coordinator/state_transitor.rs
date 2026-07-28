@@ -1,5 +1,3 @@
-use wf_execution_shared::types::execution_entity::ExecutionStatus;
-use wf_types::Id;
 
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::WorkflowResult;

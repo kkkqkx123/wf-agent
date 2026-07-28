@@ -11,7 +11,34 @@ pub mod state;
 pub mod types;
 pub mod variable;
 
+pub use barrier::{BranchResult, FailureStrategy, ForkOutcome, SyncBarrier};
+pub use coordinator::{
+    state_transitor::WorkflowStateTransitor, NodeCoordinator, WorkflowCoordinator,
+    WorkflowExecutionParams, WorkflowLifecycleCoordinator,
+};
+pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
 pub use executor::WorkflowExecutor;
-pub use handler::NodeHandler;
+pub use factory::builder::WorkflowExecutionBuilder;
+pub use handler::{
+    agent_loop::AgentLoopHandler, context_processor::ContextProcessorHandler, fork_join::ForkHandler,
+    fork_join::JoinHandler, llm::LlmHandler, loop_handler::LoopEndHandler,
+    loop_handler::LoopStartHandler, route::RouteHandler, script::ScriptHandler,
+    start_end::EndHandler, start_end::StartHandler, subgraph::SubgraphHandler, sync::SyncHandler,
+    variable::VariableHandler, HandlerRegistry, NodeHandler, NodeHandlerResult,
+};
+pub use hook::handler::WorkflowHookHandler;
+pub use state::{WorkflowExecutionState, WorkflowExecutionStateSnapshot};
+pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
 pub use variable::{VariableResolver, VariableStore, create_variable_store};
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+pub use wf_types::node::StaticNodeType;
+
+pub fn create_default_handlers() -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    let mut registry = HandlerRegistry::new();
+    registry.register_defaults();
+    registry.into_arc()
+}

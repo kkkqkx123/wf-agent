@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 
-use serde_json::Value;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
-use crate::error::{WorkflowError, WorkflowResult};
+use crate::error::WorkflowResult;
 
 pub struct GraphTraversal {
     graph: WorkflowGraphStructure,

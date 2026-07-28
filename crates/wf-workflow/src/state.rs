@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 
+use wf_execution_shared::error_chain::manager::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
-use wf_types::Id;
+use wf_types::checkpoint::workflow::snapshot::OperationState;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowExecutionStateSnapshot {
@@ -12,6 +13,8 @@ pub struct WorkflowExecutionStateSnapshot {
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub error: Option<String>,
+    pub error_records: Vec<ErrorRecord>,
+    pub operation_state: Option<OperationState>,
 }
 
 pub struct WorkflowExecutionState {
@@ -21,6 +24,8 @@ pub struct WorkflowExecutionState {
     start_time: i64,
     end_time: Option<i64>,
     error: Option<String>,
+    error_records: Vec<ErrorRecord>,
+    operation_state: Option<OperationState>,
 }
 
 impl WorkflowExecutionState {
@@ -32,6 +37,8 @@ impl WorkflowExecutionState {
             start_time: wf_common::now(),
             end_time: None,
             error: None,
+            error_records: Vec::new(),
+            operation_state: None,
         }
     }
 
@@ -73,6 +80,22 @@ impl WorkflowExecutionState {
 
     pub fn mark_node_completed(&mut self, node_id: String) {
         self.completed_nodes.push(node_id);
+    }
+
+    pub fn error_records(&self) -> &[ErrorRecord] {
+        &self.error_records
+    }
+
+    pub fn add_error_record(&mut self, record: ErrorRecord) {
+        self.error_records.push(record);
+    }
+
+    pub fn operation_state(&self) -> Option<&OperationState> {
+        self.operation_state.as_ref()
+    }
+
+    pub fn set_operation_state(&mut self, state: Option<OperationState>) {
+        self.operation_state = state;
     }
 
     pub fn start(&mut self) {
@@ -121,6 +144,8 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
             start_time: self.start_time,
             end_time: self.end_time,
             error: self.error.clone(),
+            error_records: self.error_records.clone(),
+            operation_state: self.operation_state.clone(),
         })
     }
 
@@ -131,6 +156,8 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         self.start_time = snapshot.start_time;
         self.end_time = snapshot.end_time;
         self.error = snapshot.error;
+        self.error_records = snapshot.error_records;
+        self.operation_state = snapshot.operation_state;
         Ok(())
     }
 

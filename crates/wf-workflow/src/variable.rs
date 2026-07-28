@@ -1,9 +1,7 @@
 use dashmap::DashMap;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::error::WorkflowResult;
 
 pub type VariableStore = Arc<DashMap<String, Value>>;
 

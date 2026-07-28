@@ -9,6 +9,7 @@ use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
 
 use crate::coordinator::WorkflowCoordinator;
+use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 
@@ -46,6 +47,15 @@ impl WorkflowLifecycleCoordinator {
             opts.input = params.input;
         }
 
+        let entity = WorkflowExecutionEntity::new(
+            execution_id.clone(),
+            workflow_id.clone(),
+        );
+
+        if let Some(ref input) = opts.input {
+            entity.set_variable("input", input.clone());
+        }
+
         let ctx = ExecutorContext::new(
             execution_id.clone(),
             workflow_id,
@@ -54,7 +64,9 @@ impl WorkflowLifecycleCoordinator {
             opts,
         );
 
-        let mut coordinator = WorkflowCoordinator::new(ctx, params.graph, params.handlers)?;
+        let mut coordinator = WorkflowCoordinator::new(ctx, params.graph, params.handlers)?
+            .with_entity(entity);
+
         let result = coordinator.execute().await;
 
         match &result {

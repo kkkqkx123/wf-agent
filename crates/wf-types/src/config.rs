@@ -1,9 +1,17 @@
+pub mod config_index;
+pub mod file_checkpoint;
 pub mod metrics;
 pub mod output;
+pub mod presets;
 pub mod schemas;
+pub mod storage;
 pub mod timeout;
 
+pub use config_index::*;
+pub use file_checkpoint::*;
 pub use metrics::*;
 pub use output::*;
+pub use presets::*;
 pub use schemas::*;
+pub use storage::*;
 pub use timeout::*;

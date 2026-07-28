@@ -1,6 +1,7 @@
 pub mod branch;
 pub mod cache;
 pub mod cleanup;
+pub mod config_resolver;
 pub mod content;
 pub mod coordinator;
 pub mod delta;
@@ -8,6 +9,7 @@ pub mod error;
 pub mod event;
 pub mod file;
 pub mod layertwine;
+pub mod metadata_builder;
 pub mod metrics;
 pub mod restore;
 pub mod serializer;
@@ -16,6 +18,8 @@ pub mod strategy;
 pub mod version;
 
 pub use cache::CheckpointCache;
+pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;
 pub use event::{CheckpointEvent, CheckpointEventBus};
+pub use metadata_builder::{CheckpointMetadataBuilder, build_checkpoint_state};
 pub use serializer::{CheckpointCodec, CheckpointSerializer};

@@ -1,4 +1,5 @@
-use wf_execution_shared::types::execution_entity::ExecutionStatus;
+use wf_core::event::EventBus;
+use wf_types::events::{BaseEvent, EventType};
 use wf_types::Id;
 
 use crate::entity::AgentLoopEntity;
@@ -35,5 +36,18 @@ impl AgentLoopStateTransitor {
     pub async fn cancel_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
         entity.state.write().await.cancel();
         Ok(())
+    }
+
+    pub fn emit_event(event_bus: &EventBus, event_type: EventType, execution_id: Id) {
+        let event = BaseEvent {
+            id: wf_common::generate_id(),
+            r#type: event_type,
+            timestamp: wf_common::now(),
+            workflow_id: None,
+            execution_id: Some(execution_id),
+            agent_loop_id: None,
+            metadata: None,
+        };
+        let _ = event_bus.publish(event);
     }
 }

@@ -10,6 +10,7 @@ pub mod hook_template;
 pub mod r#macro;
 pub mod metrics;
 pub mod node_template;
+pub mod note;
 pub mod script;
 pub mod task;
 pub mod tool;
@@ -27,6 +28,7 @@ pub use file_checkpoint::{FileCheckpointListOptions, FileCheckpointStorageAdapte
 pub use hook_template::*;
 pub use metrics::*;
 pub use node_template::*;
+pub use note::*;
 pub use script::*;
 pub use task::*;
 pub use tool::*;

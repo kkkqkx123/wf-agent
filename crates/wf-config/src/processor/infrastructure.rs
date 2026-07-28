@@ -3,7 +3,7 @@ use crate::validator::validate_min;
 
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
-use wf_types::config::schemas::StorageConfig;
+use wf_types::config::storage::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
 use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
 
@@ -11,13 +11,21 @@ pub const WAIT_FOREVER: i64 = -1;
 
 pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
     TimeoutConfig {
-        default_node_timeout_seconds: user
-            .default_node_timeout_seconds
-            .or(Some(30)),
-        default_workflow_timeout_seconds: user
-            .default_workflow_timeout_seconds
-            .or(Some(300)),
-        max_timeout_seconds: user.max_timeout_seconds.or(Some(3000)),
+        workflow_execution_completion: user.workflow_execution_completion.or(Some(30000)),
+        workflow_execution_pause: user.workflow_execution_pause.or(Some(5000)),
+        workflow_execution_cancel: user.workflow_execution_cancel.or(Some(10000)),
+        workflow_execution_resume: user.workflow_execution_resume.or(Some(5000)),
+        child_execution_wait: user.child_execution_wait.or(Some(30000)),
+        cascade_cancel: user.cascade_cancel.or(Some(30000)),
+        node_completion: user.node_completion.or(Some(30000)),
+        node_failed: user.node_failed.or(Some(30000)),
+        sync_branch_wait: user.sync_branch_wait.or(Some(60000)),
+        join_completion: user.join_completion.or(Some(60000)),
+        lifecycle_event: user.lifecycle_event.or(Some(5000)),
+        polling_wait: user.polling_wait.or(Some(30000)),
+        polling_interval: user.polling_interval.or(Some(100)),
+        default: user.default.or(Some(30000)),
+        max_allowed: user.max_allowed.or(Some(300000)),
     }
 }
 
@@ -31,30 +39,15 @@ pub fn validate_timeout(timeout: i64, context: &str) -> ConfigResult<()> {
 }
 
 pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
-    MetricsConfig {
-        enabled: user.enabled,
-        export_interval_seconds: user.export_interval_seconds.or(Some(60)),
-        include_node_metrics: user.include_node_metrics.or(Some(true)),
-        include_llm_metrics: user.include_llm_metrics.or(Some(true)),
-        include_tool_metrics: user.include_tool_metrics.or(Some(true)),
-    }
+    user.clone()
 }
 
 pub fn merge_output_with_defaults(user: &OutputConfig) -> OutputConfig {
-    OutputConfig {
-        format: user.format.clone().or(Some("json".to_string())),
-        include_metadata: user.include_metadata.or(Some(true)),
-        include_errors: user.include_errors.or(Some(true)),
-        max_output_size: user.max_output_size.or(Some(10_000_000)),
-    }
+    user.clone()
 }
 
 pub fn merge_storage_with_defaults(user: &StorageConfig) -> StorageConfig {
-    StorageConfig {
-        storage_type: user.storage_type.clone(),
-        connection_string: user.connection_string.clone(),
-        max_connections: user.max_connections.or(Some(10)),
-    }
+    user.clone()
 }
 
 pub fn merge_sandbox_with_defaults(user: &SandboxConfig) -> SandboxConfig {
@@ -97,14 +90,27 @@ mod tests {
     #[test]
     fn test_merge_timeout_with_defaults() {
         let user = TimeoutConfig {
-            default_node_timeout_seconds: Some(60),
-            default_workflow_timeout_seconds: None,
-            max_timeout_seconds: None,
+            workflow_execution_completion: Some(60000),
+            workflow_execution_pause: None,
+            workflow_execution_cancel: None,
+            workflow_execution_resume: None,
+            child_execution_wait: None,
+            cascade_cancel: None,
+            node_completion: None,
+            node_failed: None,
+            sync_branch_wait: None,
+            join_completion: None,
+            lifecycle_event: None,
+            polling_wait: None,
+            polling_interval: None,
+            default: None,
+            max_allowed: None,
         };
         let merged = merge_timeout_with_defaults(&user);
-        assert_eq!(merged.default_node_timeout_seconds, Some(60));
-        assert_eq!(merged.default_workflow_timeout_seconds, Some(300));
-        assert_eq!(merged.max_timeout_seconds, Some(3000));
+        assert_eq!(merged.workflow_execution_completion, Some(60000));
+        assert_eq!(merged.workflow_execution_pause, Some(5000));
+        assert_eq!(merged.default, Some(30000));
+        assert_eq!(merged.max_allowed, Some(300000));
     }
 
     #[test]
@@ -117,41 +123,34 @@ mod tests {
 
     #[test]
     fn test_merge_metrics_with_defaults() {
-        let user = MetricsConfig {
-            enabled: false,
-            export_interval_seconds: None,
-            include_node_metrics: None,
-            include_llm_metrics: None,
-            include_tool_metrics: None,
-        };
+        let user = MetricsConfig::default();
         let merged = merge_metrics_with_defaults(&user);
-        assert!(!merged.enabled);
-        assert_eq!(merged.export_interval_seconds, Some(60));
+        assert_eq!(merged.enabled, None);
     }
 
     #[test]
     fn test_merge_output_with_defaults() {
         let user = OutputConfig {
-            format: None,
-            include_metadata: None,
-            include_errors: None,
-            max_output_size: None,
+            dir: "/logs".to_string(),
+            log_file_pattern: "app.log".to_string(),
+            enable_log_terminal: true,
+            enable_sdk_logs: true,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
         };
         let merged = merge_output_with_defaults(&user);
-        assert_eq!(merged.format, Some("json".to_string()));
-        assert_eq!(merged.include_metadata, Some(true));
+        assert_eq!(merged.dir, "/logs");
+        assert_eq!(merged.sdk_log_level, wf_types::config::output::SdkLogLevel::Info);
     }
 
     #[test]
     fn test_merge_storage_with_defaults() {
         let user = StorageConfig {
-            storage_type: "sqlite".to_string(),
-            connection_string: None,
-            max_connections: None,
+            storage_type: wf_types::config::storage::StorageType::Sqlite,
+            sqlite: None,
+            postgres: None,
         };
         let merged = merge_storage_with_defaults(&user);
-        assert_eq!(merged.storage_type, "sqlite");
-        assert_eq!(merged.max_connections, Some(10));
+        assert_eq!(merged.storage_type, wf_types::config::storage::StorageType::Sqlite);
     }
 
     #[test]

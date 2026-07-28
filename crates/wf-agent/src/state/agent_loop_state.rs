@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
+use serde_json::Value;
 
 use wf_common::now;
+use wf_execution_shared::error_chain::manager::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
 
@@ -21,6 +25,8 @@ pub struct AgentLoopStateSnapshot {
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub error: Option<String>,
+    pub error_records: Vec<ErrorRecord>,
+    pub variable_snapshots: HashMap<String, Value>,
 }
 
 pub struct AgentLoopState {
@@ -31,6 +37,14 @@ pub struct AgentLoopState {
     start_time: i64,
     end_time: Option<i64>,
     error: Option<String>,
+    error_records: Vec<ErrorRecord>,
+    variable_snapshots: HashMap<String, Value>,
+}
+
+impl Default for AgentLoopState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentLoopState {
@@ -43,6 +57,8 @@ impl AgentLoopState {
             start_time: now(),
             end_time: None,
             error: None,
+            error_records: Vec::new(),
+            variable_snapshots: HashMap::new(),
         }
     }
 
@@ -74,6 +90,34 @@ impl AgentLoopState {
         self.current_iteration
     }
 
+    pub fn tool_call_count(&self) -> u32 {
+        self.tool_call_count
+    }
+
+    pub fn iteration_history(&self) -> &[IterationRecord] {
+        &self.iteration_history
+    }
+
+    pub fn error_records(&self) -> &[ErrorRecord] {
+        &self.error_records
+    }
+
+    pub fn variable_snapshots(&self) -> &HashMap<String, Value> {
+        &self.variable_snapshots
+    }
+
+    pub fn start_time(&self) -> i64 {
+        self.start_time
+    }
+
+    pub fn end_time(&self) -> Option<i64> {
+        self.end_time
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
     pub fn start(&mut self) {
         self.status = ExecutionStatus::Running;
         self.start_time = now();
@@ -100,6 +144,14 @@ impl AgentLoopState {
         if let Some(record) = self.iteration_history.last_mut() {
             record.tool_call_count += 1;
         }
+    }
+
+    pub fn record_error(&mut self, record: ErrorRecord) {
+        self.error_records.push(record);
+    }
+
+    pub fn set_variable_snapshot(&mut self, name: String, value: Value) {
+        self.variable_snapshots.insert(name, value);
     }
 
     pub fn pause(&mut self) {
@@ -132,6 +184,8 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
     async fn cleanup(&mut self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.iteration_history.clear();
         self.error = None;
+        self.error_records.clear();
+        self.variable_snapshots.clear();
         Ok(())
     }
 
@@ -144,6 +198,8 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
             start_time: self.start_time,
             end_time: self.end_time,
             error: self.error.clone(),
+            error_records: self.error_records.clone(),
+            variable_snapshots: self.variable_snapshots.clone(),
         })
     }
 
@@ -155,6 +211,8 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.start_time = snapshot.start_time;
         self.end_time = snapshot.end_time;
         self.error = snapshot.error;
+        self.error_records = snapshot.error_records;
+        self.variable_snapshots = snapshot.variable_snapshots;
         Ok(())
     }
 

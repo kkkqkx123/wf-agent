@@ -6,6 +6,7 @@ pub mod mcp_approval;
 pub mod mcp_connection;
 pub mod risk_level;
 pub mod runtime_config;
+pub mod schema;
 pub mod state;
 pub mod static_config;
 
@@ -17,5 +18,6 @@ pub use mcp_approval::*;
 pub use mcp_connection::*;
 pub use risk_level::*;
 pub use runtime_config::*;
+pub use schema::*;
 pub use state::*;
 pub use static_config::*;

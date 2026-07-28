@@ -1,5 +1,4 @@
 use crate::entity::AgentLoopEntity;
-use crate::error::AgentResult;
 
 pub struct AgentLoopFactory;
 

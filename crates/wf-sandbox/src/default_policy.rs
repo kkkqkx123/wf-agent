@@ -9,18 +9,18 @@ fn build_default_sandbox_policy() -> SandboxPolicy {
     SandboxPolicy {
         mode: SandboxMode::Strict,
         shell: Some(ShellPolicy {
-            allowed_commands: vec![],
-            denied_commands: vec![
+            allowed_commands: None,
+            denied_commands: Some(vec![
                 "sudo".to_string(),
                 "su".to_string(),
                 "chroot".to_string(),
-            ],
-            dangerous_patterns: vec![
+            ]),
+            dangerous_patterns: Some(vec![
                 "rm\\s+(-rf|--recursive)".to_string(),
                 ":\\(\\)\\s*\\{.*:\\(\\)\\s*\\}.*\\}".to_string(),
-            ],
-            allow_pipe: true,
-            allow_redirect: true,
+            ]),
+            allow_pipe: Some(true),
+            allow_redirect: Some(true),
         }),
         python: Some(PythonPolicy {
             allowed_modules: vec![],
@@ -99,7 +99,7 @@ mod tests {
     fn test_default_policy_denies_sudo() {
         let policy = default_sandbox_policy();
         let shell = policy.shell.as_ref().unwrap();
-        assert!(shell.denied_commands.contains(&"sudo".to_string()));
+        assert!(shell.denied_commands.as_ref().unwrap().contains(&"sudo".to_string()));
     }
 
     #[test]

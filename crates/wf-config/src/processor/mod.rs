@@ -1,12 +1,15 @@
 pub mod agent_loop;
+pub mod checkpoint;
+pub mod file_checkpoint;
 pub mod hook;
 pub mod infrastructure;
 pub mod llm_profile;
 pub mod node_template;
+pub mod presets;
 pub mod prompt;
-pub mod script;
 pub mod script_flow;
 pub mod script_interactive;
+pub mod script;
 pub mod substitute;
 pub mod trigger;
 pub mod workflow;

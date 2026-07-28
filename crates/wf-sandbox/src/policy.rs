@@ -34,17 +34,17 @@ impl SandboxPolicyManager {
         SandboxPolicy {
             mode: SandboxMode::Strict,
             shell: Some(ShellPolicy {
-                allowed_commands: vec![],
-                denied_commands: vec![
+                allowed_commands: None,
+                denied_commands: Some(vec![
                     "sudo".to_string(),
                     "su".to_string(),
                     "chroot".to_string(),
-                ],
-                dangerous_patterns: vec![
+                ]),
+                dangerous_patterns: Some(vec![
                     "rm\\s+(-rf|--recursive)".to_string(),
-                ],
-                allow_pipe: true,
-                allow_redirect: true,
+                ]),
+                allow_pipe: Some(true),
+                allow_redirect: Some(true),
             }),
             python: Some(PythonPolicy {
                 allowed_modules: vec![],
@@ -112,11 +112,11 @@ mod tests {
     fn test_merge_policy_overrides_shell() {
         let base = SandboxPolicyManager::default_strict();
         let override_shell = ShellPolicy {
-            allowed_commands: vec!["ls".to_string()],
-            denied_commands: vec![],
-            dangerous_patterns: vec![],
-            allow_pipe: false,
-            allow_redirect: false,
+            allowed_commands: Some(vec!["ls".to_string()]),
+            denied_commands: Some(vec![]),
+            dangerous_patterns: Some(vec![]),
+            allow_pipe: Some(false),
+            allow_redirect: Some(false),
         };
         let overrides = SandboxPolicy {
             shell: Some(override_shell),
@@ -125,9 +125,9 @@ mod tests {
         let merged = SandboxPolicyManager::merge(&base, &overrides);
         assert_eq!(
             merged.shell.as_ref().unwrap().allowed_commands,
-            vec!["ls"]
+            Some(vec!["ls".to_string()])
         );
-        assert!(!merged.shell.as_ref().unwrap().allow_pipe);
+        assert!(!merged.shell.as_ref().unwrap().allow_pipe.unwrap());
     }
 
     #[test]

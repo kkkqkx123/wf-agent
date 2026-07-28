@@ -41,6 +41,10 @@ pub use interruption::{
 };
 pub use messaging::message_array_manager::MessageArrayManager;
 pub use messaging::message_context_registry::{MessageContextRegistry, NamedMessageContext};
+pub use messaging::cross_boundary_converter::{BoundaryType, CrossBoundaryConverter};
+pub use messaging::dynamic_injection::DynamicInjection;
+pub use messaging::history_converter::{HistoryConverter, HistoryFormat};
+pub use messaging::visible_range_calculator::{VisibleRange, VisibleRangeCalculator, VisibilityScope};
 pub use pool::execution_pool::ExecutionPool;
 pub use pool::PoolStats;
 pub use protection::tool_failure_protection::{

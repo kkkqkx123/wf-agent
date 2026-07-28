@@ -52,13 +52,13 @@ pub struct ResourcePolicy {
     pub timeout_limit_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ShellPolicy {
-    pub allowed_commands: Vec<String>,
-    pub denied_commands: Vec<String>,
-    pub dangerous_patterns: Vec<String>,
-    pub allow_pipe: bool,
-    pub allow_redirect: bool,
+    pub allowed_commands: Option<Vec<String>>,
+    pub denied_commands: Option<Vec<String>>,
+    pub dangerous_patterns: Option<Vec<String>>,
+    pub allow_pipe: Option<bool>,
+    pub allow_redirect: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

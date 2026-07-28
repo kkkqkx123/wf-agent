@@ -1,74 +1,75 @@
-use wf_execution_shared::types::execution_entity::ExecutionStatus;
-use wf_tools::callback::{AgentLoopOutput, AgentLoopConfig, AgentLoopInput};
-use wf_types::Id;
+use std::sync::Arc;
 
+use wf_execution_shared::hooks::executor::HookExecutor;
+use wf_llm::LlmWrapper;
+use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
+use wf_tools::registry::ToolRegistry;
+
+use crate::coordinator::execution::AgentExecutionCoordinator;
+use crate::coordinator::iteration::AgentIterationCoordinator;
+use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
-use crate::state::AgentLoopState;
 
-pub struct AgentLoopCoordinator;
+pub struct AgentLoopCoordinator {
+    llm_wrapper: Arc<LlmWrapper>,
+    tool_registry: Arc<ToolRegistry>,
+    hook_executor: Arc<HookExecutor>,
+}
 
 impl AgentLoopCoordinator {
-    pub fn new() -> Self {
-        Self
+    pub fn new(
+        llm_wrapper: Arc<LlmWrapper>,
+        tool_registry: Arc<ToolRegistry>,
+    ) -> Self {
+        let hook_executor = Arc::new(HookExecutor::new());
+        Self {
+            llm_wrapper,
+            tool_registry,
+            hook_executor,
+        }
+    }
+
+    pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
+        self.hook_executor = hook_executor;
+        self
     }
 
     pub async fn execute(
         &self,
-        entity: &AgentLoopEntity,
-        max_iterations: u32,
+        config: AgentLoopConfig,
+        _input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
-        entity.state.write().await.start();
+        let entity = self.build_entity(config).await?;
 
-        for iteration in 0..max_iterations {
-            if !entity.state.read().await.is_running() {
-                break;
+        AgentLoopStateTransitor::start_agent_loop(&entity).await?;
+
+        let iteration_coordinator = Arc::new(AgentIterationCoordinator::new(
+            self.llm_wrapper.clone(),
+            self.tool_registry.clone(),
+            self.hook_executor.clone(),
+        ));
+        let execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator);
+
+        let max_iterations = 10;
+        match execution_coordinator.execute(&entity, max_iterations).await {
+            Ok((result, iterations)) => {
+                if result.completion_data.is_some() || !result.should_continue {
+                    AgentLoopStateTransitor::complete_agent_loop(&entity).await?;
+                }
+                Ok(AgentLoopOutput {
+                    result: result.content,
+                    iterations,
+                })
             }
-
-            entity.state.write().await.start_iteration();
-
-            let result = self.execute_iteration(entity).await;
-
-            entity.state.write().await.end_iteration();
-
-            match result {
-                Ok(output) => {
-                    if output.should_continue {
-                        entity.state.write().await.record_tool_call();
-                    } else {
-                        entity.state.write().await.complete();
-                        return Ok(AgentLoopOutput {
-                            result: output.content,
-                            iterations: iteration + 1,
-                        });
-                    }
-                }
-                Err(e) => {
-                    entity.state.write().await.fail(e.to_string());
-                    return Err(e);
-                }
+            Err(e) => {
+                AgentLoopStateTransitor::fail_agent_loop(&entity, e.to_string()).await?;
+                Err(e)
             }
         }
-
-        entity.state.write().await.complete();
-        Ok(AgentLoopOutput {
-            result: serde_json::Value::String("Max iterations reached".to_string()),
-            iterations: max_iterations,
-        })
     }
 
-    async fn execute_iteration(
-        &self,
-        _entity: &AgentLoopEntity,
-    ) -> AgentResult<IterationResult> {
-        Ok(IterationResult {
-            should_continue: false,
-            content: serde_json::Value::String("stub".to_string()),
-        })
+    async fn build_entity(&self, config: AgentLoopConfig) -> AgentResult<AgentLoopEntity> {
+        Ok(AgentLoopEntity::new(config.agent_id.clone()))
     }
-}
-
-struct IterationResult {
-    should_continue: bool,
-    content: serde_json::Value,
 }

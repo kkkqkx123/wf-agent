@@ -108,7 +108,7 @@ impl DefaultStrategyResolver {
         use crate::strategy::shell::static_analyzer::ShellStaticAnalyzerStrategy;
         self.shell_strategies.insert(
             "static-analyzer".to_string(),
-            Arc::new(ShellStaticAnalyzerStrategy),
+            Arc::new(ShellStaticAnalyzerStrategy::new()),
         );
         use crate::strategy::shell::os_hook::LinuxSeccompStrategy;
         self.shell_strategies.insert(

@@ -5,6 +5,14 @@ use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, LlmPro
 use crate::error::LlmResult;
 use wf_types::tool::Tool;
 
+pub mod anthropic;
+pub mod gemini_native;
+pub mod gemini_openai;
+
+pub use anthropic::AnthropicFormatter;
+pub use gemini_native::GeminiNativeFormatter;
+pub use gemini_openai::GeminiOpenaiFormatter;
+
 #[async_trait]
 pub trait LlmFormatter: Send + Sync {
     fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request>;
@@ -18,9 +26,9 @@ pub fn create_formatter(provider: &LlmProvider) -> Arc<dyn LlmFormatter> {
     match provider {
         LlmProvider::OpenaiChat => Arc::new(OpenaiChatFormatter::new()),
         LlmProvider::OpenaiResponse => Arc::new(OpenaiChatFormatter::new()),
-        LlmProvider::Anthropic => Arc::new(OpenaiChatFormatter::new()),
-        LlmProvider::GeminiNative => Arc::new(OpenaiChatFormatter::new()),
-        LlmProvider::GeminiOpenai => Arc::new(OpenaiChatFormatter::new()),
+        LlmProvider::Anthropic => Arc::new(AnthropicFormatter::new()),
+        LlmProvider::GeminiNative => Arc::new(GeminiNativeFormatter::new()),
+        LlmProvider::GeminiOpenai => Arc::new(GeminiOpenaiFormatter::new()),
     }
 }
 
@@ -44,7 +52,7 @@ impl OpenaiChatFormatter {
 impl LlmFormatter for OpenaiChatFormatter {
     fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
         let url = format!("{}/chat/completions", profile.base_url.as_deref().unwrap_or(&self.base_url));
-        
+
         let mut body = serde_json::json!({
             "model": profile.model,
             "messages": request.messages,
@@ -110,18 +118,18 @@ impl LlmFormatter for OpenaiChatFormatter {
         let empty_choices = vec![];
         let choices = json.get("choices").and_then(|v| v.as_array()).unwrap_or(&empty_choices);
         let first_choice = choices.first();
-        
+
         let content = first_choice
             .and_then(|c| c.get("message"))
             .and_then(|m| m.get("content"))
             .and_then(|c| c.as_str())
             .map(String::from);
-        
+
         let finish_reason = first_choice
             .and_then(|c| c.get("finish_reason"))
             .and_then(|r| r.as_str())
             .map(String::from);
-        
+
         let tool_calls = first_choice
             .and_then(|c| c.get("message"))
             .and_then(|m| m.get("tool_calls"))
@@ -189,9 +197,9 @@ impl LlmFormatter for OpenaiChatFormatter {
         if let Some(choice) = choices.first() {
             if let Some(delta) = choice.get("delta") {
                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                    return Ok(Some(MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
-                        text: content.to_string(),
-                    })));
+                    return Ok(Some(MessageStreamEvent::Text(
+                        wf_types::llm::MessageStreamText { text: content.to_string() }
+                    )));
                 }
             }
         }

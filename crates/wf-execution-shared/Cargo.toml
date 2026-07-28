@@ -19,3 +19,5 @@ dashmap.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+blake3.workspace = true

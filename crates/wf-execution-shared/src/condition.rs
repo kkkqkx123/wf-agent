@@ -7,7 +7,12 @@ use crate::error::ExecutionSharedResult;
 pub struct ConditionEvaluator;
 
 impl ConditionEvaluator {
+    pub fn normalize_condition(condition: &str) -> String {
+        condition.replace("===", "==").replace("!==", "!=")
+    }
+
     pub fn evaluate(condition: &str, context: &HashMap<String, Value>) -> ExecutionSharedResult<bool> {
+        let condition = Self::normalize_condition(condition);
         let condition = condition.trim();
 
         if condition.starts_with("eq(") {
@@ -27,6 +32,12 @@ impl ConditionEvaluator {
         } else {
             Self::eval_exists(condition, context)
         }
+    }
+
+    pub fn generate_cache_key(condition: &str) -> String {
+        let normalized = Self::normalize_condition(condition);
+        let hash = blake3::hash(normalized.as_bytes());
+        hash.to_hex().to_string()
     }
 
     fn parse_args(input: &str) -> Vec<&str> {
@@ -285,5 +296,50 @@ mod tests {
         let ctx = ctx(&[("name", Value::String("test".to_string()))]);
         assert!(ConditionEvaluator::evaluate("name", &ctx).unwrap());
         assert!(!ConditionEvaluator::evaluate("missing", &ctx).unwrap());
+    }
+
+    #[test]
+    fn test_normalize_triple_equals() {
+        let normalized = ConditionEvaluator::normalize_condition("a === b");
+        assert_eq!(normalized, "a == b");
+    }
+
+    #[test]
+    fn test_normalize_triple_not_equals() {
+        let normalized = ConditionEvaluator::normalize_condition("a !== b");
+        assert_eq!(normalized, "a != b");
+    }
+
+    #[test]
+    fn test_normalize_mixed() {
+        let normalized = ConditionEvaluator::normalize_condition("a === b && c !== d");
+        assert_eq!(normalized, "a == b && c != d");
+    }
+
+    #[test]
+    fn test_normalize_no_change() {
+        let normalized = ConditionEvaluator::normalize_condition("eq(a, b)");
+        assert_eq!(normalized, "eq(a, b)");
+    }
+
+    #[test]
+    fn test_generate_cache_key_deterministic() {
+        let key1 = ConditionEvaluator::generate_cache_key("eq(status, \"active\")");
+        let key2 = ConditionEvaluator::generate_cache_key("eq(status, \"active\")");
+        assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_generate_cache_key_different_conditions() {
+        let key1 = ConditionEvaluator::generate_cache_key("eq(a, b)");
+        let key2 = ConditionEvaluator::generate_cache_key("eq(c, d)");
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_generate_cache_key_normalized() {
+        let key1 = ConditionEvaluator::generate_cache_key("a === b");
+        let key2 = ConditionEvaluator::generate_cache_key("a == b");
+        assert_eq!(key1, key2);
     }
 }

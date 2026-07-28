@@ -32,6 +32,8 @@ pub struct Tool {
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

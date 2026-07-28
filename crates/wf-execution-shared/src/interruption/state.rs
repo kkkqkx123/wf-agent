@@ -308,8 +308,7 @@ mod tests {
         let mut state = InterruptionState::new();
         state.set_event_bus(bus.clone());
 
-        let mut sub = bus.subscribe(wf_core::event::EventFilter::default()
-            .with_event_types([EventType::ExecutionPaused].into_iter().collect()));
+        let mut sub = bus.subscribe();
 
         state.pause().unwrap();
 
@@ -325,8 +324,7 @@ mod tests {
 
         state.pause().unwrap();
 
-        let mut sub = bus.subscribe(wf_core::event::EventFilter::default()
-            .with_event_types([EventType::ExecutionResumed].into_iter().collect()));
+        let mut sub = bus.subscribe();
 
         state.resume().unwrap();
 
@@ -340,8 +338,7 @@ mod tests {
         let mut state = InterruptionState::new();
         state.set_event_bus(bus.clone());
 
-        let mut sub = bus.subscribe(wf_core::event::EventFilter::default()
-            .with_event_types([EventType::ExecutionCancelled].into_iter().collect()));
+        let mut sub = bus.subscribe();
 
         state.stop().unwrap();
 

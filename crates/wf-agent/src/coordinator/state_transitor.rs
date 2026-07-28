@@ -8,33 +8,51 @@ use crate::error::AgentResult;
 pub struct AgentLoopStateTransitor;
 
 impl AgentLoopStateTransitor {
-    pub async fn start_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
+    pub async fn start_agent_loop(entity: &AgentLoopEntity, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.start();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentStarted, entity.id().clone());
+        }
         Ok(())
     }
 
-    pub async fn pause_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
+    pub async fn pause_agent_loop(entity: &AgentLoopEntity, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.pause();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentPaused, entity.id().clone());
+        }
         Ok(())
     }
 
-    pub async fn resume_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
+    pub async fn resume_agent_loop(entity: &AgentLoopEntity, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.resume();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentResumed, entity.id().clone());
+        }
         Ok(())
     }
 
-    pub async fn complete_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
+    pub async fn complete_agent_loop(entity: &AgentLoopEntity, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.complete();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentCompleted, entity.id().clone());
+        }
         Ok(())
     }
 
-    pub async fn fail_agent_loop(entity: &AgentLoopEntity, error: String) -> AgentResult<()> {
+    pub async fn fail_agent_loop(entity: &AgentLoopEntity, error: String, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.fail(error);
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentFailed, entity.id().clone());
+        }
         Ok(())
     }
 
-    pub async fn cancel_agent_loop(entity: &AgentLoopEntity) -> AgentResult<()> {
+    pub async fn cancel_agent_loop(entity: &AgentLoopEntity, event_bus: Option<&EventBus>) -> AgentResult<()> {
         entity.state.write().await.cancel();
+        if let Some(eb) = event_bus {
+            Self::emit_event(eb, EventType::AgentCancelled, entity.id().clone());
+        }
         Ok(())
     }
 

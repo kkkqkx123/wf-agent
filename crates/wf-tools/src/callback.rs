@@ -6,11 +6,22 @@ use std::sync::Arc;
 use crate::error::{ToolError, ToolResult};
 use wf_types::Id;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HookConfig {
+    pub hook_type: String,
+    pub condition: Option<String>,
+    pub enabled: bool,
+    pub parallel: Option<bool>,
+    pub continue_on_error: Option<bool>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentLoopConfig {
     pub agent_id: Id,
     pub model: Option<String>,
     pub max_iterations: Option<u32>,
+    pub hooks: Vec<HookConfig>,
+    pub available_tool_names: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

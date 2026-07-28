@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+use wf_execution_shared::failure_policy::manager::{
+    default_retry_policy, ExecutionSharedErrorProxy, FailurePolicyManager,
+};
 use wf_execution_shared::interruption::check_execution_interruption;
-use wf_execution_shared::retry::budget::{RetryBudget, RetryBudgetConfig, TimeBudgetMode};
+use wf_types::execution::FailurePolicyConfig;
 
 use crate::coordinator::iteration::{AgentIterationCoordinator, IterationResult};
 use crate::entity::AgentLoopEntity;
@@ -21,12 +24,13 @@ impl AgentExecutionCoordinator {
         entity: &AgentLoopEntity,
         max_iterations: u32,
     ) -> AgentResult<(IterationResult, u32)> {
-        let retry_config = RetryBudgetConfig {
-            max_retries: 3,
-            time_budget_ms: 300_000,
-            time_budget_mode: TimeBudgetMode::DelayOnly,
-        };
-        let mut budget = RetryBudget::new(retry_config);
+        let failure_policy = FailurePolicyManager::new(FailurePolicyConfig {
+            retry_policy: Some(default_retry_policy()),
+            fallback_policy: None,
+            non_retryable_errors: Some(vec!["abort".to_string(), "cancelled".to_string()]),
+            log_level: Some("info".to_string()),
+            metrics_enabled: Some(false),
+        });
 
         for iteration in 0..max_iterations {
             let running = entity.state.read().await.is_running();
@@ -34,7 +38,9 @@ impl AgentExecutionCoordinator {
                 break;
             }
 
-            let iteration_result = self.execute_iteration_with_retry(entity, &mut budget).await?;
+            let iteration_result = self
+                .execute_iteration_with_retry(entity, &failure_policy)
+                .await?;
 
             match iteration_result {
                 Some(result) => {
@@ -63,7 +69,7 @@ impl AgentExecutionCoordinator {
     async fn execute_iteration_with_retry(
         &self,
         entity: &AgentLoopEntity,
-        budget: &mut RetryBudget,
+        failure_policy: &FailurePolicyManager,
     ) -> AgentResult<Option<IterationResult>> {
         let interruption = check_execution_interruption(entity.interruption(), None);
         match interruption {
@@ -77,15 +83,15 @@ impl AgentExecutionCoordinator {
             _ => {}
         }
 
+        let mut attempt: u32 = 0;
         loop {
             match self.iteration_coordinator.execute_iteration(entity).await {
                 Ok(result) => return Ok(Some(result)),
                 Err(e) => {
-                    if budget.can_retry() {
-                        let delay = std::time::Duration::from_millis(
-                            1000 * 2_u64.pow(budget.attempts().min(6)),
-                        );
-                        budget.record_attempt(delay);
+                    let proxy = ExecutionSharedErrorProxy::from_message(e.to_string());
+                    if failure_policy.should_retry(&proxy, attempt) {
+                        let delay = failure_policy.next_delay(attempt);
+                        attempt += 1;
                         tokio::time::sleep(delay).await;
                         continue;
                     }

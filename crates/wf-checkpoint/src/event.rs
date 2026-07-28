@@ -1,19 +1,26 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use wf_types::events::{
-    BaseEvent, CheckpointCreatedEvent, CheckpointDeletedEvent, CheckpointFailedEvent,
-    CheckpointRestoredEvent, EventType,
-};
+use wf_types::events::{BaseEvent, EventType};
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CheckpointData {
+    pub checkpoint_id: Option<String>,
+    pub execution_id: Option<String>,
+    pub operation: Option<String>,
+    pub error: Option<String>,
+    pub description: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CheckpointEvent {
-    Created(CheckpointCreatedEvent),
-    Restored(CheckpointRestoredEvent),
-    Deleted(CheckpointDeletedEvent),
-    Failed(CheckpointFailedEvent),
+    Created { base: BaseEvent, data: CheckpointData },
+    Restored { base: BaseEvent, data: CheckpointData },
+    Deleted { base: BaseEvent, data: CheckpointData },
+    Failed { base: BaseEvent, data: CheckpointData },
 }
 
 pub type EventSender = broadcast::Sender<CheckpointEvent>;
@@ -51,74 +58,77 @@ impl CheckpointEventBus {
         self.sender.receiver_count()
     }
 
+    fn make_base(event_type: EventType) -> BaseEvent {
+        BaseEvent {
+            id: wf_common::generate_id(),
+            r#type: event_type,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: None,
+        }
+    }
+
     pub fn created(checkpoint_id: impl Into<String>) -> CheckpointEvent {
-        CheckpointEvent::Created(CheckpointCreatedEvent {
-            base: BaseEvent {
-                id: wf_common::generate_id(),
-                r#type: EventType::CheckpointCreated,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                workflow_id: None,
+        CheckpointEvent::Created {
+            base: Self::make_base(EventType::CheckpointCreated),
+            data: CheckpointData {
+                checkpoint_id: Some(checkpoint_id.into()),
                 execution_id: None,
-                agent_loop_id: None,
-                metadata: None,
+                operation: None,
+                error: None,
+                description: None,
+                reason: None,
             },
-            checkpoint_id: checkpoint_id.into(),
-            description: None,
-        })
+        }
     }
 
     pub fn restored(
         checkpoint_id: impl Into<String>,
         execution_id: impl Into<String>,
     ) -> CheckpointEvent {
-        let exec_id: String = execution_id.into();
-        CheckpointEvent::Restored(CheckpointRestoredEvent {
-            base: BaseEvent {
-                id: wf_common::generate_id(),
-                r#type: EventType::CheckpointRestored,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                workflow_id: None,
-                execution_id: Some(exec_id.clone()),
-                agent_loop_id: None,
-                metadata: None,
+        let mut base = Self::make_base(EventType::CheckpointRestored);
+        base.execution_id = Some(execution_id.into());
+        CheckpointEvent::Restored {
+            base,
+            data: CheckpointData {
+                checkpoint_id: Some(checkpoint_id.into()),
+                execution_id: None,
+                operation: None,
+                error: None,
+                description: None,
+                reason: None,
             },
-            checkpoint_id: checkpoint_id.into(),
-            execution_id: exec_id,
-            description: None,
-        })
+        }
     }
 
     pub fn deleted(checkpoint_id: impl Into<String>) -> CheckpointEvent {
-        CheckpointEvent::Deleted(CheckpointDeletedEvent {
-            base: BaseEvent {
-                id: wf_common::generate_id(),
-                r#type: EventType::CheckpointDeleted,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                workflow_id: None,
+        CheckpointEvent::Deleted {
+            base: Self::make_base(EventType::CheckpointDeleted),
+            data: CheckpointData {
+                checkpoint_id: Some(checkpoint_id.into()),
                 execution_id: None,
-                agent_loop_id: None,
-                metadata: None,
+                operation: None,
+                error: None,
+                description: None,
+                reason: None,
             },
-            checkpoint_id: checkpoint_id.into(),
-            reason: None,
-        })
+        }
     }
 
     pub fn failed(operation: impl Into<String>, error: impl Into<String>) -> CheckpointEvent {
-        CheckpointEvent::Failed(CheckpointFailedEvent {
-            base: BaseEvent {
-                id: wf_common::generate_id(),
-                r#type: EventType::CheckpointFailed,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                workflow_id: None,
+        CheckpointEvent::Failed {
+            base: Self::make_base(EventType::CheckpointFailed),
+            data: CheckpointData {
+                checkpoint_id: None,
                 execution_id: None,
-                agent_loop_id: None,
-                metadata: None,
+                operation: Some(operation.into()),
+                error: Some(error.into()),
+                description: None,
+                reason: None,
             },
-            checkpoint_id: None,
-            operation: operation.into(),
-            error: error.into(),
-        })
+        }
     }
 }
 
@@ -135,10 +145,10 @@ mod tests {
     #[test]
     fn created_event_has_correct_type() {
         let event = CheckpointEventBus::created("cp-1");
-        match event {
-            CheckpointEvent::Created(ref e) => {
-                assert_eq!(e.checkpoint_id, "cp-1");
-                assert_eq!(e.base.r#type, EventType::CheckpointCreated);
+        match &event {
+            CheckpointEvent::Created { base, data } => {
+                assert_eq!(data.checkpoint_id, Some("cp-1".to_string()));
+                assert_eq!(base.r#type, EventType::CheckpointCreated);
             }
             _ => panic!("expected Created event"),
         }
@@ -153,7 +163,7 @@ mod tests {
         let event = rx.try_recv().unwrap();
 
         match event {
-            CheckpointEvent::Created(ref e) => assert_eq!(e.checkpoint_id, "cp-1"),
+            CheckpointEvent::Created { data, .. } => assert_eq!(data.checkpoint_id, Some("cp-1".to_string())),
             _ => panic!("wrong event type"),
         }
     }

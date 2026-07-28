@@ -100,6 +100,7 @@ mod tests {
             config: None,
             enabled: None,
             strict: None,
+            default_timeout_ms: None,
         }
     }
 

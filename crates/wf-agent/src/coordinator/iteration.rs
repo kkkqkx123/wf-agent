@@ -138,6 +138,20 @@ impl AgentIterationCoordinator {
         let tool_messages = self.tool_coordinator.execute_tool_calls(entity, &tool_calls).await?;
         let tool_call_count = tool_calls.len() as u32;
 
+        let interruption = check_execution_interruption(
+            entity.interruption(),
+            Some(entity.state.read().await.current_iteration()),
+        );
+        if !matches!(interruption, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+            entity.state.write().await.end_iteration();
+            return Ok(IterationResult {
+                should_continue: false,
+                content: Value::String("Execution interrupted after tool calls".to_string()),
+                completion_data: None,
+                tool_call_count,
+            });
+        }
+
         let mut completion_data = None;
         for tc in &tool_calls {
             if tc.function.name == "attempt_completion" {

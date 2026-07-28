@@ -193,6 +193,7 @@ mod tests {
             config: None,
             enabled: Some(true),
             strict: None,
+            default_timeout_ms: None,
         }
     }
 

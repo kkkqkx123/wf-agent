@@ -458,8 +458,7 @@ mod tests {
         };
         let config = HookExecutorConfig::default();
 
-        let mut sub = bus.subscribe(wf_core::event::EventFilter::default()
-            .with_event_types([EventType::AgentHookTriggered].into_iter().collect()));
+        let mut sub = bus.subscribe();
 
         executor.execute_hooks(&hooks, &ctx, &config).await.unwrap();
 

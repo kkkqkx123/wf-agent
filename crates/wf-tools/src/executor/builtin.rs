@@ -66,6 +66,14 @@ impl BuiltinExecutor {
                 .get("max_iterations")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as u32),
+            hooks: parameters
+                .get("hooks")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            available_tool_names: parameters
+                .get("available_tool_names")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
         };
 
         let input = AgentLoopInput {

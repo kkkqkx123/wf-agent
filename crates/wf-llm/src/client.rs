@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use reqwest::Client as ReqwestClient;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile};
 use wf_types::message::MessageContentValue;
 use crate::error::{LlmError, LlmResult};
@@ -29,20 +30,68 @@ impl LlmClientImpl {
     pub fn profile(&self) -> &LlmProfile {
         &self.profile
     }
+
+    fn build_timeout(&self) -> Duration {
+        Duration::from_secs(self.profile.timeout.unwrap_or(60))
+    }
+
+    fn retry_delay(&self, attempt: u32) -> Duration {
+        let base = self.profile.retry_delay.unwrap_or(1000);
+        Duration::from_millis(base * 2u64.pow(attempt))
+    }
+
+    fn max_retries(&self) -> u32 {
+        self.profile.max_retries.unwrap_or(3)
+    }
+
+    fn map_http_error(status: reqwest::StatusCode, body: &str, timeout_ms: u64) -> LlmError {
+        if status.is_success() {
+            return LlmError::InvalidResponse(format!("Unexpected success status with body: {}", body));
+        }
+        let msg = format!("HTTP {}: {}", status.as_u16(), body);
+        match status.as_u16() {
+            401 | 403 => LlmError::AuthError(msg),
+            408 | 504 => LlmError::Timeout(timeout_ms),
+            _ => LlmError::ProviderError(msg),
+        }
+    }
 }
 
-#[async_trait]
-impl LlmClient for LlmClientImpl {
-    async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+impl LlmClientImpl {
+    async fn generate_inner(&self, request: &LlmRequest, cancel: Option<CancellationToken>) -> LlmResult<LlmResponseType> {
         let start = Instant::now();
 
         let http_request = self.formatter.build_request(request, &self.profile)?;
-        let response = self.client.execute(http_request).await?;
+
+        let timeout_dur = self.build_timeout();
+        let timeout_ms = timeout_dur.as_millis() as u64;
+
+        let response = if let Some(ref cancel) = cancel {
+            let req = self.client.execute(http_request);
+            tokio::select! {
+                result = req => result.map_err(LlmError::HttpError)?,
+                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                _ = tokio::time::sleep(timeout_dur) => {
+                    return Err(LlmError::Timeout(timeout_ms));
+                }
+            }
+        } else {
+            tokio::time::timeout(timeout_dur, self.client.execute(http_request))
+                .await
+                .map_err(|_| LlmError::Timeout(timeout_ms))?
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        LlmError::Timeout(timeout_ms)
+                    } else {
+                        LlmError::HttpError(e)
+                    }
+                })?
+        };
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(LlmError::ProviderError(format!("HTTP {}: {}", status, body)));
+            return Err(Self::map_http_error(status, &body, timeout_ms));
         }
 
         let body = response.text().await?;
@@ -53,22 +102,89 @@ impl LlmClient for LlmClientImpl {
         Ok(result)
     }
 
-    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<Box<dyn MessageStream>> {
+    async fn generate_stream_inner(&self, request: &LlmRequest, cancel: Option<CancellationToken>) -> LlmResult<Box<dyn MessageStream>> {
         let mut stream_request = request.clone();
         stream_request.stream = Some(true);
 
         let http_request = self.formatter.build_request(&stream_request, &self.profile)?;
-        let response = self.client.execute(http_request).await?;
+
+        let timeout_dur = self.build_timeout();
+        let timeout_ms = timeout_dur.as_millis() as u64;
+
+        let response = if let Some(ref cancel) = cancel {
+            let req = self.client.execute(http_request);
+            tokio::select! {
+                result = req => result.map_err(LlmError::HttpError)?,
+                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                _ = tokio::time::sleep(timeout_dur) => {
+                    return Err(LlmError::Timeout(timeout_ms));
+                }
+            }
+        } else {
+            tokio::time::timeout(timeout_dur, self.client.execute(http_request))
+                .await
+                .map_err(|_| LlmError::Timeout(timeout_ms))?
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        LlmError::Timeout(timeout_ms)
+                    } else {
+                        LlmError::HttpError(e)
+                    }
+                })?
+        };
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(LlmError::ProviderError(format!("HTTP {}: {}", status, body)));
+            return Err(Self::map_http_error(status, &body, timeout_ms));
         }
 
         let stream = eventsource_stream::EventStream::new(response.bytes_stream());
 
-        Ok(Box::new(crate::message_stream::SseMessageStream::new(stream)))
+        Ok(Box::new(crate::message_stream::SseMessageStream::new(
+            stream,
+            self.formatter.clone(),
+            cancel,
+        )))
+    }
+}
+
+#[async_trait]
+impl LlmClient for LlmClientImpl {
+    async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+        let max_retries = self.max_retries();
+        let mut last_err = None;
+
+        for attempt in 0..=max_retries {
+            match self.generate_inner(request, None).await {
+                Ok(result) => return Ok(result),
+                Err(e) if e.is_retryable() && attempt < max_retries => {
+                    last_err = Some(e);
+                    tokio::time::sleep(self.retry_delay(attempt)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
+    }
+
+    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<Box<dyn MessageStream>> {
+        let max_retries = self.max_retries();
+        let mut last_err = None;
+
+        for attempt in 0..=max_retries {
+            match self.generate_stream_inner(request, None).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) if e.is_retryable() && attempt < max_retries => {
+                    last_err = Some(e);
+                    tokio::time::sleep(self.retry_delay(attempt)).await;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
     }
 
     async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {

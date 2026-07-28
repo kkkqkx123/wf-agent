@@ -9,6 +9,12 @@ pub struct AnthropicFormatter {
     base_url: String,
 }
 
+impl Default for AnthropicFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnthropicFormatter {
     pub fn new() -> Self {
         Self {
@@ -57,6 +63,28 @@ impl AnthropicFormatter {
                                     "tool_use_id": tool_result.tool_use_id,
                                     "content": tool_result.content,
                                     "is_error": tool_result.is_error.unwrap_or(false),
+                                })
+                            }
+                            wf_types::message::MessageContent::ImageUrl { image_url } => {
+                                let url = &image_url.url;
+                                let (media_type, data) = if let Some(rest) = url.strip_prefix("data:") {
+                                    if let Some(semicolon) = rest.find(';') {
+                                        let mime = &rest[..semicolon];
+                                        let b64 = rest[semicolon + 1..].strip_prefix("base64,").unwrap_or("").to_string();
+                                        (mime.to_string(), b64)
+                                    } else {
+                                        ("image/png".to_string(), rest.to_string())
+                                    }
+                                } else {
+                                    ("image/png".to_string(), url.clone())
+                                };
+                                serde_json::json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": media_type,
+                                        "data": data,
+                                    }
                                 })
                             }
                             _ => serde_json::json!({"type": "text", "text": ""}),
@@ -144,19 +172,18 @@ impl LlmFormatter for AnthropicFormatter {
             "max_tokens": 4096,
         });
 
-        if let Some(params) = &request.parameters {
-            if let Some(temp) = params.get("temperature") {
-                body["temperature"] = temp.clone();
-            }
-            if let Some(max_tokens) = params.get("max_tokens") {
-                body["max_tokens"] = max_tokens.clone();
-            }
-            if let Some(top_p) = params.get("top_p") {
-                body["top_p"] = top_p.clone();
-            }
-            if let Some(stop) = params.get("stop") {
-                body["stop_sequences"] = stop.clone();
-            }
+        let merged_params = crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        if let Some(temp) = merged_params.get("temperature") {
+            body["temperature"] = temp.clone();
+        }
+        if let Some(max_tokens) = merged_params.get("max_tokens") {
+            body["max_tokens"] = max_tokens.clone();
+        }
+        if let Some(top_p) = merged_params.get("top_p") {
+            body["top_p"] = top_p.clone();
+        }
+        if let Some(stop) = merged_params.get("stop") {
+            body["stop_sequences"] = stop.clone();
         }
 
         if let Some(tools) = &request.tools {
@@ -190,7 +217,7 @@ impl LlmFormatter for AnthropicFormatter {
             }
         }
 
-        req_builder.build().map_err(|e| crate::error::LlmError::HttpError(e))
+        req_builder.build().map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
@@ -220,7 +247,7 @@ impl LlmFormatter for AnthropicFormatter {
                         let arguments = serde_json::to_string(&input).unwrap_or_default();
                         tool_calls.push(wf_types::message::LlmToolCall {
                             id: tc_id,
-                            r#type: "tool_use".to_string(),
+                            r#type: "function".to_string(),
                             function: wf_types::message::LlmFunctionCall { name, arguments },
                         });
                     }
@@ -229,14 +256,18 @@ impl LlmFormatter for AnthropicFormatter {
             }
         }
 
-        let usage = json.get("usage").map(|u| wf_types::llm::TokenUsageStats {
-            prompt_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            total_tokens: 0,
-            reasoning_tokens: None,
-            prompt_tokens_cost: None,
-            completion_tokens_cost: None,
-            total_cost: None,
+        let usage = json.get("usage").map(|u| {
+            let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            wf_types::llm::TokenUsageStats {
+                prompt_tokens: input,
+                completion_tokens: output,
+                total_tokens: input + output,
+                reasoning_tokens: None,
+                prompt_tokens_cost: None,
+                completion_tokens_cost: None,
+                total_cost: None,
+            }
         });
 
         let message = wf_types::message::Message {
@@ -251,6 +282,20 @@ impl LlmFormatter for AnthropicFormatter {
             metadata: None,
         };
 
+        let reasoning_token_count = json.get("usage")
+            .and_then(|u| u.get("completion_tokens_details"))
+            .and_then(|d| d.get("reasoning_tokens"))
+            .and_then(|r| r.as_u64());
+
+        let mut metadata = std::collections::HashMap::new();
+        if let Some(t) = json.get("type").and_then(|v| v.as_str()) {
+            metadata.insert("type".to_string(), serde_json::json!(t));
+        }
+        if let Some(sr) = &stop_reason {
+            metadata.insert("stop_reason".to_string(), serde_json::json!(sr));
+        }
+        let metadata = if metadata.is_empty() { None } else { Some(metadata) };
+
         Ok(LlmResponseType {
             id,
             model,
@@ -261,7 +306,9 @@ impl LlmFormatter for AnthropicFormatter {
             finish_reason: stop_reason,
             duration: 0,
             reasoning_content: None,
-            reasoning_tokens: None,
+            reasoning_tokens: reasoning_token_count.map(|r| r as u32),
+            metadata,
+            stream_stats: None,
             warnings: None,
         })
     }
@@ -288,11 +335,33 @@ impl LlmFormatter for AnthropicFormatter {
             Some("content_block_delta") => {
                 let delta = json.get("delta");
                 if let Some(d) = delta {
-                    if d.get("type").and_then(|v| v.as_str()) == Some("text_delta") {
-                        if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
-                            return Ok(Some(MessageStreamEvent::Text(
-                                wf_types::llm::MessageStreamText { text: text.to_string() }
-                            )));
+                    match d.get("type").and_then(|v| v.as_str()) {
+                        Some("text_delta") => {
+                            if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::Text(
+                                    wf_types::llm::MessageStreamText { text: text.to_string() }
+                                )));
+                            }
+                        }
+                        Some("thinking_delta") => {
+                            if let Some(reasoning) = d.get("thinking").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::ReasoningText(
+                                    wf_types::llm::MessageStreamReasoning { reasoning: reasoning.to_string() }
+                                )));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(None)
+            }
+            Some("message_delta") => {
+                let delta = json.get("delta");
+                if let Some(d) = delta {
+                    if let Some(stop_reason) = d.get("stop_reason").and_then(|v| v.as_str()) {
+                        let is_done = matches!(stop_reason, "end_turn" | "max_tokens" | "stop_sequence" | "tool_use");
+                        if is_done {
+                            return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
                         }
                     }
                 }

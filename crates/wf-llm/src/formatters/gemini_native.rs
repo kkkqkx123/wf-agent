@@ -9,6 +9,12 @@ pub struct GeminiNativeFormatter {
     base_url: String,
 }
 
+impl Default for GeminiNativeFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GeminiNativeFormatter {
     pub fn new() -> Self {
         Self {
@@ -78,28 +84,27 @@ impl GeminiNativeFormatter {
         }).collect()
     }
 
-    fn convert_generation_config(&self, request: &LlmRequest) -> serde_json::Value {
+    fn convert_generation_config(&self, request: &LlmRequest, profile: &LlmProfile) -> serde_json::Value {
         let mut config = serde_json::json!({});
 
-        if let Some(params) = &request.parameters {
-            if let Some(temp) = params.get("temperature") {
-                config["temperature"] = temp.clone();
-            }
-            if let Some(max_tokens) = params.get("max_tokens") {
-                config["maxOutputTokens"] = max_tokens.clone();
-            }
-            if let Some(top_p) = params.get("top_p") {
-                config["topP"] = top_p.clone();
-            }
-            if let Some(top_k) = params.get("top_k") {
-                config["topK"] = top_k.clone();
-            }
-            if let Some(stop) = params.get("stop") {
-                let stop_seqs: Vec<String> = stop.as_array()
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-                    .unwrap_or_default();
-                config["stopSequences"] = serde_json::json!(stop_seqs);
-            }
+        let merged_params = crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        if let Some(temp) = merged_params.get("temperature") {
+            config["temperature"] = temp.clone();
+        }
+        if let Some(max_tokens) = merged_params.get("max_tokens") {
+            config["maxOutputTokens"] = max_tokens.clone();
+        }
+        if let Some(top_p) = merged_params.get("top_p") {
+            config["topP"] = top_p.clone();
+        }
+        if let Some(top_k) = merged_params.get("top_k") {
+            config["topK"] = top_k.clone();
+        }
+        if let Some(stop) = merged_params.get("stop") {
+            let stop_seqs: Vec<String> = stop.as_array()
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            config["stopSequences"] = serde_json::json!(stop_seqs);
         }
 
         config
@@ -116,7 +121,7 @@ impl LlmFormatter for GeminiNativeFormatter {
         );
 
         let messages = self.convert_messages(&request.messages);
-        let generation_config = self.convert_generation_config(request);
+        let generation_config = self.convert_generation_config(request, profile);
 
         let mut body = serde_json::json!({
             "contents": messages,
@@ -145,7 +150,7 @@ impl LlmFormatter for GeminiNativeFormatter {
             }
         }
 
-        req_builder.build().map_err(|e| crate::error::LlmError::HttpError(e))
+        req_builder.build().map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
@@ -155,6 +160,7 @@ impl LlmFormatter for GeminiNativeFormatter {
         let first_candidate = candidates.and_then(|c| c.first());
 
         let mut text_content = String::new();
+        let mut reasoning_content: Option<String> = None;
         let mut tool_calls = Vec::new();
 
         if let Some(candidate) = first_candidate {
@@ -165,6 +171,9 @@ impl LlmFormatter for GeminiNativeFormatter {
                     for part in parts {
                         if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                             text_content.push_str(text);
+                        }
+                        if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
+                            reasoning_content.get_or_insert_with(String::new).push_str(thought);
                         }
                         if let Some(func_call) = part.get("functionCall") {
                             let name = func_call.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -203,6 +212,17 @@ impl LlmFormatter for GeminiNativeFormatter {
             metadata: None,
         };
 
+        let finish_reason = first_candidate
+            .and_then(|c| c.get("finishReason"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        let mut metadata = std::collections::HashMap::new();
+        if let Some(fr) = &finish_reason {
+            metadata.insert("finish_reason".to_string(), serde_json::json!(fr));
+        }
+        let metadata = if metadata.is_empty() { None } else { Some(metadata) };
+
         Ok(LlmResponseType {
             id: Some(wf_common::generate_id()),
             model: json.get("modelVersion").and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -210,10 +230,12 @@ impl LlmFormatter for GeminiNativeFormatter {
             message,
             tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
             usage,
-            finish_reason: first_candidate.and_then(|c| c.get("finishReason")).and_then(|v| v.as_str()).map(String::from),
+            finish_reason,
             duration: 0,
-            reasoning_content: None,
+            reasoning_content: reasoning_content.clone(),
             reasoning_tokens: None,
+            metadata,
+            stream_stats: None,
             warnings: None,
         })
     }
@@ -233,6 +255,11 @@ impl LlmFormatter for GeminiNativeFormatter {
                             if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
                                     wf_types::llm::MessageStreamText { text: text.to_string() }
+                                )));
+                            }
+                            if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::ReasoningText(
+                                    wf_types::llm::MessageStreamReasoning { reasoning: thought.to_string() }
                                 )));
                             }
                         }

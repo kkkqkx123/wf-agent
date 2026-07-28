@@ -1,5 +1,8 @@
 use async_trait::async_trait;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use crate::error::LlmError;
+use crate::formatters::LlmFormatter;
 use wf_types::llm::MessageStreamEvent;
 use eventsource_stream::EventStream;
 use futures::StreamExt;
@@ -11,11 +14,14 @@ pub trait MessageStream: Send {
 
 pub struct SseMessageStream<S> {
     stream: EventStream<S>,
+    formatter: Arc<dyn LlmFormatter>,
+    cancel: Option<CancellationToken>,
+    done: bool,
 }
 
 impl<S> SseMessageStream<S> {
-    pub fn new(stream: EventStream<S>) -> Self {
-        Self { stream }
+    pub fn new(stream: EventStream<S>, formatter: Arc<dyn LlmFormatter>, cancel: Option<CancellationToken>) -> Self {
+        Self { stream, formatter, cancel, done: false }
     }
 }
 
@@ -27,40 +33,45 @@ where
     E: std::fmt::Display + Send + 'static,
 {
     async fn next(&mut self) -> Option<Result<MessageStreamEvent, LlmError>> {
-        match self.stream.next().await {
-            Some(Ok(event)) => {
-                if event.data == "[DONE]" {
-                    return Some(Ok(MessageStreamEvent::End(
-                        wf_types::llm::MessageStreamEnd {},
-                    )));
-                }
+        if self.done {
+            return None;
+        }
 
-                match serde_json::from_str::<serde_json::Value>(&event.data) {
-                    Ok(json) => {
-                        if let Some(choices) = json.get("choices").and_then(|v| v.as_array()) {
-                            if let Some(choice) = choices.first() {
-                                if let Some(delta) = choice.get("delta") {
-                                    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-                                        return Some(Ok(MessageStreamEvent::Text(
-                                            wf_types::llm::MessageStreamText {
-                                                text: content.to_string(),
-                                            },
-                                        )));
-                                    }
-                                }
-                            }
-                        }
-                        Some(Ok(MessageStreamEvent::Stream(
-                            wf_types::llm::MessageStreamChunk {
-                                content: event.data,
-                            },
-                        )))
+        if let Some(ref cancel) = self.cancel {
+            if cancel.is_cancelled() {
+                self.done = true;
+                return Some(Err(LlmError::Cancelled));
+            }
+        }
+
+        loop {
+            match self.stream.next().await {
+                Some(Ok(event)) => {
+                    let data = event.data.trim().to_string();
+
+                    if data.is_empty() {
+                        continue;
                     }
-                    Err(e) => Some(Err(LlmError::SerializationError(e))),
+
+                    match self.formatter.parse_stream_chunk(&data) {
+                        Ok(Some(MessageStreamEvent::End(_))) => {
+                            self.done = true;
+                            return Some(Ok(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                        }
+                        Ok(Some(event)) => return Some(Ok(event)),
+                        Ok(None) => continue,
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
+                Some(Err(e)) => {
+                    self.done = true;
+                    return Some(Err(LlmError::StreamError(e.to_string())));
+                }
+                None => {
+                    self.done = true;
+                    return None;
                 }
             }
-            Some(Err(e)) => Some(Err(LlmError::StreamError(e.to_string()))),
-            None => None,
         }
     }
 }

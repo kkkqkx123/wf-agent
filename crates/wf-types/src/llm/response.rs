@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LlmWarning {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<super::super::Metadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StreamStats {
+    pub chunk_count: u32,
+    pub time_to_first_chunk: i64,
+    pub stream_duration: i64,
+    pub total_duration: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmResult {
     pub id: Option<String>,
     pub model: String,
@@ -17,7 +33,11 @@ pub struct LlmResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub warnings: Option<Vec<String>>,
+    pub metadata: Option<super::super::Metadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_stats: Option<StreamStats>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<LlmWarning>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

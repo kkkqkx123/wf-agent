@@ -45,12 +45,11 @@ fn parse_single_tool_call(value: &serde_json::Value) -> Option<LlmToolCall> {
         let name = function.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let args = function.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
         (name, args.to_string())
-    } else if let Some(name) = obj.get("name").and_then(|v| v.as_str()) {
+    } else {
+        let name = obj.get("name").and_then(|v| v.as_str())?;
         let input = obj.get("input").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
         let args = serde_json::to_string(&input).unwrap_or_default();
         (name.to_string(), args)
-    } else {
-        return None;
     };
 
     Some(LlmToolCall {

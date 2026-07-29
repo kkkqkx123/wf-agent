@@ -15,4 +15,8 @@ pub struct PluginManifest {
     pub optional_dependencies: HashMap<String, String>,
     #[serde(default)]
     pub contributions: Vec<String>,
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub hooks: Option<HashMap<String, String>>,
 }

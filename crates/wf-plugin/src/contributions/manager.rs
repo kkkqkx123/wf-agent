@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::sync::RwLock;
 
+use serde_json::Value;
+
 use super::registrar::ContributionRegistrar;
 use super::registries::{MultiRegistry, Registry};
 use super::types::*;
@@ -24,7 +26,7 @@ pub struct ContributionManager {
     formatter_registry: Registry<String, Arc<dyn PluginLLMFormatter>>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     hook_handler_registry: MultiRegistry<String, Arc<dyn PluginHookHandler>>,
-    middleware_registry: MultiRegistry<String, Arc<dyn PluginMiddlewareHandler>>,
+    middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
 }
 
 impl Default for ContributionManager {
@@ -96,8 +98,10 @@ impl ContributionManager {
         self.hook_handler_registry.get(hook_type)
     }
 
-    pub fn get_middleware(&self, phase: &str) -> Vec<Arc<dyn PluginMiddlewareHandler>> {
-        self.middleware_registry.get(phase)
+    pub fn get_middleware(&self, phase: &str) -> Vec<(i32, Arc<dyn PluginMiddlewareHandler>)> {
+        let mut handlers = self.middleware_registry.get(phase);
+        handlers.sort_by_key(|(p, _)| *p);
+        handlers
     }
 
     // --- Enumeration methods ---
@@ -128,6 +132,24 @@ impl ContributionManager {
 
     pub fn all_middleware_phases(&self) -> Vec<String> {
         self.middleware_registry.keys()
+    }
+
+    pub async fn run_middleware(&self, phase: &str, context: Value) -> PluginResult<()> {
+        let handlers = self.get_middleware(phase);
+
+        let mut next: NextFn = Box::new(|| Box::pin(async { Ok(()) }));
+
+        for (_, handler) in handlers.into_iter().rev() {
+            let prev = next;
+            let ctx = context.clone();
+            next = Box::new(move || {
+                let h = handler;
+                let p = prev;
+                Box::pin(async move { h.handle(ctx, p).await })
+            });
+        }
+
+        next().await
     }
 
     fn check_conflict(&self, type_name: &str, key: &str, owner_check: impl Fn() -> Option<String>) -> PluginResult<()> {
@@ -195,8 +217,8 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         self.manager.hook_handler_registry.register(hook_type.into(), plugin_id, handler);
     }
 
-    fn register_middleware(&mut self, phase: &str, _priority: i32, handler: Arc<dyn PluginMiddlewareHandler>) {
+    fn register_middleware(&mut self, phase: &str, priority: i32, handler: Arc<dyn PluginMiddlewareHandler>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        self.manager.middleware_registry.register(phase.into(), plugin_id, handler);
+        self.manager.middleware_registry.register(phase.into(), plugin_id, (priority, handler));
     }
 }

@@ -12,6 +12,8 @@ thiserror.workspace = true
 async-trait.workspace = true
 dashmap.workspace = true
 chrono.workspace = true
+semver.workspace = true
+futures.workspace = true
 
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }

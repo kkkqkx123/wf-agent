@@ -6,6 +6,7 @@ pub const PLUGIN_ACTIVATED: &str = "plugin:activated";
 pub const PLUGIN_DEACTIVATING: &str = "plugin:deactivating";
 pub const PLUGIN_DEACTIVATED: &str = "plugin:deactivated";
 pub const PLUGIN_ERROR: &str = "plugin:error";
+pub const PLUGIN_CONFIG_CHANGED: &str = "plugin:config-changed";
 
 #[derive(Debug, Clone)]
 pub enum PluginEvent {
@@ -17,4 +18,5 @@ pub enum PluginEvent {
     Deactivating { plugin_id: String },
     Deactivated { plugin_id: String },
     Error { plugin_id: String, error: String },
+    ConfigChanged { plugin_id: String, config: serde_json::Value },
 }

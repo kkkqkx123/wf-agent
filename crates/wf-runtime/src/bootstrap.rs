@@ -134,6 +134,7 @@ async fn init_plugins(config: &PluginConfig) -> RuntimeResult<Option<wf_plugin::
         contribution_manager,
         bridge,
         plugin_config,
+        env!("CARGO_PKG_VERSION"),
     ).with_event_bus(event_bus);
 
     engine.initialize().await.map_err(|e| {

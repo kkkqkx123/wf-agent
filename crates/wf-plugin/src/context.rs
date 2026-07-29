@@ -6,6 +6,7 @@ use crate::contributions::manager::ContributionManager;
 #[derive(Clone)]
 pub struct PluginContext {
     pub plugin_id: String,
+    pub sdk_version: String,
     pub config: Value,
     pub logger: PluginLogger,
     pub contribution_manager: Arc<ContributionManager>,

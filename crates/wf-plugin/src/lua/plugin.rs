@@ -10,6 +10,7 @@ use crate::contributions::registrar::ContributionRegistrar;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
+use crate::contributions::NextFn;
 
 pub struct LuaPlugin {
     manifest: PluginManifest,
@@ -234,7 +235,7 @@ impl PluginHookHandler for LuaHookHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for LuaMiddlewareHandler {
-    async fn handle(&self, context: Value, next: Box<dyn FnOnce() -> PluginResult<()> + Send>) -> PluginResult<()> {
+    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
         let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
         let func: mlua::Function = lua.registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
@@ -243,7 +244,11 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
         let next_wrapper = lua.create_function(move |_lua, _: ()| {
             let f = next.lock().unwrap().take()
                 .ok_or_else(|| mlua::Error::external("next already called"))?;
-            f().map_err(|e| mlua::Error::external(e.to_string()))
+            let fut = f();
+            match futures::executor::block_on(fut) {
+                Ok(()) => Ok(()),
+                Err(e) => Err(mlua::Error::external(e.to_string())),
+            }
         }).map_err(|e| PluginError::LuaError(e.to_string()))?;
         func.call::<_, ()>((ctx_val, next_wrapper)).map_err(|e| PluginError::LuaError(e.to_string()))
     }

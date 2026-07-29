@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use dashmap::DashMap;
 
@@ -17,21 +18,45 @@ pub enum PluginStatus {
     Error,
 }
 
+#[derive(Debug, Clone)]
+pub struct ContributionRecord {
+    pub contribution_type: String,
+    pub key: String,
+    pub plugin_id: String,
+}
+
 struct PluginRecord {
     manifest: PluginManifest,
     instance: Arc<dyn Plugin>,
     status: PluginStatus,
     error: Option<String>,
     activated_at: Option<i64>,
+    contributions: Vec<ContributionRecord>,
+}
+
+impl PluginRecord {
+    fn info(&self) -> PluginInfo {
+        PluginInfo {
+            manifest: self.manifest.clone(),
+            status: self.status,
+            error: self.error.clone(),
+            activated_at: self.activated_at,
+            contributions: self.contributions.clone(),
+        }
+    }
 }
 
 pub struct PluginRegistry {
     plugins: DashMap<String, PluginRecord>,
+    contributions_index: DashMap<String, Vec<ContributionRecord>>,
 }
 
 impl PluginRegistry {
     pub fn new() -> Self {
-        Self { plugins: DashMap::new() }
+        Self {
+            plugins: DashMap::new(),
+            contributions_index: DashMap::new(),
+        }
     }
 
     pub fn register(&self, manifest: PluginManifest, instance: Arc<dyn Plugin>) -> PluginResult<()> {
@@ -44,17 +69,13 @@ impl PluginRegistry {
             status: PluginStatus::Discovered,
             error: None,
             activated_at: None,
+            contributions: Vec::new(),
         });
         Ok(())
     }
 
     pub fn get(&self, plugin_id: &str) -> Option<PluginInfo> {
-        self.plugins.get(plugin_id).map(|r| PluginInfo {
-            manifest: r.manifest.clone(),
-            status: r.status,
-            error: r.error.clone(),
-            activated_at: r.activated_at,
-        })
+        self.plugins.get(plugin_id).map(|r| r.info())
     }
 
     pub fn has(&self, plugin_id: &str) -> bool {
@@ -81,34 +102,53 @@ impl PluginRegistry {
         }
     }
 
+    pub fn add_contributions(&self, plugin_id: &str, contributions: Vec<ContributionRecord>) {
+        if let Some(mut r) = self.plugins.get_mut(plugin_id) {
+            for c in &contributions {
+                self.contributions_index
+                    .entry(c.contribution_type.clone())
+                    .or_default()
+                    .push(c.clone());
+            }
+            r.contributions.extend(contributions);
+        }
+    }
+
+    pub fn list_by_contribution(&self, contribution_type: &str) -> Vec<ContributionRecord> {
+        self.contributions_index
+            .get(contribution_type)
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
+
     pub fn remove(&self, plugin_id: &str) {
-        self.plugins.remove(plugin_id);
+        if let Some((_, record)) = self.plugins.remove(plugin_id) {
+            for c in &record.contributions {
+                if let Some(mut entries) = self.contributions_index.get_mut(&c.contribution_type) {
+                    entries.retain(|e| e.plugin_id != plugin_id);
+                }
+            }
+            self.contributions_index.retain(|_, v| !v.is_empty());
+        }
     }
 
     pub fn list_by_status(&self, status: PluginStatus) -> Vec<PluginInfo> {
         self.plugins.iter()
             .filter(|r| r.status == status)
-            .map(|r| PluginInfo {
-                manifest: r.manifest.clone(),
-                status: r.status,
-                error: r.error.clone(),
-                activated_at: r.activated_at,
-            })
+            .map(|r| r.info())
             .collect()
     }
 
     pub fn all(&self) -> Vec<PluginInfo> {
-        self.plugins.iter().map(|r| PluginInfo {
-            manifest: r.manifest.clone(),
-            status: r.status,
-            error: r.error.clone(),
-            activated_at: r.activated_at,
-        }).collect()
+        self.plugins.iter().map(|r| r.info()).collect()
     }
 
     pub fn len(&self) -> usize { self.plugins.len() }
     pub fn is_empty(&self) -> bool { self.plugins.is_empty() }
-    pub fn clear(&self) { self.plugins.clear(); }
+    pub fn clear(&self) {
+        self.plugins.clear();
+        self.contributions_index.clear();
+    }
 }
 
 impl Default for PluginRegistry {
@@ -121,4 +161,11 @@ pub struct PluginInfo {
     pub status: PluginStatus,
     pub error: Option<String>,
     pub activated_at: Option<i64>,
+    pub contributions: Vec<ContributionRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredPlugin {
+    pub manifest: PluginManifest,
+    pub source_path: PathBuf,
 }

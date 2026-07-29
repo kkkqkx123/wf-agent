@@ -8,9 +8,58 @@ pub struct ResolvedGraph {
     pub load_order: Vec<String>,
     pub cycles: Vec<Vec<String>>,
     pub missing: Vec<String>,
+    pub version_mismatches: Vec<String>,
 }
 
 pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<ResolvedGraph> {
+    let mut version_mismatches = Vec::new();
+
+    // Validate semver for all plugin versions
+    for m in manifests {
+        if semver::Version::parse(&m.version).is_err() {
+            version_mismatches.push(format!("{}: invalid version '{}'", m.id, m.version));
+        }
+        if let Some(ref sdk) = m.sdk_version {
+            if semver::VersionReq::parse(sdk).is_err() {
+                version_mismatches.push(format!("{}: invalid sdk_version '{}'", m.id, sdk));
+            }
+        }
+    }
+
+    // Validate dependency version requirements
+    for m in manifests {
+        for (dep_id, req_str) in &m.dependencies {
+            if let Some(dep) = manifests.iter().find(|d| d.id == *dep_id) {
+                if let Ok(req) = semver::VersionReq::parse(req_str) {
+                    if let Ok(ver) = semver::Version::parse(&dep.version) {
+                        if !req.matches(&ver) {
+                            version_mismatches.push(
+                                format!("{}: dependency {} requires '{}', found '{}'", m.id, dep_id, req_str, dep.version)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Validate optional dependencies version when present
+    for m in manifests {
+        for (dep_id, req_str) in &m.optional_dependencies {
+            if let Some(dep) = manifests.iter().find(|d| d.id == *dep_id) {
+                if let Ok(req) = semver::VersionReq::parse(req_str) {
+                    if let Ok(ver) = semver::Version::parse(&dep.version) {
+                        if !req.matches(&ver) {
+                            version_mismatches.push(
+                                format!("{}: optional dependency {} requires '{}', found '{}'", m.id, dep_id, req_str, dep.version)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut all_ids: HashSet<&str> = HashSet::new();
 
@@ -89,7 +138,7 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
         }
     }
 
-    Ok(ResolvedGraph { load_order, cycles, missing })
+    Ok(ResolvedGraph { load_order, cycles, missing, version_mismatches })
 }
 
 fn detect_cycle<'a>(
@@ -139,6 +188,8 @@ mod tests {
             dependencies,
             optional_dependencies: std::collections::HashMap::new(),
             contributions: vec![],
+            config: None,
+            hooks: None,
         }
     }
 
@@ -179,6 +230,31 @@ mod tests {
         let graph = resolve_dependencies(&manifests).unwrap();
         assert!(!graph.cycles.is_empty());
         assert!(graph.load_order.len() < 3);
+    }
+
+    #[test]
+    fn test_version_mismatch_detected() {
+        let req = make_manifest("b", &["a"]);
+        let mut manifests = vec![
+            make_manifest("a", &[]),
+            req,
+        ];
+        // b requires a@1.0.0, both at 1.0.0 — should match
+        let graph = resolve_dependencies(&manifests).unwrap();
+        assert!(graph.version_mismatches.is_empty());
+
+        // Change b to require a@^2.0.0
+        manifests[1].dependencies.insert("a".into(), "^2.0.0".into());
+        let graph = resolve_dependencies(&manifests).unwrap();
+        assert!(!graph.version_mismatches.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_plugin_version() {
+        let mut m = make_manifest("bad-ver", &[]);
+        m.version = "not-semver".into();
+        let graph = resolve_dependencies(&[m]).unwrap();
+        assert!(!graph.version_mismatches.is_empty());
     }
 
     #[test]

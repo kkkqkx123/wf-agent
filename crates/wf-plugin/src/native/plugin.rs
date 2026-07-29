@@ -247,7 +247,7 @@ impl PluginHookHandler for NativeHookHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for NativeMiddlewareHandler {
-    async fn handle(&self, _context: Value, _next: Box<dyn FnOnce() -> PluginResult<()> + Send>) -> PluginResult<()> {
+    async fn handle(&self, _context: Value, _next: NextFn) -> PluginResult<()> {
         Err(PluginError::NativeError(format!("middleware '{}' stub", self.phase)))
     }
 }

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -8,6 +8,7 @@ use crate::context::{PluginContext, PluginLogger};
 use crate::contributions::{ContributionBridge, ContributionManager, OverridePolicy};
 use crate::dependency::{resolve_dependencies, ResolvedGraph};
 use crate::error::{PluginError, PluginResult};
+use crate::event_bus::{PluginEventBus, PluginEventSubscription};
 use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
 use crate::manifest::PluginManifest;
@@ -47,6 +48,8 @@ pub struct PluginEngine {
     bridge: Option<Arc<dyn ContributionBridge>>,
     options: PluginSystemConfig,
     event_bus: Option<wf_core::EventBus>,
+    plugin_event_bus: PluginEventBus,
+    sdk_version: String,
     initialized: bool,
 }
 
@@ -56,10 +59,21 @@ impl PluginEngine {
         contribution_manager: Arc<ContributionManager>,
         bridge: Option<Arc<dyn ContributionBridge>>,
         options: PluginSystemConfig,
+        sdk_version: &str,
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
         contribution_manager.set_override_policy(options.override_policy);
-        Self { registry, guard, contribution_manager, bridge, options, event_bus: None, initialized: false }
+        Self {
+            registry,
+            guard,
+            contribution_manager,
+            bridge,
+            options,
+            event_bus: None,
+            plugin_event_bus: PluginEventBus::default(),
+            sdk_version: sdk_version.to_owned(),
+            initialized: false,
+        }
     }
 
     pub fn with_event_bus(mut self, event_bus: wf_core::EventBus) -> Self {
@@ -67,40 +81,80 @@ impl PluginEngine {
         self
     }
 
+    pub fn subscribe(&self) -> PluginEventSubscription {
+        self.plugin_event_bus.subscribe()
+    }
+
     fn publish(&self, event: PluginEvent) {
+        let _ = self.plugin_event_bus.publish(event.clone());
         let base_event = plugin_event_to_base(&event);
         if let Some(ref bus) = self.event_bus {
             let _ = bus.publish(base_event);
         }
     }
 
-    pub async fn discover(&self) -> PluginResult<Vec<PluginInfo>> {
-        let manifests = scan_plugin_manifests(&self.options.paths).await?;
-        let mut loaded = Vec::new();
+    async fn load_plugin(&self, manifest: PluginManifest) -> PluginResult<()> {
+        let plugin_id = manifest.id.clone();
 
-        for manifest in manifests {
-            let plugin_id = manifest.id.clone();
-
-            if !self.is_allowed(&plugin_id) {
-                continue;
-            }
-
-            if let Some(result) = validate_manifest(&manifest) {
-                tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, result);
-                continue;
-            }
-
-            let plugin = load_plugin_module(manifest.clone()).await?;
-            self.registry.register(manifest, plugin)?;
-            self.registry.update_status(&plugin_id, PluginStatus::Loaded);
-
-            self.publish(PluginEvent::Discovered { plugin_id: plugin_id.clone() });
-
-            tracing::info!("discovered plugin: {}", plugin_id);
-            loaded.push(self.registry.get(&plugin_id).unwrap());
+        if !self.is_allowed(&plugin_id) {
+            return Ok(());
         }
 
-        Ok(loaded)
+        if let Some(errors) = validate_manifest(&manifest) {
+            tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
+            return Err(PluginError::InvalidManifest(errors.join(", ")));
+        }
+
+        if let Some(ref sdk_req) = manifest.sdk_version {
+            if let Ok(req) = semver::VersionReq::parse(sdk_req) {
+                if let Ok(ver) = semver::Version::parse(&self.sdk_version) {
+                    if !req.matches(&ver) {
+                        tracing::warn!(
+                            "plugin '{}' sdk_version '{}' not satisfied by '{}'",
+                            plugin_id, sdk_req, self.sdk_version
+                        );
+                    }
+                }
+            }
+        }
+
+        let plugin = load_plugin_module(manifest.clone()).await?;
+        self.registry.register(manifest, plugin)?;
+        self.registry.update_status(&plugin_id, PluginStatus::Loaded);
+
+        self.publish(PluginEvent::Discovered { plugin_id: plugin_id.clone() });
+        tracing::info!("discovered plugin: {}", plugin_id);
+
+        Ok(())
+    }
+
+    pub async fn discover(&self) -> PluginResult<Vec<PluginInfo>> {
+        let manifests = scan_plugin_manifests(&self.options.paths).await?;
+        for manifest in manifests {
+            let _ = self.load_plugin(manifest).await;
+        }
+        Ok(self.registry.all())
+    }
+
+    pub async fn load_single(&self, manifest_path: &Path) -> PluginResult<PluginInfo> {
+        if !manifest_path.exists() {
+            return Err(PluginError::NotFound(manifest_path.display().to_string()));
+        }
+
+        let content = fs::read_to_string(manifest_path).await.map_err(PluginError::Io)?;
+        let manifest: PluginManifest = toml::from_str(&content)
+            .map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
+
+        // Set base path from parent dir for loading relative entry points
+        let plugin_dir = manifest_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
+        self.registry.register(manifest.clone(), plugin)?;
+        self.registry.update_status(&manifest.id, PluginStatus::Loaded);
+
+        self.publish(PluginEvent::Discovered { plugin_id: manifest.id.clone() });
+        tracing::info!("loaded plugin '{}' from {:?}", manifest.id, manifest_path);
+
+        Ok(self.registry.get(&manifest.id).unwrap())
     }
 
     pub async fn initialize(&mut self) -> PluginResult<()> {
@@ -117,20 +171,26 @@ impl PluginEngine {
 
         tracing::info!("initializing plugin engine...");
 
-        let loaded = self.discover().await?;
+        self.discover().await?;
 
-        let manifests: Vec<PluginManifest> = loaded.iter().map(|i| i.manifest.clone()).collect();
+        let manifests: Vec<PluginManifest> = self.registry.all().into_iter().map(|i| i.manifest).collect();
         let resolved = resolve_dependencies(&manifests);
         if let Ok(ref graph) = resolved {
             if !graph.cycles.is_empty() {
                 tracing::warn!("plugin dependency cycles detected: {:?}", graph.cycles);
             }
+            if !graph.version_mismatches.is_empty() {
+                for m in &graph.version_mismatches {
+                    tracing::warn!("plugin version mismatch: {}", m);
+                }
+            }
         }
 
-        tracing::info!("discovered {} plugin(s)", loaded.len());
+        let count = self.registry.len();
+        tracing::info!("discovered {} plugin(s)", count);
 
         if self.options.auto_activate {
-            for info in &loaded {
+            for info in self.registry.all() {
                 match self.activate(&info.manifest.id).await {
                     Ok(_) => tracing::info!("activated plugin: {}", info.manifest.id),
                     Err(e) => tracing::error!("failed to activate '{}': {}", info.manifest.id, e),
@@ -162,6 +222,7 @@ impl PluginEngine {
         let plugin_config = self.options.config.get(plugin_id).cloned().unwrap_or_default();
         let ctx = PluginContext {
             plugin_id: plugin_id.to_owned(),
+            sdk_version: self.sdk_version.clone(),
             config: plugin_config,
             logger: PluginLogger,
             contribution_manager: self.contribution_manager.clone(),
@@ -227,6 +288,7 @@ impl PluginEngine {
         if let Some(instance) = self.registry.instance(plugin_id) {
             let ctx = PluginContext {
                 plugin_id: plugin_id.to_owned(),
+                sdk_version: self.sdk_version.clone(),
                 config: Value::Null,
                 logger: PluginLogger,
                 contribution_manager: self.contribution_manager.clone(),
@@ -237,6 +299,30 @@ impl PluginEngine {
 
         self.registry.update_status(plugin_id, PluginStatus::Deactivated);
         self.publish(PluginEvent::Deactivated { plugin_id: plugin_id.to_owned() });
+        Ok(())
+    }
+
+    pub async fn update_plugin_config(&mut self, plugin_id: &str, config: Value) -> PluginResult<()> {
+        let instance = self.registry.instance(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
+
+        self.options.config.insert(plugin_id.to_owned(), config.clone());
+
+        match self.guard.execute(plugin_id, instance.on_config_change(&config)).await {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(PluginError::ConfigChangeFailed {
+                    plugin_id: plugin_id.to_owned(),
+                    message: e.to_string(),
+                });
+            }
+        }
+
+        self.publish(PluginEvent::ConfigChanged {
+            plugin_id: plugin_id.to_owned(),
+            config,
+        });
+
         Ok(())
     }
 
@@ -295,8 +381,8 @@ impl PluginEngine {
                 if !self.is_allowed(&plugin_id) {
                     continue;
                 }
-                if let Some(result) = validate_manifest(&manifest) {
-                    tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, result);
+                if let Some(errors) = validate_manifest(&manifest) {
+                    tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
                     continue;
                 }
                 let plugin = load_plugin_module(manifest.clone()).await?;
@@ -314,8 +400,9 @@ impl PluginEngine {
 
     pub fn registry(&self) -> &PluginRegistry { &self.registry }
     pub fn contribution_manager(&self) -> &Arc<ContributionManager> { &self.contribution_manager }
+    pub fn plugin_event_bus(&self) -> &PluginEventBus { &self.plugin_event_bus }
     pub fn is_initialized(&self) -> bool { self.initialized }
-    pub fn event_bus(&self) -> Option<&wf_core::EventBus> { self.event_bus.as_ref() }
+    pub fn central_event_bus(&self) -> Option<&wf_core::EventBus> { self.event_bus.as_ref() }
     pub fn resolved_graph(&self) -> PluginResult<ResolvedGraph> {
         let manifests: Vec<PluginManifest> = self.registry.all().into_iter().map(|i| i.manifest).collect();
         resolve_dependencies(&manifests)
@@ -343,8 +430,9 @@ impl PluginEngine {
 }
 
 fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::BaseEvent {
-    use wf_types::events::{BaseEvent, EventType};
     use std::collections::HashMap;
+    use wf_types::events::{BaseEvent, EventType};
+
     let (etype, meta): (EventType, Option<HashMap<String, serde_json::Value>>) = match event {
         PluginEvent::Discovered { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:discovered".into(), serde_json::Value::String(plugin_id.clone()))]))),
         PluginEvent::Loading { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:loading".into(), serde_json::Value::String(plugin_id.clone()))]))),
@@ -359,6 +447,10 @@ fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::BaseEvent {
         PluginEvent::Error { plugin_id, error } => (EventType::Error, Some(HashMap::from([
             ("plugin:error".into(), serde_json::Value::String(plugin_id.clone())),
             ("error".into(), serde_json::Value::String(error.clone())),
+        ]))),
+        PluginEvent::ConfigChanged { plugin_id, config } => (EventType::Heartbeat, Some(HashMap::from([
+            ("plugin:config-changed".into(), serde_json::Value::String(plugin_id.clone())),
+            ("config".into(), config.clone()),
         ]))),
     };
     BaseEvent {
@@ -423,6 +515,20 @@ async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Pl
 
     if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
         return load_native_plugin(&manifest);
+    }
+
+    Err(PluginError::LoadFailed(format!("unsupported entry point: {}", entry)))
+}
+
+async fn load_plugin_module_with_base(manifest: &PluginManifest, _base: &Path) -> PluginResult<Arc<dyn Plugin>> {
+    let entry = manifest.entry_point.as_str();
+
+    if entry.ends_with(".lua") {
+        return load_lua_plugin(manifest).await;
+    }
+
+    if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
+        return load_native_plugin(manifest);
     }
 
     Err(PluginError::LoadFailed(format!("unsupported entry point: {}", entry)))

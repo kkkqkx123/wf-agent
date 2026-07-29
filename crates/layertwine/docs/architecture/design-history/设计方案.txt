@@ -1,0 +1,196 @@
+结合你**修正的TEMP层规则** + **不可变状态核心要求** + **全链路回退/迁移需求**，我先严格对齐你的约束，再给出**可落地、无额外缺陷**的不可变数据结构设计，彻底解决你担心的「合并后仅能整体回退」问题，同时支持所有指定的回退/迁移操作。
+
+# 一、先严格锁定核心约束（你的明确要求）
+## 1. TEMP层最终约束（无任何妥协）
+TEMP 是**独立验证沙盒**，**绝对不与 MANUAL/AGENT_RAW 发生数据迁移**，仅支持3种状态流转：
+1. **丢弃**：直接删除该TEMP分区的所有状态；
+2. **合并入STAGED**：仅将验证通过的TEMP状态一次性合并到最终提交层；
+3. **回退**：TEMP分区内回退到自身的上一个历史状态；
+4. 禁止：TEMP → MANUAL / TEMP → AGENT_RAW 的任何数据迁移。
+
+## 2. 必须支持的回退/迁移操作
+- 回退：`STAGED` → `MANUAL/AGENT_RAW`
+- 回退：`TEMP` → `MANUAL/AGENT_RAW`
+- 迁移：`AGENT_RAW` ↔ `INTEGRATED-xxx` ↔ `UNIFIED`
+- 基础能力：所有分区**自身回退到上一状态**
+- 核心要求：**文件编辑状态 = 不可变类型**，合并后不丢失历史，支持精细回退。
+
+## 3. 你原设计的缺陷
+> 同分区内修改合并后，仅支持整体回退到最新的状态迁移来源
+缺陷本质：**用「覆盖式合并」替代了「不可变链式合并」**，旧状态被覆盖，无法精细回退。
+解决方案：**不可变快照 + 有向引用链（DAG）**，合并=生成新快照，旧快照永久保留，可回退到任意历史。
+
+---
+
+# 二、核心设计理念（不可变状态的最优方案）
+## 核心原则
+1. **数据绝对不可变**：所有修改记录、状态快照**创建后永不修改、永不删除**（仅切换引用）；
+2. **最小存储单元**：不存储完整文件，仅存储**行级增量（Delta）**，轻量；
+3. **引用代替复制**：层与层之间的迁移/回退，**仅修改指针引用**，不复制数据；
+4. **合并不覆盖**：多来源合并 = 生成新的不可变快照，保留所有父状态；
+5. **溯源绑定**：每个快照绑定来源、分区、父引用，支持100%回退。
+
+---
+
+# 三、核心实体类型定义（5种核心实体，划分清晰）
+我们将数据分为 **「不可变数据实体」**（核心）和 **「可变引用实体」**（轻量指针），严格区分：
+
+| 实体类型                | 可变？ | 核心作用 | 归属 |
+|-------------------------|--------|----------|------|
+| 🔹 **FileNode**（文件基准） | 不可变 | 唯一标识一个文件（路径+哈希），所有编辑的根 | 基础实体 |
+| 🔹 **Delta**（最小增量）| 不可变 | 行级diff（增/删/改）+ 元数据（来源：人工/AgentID、时间） | 最小数据单元 |
+| 🔹 **Snapshot**（状态快照） | 不可变 | 文件的**完整不可变状态** = 基准文件 + Delta链 + 父快照引用 | 核心状态实体 |
+| 🔹 **Partition**（分区）| 可变   | 逻辑容器，仅持有**当前指向的Snapshot引用** + 历史快照链表 | 层/分组载体 |
+| 🔹 **Layer**（分层）| 可变   | 顶级逻辑分组，管理多个Partition（如APPROVED层包含INTEGRATED/UNIFIED分区） | 顶层分层载体 |
+
+---
+
+# 四、详细不可变数据结构设计
+## 1. 基础不可变实体（底层核心）
+### FileNode（文件唯一标识）
+```
+FileNode {
+  file_path: str        # 文件绝对路径（唯一）
+  base_hash: str        # 原始文件哈希（不可变基准）
+}
+```
+
+### Delta（不可变最小修改）
+```
+Delta {
+  id: str               # 唯一ID
+  file: FileNode        # 归属文件
+  diff: LineDiff        # 行级差异（轻量diff，非全文件）
+  source: SourceType    # 来源：MANUAL / AGENT(exec_id) / TEMP
+  timestamp: int        # 时间戳
+  immutable: True       # 标记不可变
+}
+```
+
+### Snapshot（不可变文件状态，你说的「文件编辑状态」）
+**这是最核心的设计**，解决「合并后无法精细回退」的问题：
+```
+Snapshot {
+  id: str               # 唯一ID
+  file: FileNode        # 归属文件
+  deltas: list[Delta]   # 该快照包含的所有增量（不可变）
+  parents: list[Snapshot]  # 父快照引用（关键！）
+  # 单父：线性修改 → 回退到上一状态
+  # 多父：合并操作 → 回退到任意一个父来源
+  partition_type: PartitionType  # 归属分区（MANUAL/TEMP/AGENT_RAW等）
+  immutable: True       # 绝对不可变
+}
+```
+
+## 2. 可变引用实体（轻量指针，实现回退/迁移）
+### Partition（分区：最小管理单元）
+```
+Partition {
+  name: str             # 分区名（如 AGENT_123、INTEGRATED_TASK1、TEMP_VERIFY1）
+  current_snapshot: Snapshot  # 可变指针：当前生效的快照
+  history: list[Snapshot]     # 历史快照链表（全量保留，用于回退）
+  layer: LayerType      # 归属顶层分层
+}
+```
+
+### Layer（顶层分层：对应你的设计）
+```
+Layer {
+  name: LayerType       # TEMP / MANUAL / AGENT_RAW / APPROVED / STAGED
+  partitions: list[Partition]  # 包含的分区
+}
+```
+
+---
+
+# 五、分层与分区的实体映射（完全对齐你的设计）
+| 你的分层         | 对应Layer       | 分区规则（Partition）|
+|------------------|-----------------|---------------------------------|
+| staged           | STAGED          | 唯一分区（不分区）|
+| temp             | TEMP            | 任意自定义分区（手动创建）|
+| manual_edit      | MANUAL          | 唯一分区（不分区）|
+| agent_edit       | AGENT_RAW       | 按 Agent执行实例ID 分区 |
+| approval         | APPROVED        | 1. 按实例ID分区；2. INTEGRATED-*分区；3. UNIFIED唯一分区 |
+
+---
+
+# 六、全场景回退/迁移实现（基于不可变引用，零数据复制）
+所有操作**仅修改 `Partition.current_snapshot` 指针**，不修改任何不可变数据，极致轻量。
+
+## 1. 你要求的核心回退操作
+### ① STAGED → 回退到 MANUAL / AGENT_RAW
+- 原理：STAGED的快照`parents`必然指向 MANUAL + APPROVED/UNIFIED 快照；
+- 操作：将 `STAGED.current_snapshot` 切换为 MANUAL 或 AGENT_RAW 的父快照；
+- 特性：回退后STAGED的历史仍保留，可重做合并。
+
+### ② TEMP → 回退到 MANUAL / AGENT_RAW
+- 原理：TEMP是独立沙盒，但**合并入STAGED时会记录源快照（MANUAL/AGENT_RAW）为父引用**；
+- 操作：TEMP验证失败后，直接将 `TEMP.current_snapshot` 切换为源 MANUAL/AGENT_RAW 快照；
+- 约束：**仅回退引用，不向MANUAL/AGENT_RAW写入数据**，遵守你的TEMP规则。
+
+### ③ 分区自身回退到上一状态（所有分区通用）
+- 原理：每个Partition维护`history`链表，当前快照的上一个元素就是历史状态；
+- 操作：`current_snapshot = history.pop()`，线性回退，无任何风险。
+
+## 2. 你要求的迁移操作（AGENT_RAW ↔ INTEGRATED ↔ UNIFIED）
+### ① AGENT_RAW → INTEGRATED-xxx（审核后分组合并）
+1. 读取 AGENT_RAW 分区的当前快照；
+2. INTEGRATED分区生成**新的不可变合并快照**，父引用指向自身原快照 + AGENT_RAW快照；
+3. INTEGRATED分区的指针指向新快照；
+4. AGENT_RAW快照保留不变，可随时回退。
+
+### ② INTEGRATED-xxx → UNIFIED（汇总合并）
+1. UNIFIED分区生成新快照，父引用指向所有INTEGRATED分区快照；
+2. 指针切换，完成汇总；
+3. 可回退到任意INTEGRATED分组。
+
+### ③ 回退迁移：UNIFIED → INTEGRATED → AGENT_RAW
+- 直接切换指针到对应父快照，**秒级回退**，数据无丢失。
+
+## 3. TEMP层专属操作（严格遵守你的约束）
+1. **丢弃**：清空TEMP分区的`history`+`current_snapshot`，删除引用（数据异步GC）；
+2. **合并入STAGED**：STAGED生成新快照，父引用=原STAGED + TEMP快照；
+3. **回退**：TEMP分区指针切换到自身历史快照；
+4. **禁止**：任何向MANUAL/AGENT_RAW的指针迁移。
+
+---
+
+# 七、解决你原设计的核心问题：合并后如何精细回退？
+你原设计：
+> 同分区内修改合并，合并后仅支持整体回退
+
+**优化后的不可变方案**：
+1. **线性修改**（单父快照）：
+   快照1 → 快照2 → 快照3（合并）
+   可回退：3→2→1，**逐次精细回退**，不是整体回退。
+
+2. **合并修改**（多父快照）：
+   快照A（AGENT_1） + 快照B（AGENT_2） → 快照C（INTEGRATED合并）
+   可回退：C→A 或 C→B，**回退到任意一个来源**，完全满足溯源需求。
+
+3. 核心优势：**合并操作不销毁任何历史状态**，所有父快照永久存在。
+
+---
+
+# 八、轻量性与健壮性保障
+1. **极致轻量**：仅存储Delta（行级diff），不存储全文件副本；Snapshot仅存引用，无冗余数据；
+2. **原子性**：Agent修改生成一个Delta组，一次性创建Snapshot，要么全成功，要么全失败；
+3. **无冲突风险**：不可变数据无并发修改，迁移/回退仅改指针，线程安全；
+4. **自动GC**：历史快照可按时间/提交状态清理，不影响当前状态。
+
+---
+
+# 九、最终设计总结
+## 1. 核心实体（不可变=数据，可变=指针）
+- ✅ **不可变实体**：FileNode（基准）、Delta（增量）、Snapshot（状态）→ 永久保存，支撑回退；
+- ✅ **可变实体**：Partition（分区）、Layer（分层）→ 仅指针，实现迁移/回退。
+
+## 2. 完全满足你的所有需求
+1. **TEMP层约束**：独立沙盒，无MANUAL/AGENT_RAW迁移，仅支持丢弃/合并STAGED/自身回退；
+2. **全链路回退**：STAGED/TEMP→MANUAL/AGENT_RAW、AGENT_RAW/INTEGRATED/UNIFIED互迁；
+3. **不可变状态**：所有文件状态不可变，合并不覆盖历史；
+4. **解决原缺陷**：合并后支持**精细回退**（逐次/任意父来源），而非仅整体回退；
+5. **轻量高效**：纯diff+引用存储，无Git冗余，适配多Agent+人工混合编辑。
+
+## 3. 落地建议
+该结构可以用**JSON/Protocol Buffers**序列化存储，搭配**嵌入式KV数据库**（如SQLite）实现轻量存储，完全独立于Git，仅在STAGED层提交时对接Git生成commit。

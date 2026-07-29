@@ -1,0 +1,102 @@
+[package]
+name = "layertwine"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+# API transport layers
+cli = ["dep:clap"]
+http = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http", "dep:tokio"]
+grpc = ["dep:tonic", "dep:prost", "dep:tokio"]
+
+# Combined modes
+cli-http = ["cli", "http"]
+cli-grpc = ["cli", "grpc"]
+http-grpc = ["http", "grpc"]
+
+# All transports
+all = ["cli", "http", "grpc"]
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+blake3 = "1.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+thiserror = "2"
+chrono = "0.4"
+uuid = { version = "1", features = ["std", "v5", "v7", "serde"] }
+similar = "3"
+git2 = "0.21"
+parking_lot = "0.12"
+lazy_static = "1.5"
+zstd = "0.13"
+smallvec = "1"
+
+# Config
+toml = "1.1"
+
+# CLI transport
+clap = { version = "4", features = ["derive"], optional = true }
+
+# HTTP transport
+axum = { version = "0.8", features = ["macros"], optional = true }
+tower = { version = "0.5", optional = true }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"], optional = true }
+http = { version = "1.1", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+
+# gRPC transport
+tonic = { version = "0.12", optional = true }
+prost = { version = "0.13", optional = true }
+
+[[bin]]
+name = "layertwine"
+required-features = ["cli"]
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+lazy_static = "1.5"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[[bench]]
+name = "diff"
+harness = false
+
+[[bench]]
+name = "merge"
+harness = false
+
+[[bench]]
+name = "export_helper"
+harness = false
+
+[[bench]]
+name = "storage"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "checkpoint"
+harness = false
+
+[[bench]]
+name = "backup"
+harness = false
+
+[[bench]]
+name = "engine_edge"
+harness = false
+
+[[bench]]
+name = "file_storage"
+harness = false
+

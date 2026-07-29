@@ -1,0 +1,367 @@
+syntax = "proto3";
+
+package layertwine;
+
+service Layertwine {
+    // Repository lifecycle
+    rpc Init(InitRequest) returns (InitResponse);
+    rpc Status(Empty) returns (StatusResponse);
+
+    // Edit operations
+    rpc Edit(EditRequest) returns (EditResponse);
+    rpc AgentEdit(AgentEditRequest) returns (EditResponse);
+    rpc AgentSubmit(AgentSubmitRequest) returns (SubmitResponse);
+    rpc Approve(ApproveRequest) returns (ApproveResponse);
+
+    // Checkpoint operations
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc Log(LogRequest) returns (LogResponse);
+
+    // Branch operations
+    rpc BranchCreate(BranchCreateRequest) returns (BranchCreateResponse);
+    rpc BranchSwitch(BranchSwitchRequest) returns (BranchSwitchResponse);
+    rpc BranchList(Empty) returns (BranchListResponse);
+    rpc Merge(MergeRequest) returns (MergeResponse);
+
+    // Backup operations
+    rpc Backup(BackupRequest) returns (BackupResponse);
+    rpc Restore(RestoreRequest) returns (RestoreResponse);
+
+    // Maintenance
+    rpc Gc(Empty) returns (GcResponse);
+    rpc Compact(CompactRequest) returns (CompactResponse);
+    rpc GitCommit(GitCommitRequest) returns (GitCommitResponse);
+    rpc Clean(CleanRequest) returns (CleanResponse);
+    rpc Pull(PullRequest) returns (PullResponse);
+
+    // Show / diff display
+    rpc Show(ShowRequest) returns (ShowResponse);
+
+    // Checkpoint restore operations
+    rpc CheckpointRestore(CheckpointRestoreRequest) returns (CheckpointRestoreResponse);
+    rpc CheckpointRestoreByTime(CheckpointRestoreByTimeRequest) returns (CheckpointRestoreResponse);
+    rpc CheckpointDiff(CheckpointDiffRequest) returns (CheckpointDiffResponse);
+    rpc CheckpointRollback(CheckpointRollbackRequest) returns (CheckpointRollbackResponse);
+
+    // Granular approval operations
+    rpc ListPendingApprovals(Empty) returns (ListPendingApprovalsResponse);
+    rpc ApproveAgent(ApproveAgentRequest) returns (ApproveAgentResponse);
+    rpc RejectAgent(RejectAgentRequest) returns (RejectAgentResponse);
+    rpc MergeToUnified(MergeToUnifiedRequest) returns (MergeToUnifiedResponse);
+    rpc MergeToStaged(MergeToStagedRequest) returns (MergeToStagedResponse);
+}
+
+message Empty {}
+
+message InitRequest {
+    optional string db_path = 1;
+    optional string git_repo = 2;
+    optional string git_ref = 3;
+}
+
+message InitResponse {
+    string db_path = 1;
+    string manual_partition_id = 2;
+    string staged_partition_id = 3;
+    string branch = 4;
+}
+
+message StatusResponse {
+    repeated PartitionInfo partitions = 1;
+}
+
+message PartitionInfo {
+    string layer = 1;
+    string name = 2;
+    string current_snapshot = 3;
+    uint32 history_len = 4;
+}
+
+message EditRequest {
+    string file = 1;
+    optional string content = 2;
+}
+
+message EditResponse {
+    string snapshot_id = 1;
+    optional string staged_snapshot_id = 2;
+}
+
+message AgentEditRequest {
+    string agent_id = 1;
+    string file = 2;
+    optional string content = 3;
+}
+
+message AgentSubmitRequest {
+    string agent_id = 1;
+}
+
+message SubmitResponse {
+    string snapshot_id = 1;
+}
+
+message ApproveRequest {
+    string agent_id = 1;
+}
+
+message ApproveResponse {
+    string integrated_snapshot_id = 1;
+    string staged_snapshot_id = 2;
+}
+
+message CommitRequest {
+    string message = 1;
+    optional string author = 2;
+}
+
+message CommitResponse {
+    string checkpoint_id = 1;
+    string message = 2;
+}
+
+message LogRequest {
+    optional uint32 count = 1;
+}
+
+message LogResponse {
+    repeated CheckpointInfo checkpoints = 1;
+    uint32 total = 2;
+}
+
+message CheckpointInfo {
+    string id = 1;
+    string author = 2;
+    string message = 3;
+    repeated string parents = 4;
+    repeated string snapshots = 5;
+    int64 created_at = 6;
+    optional string git_anchor = 7;
+}
+
+message BranchCreateRequest {
+    string name = 1;
+}
+
+message BranchCreateResponse {
+    string name = 1;
+    string head = 2;
+}
+
+message BranchSwitchRequest {
+    string name = 1;
+}
+
+message BranchSwitchResponse {
+    string name = 1;
+    string checkpoint_id = 2;
+}
+
+message BranchListResponse {
+    repeated BranchInfo branches = 1;
+    optional string current = 2;
+}
+
+message BranchInfo {
+    string name = 1;
+    string head = 2;
+    string updated_at = 3;
+    bool is_current = 4;
+}
+
+message MergeRequest {
+    string branch = 1;
+    optional string message = 2;
+}
+
+message MergeResponse {
+    string checkpoint_id = 1;
+    string source_branch = 2;
+    string target_branch = 3;
+}
+
+message BackupRequest {
+    string snapshot_id = 1;
+    optional string label = 2;
+}
+
+message BackupResponse {
+    string backup_id = 1;
+    string source_snapshot_id = 2;
+    optional string label = 3;
+}
+
+message RestoreRequest {
+    string backup_id = 1;
+}
+
+message RestoreResponse {
+    string backup_id = 1;
+    string file = 2;
+    uint32 deltas_restored = 3;
+    string merged_snapshot_id = 4;
+}
+
+message GcResponse {
+    uint32 removed_checkpoints = 1;
+    uint32 removed_snapshots = 2;
+    uint64 freed_bytes = 3;
+    bool delta_chain_depth_triggered = 4;
+}
+
+message GitCommitRequest {
+    string git_repo = 1;
+    optional string message = 2;
+}
+
+message GitCommitResponse {
+    string git_commit_hash = 1;
+}
+
+message CleanRequest {
+    optional string branch = 1;
+    optional string layer = 2;
+    bool all = 3;
+}
+
+message CleanResponse {
+    uint32 removed_branches = 1;
+    uint32 removed_checkpoints = 2;
+    uint32 removed_snapshots = 3;
+    uint32 removed_deltas = 4;
+    uint32 removed_layers = 5;
+    string message = 6;
+}
+
+message PullRequest {
+    optional string remote = 1;
+    string git_repo = 2;
+    optional string git_ref = 3;
+}
+
+message PullResponse {
+    string remote = 1;
+    string git_ref = 2;
+}
+
+message CompactRequest {
+    optional bool vacuum_full = 1;
+}
+
+message CompactResponse {
+    bool wal_checkpointed = 1;
+    int64 freelist_before = 2;
+    int64 total_pages = 3;
+    int64 freelist_after = 4;
+    bool vacuum_performed = 5;
+    string message = 6;
+}
+
+message ShowRequest {
+    string show_what = 1;
+    optional string target_id = 2;
+}
+
+message ShowResponse {
+    string target = 1;
+    repeated FileDiff diffs = 2;
+}
+
+message FileDiff {
+    string file_path = 1;
+    string unified_diff = 2;
+    uint32 inserts = 3;
+    uint32 deletes = 4;
+}
+
+message CheckpointRestoreRequest {
+    string checkpoint_id = 1;
+    repeated string source_filter = 2;
+}
+
+message CheckpointRestoreByTimeRequest {
+    int64 target_time = 1;
+    repeated string source_filter = 2;
+}
+
+message RestoredSnapshotInfo {
+    string snapshot_id = 1;
+    string source = 2;
+    string content_hex = 3;
+    string content_type = 4;
+}
+
+message CheckpointRestoreResponse {
+    CheckpointInfo checkpoint = 1;
+    repeated RestoredSnapshotInfo snapshots = 2;
+    repeated string ancestry = 3;
+}
+
+message CheckpointDiffRequest {
+    string from_id = 1;
+    string to_id = 2;
+}
+
+message CheckpointDiffResponse {
+    string from_id = 1;
+    string to_id = 2;
+    repeated string added = 3;
+    repeated string removed = 4;
+    repeated string modified = 5;
+    uint32 total_changes = 6;
+}
+
+message CheckpointRollbackRequest {
+    string checkpoint_id = 1;
+}
+
+message CheckpointRollbackResponse {
+    string checkpoint_id = 1;
+    repeated string snapshot_ids = 2;
+}
+
+message ApprovalInfo {
+    string agent_id = 1;
+    string partition_name = 2;
+    string current_snapshot = 3;
+    uint32 history_len = 4;
+}
+
+message ListPendingApprovalsResponse {
+    repeated ApprovalInfo approvals = 1;
+    uint32 total = 2;
+}
+
+message ApproveAgentRequest {
+    string agent_id = 1;
+    optional string integrated_name = 2;
+}
+
+message ApproveAgentResponse {
+    string agent_id = 1;
+    string integrated_snapshot_id = 2;
+}
+
+message RejectAgentRequest {
+    string agent_id = 1;
+}
+
+message RejectAgentResponse {
+    string agent_id = 1;
+    string baseline_snapshot_id = 2;
+}
+
+message MergeToUnifiedRequest {
+    repeated string integration_names = 1;
+}
+
+message MergeToUnifiedResponse {
+    string unified_snapshot_id = 1;
+    uint32 merged_count = 2;
+}
+
+message MergeToStagedRequest {}
+
+message MergeToStagedResponse {
+    string staged_snapshot_id = 1;
+}

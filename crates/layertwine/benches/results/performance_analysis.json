@@ -1,0 +1,267 @@
+{
+  "timestamp": "2026-06-10T02:50:09.753190",
+  "total_benchmarks": 32,
+  "analysis": {
+    "performance_issues": [
+      {
+        "benchmark": "merge_texts_merge_100_lines",
+        "issue": "high_variance",
+        "description": "High performance variance, standard deviation is 49.4% of mean",
+        "variance_ratio": 0.4938806687833792,
+        "severity": "medium"
+      }
+    ],
+    "bottlenecks": [
+      {
+        "benchmark": "apply_deltas_large_1_deltas_1000_lines_10_percent",
+        "category": "merge",
+        "description": "High execution time: 108.92 microseconds",
+        "value": 108917.51590438817,
+        "severity": "high"
+      },
+      {
+        "benchmark": "apply_deltas_large_1_deltas_1000_lines_10_percent",
+        "category": "merge",
+        "description": "Critically high execution time: 0.11 milliseconds",
+        "value": 108917.51590438817,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_10_percent",
+        "category": "diff",
+        "description": "High execution time: 389.14 microseconds",
+        "value": 389143.44492335944,
+        "severity": "high"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_10_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 0.39 milliseconds",
+        "value": 389143.44492335944,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "apply_deltas_medium_5_deltas_100_lines_10_percent",
+        "category": "merge",
+        "description": "High execution time: 32.43 microseconds",
+        "value": 32426.9651361515,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_50_percent",
+        "category": "diff",
+        "description": "High execution time: 3441.10 microseconds",
+        "value": 3441095.424666667,
+        "severity": "high"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_50_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 3.44 milliseconds",
+        "value": 3441095.424666667,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_30_percent",
+        "category": "diff",
+        "description": "High execution time: 1526.56 microseconds",
+        "value": 1526556.0301003829,
+        "severity": "high"
+      },
+      {
+        "benchmark": "diff_to_line_diff_large_1000_lines_30_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 1.53 milliseconds",
+        "value": 1526556.0301003829,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "merge_texts_merge_500_lines",
+        "category": "merge",
+        "description": "High execution time: 376.43 microseconds",
+        "value": 376431.16522892535,
+        "severity": "high"
+      },
+      {
+        "benchmark": "merge_texts_merge_500_lines",
+        "category": "merge",
+        "description": "Critically high execution time: 0.38 milliseconds",
+        "value": 376431.16522892535,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_huge_10000_lines_30_percent",
+        "category": "diff",
+        "description": "High execution time: 106365.40 microseconds",
+        "value": 106365397.03,
+        "severity": "high"
+      },
+      {
+        "benchmark": "diff_to_line_diff_huge_10000_lines_30_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 106.37 milliseconds",
+        "value": 106365397.03,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_medium_100_lines_50_percent",
+        "category": "diff",
+        "description": "High execution time: 47.00 microseconds",
+        "value": 46996.647974672094,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "merge_texts_merge_100_lines",
+        "category": "merge",
+        "description": "High execution time: 32.69 microseconds",
+        "value": 32692.992710425664,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "format_unified_diff_unified_1000_lines_30_percent",
+        "category": "diff",
+        "description": "High execution time: 1554.24 microseconds",
+        "value": 1554243.3350074512,
+        "severity": "high"
+      },
+      {
+        "benchmark": "format_unified_diff_unified_1000_lines_30_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 1.55 milliseconds",
+        "value": 1554243.3350074512,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "format_unified_diff_unified_100_lines_30_percent",
+        "category": "diff",
+        "description": "High execution time: 26.93 microseconds",
+        "value": 26928.83115280222,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "merge_texts_merge_1000_lines",
+        "category": "merge",
+        "description": "High execution time: 913.25 microseconds",
+        "value": 913248.6788413356,
+        "severity": "high"
+      },
+      {
+        "benchmark": "merge_texts_merge_1000_lines",
+        "category": "merge",
+        "description": "Critically high execution time: 0.91 milliseconds",
+        "value": 913248.6788413356,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "apply_deltas_medium_1_deltas_100_lines_10_percent",
+        "category": "merge",
+        "description": "High execution time: 10.44 microseconds",
+        "value": 10443.500506803884,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "apply_deltas_medium_10_deltas_100_lines_10_percent",
+        "category": "merge",
+        "description": "High execution time: 59.58 microseconds",
+        "value": 59576.67971304928,
+        "severity": "medium"
+      },
+      {
+        "benchmark": "apply_deltas_large_5_deltas_1000_lines_10_percent",
+        "category": "merge",
+        "description": "High execution time: 355.60 microseconds",
+        "value": 355598.1104484052,
+        "severity": "high"
+      },
+      {
+        "benchmark": "apply_deltas_large_5_deltas_1000_lines_10_percent",
+        "category": "merge",
+        "description": "Critically high execution time: 0.36 milliseconds",
+        "value": 355598.1104484052,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_huge_10000_lines_10_percent",
+        "category": "diff",
+        "description": "High execution time: 14080.93 microseconds",
+        "value": 14080929.665,
+        "severity": "high"
+      },
+      {
+        "benchmark": "diff_to_line_diff_huge_10000_lines_10_percent",
+        "category": "diff",
+        "description": "Critically high execution time: 14.08 milliseconds",
+        "value": 14080929.665,
+        "severity": "critical"
+      },
+      {
+        "benchmark": "diff_to_line_diff_medium_100_lines_30_percent",
+        "category": "diff",
+        "description": "High execution time: 25.38 microseconds",
+        "value": 25375.290971938044,
+        "severity": "medium"
+      }
+    ],
+    "recommendations": [
+      {
+        "category": "stability",
+        "priority": "medium",
+        "suggestion": "Multiple benchmarks show high performance variance. Check environmental factors and code stability.",
+        "affected_benchmarks": [
+          "merge_texts_merge_100_lines"
+        ]
+      },
+      {
+        "category": "critical_performance",
+        "priority": "critical",
+        "suggestion": "Critical performance bottlenecks detected. Immediate optimization required for large file operations.",
+        "affected_benchmarks": [
+          "apply_deltas_large_1_deltas_1000_lines_10_percent",
+          "diff_to_line_diff_large_1000_lines_10_percent",
+          "diff_to_line_diff_large_1000_lines_50_percent",
+          "diff_to_line_diff_large_1000_lines_30_percent",
+          "merge_texts_merge_500_lines",
+          "diff_to_line_diff_huge_10000_lines_30_percent",
+          "format_unified_diff_unified_1000_lines_30_percent",
+          "merge_texts_merge_1000_lines",
+          "apply_deltas_large_5_deltas_1000_lines_10_percent",
+          "diff_to_line_diff_huge_10000_lines_10_percent"
+        ],
+        "count": 10
+      },
+      {
+        "category": "performance",
+        "priority": "high",
+        "suggestion": "High execution time operations detected. Consider performance analysis and optimization.",
+        "affected_benchmarks": [
+          "apply_deltas_large_1_deltas_1000_lines_10_percent",
+          "diff_to_line_diff_large_1000_lines_10_percent",
+          "diff_to_line_diff_large_1000_lines_50_percent",
+          "diff_to_line_diff_large_1000_lines_30_percent",
+          "merge_texts_merge_500_lines",
+          "diff_to_line_diff_huge_10000_lines_30_percent",
+          "format_unified_diff_unified_1000_lines_30_percent",
+          "merge_texts_merge_1000_lines",
+          "apply_deltas_large_5_deltas_1000_lines_10_percent",
+          "diff_to_line_diff_huge_10000_lines_10_percent"
+        ],
+        "count": 10
+      },
+      {
+        "category": "optimization",
+        "priority": "medium",
+        "suggestion": "Moderate execution time operations identified. Consider gradual optimization.",
+        "affected_benchmarks": [
+          "apply_deltas_medium_5_deltas_100_lines_10_percent",
+          "diff_to_line_diff_medium_100_lines_50_percent",
+          "merge_texts_merge_100_lines",
+          "format_unified_diff_unified_100_lines_30_percent",
+          "apply_deltas_medium_1_deltas_100_lines_10_percent",
+          "apply_deltas_medium_10_deltas_100_lines_10_percent",
+          "diff_to_line_diff_medium_100_lines_30_percent"
+        ],
+        "count": 7
+      }
+    ]
+  }
+}

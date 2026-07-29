@@ -15,6 +15,7 @@ members = [
     "crates/wf-workflow",
     "crates/wf-sandbox",
     "crates/wf-plugin",
+    "crates/layertwine",
 ]
 
 [workspace.package]

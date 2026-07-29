@@ -1,0 +1,52 @@
+# Layertwine Example Configuration
+#
+# Copy this file to layertwine.toml in one of the following locations
+# (listed from lowest to highest priority):
+#   ~/.config/layertwine.toml          — user-global override
+#   <binary-dir>/layertwine.toml       — per-installation override
+#   <db-dir>/layertwine.toml           — per-repository override (highest)
+#
+# All fields are optional; missing fields fall back to defaults.
+# See https://toml.io/ for TOML 1.1 syntax.
+
+# Path to the SQLite database file.
+# Default: ".layertwine/layertwine.db"
+# db_path = ".layertwine/layertwine.db"
+
+[maintenance]
+
+# Auto-vacuum mode: "incremental", "full", or "none".
+#   incremental  — move freelist pages to end of file, reclaim via incremental_vacuum
+#   full         — same as incremental but uses the more aggressive VACUUM
+#   none         — disable auto-vacuum (freelist pages accumulate)
+# Default: "incremental"
+# auto_vacuum_mode = "incremental"
+
+# Freelist ratio threshold (0.0 – 1.0).
+# When freelist_count / page_count exceeds this value,
+# incremental_vacuum is triggered during compact.
+# Default: 0.10
+# freelist_threshold = 0.10
+
+# Maximum number of pages to reclaim per incremental_vacuum call.
+# Limits the duration of each lock during compact.
+# Default: 1000
+# max_vacuum_pages = 1000
+
+# Use full VACUUM instead of incremental when compacting.
+# WARNING: Requires an exclusive lock and blocks all readers/writers.
+# Only enable during scheduled downtime.
+# Default: false
+# vacuum_full = false
+
+# WAL journal size limit in bytes.
+# When the WAL file exceeds this, SQLite will automatically
+# checkpoint and truncate. 0 = unlimited.
+# Default: 67108864 (64 MB)
+# journal_size_limit = 67108864
+
+# WAL autocheckpoint page count threshold.
+# SQLite will automatically checkpoint after this many pages
+# have been written to the WAL. 0 = disable automatic checkpoint.
+# Default: 1000
+# wal_autocheckpoint = 1000

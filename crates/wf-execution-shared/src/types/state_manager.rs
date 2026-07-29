@@ -1,10 +1,9 @@
-use async_trait::async_trait;
+use std::future::Future;
 
-#[async_trait]
 pub trait StateManager<TSnapshot>: Send + Sync {
-    async fn cleanup(&mut self) -> Result<(), crate::error::ExecutionSharedError>;
-    async fn create_snapshot(&self) -> Result<TSnapshot, crate::error::ExecutionSharedError>;
-    async fn restore_from_snapshot(&mut self, snapshot: TSnapshot) -> Result<(), crate::error::ExecutionSharedError>;
+    fn cleanup(&mut self) -> impl Future<Output = Result<(), crate::error::ExecutionSharedError>> + Send;
+    fn create_snapshot(&self) -> impl Future<Output = Result<TSnapshot, crate::error::ExecutionSharedError>> + Send;
+    fn restore_from_snapshot(&mut self, snapshot: TSnapshot) -> impl Future<Output = Result<(), crate::error::ExecutionSharedError>> + Send;
     fn size(&self) -> usize;
     fn is_empty(&self) -> bool;
 }

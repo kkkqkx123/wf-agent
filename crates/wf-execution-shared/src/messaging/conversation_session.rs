@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use wf_types::message::Message;
 
 use crate::types::state_manager::StateManager;
@@ -47,7 +45,6 @@ impl ConversationSession {
     }
 }
 
-#[async_trait]
 impl StateManager<ConversationState> for ConversationSession {
     async fn cleanup(&mut self) -> Result<(), crate::error::ExecutionSharedError> {
         self.state.messages.clear();

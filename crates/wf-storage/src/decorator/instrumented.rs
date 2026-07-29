@@ -132,7 +132,6 @@ impl<S: Store> Store for InstrumentedStore<S> {
     }
 }
 
-#[async_trait]
 impl<S: Store + BatchStore> BatchStore for InstrumentedStore<S> {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let start = Instant::now();
@@ -171,7 +170,6 @@ impl<S: Store + BatchStore> BatchStore for InstrumentedStore<S> {
     }
 }
 
-#[async_trait]
 impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
     async fn vacuum(&self) -> Result<(), StorageError> {
         self.inner.vacuum().await

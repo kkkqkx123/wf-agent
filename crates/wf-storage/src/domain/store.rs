@@ -94,7 +94,6 @@ pub trait Store: Send + Sync {
     async fn clear(&self) -> Result<(), StorageError>;
 }
 
-#[async_trait]
 pub trait BatchStore: Store {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         for item in items {
@@ -124,7 +123,6 @@ pub trait BatchStore: Store {
     }
 }
 
-#[async_trait]
 pub trait Maintainable: Store {
     async fn vacuum(&self) -> Result<(), StorageError> {
         Ok(())

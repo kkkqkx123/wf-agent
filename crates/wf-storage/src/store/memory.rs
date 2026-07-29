@@ -160,7 +160,6 @@ impl Store for MemoryStorage {
     }
 }
 
-#[async_trait]
 impl crate::domain::store::BatchStore for MemoryStorage {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
@@ -203,7 +202,6 @@ impl crate::domain::store::BatchStore for MemoryStorage {
 
 use crate::domain::store::Maintainable;
 
-#[async_trait]
 impl Maintainable for MemoryStorage {}
 
 #[cfg(test)]

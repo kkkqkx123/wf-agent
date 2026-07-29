@@ -1,7 +1,8 @@
-use async_trait::async_trait;
-use reqwest::Client as ReqwestClient;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
 use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile};
 use wf_types::message::MessageContentValue;
@@ -9,11 +10,10 @@ use crate::error::{LlmError, LlmResult};
 use crate::formatters::LlmFormatter;
 use crate::message_stream::MessageStream;
 
-#[async_trait]
 pub trait LlmClient: Send + Sync {
-    async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType>;
-    async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<Box<dyn MessageStream>>;
-    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32>;
+    fn generate(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<LlmResponseType>> + Send;
+    fn generate_stream(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<Box<dyn MessageStream>>> + Send;
+    fn count_tokens(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<u32>> + Send;
 }
 
 pub struct LlmClientImpl {
@@ -149,7 +149,6 @@ impl LlmClientImpl {
     }
 }
 
-#[async_trait]
 impl LlmClient for LlmClientImpl {
     async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let max_retries = self.max_retries();

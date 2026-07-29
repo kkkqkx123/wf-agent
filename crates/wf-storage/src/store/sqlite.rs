@@ -360,7 +360,6 @@ impl Store for SqliteStorage {
     }
 }
 
-#[async_trait]
 impl BatchStore for SqliteStorage {
     async fn load_batch(
         &self,
@@ -489,7 +488,6 @@ impl BatchStore for SqliteStorage {
     }
 }
 
-#[async_trait]
 impl Maintainable for SqliteStorage {
     async fn vacuum(&self) -> Result<(), StorageError> {
         sqlx::query("VACUUM")

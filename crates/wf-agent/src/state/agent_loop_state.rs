@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-
-use async_trait::async_trait;
 use serde_json::Value;
 
 use wf_common::now;
@@ -179,7 +177,6 @@ impl AgentLoopState {
     }
 }
 
-#[async_trait]
 impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
     async fn cleanup(&mut self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.iteration_history.clear();

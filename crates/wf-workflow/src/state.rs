@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 use wf_execution_shared::error_chain::manager::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
@@ -134,7 +132,6 @@ impl WorkflowExecutionState {
     }
 }
 
-#[async_trait]
 impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
     async fn cleanup(&mut self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.completed_nodes.clear();

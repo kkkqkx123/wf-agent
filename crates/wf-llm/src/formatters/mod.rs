@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::sync::Arc;
 use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, LlmProvider, MessageStreamEvent};
 use crate::error::LlmResult;
@@ -17,7 +16,6 @@ pub use gemini_openai::GeminiOpenaiFormatter;
 pub use openai_chat::OpenaiChatFormatter;
 pub use openai_response::OpenaiResponseFormatter;
 
-#[async_trait]
 pub trait LlmFormatter: Send + Sync {
     fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request>;
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType>;

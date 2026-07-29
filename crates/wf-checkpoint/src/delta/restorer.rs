@@ -24,7 +24,6 @@ impl<SS, DS> Default for GenericDeltaRestorer<SS, DS> {
     }
 }
 
-#[async_trait::async_trait]
 impl<SS, DS> DeltaRestorer<SS, DS> for GenericDeltaRestorer<SS, DS>
 where
     SS: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync,

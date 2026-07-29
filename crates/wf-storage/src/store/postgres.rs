@@ -321,7 +321,6 @@ impl Store for PostgresStorage {
     }
 }
 
-#[async_trait]
 impl BatchStore for PostgresStorage {
     async fn load_batch(
         &self,
@@ -416,7 +415,6 @@ impl BatchStore for PostgresStorage {
     }
 }
 
-#[async_trait]
 impl Maintainable for PostgresStorage {
     async fn checkpoint(&self) -> Result<(), StorageError> {
         sqlx::query("CHECKPOINT")

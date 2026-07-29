@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use reqwest::Method;
 use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
 use crate::error::LlmResult;
@@ -111,7 +110,6 @@ impl GeminiNativeFormatter {
     }
 }
 
-#[async_trait]
 impl LlmFormatter for GeminiNativeFormatter {
     fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
         let url = format!("{}/models/{}:generateContent?key={}",

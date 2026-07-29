@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use reqwest::Method;
 use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
 use crate::error::LlmResult;
@@ -59,7 +58,6 @@ impl OpenaiChatFormatter {
     }
 }
 
-#[async_trait]
 impl LlmFormatter for OpenaiChatFormatter {
     fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
         let url = format!("{}/chat/completions", profile.base_url.as_deref().unwrap_or(&self.base_url));

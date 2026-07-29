@@ -1,0 +1,31 @@
+use std::sync::Arc;
+
+use crate::error::{PluginError, PluginResult};
+use crate::manifest::PluginManifest;
+use crate::plugin::Plugin;
+use super::plugin::NativePlugin;
+
+pub fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
+    let base_path = determine_native_base_path(manifest)?;
+    let lib_path = base_path.join(&manifest.entry_point);
+
+    let lib = unsafe {
+        libloading::Library::new(&lib_path)
+            .map_err(|e| PluginError::LoadFailed(format!("cannot load {:?}: {}", lib_path, e)))?
+    };
+
+    Ok(Arc::new(NativePlugin::new(manifest.clone(), lib)))
+}
+
+fn determine_native_base_path(manifest: &PluginManifest) -> PluginResult<std::path::PathBuf> {
+    let candidate = std::path::PathBuf::from("plugins").join(&manifest.id);
+    if candidate.join(&manifest.entry_point).exists() {
+        return Ok(candidate);
+    }
+    if std::path::Path::new(&manifest.entry_point).exists() {
+        return Ok(std::path::PathBuf::from("."));
+    }
+    Err(PluginError::LoadFailed(
+        format!("cannot find entry point '{}' for plugin '{}'", manifest.entry_point, manifest.id)
+    ))
+}

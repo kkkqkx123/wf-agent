@@ -15,7 +15,6 @@ impl Default for WorkflowDiffCalculator {
     }
 }
 
-#[async_trait::async_trait]
 impl
     DiffCalculator<
         wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
@@ -135,7 +134,6 @@ impl Default for AgentDiffCalculator {
     }
 }
 
-#[async_trait::async_trait]
 impl
     DiffCalculator<
         wf_types::checkpoint::agent::AgentStateSnapshot,

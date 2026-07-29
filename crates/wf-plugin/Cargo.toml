@@ -19,7 +19,7 @@ wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-core = { path = "../wf-core" }
 
-toml = "0.8"
+toml.workspace = true
 
 mlua = { version = "0.9", optional = true, default-features = false, features = ["luajit", "send"] }
 libloading = { version = "0.8", optional = true }

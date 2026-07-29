@@ -46,3 +46,21 @@ tokio-util = "0.7"
 rand = "0.8"
 num_cpus = "1"
 semver = "1"
+
+# General-purpose utilities
+parking_lot = "0.12"
+zstd = "0.13"
+smallvec = "1"
+toml = "1.1"
+hex = "0.4"
+similar = "3"
+clap = { version = "4", features = ["derive"] }
+
+# HTTP/gRPC transport
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
+http = "1.1"
+tonic = "0.12"
+prost = "0.13"
+tonic-build = "0.12"

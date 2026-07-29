@@ -6,6 +6,10 @@ use wf_types::node::StaticNodeType;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 
+fn is_readonly_var(name: &str) -> bool {
+    name.starts_with("__")
+}
+
 pub struct VariableHandler;
 
 #[async_trait]
@@ -23,6 +27,11 @@ impl NodeHandler for VariableHandler {
             match assignments {
                 Value::Object(map) => {
                     for (key, value) in map {
+                        if is_readonly_var(key) {
+                            return Err(WorkflowError::VariableError(
+                                format!("Cannot modify read-only variable: {}", key),
+                            ));
+                        }
                         let resolved = crate::variable::VariableResolver::resolve(value, &ctx.variables);
                         ctx.set_variable(key.clone(), resolved);
                     }
@@ -30,6 +39,11 @@ impl NodeHandler for VariableHandler {
                 Value::Array(arr) => {
                     for entry in arr {
                         if let Some(name) = entry.get("name").and_then(|n| n.as_str()) {
+                            if is_readonly_var(name) {
+                                return Err(WorkflowError::VariableError(
+                                    format!("Cannot modify read-only variable: {}", name),
+                                ));
+                            }
                             let value = entry.get("value").cloned().unwrap_or(Value::Null);
                             let resolved = crate::variable::VariableResolver::resolve(&value, &ctx.variables);
                             ctx.set_variable(name.to_string(), resolved);

@@ -1,4 +1,5 @@
 pub mod barrier;
+pub mod checkpoint;
 pub mod coordinator;
 pub mod entity;
 pub mod error;
@@ -12,6 +13,7 @@ pub mod types;
 pub mod variable;
 
 pub use barrier::{BranchResult, FailureStrategy, ForkOutcome, SyncBarrier};
+pub use checkpoint::{CheckpointTiming, NodeCheckpointStrategy, WorkflowCheckpointIntegration};
 pub use coordinator::{
     state_transitor::WorkflowStateTransitor, NodeCoordinator, WorkflowCoordinator,
     WorkflowExecutionParams, WorkflowLifecycleCoordinator,
@@ -22,10 +24,11 @@ pub use executor::WorkflowExecutor;
 pub use factory::builder::WorkflowExecutionBuilder;
 pub use handler::{
     agent_loop::AgentLoopHandler, context_processor::ContextProcessorHandler, fork_join::ForkHandler,
-    fork_join::JoinHandler, llm::LlmHandler, loop_handler::LoopEndHandler,
-    loop_handler::LoopStartHandler, route::RouteHandler, script::ScriptHandler,
-    start_end::EndHandler, start_end::StartHandler, subgraph::SubgraphHandler, sync::SyncHandler,
-    variable::VariableHandler, HandlerRegistry, NodeHandler, NodeHandlerResult,
+    fork_join::JoinHandler, interactive_script::InteractiveScriptHandler, llm::LlmHandler,
+    loop_handler::LoopEndHandler, loop_handler::LoopStartHandler, route::RouteHandler,
+    script::ScriptHandler,     start_end::ContinueFromTriggerHandler, start_end::EndHandler, start_end::StartHandler, subgraph::SubgraphHandler,
+    sync::SyncHandler, tool_visibility::ToolVisibilityHandler, variable::VariableHandler,
+    HandlerRegistry, NodeHandler, NodeHandlerResult,
 };
 pub use hook::handler::WorkflowHookHandler;
 pub use state::{WorkflowExecutionState, WorkflowExecutionStateSnapshot};

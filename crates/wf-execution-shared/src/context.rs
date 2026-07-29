@@ -4,13 +4,13 @@ use dashmap::DashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_tools::registry::ToolRegistry;
-use wf_types::Id;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
+use wf_types::Id;
 
 pub struct ExecutorContext {
     pub execution_id: Id,
     pub workflow_id: Id,
-    pub event_bus: Arc<EventBus>,
+    pub event_bus: Option<Arc<EventBus>>,
     pub tool_registry: Arc<ToolRegistry>,
     pub variables: Arc<DashMap<String, Value>>,
     pub options: WorkflowExecutionOptions,
@@ -21,7 +21,7 @@ impl ExecutorContext {
     pub fn new(
         execution_id: Id,
         workflow_id: Id,
-        event_bus: Arc<EventBus>,
+        event_bus: Option<Arc<EventBus>>,
         tool_registry: Arc<ToolRegistry>,
         options: WorkflowExecutionOptions,
     ) -> Self {
@@ -52,6 +52,9 @@ pub struct NodeExecutionContext {
     pub variables: Arc<DashMap<String, Value>>,
     pub parent_execution_id: Option<Id>,
     pub depth: u32,
+    pub event_bus: Option<Arc<EventBus>>,
+    pub handler_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    pub graph_structure: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl NodeExecutionContext {
@@ -72,6 +75,9 @@ impl NodeExecutionContext {
             variables,
             parent_execution_id: None,
             depth: 0,
+            event_bus: None,
+            handler_registry: None,
+            graph_structure: None,
         }
     }
 
@@ -93,6 +99,10 @@ impl NodeExecutionContext {
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
         self
+    }
+
+    pub fn set_event_bus(&mut self, event_bus: Arc<EventBus>) {
+        self.event_bus = Some(event_bus);
     }
 
     pub fn get_variable(&self, name: &str) -> Option<Value> {

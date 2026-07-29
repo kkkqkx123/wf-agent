@@ -1,13 +1,18 @@
 pub mod agent_loop;
 pub mod context_processor;
+pub mod embed;
 pub mod fork_join;
+pub mod interactive_script;
 pub mod llm;
+pub mod output_mapping;
 pub mod loop_handler;
 pub mod route;
 pub mod script;
 pub mod start_end;
 pub mod subgraph;
 pub mod sync;
+pub mod tool_visibility;
+pub mod user_interaction;
 pub mod variable;
 
 pub use wf_execution_shared::context::NodeExecutionResult as NodeHandlerResult;
@@ -63,16 +68,18 @@ impl HandlerRegistry {
         self.register(Arc::new(loop_handler::LoopEndHandler));
         self.register(Arc::new(fork_join::ForkHandler));
         self.register(Arc::new(fork_join::JoinHandler));
-        self.register(Arc::new(sync::SyncHandler));
+        self.register(Arc::new(sync::SyncHandler::new()));
         self.register(Arc::new(subgraph::SubgraphHandler));
         self.register(Arc::new(llm::LlmHandler));
         self.register(Arc::new(context_processor::ContextProcessorHandler));
-        self.register(Arc::new(script::ScriptHandler));
+        self.register(Arc::new(script::ScriptHandler::new()));
+        self.register(Arc::new(interactive_script::InteractiveScriptHandler::new()));
         self.register(Arc::new(agent_loop::AgentLoopHandler));
-        self.register(Arc::new(start_end::ToolVisibilityHandler));
-        self.register(Arc::new(start_end::EmbedHandler));
-        self.register(Arc::new(start_end::UserInteractionHandler));
+        self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
+        self.register(Arc::new(embed::EmbedHandler));
+        self.register(Arc::new(user_interaction::UserInteractionHandler));
         self.register(Arc::new(start_end::TriggerPassthroughHandler));
+        self.register(Arc::new(start_end::ContinueFromTriggerHandler));
     }
 }
 

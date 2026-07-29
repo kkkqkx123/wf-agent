@@ -24,11 +24,11 @@ pub struct WorkflowExecutionParams {
 }
 
 pub struct WorkflowLifecycleCoordinator {
-    event_bus: Arc<EventBus>,
+    event_bus: Option<Arc<EventBus>>,
 }
 
 impl WorkflowLifecycleCoordinator {
-    pub fn new(event_bus: Arc<EventBus>) -> Self {
+    pub fn new(event_bus: Option<Arc<EventBus>>) -> Self {
         Self { event_bus }
     }
 

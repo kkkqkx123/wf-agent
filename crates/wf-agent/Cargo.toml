@@ -10,6 +10,7 @@ wf-core = { path = "../wf-core" }
 wf-tools = { path = "../wf-tools" }
 wf-llm = { path = "../wf-llm" }
 wf-checkpoint = { path = "../wf-checkpoint" }
+wf-storage = { path = "../wf-storage" }
 wf-execution-shared = { path = "../wf-execution-shared" }
 
 async-trait.workspace = true

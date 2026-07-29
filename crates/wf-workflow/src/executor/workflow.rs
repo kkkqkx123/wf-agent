@@ -11,17 +11,23 @@ use crate::error::WorkflowResult;
 use crate::handler::{HandlerRegistry, NodeHandler};
 
 pub struct WorkflowExecutor {
-    event_bus: Arc<EventBus>,
+    event_bus: Option<Arc<EventBus>>,
 }
 
 impl WorkflowExecutor {
-    pub fn new(event_bus: Arc<EventBus>) -> Self {
-        Self { event_bus }
+    pub fn new() -> Self {
+        Self { event_bus: None }
+    }
+
+    pub fn with_event_bus(event_bus: Arc<EventBus>) -> Self {
+        Self {
+            event_bus: Some(event_bus),
+        }
     }
 
     pub fn new_default() -> Self {
         Self {
-            event_bus: Arc::new(EventBus::new(1024)),
+            event_bus: Some(Arc::new(EventBus::new(1024))),
         }
     }
 

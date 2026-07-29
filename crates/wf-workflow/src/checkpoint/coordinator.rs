@@ -1,0 +1,179 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use serde_json::Value;
+use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+use wf_checkpoint::coordinator::CheckpointCoordinator;
+use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::state::WorkflowCheckpointStateManager;
+use wf_checkpoint::CheckpointError;
+use wf_core::EventBus;
+use wf_storage::store::memory::MemoryStorage;
+use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
+use wf_types::checkpoint::{CheckpointTrigger, CheckpointVariableState};
+use wf_types::events::{BaseEvent, EventType};
+
+use crate::entity::WorkflowExecutionEntity;
+
+use super::strategy::{CheckpointTiming, NodeCheckpointStrategy};
+
+pub struct WorkflowCheckpointIntegration {
+    inner: WorkflowCheckpointCoordinator<MemoryStorage>,
+    strategy: NodeCheckpointStrategy,
+    public_store: Arc<MemoryStorage>,
+    node_count: u32,
+    event_bus: Option<Arc<EventBus>>,
+}
+
+impl WorkflowCheckpointIntegration {
+    pub fn new(store: Arc<MemoryStorage>, strategy: NodeCheckpointStrategy) -> Self {
+        let state_manager = WorkflowCheckpointStateManager::new(store.clone());
+        let coordinator = WorkflowCheckpointCoordinator::new(state_manager);
+        Self {
+            inner: coordinator,
+            strategy,
+            public_store: store,
+            node_count: 0,
+            event_bus: None,
+        }
+    }
+
+    pub fn with_event_bus(mut self, bus: CheckpointEventBus) -> Self {
+        self.inner = self.inner.with_event_bus(bus);
+        self
+    }
+
+    pub fn with_core_event_bus(mut self, bus: Arc<EventBus>) -> Self {
+        self.event_bus = Some(bus);
+        self
+    }
+
+    pub fn store(&self) -> &Arc<MemoryStorage> {
+        &self.public_store
+    }
+
+    pub fn strategy(&self) -> &NodeCheckpointStrategy {
+        &self.strategy
+    }
+
+    pub fn reset(&mut self) {
+        self.node_count = 0;
+    }
+
+    pub async fn on_node_completed(&mut self, entity: &WorkflowExecutionEntity) {
+        self.node_count += 1;
+        if !self
+            .strategy
+            .should_checkpoint(&CheckpointTiming::AfterNode, self.node_count)
+        {
+            return;
+        }
+        let _ = self
+            .create_checkpoint(entity, CheckpointTrigger::AfterExecute)
+            .await;
+    }
+
+    pub async fn on_node_before(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self
+            .strategy
+            .should_checkpoint(&CheckpointTiming::BeforeNode, self.node_count)
+        {
+            return;
+        }
+        let _ = self
+            .create_checkpoint(entity, CheckpointTrigger::BeforeExecute)
+            .await;
+    }
+
+    pub async fn on_node_failed(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self
+            .strategy
+            .should_checkpoint(&CheckpointTiming::OnNodeError, self.node_count)
+        {
+            return;
+        }
+        let _ = self
+            .create_checkpoint(entity, CheckpointTrigger::OnError)
+            .await;
+    }
+
+    pub async fn on_workflow_start(&mut self, entity: &WorkflowExecutionEntity) {
+        let _ = self
+            .create_checkpoint(entity, CheckpointTrigger::Manual)
+            .await;
+    }
+
+    pub async fn on_workflow_end(&mut self, entity: &WorkflowExecutionEntity) {
+        let _ = self
+            .create_checkpoint(entity, CheckpointTrigger::OnComplete)
+            .await;
+    }
+
+    async fn create_checkpoint(
+        &self,
+        entity: &WorkflowExecutionEntity,
+        trigger: CheckpointTrigger,
+    ) -> Result<(), CheckpointError> {
+        let snapshot = self.build_snapshot(entity).await;
+        let ctx = self
+            .inner
+            .prepare(entity.id().as_str(), trigger.clone())
+            .await?;
+        let checkpoint = self.inner.build(ctx, snapshot).await?;
+        self.inner.persist(&checkpoint, entity.id().as_str()).await?;
+
+        if let Some(ref bus) = self.event_bus {
+            let _ = bus.publish(BaseEvent {
+                id: wf_types::Id::new(),
+                r#type: EventType::CheckpointCreated,
+                timestamp: wf_common::now(),
+                workflow_id: Some(entity.workflow_id().clone()),
+                execution_id: Some(entity.id().clone()),
+                agent_loop_id: None,
+                metadata: Some(HashMap::from([
+                    ("trigger".to_string(), Value::String(format!("{:?}", trigger))),
+                    ("checkpoint_id".to_string(), Value::String(checkpoint.id.to_string())),
+                ])),
+            });
+        }
+
+        Ok(())
+    }
+
+    async fn build_snapshot(
+        &self,
+        entity: &WorkflowExecutionEntity,
+    ) -> WorkflowExecutionStateSnapshot {
+        let state = entity.state.read().await;
+        let vars: HashMap<String, Value> = entity
+            .variables()
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect();
+        let node_results: Option<HashMap<String, Value>> = {
+            let map = entity
+                .node_results()
+                .iter()
+                .map(|e| (e.key().clone(), e.value().clone()))
+                .collect::<HashMap<_, _>>();
+            if map.is_empty() {
+                None
+            } else {
+                Some(map)
+            }
+        };
+
+        WorkflowExecutionStateSnapshot {
+            execution_id: entity.id().to_string(),
+            status: format!("{:?}", state.status()),
+            current_node_id: state.current_node_id().map(String::from),
+            node_results,
+            variable_state: CheckpointVariableState { variables: vars },
+            input: None,
+            output: None,
+            messages: None,
+            fork_join_context: None,
+            active_operations: None,
+        }
+    }
+}

@@ -1,4 +1,5 @@
 pub mod callback;
+pub mod checkpoint;
 pub mod coordinator;
 pub mod entity;
 pub mod error;

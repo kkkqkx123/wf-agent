@@ -2,7 +2,7 @@ use crate::error::CheckpointError;
 use crate::state::storage::StorageBackedStateManager;
 use crate::state::CheckpointStateManager;
 use std::sync::Arc;
-use wf_storage::domain::store::Store;
+use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -11,27 +11,19 @@ use wf_types::storage::CheckpointStorageMetadata;
 pub type WorkflowCheckpoint =
     BaseCheckpointCore<WorkflowCheckpointDelta, WorkflowExecutionStateSnapshot>;
 
-pub struct WorkflowCheckpointStateManager<S: Store> {
-    inner: StorageBackedStateManager<S, WorkflowCheckpoint>,
+pub struct WorkflowCheckpointStateManager {
+    inner: StorageBackedStateManager<WorkflowCheckpoint>,
 }
 
-impl<S: Store> WorkflowCheckpointStateManager<S> {
-    pub fn new(storage: Arc<S>) -> Self {
+impl WorkflowCheckpointStateManager {
+    pub fn new(storage: Arc<StorageBackend>) -> Self {
         Self {
             inner: StorageBackedStateManager::new(storage),
         }
     }
 }
 
-impl Default for WorkflowCheckpointStateManager<wf_storage::store::memory::MemoryStorage> {
-    fn default() -> Self {
-        Self::new(std::sync::Arc::new(
-            wf_storage::store::memory::MemoryStorage::new("default"),
-        ))
-    }
-}
-
-impl<S: Store + Send + Sync> CheckpointStateManager for WorkflowCheckpointStateManager<S> {
+impl CheckpointStateManager for WorkflowCheckpointStateManager {
     type Checkpoint = WorkflowCheckpoint;
 
     async fn save(
@@ -78,7 +70,6 @@ impl<S: Store + Send + Sync> CheckpointStateManager for WorkflowCheckpointStateM
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wf_storage::store::memory::MemoryStorage;
 
     fn make_snapshot() -> WorkflowExecutionStateSnapshot {
         WorkflowExecutionStateSnapshot {
@@ -112,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_and_load_workflow_checkpoint() {
-        let storage = Arc::new(MemoryStorage::new("test"));
+        let storage = Arc::new(StorageBackend::new_memory());
         let mgr = WorkflowCheckpointStateManager::new(storage);
 
         let cp = make_checkpoint();
@@ -127,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_and_cleanup() {
-        let storage = Arc::new(MemoryStorage::new("test"));
+        let storage = Arc::new(StorageBackend::new_memory());
         let mgr = WorkflowCheckpointStateManager::new(storage);
 
         for i in 0..3 {

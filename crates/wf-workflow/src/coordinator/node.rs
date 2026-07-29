@@ -26,6 +26,7 @@ impl NodeCoordinator {
         ctx: &mut NodeExecutionContext,
         event_bus: Option<&EventBus>,
         hooks: &[BaseHookDefinition],
+        hook_executor: Option<&HookExecutor>,
         retry_budget: Option<&mut RetryBudget>,
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_id = ctx.node_id.clone();
@@ -36,7 +37,7 @@ impl NodeCoordinator {
             "node_type": format!("{:?}", ctx.node_type),
         })).await;
 
-        Self::execute_hooks(hooks, entity, "BEFORE_EXECUTE").await;
+        Self::execute_hooks(hooks, hook_executor, entity, "BEFORE_EXECUTE").await;
 
         let check = check_execution_interruption(entity.interruption(), None);
         if !matches!(check, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
@@ -55,7 +56,7 @@ impl NodeCoordinator {
             Ok(output) => {
                 entity.state.write().await.mark_node_completed(node_id.clone());
 
-                Self::execute_hooks(hooks, entity, "AFTER_EXECUTE").await;
+                Self::execute_hooks(hooks, hook_executor, entity, "AFTER_EXECUTE").await;
 
                 Self::emit_event(event_bus, EventType::NodeCompleted, entity, &node_id, &serde_json::json!({
                     "has_next_nodes": !output.next_node_ids.is_empty(),
@@ -103,11 +104,21 @@ impl NodeCoordinator {
         }
     }
 
-    async fn execute_hooks(hooks: &[BaseHookDefinition], entity: &WorkflowExecutionEntity, hook_type: &str) {
+    async fn execute_hooks(
+        hooks: &[BaseHookDefinition],
+        hook_executor: Option<&HookExecutor>,
+        entity: &WorkflowExecutionEntity,
+        hook_type: &str,
+    ) {
         let filtered = HookExecutor::filter_and_sort_hooks(hooks, hook_type);
         if filtered.is_empty() {
             return;
         }
+
+        let executor = match hook_executor {
+            Some(e) => e,
+            None => return,
+        };
 
         let mut data = std::collections::HashMap::new();
         data.insert("entity_id".to_string(), serde_json::Value::String(entity.id().to_string()));
@@ -120,7 +131,6 @@ impl NodeCoordinator {
             data,
         };
 
-        let executor = HookExecutor::new();
         let config = HookExecutorConfig {
             parallel: false,
             continue_on_error: true,

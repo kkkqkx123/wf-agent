@@ -29,6 +29,7 @@ fn sanitize_url(url: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SqliteStorage {
     pool: SqlitePool,
     table_name: String,

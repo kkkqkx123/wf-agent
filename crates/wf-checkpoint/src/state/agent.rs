@@ -2,7 +2,7 @@ use crate::error::CheckpointError;
 use crate::state::storage::StorageBackedStateManager;
 use crate::state::CheckpointStateManager;
 use std::sync::Arc;
-use wf_storage::domain::store::Store;
+use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -10,27 +10,19 @@ use wf_types::storage::CheckpointStorageMetadata;
 
 pub type AgentCheckpoint = BaseCheckpointCore<AgentCheckpointDelta, AgentStateSnapshot>;
 
-pub struct AgentCheckpointStateManager<S: Store> {
-    inner: StorageBackedStateManager<S, AgentCheckpoint>,
+pub struct AgentCheckpointStateManager {
+    inner: StorageBackedStateManager<AgentCheckpoint>,
 }
 
-impl<S: Store> AgentCheckpointStateManager<S> {
-    pub fn new(storage: Arc<S>) -> Self {
+impl AgentCheckpointStateManager {
+    pub fn new(storage: Arc<StorageBackend>) -> Self {
         Self {
             inner: StorageBackedStateManager::new(storage),
         }
     }
 }
 
-impl Default for AgentCheckpointStateManager<wf_storage::store::memory::MemoryStorage> {
-    fn default() -> Self {
-        Self::new(std::sync::Arc::new(
-            wf_storage::store::memory::MemoryStorage::new("default"),
-        ))
-    }
-}
-
-impl<S: Store + Send + Sync> CheckpointStateManager for AgentCheckpointStateManager<S> {
+impl CheckpointStateManager for AgentCheckpointStateManager {
     type Checkpoint = AgentCheckpoint;
 
     async fn save(
@@ -76,7 +68,7 @@ impl<S: Store + Send + Sync> CheckpointStateManager for AgentCheckpointStateMana
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_storage::store::memory::MemoryStorage;
+    use std::sync::Arc;
 
     fn make_snapshot() -> AgentStateSnapshot {
         AgentStateSnapshot {
@@ -109,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_and_load_agent_checkpoint() {
-        let storage = Arc::new(MemoryStorage::new("test"));
+        let storage = Arc::new(StorageBackend::new_memory());
         let mgr = AgentCheckpointStateManager::new(storage);
 
         let cp = make_checkpoint();
@@ -122,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_list_and_cleanup() {
-        let storage = Arc::new(MemoryStorage::new("test"));
+        let storage = Arc::new(StorageBackend::new_memory());
         let mgr = AgentCheckpointStateManager::new(storage);
 
         for i in 0..4 {

@@ -6,6 +6,7 @@ use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Sto
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
 
+#[derive(Debug, Clone)]
 pub struct PostgresStorage {
     pool: PgPool,
     table_name: String,

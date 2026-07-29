@@ -404,7 +404,7 @@ async fn execute_branch(
         workflow_id,
     );
 
-    let mut coordinator =
+    let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
 
     match coordinator.execute().await {

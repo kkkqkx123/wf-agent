@@ -5,19 +5,19 @@ use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::state::AgentCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
-use wf_storage::store::memory::MemoryStorage;
+use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::{AgentStateSnapshot, VariableSnapshot};
 use wf_types::checkpoint::CheckpointTrigger;
 
 use crate::entity::agent_loop::AgentLoopEntity;
 
 pub struct AgentCheckpointIntegration {
-    inner: AgentCheckpointCoordinator<MemoryStorage>,
-    store: Arc<MemoryStorage>,
+    inner: AgentCheckpointCoordinator,
+    store: Arc<StorageBackend>,
 }
 
 impl AgentCheckpointIntegration {
-    pub fn new(store: Arc<MemoryStorage>) -> Self {
+    pub fn new(store: Arc<StorageBackend>) -> Self {
         let state_manager = AgentCheckpointStateManager::new(store.clone());
         let coordinator = AgentCheckpointCoordinator::new(state_manager);
         Self {
@@ -31,7 +31,7 @@ impl AgentCheckpointIntegration {
         self
     }
 
-    pub fn store(&self) -> &Arc<MemoryStorage> {
+    pub fn store(&self) -> &Arc<StorageBackend> {
         &self.store
     }
 

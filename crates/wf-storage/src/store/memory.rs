@@ -201,6 +201,11 @@ impl crate::domain::store::BatchStore for MemoryStorage {
     }
 }
 
+use crate::domain::store::Maintainable;
+
+#[async_trait]
+impl Maintainable for MemoryStorage {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

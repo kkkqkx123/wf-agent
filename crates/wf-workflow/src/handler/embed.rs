@@ -89,7 +89,7 @@ impl NodeHandler for EmbedHandler {
 
         emit_embed_event(event_bus.as_ref(), EventType::SubgraphStarted, &ctx.execution_id, &ctx.node_id);
 
-        let mut coordinator = WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?
+        let mut coordinator: WorkflowCoordinator = WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?
             .with_entity(entity);
 
         let output = coordinator.execute().await?;

@@ -1,15 +1,16 @@
-use wf_storage::adapter::concrete::MemoryWorkflowExecutionStorage;
+use wf_storage::adapter::concrete::WorkflowExecutionStorage;
+use wf_storage::backend::StorageBackend;
 use wf_storage::domain::store::QueryFilter;
 use wf_types::WorkflowExecution;
 
 use crate::error::{RuntimeError, RuntimeResult};
 
 pub struct RecoveryScanner {
-    execution_storage: MemoryWorkflowExecutionStorage,
+    execution_storage: WorkflowExecutionStorage<StorageBackend>,
 }
 
 impl RecoveryScanner {
-    pub fn new(execution_storage: MemoryWorkflowExecutionStorage) -> Self {
+    pub fn new(execution_storage: WorkflowExecutionStorage<StorageBackend>) -> Self {
         Self { execution_storage }
     }
 

@@ -6,7 +6,6 @@ use crate::event::CheckpointEventBus;
 use crate::state::AgentCheckpoint;
 use crate::state::AgentCheckpointStateManager;
 use crate::state::CheckpointStateManager;
-use wf_storage::domain::store::Store;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -15,14 +14,14 @@ use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 
-pub struct AgentCheckpointCoordinator<S: Store> {
-    state_manager: AgentCheckpointStateManager<S>,
+pub struct AgentCheckpointCoordinator {
+    state_manager: AgentCheckpointStateManager,
     diff_calculator: AgentDiffCalculator,
     event_bus: Option<CheckpointEventBus>,
 }
 
-impl<S: Store> AgentCheckpointCoordinator<S> {
-    pub fn new(state_manager: AgentCheckpointStateManager<S>) -> Self {
+impl AgentCheckpointCoordinator {
+    pub fn new(state_manager: AgentCheckpointStateManager) -> Self {
         Self {
             state_manager,
             diff_calculator: AgentDiffCalculator::new(),
@@ -35,12 +34,12 @@ impl<S: Store> AgentCheckpointCoordinator<S> {
         self
     }
 
-    pub fn state_manager(&self) -> &AgentCheckpointStateManager<S> {
+    pub fn state_manager(&self) -> &AgentCheckpointStateManager {
         &self.state_manager
     }
 }
 
-impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinator<S> {
+impl CheckpointCoordinator for AgentCheckpointCoordinator {
     type Checkpoint = AgentCheckpoint;
     type Entity = AgentLoopEntity;
     type State = AgentStateSnapshot;
@@ -240,7 +239,7 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for AgentCheckpointCoordinato
     }
 }
 
-impl<S: Store> AgentCheckpointCoordinator<S> {
+impl AgentCheckpointCoordinator {
     async fn should_build_delta(&self, entity_id: &str) -> Result<bool, CheckpointError> {
         match self.state_manager.get_latest(entity_id).await? {
             Some(_) => Ok(true),
@@ -261,7 +260,7 @@ pub struct AgentLoopEntity {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wf_storage::store::memory::MemoryStorage;
+    use wf_storage::backend::StorageBackend;
 
     fn make_snapshot() -> AgentStateSnapshot {
         AgentStateSnapshot {
@@ -279,8 +278,8 @@ mod tests {
         }
     }
 
-    fn make_coordinator() -> AgentCheckpointCoordinator<MemoryStorage> {
-        let storage = Arc::new(MemoryStorage::new("test"));
+    fn make_coordinator() -> AgentCheckpointCoordinator {
+        let storage = Arc::new(StorageBackend::new_memory());
         let sm = AgentCheckpointStateManager::new(storage);
         AgentCheckpointCoordinator::new(sm)
     }

@@ -9,5 +9,6 @@ pub mod hook;
 pub mod state;
 
 pub use callback::register_builtin_tools;
+pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
 pub use error::{AgentError, AgentResult};
 pub use executor::AgentLoopExecutor;

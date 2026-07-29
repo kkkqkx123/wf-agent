@@ -6,6 +6,7 @@ use wf_common::now;
 use wf_core::EventBus;
 use wf_execution_shared::condition::ConditionEvaluator;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
@@ -58,6 +59,7 @@ pub struct WorkflowCoordinator {
     node_errors: Vec<String>,
     start_time: i64,
     hooks: Vec<BaseHookDefinition>,
+    hook_executor: Option<Arc<HookExecutor>>,
     navigation_count: u32,
     total_node_count: u32,
     max_navigation_multiplier: u32,
@@ -88,6 +90,7 @@ impl WorkflowCoordinator {
             node_errors: Vec::new(),
             start_time: now(),
             hooks: Vec::new(),
+            hook_executor: None,
             navigation_count: 0,
             total_node_count,
             max_navigation_multiplier: 5,
@@ -109,6 +112,11 @@ impl WorkflowCoordinator {
 
     pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
         self.hooks = hooks;
+        self
+    }
+
+    pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
+        self.hook_executor = Some(hook_executor);
         self
     }
 
@@ -201,6 +209,7 @@ impl WorkflowCoordinator {
                     &mut node_ctx,
                     event_bus,
                     &self.hooks,
+                    self.hook_executor.as_deref(),
                     None,
                 );
                 tokio::time::timeout(tout_dur, fut).await.map_err(|_| WorkflowError::CoordinatorError(
@@ -213,6 +222,7 @@ impl WorkflowCoordinator {
                     &mut node_ctx,
                     event_bus,
                     &self.hooks,
+                    self.hook_executor.as_deref(),
                     None,
                 ).await
             };

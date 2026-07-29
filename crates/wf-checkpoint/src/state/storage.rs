@@ -3,20 +3,18 @@ use crate::serializer::{CheckpointCodec, CheckpointSerializer};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
+use wf_storage::backend::StorageBackend;
 use wf_storage::domain::store::{QueryFilter, Store};
 use wf_types::checkpoint::CheckpointType;
 use wf_types::storage::CheckpointStorageMetadata;
 
-pub struct StorageBackedStateManager<S, T> {
-    storage: Arc<S>,
+pub struct StorageBackedStateManager<T> {
+    storage: Arc<StorageBackend>,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<S, T> StorageBackedStateManager<S, T>
-where
-    S: Store,
-{
-    pub fn new(storage: Arc<S>) -> Self {
+impl<T> StorageBackedStateManager<T> {
+    pub fn new(storage: Arc<StorageBackend>) -> Self {
         Self {
             storage,
             _marker: std::marker::PhantomData,
@@ -42,9 +40,8 @@ where
     }
 }
 
-impl<S, T> super::CheckpointStateManager for StorageBackedStateManager<S, T>
+impl<T> super::CheckpointStateManager for StorageBackedStateManager<T>
 where
-    S: Store + Send + Sync,
     T: Serialize + serde::de::DeserializeOwned + Send + Sync,
 {
     type Checkpoint = T;
@@ -232,7 +229,6 @@ mod tests {
     use super::*;
     use crate::state::CheckpointStateManager;
     use std::sync::Arc;
-    use wf_storage::store::memory::MemoryStorage;
 
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
     struct TestCheckpoint {
@@ -243,14 +239,14 @@ mod tests {
         data: String,
     }
 
-    fn make_storage() -> Arc<MemoryStorage> {
-        Arc::new(MemoryStorage::new("test"))
+    fn make_storage() -> Arc<StorageBackend> {
+        Arc::new(StorageBackend::new_memory())
     }
 
     #[tokio::test]
     async fn save_and_load() {
         let storage = make_storage();
-        let mgr = StorageBackedStateManager::<MemoryStorage, TestCheckpoint>::new(storage);
+        let mgr = StorageBackedStateManager::<TestCheckpoint>::new(storage);
 
         let cp = TestCheckpoint {
             id: "cp-1".to_string(),
@@ -269,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn load_missing() {
         let storage = make_storage();
-        let mgr = StorageBackedStateManager::<MemoryStorage, TestCheckpoint>::new(storage);
+        let mgr = StorageBackedStateManager::<TestCheckpoint>::new(storage);
         let loaded = mgr.load("nonexistent").await.unwrap();
         assert!(loaded.is_none());
     }
@@ -277,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn delete_existing() {
         let storage = make_storage();
-        let mgr = StorageBackedStateManager::<MemoryStorage, TestCheckpoint>::new(storage);
+        let mgr = StorageBackedStateManager::<TestCheckpoint>::new(storage);
 
         let cp = TestCheckpoint {
             id: "cp-1".to_string(),
@@ -295,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn list_by_entity_filters_correctly() {
         let storage = make_storage();
-        let mgr = StorageBackedStateManager::<MemoryStorage, TestCheckpoint>::new(storage);
+        let mgr = StorageBackedStateManager::<TestCheckpoint>::new(storage);
 
         let cp1 = TestCheckpoint {
             id: "cp-1".to_string(),
@@ -323,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn cleanup_removes_oldest() {
         let storage = make_storage();
-        let mgr = StorageBackedStateManager::<MemoryStorage, TestCheckpoint>::new(storage);
+        let mgr = StorageBackedStateManager::<TestCheckpoint>::new(storage);
 
         for i in 0..5 {
             let cp = TestCheckpoint {

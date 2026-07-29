@@ -6,7 +6,6 @@ use crate::event::CheckpointEventBus;
 use crate::state::CheckpointStateManager;
 use crate::state::WorkflowCheckpoint;
 use crate::state::WorkflowCheckpointStateManager;
-use wf_storage::domain::store::Store;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -15,14 +14,14 @@ use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 
-pub struct WorkflowCheckpointCoordinator<S: Store> {
-    state_manager: WorkflowCheckpointStateManager<S>,
+pub struct WorkflowCheckpointCoordinator {
+    state_manager: WorkflowCheckpointStateManager,
     diff_calculator: WorkflowDiffCalculator,
     event_bus: Option<CheckpointEventBus>,
 }
 
-impl<S: Store> WorkflowCheckpointCoordinator<S> {
-    pub fn new(state_manager: WorkflowCheckpointStateManager<S>) -> Self {
+impl WorkflowCheckpointCoordinator {
+    pub fn new(state_manager: WorkflowCheckpointStateManager) -> Self {
         Self {
             state_manager,
             diff_calculator: WorkflowDiffCalculator::new(),
@@ -35,18 +34,12 @@ impl<S: Store> WorkflowCheckpointCoordinator<S> {
         self
     }
 
-    pub fn state_manager(&self) -> &WorkflowCheckpointStateManager<S> {
+    pub fn state_manager(&self) -> &WorkflowCheckpointStateManager {
         &self.state_manager
     }
 }
 
-impl Default for WorkflowCheckpointCoordinator<wf_storage::store::memory::MemoryStorage> {
-    fn default() -> Self {
-        Self::new(WorkflowCheckpointStateManager::default())
-    }
-}
-
-impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordinator<S> {
+impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     type Checkpoint = WorkflowCheckpoint;
     type Entity = WorkflowExecutionEntity;
     type State = WorkflowExecutionStateSnapshot;
@@ -249,7 +242,7 @@ impl<S: Store + Send + Sync> CheckpointCoordinator for WorkflowCheckpointCoordin
     }
 }
 
-impl<S: Store> WorkflowCheckpointCoordinator<S> {
+impl WorkflowCheckpointCoordinator {
     async fn should_build_delta(&self, entity_id: &str) -> Result<bool, CheckpointError> {
         match self.state_manager.get_latest(entity_id).await? {
             Some(_) => Ok(true),
@@ -269,7 +262,7 @@ pub struct WorkflowExecutionEntity {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use wf_storage::store::memory::MemoryStorage;
+    use wf_storage::backend::StorageBackend;
 
     fn make_snapshot() -> WorkflowExecutionStateSnapshot {
         WorkflowExecutionStateSnapshot {
@@ -288,8 +281,8 @@ mod tests {
         }
     }
 
-    fn make_coordinator() -> WorkflowCheckpointCoordinator<MemoryStorage> {
-        let storage = Arc::new(MemoryStorage::new("test"));
+    fn make_coordinator() -> WorkflowCheckpointCoordinator {
+        let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
         WorkflowCheckpointCoordinator::new(sm)
     }
@@ -377,7 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_emits_event() {
-        let storage = Arc::new(MemoryStorage::new("test"));
+        let storage = Arc::new(StorageBackend::new_memory());
         let sm = WorkflowCheckpointStateManager::new(storage);
         let bus = CheckpointEventBus::new();
         let coord = WorkflowCheckpointCoordinator::new(sm).with_event_bus(bus.clone());

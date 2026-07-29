@@ -8,7 +8,7 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::state::WorkflowCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_core::EventBus;
-use wf_storage::store::memory::MemoryStorage;
+use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::{CheckpointTrigger, CheckpointVariableState};
 use wf_types::events::{BaseEvent, EventType};
@@ -18,15 +18,15 @@ use crate::entity::WorkflowExecutionEntity;
 use super::strategy::{CheckpointTiming, NodeCheckpointStrategy};
 
 pub struct WorkflowCheckpointIntegration {
-    inner: WorkflowCheckpointCoordinator<MemoryStorage>,
+    inner: WorkflowCheckpointCoordinator,
     strategy: NodeCheckpointStrategy,
-    public_store: Arc<MemoryStorage>,
+    public_store: Arc<StorageBackend>,
     node_count: u32,
     event_bus: Option<Arc<EventBus>>,
 }
 
 impl WorkflowCheckpointIntegration {
-    pub fn new(store: Arc<MemoryStorage>, strategy: NodeCheckpointStrategy) -> Self {
+    pub fn new(store: Arc<StorageBackend>, strategy: NodeCheckpointStrategy) -> Self {
         let state_manager = WorkflowCheckpointStateManager::new(store.clone());
         let coordinator = WorkflowCheckpointCoordinator::new(state_manager);
         Self {
@@ -48,7 +48,7 @@ impl WorkflowCheckpointIntegration {
         self
     }
 
-    pub fn store(&self) -> &Arc<MemoryStorage> {
+    pub fn store(&self) -> &Arc<StorageBackend> {
         &self.public_store
     }
 
@@ -68,9 +68,17 @@ impl WorkflowCheckpointIntegration {
         {
             return;
         }
-        let _ = self
+        if let Err(e) = self
             .create_checkpoint(entity, CheckpointTrigger::AfterExecute)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                node_count = self.node_count,
+                error = %e,
+                "Failed to create checkpoint after node completion"
+            );
+        }
     }
 
     pub async fn on_node_before(&mut self, entity: &WorkflowExecutionEntity) {
@@ -80,9 +88,16 @@ impl WorkflowCheckpointIntegration {
         {
             return;
         }
-        let _ = self
+        if let Err(e) = self
             .create_checkpoint(entity, CheckpointTrigger::BeforeExecute)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create checkpoint before node execution"
+            );
+        }
     }
 
     pub async fn on_node_failed(&mut self, entity: &WorkflowExecutionEntity) {
@@ -92,21 +107,42 @@ impl WorkflowCheckpointIntegration {
         {
             return;
         }
-        let _ = self
+        if let Err(e) = self
             .create_checkpoint(entity, CheckpointTrigger::OnError)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create checkpoint on node failure"
+            );
+        }
     }
 
     pub async fn on_workflow_start(&mut self, entity: &WorkflowExecutionEntity) {
-        let _ = self
+        if let Err(e) = self
             .create_checkpoint(entity, CheckpointTrigger::Manual)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create checkpoint at workflow start"
+            );
+        }
     }
 
     pub async fn on_workflow_end(&mut self, entity: &WorkflowExecutionEntity) {
-        let _ = self
+        if let Err(e) = self
             .create_checkpoint(entity, CheckpointTrigger::OnComplete)
-            .await;
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create checkpoint at workflow end"
+            );
+        }
     }
 
     async fn create_checkpoint(

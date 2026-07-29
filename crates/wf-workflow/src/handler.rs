@@ -11,6 +11,7 @@ pub mod script;
 pub mod start_end;
 pub mod subgraph;
 pub mod sync;
+pub mod trigger;
 pub mod tool_visibility;
 pub mod user_interaction;
 pub mod variable;

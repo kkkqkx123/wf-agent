@@ -87,18 +87,20 @@ wf-llm         wf-agent
               wf-workflow
 ```
 
-:## Rust Development Conventions
+## Rust Development Conventions
 
 ### Module Structure
 
-Each crate uses `include!` instead of `mod` in `lib.rs`. The crate root file is named after the directory (e.g., `wf_types.rs` for `wf-types`). Sub-files use flat includes — no nested module directories.
+Each crate's `lib.rs` directly declares `pub mod` for sub-modules and `pub use` for public exports. Sub-files use flat naming — no nested module directories, no `mod.rs`.
 
 ### File Layout Pattern
 
 ```
 crates/<name>/src/
-├── lib.rs              ← include!("<crate_name>.rs");
-└── <crate_name>.rs     ← root, has all imports, includes sub-files
+├── lib.rs              ← all pub mod declarations and pub use re-exports
+├── <module_name>.rs    ← sub-module implementation
+├── <other_module>.rs   ← sub-module implementation
+└── ...
 ```
 
 ## Building and Running

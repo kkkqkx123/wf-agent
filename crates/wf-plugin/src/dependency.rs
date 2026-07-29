@@ -183,6 +183,7 @@ mod tests {
             version: "1.0.0".to_string(),
             name: None,
             description: None,
+            plugin_type: None,
             sdk_version: None,
             entry_point: "main.lua".to_string(),
             dependencies,

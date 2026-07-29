@@ -4,6 +4,8 @@ use serde_json::Value;
 
 use crate::error::PluginResult;
 
+use serde::{Deserialize, Serialize};
+
 // ============================================================
 // Contribution Type
 // ============================================================
@@ -23,41 +25,41 @@ pub enum ContributionType {
 // Context Types
 // ============================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginExecutionContext {
     pub node_id: String,
     pub inputs: Value,
     pub config: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginNodeResult {
     pub outputs: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginToolContext {
     pub args: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginToolResult {
     pub result: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLLMRequest {
     pub messages: Vec<PluginMessage>,
     pub config: Option<PluginLLMConfig>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLLMConfig {
     pub model: String,
     pub provider: String,
@@ -65,20 +67,20 @@ pub struct PluginLLMConfig {
     pub max_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLLMResponse {
     pub content: String,
     pub usage: Option<PluginLLMUsage>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLLMUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginEventData {
     pub event_type: String,
     pub data: Value,

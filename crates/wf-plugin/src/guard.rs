@@ -16,22 +16,12 @@ impl PluginGuard {
     where
         F: std::future::Future<Output = PluginResult<T>> + Send,
     {
-        let result = if self.timeout.as_millis() > 0 {
+        if self.timeout.as_millis() > 0 {
             timeout(self.timeout, f)
                 .await
                 .map_err(|_| PluginError::Timeout { plugin_id: plugin_id.to_owned() })?
         } else {
             f.await
-        };
-
-        // Error isolation: wrap any plugin-sourced error
-        match result {
-            Ok(val) => Ok(val),
-            Err(e) => Err(PluginError::PluginGuardError {
-                plugin_id: plugin_id.to_owned(),
-                message: e.to_string(),
-                source: None,
-            }),
         }
     }
 }

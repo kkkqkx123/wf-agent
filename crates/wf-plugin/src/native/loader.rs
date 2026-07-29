@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::error::{PluginError, PluginResult};
@@ -7,6 +8,14 @@ use super::plugin::NativePlugin;
 
 pub fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     let base_path = determine_native_base_path(manifest)?;
+    load_native_plugin_at(manifest, &base_path)
+}
+
+pub fn load_native_plugin_with_base(manifest: &PluginManifest, base: &Path) -> PluginResult<Arc<dyn Plugin>> {
+    load_native_plugin_at(manifest, base)
+}
+
+fn load_native_plugin_at(manifest: &PluginManifest, base_path: &Path) -> PluginResult<Arc<dyn Plugin>> {
     let lib_path = base_path.join(&manifest.entry_point);
 
     let lib = unsafe {

@@ -11,7 +11,7 @@ use crate::error::{PluginError, PluginResult};
 use crate::event_bus::{PluginEventBus, PluginEventSubscription};
 use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
-use crate::manifest::PluginManifest;
+use crate::manifest::{PluginManifest, PluginType};
 use crate::plugin::Plugin;
 use crate::registry::{PluginInfo, PluginRegistry, PluginStatus};
 
@@ -109,10 +109,10 @@ impl PluginEngine {
             if let Ok(req) = semver::VersionReq::parse(sdk_req) {
                 if let Ok(ver) = semver::Version::parse(&self.sdk_version) {
                     if !req.matches(&ver) {
-                        tracing::warn!(
-                            "plugin '{}' sdk_version '{}' not satisfied by '{}'",
-                            plugin_id, sdk_req, self.sdk_version
-                        );
+                        return Err(PluginError::InvalidManifest(format!(
+                            "sdk version '{}' not satisfied by host '{}'",
+                            sdk_req, self.sdk_version
+                        )));
                     }
                 }
             }
@@ -506,32 +506,41 @@ fn validate_manifest(manifest: &PluginManifest) -> Option<Vec<String>> {
     if errors.is_empty() { None } else { Some(errors) }
 }
 
-async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
+fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
+    if let Some(ref t) = manifest.plugin_type {
+        return Ok(t.clone());
+    }
     let entry = manifest.entry_point.as_str();
-
     if entry.ends_with(".lua") {
-        return load_lua_plugin(&manifest).await;
+        return Ok(PluginType::Lua);
     }
-
     if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
-        return load_native_plugin(&manifest);
+        return Ok(PluginType::Native);
     }
-
-    Err(PluginError::LoadFailed(format!("unsupported entry point: {}", entry)))
+    Err(PluginError::LoadFailed(format!(
+        "cannot determine plugin type for '{}': set plugin_type in manifest or use .lua/.so/.dylib/.dll entry point",
+        manifest.id
+    )))
 }
 
-async fn load_plugin_module_with_base(manifest: &PluginManifest, _base: &Path) -> PluginResult<Arc<dyn Plugin>> {
-    let entry = manifest.entry_point.as_str();
-
-    if entry.ends_with(".lua") {
-        return load_lua_plugin(manifest).await;
+async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
+    match resolve_plugin_type(&manifest)? {
+        PluginType::Lua => load_lua_plugin(&manifest).await,
+        PluginType::Native => load_native_plugin(&manifest),
     }
+}
 
-    if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
-        return load_native_plugin(manifest);
+async fn load_plugin_module_with_base(manifest: &PluginManifest, base: &Path) -> PluginResult<Arc<dyn Plugin>> {
+    match resolve_plugin_type(manifest)? {
+        #[cfg(feature = "lua")]
+        PluginType::Lua => crate::lua::loader::load_lua_plugin_with_base(manifest, base).await,
+        #[cfg(not(feature = "lua"))]
+        PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
+        #[cfg(feature = "native")]
+        PluginType::Native => crate::native::loader::load_native_plugin_with_base(manifest, base),
+        #[cfg(not(feature = "native"))]
+        PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
     }
-
-    Err(PluginError::LoadFailed(format!("unsupported entry point: {}", entry)))
 }
 
 #[cfg(feature = "lua")]

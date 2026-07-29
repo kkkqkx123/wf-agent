@@ -24,8 +24,6 @@ pub enum PluginError {
     CircularDependency,
     #[error("contribution conflict: {0}")]
     ContributionConflict(String),
-    #[error("guard error on plugin '{plugin_id}': {message}")]
-    PluginGuardError { plugin_id: String, message: String, #[source] source: Option<Box<dyn std::error::Error + Send + Sync>> },
     #[error("config change failed for plugin '{plugin_id}': {message}")]
     ConfigChangeFailed { plugin_id: String, message: String },
     #[error("lua error: {0}")]

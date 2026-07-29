@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 #[derive(Debug, Clone)]
 pub struct PersistenceConfig {
     pub auto_flush_interval_ms: Option<u64>,

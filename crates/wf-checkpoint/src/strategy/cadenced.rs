@@ -44,7 +44,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
         let timings: Vec<T> = policy
             .triggers
             .iter()
-            .filter_map(|t| map_trigger(t))
+            .filter_map(map_trigger)
             .collect();
         Self {
             inner: StandardStrategy::from_policy(policy),
@@ -90,7 +90,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
         }
         if let Some(ref ct) = self.cadenced_timing {
             if timing == ct && self.cadence > 1 {
-                return count % self.cadence == 0;
+                return count.is_multiple_of(self.cadence);
             }
         }
         true

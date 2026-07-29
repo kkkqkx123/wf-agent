@@ -1,10 +1,9 @@
 use wf_types::tool::schema::{ToolParametersSchema, ToolPropertySchema};
-use std::collections::HashMap;
 
 pub struct ToolSchemaFormatter;
 
 impl ToolSchemaFormatter {
-    pub fn format_property(name: &str, prop: &ToolPropertySchema) -> serde_json::Value {
+    pub fn format_property(_name: &str, prop: &ToolPropertySchema) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
         map.insert("type".to_string(), serde_json::json!(prop.property_type));
@@ -14,7 +13,7 @@ impl ToolSchemaFormatter {
         }
 
         if let Some(ref items) = prop.items {
-            map.insert("items".to_string(), Self::format_property(name, items));
+            map.insert("items".to_string(), Self::format_property(_name, items));
         }
 
         if let Some(ref properties) = prop.properties {
@@ -66,7 +65,7 @@ impl ToolSchemaFormatter {
                 serde_json::Value::Object(cleaned)
             }
             serde_json::Value::Array(arr) => {
-                serde_json::Value::Array(arr.iter().map(|v| Self::clean_schema(v)).collect())
+                serde_json::Value::Array(arr.iter().map(Self::clean_schema).collect())
             }
             other => other.clone(),
         }

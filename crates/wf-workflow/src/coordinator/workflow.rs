@@ -210,7 +210,6 @@ impl WorkflowCoordinator {
                     event_bus,
                     &self.hooks,
                     self.hook_executor.as_deref(),
-                    None,
                 );
                 tokio::time::timeout(tout_dur, fut).await.map_err(|_| WorkflowError::CoordinatorError(
                     format!("Node '{}' timed out after {:?}", node_id, tout_dur)
@@ -223,7 +222,6 @@ impl WorkflowCoordinator {
                     event_bus,
                     &self.hooks,
                     self.hook_executor.as_deref(),
-                    None,
                 ).await
             };
 

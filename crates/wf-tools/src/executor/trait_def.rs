@@ -53,70 +53,71 @@ pub trait ToolExecutor: Send + Sync {
 }
 
 pub trait ToolExecutorExt: ToolExecutor {
-    async fn execute_with_retry(
+    fn execute_with_retry(
         &self,
         tool: &wf_types::tool::Tool,
         parameters: &Value,
         options: &ToolExecutionOptions,
         context: &ToolExecutionContext,
-    ) -> ToolResult<ToolExecutionResult> {
+    ) -> impl std::future::Future<Output = ToolResult<ToolExecutionResult>> + Send {
         let max_retries = options.retries.unwrap_or(0);
         let retry_delay = options.retry_delay.unwrap_or(1000);
         let exponential_backoff = options.exponential_backoff.unwrap_or(false);
+        async move {
+            let mut retry_count = 0;
+            loop {
+                let result = self.execute(tool, parameters, options, context).await;
 
-        let mut retry_count = 0;
+                match &result {
+                    Ok(r) if r.success => return result,
+                    _ => {
+                        if retry_count >= max_retries {
+                            return result;
+                        }
+                        retry_count += 1;
 
-        loop {
-            let result = self.execute(tool, parameters, options, context).await;
-
-            match &result {
-                Ok(r) if r.success => return result,
-                _ => {
-                    if retry_count >= max_retries {
-                        return result;
+                        let delay = if exponential_backoff {
+                            retry_delay * 2u64.pow(retry_count - 1)
+                        } else {
+                            retry_delay
+                        };
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                     }
-                    retry_count += 1;
-
-                    let delay = if exponential_backoff {
-                        retry_delay * 2u64.pow(retry_count - 1)
-                    } else {
-                        retry_delay
-                    };
-                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 }
             }
         }
     }
 
-    async fn execute_with_timeout(
+    fn execute_with_timeout(
         &self,
         tool: &wf_types::tool::Tool,
         parameters: &Value,
         options: &ToolExecutionOptions,
         context: &ToolExecutionContext,
-    ) -> ToolResult<ToolExecutionResult> {
+    ) -> impl std::future::Future<Output = ToolResult<ToolExecutionResult>> + Send {
         let timeout_ms = options.timeout.unwrap_or(30000);
         let start = Instant::now();
+        async move {
+            let result = tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                self.execute(tool, parameters, options, context),
+            )
+            .await;
 
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            self.execute(tool, parameters, options, context),
-        )
-        .await;
-
-        match result {
-            Ok(Ok(r)) => Ok(r),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Ok(ToolExecutionResult {
-                success: false,
-                result: None,
-                error: Some(format!(
-                    "Tool '{}' timed out after {}ms",
-                    tool.name, timeout_ms
-                )),
-                execution_time: start.elapsed().as_millis() as i64,
-                retry_count: 0,
-            }),
+            match result {
+                Ok(Ok(r)) => Ok(r),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Ok(ToolExecutionResult {
+                    success: false,
+                    result: None,
+                    error: Some(format!(
+                        "Tool '{}' timed out after {}ms",
+                        tool.name, timeout_ms
+                    )),
+                    execution_time: start.elapsed().as_millis() as i64,
+                    retry_count: 0,
+                }),
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
@@ -6,7 +6,6 @@ use crate::error::{WorkflowError, WorkflowResult};
 
 pub struct GraphTraversal {
     graph: WorkflowGraphStructure,
-    node_id_set: HashSet<String>,
 }
 
 impl GraphTraversal {
@@ -53,7 +52,7 @@ impl GraphTraversal {
             }
         }
 
-        Ok(Self { graph, node_id_set })
+        Ok(Self { graph })
     }
 
     fn compute_reachable(graph: &WorkflowGraphStructure, start_id: &str) -> HashSet<String> {
@@ -64,10 +63,10 @@ impl GraphTraversal {
 
         while let Some(current) = queue.pop_front() {
             for edge in &graph.edges {
-                if edge.source_node_id == current {
-                    if visited.insert(edge.target_node_id.clone()) {
-                        queue.push_back(edge.target_node_id.clone());
-                    }
+                if edge.source_node_id == current
+                    && visited.insert(edge.target_node_id.clone())
+                {
+                    queue.push_back(edge.target_node_id.clone());
                 }
             }
         }
@@ -127,6 +126,7 @@ impl GraphTraversal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use wf_types::workflow::edge::EdgeType;
     use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
 

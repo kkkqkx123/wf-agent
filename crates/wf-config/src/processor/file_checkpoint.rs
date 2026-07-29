@@ -1,6 +1,6 @@
-use crate::error::{ConfigError, ConfigResult};
+use crate::error::ConfigResult;
 use crate::validator::validate_min;
-use wf_types::config::file_checkpoint::{FailureBehavior, FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType};
+use wf_types::config::file_checkpoint::{FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType};
 
 pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileCheckpointConfig {
     FileCheckpointConfig {
@@ -24,6 +24,7 @@ pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_types::config::file_checkpoint::FailureBehavior;
 
     #[test]
     fn test_merge_file_checkpoint_with_defaults() {

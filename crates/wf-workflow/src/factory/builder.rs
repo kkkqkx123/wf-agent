@@ -7,6 +7,12 @@ pub struct WorkflowExecutionBuilder {
     parent_execution_id: Option<wf_types::Id>,
 }
 
+impl Default for WorkflowExecutionBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkflowExecutionBuilder {
     pub fn new() -> Self {
         Self {
@@ -32,8 +38,8 @@ impl WorkflowExecutionBuilder {
     }
 
     pub fn build(self) -> WorkflowResult<WorkflowExecutionEntity> {
-        let id = self.id.unwrap_or_else(wf_types::Id::new);
-        let workflow_id = self.workflow_id.unwrap_or_else(wf_types::Id::new);
+        let id = self.id.unwrap_or_default();
+        let workflow_id = self.workflow_id.unwrap_or_default();
 
         let entity = WorkflowExecutionEntity::new(id, workflow_id);
 

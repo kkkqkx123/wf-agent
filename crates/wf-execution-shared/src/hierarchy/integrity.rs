@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn test_validate_integrity_valid() {
         let root_id = make_id("root-1");
-        let child_id = make_id("child-1");
+        let _child_id = make_id("child-1");
         let registry = TestRegistry {
             entities: vec![TestEntity {
                 id: root_id.clone(),

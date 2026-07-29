@@ -42,7 +42,6 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
         SYS_kexec_load,              // 246
         SYS_swapon,                  // 167
         SYS_swapoff,                 // 168
-        SYS_create_module,           // 174
         SYS_init_module,             // 175
         SYS_delete_module,           // 176
         SYS_finit_module,            // 313
@@ -58,8 +57,6 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
         SYS_setdomainname,           // 171
         SYS_reboot,                  // 169
         SYS_perf_event_open,         // 298
-        SYS_get_kernel_syms,         // 177
-        SYS_query_module,            // 178
         SYS_quotactl,                // 179
         SYS_add_key,                 // 248
         SYS_request_key,             // 249

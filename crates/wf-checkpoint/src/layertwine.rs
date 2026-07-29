@@ -2,25 +2,25 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub trait GitCheckpointAdapter: Send + Sync {
-    async fn save_checkpoint(
+    fn save_checkpoint(
         &self,
         checkpoint_id: &str,
         data: &[u8],
         metadata: &HashMap<String, String>,
-    ) -> Result<(), LayertwineError>;
+    ) -> impl std::future::Future<Output = Result<(), LayertwineError>> + Send;
 
-    async fn get_checkpoint(&self, checkpoint_id: &str)
-        -> Result<Option<Vec<u8>>, LayertwineError>;
+    fn get_checkpoint(&self, checkpoint_id: &str)
+        -> impl std::future::Future<Output = Result<Option<Vec<u8>>, LayertwineError>> + Send;
 
-    async fn list_checkpoints(
+    fn list_checkpoints(
         &self,
         parent_id: Option<&str>,
-    ) -> Result<Vec<String>, LayertwineError>;
+    ) -> impl std::future::Future<Output = Result<Vec<String>, LayertwineError>> + Send;
 
-    async fn batch_save(
+    fn batch_save(
         &self,
         items: &[(String, Vec<u8>, HashMap<String, String>)],
-    ) -> Result<(), LayertwineError>;
+    ) -> impl std::future::Future<Output = Result<(), LayertwineError>> + Send;
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -14,18 +14,13 @@ pub struct StaticNodeDisplayProps {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OnFailure {
+    #[default]
     Fail,
     Retry,
     Continue,
-}
-
-impl Default for OnFailure {
-    fn default() -> Self {
-        Self::Fail
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

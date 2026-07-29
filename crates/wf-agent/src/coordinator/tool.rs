@@ -15,16 +15,11 @@ use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 use crate::hook::handler::AgentHookHandler;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ToolExecutionMode {
+    #[default]
     Sequential,
     Parallel,
-}
-
-impl Default for ToolExecutionMode {
-    fn default() -> Self {
-        Self::Sequential
-    }
 }
 
 pub struct ToolExecutionCoordinator {

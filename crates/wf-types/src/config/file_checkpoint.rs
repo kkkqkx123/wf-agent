@@ -13,18 +13,13 @@ pub struct FileCheckpointStorageConfig {
     pub db_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureBehavior {
+    #[default]
     Warn,
     Error,
     Ignore,
-}
-
-impl Default for FailureBehavior {
-    fn default() -> Self {
-        Self::Warn
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

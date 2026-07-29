@@ -14,6 +14,12 @@ pub struct WorkflowExecutor {
     event_bus: Option<Arc<EventBus>>,
 }
 
+impl Default for WorkflowExecutor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkflowExecutor {
     pub fn new() -> Self {
         Self { event_bus: None }

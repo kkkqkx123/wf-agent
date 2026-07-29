@@ -6,29 +6,29 @@ pub trait CheckpointCoordinator: Send + Sync {
     type Entity: Send + Sync;
     type State: Send + Sync;
 
-    async fn prepare(
+    fn prepare(
         &self,
         entity_id: &str,
         trigger: CheckpointTrigger,
-    ) -> Result<CheckpointContext, CheckpointError>;
+    ) -> impl std::future::Future<Output = Result<CheckpointContext, CheckpointError>> + Send;
 
-    async fn build(
+    fn build(
         &self,
         ctx: CheckpointContext,
         state: Self::State,
-    ) -> Result<Self::Checkpoint, CheckpointError>;
+    ) -> impl std::future::Future<Output = Result<Self::Checkpoint, CheckpointError>> + Send;
 
-    async fn persist(
+    fn persist(
         &self,
         checkpoint: &Self::Checkpoint,
         entity_id: &str,
-    ) -> Result<(), CheckpointError>;
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
 
-    async fn restore(&self, checkpoint_id: &str) -> Result<Self::Entity, CheckpointError>;
+    fn restore(&self, checkpoint_id: &str) -> impl std::future::Future<Output = Result<Self::Entity, CheckpointError>> + Send;
 
-    async fn determine_type(
+    fn determine_type(
         &self,
         entity_id: &str,
         config: &DeltaStorageConfig,
-    ) -> Result<wf_types::checkpoint::CheckpointType, CheckpointError>;
+    ) -> impl std::future::Future<Output = Result<wf_types::checkpoint::CheckpointType, CheckpointError>> + Send;
 }

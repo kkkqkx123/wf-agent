@@ -14,6 +14,12 @@ use crate::handler::NodeHandler;
 
 pub struct NodeCoordinator;
 
+impl Default for NodeCoordinator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeCoordinator {
     pub fn new() -> Self {
         Self
@@ -27,7 +33,6 @@ impl NodeCoordinator {
         event_bus: Option<&EventBus>,
         hooks: &[BaseHookDefinition],
         hook_executor: Option<&HookExecutor>,
-        retry_budget: Option<&mut RetryBudget>,
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
@@ -46,11 +51,7 @@ impl NodeCoordinator {
             ));
         }
 
-        let result = if let Some(budget) = retry_budget {
-            self.execute_with_retry(handler, ctx, budget).await
-        } else {
-            handler.execute(ctx).await
-        };
+        let result = handler.execute(ctx).await;
 
         match &result {
             Ok(output) => {

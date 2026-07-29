@@ -28,6 +28,12 @@ pub struct WorkflowExecutionState {
     operation_state: Option<OperationState>,
 }
 
+impl Default for WorkflowExecutionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkflowExecutionState {
     pub fn new() -> Self {
         Self {

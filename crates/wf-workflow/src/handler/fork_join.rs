@@ -235,7 +235,7 @@ impl NodeHandler for ForkHandler {
                         match branch_edge {
                             Some(edge) => {
                                 let join_target =
-                                    join_node_id.clone().unwrap_or_else(|| "".to_string());
+                                    join_node_id.clone().unwrap_or_default();
                                 let subgraph = extract_branch_subgraph(
                                     g, &nid, edge, &join_target,
                                 );

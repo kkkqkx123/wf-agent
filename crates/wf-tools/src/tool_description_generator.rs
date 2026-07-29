@@ -1,5 +1,4 @@
 use wf_types::tool::Tool;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DescriptionStyle {

@@ -315,20 +315,6 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
 mod tests {
     use super::*;
 
-    fn policy_with_shell(shell: wf_types::script::sandbox::ShellPolicy) -> SandboxPolicy {
-        SandboxPolicy {
-            mode: wf_types::script::sandbox::SandboxMode::Strict,
-            shell: Some(shell),
-            python: None,
-            javascript: None,
-            lua: None,
-            filesystem: None,
-            process: None,
-            network: None,
-            resource: None,
-        }
-    }
-
     fn make_options(command: &str) -> StrategyExecuteOptions {
         StrategyExecuteOptions {
             command: command.to_string(),

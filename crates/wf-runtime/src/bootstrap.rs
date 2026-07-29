@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tracing::info;
 
 use crate::error::RuntimeResult;
@@ -11,6 +13,29 @@ pub struct RuntimeConfig {
     pub storage: StorageConfig,
     pub log_config: LogConfig,
     pub mode_override: Option<super::mode::ExecutionMode>,
+    #[cfg(feature = "plugins")]
+    pub plugins: PluginConfig,
+}
+
+#[cfg(feature = "plugins")]
+#[derive(Debug, Clone)]
+pub struct PluginConfig {
+    pub enabled: bool,
+    pub paths: Vec<std::path::PathBuf>,
+    pub auto_activate: bool,
+    pub guard_timeout_ms: u64,
+}
+
+#[cfg(feature = "plugins")]
+impl Default for PluginConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            paths: vec![std::path::PathBuf::from("./plugins")],
+            auto_activate: true,
+            guard_timeout_ms: 10000,
+        }
+    }
 }
 
 pub struct Runtime {
@@ -18,6 +43,8 @@ pub struct Runtime {
     pub mode_info: ModeInfo,
     pub shutdown_handle: ShutdownHandle,
     pub _shutdown_waiter: ShutdownWaiter,
+    #[cfg(feature = "plugins")]
+    pub plugin_engine: Option<wf_plugin::PluginEngine>,
 }
 
 impl Runtime {
@@ -34,6 +61,9 @@ impl Runtime {
 
         let (shutdown_handle, _shutdown_waiter) = shutdown_channel();
 
+        #[cfg(feature = "plugins")]
+        let plugin_engine = init_plugins(&config.plugins).await?;
+
         info!("Runtime bootstrap complete");
 
         Ok(Self {
@@ -41,10 +71,17 @@ impl Runtime {
             mode_info,
             shutdown_handle,
             _shutdown_waiter,
+            #[cfg(feature = "plugins")]
+            plugin_engine,
         })
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
+        #[cfg(feature = "plugins")]
+        if let Some(engine) = self.plugin_engine.take() {
+            engine.shutdown().await;
+        }
+
         self.storage_manager.close().await?;
         info!("Runtime shutdown complete");
         Ok(())
@@ -65,6 +102,46 @@ impl Runtime {
     pub fn trigger_shutdown(&self) {
         self.shutdown_handle.trigger();
     }
+
+    #[cfg(feature = "plugins")]
+    pub fn plugin_engine(&self) -> Option<&wf_plugin::PluginEngine> {
+        self.plugin_engine.as_ref()
+    }
+}
+
+#[cfg(feature = "plugins")]
+async fn init_plugins(config: &PluginConfig) -> RuntimeResult<Option<wf_plugin::PluginEngine>> {
+    if !config.enabled {
+        return Ok(None);
+    }
+
+    let plugin_config = wf_plugin::PluginSystemConfig {
+        enabled: true,
+        paths: config.paths.clone(),
+        auto_activate: config.auto_activate,
+        guard_timeout_ms: config.guard_timeout_ms,
+        ..Default::default()
+    };
+
+    let registry = Arc::new(wf_plugin::PluginRegistry::new());
+    let contribution_manager = Arc::new(wf_plugin::ContributionManager::new());
+    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> = Some(Arc::new(crate::plugin_bridge::WfPluginBridge));
+
+    let event_bus = wf_core::EventBus::new(256);
+
+    let mut engine = wf_plugin::PluginEngine::new(
+        registry,
+        contribution_manager,
+        bridge,
+        plugin_config,
+    ).with_event_bus(event_bus);
+
+    engine.initialize().await.map_err(|e| {
+        tracing::error!("Plugin engine initialization failed: {}", e);
+        crate::error::RuntimeError::Config(format!("Plugin init failed: {}", e))
+    })?;
+
+    Ok(Some(engine))
 }
 
 fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConfig {
@@ -104,6 +181,8 @@ mod tests {
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig { enabled: false, ..Default::default() },
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
@@ -146,6 +225,8 @@ mod tests {
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig { enabled: false, ..Default::default() },
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();

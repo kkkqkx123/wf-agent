@@ -1,5 +1,6 @@
 pub mod context;
 pub mod contributions;
+pub mod dependency;
 pub mod engine;
 pub mod error;
 pub mod events;
@@ -16,6 +17,7 @@ pub mod native;
 
 pub use context::PluginContext;
 pub use contributions::{ContributionBridge, ContributionManager, ContributionRegistrar, OverridePolicy, RegistrarGuard, PluginNodeHandler, PluginToolExecutor, PluginLLMFormatter, PluginEventHandler, PluginHookHandler, PluginMiddlewareHandler};
+pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};
 pub use error::{PluginError, PluginResult};
 pub use events::PluginEvent;

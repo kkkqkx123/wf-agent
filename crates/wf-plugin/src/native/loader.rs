@@ -14,7 +14,8 @@ pub fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plu
             .map_err(|e| PluginError::LoadFailed(format!("cannot load {:?}: {}", lib_path, e)))?
     };
 
-    Ok(Arc::new(NativePlugin::new(manifest.clone(), lib)))
+    let plugin = NativePlugin::new(manifest.clone(), lib)?;
+    Ok(Arc::new(plugin) as Arc<dyn Plugin>)
 }
 
 fn determine_native_base_path(manifest: &PluginManifest) -> PluginResult<std::path::PathBuf> {

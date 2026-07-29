@@ -4,6 +4,8 @@ pub mod lifecycle;
 pub mod logger;
 pub mod mode;
 pub mod persistence_layer;
+#[cfg(feature = "plugins")]
+pub mod plugin_bridge;
 pub mod recovery;
 pub mod sdk_options;
 pub mod storage_manager;

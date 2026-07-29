@@ -6,7 +6,9 @@ use tokio::fs;
 
 use crate::context::{PluginContext, PluginLogger};
 use crate::contributions::{ContributionBridge, ContributionManager, OverridePolicy};
+use crate::dependency::{resolve_dependencies, ResolvedGraph};
 use crate::error::{PluginError, PluginResult};
+use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
@@ -44,6 +46,7 @@ pub struct PluginEngine {
     contribution_manager: Arc<ContributionManager>,
     bridge: Option<Arc<dyn ContributionBridge>>,
     options: PluginSystemConfig,
+    event_bus: Option<wf_core::EventBus>,
     initialized: bool,
 }
 
@@ -56,7 +59,19 @@ impl PluginEngine {
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
         contribution_manager.set_override_policy(options.override_policy);
-        Self { registry, guard, contribution_manager, bridge, options, initialized: false }
+        Self { registry, guard, contribution_manager, bridge, options, event_bus: None, initialized: false }
+    }
+
+    pub fn with_event_bus(mut self, event_bus: wf_core::EventBus) -> Self {
+        self.event_bus = Some(event_bus);
+        self
+    }
+
+    fn publish(&self, event: PluginEvent) {
+        let base_event = plugin_event_to_base(&event);
+        if let Some(ref bus) = self.event_bus {
+            let _ = bus.publish(base_event);
+        }
     }
 
     pub async fn discover(&self) -> PluginResult<Vec<PluginInfo>> {
@@ -78,6 +93,8 @@ impl PluginEngine {
             let plugin = load_plugin_module(manifest.clone()).await?;
             self.registry.register(manifest, plugin)?;
             self.registry.update_status(&plugin_id, PluginStatus::Loaded);
+
+            self.publish(PluginEvent::Discovered { plugin_id: plugin_id.clone() });
 
             tracing::info!("discovered plugin: {}", plugin_id);
             loaded.push(self.registry.get(&plugin_id).unwrap());
@@ -101,6 +118,15 @@ impl PluginEngine {
         tracing::info!("initializing plugin engine...");
 
         let loaded = self.discover().await?;
+
+        let manifests: Vec<PluginManifest> = loaded.iter().map(|i| i.manifest.clone()).collect();
+        let resolved = resolve_dependencies(&manifests);
+        if let Ok(ref graph) = resolved {
+            if !graph.cycles.is_empty() {
+                tracing::warn!("plugin dependency cycles detected: {:?}", graph.cycles);
+            }
+        }
+
         tracing::info!("discovered {} plugin(s)", loaded.len());
 
         if self.options.auto_activate {
@@ -129,6 +155,7 @@ impl PluginEngine {
             });
         }
 
+        self.publish(PluginEvent::Activating { plugin_id: plugin_id.to_owned() });
         self.registry.update_status(plugin_id, PluginStatus::Activating);
 
         let instance = self.registry.instance(plugin_id).unwrap();
@@ -144,6 +171,7 @@ impl PluginEngine {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
+                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
                 return Err(e);
             }
         }
@@ -158,6 +186,7 @@ impl PluginEngine {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
+                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
                 return Err(e);
             }
         }
@@ -170,11 +199,13 @@ impl PluginEngine {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
+                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
                 return Err(e);
             }
         }
 
         self.registry.update_status(plugin_id, PluginStatus::Active);
+        self.publish(PluginEvent::Activated { plugin_id: plugin_id.to_owned() });
         Ok(())
     }
 
@@ -184,6 +215,7 @@ impl PluginEngine {
             return Ok(());
         }
 
+        self.publish(PluginEvent::Deactivating { plugin_id: plugin_id.to_owned() });
         self.registry.update_status(plugin_id, PluginStatus::Deactivating);
 
         if let Some(ref bridge) = self.bridge {
@@ -204,6 +236,7 @@ impl PluginEngine {
         }
 
         self.registry.update_status(plugin_id, PluginStatus::Deactivated);
+        self.publish(PluginEvent::Deactivated { plugin_id: plugin_id.to_owned() });
         Ok(())
     }
 
@@ -221,9 +254,72 @@ impl PluginEngine {
         self.registry.clear();
     }
 
+    pub async fn reload(&self, plugin_id: &str) -> PluginResult<()> {
+        let plugin_dir = self.find_plugin_dir(plugin_id).await?;
+        let manifest_path = plugin_dir.join("plugin.toml");
+        let content = fs::read_to_string(&manifest_path).await
+            .map_err(PluginError::Io)?;
+        let manifest: PluginManifest = toml::from_str(&content)
+            .map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
+
+        let _ = self.deactivate(plugin_id).await;
+        self.registry.remove(plugin_id);
+
+        let plugin = load_plugin_module(manifest.clone()).await?;
+        self.registry.register(manifest, plugin)?;
+        self.registry.update_status(plugin_id, PluginStatus::Loaded);
+
+        if self.options.auto_activate {
+            self.activate(plugin_id).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn refresh(&self) -> PluginResult<Vec<String>> {
+        let current_ids: Vec<String> = self.registry.all().into_iter().map(|i| i.manifest.id.clone()).collect();
+        let manifests = scan_plugin_manifests(&self.options.paths).await?;
+
+        let new_ids: Vec<String> = manifests.iter().map(|m| m.id.clone()).collect();
+        let removed: Vec<String> = current_ids.into_iter().filter(|id| !new_ids.contains(id)).collect();
+        let added: Vec<String> = new_ids.into_iter().filter(|id| !self.registry.has(id)).collect();
+
+        for id in &removed {
+            let _ = self.deactivate(id).await;
+            self.registry.remove(id);
+        }
+
+        for manifest in manifests {
+            if added.contains(&manifest.id) {
+                let plugin_id = manifest.id.clone();
+                if !self.is_allowed(&plugin_id) {
+                    continue;
+                }
+                if let Some(result) = validate_manifest(&manifest) {
+                    tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, result);
+                    continue;
+                }
+                let plugin = load_plugin_module(manifest.clone()).await?;
+                self.registry.register(manifest, plugin)?;
+                self.registry.update_status(&plugin_id, PluginStatus::Loaded);
+
+                if self.options.auto_activate {
+                    let _ = self.activate(&plugin_id).await;
+                }
+            }
+        }
+
+        Ok(added)
+    }
+
     pub fn registry(&self) -> &PluginRegistry { &self.registry }
     pub fn contribution_manager(&self) -> &Arc<ContributionManager> { &self.contribution_manager }
     pub fn is_initialized(&self) -> bool { self.initialized }
+    pub fn event_bus(&self) -> Option<&wf_core::EventBus> { self.event_bus.as_ref() }
+    pub fn resolved_graph(&self) -> PluginResult<ResolvedGraph> {
+        let manifests: Vec<PluginManifest> = self.registry.all().into_iter().map(|i| i.manifest).collect();
+        resolve_dependencies(&manifests)
+    }
 
     fn is_allowed(&self, plugin_id: &str) -> bool {
         if !self.options.allow_list.is_empty() {
@@ -234,6 +330,50 @@ impl PluginEngine {
         }
         true
     }
+
+    async fn find_plugin_dir(&self, plugin_id: &str) -> PluginResult<PathBuf> {
+        for path in &self.options.paths {
+            let candidate = path.join(plugin_id);
+            if candidate.exists() && candidate.is_dir() {
+                return Ok(candidate);
+            }
+        }
+        Err(PluginError::NotFound(plugin_id.to_owned()))
+    }
+}
+
+fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::BaseEvent {
+    use wf_types::events::{BaseEvent, EventType};
+    use std::collections::HashMap;
+    let (etype, meta): (EventType, Option<HashMap<String, serde_json::Value>>) = match event {
+        PluginEvent::Discovered { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:discovered".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Loading { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:loading".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Loaded { plugin_id, version } => (EventType::Heartbeat, Some(HashMap::from([
+            ("plugin:loaded".into(), serde_json::Value::String(plugin_id.clone())),
+            ("version".into(), serde_json::Value::String(version.clone())),
+        ]))),
+        PluginEvent::Activating { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:activating".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Activated { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:activated".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Deactivating { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:deactivating".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Deactivated { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:deactivated".into(), serde_json::Value::String(plugin_id.clone()))]))),
+        PluginEvent::Error { plugin_id, error } => (EventType::Error, Some(HashMap::from([
+            ("plugin:error".into(), serde_json::Value::String(plugin_id.clone())),
+            ("error".into(), serde_json::Value::String(error.clone())),
+        ]))),
+    };
+    BaseEvent {
+        id: uuid_or_fallback(),
+        r#type: etype,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+        workflow_id: None,
+        execution_id: None,
+        agent_loop_id: None,
+        metadata: meta,
+    }
+}
+
+fn uuid_or_fallback() -> String {
+    format!("plugin-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0))
 }
 
 // ============================================================

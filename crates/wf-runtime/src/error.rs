@@ -25,6 +25,10 @@ pub enum RuntimeError {
 
     #[error("Storage manager in wrong state: expected {expected}, actual {actual}")]
     InvalidState { expected: String, actual: String },
+
+    #[cfg(feature = "plugins")]
+    #[error("Plugin error: {0}")]
+    Plugin(#[from] wf_plugin::PluginError),
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;

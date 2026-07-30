@@ -13,5 +13,6 @@ pub mod tool_description_generator;
 pub mod tool_schema_formatter;
 
 pub use error::{ToolError, ToolResult};
+pub use tool_call::ToolCallEvent;
 pub use tool_description_generator::{DescriptionStyle, ToolDescriptionGenerator};
 pub use tool_schema_formatter::ToolSchemaFormatter;

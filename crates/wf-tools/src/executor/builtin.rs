@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::callback::{
-    AgentLoopConfig, AgentLoopInput, WorkflowInput,
+    AgentLoopConfig, AgentLoopInput, ExecutionCallback, WorkflowInput,
 };
 use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
@@ -11,11 +12,29 @@ use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
-pub struct BuiltinExecutor;
+pub struct BuiltinExecutor {
+    callback: Option<Arc<dyn ExecutionCallback>>,
+}
 
 impl BuiltinExecutor {
     pub fn new() -> Self {
-        Self
+        Self { callback: None }
+    }
+
+    pub fn with_callback(callback: Arc<dyn ExecutionCallback>) -> Self {
+        Self { callback: Some(callback) }
+    }
+
+    pub fn with_callback_opt(callback: Option<Arc<dyn ExecutionCallback>>) -> Self {
+        Self { callback }
+    }
+
+    fn get_callback(&self, tool_name: &str) -> ToolResult<Arc<dyn ExecutionCallback>> {
+        if let Some(ref cb) = self.callback {
+            return Ok(cb.clone());
+        }
+        crate::callback::get_execution_callback()
+            .ok_or_else(|| ToolError::CallbackNotRegistered(tool_name.to_string()))
     }
 
     async fn dispatch(
@@ -41,8 +60,7 @@ impl BuiltinExecutor {
         parameters: &Value,
         context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = crate::callback::get_execution_callback()
-            .ok_or_else(|| ToolError::CallbackNotRegistered("call_agent".into()))?;
+        let callback = self.get_callback("call_agent")?;
 
         let agent_id = parameters
             .get("agent_id")
@@ -98,8 +116,7 @@ impl BuiltinExecutor {
         parameters: &Value,
         _context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = crate::callback::get_execution_callback()
-            .ok_or_else(|| ToolError::CallbackNotRegistered("execute_workflow".into()))?;
+        let callback = self.get_callback("execute_workflow")?;
 
         let workflow_id = parameters
             .get("workflow_id")
@@ -128,8 +145,7 @@ impl BuiltinExecutor {
         parameters: &Value,
         _context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = crate::callback::get_execution_callback()
-            .ok_or_else(|| ToolError::CallbackNotRegistered("query_execution_status".into()))?;
+        let callback = self.get_callback("query_execution_status")?;
 
         let execution_id = parameters
             .get("execution_id")
@@ -151,8 +167,7 @@ impl BuiltinExecutor {
         parameters: &Value,
         _context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = crate::callback::get_execution_callback()
-            .ok_or_else(|| ToolError::CallbackNotRegistered("cancel_execution".into()))?;
+        let callback = self.get_callback("cancel_execution")?;
 
         let execution_id = parameters
             .get("execution_id")

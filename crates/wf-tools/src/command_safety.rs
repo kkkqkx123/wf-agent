@@ -82,18 +82,16 @@ pub fn contains_dangerous_substitution(command: &str) -> bool {
 
     // zsh process substitution =(...) — check starts with = or preceded by space/semicolon/etc
     if let Some(pos) = command.find("=(") {
-        if pos == 0
+        if (pos == 0
             || command[..pos].ends_with(' ')
             || command[..pos].ends_with(';')
             || command[..pos].ends_with('|')
             || command[..pos].ends_with('&')
             || command[..pos].ends_with('<')
-            || command[..pos].ends_with('(')
-        {
-            if command[pos..].trim_end().ends_with(')') {
+            || command[..pos].ends_with('('))
+            && command[pos..].trim_end().ends_with(')') {
                 return true;
             }
-        }
     }
 
     false

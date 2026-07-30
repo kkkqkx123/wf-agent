@@ -1,12 +1,17 @@
 use async_trait::async_trait;
+use dashmap::DashMap;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Instant;
 
-use crate::error::ToolResult;
+use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
+
+pub type StatelessHandler =
+    Arc<dyn Fn(&Value, &ToolExecutionContext) -> ToolResult<Value> + Send + Sync>;
 
 #[derive(Debug, Clone)]
 pub struct StatelessToolRuntime {
@@ -15,17 +20,29 @@ pub struct StatelessToolRuntime {
 }
 
 pub struct StatelessExecutor {
+    handlers: Arc<DashMap<String, StatelessHandler>>,
     #[allow(dead_code)]
     runtime: Option<StatelessToolRuntime>,
 }
 
 impl StatelessExecutor {
     pub fn new() -> Self {
-        Self { runtime: None }
+        Self {
+            handlers: Arc::new(DashMap::new()),
+            runtime: None,
+        }
+    }
+
+    pub fn new_shared(handlers: Arc<DashMap<String, StatelessHandler>>) -> Self {
+        Self {
+            handlers,
+            runtime: None,
+        }
     }
 
     pub fn with_runtime(runtime: StatelessToolRuntime) -> Self {
         Self {
+            handlers: Arc::new(DashMap::new()),
             runtime: Some(runtime),
         }
     }
@@ -42,7 +59,45 @@ impl StatelessExecutor {
                     .map(String::from),
             });
 
-        Self { runtime }
+        Self {
+            handlers: Arc::new(DashMap::new()),
+            runtime,
+        }
+    }
+
+    pub fn from_tool_config_shared(tool: &wf_types::tool::Tool, handlers: Arc<DashMap<String, StatelessHandler>>) -> Self {
+        let runtime = tool.config.as_ref().map(|config| StatelessToolRuntime {
+                endpoint: config
+                    .get("endpoint")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                method: config
+                    .get("method")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+            });
+
+        Self { handlers, runtime }
+    }
+
+    pub fn handlers(&self) -> &Arc<DashMap<String, StatelessHandler>> {
+        &self.handlers
+    }
+
+    pub fn register_handler(&self, tool_id: &str, handler: StatelessHandler) {
+        self.handlers.insert(tool_id.to_string(), handler);
+    }
+
+    pub fn unregister_handler(&self, tool_id: &str) {
+        self.handlers.remove(tool_id);
+    }
+
+    pub fn has_handler(&self, tool_id: &str) -> bool {
+        self.handlers.contains_key(tool_id)
+    }
+
+    pub fn clear_handlers(&self) {
+        self.handlers.clear();
     }
 }
 
@@ -87,14 +142,20 @@ impl ToolExecutor for StatelessExecutor {
 impl StatelessExecutor {
     fn run_stateless(
         &self,
-        _tool: &wf_types::tool::Tool,
+        tool: &wf_types::tool::Tool,
         parameters: &Value,
         _options: &ToolExecutionOptions,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        Ok(serde_json::json!({
-            "status": "executed",
-            "parameters": parameters,
-        }))
+        if let Some(handler) = self.handlers.get(&tool.id) {
+            return handler(parameters, context);
+        }
+        if let Some(handler) = self.handlers.get(&tool.name) {
+            return handler(parameters, context);
+        }
+        Err(ToolError::NotFound(format!(
+            "No handler registered for stateless tool '{}' (id: {})",
+            tool.name, tool.id
+        )))
     }
 }

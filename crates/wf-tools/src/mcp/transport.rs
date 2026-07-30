@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{ToolError, ToolResult};
 
@@ -309,8 +310,8 @@ impl McpTransport for SseTransport {
         }
 
         let response_tx_clone = response_tx.clone();
-        let endpoint_url: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let endpoint_url_clone = endpoint_url.clone();
+        let (endpoint_tx, endpoint_rx) = oneshot::channel::<String>();
+        let endpoint_tx = Arc::new(tokio::sync::Mutex::new(Some(endpoint_tx)));
 
         tokio::spawn(async move {
             let byte_stream = response.bytes_stream();
@@ -320,7 +321,9 @@ impl McpTransport for SseTransport {
                 match event_result {
                     Ok(event) => match event.event.as_str() {
                         "endpoint" => {
-                            *endpoint_url_clone.lock().await = Some(event.data.clone());
+                            if let Some(tx) = endpoint_tx.lock().await.take() {
+                                let _ = tx.send(event.data.clone());
+                            }
                         }
                         "message" => {
                             if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&event.data) {
@@ -343,17 +346,20 @@ impl McpTransport for SseTransport {
         self.response_tx = Some(response_tx);
         self.response_rx = Some(response_rx);
 
-        for _ in 0..50 {
-            if let Some(url) = &*endpoint_url.lock().await {
-                self.endpoint_url = Some(url.clone());
+        match tokio::time::timeout(Duration::from_secs(10), endpoint_rx).await {
+            Ok(Ok(url)) => {
+                self.endpoint_url = Some(url);
                 self.connected = true;
-                return Ok(());
+                Ok(())
             }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            Ok(Err(_)) => {
+                self.connected = true;
+                Ok(())
+            }
+            Err(_) => Err(ToolError::TransportError(
+                "SSE endpoint not received within 10s".into(),
+            )),
         }
-
-        self.connected = true;
-        Ok(())
     }
 
     async fn send(&mut self, request: JsonRpcRequest) -> ToolResult<()> {
@@ -388,6 +394,8 @@ pub struct StreamableHttpTransport {
     config: McpStreamableHttpConfig,
     connected: bool,
     client: Option<reqwest::Client>,
+    response_rx: Option<mpsc::Receiver<ToolResult<JsonRpcResponse>>>,
+    response_tx: Option<mpsc::Sender<ToolResult<JsonRpcResponse>>>,
 }
 
 impl StreamableHttpTransport {
@@ -396,10 +404,12 @@ impl StreamableHttpTransport {
             config,
             connected: false,
             client: None,
+            response_rx: None,
+            response_tx: None,
         }
     }
 
-    pub async fn post(&self, body: &Value) -> ToolResult<Value> {
+    async fn send_request(&self, body: &Value) -> ToolResult<Value> {
         let client = self.client.as_ref().ok_or_else(|| {
             ToolError::TransportError("Transport not started".into())
         })?;
@@ -435,23 +445,39 @@ impl McpTransport for StreamableHttpTransport {
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
+        let (response_tx, response_rx) = mpsc::channel::<ToolResult<JsonRpcResponse>>(64);
+
         self.client = Some(client);
+        self.response_tx = Some(response_tx);
+        self.response_rx = Some(response_rx);
         self.connected = true;
         Ok(())
     }
 
     async fn send(&mut self, request: JsonRpcRequest) -> ToolResult<()> {
-        self.post(&serde_json::to_value(&request)?).await?;
+        let response = self.send_request(&serde_json::to_value(&request)?).await?;
+        let json_resp: JsonRpcResponse = serde_json::from_value(response)?;
+        if let Some(tx) = &self.response_tx {
+            let _ = tx.send(Ok(json_resp)).await;
+        }
         Ok(())
     }
 
     async fn receive(&mut self) -> ToolResult<Option<JsonRpcResponse>> {
-        Ok(None)
+        match &mut self.response_rx {
+            Some(rx) => match rx.recv().await {
+                Some(result) => result.map(Some),
+                None => Ok(None),
+            },
+            None => Err(ToolError::TransportError("Transport not started".into())),
+        }
     }
 
     async fn close(&mut self) -> ToolResult<()> {
         self.connected = false;
         self.client = None;
+        self.response_tx = None;
+        self.response_rx = None;
         Ok(())
     }
 

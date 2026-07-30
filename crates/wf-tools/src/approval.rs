@@ -130,15 +130,13 @@ impl ToolApprovalCoordinator {
             if let Some(file_path) = extract_file_path(&tool.tool_name, &tool.parameters) {
                 let op = extract_file_operation(&tool.tool_name, &tool.parameters)
                     .unwrap_or(FileOperationType::Read);
-                if op == FileOperationType::Write || op == FileOperationType::Delete {
-                    if pc.is_write_protected(&file_path) {
-                        if self.options.allow_write_protected != Some(true) {
+                if (op == FileOperationType::Write || op == FileOperationType::Delete)
+                    && pc.is_write_protected(&file_path)
+                        && self.options.allow_write_protected != Some(true) {
                             return ApprovalDecision::Deny(
                                 "File is write-protected".to_string(),
                             );
                         }
-                    }
-                }
             }
         }
 

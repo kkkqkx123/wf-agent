@@ -1,11 +1,16 @@
 use async_trait::async_trait;
+use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 use crate::error::{ToolError, ToolResult};
+use crate::executor::base::BaseExecutor;
+use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
+use wf_types::tool::ToolExecutionOptions;
+use wf_types::tool::ToolExecutionResult;
 
 #[derive(Debug, Clone)]
 pub struct ExecutorConfig {
@@ -343,6 +348,42 @@ fn build_truncated_output(
     }
 }
 
+async fn run_command(
+    cmd: &mut tokio::process::Command,
+    max_lines: usize,
+    max_bytes: u64,
+    timeout_ms: Option<u64>,
+) -> ToolResult<(PipeOutput, PipeOutput, std::process::ExitStatus)> {
+    let exec = async {
+        let mut child = cmd.spawn()?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            ToolError::Internal("stdout pipe not configured".to_string())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            ToolError::Internal("stderr pipe not configured".to_string())
+        })?;
+
+        let (stdout_res, stderr_res) = tokio::join!(
+            read_pipe(stdout, max_lines, max_bytes, &None),
+            read_pipe(stderr, max_lines, max_bytes, &None),
+        );
+        let status = child.wait().await?;
+
+        Ok::<_, ToolError>((stdout_res, stderr_res, status))
+    };
+
+    match timeout_ms {
+        Some(ms) => match tokio::time::timeout(Duration::from_millis(ms), exec).await {
+            Ok(result) => result,
+            Err(_) => Err(ToolError::Timeout {
+                tool_id: "cli".into(),
+                timeout_ms: ms,
+            }),
+        },
+        None => exec.await,
+    }
+}
+
 async fn find_in_path(binary_name: &str) -> Option<String> {
     let which_cmd = if cfg!(windows) { "where" } else { "which" };
     let output = Command::new(which_cmd)
@@ -362,6 +403,111 @@ async fn find_in_path(binary_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub struct CliToolExecutor {
+    binary: String,
+    args_template: Vec<String>,
+    timeout_ms: Option<u64>,
+    max_lines: Option<usize>,
+    #[allow(dead_code)]
+    env: Option<Vec<(String, String)>>,
+}
+
+impl CliToolExecutor {
+    pub fn new(binary: impl Into<String>, args_template: Vec<String>) -> Self {
+        Self {
+            binary: binary.into(),
+            args_template,
+            timeout_ms: None,
+            max_lines: None,
+            env: None,
+        }
+    }
+
+    pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn with_max_lines(mut self, max_lines: usize) -> Self {
+        self.max_lines = Some(max_lines);
+        self
+    }
+
+    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env = Some(env);
+        self
+    }
+}
+
+#[async_trait]
+impl ToolExecutor for CliToolExecutor {
+    async fn execute(
+        &self,
+        tool: &wf_types::tool::Tool,
+        parameters: &Value,
+        _options: &ToolExecutionOptions,
+        _context: &ToolExecutionContext,
+    ) -> ToolResult<ToolExecutionResult> {
+        let start = Instant::now();
+        BaseExecutor::validate_parameters(tool, parameters)?;
+
+        let args: Vec<String> = self
+            .args_template
+            .iter()
+            .map(|arg| {
+                if arg.starts_with('{') && arg.ends_with('}') {
+                    let key = &arg[1..arg.len() - 1];
+                    parameters
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| arg.clone())
+                } else {
+                    arg.clone()
+                }
+            })
+            .collect();
+
+        let max_lines = self.max_lines.unwrap_or(1000);
+        let max_bytes = 20 * 1024 * 1024;
+
+        let mut cmd = tokio::process::Command::new(&self.binary);
+        cmd.args(&args)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let (stdout, stderr, status) = run_command(&mut cmd, max_lines, max_bytes, self.timeout_ms)
+            .await
+            .map_err(|e| {
+                if matches!(&e, ToolError::Timeout { .. }) {
+                    e
+                } else {
+                    ToolError::ExecutionFailed {
+                        tool_id: tool.id.clone(),
+                        reason: e.to_string(),
+                    }
+                }
+            })?;
+        let execution_time = start.elapsed().as_millis() as i64;
+
+        Ok(BaseExecutor::build_result(
+            status.success(),
+            Some(serde_json::json!({
+                "stdout": stdout.text,
+                "stderr": stderr.text,
+                "exit_code": status.code().unwrap_or(-1),
+            })),
+            if status.success() { None } else { Some(stderr.text) },
+            execution_time,
+            0,
+        ))
+    }
+
+    fn executor_type(&self) -> &str {
+        "cli"
+    }
 }
 
 pub struct RipgrepExecutor {

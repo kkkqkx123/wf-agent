@@ -1,6 +1,8 @@
 use async_trait::async_trait;
+use reqwest::RequestBuilder;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -10,6 +12,11 @@ use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use wf_types::tool::runtime_config::RestToolConfig;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
+
+pub type RequestInterceptor =
+    Arc<dyn Fn(RequestBuilder) -> RequestBuilder + Send + Sync>;
+pub type ResponseInterceptor =
+    Arc<dyn Fn(reqwest::Response) -> reqwest::Response + Send + Sync>;
 
 const CIRCUIT_CLOSED: u8 = 0;
 const CIRCUIT_OPEN: u8 = 1;
@@ -105,6 +112,8 @@ impl CircuitBreaker {
 pub struct RestExecutor {
     client: reqwest::Client,
     circuit_breaker: Option<CircuitBreaker>,
+    request_interceptors: Vec<RequestInterceptor>,
+    response_interceptors: Vec<ResponseInterceptor>,
 }
 
 impl RestExecutor {
@@ -116,6 +125,8 @@ impl RestExecutor {
         Self {
             client,
             circuit_breaker: None,
+            request_interceptors: Vec::new(),
+            response_interceptors: Vec::new(),
         }
     }
 
@@ -123,6 +134,8 @@ impl RestExecutor {
         Self {
             client,
             circuit_breaker: None,
+            request_interceptors: Vec::new(),
+            response_interceptors: Vec::new(),
         }
     }
 
@@ -131,8 +144,32 @@ impl RestExecutor {
         self
     }
 
+    pub fn add_request_interceptor(&mut self, interceptor: RequestInterceptor) {
+        self.request_interceptors.push(interceptor);
+    }
+
+    pub fn add_response_interceptor(&mut self, interceptor: ResponseInterceptor) {
+        self.response_interceptors.push(interceptor);
+    }
+
     pub fn circuit_breaker_state(&self) -> Option<&str> {
         self.circuit_breaker.as_ref().map(|cb| cb.state())
+    }
+
+    fn apply_request_interceptors(&self, request: RequestBuilder) -> RequestBuilder {
+        let mut req = request;
+        for interceptor in &self.request_interceptors {
+            req = interceptor(req);
+        }
+        req
+    }
+
+    fn apply_response_interceptors(&self, response: reqwest::Response) -> reqwest::Response {
+        let mut resp = response;
+        for interceptor in &self.response_interceptors {
+            resp = interceptor(resp);
+        }
+        resp
     }
 
     fn parse_config(tool: &wf_types::tool::Tool) -> RestToolConfig {
@@ -199,6 +236,8 @@ impl ToolExecutor for RestExecutor {
             }
         }
 
+        request = self.apply_request_interceptors(request);
+
         let response = tokio::time::timeout(
             Duration::from_millis(timeout_ms),
             request.send(),
@@ -209,6 +248,7 @@ impl ToolExecutor for RestExecutor {
 
         let result = match response {
             Ok(Ok(resp)) => {
+                let resp = self.apply_response_interceptors(resp);
                 let status = resp.status();
                 if status.is_success() {
                     let body = resp.json::<Value>().await.unwrap_or(Value::Null);

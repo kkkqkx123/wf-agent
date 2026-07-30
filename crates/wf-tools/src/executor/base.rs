@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -128,6 +129,102 @@ impl BaseExecutor {
                 )));
             }
         }
+        if let Some(pattern) = prop.value.get("pattern").and_then(|v| v.as_str()) {
+            if let Ok(re) = Regex::new(pattern) {
+                if !re.is_match(s) {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' does not match pattern '{}'",
+                        key, pattern
+                    )));
+                }
+            }
+        }
+        if let Some(format) = prop.value.get("format").and_then(|v| v.as_str()) {
+            Self::validate_format(key, s, format)?;
+        }
+        Ok(())
+    }
+
+    fn validate_format(key: &str, s: &str, format: &str) -> ToolResult<()> {
+        match format {
+            "date-time" => {
+                let dt_re = Regex::new(
+                    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+                ).unwrap();
+                if !dt_re.is_match(s) {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid date-time (RFC3339): {}",
+                        key, s
+                    )));
+                }
+            }
+            "date" => {
+                let d_re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
+                if !d_re.is_match(s) {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid date (YYYY-MM-DD): {}",
+                        key, s
+                    )));
+                }
+            }
+            "time" => {
+                let t_re = Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$").unwrap();
+                if !t_re.is_match(s) {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid time (HH:MM:SS): {}",
+                        key, s
+                    )));
+                }
+            }
+            "uri" => {
+                if !s.starts_with("http://") && !s.starts_with("https://") && !s.starts_with("file://") {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid URI: {}",
+                        key, s
+                    )));
+                }
+            }
+            "email" => {
+                let has_at = s.contains('@');
+                let has_dot = s.contains('.');
+                if !has_at || !has_dot || s.starts_with('@') || s.ends_with('.') {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid email: {}",
+                        key, s
+                    )));
+                }
+            }
+            "uuid" => {
+                let uuid_pattern = Regex::new(
+                    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                ).unwrap();
+                if !uuid_pattern.is_match(s) {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid UUID: {}",
+                        key, s
+                    )));
+                }
+            }
+            "ipv4" => {
+                let octets: Vec<&str> = s.split('.').collect();
+                if octets.len() != 4
+                    || octets.iter().any(|o| o.parse::<u8>().is_err())
+                {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid IPv4 address: {}",
+                        key, s
+                    )));
+                }
+            }
+            "ipv6"
+                if (!s.contains(':') || s.split(':').count() > 8) => {
+                    return Err(crate::error::ToolError::ValidationFailed(format!(
+                        "Parameter '{}' is not a valid IPv6 address: {}",
+                        key, s
+                    )));
+                }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -141,11 +238,27 @@ impl BaseExecutor {
                 )));
             }
         }
+        if let Some(ex_min) = prop.value.get("exclusiveMinimum").and_then(|v| v.as_f64()) {
+            if num <= ex_min {
+                return Err(crate::error::ToolError::ValidationFailed(format!(
+                    "Parameter '{}' value {} is not greater than exclusiveMinimum {}",
+                    key, num, ex_min
+                )));
+            }
+        }
         if let Some(max) = prop.value.get("maximum").and_then(|v| v.as_f64()) {
             if num > max {
                 return Err(crate::error::ToolError::ValidationFailed(format!(
                     "Parameter '{}' value {} exceeds maximum {}",
                     key, num, max
+                )));
+            }
+        }
+        if let Some(ex_max) = prop.value.get("exclusiveMaximum").and_then(|v| v.as_f64()) {
+            if num >= ex_max {
+                return Err(crate::error::ToolError::ValidationFailed(format!(
+                    "Parameter '{}' value {} is not less than exclusiveMaximum {}",
+                    key, num, ex_max
                 )));
             }
         }

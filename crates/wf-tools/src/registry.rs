@@ -3,9 +3,10 @@ use dashmap::DashMap;
 use std::sync::Arc;
 
 use crate::error::{ToolError, ToolResult};
+use crate::callback::ExecutionCallback;
 use crate::executor::{
-    BuiltinExecutor, McpExecutor, RestExecutor, StatelessExecutor, StatefulExecutor, ToolExecutor,
-    ToolExecutorExt,
+    BuiltinExecutor, InstanceFactory, McpExecutor, RestExecutor, StatelessExecutor,
+    StatefulExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
 };
 use wf_types::tool::ToolType;
 use wf_types::Id;
@@ -22,34 +23,82 @@ pub trait ToolStorage: Send + Sync {
 pub struct ToolRegistry {
     executors: DashMap<ToolType, ExecutorFactory>,
     tools: DashMap<Id, wf_types::tool::Tool>,
+    stateless_handlers: Arc<DashMap<String, StatelessHandler>>,
+    stateful_factories: Arc<DashMap<String, InstanceFactory>>,
+    builtin_callback: Arc<std::sync::Mutex<Option<Arc<dyn ExecutionCallback>>>>,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
+        let stateless_handlers = Arc::new(DashMap::new());
+        let stateful_factories = Arc::new(DashMap::new());
+        let sl_handlers = stateless_handlers.clone();
+        let sf_factories = stateful_factories.clone();
         let registry = Self {
             executors: DashMap::new(),
             tools: DashMap::new(),
+            stateless_handlers,
+            stateful_factories,
+            builtin_callback: Arc::new(std::sync::Mutex::new(None)),
         };
-        registry.register_defaults();
+        registry.register_defaults_shared(sl_handlers, sf_factories);
         registry
     }
 
-    fn register_defaults(&self) {
+    pub fn stateless_handlers(&self) -> &Arc<DashMap<String, StatelessHandler>> {
+        &self.stateless_handlers
+    }
+
+    pub fn register_stateless_handler(&self, tool_id: &str, handler: StatelessHandler) {
+        self.stateless_handlers.insert(tool_id.to_string(), handler);
+    }
+
+    pub fn unregister_stateless_handler(&self, tool_id: &str) {
+        self.stateless_handlers.remove(tool_id);
+    }
+
+    pub fn stateful_factories(&self) -> &Arc<DashMap<String, InstanceFactory>> {
+        &self.stateful_factories
+    }
+
+    pub fn register_stateful_factory(&self, tool_id: &str, factory: InstanceFactory) {
+        self.stateful_factories.insert(tool_id.to_string(), factory);
+    }
+
+    pub fn unregister_stateful_factory(&self, tool_id: &str) {
+        self.stateful_factories.remove(tool_id);
+    }
+
+    pub fn set_builtin_callback(&self, callback: Arc<dyn ExecutionCallback>) {
+        *self.builtin_callback.lock().unwrap() = Some(callback);
+    }
+
+    fn register_defaults_shared(
+        &self,
+        sl_handlers: Arc<DashMap<String, StatelessHandler>>,
+        sf_factories: Arc<DashMap<String, InstanceFactory>>,
+    ) {
+        let h = sl_handlers.clone();
         self.register_executor(
             ToolType::Stateless,
-            Arc::new(|tool| Ok(Arc::new(StatelessExecutor::from_tool_config(tool)))),
+            Arc::new(move |tool| Ok(Arc::new(StatelessExecutor::from_tool_config_shared(tool, h.clone())))),
         );
+        let f = sf_factories.clone();
         self.register_executor(
             ToolType::Stateful,
-            Arc::new(|_tool| Ok(Arc::new(StatefulExecutor::new()))),
+            Arc::new(move |_tool| Ok(Arc::new(StatefulExecutor::new_shared(f.clone())))),
         );
         self.register_executor(
             ToolType::Rest,
             Arc::new(|_tool| Ok(Arc::new(RestExecutor::new()))),
         );
+        let builtin_cb = self.builtin_callback.clone();
         self.register_executor(
             ToolType::BuiltIn,
-            Arc::new(|_tool| Ok(Arc::new(BuiltinExecutor::new()))),
+            Arc::new(move |_tool| {
+                let cb = builtin_cb.lock().unwrap().clone();
+                Ok(Arc::new(BuiltinExecutor::with_callback_opt(cb)))
+            }),
         );
         self.register_executor(
             ToolType::Mcp,

@@ -1,16 +1,65 @@
 use std::sync::Arc;
 
-use wf_core::failure_policy::{
-    default_retry_policy, ExecutionSharedErrorProxy, FailurePolicyManager,
-};
+use wf_core::failure_policy::{default_retry_policy, FailurePolicyManager};
 use wf_core::interruption::check_execution_interruption;
+use wf_execution_shared::error::ExecutionSharedError;
+use wf_llm::error::LlmError;
+use wf_tools::error::ToolError;
 use wf_types::checkpoint::CheckpointTrigger;
+use wf_types::errors::ErrorKind;
 use wf_types::execution::FailurePolicyConfig;
 
 use crate::checkpoint::AgentCheckpointIntegration;
 use crate::coordinator::iteration::{AgentIterationCoordinator, IterationResult};
 use crate::entity::AgentLoopEntity;
-use crate::error::AgentResult;
+use crate::error::{AgentError, AgentResult};
+
+fn http_status_to_kind(status: u16) -> ErrorKind {
+    match status {
+        400 => ErrorKind::Validation,
+        401 | 403 => ErrorKind::AuthError,
+        404 => ErrorKind::NotFound,
+        429 => ErrorKind::RateLimited,
+        500..=599 => ErrorKind::ServiceUnavailable,
+        _ => ErrorKind::Network,
+    }
+}
+
+fn tool_error_to_kind(e: &ToolError) -> ErrorKind {
+    match e {
+        ToolError::NotFound(_) => ErrorKind::NotFound,
+        ToolError::ValidationFailed(_) => ErrorKind::Validation,
+        ToolError::RestError { status, .. } => http_status_to_kind(*status),
+        ToolError::HttpError(e) => match e.status() {
+            Some(s) => http_status_to_kind(s.as_u16()),
+            None => ErrorKind::Network,
+        },
+        ToolError::Timeout { .. } => ErrorKind::Timeout,
+        ToolError::ConnectionFailed { .. } => ErrorKind::Network,
+        ToolError::TransportError(_) => ErrorKind::Network,
+        _ => ErrorKind::Tool,
+    }
+}
+
+fn extract_error_kind(e: &AgentError) -> ErrorKind {
+    match e {
+        AgentError::StateError(_) => ErrorKind::StateManagement,
+        AgentError::ToolError(te) => tool_error_to_kind(te),
+        AgentError::LlmError(LlmError::Timeout(_)) => ErrorKind::Timeout,
+        AgentError::LlmError(LlmError::HttpError(e)) => match e.status() {
+            Some(s) => http_status_to_kind(s.as_u16()),
+            None => ErrorKind::Network,
+        },
+        AgentError::LlmError(LlmError::AuthError(_)) => ErrorKind::AuthError,
+        AgentError::LlmError(LlmError::ProfileNotFound(_)) => ErrorKind::NotFound,
+        AgentError::LlmError(_) => ErrorKind::Network,
+        AgentError::CheckpointError(_) => ErrorKind::AgentCheckpoint,
+        AgentError::SharedError(ExecutionSharedError::StateError(_)) => ErrorKind::StateManagement,
+        AgentError::SharedError(ExecutionSharedError::ToolError(te)) => tool_error_to_kind(te),
+        AgentError::Internal(_) => ErrorKind::General,
+        _ => ErrorKind::Execution,
+    }
+}
 
 pub struct AgentExecutionCoordinator {
     iteration_coordinator: Arc<AgentIterationCoordinator>,
@@ -38,7 +87,7 @@ impl AgentExecutionCoordinator {
         let failure_policy = FailurePolicyManager::new(FailurePolicyConfig {
             retry_policy: Some(default_retry_policy()),
             fallback_policy: None,
-            non_retryable_errors: Some(vec!["abort".to_string(), "cancelled".to_string()]),
+            non_retryable_errors: None,
             log_level: Some("info".to_string()),
             metrics_enabled: Some(false),
         });
@@ -119,8 +168,8 @@ impl AgentExecutionCoordinator {
                             });
                     }
 
-                    let proxy = ExecutionSharedErrorProxy::from_message(e.to_string());
-                    if failure_policy.should_retry(&proxy, attempt) {
+                    let kind = extract_error_kind(&e);
+                    if failure_policy.should_retry(kind, attempt) {
                         let delay = failure_policy.next_delay(attempt);
                         attempt += 1;
                         tokio::time::sleep(delay).await;

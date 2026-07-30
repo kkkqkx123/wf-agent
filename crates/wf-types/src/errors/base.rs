@@ -1,15 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorSeverity {
-    Info,
-    Warning,
-    Error,
-    Critical,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorType {
@@ -52,6 +43,10 @@ pub enum ErrorKind {
     Storage,
     Network,
     Resource,
+    Timeout,
+    RateLimited,
+    AuthError,
+    ServiceUnavailable,
     General,
 }
 
@@ -79,15 +74,12 @@ pub struct ErrorContext {
     pub resource_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub severity: Option<ErrorSeverity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WfError {
     pub message: String,
     pub kind: ErrorKind,
-    pub severity: ErrorSeverity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,7 +92,6 @@ impl WfError {
         Self {
             message: message.into(),
             kind: ErrorKind::General,
-            severity: ErrorSeverity::Error,
             context: None,
             cause: None,
             name: "WfError".into(),
@@ -113,7 +104,6 @@ impl WfError {
         Self {
             message: message.into(),
             kind: ErrorKind::Validation,
-            severity: ErrorSeverity::Error,
             context: Some(ctx),
             cause: None,
             name: "ValidationError".into(),
@@ -135,7 +125,6 @@ impl WfError {
         Self {
             message: message.into(),
             kind: ErrorKind::Execution,
-            severity: ErrorSeverity::Error,
             context: Some(ctx),
             cause: None,
             name: "ExecutionError".into(),
@@ -154,16 +143,10 @@ impl WfError {
         Self {
             message: format!("{} not found: {}", rt, ri),
             kind: ErrorKind::NotFound,
-            severity: ErrorSeverity::Error,
             context: Some(ctx),
             cause: None,
             name: "NotFoundError".into(),
         }
-    }
-
-    pub fn with_severity(mut self, severity: ErrorSeverity) -> Self {
-        self.severity = severity;
-        self
     }
 
     pub fn with_kind(mut self, kind: ErrorKind) -> Self {
@@ -184,11 +167,7 @@ impl WfError {
 
 impl std::fmt::Display for WfError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "[{:?}:{:?}] {}: {}",
-            self.kind, self.severity, self.name, self.message
-        )
+        write!(f, "[{:?}] {}: {}", self.kind, self.name, self.message)
     }
 }
 

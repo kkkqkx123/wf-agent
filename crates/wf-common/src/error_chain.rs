@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use wf_types::{ErrorCause, ErrorSeverity, ErrorType, RecoveryAction};
+use wf_types::{ErrorCause, ErrorType, RecoveryAction};
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ErrorPattern {
     pub total_errors: usize,
     pub type_distribution: HashMap<String, usize>,
-    pub severity_distribution: HashMap<String, usize>,
     pub affected_nodes: Vec<String>,
     pub most_common_type: Option<ErrorType>,
-    pub most_common_severity: Option<ErrorSeverity>,
     pub has_recoverable: bool,
     pub recovery_action_count: HashMap<String, usize>,
 }
@@ -18,7 +16,6 @@ pub struct ErrorPattern {
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ErrorMetadata {
     pub error_type: Option<ErrorType>,
-    pub severity: Option<ErrorSeverity>,
     pub caused_by: Option<ErrorCause>,
     pub is_recoverable: bool,
     pub recovery_action: Option<RecoveryAction>,
@@ -30,7 +27,6 @@ pub struct ErrorRecord {
     pub execution_id: String,
     pub error: String,
     pub error_type: Option<ErrorType>,
-    pub severity: Option<ErrorSeverity>,
     pub timestamp: i64,
     pub node_id: Option<String>,
     pub parent_error_id: Option<String>,
@@ -81,7 +77,6 @@ impl ErrorChainManager {
             execution_id,
             error,
             error_type: metadata.error_type,
-            severity: metadata.severity,
             timestamp: crate::time::now(),
             node_id,
             parent_error_id,
@@ -155,7 +150,6 @@ impl ErrorChainManager {
     pub fn analyze_error_pattern(&self, execution_id: &str) -> ErrorPattern {
         let records = self.get_records(execution_id);
         let mut type_dist: HashMap<String, usize> = HashMap::new();
-        let mut severity_dist: HashMap<String, usize> = HashMap::new();
         let mut affected_nodes: Vec<String> = Vec::new();
         let mut recovery_count: HashMap<String, usize> = HashMap::new();
         let mut has_recoverable = false;
@@ -163,9 +157,6 @@ impl ErrorChainManager {
         for record in &records {
             if let Some(ref error_type) = record.error_type {
                 *type_dist.entry(format!("{:?}", error_type)).or_insert(0) += 1;
-            }
-            if let Some(ref severity) = record.severity {
-                *severity_dist.entry(format!("{:?}", severity)).or_insert(0) += 1;
             }
             if let Some(ref node_id) = record.node_id {
                 if !affected_nodes.contains(node_id) {
@@ -193,24 +184,11 @@ impl ErrorChainManager {
                 _ => None,
             });
 
-        let most_common_severity = severity_dist
-            .iter()
-            .max_by_key(|(_, count)| *count)
-            .and_then(|(name, _)| match name.as_str() {
-                "Info" => Some(ErrorSeverity::Info),
-                "Warning" => Some(ErrorSeverity::Warning),
-                "Error" => Some(ErrorSeverity::Error),
-                "Critical" => Some(ErrorSeverity::Critical),
-                _ => None,
-            });
-
         ErrorPattern {
             total_errors: records.len(),
             type_distribution: type_dist,
-            severity_distribution: severity_dist,
             affected_nodes,
             most_common_type,
-            most_common_severity,
             has_recoverable,
             recovery_action_count: recovery_count,
         }
@@ -362,7 +340,6 @@ mod tests {
             Some("node-1".to_string()),
             ErrorMetadata {
                 error_type: Some(ErrorType::Timeout),
-                severity: Some(ErrorSeverity::Error),
                 caused_by: Some(ErrorCause {
                     reason: "LLM call exceeded 30s".to_string(),
                     handling_attempt: Some("retry_1".to_string()),
@@ -376,7 +353,6 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].id, id);
         assert!(matches!(records[0].error_type, Some(ErrorType::Timeout)));
-        assert!(matches!(records[0].severity, Some(ErrorSeverity::Error)));
         assert!(records[0].is_recoverable);
         assert!(matches!(records[0].recovery_action, Some(RecoveryAction::Retry)));
     }
@@ -392,7 +368,6 @@ mod tests {
             Some("node-a".to_string()),
             ErrorMetadata {
                 error_type: Some(ErrorType::Timeout),
-                severity: Some(ErrorSeverity::Error),
                 caused_by: None,
                 is_recoverable: true,
                 recovery_action: Some(RecoveryAction::Retry),
@@ -405,7 +380,6 @@ mod tests {
             Some("node-b".to_string()),
             ErrorMetadata {
                 error_type: Some(ErrorType::Timeout),
-                severity: Some(ErrorSeverity::Critical),
                 caused_by: None,
                 is_recoverable: true,
                 recovery_action: Some(RecoveryAction::Retry),
@@ -418,7 +392,6 @@ mod tests {
             Some("node-a".to_string()),
             ErrorMetadata {
                 error_type: Some(ErrorType::Validation),
-                severity: Some(ErrorSeverity::Warning),
                 caused_by: None,
                 is_recoverable: false,
                 recovery_action: Some(RecoveryAction::ManualIntervention),
@@ -457,7 +430,6 @@ mod tests {
             None,
             ErrorMetadata {
                 error_type: Some(ErrorType::Timeout),
-                severity: Some(ErrorSeverity::Error),
                 caused_by: None,
                 is_recoverable: true,
                 recovery_action: Some(RecoveryAction::Retry),
@@ -470,7 +442,6 @@ mod tests {
             None,
             ErrorMetadata {
                 error_type: Some(ErrorType::Timeout),
-                severity: Some(ErrorSeverity::Error),
                 caused_by: None,
                 is_recoverable: true,
                 recovery_action: Some(RecoveryAction::Retry),
@@ -483,7 +454,6 @@ mod tests {
             None,
             ErrorMetadata {
                 error_type: Some(ErrorType::LlmError),
-                severity: Some(ErrorSeverity::Critical),
                 caused_by: None,
                 is_recoverable: false,
                 recovery_action: Some(RecoveryAction::Abort),
@@ -505,7 +475,6 @@ mod tests {
             None,
             ErrorMetadata {
                 error_type: Some(ErrorType::Internal),
-                severity: Some(ErrorSeverity::Critical),
                 caused_by: None,
                 is_recoverable: false,
                 recovery_action: None,

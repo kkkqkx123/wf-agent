@@ -31,22 +31,6 @@ pub struct FallbackPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct FailureContext {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_id: Option<super::super::Id>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow_id: Option<super::super::Id>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attempt_count: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub elapsed_time: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<crate::Metadata>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FailurePolicyConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_policy: Option<RetryPolicy>,

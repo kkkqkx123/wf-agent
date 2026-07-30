@@ -14,7 +14,7 @@ pub use error::CoreError;
 pub use event::{EventBus, EventBusBuilder, Subscription};
 pub use failure_policy::{
     default_failure_policy_config, default_fallback_policy, default_retry_policy,
-    ExecutionSharedErrorProxy, FailurePolicyManager,
+    FailurePolicyManager,
 };
 pub use hierarchy::integrity::{
     HierarchyEntityProvider, HierarchyIntegrityService, HierarchyRegistry,

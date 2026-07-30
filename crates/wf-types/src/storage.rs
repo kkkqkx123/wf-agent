@@ -8,6 +8,8 @@ pub mod script;
 pub mod task;
 pub mod tool;
 pub mod trigger;
+pub mod trigger_execution;
+pub mod user_interaction;
 
 pub use agent_loop::*;
 pub use agent_profile::*;
@@ -19,3 +21,5 @@ pub use script::*;
 pub use task::*;
 pub use tool::*;
 pub use trigger::*;
+pub use trigger_execution::*;
+pub use user_interaction::*;

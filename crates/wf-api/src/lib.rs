@@ -1,6 +1,8 @@
 pub mod agent;
 pub mod metrics;
 pub mod task;
+pub mod trigger_execution;
+pub mod user_interaction;
 pub mod workflow;
 
 use std::sync::Arc;

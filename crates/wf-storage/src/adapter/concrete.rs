@@ -15,6 +15,12 @@ use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
 use crate::adapter::tool::{ToolListOptions, ToolStorageAdapter};
 use crate::adapter::trigger::{TriggerListOptions, TriggerStorageAdapter};
+use crate::adapter::trigger_execution::{
+    TriggerExecutionListOptions, TriggerExecutionStorageAdapter,
+};
+use crate::adapter::user_interaction::{
+    UserInteractionListOptions, UserInteractionStorageAdapter,
+};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use crate::domain::QueryFilter;
 use crate::domain::Store;
@@ -85,6 +91,16 @@ make_base_adapter!(
     wf_types::AgentProfileStorageMetadata,
     AgentProfileListOptions
 );
+make_base_adapter!(
+    UserInteractionStorage,
+    wf_types::UserInteractionStorageMetadata,
+    UserInteractionListOptions
+);
+make_base_adapter!(
+    TriggerExecutionStorage,
+    wf_types::TriggerExecutionStorageMetadata,
+    TriggerExecutionListOptions
+);
 
 // ─── Type aliases ───
 
@@ -101,6 +117,8 @@ pub type MemoryScriptStorage = ScriptStorage<MemoryStorage>;
 pub type MemoryNodeTemplateStorage = NodeTemplateStorage<MemoryStorage>;
 pub type MemoryHookTemplateStorage = HookTemplateStorage<MemoryStorage>;
 pub type MemoryAgentProfileStorage = AgentProfileStorage<MemoryStorage>;
+pub type MemoryUserInteractionStorage = UserInteractionStorage<MemoryStorage>;
+pub type MemoryTriggerExecutionStorage = TriggerExecutionStorage<MemoryStorage>;
 
 #[cfg(feature = "sqlite")]
 pub type SqliteWorkflowStorage = WorkflowStorage<SqliteStorage>;
@@ -128,6 +146,10 @@ pub type SqliteNodeTemplateStorage = NodeTemplateStorage<SqliteStorage>;
 pub type SqliteHookTemplateStorage = HookTemplateStorage<SqliteStorage>;
 #[cfg(feature = "sqlite")]
 pub type SqliteAgentProfileStorage = AgentProfileStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteUserInteractionStorage = UserInteractionStorage<SqliteStorage>;
+#[cfg(feature = "sqlite")]
+pub type SqliteTriggerExecutionStorage = TriggerExecutionStorage<SqliteStorage>;
 
 #[cfg(feature = "postgres")]
 pub type PostgresWorkflowStorage = WorkflowStorage<PostgresStorage>;
@@ -155,6 +177,10 @@ pub type PostgresNodeTemplateStorage = NodeTemplateStorage<PostgresStorage>;
 pub type PostgresHookTemplateStorage = HookTemplateStorage<PostgresStorage>;
 #[cfg(feature = "postgres")]
 pub type PostgresAgentProfileStorage = AgentProfileStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresUserInteractionStorage = UserInteractionStorage<PostgresStorage>;
+#[cfg(feature = "postgres")]
+pub type PostgresTriggerExecutionStorage = TriggerExecutionStorage<PostgresStorage>;
 
 // ─── WorkflowStorageAdapter ───
 
@@ -480,6 +506,89 @@ impl<S: Store> AgentProfileStorageAdapter for AgentProfileStorage<S> {
     ) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError> {
         let all = self.entity_store.list(None).await?;
         Ok(all.into_iter().next())
+    }
+}
+
+// ─── UserInteractionStorageAdapter ───
+
+impl<S: Store> UserInteractionStorageAdapter for UserInteractionStorage<S> {
+    async fn list_by_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("executionId", execution_id);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_status(
+        &self,
+        status: &str,
+    ) -> Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("status", status);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn get_stats(&self) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        let all = self.entity_store.list(None).await?;
+        let mut stats = std::collections::HashMap::new();
+        for entry in &all {
+            *stats.entry(entry.status.clone()).or_insert(0) += 1;
+        }
+        Ok(stats)
+    }
+}
+
+// ─── TriggerExecutionStorageAdapter ───
+
+impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
+    async fn list_by_trigger(
+        &self,
+        trigger_name: &str,
+    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("triggerName", trigger_name);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("executionId", execution_id);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_workflow(
+        &self,
+        workflow_id: &str,
+    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("workflowId", workflow_id);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn get_stats(&self) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        let all = self.entity_store.list(None).await?;
+        let mut stats = std::collections::HashMap::new();
+        for entry in &all {
+            let key = if entry.success {
+                "success".to_string()
+            } else {
+                "failed".to_string()
+            };
+            *stats.entry(key).or_insert(0) += 1;
+        }
+        Ok(stats)
+    }
+
+    async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError> {
+        let all = self.entity_store.list(None).await?;
+        let mut deleted = 0u64;
+        for entry in &all {
+            if entry.triggered_at < older_than {
+                self.entity_store.delete(&entry.id).await?;
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
     }
 }
 

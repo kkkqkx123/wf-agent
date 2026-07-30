@@ -1,8 +1,8 @@
 use crate::adapter::concrete::{
     AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, CheckpointStorage,
     FileCheckpointStorage, HookTemplateStorage, MetricsStorage, NodeTemplateStorage,
-    ScriptStorage, TaskStorage, ToolStorage, TriggerStorage, WorkflowExecutionStorage,
-    WorkflowStorage,
+    ScriptStorage, TaskStorage, ToolStorage, TriggerExecutionStorage, TriggerStorage,
+    UserInteractionStorage, WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::error::StorageError;
@@ -23,6 +23,8 @@ pub struct StorageContext {
     pub agent_profile: AgentProfileStorage<StorageBackend>,
     pub file_checkpoint: FileCheckpointStorage<StorageBackend>,
     pub trigger: TriggerStorage<StorageBackend>,
+    pub trigger_execution: TriggerExecutionStorage<StorageBackend>,
+    pub user_interaction: UserInteractionStorage<StorageBackend>,
     pub tool: ToolStorage<StorageBackend>,
     pub script: ScriptStorage<StorageBackend>,
     pub node_template: NodeTemplateStorage<StorageBackend>,
@@ -49,6 +51,8 @@ impl StorageContext {
             agent_profile: AgentProfileStorage::new(make_backend!(Memory, "agent_profile")),
             file_checkpoint: FileCheckpointStorage::new(make_backend!(Memory, "file_checkpoint")),
             trigger: TriggerStorage::new(make_backend!(Memory, "trigger")),
+            trigger_execution: TriggerExecutionStorage::new(make_backend!(Memory, "trigger_execution")),
+            user_interaction: UserInteractionStorage::new(make_backend!(Memory, "user_interaction")),
             tool: ToolStorage::new(make_backend!(Memory, "tool")),
             script: ScriptStorage::new(make_backend!(Memory, "script")),
             node_template: NodeTemplateStorage::new(make_backend!(Memory, "node_template")),
@@ -75,6 +79,8 @@ impl StorageContext {
             agent_profile: AgentProfileStorage::new(sqlite_backend!("agent_profile")),
             file_checkpoint: FileCheckpointStorage::new(sqlite_backend!("file_checkpoint")),
             trigger: TriggerStorage::new(sqlite_backend!("trigger")),
+            trigger_execution: TriggerExecutionStorage::new(sqlite_backend!("trigger_execution")),
+            user_interaction: UserInteractionStorage::new(sqlite_backend!("user_interaction")),
             tool: ToolStorage::new(sqlite_backend!("tool")),
             script: ScriptStorage::new(sqlite_backend!("script")),
             node_template: NodeTemplateStorage::new(sqlite_backend!("node_template")),
@@ -101,6 +107,8 @@ impl StorageContext {
             agent_profile: AgentProfileStorage::new(pg_backend!("agent_profile")),
             file_checkpoint: FileCheckpointStorage::new(pg_backend!("file_checkpoint")),
             trigger: TriggerStorage::new(pg_backend!("trigger")),
+            trigger_execution: TriggerExecutionStorage::new(pg_backend!("trigger_execution")),
+            user_interaction: UserInteractionStorage::new(pg_backend!("user_interaction")),
             tool: ToolStorage::new(pg_backend!("tool")),
             script: ScriptStorage::new(pg_backend!("script")),
             node_template: NodeTemplateStorage::new(pg_backend!("node_template")),

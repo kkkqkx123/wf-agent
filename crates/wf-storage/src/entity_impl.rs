@@ -240,6 +240,49 @@ impl Entity for wf_types::AgentProfileStorageMetadata {
     }
 }
 
+impl Entity for wf_types::UserInteractionStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "user_interaction"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "executionId": self.execution_id,
+            "interactionType": self.interaction_type,
+            "status": self.status,
+        })
+    }
+}
+
+impl Entity for wf_types::TriggerExecutionStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "trigger_execution"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "triggerName": self.trigger_name,
+            "triggerType": self.trigger_type,
+            "event": self.event,
+            "executionId": self.execution_id,
+            "workflowId": self.workflow_id,
+            "success": self.success,
+        })
+    }
+}
+
 impl Entity for wf_types::FileCheckpointStorageMetadata {
     type Metadata = Value;
 

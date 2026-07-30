@@ -15,6 +15,8 @@ pub mod script;
 pub mod task;
 pub mod tool;
 pub mod trigger;
+pub mod trigger_execution;
+pub mod user_interaction;
 pub mod workflow;
 
 pub use agent_execution::*;
@@ -33,4 +35,6 @@ pub use script::*;
 pub use task::*;
 pub use tool::*;
 pub use trigger::*;
+pub use trigger_execution::*;
+pub use user_interaction::*;
 pub use workflow::*;

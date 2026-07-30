@@ -18,3 +18,5 @@ once_cell.workspace = true
 eventsource-stream.workspace = true
 dashmap.workspace = true
 futures.workspace = true
+regex.workspace = true
+globset.workspace = true

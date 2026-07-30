@@ -1,9 +1,12 @@
 pub mod approval;
 pub mod callback;
+pub mod command_safety;
 pub mod error;
 pub mod executor;
 pub mod failure_protection;
+pub mod ignore;
 pub mod mcp;
+pub mod protect;
 pub mod registry;
 pub mod tool_call;
 pub mod tool_description_generator;

@@ -1,5 +1,6 @@
 pub mod condition;
 pub mod context;
+pub mod script;
 pub mod error;
 pub mod error_chain;
 pub mod failure_policy;

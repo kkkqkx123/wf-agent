@@ -73,7 +73,7 @@ impl NodeHandler for LoopEndHandler {
             for entry in ctx.variables.iter() {
                 vars.insert(entry.key().clone(), entry.value().clone());
             }
-            wf_execution_shared::condition::ConditionEvaluator::evaluate(cond, &vars)
+            wf_core::condition::ConditionEvaluator::evaluate(cond, &vars)
                 .unwrap_or(false)
         } else {
             current > 0

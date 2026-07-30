@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::interruption::InterruptionState;
-use wf_execution_shared::messaging::conversation_session::ConversationSession;
+use wf_core::interruption::InterruptionState;
+use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
 use wf_types::llm::ToolCallFormatConfig;
 use wf_types::Id;

@@ -7,8 +7,9 @@ edition.workspace = true
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-core = { path = "../wf-core" }
-wf-tools = { path = "../wf-tools" }
 wf-llm = { path = "../wf-llm" }
+wf-tools = { path = "../wf-tools" }
+wf-script = { path = "../wf-script" }
 
 async-trait.workspace = true
 serde.workspace = true

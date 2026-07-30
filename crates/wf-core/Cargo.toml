@@ -13,5 +13,14 @@ tracing.workspace = true
 
 dashmap = { workspace = true }
 
+async-trait.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+blake3.workspace = true
+moka = { workspace = true }
+regex.workspace = true
+rand.workspace = true
+num_cpus.workspace = true
+
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }

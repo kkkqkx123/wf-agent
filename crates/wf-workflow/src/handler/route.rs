@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use wf_execution_shared::condition::ConditionEvaluator;
+use wf_core::condition::ConditionEvaluator;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_types::node::StaticNodeType;
 

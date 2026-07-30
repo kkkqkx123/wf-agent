@@ -1,13 +1,13 @@
 [package]
-name = "wf-common"
+name = "wf-script"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
+wf-types = { path = "../wf-types" }
+
 serde.workspace = true
 serde_json.workspace = true
-chrono.workspace = true
-thiserror.workspace = true
-uuid.workspace = true
+regex.workspace = true
 tokio.workspace = true
-tokio-util.workspace = true
+thiserror.workspace = true

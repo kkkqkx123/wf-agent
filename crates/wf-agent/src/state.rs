@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_common::now;
-use wf_execution_shared::error_chain::manager::ErrorRecord;
-use wf_execution_shared::messaging::conversation_session::{ConversationSession, ConversationState};
+use wf_common::error_chain::ErrorRecord;
+use wf_llm::messaging::conversation_session::{ConversationSession, ConversationState};
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
 

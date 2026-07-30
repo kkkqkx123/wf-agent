@@ -4,8 +4,8 @@ use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::{BaseHookContext, BaseHookDefinition, HookExecutorConfig};
-use wf_execution_shared::interruption::check_execution_interruption;
-use wf_execution_shared::retry::budget::RetryBudget;
+use wf_core::interruption::check_execution_interruption;
+use wf_common::retry::RetryBudget;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::entity::WorkflowExecutionEntity;
@@ -45,7 +45,7 @@ impl NodeCoordinator {
         Self::execute_hooks(hooks, hook_executor, entity, "BEFORE_EXECUTE").await;
 
         let check = check_execution_interruption(entity.interruption(), None);
-        if !matches!(check, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(check, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
             return Err(WorkflowError::CoordinatorError(
                 format!("Execution interrupted before node {}: {:?}", node_id, check)
             ));

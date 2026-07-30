@@ -4,7 +4,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_execution_shared::hooks::executor::HookExecutor;
-use wf_execution_shared::interruption::check_execution_interruption;
+use wf_core::interruption::check_execution_interruption;
 use wf_llm::LlmWrapper;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::LlmRequest;
@@ -57,7 +57,7 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,
@@ -97,7 +97,7 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,
@@ -142,7 +142,7 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,

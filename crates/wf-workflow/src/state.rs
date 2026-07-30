@@ -1,4 +1,4 @@
-use wf_execution_shared::error_chain::manager::ErrorRecord;
+use wf_common::error_chain::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::workflow::snapshot::OperationState;

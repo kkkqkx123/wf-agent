@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use wf_execution_shared::failure_policy::manager::{
+use wf_core::failure_policy::{
     default_retry_policy, ExecutionSharedErrorProxy, FailurePolicyManager,
 };
-use wf_execution_shared::interruption::check_execution_interruption;
+use wf_core::interruption::check_execution_interruption;
 use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::execution::FailurePolicyConfig;
 
@@ -97,11 +97,11 @@ impl AgentExecutionCoordinator {
     ) -> AgentResult<Option<IterationResult>> {
         let interruption = check_execution_interruption(entity.interruption(), None);
         match interruption {
-            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
                 return Ok(None);
             }
-            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. }
-            | wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Aborted { .. } => {
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. }
+            | wf_core::types::interruption::ExecutionInterruptionCheckResult::Aborted { .. } => {
                 return Ok(None);
             }
             _ => {}

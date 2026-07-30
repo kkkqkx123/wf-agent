@@ -1,4 +1,5 @@
 use thiserror::Error;
+use wf_common::pool::PoolError;
 
 #[derive(Debug, Error)]
 pub enum ExecutionSharedError {
@@ -20,9 +21,6 @@ pub enum ExecutionSharedError {
     #[error("Condition error: {0}")]
     ConditionError(String),
 
-    #[error("LLM error: {0}")]
-    LlmError(#[from] wf_llm::error::LlmError),
-
     #[error("Tool error: {0}")]
     ToolError(#[from] wf_tools::error::ToolError),
 
@@ -34,3 +32,14 @@ pub enum ExecutionSharedError {
 }
 
 pub type ExecutionSharedResult<T> = Result<T, ExecutionSharedError>;
+
+impl From<PoolError> for ExecutionSharedError {
+    fn from(e: PoolError) -> Self {
+        match e {
+            PoolError::PoolExhausted(msg) => ExecutionSharedError::PoolError(msg),
+            PoolError::Timeout(msg) => ExecutionSharedError::TimeoutError(msg),
+            PoolError::Cancelled(msg) => ExecutionSharedError::InterruptionError(msg),
+            PoolError::Internal(msg) => ExecutionSharedError::Internal(msg),
+        }
+    }
+}

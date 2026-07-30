@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use futures::future::join_all;
 use tokio_util::sync::CancellationToken;
+use wf_core::condition::ConditionEvaluator;
 use wf_core::event::EventBus;
 use wf_types::events::{BaseEvent, EventType};
 
-use crate::condition::ConditionEvaluator;
 use crate::error::{ExecutionSharedError, ExecutionSharedResult};
 use crate::hooks::context_builder::HookContextBuilder;
 use crate::hooks::template::resolve_payload_template;
@@ -65,7 +65,8 @@ impl HookExecutor {
     ) -> ExecutionSharedResult<bool> {
         match condition {
             None => Ok(true),
-            Some(cond) => ConditionEvaluator::evaluate(cond, context),
+            Some(cond) => ConditionEvaluator::evaluate(cond, context)
+                .map_err(|e| ExecutionSharedError::ConditionError(e.to_string())),
         }
     }
 

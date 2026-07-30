@@ -35,4 +35,3 @@ pub trait IExecutionEntity: Send + Sync {
     fn get_hierarchy_depth(&self) -> u32;
     fn get_root_execution_id(&self) -> Option<Id>;
 }
-

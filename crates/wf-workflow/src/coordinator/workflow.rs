@@ -4,11 +4,11 @@ use std::sync::Arc;
 use serde_json::Value;
 use wf_common::now;
 use wf_core::EventBus;
-use wf_execution_shared::condition::ConditionEvaluator;
+use wf_core::condition::ConditionEvaluator;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::interruption::check_execution_interruption;
+use wf_core::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::WorkflowGraphStructure;
@@ -149,13 +149,13 @@ impl WorkflowCoordinator {
         while let Some(node_id) = &self.current_node_id.clone() {
             let interruption_check = check_execution_interruption(entity.interruption(), None);
             match interruption_check {
-                wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
+                wf_core::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
                     self.emit_event(event_bus, EventType::WorkflowExecutionCancelled, entity, &serde_json::json!({
                         "reason": "interrupted",
                     })).await;
                     return Err(WorkflowError::CoordinatorError("Execution stopped by interruption".to_string()));
                 }
-                wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
+                wf_core::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
                     self.emit_event(event_bus, EventType::WorkflowExecutionPaused, entity, &serde_json::json!({
                         "node_id": node_id,
                     })).await;

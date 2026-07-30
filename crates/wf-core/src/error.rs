@@ -12,9 +12,19 @@ pub enum CoreError {
     Snapshot { message: String },
     #[error("timeout: {0}")]
     Timeout(String),
+    #[error("condition error: {0}")]
+    ConditionError(String),
+    #[error("hook error: {0}")]
+    HookError(String),
+    #[error("interruption error: {0}")]
+    InterruptionError(String),
+    #[error("state error: {0}")]
+    StateError(String),
     #[error("internal: {0}")]
     Internal(String),
 }
+
+pub type CoreResult<T> = Result<T, CoreError>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum EventError {

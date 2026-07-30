@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde_json::Value;
-use wf_execution_shared::interruption::InterruptionState;
+use wf_core::interruption::InterruptionState;
 use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
 use wf_types::Id;
 

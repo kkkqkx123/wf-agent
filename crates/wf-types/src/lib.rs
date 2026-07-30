@@ -17,6 +17,7 @@ pub mod agent_execution;
 pub mod checkpoint;
 pub mod config;
 pub mod errors;
+pub use errors::*;
 pub mod events;
 pub mod execution;
 pub mod interaction;

@@ -11,3 +11,5 @@ thiserror.workspace = true
 uuid.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+
+wf-types = { path = "../wf-types" }

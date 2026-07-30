@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde_json::Value;
 use wf_types::execution::{FailureAction, FailurePolicyConfig, FallbackPolicy, RetryPolicy};
 
-use crate::types::error::ErrorSeverity;
+use wf_types::ErrorSeverity;
 
 #[derive(Debug, Clone)]
 pub struct FailurePolicyManager {
@@ -78,7 +78,7 @@ impl FailurePolicyManager {
     ) -> FailureAction {
         match severity {
             ErrorSeverity::Critical => FailureAction::Fail,
-            ErrorSeverity::High => {
+            ErrorSeverity::Error => {
                 if self.should_retry(error, attempt) {
                     FailureAction::Retry
                 } else if self.fallback_value().is_some() {
@@ -87,14 +87,14 @@ impl FailurePolicyManager {
                     FailureAction::Fail
                 }
             }
-            ErrorSeverity::Medium => {
+            ErrorSeverity::Warning => {
                 if self.should_retry(error, attempt) {
                     FailureAction::Retry
                 } else {
                     FailureAction::Continue
                 }
             }
-            ErrorSeverity::Low => FailureAction::Continue,
+            ErrorSeverity::Info => FailureAction::Continue,
         }
     }
 
@@ -138,11 +138,11 @@ fn infer_severity(message: &str) -> ErrorSeverity {
     if lower.contains("critical") {
         ErrorSeverity::Critical
     } else if lower.contains("timeout") || lower.contains("abort") {
-        ErrorSeverity::High
+        ErrorSeverity::Error
     } else if lower.contains("validation") || lower.contains("invalid") {
-        ErrorSeverity::Medium
+        ErrorSeverity::Warning
     } else {
-        ErrorSeverity::Low
+        ErrorSeverity::Info
     }
 }
 
@@ -329,11 +329,11 @@ mod tests {
 
         let err = ExecutionSharedErrorProxy::from_message("timeout".to_string());
         assert_eq!(
-            m.failure_action(ErrorSeverity::High, 0, &err),
+            m.failure_action(ErrorSeverity::Error, 0, &err),
             FailureAction::Retry
         );
         assert_eq!(
-            m.failure_action(ErrorSeverity::High, 5, &err),
+            m.failure_action(ErrorSeverity::Error, 5, &err),
             FailureAction::Fallback
         );
     }
@@ -341,12 +341,12 @@ mod tests {
     #[test]
     fn test_infer_severity() {
         assert_eq!(infer_severity("critical failure"), ErrorSeverity::Critical);
-        assert_eq!(infer_severity("timeout after 30s"), ErrorSeverity::High);
+        assert_eq!(infer_severity("timeout after 30s"), ErrorSeverity::Error);
         assert_eq!(
             infer_severity("validation error"),
-            ErrorSeverity::Medium
+            ErrorSeverity::Warning
         );
-        assert_eq!(infer_severity("something went wrong"), ErrorSeverity::Low);
+        assert_eq!(infer_severity("something went wrong"), ErrorSeverity::Info);
     }
 
     #[test]

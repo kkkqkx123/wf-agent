@@ -10,6 +10,31 @@ pub enum ErrorSeverity {
     Critical,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorType {
+    ToolError,
+    LlmError,
+    Timeout,
+    Validation,
+    Internal,
+    Interruption,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecoveryAction {
+    Retry,
+    Fallback,
+    ManualIntervention,
+    Abort,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorCause {
+    pub reason: String,
+    pub handling_attempt: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {

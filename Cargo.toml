@@ -17,6 +17,8 @@ members = [
     "crates/wf-script",
     "crates/wf-plugin",
     "crates/layertwine",
+    "crates/wf-resource",
+    "crates/wf-api",
 ]
 
 [workspace.package]

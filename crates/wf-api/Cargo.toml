@@ -1,0 +1,18 @@
+[package]
+name = "wf-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-storage = { path = "../wf-storage" }
+wf-core = { path = "../wf-core" }
+wf-resource = { path = "../wf-resource" }

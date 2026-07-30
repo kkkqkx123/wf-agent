@@ -1,4 +1,4 @@
-pub use crate::bootstrap::{Runtime, RuntimeConfig};
+pub use crate::bootstrap::{ResourceConfig, Runtime, RuntimeConfig};
 pub use crate::error::{RuntimeError, RuntimeResult};
 pub use crate::lifecycle::{
     graceful_shutdown, setup_signal_handler, wait_for_signal, ShutdownHandle, ShutdownSignal,

@@ -36,6 +36,8 @@ Crates under `crates/` with a strict dependency DAG:
 - `wf-types` - All type definitions (serde), 20 node types, workflow/agent/checkpoint types
 - `wf-common` - Common utilities (error, result, time, id)
 - `wf-storage` - Storage adapter traits + in-memory/SQLite/PostgreSQL implementations
+- `wf-plugin` - Plugin system (Lua scripting / native dynamic library)
+- `wf-script` - Script expression evaluation
 
 ## Code Architecture
 
@@ -44,9 +46,14 @@ Crates under `crates/` with a strict dependency DAG:
 ```
 wf-agent/
 ├── apps/               # Application modules (TS)
+│   ├── cli-app/
+│   ├── server/
+│   ├── vscode-app/
+│   └── web-app/
 ├── packages/           # Shared TS packages
 │   ├── common-utils/   # Common utilities
 │   ├── config-processor/
+│   ├── runtime/
 │   ├── sdk/            # Core SDK package
 │   ├── sdk-kit/        # SDK toolkit package
 │   ├── storage/        # Storage utilities
@@ -58,16 +65,18 @@ wf-agent/
 │   ├── wf-common/       # Common utilities
 │   ├── wf-storage/      # Storage implementations
 │   ├── wf-core/         # EventBus, StateMachine, Registry
-│   ├── wf-checkpoint/    # Checkpoint system
-│   ├── wf-config/        # Configuration processing
-│   ├── wf-tools/         # Tool registry, executors, MCP
-│   ├── wf-llm/           # LLM client abstraction
+│   ├── wf-checkpoint/   # Checkpoint system
+│   ├── wf-config/       # Configuration processing
+│   ├── wf-tools/        # Tool registry, executors, MCP
+│   ├── wf-llm/          # LLM client abstraction
+│   ├── wf-plugin/       # Plugin system (Lua/Native)
+│   ├── wf-script/       # Script expression evaluation
 │   ├── wf-execution-shared/  # Shared execution infrastructure
-│   ├── wf-agent/         # Agent loop execution engine
-│   ├── wf-workflow/      # Workflow graph execution engine
-│   ├── wf-runtime/       # Runtime bootstrap
-│   └── wf-sandbox/       # Script sandbox
-├── crates/layertwine/   # Standalone file-edit history (not in workspace)
+│   ├── wf-agent/        # Agent loop execution engine
+│   ├── wf-workflow/     # Workflow graph execution engine
+│   ├── wf-runtime/      # Runtime bootstrap
+│   └── wf-sandbox/      # Script sandbox
+├── crates/layertwine/   # File-edit history storage (in workspace)
 ├── package.json
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -77,14 +86,17 @@ wf-agent/
 
 ```
 wf-types  ←  wf-storage  →  wf-common
-    ↓           ↓
-wf-core ←──────┘
+    ↓           ↓               ↓
+wf-core ←──────┘          wf-config  wf-script
     ↓
-wf-tools ←──── wf-execution-shared
-    ↓                ↓
-wf-llm         wf-agent
-                   ↓
-              wf-workflow
+    ├── wf-checkpoint
+    ├── wf-tools   wf-llm   wf-plugin
+    └── wf-execution-shared
+              ↓
+         wf-agent
+              ↓
+    ├── wf-workflow  ──  wf-sandbox
+    └── wf-runtime
 ```
 
 ## Rust Development Conventions
@@ -105,7 +117,7 @@ crates/<name>/src/
 
 ## Building and Running
 
-Prerequisites: rustc 1.88.0, cargo 1.88.0
+Prerequisites: latest stable Rust (see `rust-toolchain.toml`)
 
 ```shell
 cargo clippy --all-targets --all-features            # full compile check

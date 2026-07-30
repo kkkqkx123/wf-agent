@@ -14,6 +14,7 @@ wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }
 wf-core = { path = "../wf-core" }
+wf-resource = { path = "../wf-resource" }
 wf-checkpoint = { path = "../wf-checkpoint", optional = true }
 wf-plugin = { path = "../wf-plugin", optional = true }
 async-trait = { workspace = true, optional = true }

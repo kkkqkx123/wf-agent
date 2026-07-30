@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_execution_shared::hooks::executor::HookExecutor;
-use wf_execution_shared::llm::coordinator::LlmExecutionCoordinator;
 use wf_execution_shared::interruption::check_execution_interruption;
+use wf_llm::LlmWrapper;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::LlmRequest;
 
@@ -23,19 +23,19 @@ pub struct IterationResult {
 }
 
 pub struct AgentIterationCoordinator {
-    llm_coordinator: Arc<LlmExecutionCoordinator>,
+    llm_wrapper: Arc<LlmWrapper>,
     tool_coordinator: Arc<ToolExecutionCoordinator>,
     hook_executor: Arc<HookExecutor>,
 }
 
 impl AgentIterationCoordinator {
     pub fn new(
-        llm_wrapper: Arc<wf_llm::LlmWrapper>,
+        llm_wrapper: Arc<LlmWrapper>,
         tool_registry: Arc<ToolRegistry>,
         hook_executor: Arc<HookExecutor>,
     ) -> Self {
         Self {
-            llm_coordinator: Arc::new(LlmExecutionCoordinator::new(llm_wrapper)),
+            llm_wrapper,
             tool_coordinator: Arc::new(ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())),
             hook_executor,
         }
@@ -91,7 +91,7 @@ impl AgentIterationCoordinator {
             dead_loop_detection: None,
         };
 
-        let llm_result = self.llm_coordinator.execute_llm_call(request).await?;
+        let llm_result = self.llm_wrapper.generate(&request).await?;
 
         let interruption = check_execution_interruption(
             entity.interruption(),

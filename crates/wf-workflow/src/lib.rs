@@ -23,7 +23,7 @@ pub use coordinator::{
 pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
 pub use executor::WorkflowExecutor;
-pub use factory::builder::WorkflowExecutionBuilder;
+pub use factory::WorkflowExecutionBuilder;
 pub use handler::{
     agent_loop::AgentLoopHandler, context_processor::ContextProcessorHandler, fork_join::ForkHandler,
     fork_join::JoinHandler, interactive_script::InteractiveScriptHandler, llm::LlmHandler,
@@ -32,7 +32,7 @@ pub use handler::{
     sync::SyncHandler, tool_visibility::ToolVisibilityHandler, variable::VariableHandler,
     HandlerRegistry, NodeHandler, NodeHandlerResult,
 };
-pub use hook::handler::WorkflowHookHandler;
+pub use hook::WorkflowHookHandler;
 pub use registry::{WorkflowGraphRegistry, WorkflowExecutionRegistry, WorkflowExecutionPool, create_graph_registry, create_execution_registry};
 pub use state::{WorkflowExecutionState, WorkflowExecutionStateSnapshot};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;

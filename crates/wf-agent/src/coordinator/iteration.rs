@@ -11,7 +11,7 @@ use wf_types::llm::LlmRequest;
 
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::hook::handler::AgentHookHandler;
+use crate::hook::AgentHookHandler;
 use crate::coordinator::tool::ToolExecutionCoordinator;
 
 #[derive(Debug, Clone)]

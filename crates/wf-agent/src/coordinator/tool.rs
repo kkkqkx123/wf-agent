@@ -13,7 +13,7 @@ use wf_types::tool::ToolExecutionOptions;
 
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
-use crate::hook::handler::AgentHookHandler;
+use crate::hook::AgentHookHandler;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ToolExecutionMode {
@@ -121,13 +121,8 @@ impl ToolExecutionCoordinator {
                 ).await;
 
                 let params: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(Value::Null);
-                let tool_id = Self::find_tool_id_by_name(&tool_registry, &tool_call.function.name);
-                let options = ToolExecutionOptions {
-                    timeout: Some(30000), retries: None, retry_delay: None, exponential_backoff: None,
-                };
-
                 let result_msg = Self::build_result_msg(
-                    &tool_registry, &tool_call, tool_id, &params, &options, &entity_id, &entity_state,
+                    &tool_registry, &tool_call, &params, &entity_id, &entity_state,
                 ).await;
 
                 let _ = AgentHookHandler::execute_hooks(
@@ -227,12 +222,11 @@ impl ToolExecutionCoordinator {
     async fn build_result_msg(
         tool_registry: &ToolRegistry,
         tc: &LlmToolCall,
-        tool_id: Option<String>,
         params: &Value,
-        _options: &ToolExecutionOptions,
         entity_id: &str,
-        entity_state: &tokio::sync::RwLock<crate::state::agent_loop_state::AgentLoopState>,
+        entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
     ) -> Message {
+        let tool_id = Self::find_tool_id_by_name(tool_registry, &tc.function.name);
         let timeout_ms = tool_id.as_ref().and_then(|tid| {
             tool_registry.get_tool(tid).and_then(|t| t.default_timeout_ms)
         }).unwrap_or(120_000);

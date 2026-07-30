@@ -9,7 +9,7 @@ use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::{AgentStateSnapshot, VariableSnapshot};
 use wf_types::checkpoint::CheckpointTrigger;
 
-use crate::entity::agent_loop::AgentLoopEntity;
+use crate::entity::AgentLoopEntity;
 
 pub struct AgentCheckpointIntegration {
     inner: AgentCheckpointCoordinator,

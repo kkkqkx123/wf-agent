@@ -86,9 +86,6 @@ impl NodeHandler for AgentLoopHandler {
                     "iteration_count".to_string(),
                     Value::Number(output.iterations.into()),
                 );
-                if let Some(performance) = output.performance {
-                    metadata.insert("performance".to_string(), performance);
-                }
                 metadata.insert("node_id".to_string(), Value::String(ctx.node_id.clone()));
 
                 let final_content = output.result;

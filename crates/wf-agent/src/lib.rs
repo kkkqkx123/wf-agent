@@ -6,11 +6,9 @@ pub mod error;
 pub mod executor;
 pub mod factory;
 pub mod hook;
-pub mod performance;
 pub mod state;
 
 pub use callback::register_builtin_tools;
 pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
 pub use error::{AgentError, AgentResult};
 pub use executor::AgentLoopExecutor;
-pub use performance::{analyze_performance, ExecutionPerformanceProfile};

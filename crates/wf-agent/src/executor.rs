@@ -68,7 +68,6 @@ impl ExecutionCallback for AgentLoopExecutor {
                 "Workflow {} execution not yet implemented",
                 workflow_id
             )),
-            performance: None,
         })
     }
 

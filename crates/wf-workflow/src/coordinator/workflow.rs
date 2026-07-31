@@ -58,18 +58,6 @@ fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
     }
 }
 
-/// Extract the tool call count from an agent_loop node's output metadata
-/// (`metadata["performance"]["total_tool_calls"]`). Nodes without a mounted
-/// performance profile contribute 0.
-fn extract_tool_call_count(metadata: &HashMap<String, Value>) -> u32 {
-    metadata
-        .get("performance")
-        .and_then(|p| p.get("total_tool_calls"))
-        .and_then(|v| v.as_u64())
-        .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
-        .unwrap_or(0)
-}
-
 /// One completed node execution attempt, shared by the main execution path
 /// and the retry path; each attempt yields an independent record.
 struct ExecutionAttempt<'a> {
@@ -78,7 +66,6 @@ struct ExecutionAttempt<'a> {
     start_time: i64,
     success: bool,
     error: Option<String>,
-    metadata: &'a HashMap<String, Value>,
 }
 
 pub struct WorkflowCoordinator {
@@ -163,8 +150,7 @@ impl WorkflowCoordinator {
         &self.completed_nodes
     }
 
-    /// Snapshot of the owned entity's execution state, used for performance
-    /// analysis after execution completes.
+    /// Snapshot of the owned entity's execution state.
     pub async fn state_snapshot(&self) -> WorkflowResult<WorkflowExecutionStateSnapshot> {
         let entity = self.entity.as_ref().ok_or_else(|| {
             WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
@@ -196,7 +182,6 @@ impl WorkflowCoordinator {
                 end_time: Some(wf_common::now()),
                 success: attempt.success,
                 error: attempt.error,
-                tool_call_count: extract_tool_call_count(attempt.metadata),
             });
     }
 
@@ -373,7 +358,6 @@ impl WorkflowCoordinator {
                             start_time: node_start,
                             success: true,
                             error: None,
-                            metadata: &output.metadata,
                         },
                     )
                     .await;
@@ -408,7 +392,6 @@ impl WorkflowCoordinator {
                             start_time: node_start,
                             success: false,
                             error: Some(e.to_string()),
-                            metadata: &HashMap::new(),
                         },
                     )
                     .await;
@@ -468,7 +451,6 @@ impl WorkflowCoordinator {
                                                 start_time: attempt_start,
                                                 success: true,
                                                 error: None,
-                                                metadata: &retry_output.metadata,
                                             },
                                         )
                                         .await;
@@ -500,7 +482,6 @@ impl WorkflowCoordinator {
                                                 start_time: attempt_start,
                                                 success: false,
                                                 error: Some(retry_err.to_string()),
-                                                metadata: &HashMap::new(),
                                             },
                                         )
                                         .await;
@@ -747,35 +728,3 @@ impl WorkflowCoordinator {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_tool_call_count_reads_agent_loop_performance_metadata() {
-        let metadata = HashMap::from([(
-            "performance".to_string(),
-            serde_json::json!({ "total_tool_calls": 7 }),
-        )]);
-        assert_eq!(extract_tool_call_count(&metadata), 7);
-    }
-
-    #[test]
-    fn extract_tool_call_count_defaults_to_zero_without_performance() {
-        let metadata = HashMap::from([(
-            "other".to_string(),
-            serde_json::json!({ "total_tool_calls": 7 }),
-        )]);
-        assert_eq!(extract_tool_call_count(&metadata), 0);
-        assert_eq!(extract_tool_call_count(&HashMap::new()), 0);
-    }
-
-    #[test]
-    fn extract_tool_call_count_tolerates_malformed_metadata() {
-        let metadata = HashMap::from([(
-            "performance".to_string(),
-            serde_json::json!({ "total_tool_calls": "many" }),
-        )]);
-        assert_eq!(extract_tool_call_count(&metadata), 0);
-    }
-}

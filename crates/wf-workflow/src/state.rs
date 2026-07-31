@@ -4,9 +4,6 @@ use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::workflow::snapshot::OperationState;
 
 /// One node execution attempt (retries produce independent records).
-///
-/// `end_time` is `None` for executions still in flight; only records with
-/// `end_time` set participate in duration statistics.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NodeExecutionRecord {
     pub node_id: String,
@@ -17,9 +14,6 @@ pub struct NodeExecutionRecord {
     pub end_time: Option<i64>,
     pub success: bool,
     pub error: Option<String>,
-    /// Aggregated from the agent_loop node's `metadata["performance"].total_tool_calls`
-    /// at record time; non-agent nodes contribute 0.
-    pub tool_call_count: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

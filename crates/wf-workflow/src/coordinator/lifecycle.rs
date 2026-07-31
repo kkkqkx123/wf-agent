@@ -18,7 +18,6 @@ use crate::coordinator::WorkflowCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
-use crate::performance::analyze_performance;
 
 pub struct WorkflowExecutionParams {
     pub execution_id: wf_types::Id,
@@ -153,15 +152,9 @@ impl WorkflowLifecycleCoordinator {
                     );
                 }
 
-                let performance = {
-                    let snapshot = coordinator.state_snapshot().await?;
-                    serde_json::to_value(analyze_performance(&snapshot)).ok()
-                };
-
                 Ok(WorkflowOutput {
                     execution_id,
                     result: output,
-                    performance,
                 })
             }
             Err(e) => {

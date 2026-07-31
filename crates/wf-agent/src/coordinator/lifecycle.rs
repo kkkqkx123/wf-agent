@@ -7,7 +7,6 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_core::event::EventBus;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::types::state_manager::StateManager;
 use wf_llm::LlmWrapper;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
@@ -23,7 +22,6 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
-use crate::performance::analyze_performance;
 
 pub struct AgentLoopCoordinator {
     llm_wrapper: Arc<LlmWrapper>,
@@ -153,19 +151,11 @@ impl AgentLoopCoordinator {
                         duration_ms,
                     );
                 }
-                let performance = {
-                    let snapshot = entity.state.read().await.create_snapshot().await?;
-                    serde_json::to_value(analyze_performance(&snapshot)).ok()
-                };
-
                 let mut hook_data = HashMap::new();
                 hook_data.insert(
                     "total_iterations".to_string(),
                     Value::Number(iterations.into()),
                 );
-                if let Some(ref profile) = performance {
-                    hook_data.insert("performance_profile".to_string(), profile.clone());
-                }
                 AgentHookHandler::execute_agent_hook(
                     &self.hook_executor,
                     &entity,
@@ -178,7 +168,6 @@ impl AgentLoopCoordinator {
                 Ok(AgentLoopOutput {
                     result: result.content,
                     iterations,
-                    performance,
                 })
             }
             Err(e) => {

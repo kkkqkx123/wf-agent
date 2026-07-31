@@ -6,10 +6,7 @@
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use layertwine::core::types::ContentId;
-use layertwine::storage::repository::{
-    CheckpointPersist, DeltaStore, FileNodeStore, SnapshotStore,
-};
-use std::path::Path;
+use layertwine::storage::repository::{CheckpointPersist, DeltaStore, SnapshotStore};
 
 // ---------------------------------------------------------------------------
 // Invalid snapshot ID: querying non-existent snapshot should return error

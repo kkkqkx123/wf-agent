@@ -269,12 +269,14 @@ async fn test_metrics_adapter_save_query_delete() {
     let points = vec![
         wf_storage::adapter::MetricsDataPoint {
             name: "cpu".into(),
+            metric_type: "gauge".into(),
             value: 0.8,
             timestamp: 2000,
             tags: None,
         },
         wf_storage::adapter::MetricsDataPoint {
             name: "cpu".into(),
+            metric_type: "gauge".into(),
             value: 0.5,
             timestamp: 1000,
             tags: None,

@@ -121,7 +121,7 @@ impl DeltaStore for SqliteStorage {
 
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
-            if let Some(delta) = delta_map.remove(&id.0.to_vec()) {
+            if let Some(delta) = delta_map.remove(id.0.as_slice()) {
                 result.push(delta);
             }
         }

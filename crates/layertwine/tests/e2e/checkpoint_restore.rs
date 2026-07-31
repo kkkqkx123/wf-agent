@@ -11,7 +11,7 @@ use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
 use layertwine::api::{
-    ApiService, CheckpointDiffRequest, CheckpointRestoreByTimeRequest, CheckpointRestoreRequest,
+    CheckpointDiffRequest, CheckpointRestoreByTimeRequest, CheckpointRestoreRequest,
     CheckpointRollbackRequest, LogRequest,
 };
 use layertwine::core::types::SnapshotId;

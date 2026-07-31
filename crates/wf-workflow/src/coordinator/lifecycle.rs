@@ -7,6 +7,7 @@ use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::executor::HookExecutor;
+use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
@@ -33,6 +34,7 @@ pub struct WorkflowLifecycleCoordinator {
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
+    metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl WorkflowLifecycleCoordinator {
@@ -47,6 +49,7 @@ impl WorkflowLifecycleCoordinator {
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
+            metrics: None,
         }
     }
 
@@ -65,12 +68,19 @@ impl WorkflowLifecycleCoordinator {
         self
     }
 
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     pub async fn execute_workflow(
         &self,
         params: WorkflowExecutionParams,
     ) -> WorkflowResult<Value> {
         let execution_id = params.execution_id;
         let workflow_id = params.workflow_id;
+        let workflow_id_metrics = workflow_id.clone();
+        let execution_id_metrics = execution_id.clone();
 
         let mut wf_state = WorkflowStateMachine::new(&execution_id);
         wf_state.start().map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
@@ -89,13 +99,19 @@ impl WorkflowLifecycleCoordinator {
             entity.set_variable("input", input.clone());
         }
 
-        let ctx = ExecutorContext::new(
+        let mut ctx = ExecutorContext::new(
             execution_id.clone(),
             workflow_id,
             self.event_bus.clone(),
             params.tool_registry,
             opts,
         );
+        if let Some(ref metrics) = self.metrics {
+            metrics
+                .workflow()
+                .record_execution_start(&execution_id, &workflow_id_metrics);
+            ctx = ctx.with_metrics(metrics.clone());
+        }
 
         let mut coordinator = WorkflowCoordinator::new(ctx, params.graph, params.handlers)?
             .with_entity(entity)
@@ -116,18 +132,40 @@ impl WorkflowLifecycleCoordinator {
             coordinator = coordinator.with_checkpoint(cp);
         }
 
+        let start = wf_common::now();
         let result = coordinator.execute().await;
+        let duration_ms = (wf_common::now() - start) as f64;
 
         match &result {
             Ok(output) => {
                 wf_state.complete(Some(output.clone())).map_err(|e| {
                     WorkflowError::StateTransitionError(e.to_string())
                 })?;
+                if let Some(ref metrics) = self.metrics {
+                    metrics.workflow().record_execution_complete(
+                        &execution_id_metrics,
+                        &workflow_id_metrics,
+                        None,
+                        true,
+                        duration_ms,
+                        None,
+                    );
+                }
             }
             Err(e) => {
                 wf_state.fail(e.to_string()).map_err(|e| {
                     WorkflowError::StateTransitionError(e.to_string())
                 })?;
+                if let Some(ref metrics) = self.metrics {
+                    metrics.workflow().record_execution_complete(
+                        &execution_id_metrics,
+                        &workflow_id_metrics,
+                        None,
+                        false,
+                        duration_ms,
+                        Some("workflow_error"),
+                    );
+                }
             }
         }
 

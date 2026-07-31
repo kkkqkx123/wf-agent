@@ -9,7 +9,7 @@
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
-use layertwine::api::{ApiService, ShowRequest};
+use layertwine::api::ShowRequest;
 use layertwine::storage::repository::PartitionStore;
 
 // ── S1: Show staged diff ──

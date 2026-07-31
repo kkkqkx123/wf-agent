@@ -103,6 +103,7 @@ impl Store for StorageBackend {
     }
 }
 
+#[async_trait]
 impl BatchStore for StorageBackend {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         match self {
@@ -138,6 +139,7 @@ impl BatchStore for StorageBackend {
     }
 }
 
+#[async_trait]
 impl Maintainable for StorageBackend {
     async fn vacuum(&self) -> Result<(), StorageError> {
         match self {

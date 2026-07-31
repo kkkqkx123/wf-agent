@@ -4,7 +4,7 @@ use crate::common::assertions::*;
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
-use layertwine::api::{ApiService, CommitRequest, EditRequest, InitRequest, LogRequest};
+use layertwine::api::{CommitRequest, EditRequest, InitRequest, LogRequest};
 use layertwine::core::types::SnapshotId;
 use layertwine::storage::repository::PartitionStore;
 

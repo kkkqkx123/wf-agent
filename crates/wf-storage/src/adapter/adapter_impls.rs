@@ -499,6 +499,7 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
 
 // ─── MetricsStorageAdapter (standalone, no BaseStorageAdapter) ───
 
+#[derive(Clone)]
 pub struct MetricsStorage<S> {
     entity_store: EntityStore<S, MetricRecord>,
 }
@@ -515,6 +516,7 @@ impl<S: Store> MetricsStorage<S> {
     }
 }
 
+#[async_trait::async_trait]
 impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
     async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError> {
         let records: Vec<MetricRecord> = points

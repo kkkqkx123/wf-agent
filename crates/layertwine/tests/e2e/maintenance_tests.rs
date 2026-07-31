@@ -7,7 +7,7 @@
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
-use layertwine::api::{ApiService, CompactRequest, GcRequest};
+use layertwine::api::{CompactRequest, GcRequest};
 
 // ── Compact tests ──
 

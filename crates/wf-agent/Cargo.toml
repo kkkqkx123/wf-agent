@@ -12,6 +12,7 @@ wf-llm = { path = "../wf-llm" }
 wf-checkpoint = { path = "../wf-checkpoint" }
 wf-storage = { path = "../wf-storage" }
 wf-execution-shared = { path = "../wf-execution-shared" }
+wf-metrics = { path = "../wf-metrics" }
 
 async-trait.workspace = true
 serde.workspace = true

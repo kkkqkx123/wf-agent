@@ -7,7 +7,7 @@
 //! Each test mirrors a real business scenario from the user guide.
 
 use layertwine::api::{
-    ApiService, ApproveRequest, BackupRequest, BranchCreateRequest, BranchSwitchRequest,
+    ApproveRequest, BackupRequest, BranchCreateRequest, BranchSwitchRequest,
     CommitRequest, EditRequest, GcRequest, InitRequest, LogRequest, MergeRequest, RestoreRequest,
     ShowRequest,
 };

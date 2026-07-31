@@ -170,28 +170,28 @@ impl SqliteStorage {
     pub fn clear_all_branches(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
         let count = conn.execute("DELETE FROM branches", [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Delete all layers from storage.
     pub fn clear_all_layers(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
         let count = conn.execute("DELETE FROM layers", [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Delete all snapshots from storage.
     pub fn clear_all_snapshots(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
         let count = conn.execute("DELETE FROM snapshots", [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Delete all deltas from storage.
     pub fn clear_all_deltas(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
         let count = conn.execute("DELETE FROM deltas", [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Delete orphaned snapshots not referenced by any checkpoint.
@@ -207,7 +207,7 @@ impl SqliteStorage {
             FROM checkpoints, json_each(checkpoints.snapshot_ids)
         )";
         let count = conn.execute(sql, [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 
     /// Delete orphaned deltas not referenced by any snapshot.
@@ -222,6 +222,6 @@ impl SqliteStorage {
             FROM snapshots, json_each(snapshots.deltas)
         )";
         let count = conn.execute(sql, [])?;
-        Ok(count as usize)
+        Ok(count)
     }
 }

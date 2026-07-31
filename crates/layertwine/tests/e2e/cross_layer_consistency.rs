@@ -39,7 +39,7 @@ fn test_full_pipeline_layer_consistency() {
 
     // Verify commit created checkpoint entries
     let log = get_log(&env, Some(10));
-    assert!(log.len() >= 1, "should have at least one log entry");
+    assert!(!log.is_empty(), "should have at least one log entry");
 }
 
 // ---------------------------------------------------------------------------

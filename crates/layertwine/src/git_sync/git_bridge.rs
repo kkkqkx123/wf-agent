@@ -14,20 +14,15 @@ use crate::storage::repository::{DeltaStore, FileNodeStore, SnapshotStore};
 use crate::engine::diff::diff_to_line_diff;
 
 /// Which ref namespace to use for git commits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RefNamespace {
     /// Commit directly to the current git branch (HEAD), updating working tree and index.
     /// This is the default, backward-compatible mode.
+    #[default]
     CurrentBranch,
     /// Commit to `refs/layertwine/<branch>`, isolated from working tree.
     /// Uses TreeBuilder directly without touching HEAD, index, or working tree.
     Isolated,
-}
-
-impl Default for RefNamespace {
-    fn default() -> Self {
-        Self::CurrentBranch
-    }
 }
 
 /// Configuration for git sync operations.
@@ -477,20 +472,30 @@ impl GitBridge {
         // Ensure refs/heads/<branch_name> exists for CurrentBranch mode
         // In Isolated mode, the ref is already set (refs/layertwine/<branch>)
         if update_ref == Some("HEAD") {
-            git_repo
-                .branch(
-                    branch_name,
-                    &git_repo.find_commit(git_commit).map_err(|e| {
-                        LayertwineError::GitSync(format!("failed to find commit: {}", e))
-                    })?,
-                    true, // force update
-                )
-                .map_err(|e| {
-                    LayertwineError::GitSync(format!(
-                        "failed to create/update branch '{}': {}",
-                        branch_name, e
-                    ))
-                })?;
+            let head_on_branch = git_repo
+                .head()
+                .ok()
+                .map(|h| h.is_branch() && h.shorthand().ok() == Some(branch_name))
+                .unwrap_or(false);
+            // When HEAD is already attached to this branch, commit(HEAD) moved the
+            // branch ref, so force-updating it again is redundant and refused by
+            // libgit2 (cannot force-update the current HEAD branch).
+            if !head_on_branch {
+                git_repo
+                    .branch(
+                        branch_name,
+                        &git_repo.find_commit(git_commit).map_err(|e| {
+                            LayertwineError::GitSync(format!("failed to find commit: {}", e))
+                        })?,
+                        true, // force update
+                    )
+                    .map_err(|e| {
+                        LayertwineError::GitSync(format!(
+                            "failed to create/update branch '{}': {}",
+                            branch_name, e
+                        ))
+                    })?;
+            }
         }
 
         Ok(git_commit_hash)

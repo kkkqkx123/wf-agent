@@ -9,6 +9,7 @@ use crate::error::StorageError;
 use crate::util::compression::{maybe_compress, maybe_decompress};
 use crate::util::hash::compute_hash;
 
+#[derive(Clone)]
 pub struct EntityStore<S, T> {
     storage: S,
     _marker: PhantomData<T>,

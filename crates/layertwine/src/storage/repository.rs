@@ -147,6 +147,13 @@ pub trait Repository:
 
 /// DAG persistent storage trait
 ///
+/// DAG adjacency map (parent -> children) plus per-node generation numbers,
+/// loaded together from storage.
+pub type DagGraph = (
+    HashMap<CheckpointId, HashSet<CheckpointId>>,
+    HashMap<CheckpointId, u64>,
+);
+
 /// Stores the graph structure (parent-child edges and generation numbers)
 /// separately from full checkpoint entities, enabling lazy loading.
 pub trait DagStore: Send + Sync {
@@ -169,10 +176,7 @@ pub trait DagStore: Send + Sync {
     fn delete_dag_node(&self, node_id: &CheckpointId) -> StorageResult<()>;
 
     /// Load the entire DAG structure from storage
-    fn load_dag(&self) -> StorageResult<(
-        HashMap<CheckpointId, HashSet<CheckpointId>>,
-        HashMap<CheckpointId, u64>,
-    )>;
+    fn load_dag(&self) -> StorageResult<DagGraph>;
 
     /// Check if the DAG contains a node
     fn dag_has_node(&self, node_id: &CheckpointId) -> StorageResult<bool>;

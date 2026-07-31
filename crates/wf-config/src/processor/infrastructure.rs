@@ -1,7 +1,7 @@
 use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_min;
 
-use wf_types::config::metrics::MetricsConfig;
+use wf_types::config::metrics::{MetricCollectorConfig, MetricsConfig};
 use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
@@ -38,8 +38,35 @@ pub fn validate_timeout(timeout: i64, context: &str) -> ConfigResult<()> {
     Ok(())
 }
 
+fn merge_collector_with_defaults(
+    cfg: Option<&MetricCollectorConfig>,
+) -> Option<MetricCollectorConfig> {
+    cfg.map(|c| MetricCollectorConfig {
+        buffer_size: c.buffer_size.or(Some(100)),
+        flush_interval: c.flush_interval.or(Some(5000)),
+        enable_periodic_reporting: c.enable_periodic_reporting.or(Some(false)),
+        reporting_interval: c.reporting_interval.or(Some(10000)),
+        max_age: c.max_age.or(Some(3600000)),
+    })
+}
+
 pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
-    user.clone()
+    MetricsConfig {
+        enabled: user.enabled.or(Some(true)),
+        reporting_interval: user.reporting_interval.or(Some(10000)),
+        enable_periodic_reporting: user.enable_periodic_reporting.or(Some(false)),
+        workflow_metrics: merge_collector_with_defaults(user.workflow_metrics.as_ref()),
+        node_metrics: merge_collector_with_defaults(user.node_metrics.as_ref()),
+        agent_metrics: merge_collector_with_defaults(user.agent_metrics.as_ref()),
+        event_metrics: merge_collector_with_defaults(user.event_metrics.as_ref()),
+        tool_metrics: merge_collector_with_defaults(user.tool_metrics.as_ref()),
+        token_metrics: merge_collector_with_defaults(user.token_metrics.as_ref()),
+        template_metrics: merge_collector_with_defaults(user.template_metrics.as_ref()),
+        config_metrics: merge_collector_with_defaults(user.config_metrics.as_ref()),
+        error_metrics: merge_collector_with_defaults(user.error_metrics.as_ref()),
+        resource_metrics: merge_collector_with_defaults(user.resource_metrics.as_ref()),
+        agent_loop_metrics: merge_collector_with_defaults(user.agent_loop_metrics.as_ref()),
+    }
 }
 
 pub fn merge_output_with_defaults(user: &OutputConfig) -> OutputConfig {
@@ -125,7 +152,31 @@ mod tests {
     fn test_merge_metrics_with_defaults() {
         let user = MetricsConfig::default();
         let merged = merge_metrics_with_defaults(&user);
-        assert_eq!(merged.enabled, None);
+        assert_eq!(merged.enabled, Some(true));
+        assert_eq!(merged.reporting_interval, Some(10000));
+        assert_eq!(merged.enable_periodic_reporting, Some(false));
+        assert_eq!(merged.workflow_metrics, None);
+    }
+
+    #[test]
+    fn test_merge_metrics_fills_collector_defaults() {
+        let user = MetricsConfig {
+            workflow_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(50),
+                ..Default::default()
+            }),
+            token_metrics: Some(MetricCollectorConfig::default()),
+            ..Default::default()
+        };
+        let merged = merge_metrics_with_defaults(&user);
+        let workflow = merged.workflow_metrics.unwrap();
+        assert_eq!(workflow.buffer_size, Some(50));
+        assert_eq!(workflow.flush_interval, Some(5000));
+        assert_eq!(workflow.reporting_interval, Some(10000));
+        assert_eq!(workflow.max_age, Some(3600000));
+        let token = merged.token_metrics.unwrap();
+        assert_eq!(token.buffer_size, Some(100));
+        assert_eq!(token.flush_interval, Some(5000));
     }
 
     #[test]

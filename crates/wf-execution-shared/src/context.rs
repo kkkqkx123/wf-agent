@@ -3,6 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use serde_json::Value;
 use wf_core::EventBus;
+use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
 use wf_types::Id;
@@ -15,6 +16,7 @@ pub struct ExecutorContext {
     pub variables: Arc<DashMap<String, Value>>,
     pub options: WorkflowExecutionOptions,
     pub parent_execution_id: Option<Id>,
+    pub metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl ExecutorContext {
@@ -33,11 +35,17 @@ impl ExecutorContext {
             variables: Arc::new(DashMap::new()),
             options,
             parent_execution_id: None,
+            metrics: None,
         }
     }
 
     pub fn with_parent_execution(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 }

@@ -4,6 +4,7 @@ use wf_core::failure_policy::{default_retry_policy, FailurePolicyManager};
 use wf_core::interruption::check_execution_interruption;
 use wf_execution_shared::error::ExecutionSharedError;
 use wf_llm::error::LlmError;
+use wf_metrics::MetricsRegistry;
 use wf_tools::error::ToolError;
 use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::errors::ErrorKind;
@@ -64,6 +65,7 @@ fn extract_error_kind(e: &AgentError) -> ErrorKind {
 pub struct AgentExecutionCoordinator {
     iteration_coordinator: Arc<AgentIterationCoordinator>,
     checkpoint: Option<AgentCheckpointIntegration>,
+    metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl AgentExecutionCoordinator {
@@ -71,11 +73,17 @@ impl AgentExecutionCoordinator {
         Self {
             iteration_coordinator,
             checkpoint: None,
+            metrics: None,
         }
     }
 
     pub fn with_checkpoint(mut self, checkpoint: Option<AgentCheckpointIntegration>) -> Self {
         self.checkpoint = checkpoint;
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: Option<Arc<MetricsRegistry>>) -> Self {
+        self.metrics = metrics;
         self
     }
 
@@ -98,9 +106,22 @@ impl AgentExecutionCoordinator {
                 break;
             }
 
+            let iteration_start = wf_common::now();
             let iteration_result = self
                 .execute_iteration_with_retry(entity, &failure_policy)
                 .await?;
+            let iteration_duration_ms = (wf_common::now() - iteration_start) as f64;
+
+            if let Some(ref metrics) = self.metrics {
+                let profile_id = entity
+                    .model()
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "default".to_string());
+                metrics
+                    .agent_loop()
+                    .record_iteration(entity.id(), iteration_duration_ms);
+                metrics.agent().record_iteration(&profile_id);
+            }
 
             match iteration_result {
                 Some(result) => {
@@ -119,6 +140,12 @@ impl AgentExecutionCoordinator {
                     break;
                 }
             }
+        }
+
+        if let Some(ref metrics) = self.metrics {
+            metrics
+                .agent_loop()
+                .record_max_iterations_reached(entity.id());
         }
 
         let content = serde_json::Value::String("Max iterations reached".to_string());

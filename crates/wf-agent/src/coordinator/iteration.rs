@@ -6,6 +6,7 @@ use serde_json::Value;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_core::interruption::check_execution_interruption;
 use wf_llm::LlmWrapper;
+use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::LlmRequest;
 
@@ -26,6 +27,7 @@ pub struct AgentIterationCoordinator {
     llm_wrapper: Arc<LlmWrapper>,
     tool_coordinator: Arc<ToolExecutionCoordinator>,
     hook_executor: Arc<HookExecutor>,
+    metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl AgentIterationCoordinator {
@@ -33,11 +35,17 @@ impl AgentIterationCoordinator {
         llm_wrapper: Arc<LlmWrapper>,
         tool_registry: Arc<ToolRegistry>,
         hook_executor: Arc<HookExecutor>,
+        metrics: Option<Arc<MetricsRegistry>>,
     ) -> Self {
+        let tool_coordinator = Arc::new(
+            ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())
+                .with_metrics(metrics.clone()),
+        );
         Self {
             llm_wrapper,
-            tool_coordinator: Arc::new(ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())),
+            tool_coordinator,
             hook_executor,
+            metrics,
         }
     }
 
@@ -86,13 +94,20 @@ impl AgentIterationCoordinator {
             tool_call_format: entity.tool_call_format().map(|f| f.format.clone()),
             locked_tool_call_format: entity.tool_call_format().cloned(),
             violation_policy: None,
-            execution_id: Some(execution_id),
+            execution_id: Some(execution_id.clone()),
             stream: Some(false),
             dead_loop_detection: None,
         };
 
-        let llm_result = self.llm_wrapper.generate(&request).await?;
+        if let Some(ref metrics) = self.metrics {
+            if let Some(format) = entity.tool_call_format() {
+                metrics
+                    .agent_loop()
+                    .record_protocol_locked(&execution_id, &format!("{:?}", format.format));
+            }
+        }
 
+        let llm_result = self.llm_wrapper.generate(&request).await?;
         let interruption = check_execution_interruption(
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
@@ -137,6 +152,12 @@ impl AgentIterationCoordinator {
         let tool_calls = llm_result.tool_calls.unwrap_or_default();
         let tool_messages = self.tool_coordinator.execute_tool_calls(entity, &tool_calls).await?;
         let tool_call_count = tool_calls.len() as u32;
+
+        if let Some(ref metrics) = self.metrics {
+            metrics
+                .agent_loop()
+                .record_tool_calls(&execution_id, tool_call_count as u64);
+        }
 
         let interruption = check_execution_interruption(
             entity.interruption(),

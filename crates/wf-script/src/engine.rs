@@ -11,18 +11,10 @@ use crate::error::ScriptResult;
 
 pub struct ScriptEngine;
 
+#[derive(Default)]
 pub struct ScriptEngineOptions {
     pub args: HashMap<String, Value>,
     pub context_variables: HashMap<String, Value>,
-}
-
-impl Default for ScriptEngineOptions {
-    fn default() -> Self {
-        Self {
-            args: HashMap::new(),
-            context_variables: HashMap::new(),
-        }
-    }
 }
 
 impl ScriptEngine {

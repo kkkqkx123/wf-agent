@@ -5,15 +5,17 @@ use super::types::{
 };
 use crate::error::ScriptResult;
 
-pub struct ScriptFlowEngine<'a> {
-    scripts: &'a HashMap<String, Box<dyn Fn(&str) -> ScriptResult<String> + Send + Sync>>,
+pub struct ScriptFlowEngine;
+
+impl Default for ScriptFlowEngine {
+    fn default() -> Self {
+        Self
+    }
 }
 
-impl<'a> ScriptFlowEngine<'a> {
-    pub fn new(
-        scripts: &'a HashMap<String, Box<dyn Fn(&str) -> ScriptResult<String> + Send + Sync>>,
-    ) -> Self {
-        Self { scripts }
+impl ScriptFlowEngine {
+    pub fn new() -> Self {
+        Self
     }
 
     pub async fn execute<F, Fut>(
@@ -49,7 +51,7 @@ impl<'a> ScriptFlowEngine<'a> {
             let mut module_results = Vec::new();
 
             for module_ref in &branch.modules {
-                let result = match execute_module(&module_ref.key, &branch_key).await {
+                let result = match execute_module(&module_ref.key, branch_key).await {
                     Ok(output) => FlowBranchExecutionResult {
                         success: true,
                         module_key: module_ref.key.clone(),
@@ -98,7 +100,7 @@ impl<'a> ScriptFlowEngine<'a> {
         let branch_map: HashMap<&str, &FlowBranch> =
             flow.branches.iter().map(|b| (b.key.as_str(), b)).collect();
 
-        fn visit<'b>(
+        fn visit(
             key: &str,
             flow_name: &str,
             branch_map: &HashMap<&str, &FlowBranch>,
@@ -183,8 +185,7 @@ mod tests {
             ],
         };
 
-        let scripts = HashMap::new();
-        let engine = ScriptFlowEngine::new(&scripts);
+        let engine = ScriptFlowEngine::new();
         let order = engine.topological_sort(&flow).unwrap();
 
         assert_eq!(order, vec!["a", "b", "c"]);
@@ -200,12 +201,10 @@ mod tests {
             ],
         };
 
-        let scripts = HashMap::new();
-        let engine = ScriptFlowEngine::new(&scripts);
+        let engine = ScriptFlowEngine::new();
         let result = engine.topological_sort(&flow);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Circular dependency"));
-    }
+        assert!(result.unwrap_err().contains("Circular dependency"));    }
 
     #[test]
     fn test_topological_sort_missing_dep() {
@@ -214,8 +213,7 @@ mod tests {
             branches: vec![make_branch("a", Some(vec!["nonexistent".to_string()]), vec!["1"])],
         };
 
-        let scripts = HashMap::new();
-        let engine = ScriptFlowEngine::new(&scripts);
+        let engine = ScriptFlowEngine::new();
         let result = engine.topological_sort(&flow);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unknown branch"));

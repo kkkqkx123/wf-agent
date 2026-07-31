@@ -8,6 +8,7 @@ use wf_core::condition::ConditionEvaluator;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_metrics::collectors::node::NodeExecutionRecord;
 use wf_core::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
@@ -19,6 +20,11 @@ use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
+
+/// Serialized size of a value in bytes, used for node input/output metrics.
+fn json_size(value: &Value) -> u64 {
+    serde_json::to_string(value).map(|s| s.len() as u64).unwrap_or(0)
+}
 
 fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
     match node_type_str {
@@ -188,6 +194,7 @@ impl WorkflowCoordinator {
                 ))?;
 
             let node_type = parse_node_type(&node.node_type)?;
+            let node_type_str = node.node_type.clone();
 
             let mut node_ctx = self.build_node_context(node_id, &node_type).await?;
 
@@ -201,6 +208,13 @@ impl WorkflowCoordinator {
                 node.inner.get("timeout").and_then(|v| v.as_u64())
             });
             let timeout_dur = node_timeout_ms.map(std::time::Duration::from_millis);
+
+            let metrics = self.ctx.metrics.clone();
+            let node_metrics = metrics.as_ref().map(|m| m.node());
+            if let Some(node_metrics) = &node_metrics {
+                node_metrics.record_execution_start(node_id, &node_type_str);
+            }
+            let node_start = wf_common::now();
 
             let result = if let Some(tout_dur) = timeout_dur {
                 let fut = coordinator.execute_node(
@@ -224,6 +238,7 @@ impl WorkflowCoordinator {
                     self.hook_executor.as_deref(),
                 ).await
             };
+            let node_duration_ms = (wf_common::now() - node_start) as f64;
 
             let on_failure = self.ctx.options.on_failure.as_deref().unwrap_or("fail");
             let max_retries = self.ctx.options.max_retries.unwrap_or(0);
@@ -244,6 +259,19 @@ impl WorkflowCoordinator {
                         cp.on_node_completed(entity).await;
                     }
 
+                    if let Some(node_metrics) = &node_metrics {
+                        node_metrics.record_execution(NodeExecutionRecord {
+                            node_id,
+                            node_type: &node_type_str,
+                            execution_id: &self.ctx.execution_id,
+                            success: true,
+                            duration_ms: node_duration_ms,
+                            input_size: json_size(&node_ctx.input),
+                            output_size: json_size(&output.output),
+                            error_type: None,
+                        });
+                    }
+
                     self.current_node_id = self.determine_next_node(&output).await?;
                 }
                 Err(e) => {
@@ -253,12 +281,28 @@ impl WorkflowCoordinator {
                         cp.on_node_failed(entity).await;
                     }
 
+                    if let Some(node_metrics) = &node_metrics {
+                        node_metrics.record_execution(NodeExecutionRecord {
+                            node_id,
+                            node_type: &node_type_str,
+                            execution_id: &self.ctx.execution_id,
+                            success: false,
+                            duration_ms: node_duration_ms,
+                            input_size: json_size(&node_ctx.input),
+                            output_size: 0,
+                            error_type: Some("node_failed"),
+                        });
+                    }
+
                     match on_failure {
                         "retry" | "continue" => {
                             let mut retried = false;
                             for attempt in 0..max_retries {
                                 tracing::warn!("Node '{}' failed (attempt {}/{}): {}. Retrying in {:?}...",
                                     node_id, attempt + 1, max_retries, e, retry_delay);
+                                if let Some(node_metrics) = &node_metrics {
+                                    node_metrics.record_retry(node_id, &node_type_str);
+                                }
                                 tokio::time::sleep(retry_delay).await;
                                 let mut retry_node_ctx = self.build_node_context(node_id, &node_type).await?;
                                 let retry_ok = handler.execute(&mut retry_node_ctx).await;
@@ -266,6 +310,18 @@ impl WorkflowCoordinator {
                                     self.node_outputs.insert(node_id.clone(), retry_output.output.clone());
                                     self.completed_nodes.push(node_id.clone());
                                     entity.state.write().await.mark_node_completed(node_id.clone());
+                                    if let Some(node_metrics) = &node_metrics {
+                                        node_metrics.record_execution(NodeExecutionRecord {
+                                            node_id,
+                                            node_type: &node_type_str,
+                                            execution_id: &self.ctx.execution_id,
+                                            success: true,
+                                            duration_ms: node_duration_ms,
+                                            input_size: json_size(&retry_node_ctx.input),
+                                            output_size: json_size(&retry_output.output),
+                                            error_type: None,
+                                        });
+                                    }
                                     self.current_node_id = self.determine_next_node(&retry_output).await?;
                                     retried = true;
                                     break;

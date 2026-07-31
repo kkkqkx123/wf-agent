@@ -5,12 +5,9 @@
 //! transaction internals). All black-box CRUD tests live in
 //! `tests/storage_integration.rs` to avoid duplication.
 
-use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::types::{ContentId, LineDiff, SourceType};
-use crate::storage::repository::{
-    AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore, SnapshotStore,
-};
+use crate::storage::repository::{AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore};
 use crate::storage::sqlite::connection::SqliteStorage;
 use crate::StorageError;
 use std::path::PathBuf;

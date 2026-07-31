@@ -2,12 +2,16 @@ use std::sync::Arc;
 
 use tracing::info;
 
+use wf_core::event::EventBus;
+use wf_config::processor::infrastructure::merge_metrics_with_defaults;
 use wf_resource::registrar::{Options as ResourceOptions, Registries};
 use wf_resource::starter::BundleRegistry;
+use wf_types::config::metrics::MetricsConfig;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::{shutdown_channel, ShutdownHandle, ShutdownWaiter};
 use crate::logger::{init_tracing, LogConfig};
+use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::{StorageConfig, StorageManager};
 
@@ -22,6 +26,7 @@ pub struct RuntimeConfig {
     pub log_config: LogConfig,
     pub mode_override: Option<super::mode::ExecutionMode>,
     pub resource: ResourceConfig,
+    pub metrics: Option<MetricsConfig>,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }
@@ -54,6 +59,8 @@ pub struct Runtime {
     pub _shutdown_waiter: ShutdownWaiter,
     pub registries: Arc<Registries>,
     pub bundles: Arc<BundleRegistry>,
+    pub event_bus: Arc<EventBus>,
+    pub metrics: Option<Arc<MetricsContext>>,
     #[cfg(feature = "plugins")]
     pub plugin_engine: Option<wf_plugin::PluginEngine>,
 }
@@ -84,6 +91,18 @@ impl Runtime {
             tracing::warn!("Resource registration failed: {} - {}", fail.id, fail.error);
         }
 
+        let event_bus = Arc::new(EventBus::new(1024));
+        let metrics = match config.metrics.as_ref() {
+            Some(cfg) => {
+                let merged = merge_metrics_with_defaults(cfg);
+                MetricsContext::start(&merged, &storage_manager, Some(event_bus.clone())).await?
+            }
+            None => None,
+        };
+        if metrics.is_some() {
+            info!("Metrics system initialized");
+        }
+
         let (shutdown_handle, _shutdown_waiter) = shutdown_channel();
 
         #[cfg(feature = "plugins")]
@@ -98,6 +117,8 @@ impl Runtime {
             _shutdown_waiter,
             registries,
             bundles,
+            event_bus,
+            metrics,
             #[cfg(feature = "plugins")]
             plugin_engine,
         })
@@ -112,6 +133,10 @@ impl Runtime {
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
+        if let Some(metrics) = self.metrics.take() {
+            metrics.shutdown().await;
+        }
+
         #[cfg(feature = "plugins")]
         if let Some(engine) = self.plugin_engine.take() {
             engine.shutdown().await;
@@ -136,6 +161,11 @@ impl Runtime {
 
     pub fn trigger_shutdown(&self) {
         self.shutdown_handle.trigger();
+    }
+
+    /// Optional metrics system; absent when metrics are disabled.
+    pub fn metrics(&self) -> Option<&Arc<MetricsContext>> {
+        self.metrics.as_ref()
     }
 
     #[cfg(feature = "plugins")]
@@ -221,6 +251,7 @@ mod tests {
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
+            metrics: None,
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -246,6 +277,7 @@ mod tests {
         let config = RuntimeConfig {
             log_config: LogConfig::default().with_level("off"),
             resource: ResourceConfig::default(),
+            metrics: None,
             ..Default::default()
         };
 
@@ -277,6 +309,7 @@ mod tests {
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
+            metrics: None,
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -303,6 +336,88 @@ mod tests {
             StorageBackendType::Memory
         ));
         assert!(config.mode_override.is_none());
+        assert!(config.metrics.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_runtime_metrics_wiring() {
+        clear_env_vars();
+
+        let config = RuntimeConfig {
+            storage: StorageConfig {
+                backend_type: StorageBackendType::Memory,
+                ..Default::default()
+            },
+            log_config: LogConfig::default().with_level("off"),
+            mode_override: Some(ExecutionMode::Test),
+            resource: ResourceConfig::default(),
+            metrics: Some(wf_types::config::metrics::MetricsConfig {
+                workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
+                    flush_interval: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+
+        let metrics = runtime.metrics().expect("metrics system should be initialized");
+        metrics.registry().workflow().record_execution_start("exec-1", "wf-1");
+        assert_eq!(metrics.registry().workflow().usage_stats().total, 1);
+
+        // Background flush task persists buffered metrics into storage.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        use wf_storage::adapter::metrics::MetricsStorageAdapter;
+        let loaded = runtime
+            .storage()
+            .context()
+            .unwrap()
+            .metrics
+            .query("workflow.execution.count", 0, wf_common::now() + 1000)
+            .await
+            .unwrap();
+        assert_eq!(loaded.len(), 1);
+
+        runtime.shutdown().await.unwrap();
+
+        clear_env_vars();
+    }
+
+    #[tokio::test]
+    async fn test_runtime_metrics_disabled() {
+        clear_env_vars();
+
+        let config = RuntimeConfig {
+            storage: StorageConfig {
+                backend_type: StorageBackendType::Memory,
+                ..Default::default()
+            },
+            log_config: LogConfig::default().with_level("off"),
+            mode_override: Some(ExecutionMode::Test),
+            resource: ResourceConfig::default(),
+            metrics: Some(wf_types::config::metrics::MetricsConfig {
+                enabled: Some(false),
+                ..Default::default()
+            }),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+        assert!(runtime.metrics().is_none());
+
+        runtime.shutdown().await.unwrap();
+
+        clear_env_vars();
     }
 
     #[test]

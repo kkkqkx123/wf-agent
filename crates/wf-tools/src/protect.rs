@@ -33,9 +33,7 @@ fn glob_match(pattern: &str, path: &str) -> bool {
         format!("**/{}", pattern)
     };
 
-    let glob_pattern = if pattern.ends_with("/**") {
-        pattern.to_string()
-    } else if pattern.ends_with("/*") {
+    let glob_pattern = if pattern.ends_with("/**") || pattern.ends_with("/*") {
         pattern.to_string()
     } else if !pattern.contains('*') && !pattern.contains('?') {
         format!("{}/**", pattern.trim_end_matches('/'))

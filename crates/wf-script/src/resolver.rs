@@ -21,10 +21,8 @@ impl ArgumentResolver {
                 Some(v.clone())
             } else if arg.source.as_deref() == Some("variable") {
                 context_variables.get(&arg.key).cloned()
-            } else if let Some(ref default) = arg.default {
-                Some(default.clone())
             } else {
-                None
+                arg.default.clone()
             };
 
             match value {

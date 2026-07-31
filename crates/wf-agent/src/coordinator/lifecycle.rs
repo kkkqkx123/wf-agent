@@ -5,6 +5,7 @@ use wf_core::event::EventBus;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_llm::LlmWrapper;
+use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_tools::registry::ToolRegistry;
@@ -26,6 +27,7 @@ pub struct AgentLoopCoordinator {
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<AgentCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
+    metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl AgentLoopCoordinator {
@@ -50,6 +52,7 @@ impl AgentLoopCoordinator {
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
+            metrics: None,
         }
     }
 
@@ -73,12 +76,18 @@ impl AgentLoopCoordinator {
         self
     }
 
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     pub async fn execute(
         &self,
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
         let entity = self.build_entity(&config, input).await?;
+        let execution_id = entity.id().clone();
 
         AgentLoopStateTransitor::start_agent_loop(&entity, self.event_bus.as_deref()).await?;
 
@@ -94,15 +103,29 @@ impl AgentLoopCoordinator {
             self.llm_wrapper.clone(),
             self.tool_registry.clone(),
             self.hook_executor.clone(),
+            self.metrics.clone(),
         ));
         let execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator)
-            .with_checkpoint(checkpoint);
+            .with_checkpoint(checkpoint)
+            .with_metrics(self.metrics.clone());
+
+        let profile_id = entity.model().map(|m| m.to_string()).unwrap_or_else(|| "default".to_string());
+        if let Some(ref metrics) = self.metrics {
+            metrics.agent().record_execution_start(&profile_id, &execution_id);
+            metrics.agent_loop().record_execution_start(&execution_id);
+        }
 
         let max_iterations = config.max_iterations.unwrap_or(10);
+        let start = wf_common::now();
         match execution_coordinator.execute(&entity, max_iterations).await {
             Ok((result, iterations)) => {
+                let duration_ms = (wf_common::now() - start) as f64;
                 if result.completion_data.is_some() || !result.should_continue {
                     AgentLoopStateTransitor::complete_agent_loop(&entity, self.event_bus.as_deref()).await?;
+                }
+                if let Some(ref metrics) = self.metrics {
+                    metrics.agent().record_execution_complete(&profile_id, &execution_id, true, duration_ms);
+                    metrics.agent_loop().record_execution_complete(&execution_id, true, duration_ms);
                 }
                 Ok(AgentLoopOutput {
                     result: result.content,
@@ -110,7 +133,13 @@ impl AgentLoopCoordinator {
                 })
             }
             Err(e) => {
+                let duration_ms = (wf_common::now() - start) as f64;
                 AgentLoopStateTransitor::fail_agent_loop(&entity, e.to_string(), self.event_bus.as_deref()).await?;
+                if let Some(ref metrics) = self.metrics {
+                    metrics.agent().record_execution_complete(&profile_id, &execution_id, false, duration_ms);
+                    metrics.agent_loop().record_execution_complete(&execution_id, false, duration_ms);
+                    metrics.agent_loop().record_error(&execution_id, "agent_loop");
+                }
                 Err(e)
             }
         }

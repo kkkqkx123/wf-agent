@@ -2,6 +2,7 @@
 name = "layertwine"
 version = "0.1.0"
 edition = "2021"
+autotests = false
 
 [features]
 default = []
@@ -61,6 +62,52 @@ tempfile = "3"
 criterion = "0.5"
 lazy_static = "1.5"
 
+# Explicit test targets: `tests/common.rs` and `tests/e2e.rs` are shared
+# modules included by `e2e_tests`, not standalone test crates.
+[[test]]
+name = "backup_integration"
+path = "tests/backup_integration.rs"
+
+[[test]]
+name = "backup_physical_isolation"
+path = "tests/backup_physical_isolation.rs"
+
+[[test]]
+name = "checkpoint_integration"
+path = "tests/checkpoint_integration.rs"
+
+[[test]]
+name = "e2e_tests"
+path = "tests/e2e_tests.rs"
+
+[[test]]
+name = "engine_integration"
+path = "tests/engine_integration.rs"
+
+[[test]]
+name = "engine_test"
+path = "tests/engine_test.rs"
+
+[[test]]
+name = "git_sync_e2e"
+path = "tests/git_sync_e2e.rs"
+
+[[test]]
+name = "grpc_integration"
+path = "tests/grpc_integration.rs"
+
+[[test]]
+name = "http_integration"
+path = "tests/http_integration.rs"
+
+[[test]]
+name = "layered_integration"
+path = "tests/layered_integration.rs"
+
+[[test]]
+name = "storage_integration"
+path = "tests/storage_integration.rs"
+
 [build-dependencies]
 tonic-build = { workspace = true }
 
@@ -70,10 +117,6 @@ harness = false
 
 [[bench]]
 name = "merge"
-harness = false
-
-[[bench]]
-name = "export_helper"
 harness = false
 
 [[bench]]

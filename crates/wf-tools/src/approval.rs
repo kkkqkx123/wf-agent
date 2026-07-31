@@ -165,9 +165,9 @@ impl ToolApprovalCoordinator {
                     .as_ref()
                     .and_then(|c| c.always_allow_write)
                     .unwrap_or(false);
-                if cat_allow {
-                    ApprovalDecision::Approve
-                } else if self.options.security_preset == Some(SecurityPreset::Permissive) {
+                if cat_allow
+                    || self.options.security_preset == Some(SecurityPreset::Permissive)
+                {
                     ApprovalDecision::Approve
                 } else {
                     ApprovalDecision::Ask

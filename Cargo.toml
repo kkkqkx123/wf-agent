@@ -19,6 +19,7 @@ members = [
     "crates/layertwine",
     "crates/wf-resource",
     "crates/wf-api",
+    "crates/wf-metrics",
 ]
 
 [workspace.package]

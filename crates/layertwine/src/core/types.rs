@@ -189,17 +189,17 @@ impl PartitionType {
             "manual" => Some(PartitionType::Manual),
             "unified" => Some(PartitionType::Unified),
             "staged" => Some(PartitionType::Staged),
-            _ => {
-                if let Some(rest) = s.strip_prefix("agent/") {
-                    Some(PartitionType::Agent(AgentInstanceId(rest.to_string())))
-                } else if let Some(rest) = s.strip_prefix("approval/") {
-                    Some(PartitionType::Approval(AgentInstanceId(rest.to_string())))
-                } else if let Some(rest) = s.strip_prefix("integrated/") {
-                    Some(PartitionType::Integrated(rest.to_string()))
-                } else {
-                    None
-                }
-            }
+            _ => s
+                .strip_prefix("agent/")
+                .map(|rest| PartitionType::Agent(AgentInstanceId(rest.to_string())))
+                .or_else(|| {
+                    s.strip_prefix("approval/")
+                        .map(|rest| PartitionType::Approval(AgentInstanceId(rest.to_string())))
+                })
+                .or_else(|| {
+                    s.strip_prefix("integrated/")
+                        .map(|rest| PartitionType::Integrated(rest.to_string()))
+                }),
         }
     }
 }

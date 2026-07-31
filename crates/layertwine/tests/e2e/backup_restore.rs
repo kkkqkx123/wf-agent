@@ -4,7 +4,7 @@ use crate::common::assertions::*;
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
-use layertwine::api::{ApiService, BackupRequest, RestoreRequest};
+use layertwine::api::{BackupRequest, RestoreRequest};
 use layertwine::core::types::SnapshotId;
 
 #[test]

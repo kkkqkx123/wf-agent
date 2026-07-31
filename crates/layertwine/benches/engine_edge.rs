@@ -85,7 +85,7 @@ fn bench_apply_deltas_single(c: &mut criterion::Criterion) {
                 lines,
                 (change_rate * 100.0) as usize
             ),
-            |b| b.iter(|| apply_deltas(&base, &[delta.clone()])),
+            |b| b.iter(|| apply_deltas(&base, std::slice::from_ref(&delta))),
         );
     }
 }
@@ -132,7 +132,7 @@ fn bench_apply_deltas_high_change(c: &mut criterion::Criterion) {
                 "apply_deltas_high_change_100_lines_{}percent",
                 (change_rate * 100.0) as usize
             ),
-            |b| b.iter(|| apply_deltas(&base, &[delta.clone()])),
+            |b| b.iter(|| apply_deltas(&base, std::slice::from_ref(&delta))),
         );
     }
 }
@@ -159,7 +159,7 @@ fn bench_apply_deltas_multi_hunk(c: &mut criterion::Criterion) {
 
         c.bench_function(
             &format!("apply_deltas_multi_hunk_{}_lines", lines),
-            |b| b.iter(|| apply_deltas(&base, &[delta.clone()])),
+            |b| b.iter(|| apply_deltas(&base, std::slice::from_ref(&delta))),
         );
     }
 }

@@ -8,6 +8,8 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct MetricsDataPoint {
     pub name: String,
+    /// One of `counter`/`gauge`/`histogram`/`summary`.
+    pub metric_type: String,
     pub value: f64,
     pub timestamp: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,6 +51,7 @@ impl Entity for MetricRecord {
     }
 }
 
+#[async_trait::async_trait]
 pub trait MetricsStorageAdapter: Send + Sync {
     async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError>;
     async fn query(

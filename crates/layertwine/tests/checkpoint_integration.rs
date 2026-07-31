@@ -1033,12 +1033,12 @@ fn test_complex_dag_multi_branch_merge() {
     // Commit on feature-a
     repo.switch_branch("feature-a").unwrap();
     let snap_a1 = dummy_snapshot_id(10);
-    let cp_a1 = repo.commit_single(snap_a1, "feature-a v1", "dev").unwrap();
+    let _cp_a1 = repo.commit_single(snap_a1, "feature-a v1", "dev").unwrap();
 
     // Commit on feature-b
     repo.switch_branch("feature-b").unwrap();
     let snap_b1 = dummy_snapshot_id(20);
-    let cp_b1 = repo.commit_single(snap_b1, "feature-b v1", "dev").unwrap();
+    let _cp_b1 = repo.commit_single(snap_b1, "feature-b v1", "dev").unwrap();
     let snap_b2 = dummy_snapshot_id(21);
     let _cp_b2 = repo.commit_single(snap_b2, "feature-b v2", "dev").unwrap();
 

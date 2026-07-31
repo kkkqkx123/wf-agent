@@ -10,6 +10,7 @@ wf-core = { path = "../wf-core" }
 wf-llm = { path = "../wf-llm" }
 wf-tools = { path = "../wf-tools" }
 wf-script = { path = "../wf-script" }
+wf-metrics = { path = "../wf-metrics" }
 
 async-trait.workspace = true
 serde.workspace = true

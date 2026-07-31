@@ -24,3 +24,4 @@ num_cpus.workspace = true
 
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
+wf-metrics = { path = "../wf-metrics" }

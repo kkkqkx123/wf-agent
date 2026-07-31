@@ -55,10 +55,8 @@ impl Default for TaskSchedulerConfig {
 
 #[derive(Debug)]
 struct ScheduledTask {
-    task_id: String,
     source_id: String,
     priority: TaskPriority,
-    submit_time: i64,
     timeout: Option<Duration>,
     deadline: Option<i64>,
     timeout_policy: TimeoutPolicy,
@@ -120,10 +118,8 @@ impl TaskScheduler {
         let deadline = timeout.map(|d| now + d.as_millis() as i64);
 
         let task = ScheduledTask {
-            task_id: task_id.clone(),
             source_id: source_id.clone(),
             priority,
-            submit_time: now,
             timeout,
             deadline,
             timeout_policy,

@@ -167,6 +167,7 @@ impl<S: Store> Store for CachingStore<S> {
     }
 }
 
+#[async_trait]
 impl<S: Store + BatchStore> BatchStore for CachingStore<S> {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         self.inner.save_batch(items).await?;
@@ -192,6 +193,7 @@ impl<S: Store + BatchStore> BatchStore for CachingStore<S> {
     }
 }
 
+#[async_trait]
 impl<S: Store + Maintainable> Maintainable for CachingStore<S> {
     async fn vacuum(&self) -> Result<(), StorageError> {
         self.inner.vacuum().await

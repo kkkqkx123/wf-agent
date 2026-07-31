@@ -4,7 +4,6 @@ use crate::common::assertions::*;
 use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
-use layertwine::api::ApiService;
 use layertwine::core::types::{AgentInstanceId, SnapshotId};
 use layertwine::storage::repository::PartitionStore;
 

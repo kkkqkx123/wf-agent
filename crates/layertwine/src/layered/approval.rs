@@ -56,7 +56,7 @@ pub fn list_approval_partitions<S: PartitionStore>(storage: &S) -> Result<Vec<Pa
 /// State convention: a partition's "state" is determined by `history.len()`:
 ///   - `history.len() == 1`:  baseline only → no pending changes
 ///   - `history.len()  > 1`:  agent has submitted (via `move_agent_to_approval`)
-///                            but not yet approved (merged into integrated) or rejected.
+///     but not yet approved (merged into integrated) or rejected.
 ///
 /// A "pending" approval partition has been updated by `move_agent_to_approval`
 /// but not yet approved (merged into integrated) or rejected (rolled back).

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde_json::Value;
 use wf_core::EventBus;
+use wf_tools::callback::WorkflowOutput;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
 
@@ -44,7 +44,7 @@ impl WorkflowExecutor {
         options: WorkflowExecutionOptions,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
-    ) -> WorkflowResult<Value> {
+    ) -> WorkflowResult<WorkflowOutput> {
         let handlers = handlers.unwrap_or_else(|| {
             let mut registry = HandlerRegistry::new();
             registry.register_defaults();

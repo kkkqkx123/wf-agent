@@ -8,6 +8,7 @@ pub mod factory;
 pub mod graph;
 pub mod handler;
 pub mod hook;
+pub mod performance;
 pub mod registry;
 pub mod state;
 pub mod types;
@@ -34,11 +35,15 @@ pub use handler::{
     NodeHandler, NodeHandlerResult,
 };
 pub use hook::WorkflowHookHandler;
+pub use performance::{
+    analyze_performance, derive_node_comparison, NodeComparison, NodeDurationInfo,
+    WorkflowExecutionPerformanceProfile,
+};
 pub use registry::{
     create_execution_registry, create_graph_registry, WorkflowExecutionPool,
     WorkflowExecutionRegistry, WorkflowGraphRegistry,
 };
-pub use state::{WorkflowExecutionState, WorkflowExecutionStateSnapshot};
+pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
 pub use variable::{create_variable_store, VariableResolver, VariableStore};
 

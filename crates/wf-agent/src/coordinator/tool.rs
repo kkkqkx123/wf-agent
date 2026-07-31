@@ -245,8 +245,13 @@ impl ToolExecutionCoordinator {
                 )
                 .await;
                 let duration_ms = (wf_common::now() - start) as f64;
+                let success = matches!(&result, Ok(Ok(_)));
 
-                entity.state.write().await.record_tool_call();
+                entity.state.write().await.record_tool_call(
+                    &tool_name,
+                    duration_ms as i64,
+                    success,
+                );
 
                 if let Some(ref metrics) = self.metrics {
                     match &result {
@@ -386,8 +391,13 @@ impl ToolExecutionCoordinator {
                 )
                 .await;
                 let duration_ms = (wf_common::now() - start) as f64;
+                let success = matches!(&result, Ok(Ok(_)));
 
-                entity_state.write().await.record_tool_call();
+                entity_state.write().await.record_tool_call(
+                    &tool_name,
+                    duration_ms as i64,
+                    success,
+                );
 
                 if let Some(metrics) = metrics {
                     match &result {

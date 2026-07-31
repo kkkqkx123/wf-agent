@@ -11,12 +11,20 @@ use wf_llm::messaging::conversation_session::{ConversationSession, ConversationS
 
 use crate::error::AgentResult;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ToolCallRecord {
+    pub name: String,
+    pub duration_ms: i64,
+    pub success: bool,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IterationRecord {
     pub iteration: u32,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub tool_call_count: u32,
+    pub tool_calls: Vec<ToolCallRecord>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -136,6 +144,7 @@ impl AgentLoopState {
             start_time: now(),
             end_time: None,
             tool_call_count: 0,
+            tool_calls: Vec::new(),
         });
     }
 
@@ -145,10 +154,15 @@ impl AgentLoopState {
         }
     }
 
-    pub fn record_tool_call(&mut self) {
+    pub fn record_tool_call(&mut self, name: &str, duration_ms: i64, success: bool) {
         self.tool_call_count += 1;
         if let Some(record) = self.iteration_history.last_mut() {
             record.tool_call_count += 1;
+            record.tool_calls.push(ToolCallRecord {
+                name: name.to_string(),
+                duration_ms,
+                success,
+            });
         }
     }
 

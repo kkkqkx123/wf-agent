@@ -9,7 +9,8 @@ use wf_core::EventBus;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_metrics::collectors::node::NodeExecutionRecord;
+use wf_execution_shared::types::state_manager::StateManager;
+use wf_metrics::collectors::node::NodeExecutionRecord as MetricsNodeExecutionRecord;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::WorkflowGraphStructure;
@@ -20,6 +21,7 @@ use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
+use crate::state::{NodeExecutionRecord, WorkflowExecutionStateSnapshot};
 
 /// Serialized size of a value in bytes, used for node input/output metrics.
 fn json_size(value: &Value) -> u64 {
@@ -54,6 +56,29 @@ fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
             node_type: other.to_string(),
         }),
     }
+}
+
+/// Extract the tool call count from an agent_loop node's output metadata
+/// (`metadata["performance"]["total_tool_calls"]`). Nodes without a mounted
+/// performance profile contribute 0.
+fn extract_tool_call_count(metadata: &HashMap<String, Value>) -> u32 {
+    metadata
+        .get("performance")
+        .and_then(|p| p.get("total_tool_calls"))
+        .and_then(|v| v.as_u64())
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+        .unwrap_or(0)
+}
+
+/// One completed node execution attempt, shared by the main execution path
+/// and the retry path; each attempt yields an independent record.
+struct ExecutionAttempt<'a> {
+    node_id: &'a str,
+    node_type: &'a str,
+    start_time: i64,
+    success: bool,
+    error: Option<String>,
+    metadata: &'a HashMap<String, Value>,
 }
 
 pub struct WorkflowCoordinator {
@@ -136,6 +161,43 @@ impl WorkflowCoordinator {
 
     pub fn completed_nodes(&self) -> &[String] {
         &self.completed_nodes
+    }
+
+    /// Snapshot of the owned entity's execution state, used for performance
+    /// analysis after execution completes.
+    pub async fn state_snapshot(&self) -> WorkflowResult<WorkflowExecutionStateSnapshot> {
+        let entity = self.entity.as_ref().ok_or_else(|| {
+            WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
+        })?;
+        Ok(entity.state.read().await.create_snapshot().await?)
+    }
+
+    /// Append one node execution record to the shared entity state.
+    async fn record_node_execution(
+        &self,
+        entity: &WorkflowExecutionEntity,
+        attempt: ExecutionAttempt<'_>,
+    ) {
+        let node_name = self
+            .traversal
+            .get_node(attempt.node_id)
+            .and_then(|n| n.name.clone())
+            .unwrap_or_else(|| attempt.node_id.to_string());
+
+        entity
+            .state
+            .write()
+            .await
+            .record_node_execution(NodeExecutionRecord {
+                node_id: attempt.node_id.to_string(),
+                node_name,
+                node_type: attempt.node_type.to_string(),
+                start_time: attempt.start_time,
+                end_time: Some(wf_common::now()),
+                success: attempt.success,
+                error: attempt.error,
+                tool_call_count: extract_tool_call_count(attempt.metadata),
+            });
     }
 
     pub async fn execute(&mut self) -> WorkflowResult<Value> {
@@ -303,12 +365,25 @@ impl WorkflowCoordinator {
                         .await
                         .mark_node_completed(node_id.clone());
 
+                    self.record_node_execution(
+                        entity,
+                        ExecutionAttempt {
+                            node_id,
+                            node_type: &node_type_str,
+                            start_time: node_start,
+                            success: true,
+                            error: None,
+                            metadata: &output.metadata,
+                        },
+                    )
+                    .await;
+
                     if let Some(ref mut cp) = self.checkpoint {
                         cp.on_node_completed(entity).await;
                     }
 
                     if let Some(node_metrics) = &node_metrics {
-                        node_metrics.record_execution(NodeExecutionRecord {
+                        node_metrics.record_execution(MetricsNodeExecutionRecord {
                             node_id,
                             node_type: &node_type_str,
                             execution_id: &self.ctx.execution_id,
@@ -325,12 +400,25 @@ impl WorkflowCoordinator {
                 Err(e) => {
                     self.node_errors.push(format!("Node {}: {}", node_id, e));
 
+                    self.record_node_execution(
+                        entity,
+                        ExecutionAttempt {
+                            node_id,
+                            node_type: &node_type_str,
+                            start_time: node_start,
+                            success: false,
+                            error: Some(e.to_string()),
+                            metadata: &HashMap::new(),
+                        },
+                    )
+                    .await;
+
                     if let Some(ref mut cp) = self.checkpoint {
                         cp.on_node_failed(entity).await;
                     }
 
                     if let Some(node_metrics) = &node_metrics {
-                        node_metrics.record_execution(NodeExecutionRecord {
+                        node_metrics.record_execution(MetricsNodeExecutionRecord {
                             node_id,
                             node_type: &node_type_str,
                             execution_id: &self.ctx.execution_id,
@@ -358,34 +446,65 @@ impl WorkflowCoordinator {
                                     node_metrics.record_retry(node_id, &node_type_str);
                                 }
                                 tokio::time::sleep(retry_delay).await;
+                                let attempt_start = wf_common::now();
                                 let mut retry_node_ctx =
                                     self.build_node_context(node_id, &node_type).await?;
                                 let retry_ok = handler.execute(&mut retry_node_ctx).await;
-                                if let Ok(retry_output) = retry_ok {
-                                    self.node_outputs
-                                        .insert(node_id.clone(), retry_output.output.clone());
-                                    self.completed_nodes.push(node_id.clone());
-                                    entity
-                                        .state
-                                        .write()
-                                        .await
-                                        .mark_node_completed(node_id.clone());
-                                    if let Some(node_metrics) = &node_metrics {
-                                        node_metrics.record_execution(NodeExecutionRecord {
-                                            node_id,
-                                            node_type: &node_type_str,
-                                            execution_id: &self.ctx.execution_id,
-                                            success: true,
-                                            duration_ms: node_duration_ms,
-                                            input_size: json_size(&retry_node_ctx.input),
-                                            output_size: json_size(&retry_output.output),
-                                            error_type: None,
-                                        });
+                                match retry_ok {
+                                    Ok(retry_output) => {
+                                        self.node_outputs
+                                            .insert(node_id.clone(), retry_output.output.clone());
+                                        self.completed_nodes.push(node_id.clone());
+                                        entity
+                                            .state
+                                            .write()
+                                            .await
+                                            .mark_node_completed(node_id.clone());
+                                        self.record_node_execution(
+                                            entity,
+                                            ExecutionAttempt {
+                                                node_id,
+                                                node_type: &node_type_str,
+                                                start_time: attempt_start,
+                                                success: true,
+                                                error: None,
+                                                metadata: &retry_output.metadata,
+                                            },
+                                        )
+                                        .await;
+                                        if let Some(node_metrics) = &node_metrics {
+                                            node_metrics.record_execution(
+                                                MetricsNodeExecutionRecord {
+                                                    node_id,
+                                                    node_type: &node_type_str,
+                                                    execution_id: &self.ctx.execution_id,
+                                                    success: true,
+                                                    duration_ms: node_duration_ms,
+                                                    input_size: json_size(&retry_node_ctx.input),
+                                                    output_size: json_size(&retry_output.output),
+                                                    error_type: None,
+                                                },
+                                            );
+                                        }
+                                        self.current_node_id =
+                                            self.determine_next_node(&retry_output).await?;
+                                        retried = true;
+                                        break;
                                     }
-                                    self.current_node_id =
-                                        self.determine_next_node(&retry_output).await?;
-                                    retried = true;
-                                    break;
+                                    Err(retry_err) => {
+                                        self.record_node_execution(
+                                            entity,
+                                            ExecutionAttempt {
+                                                node_id,
+                                                node_type: &node_type_str,
+                                                start_time: attempt_start,
+                                                success: false,
+                                                error: Some(retry_err.to_string()),
+                                                metadata: &HashMap::new(),
+                                            },
+                                        )
+                                        .await;
+                                    }
                                 }
                             }
                             if !retried {
@@ -625,5 +744,38 @@ impl WorkflowCoordinator {
             metadata,
         };
         let _ = bus.publish(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_tool_call_count_reads_agent_loop_performance_metadata() {
+        let metadata = HashMap::from([(
+            "performance".to_string(),
+            serde_json::json!({ "total_tool_calls": 7 }),
+        )]);
+        assert_eq!(extract_tool_call_count(&metadata), 7);
+    }
+
+    #[test]
+    fn extract_tool_call_count_defaults_to_zero_without_performance() {
+        let metadata = HashMap::from([(
+            "other".to_string(),
+            serde_json::json!({ "total_tool_calls": 7 }),
+        )]);
+        assert_eq!(extract_tool_call_count(&metadata), 0);
+        assert_eq!(extract_tool_call_count(&HashMap::new()), 0);
+    }
+
+    #[test]
+    fn extract_tool_call_count_tolerates_malformed_metadata() {
+        let metadata = HashMap::from([(
+            "performance".to_string(),
+            serde_json::json!({ "total_tool_calls": "many" }),
+        )]);
+        assert_eq!(extract_tool_call_count(&metadata), 0);
     }
 }

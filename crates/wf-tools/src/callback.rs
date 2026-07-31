@@ -34,6 +34,9 @@ pub struct AgentLoopInput {
 pub struct AgentLoopOutput {
     pub result: Value,
     pub iterations: u32,
+    /// Serialized `ExecutionPerformanceProfile` (wf-agent), None when the
+    /// execution failed before producing a profile.
+    pub performance: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +48,9 @@ pub struct WorkflowInput {
 pub struct WorkflowOutput {
     pub execution_id: Id,
     pub result: Value,
+    /// Serialized `WorkflowExecutionPerformanceProfile` (wf-workflow), None
+    /// when the execution failed before producing a profile.
+    pub performance: Option<Value>,
 }
 
 #[derive(Debug, Clone)]

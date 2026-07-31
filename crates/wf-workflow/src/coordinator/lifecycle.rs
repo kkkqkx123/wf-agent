@@ -9,6 +9,7 @@ use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
+use wf_tools::callback::WorkflowOutput;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
 
@@ -17,6 +18,7 @@ use crate::coordinator::WorkflowCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
+use crate::performance::analyze_performance;
 
 pub struct WorkflowExecutionParams {
     pub execution_id: wf_types::Id,
@@ -73,7 +75,10 @@ impl WorkflowLifecycleCoordinator {
         self
     }
 
-    pub async fn execute_workflow(&self, params: WorkflowExecutionParams) -> WorkflowResult<Value> {
+    pub async fn execute_workflow(
+        &self,
+        params: WorkflowExecutionParams,
+    ) -> WorkflowResult<WorkflowOutput> {
         let execution_id = params.execution_id;
         let workflow_id = params.workflow_id;
         let workflow_id_metrics = workflow_id.clone();
@@ -132,7 +137,7 @@ impl WorkflowLifecycleCoordinator {
         let result = coordinator.execute().await;
         let duration_ms = (wf_common::now() - start) as f64;
 
-        match &result {
+        match result {
             Ok(output) => {
                 wf_state
                     .complete(Some(output.clone()))
@@ -147,6 +152,17 @@ impl WorkflowLifecycleCoordinator {
                         None,
                     );
                 }
+
+                let performance = {
+                    let snapshot = coordinator.state_snapshot().await?;
+                    serde_json::to_value(analyze_performance(&snapshot)).ok()
+                };
+
+                Ok(WorkflowOutput {
+                    execution_id,
+                    result: output,
+                    performance,
+                })
             }
             Err(e) => {
                 wf_state
@@ -162,9 +178,8 @@ impl WorkflowLifecycleCoordinator {
                         Some("workflow_error"),
                     );
                 }
+                Err(e)
             }
         }
-
-        result
     }
 }

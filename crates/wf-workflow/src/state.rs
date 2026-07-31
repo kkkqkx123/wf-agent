@@ -3,11 +3,31 @@ use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_types::checkpoint::workflow::snapshot::OperationState;
 
+/// One node execution attempt (retries produce independent records).
+///
+/// `end_time` is `None` for executions still in flight; only records with
+/// `end_time` set participate in duration statistics.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NodeExecutionRecord {
+    pub node_id: String,
+    /// Node name from the graph definition, falls back to `node_id`.
+    pub node_name: String,
+    pub node_type: String,
+    pub start_time: i64,
+    pub end_time: Option<i64>,
+    pub success: bool,
+    pub error: Option<String>,
+    /// Aggregated from the agent_loop node's `metadata["performance"].total_tool_calls`
+    /// at record time; non-agent nodes contribute 0.
+    pub tool_call_count: u32,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowExecutionStateSnapshot {
     pub status: ExecutionStatus,
     pub current_node_id: Option<String>,
     pub completed_nodes: Vec<String>,
+    pub node_execution_history: Vec<NodeExecutionRecord>,
     pub start_time: i64,
     pub end_time: Option<i64>,
     pub error: Option<String>,
@@ -19,6 +39,7 @@ pub struct WorkflowExecutionState {
     status: ExecutionStatus,
     current_node_id: Option<String>,
     completed_nodes: Vec<String>,
+    node_execution_history: Vec<NodeExecutionRecord>,
     start_time: i64,
     end_time: Option<i64>,
     error: Option<String>,
@@ -38,6 +59,7 @@ impl WorkflowExecutionState {
             status: ExecutionStatus::Created,
             current_node_id: None,
             completed_nodes: Vec::new(),
+            node_execution_history: Vec::new(),
             start_time: wf_common::now(),
             end_time: None,
             error: None,
@@ -87,6 +109,14 @@ impl WorkflowExecutionState {
 
     pub fn mark_node_completed(&mut self, node_id: String) {
         self.completed_nodes.push(node_id);
+    }
+
+    pub fn node_execution_history(&self) -> &[NodeExecutionRecord] {
+        &self.node_execution_history
+    }
+
+    pub fn record_node_execution(&mut self, record: NodeExecutionRecord) {
+        self.node_execution_history.push(record);
     }
 
     pub fn error_records(&self) -> &[ErrorRecord] {
@@ -150,6 +180,7 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
             status: self.status.clone(),
             current_node_id: self.current_node_id.clone(),
             completed_nodes: self.completed_nodes.clone(),
+            node_execution_history: self.node_execution_history.clone(),
             start_time: self.start_time,
             end_time: self.end_time,
             error: self.error.clone(),
@@ -165,6 +196,7 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         self.status = snapshot.status;
         self.current_node_id = snapshot.current_node_id;
         self.completed_nodes = snapshot.completed_nodes;
+        self.node_execution_history = snapshot.node_execution_history;
         self.start_time = snapshot.start_time;
         self.end_time = snapshot.end_time;
         self.error = snapshot.error;

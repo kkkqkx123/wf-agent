@@ -1,15 +1,19 @@
 use serde::Serialize;
+use std::collections::HashMap;
 
-use crate::domain::store::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 
 impl From<ListOptions> for QueryFilter {
     fn from(opts: ListOptions) -> Self {
-        Self {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
         }
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
+        }
+        filter
     }
 }
 
@@ -26,6 +30,8 @@ pub trait BaseStorageAdapter<TEntity, TListOptions>: Send + Sync {
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         Ok(self.load(id).await?.is_some())
     }
+
+    async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError>;
 
     async fn save_batch(&self, entities: &[TEntity]) -> Result<(), StorageError>
     where

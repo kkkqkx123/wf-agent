@@ -1,4 +1,4 @@
-use wf_storage::adapter::concrete::WorkflowExecutionStorage;
+use wf_storage::adapter::adapter_impls::WorkflowExecutionStorage;
 use wf_storage::backend::StorageBackend;
 use wf_storage::domain::store::QueryFilter;
 use wf_types::WorkflowExecution;

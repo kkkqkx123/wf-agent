@@ -1,9 +1,9 @@
+pub mod adapter_impls;
 pub mod agent_execution;
 pub mod agent_loop;
 pub mod agent_profile;
 pub mod base;
 pub mod checkpoint;
-pub mod concrete;
 pub mod execution;
 pub mod file_checkpoint;
 pub mod hook_template;
@@ -19,12 +19,12 @@ pub mod trigger_execution;
 pub mod user_interaction;
 pub mod workflow;
 
+pub use adapter_impls::*;
 pub use agent_execution::*;
 pub use agent_loop::*;
 pub use agent_profile::*;
 pub use base::*;
 pub use checkpoint::*;
-pub use concrete::*;
 pub use execution::*;
 pub use file_checkpoint::{FileCheckpointListOptions, FileCheckpointStorageAdapter};
 pub use hook_template::*;

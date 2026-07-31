@@ -73,7 +73,8 @@ impl Runtime {
         let registries = Arc::new(Registries::new());
         let bundles = Arc::new(BundleRegistry::new());
 
-        let resource_result = wf_resource::register_all(&registries, &bundles, &config.resource.options);
+        let resource_result =
+            wf_resource::register_all(&registries, &bundles, &config.resource.options);
         info!(
             "Resource registration: {} succeeded, {} failed",
             resource_result.succeeded.len(),
@@ -159,7 +160,8 @@ async fn init_plugins(config: &PluginConfig) -> RuntimeResult<Option<wf_plugin::
 
     let registry = Arc::new(wf_plugin::PluginRegistry::new());
     let contribution_manager = Arc::new(wf_plugin::ContributionManager::new());
-    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> = Some(Arc::new(crate::plugin_bridge::WfPluginBridge));
+    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> =
+        Some(Arc::new(crate::plugin_bridge::WfPluginBridge));
 
     let event_bus = wf_core::EventBus::new(256);
 
@@ -169,7 +171,8 @@ async fn init_plugins(config: &PluginConfig) -> RuntimeResult<Option<wf_plugin::
         bridge,
         plugin_config,
         env!("CARGO_PKG_VERSION"),
-    ).with_event_bus(event_bus);
+    )
+    .with_event_bus(event_bus);
 
     engine.initialize().await.map_err(|e| {
         tracing::error!("Plugin engine initialization failed: {}", e);
@@ -219,7 +222,10 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             #[cfg(feature = "plugins")]
-            plugins: PluginConfig { enabled: false, ..Default::default() },
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
@@ -272,7 +278,10 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             #[cfg(feature = "plugins")]
-            plugins: PluginConfig { enabled: false, ..Default::default() },
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();

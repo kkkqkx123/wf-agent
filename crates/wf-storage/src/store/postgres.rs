@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
 
@@ -93,6 +93,108 @@ impl PostgresStorage {
     }
 }
 
+enum BindValue {
+    S(String),
+    I(i64),
+}
+
+/// Translates a QueryFilter into a complete SELECT statement.
+/// Field names come from a fixed metadata schema, so interpolation is safe.
+fn build_select_sql(
+    filter: Option<&QueryFilter>,
+    table_name: &str,
+    select_columns: &str,
+) -> (String, Vec<BindValue>) {
+    let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params: Vec<BindValue> = Vec::new();
+    let mut order_by: Option<(String, bool)> = None;
+    let mut offset: Option<u64> = None;
+    let mut limit: Option<u64> = None;
+
+    if let Some(f) = filter {
+        for op in &f.ops {
+            match op {
+                FilterOp::Eq(key, value) => {
+                    conditions.push(format!("metadata->>'{}' = ${}", key, params.len() + 1));
+                    params.push(BindValue::S(value.clone()));
+                }
+                FilterOp::IdPrefix(prefix) => {
+                    conditions.push(format!(
+                        "substr(id, 1, ${}) = ${}",
+                        params.len() + 1,
+                        params.len() + 2
+                    ));
+                    params.push(BindValue::S(prefix.clone()));
+                    params.push(BindValue::S(prefix.clone()));
+                }
+                FilterOp::Prefix(key, prefix) => {
+                    conditions.push(format!(
+                        "substr(metadata->>'{}', 1, ${}) = ${}",
+                        key,
+                        params.len() + 1,
+                        params.len() + 2
+                    ));
+                    params.push(BindValue::S(prefix.clone()));
+                    params.push(BindValue::S(prefix.clone()));
+                }
+                FilterOp::Lt(key, value) => {
+                    conditions.push(format!(
+                        "(metadata->>'{}')::bigint < ${}",
+                        key,
+                        params.len() + 1
+                    ));
+                    params.push(BindValue::I(*value));
+                }
+                FilterOp::Gt(key, value) => {
+                    conditions.push(format!(
+                        "(metadata->>'{}')::bigint > ${}",
+                        key,
+                        params.len() + 1
+                    ));
+                    params.push(BindValue::I(*value));
+                }
+                FilterOp::Between(key, start, end) => {
+                    conditions.push(format!(
+                        "((metadata->>'{}')::bigint >= ${} AND (metadata->>'{}')::bigint <= ${})",
+                        key,
+                        params.len() + 1,
+                        key,
+                        params.len() + 2
+                    ));
+                    params.push(BindValue::I(*start));
+                    params.push(BindValue::I(*end));
+                }
+                FilterOp::OrderBy(key, descending) => {
+                    order_by = Some((key.clone(), *descending));
+                }
+                FilterOp::Offset(o) => offset = Some(*o),
+                FilterOp::Limit(l) => limit = Some(*l),
+            }
+        }
+    }
+
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
+    }
+    if let Some((key, descending)) = order_by {
+        sql.push_str(&format!(
+            " ORDER BY (metadata->>'{}')::bigint {}",
+            key,
+            if descending { "DESC" } else { "ASC" }
+        ));
+    }
+    if let Some(limit) = limit {
+        sql.push_str(&format!(" LIMIT {}", limit));
+    }
+    if let Some(offset) = offset {
+        sql.push_str(&format!(" OFFSET {}", offset));
+    }
+
+    (sql, params)
+}
+
 #[async_trait]
 impl Store for PostgresStorage {
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
@@ -171,51 +273,13 @@ impl Store for PostgresStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
-        let mut sql = format!("SELECT id, metadata FROM {}", self.table_name);
-        let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(f) = filter {
-            let mut idx = 1;
-            if let Some(ref entity_type) = f.entity_type {
-                conditions.push(format!("(metadata->>'entityType') = ${}", idx));
-                idx += 1;
-                params.push(entity_type.clone());
-            }
-            if let Some(ref status) = f.status {
-                conditions.push(format!("(metadata->>'status') = ${}", idx));
-                idx += 1;
-                params.push(status.clone());
-            }
-            for (key, value) in &f.fields {
-                conditions.push(format!("(metadata->>'{}') = ${}", key, idx));
-                idx += 1;
-                params.push(value.clone());
-            }
-            if let Some((start, end)) = f.timestamp_range {
-                conditions.push(format!("((metadata->>'timestamp')::bigint >= ${} AND (metadata->>'timestamp')::bigint <= ${}", idx, idx + 1));
-                params.push(start.to_string());
-                params.push(end.to_string());
-            }
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
-        if let Some(f) = filter {
-            if let Some(limit) = f.limit {
-                sql.push_str(&format!(" LIMIT {}", limit));
-            }
-            if let Some(offset) = f.offset {
-                sql.push_str(&format!(" OFFSET {}", offset));
-            }
-        }
-
+        let (sql, params) = build_select_sql(filter, &self.table_name, "id, metadata");
         let mut query = sqlx::query_as::<_, (String, Value)>(&sql);
         for param in &params {
-            query = query.bind(param.as_str());
+            match param {
+                BindValue::S(s) => query = query.bind(s),
+                BindValue::I(i) => query = query.bind(*i),
+            }
         }
 
         let rows = query
@@ -234,51 +298,13 @@ impl Store for PostgresStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
-        let mut sql = format!("SELECT data, metadata FROM {}", self.table_name);
-        let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(f) = filter {
-            let mut idx = 1;
-            if let Some(ref entity_type) = f.entity_type {
-                conditions.push(format!("(metadata->>'entityType') = ${}", idx));
-                idx += 1;
-                params.push(entity_type.clone());
-            }
-            if let Some(ref status) = f.status {
-                conditions.push(format!("(metadata->>'status') = ${}", idx));
-                idx += 1;
-                params.push(status.clone());
-            }
-            for (key, value) in &f.fields {
-                conditions.push(format!("(metadata->>'{}') = ${}", key, idx));
-                idx += 1;
-                params.push(value.clone());
-            }
-            if let Some((start, end)) = f.timestamp_range {
-                conditions.push(format!("((metadata->>'timestamp')::bigint >= ${} AND (metadata->>'timestamp')::bigint <= ${}", idx, idx + 1));
-                params.push(start.to_string());
-                params.push(end.to_string());
-            }
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
-        if let Some(f) = filter {
-            if let Some(limit) = f.limit {
-                sql.push_str(&format!(" LIMIT {}", limit));
-            }
-            if let Some(offset) = f.offset {
-                sql.push_str(&format!(" OFFSET {}", offset));
-            }
-        }
-
+        let (sql, params) = build_select_sql(filter, &self.table_name, "data, metadata");
         let mut query = sqlx::query_as::<_, (Vec<u8>, Value)>(&sql);
         for param in &params {
-            query = query.bind(param.as_str());
+            match param {
+                BindValue::S(s) => query = query.bind(s),
+                BindValue::I(i) => query = query.bind(*i),
+            }
         }
 
         let rows = query
@@ -291,6 +317,28 @@ impl Store for PostgresStorage {
             })?;
 
         Ok(rows)
+    }
+
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        let sql = format!(
+            "SELECT metadata->>'{}' AS k, COUNT(*) AS c FROM {} GROUP BY k",
+            field, self.table_name
+        );
+        let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "count_by_metadata_field".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
+            .collect())
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {

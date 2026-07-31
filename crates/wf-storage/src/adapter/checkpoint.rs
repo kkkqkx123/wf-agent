@@ -1,5 +1,5 @@
 use crate::adapter::base::BaseStorageAdapter;
-use crate::domain::store::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
 
@@ -13,16 +13,18 @@ pub struct CheckpointListOptions {
 
 impl From<CheckpointListOptions> for QueryFilter {
     fn from(opts: CheckpointListOptions) -> Self {
-        let mut filter = QueryFilter {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
-        };
-        if let Some(ety) = opts.entity_type_filter {
-            filter.entity_type = Some(ety);
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
         }
-        if let Some(eid) = opts.entity_id_filter {
-            filter.fields.insert("entityId".to_string(), eid);
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
+        }
+        if let Some(value) = opts.entity_type_filter {
+            filter.add_op(FilterOp::Eq("entityType".into(), value));
+        }
+        if let Some(value) = opts.entity_id_filter {
+            filter.add_op(FilterOp::Eq("entityId".into(), value));
         }
         filter
     }

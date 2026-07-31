@@ -1,7 +1,7 @@
-use wf_types::config::storage::StorageConfig;
-use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
+use wf_types::config::storage::StorageConfig;
+use wf_types::config::timeout::TimeoutConfig;
 
 #[derive(Debug, Clone, Default)]
 pub struct SdkOptions {

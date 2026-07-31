@@ -1,7 +1,7 @@
 #![allow(clippy::manual_is_multiple_of)]
 
+use wf_storage::adapter::adapter_impls::*;
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_storage::adapter::concrete::*;
 use wf_storage::adapter::*;
 use wf_storage::store::memory::MemoryStorage;
 
@@ -58,7 +58,7 @@ fn make_exec(i: u32) -> wf_types::WorkflowExecution {
 
 #[tokio::test]
 async fn test_workflow_adapter_crud() {
-    let adapter = MemoryWorkflowStorage::new(make_store("test_wf"));
+    let adapter = WorkflowStorage::new(make_store("test_wf"));
     let wf = make_wf(1);
     adapter.save(&wf).await.unwrap();
     assert!(adapter.exists("wf-1").await.unwrap());
@@ -70,7 +70,7 @@ async fn test_workflow_adapter_crud() {
 
 #[tokio::test]
 async fn test_trigger_adapter_list_by_event() {
-    let adapter = MemoryTriggerStorage::new(make_store("test_tr"));
+    let adapter = TriggerStorage::new(make_store("test_tr"));
     let t1 = wf_types::TriggerStorageMetadata {
         id: "tr-1".into(),
         name: "t1".into(),
@@ -98,7 +98,7 @@ async fn test_trigger_adapter_list_by_event() {
 
 #[tokio::test]
 async fn test_tool_adapter_get_stats() {
-    let adapter = MemoryToolStorage::new(make_store("test_tl"));
+    let adapter = ToolStorage::new(make_store("test_tl"));
     for i in 0..3 {
         adapter
             .save(&wf_types::ToolStorageMetadata {
@@ -132,7 +132,7 @@ async fn test_tool_adapter_get_stats() {
 
 #[tokio::test]
 async fn test_script_adapter_list_by_language() {
-    let adapter = MemoryScriptStorage::new(make_store("test_sc"));
+    let adapter = ScriptStorage::new(make_store("test_sc"));
     adapter
         .save(&wf_types::ScriptStorageMetadata {
             id: "sc-1".into(),
@@ -163,7 +163,7 @@ async fn test_script_adapter_list_by_language() {
 
 #[tokio::test]
 async fn test_node_template_adapter_list_by_node_type() {
-    let adapter = MemoryNodeTemplateStorage::new(make_store("test_nt"));
+    let adapter = NodeTemplateStorage::new(make_store("test_nt"));
     adapter
         .save(&wf_types::NodeTemplateStorageMetadata {
             id: "nt-1".into(),
@@ -192,7 +192,7 @@ async fn test_node_template_adapter_list_by_node_type() {
 
 #[tokio::test]
 async fn test_hook_template_adapter_list_by_hook_type() {
-    let adapter = MemoryHookTemplateStorage::new(make_store("test_ht"));
+    let adapter = HookTemplateStorage::new(make_store("test_ht"));
     adapter
         .save(&wf_types::HookTemplateStorageMetadata {
             id: "ht-1".into(),
@@ -210,7 +210,7 @@ async fn test_hook_template_adapter_list_by_hook_type() {
 
 #[tokio::test]
 async fn test_agent_profile_adapter_get_first() {
-    let adapter = MemoryAgentProfileStorage::new(make_store("test_ap"));
+    let adapter = AgentProfileStorage::new(make_store("test_ap"));
     assert!(adapter.get_first().await.unwrap().is_none());
     adapter
         .save(&wf_types::AgentProfileStorageMetadata {
@@ -229,7 +229,7 @@ async fn test_agent_profile_adapter_get_first() {
 
 #[tokio::test]
 async fn test_execution_adapter_update_status() {
-    let adapter = MemoryWorkflowExecutionStorage::new(make_store("test_ex"));
+    let adapter = WorkflowExecutionStorage::new(make_store("test_ex"));
     let exec = make_exec(1);
     adapter.save(&exec).await.unwrap();
     adapter
@@ -242,7 +242,7 @@ async fn test_execution_adapter_update_status() {
 
 #[tokio::test]
 async fn test_file_checkpoint_adapter_load_by_path() {
-    let adapter = MemoryFileCheckpointStorage::new(make_store("test_fc"));
+    let adapter = FileCheckpointStorage::new(make_store("test_fc"));
     adapter
         .save(&wf_types::FileCheckpointStorageMetadata {
             id: "fc-1".into(),
@@ -265,18 +265,18 @@ async fn test_file_checkpoint_adapter_load_by_path() {
 
 #[tokio::test]
 async fn test_metrics_adapter_save_query_delete() {
-    let adapter = MemoryMetricsStorage::new(make_store("test_mt"));
+    let adapter = MetricsStorage::new(make_store("test_mt"));
     let points = vec![
-        wf_storage::adapter::MetricsDataPoint {
-            name: "cpu".into(),
-            value: 0.5,
-            timestamp: 1000,
-            tags: None,
-        },
         wf_storage::adapter::MetricsDataPoint {
             name: "cpu".into(),
             value: 0.8,
             timestamp: 2000,
+            tags: None,
+        },
+        wf_storage::adapter::MetricsDataPoint {
+            name: "cpu".into(),
+            value: 0.5,
+            timestamp: 1000,
             tags: None,
         },
     ];
@@ -284,6 +284,10 @@ async fn test_metrics_adapter_save_query_delete() {
     let results = adapter.query("cpu", 500, 1500).await.unwrap();
     assert_eq!(results.len(), 1);
     assert!((results[0].value - 0.5).abs() < 1e-10);
+    let all = adapter.query("cpu", 0, 3000).await.unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].timestamp, 1000);
+    assert_eq!(all[1].timestamp, 2000);
     adapter.delete_old(1500).await.unwrap();
     let after = adapter.query("cpu", 0, 3000).await.unwrap();
     assert_eq!(after.len(), 1);
@@ -291,7 +295,7 @@ async fn test_metrics_adapter_save_query_delete() {
 
 #[tokio::test]
 async fn test_list_options_filtering() {
-    let adapter = MemoryWorkflowStorage::new(make_store("test_list"));
+    let adapter = WorkflowStorage::new(make_store("test_list"));
     for i in 0..5 {
         adapter.save(&make_wf(i)).await.unwrap();
     }
@@ -305,4 +309,79 @@ async fn test_list_options_filtering() {
     };
     let filtered = adapter.list(Some(opts)).await.unwrap();
     assert_eq!(filtered.len(), 3);
+}
+
+#[tokio::test]
+async fn test_workflow_versions() {
+    let adapter = WorkflowStorage::new(make_store("test_versions"));
+    let wf1 = make_wf(1);
+    adapter.save_version("wf-1", "1", &wf1).await.unwrap();
+    adapter.save_version("wf-1", "2", &wf1).await.unwrap();
+    adapter.save_version("wf-2", "1", &wf1).await.unwrap();
+
+    let versions = adapter.list_versions("wf-1").await.unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(
+        adapter.load_version("wf-1", "1").await.unwrap().unwrap().id,
+        "wf-1"
+    );
+    assert!(adapter.delete_version("wf-1", "1").await.unwrap());
+    assert!(!adapter.delete_version("wf-1", "1").await.unwrap());
+    assert_eq!(adapter.list_versions("wf-1").await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_checkpoint_latest_by_entity() {
+    let adapter = CheckpointStorage::new(make_store("test_cp_latest"));
+    for (i, ts) in [(1, 1000), (2, 2000), (3, 1500)] {
+        adapter
+            .save(&wf_types::Checkpoint {
+                id: format!("cp-{}", i),
+                entity_id: "ex-1".into(),
+                entity_type: "execution".into(),
+                checkpoint_type: wf_types::checkpoint::base::CheckpointType::Full,
+                timestamp: ts,
+                status: wf_types::checkpoint::base::CheckpointStatus::Active,
+            })
+            .await
+            .unwrap();
+    }
+    let latest = adapter
+        .get_latest_by_entity("ex-1", "checkpoint")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(latest.id, "cp-2");
+}
+
+#[tokio::test]
+async fn test_get_stats_pushdown() {
+    let adapter = AgentLoopStorage::new(make_store("test_loop_stats"));
+    for i in 0..3 {
+        adapter
+            .save(&wf_types::AgentLoopStorageMetadata {
+                id: format!("loop-{}", i),
+                definition_id: "def-1".into(),
+                status: "running".into(),
+                current_iteration: 0,
+                started_at: 1000,
+                updated_at: 1000,
+            })
+            .await
+            .unwrap();
+    }
+    adapter
+        .save(&wf_types::AgentLoopStorageMetadata {
+            id: "loop-done".into(),
+            definition_id: "def-1".into(),
+            status: "completed".into(),
+            current_iteration: 3,
+            started_at: 1000,
+            updated_at: 1000,
+        })
+        .await
+        .unwrap();
+    let stats = adapter.get_stats().await.unwrap();
+    assert_eq!(*stats.get("running").unwrap(), 3);
+    assert_eq!(*stats.get("completed").unwrap(), 1);
 }

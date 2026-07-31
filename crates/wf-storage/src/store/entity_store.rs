@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use serde_json::Value;
@@ -108,6 +109,11 @@ where
             Some((data, _)) => Ok(Some(compute_hash(&data))),
             None => Ok(None),
         }
+    }
+
+    /// Count records grouped by a metadata field (delegates to the backend).
+    pub async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
+        self.storage.count_by_metadata_field(field).await
     }
 }
 

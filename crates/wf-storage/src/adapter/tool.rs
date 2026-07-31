@@ -1,5 +1,5 @@
 use crate::adapter::base::BaseStorageAdapter;
-use crate::domain::store::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
 
@@ -12,13 +12,15 @@ pub struct ToolListOptions {
 
 impl From<ToolListOptions> for QueryFilter {
     fn from(opts: ToolListOptions) -> Self {
-        let mut filter = QueryFilter {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
-        };
-        if let Some(typ) = opts.tool_type_filter {
-            filter.fields.insert("toolType".to_string(), typ);
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
+        }
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
+        }
+        if let Some(value) = opts.tool_type_filter {
+            filter.add_op(FilterOp::Eq("toolType".into(), value));
         }
         filter
     }

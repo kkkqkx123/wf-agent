@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use crate::adapter::agent_execution::{AgentExecutionListOptions, AgentExecutionStorageAdapter};
 use crate::adapter::agent_loop::{AgentLoopListOptions, AgentLoopStorageAdapter};
 use crate::adapter::agent_profile::{AgentProfileListOptions, AgentProfileStorageAdapter};
+use crate::adapter::base::BaseStorageAdapter;
 use crate::adapter::checkpoint::{CheckpointListOptions, CheckpointStorageAdapter};
 use crate::adapter::execution::{WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter};
 use crate::adapter::file_checkpoint::FileCheckpointListOptions;
 use crate::adapter::file_checkpoint::FileCheckpointStorageAdapter;
 use crate::adapter::hook_template::{HookTemplateListOptions, HookTemplateStorageAdapter};
-use crate::adapter::metrics::{MetricsDataPoint, MetricsStorageAdapter};
+use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdapter};
 use crate::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
 use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
@@ -18,19 +19,12 @@ use crate::adapter::trigger::{TriggerListOptions, TriggerStorageAdapter};
 use crate::adapter::trigger_execution::{
     TriggerExecutionListOptions, TriggerExecutionStorageAdapter,
 };
-use crate::adapter::user_interaction::{
-    UserInteractionListOptions, UserInteractionStorageAdapter,
-};
+use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteractionStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
-use crate::domain::QueryFilter;
-use crate::domain::Store;
+use crate::domain::store::{BatchStore, QueryFilter, Store};
 use crate::error::StorageError;
 use crate::make_base_adapter;
-use crate::store::MemoryStorage;
-#[cfg(feature = "postgres")]
-use crate::store::PostgresStorage;
-#[cfg(feature = "sqlite")]
-use crate::store::SqliteStorage;
+use crate::store::entity_store::EntityStore;
 
 // ─── Macro invocation: generates BaseStorageAdapter impl + struct ───
 
@@ -102,86 +96,6 @@ make_base_adapter!(
     TriggerExecutionListOptions
 );
 
-// ─── Type aliases ───
-
-pub type MemoryWorkflowStorage = WorkflowStorage<MemoryStorage>;
-pub type MemoryWorkflowExecutionStorage = WorkflowExecutionStorage<MemoryStorage>;
-pub type MemoryCheckpointStorage = CheckpointStorage<MemoryStorage>;
-pub type MemoryTaskStorage = TaskStorage<MemoryStorage>;
-pub type MemoryAgentLoopStorage = AgentLoopStorage<MemoryStorage>;
-pub type MemoryAgentExecutionStorage = AgentExecutionStorage<MemoryStorage>;
-pub type MemoryFileCheckpointStorage = FileCheckpointStorage<MemoryStorage>;
-pub type MemoryTriggerStorage = TriggerStorage<MemoryStorage>;
-pub type MemoryToolStorage = ToolStorage<MemoryStorage>;
-pub type MemoryScriptStorage = ScriptStorage<MemoryStorage>;
-pub type MemoryNodeTemplateStorage = NodeTemplateStorage<MemoryStorage>;
-pub type MemoryHookTemplateStorage = HookTemplateStorage<MemoryStorage>;
-pub type MemoryAgentProfileStorage = AgentProfileStorage<MemoryStorage>;
-pub type MemoryUserInteractionStorage = UserInteractionStorage<MemoryStorage>;
-pub type MemoryTriggerExecutionStorage = TriggerExecutionStorage<MemoryStorage>;
-
-#[cfg(feature = "sqlite")]
-pub type SqliteWorkflowStorage = WorkflowStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteWorkflowExecutionStorage = WorkflowExecutionStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteCheckpointStorage = CheckpointStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteTaskStorage = TaskStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteAgentLoopStorage = AgentLoopStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteAgentExecutionStorage = AgentExecutionStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteFileCheckpointStorage = FileCheckpointStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteTriggerStorage = TriggerStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteToolStorage = ToolStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteScriptStorage = ScriptStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteNodeTemplateStorage = NodeTemplateStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteHookTemplateStorage = HookTemplateStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteAgentProfileStorage = AgentProfileStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteUserInteractionStorage = UserInteractionStorage<SqliteStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteTriggerExecutionStorage = TriggerExecutionStorage<SqliteStorage>;
-
-#[cfg(feature = "postgres")]
-pub type PostgresWorkflowStorage = WorkflowStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresWorkflowExecutionStorage = WorkflowExecutionStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresCheckpointStorage = CheckpointStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresTaskStorage = TaskStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresAgentLoopStorage = AgentLoopStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresAgentExecutionStorage = AgentExecutionStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresFileCheckpointStorage = FileCheckpointStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresTriggerStorage = TriggerStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresToolStorage = ToolStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresScriptStorage = ScriptStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresNodeTemplateStorage = NodeTemplateStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresHookTemplateStorage = HookTemplateStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresAgentProfileStorage = AgentProfileStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresUserInteractionStorage = UserInteractionStorage<PostgresStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresTriggerExecutionStorage = TriggerExecutionStorage<PostgresStorage>;
-
 // ─── WorkflowStorageAdapter ───
 
 impl<S: Store> WorkflowStorageAdapter for WorkflowStorage<S> {
@@ -225,16 +139,8 @@ impl<S: Store> WorkflowStorageAdapter for WorkflowStorage<S> {
         workflow_id: &str,
     ) -> Result<Vec<wf_types::WorkflowDefinition>, StorageError> {
         let prefix = format!("{}:v", workflow_id);
-        let all = self.entity_store.list_metadata(None).await?;
-        let mut results = Vec::new();
-        for (id, _) in all {
-            if id.starts_with(&prefix) {
-                if let Some(entity) = self.entity_store.load(&id).await? {
-                    results.push(entity);
-                }
-            }
-        }
-        Ok(results)
+        let filter = QueryFilter::new().with_id_prefix(&prefix);
+        self.entity_store.list(Some(&filter)).await
     }
 
     async fn load_version(
@@ -248,8 +154,9 @@ impl<S: Store> WorkflowStorageAdapter for WorkflowStorage<S> {
 
     async fn delete_version(&self, workflow_id: &str, version: &str) -> Result<bool, StorageError> {
         let composite_id = format!("{}:v{}", workflow_id, version);
+        let existed = self.entity_store.exists(&composite_id).await?;
         self.entity_store.delete(&composite_id).await?;
-        Ok(true)
+        Ok(existed)
     }
 }
 
@@ -301,9 +208,17 @@ impl<S: Store> CheckpointStorageAdapter for CheckpointStorage<S> {
         entity_id: &str,
         entity_type: &str,
     ) -> Result<Option<wf_types::Checkpoint>, StorageError> {
-        let mut results = self.list_by_entity(entity_id, entity_type).await?;
-        results.sort_by_key(|c| c.timestamp);
-        Ok(results.into_iter().last())
+        let filter = QueryFilter::new()
+            .with_field("entityId", entity_id)
+            .with_entity_type(entity_type)
+            .with_order_by("timestamp", true)
+            .with_limit(1);
+        Ok(self
+            .entity_store
+            .list(Some(&filter))
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn delete_by_entity(
@@ -355,22 +270,16 @@ impl<S: Store> CheckpointStorageAdapter for CheckpointStorage<S> {
 
 impl<S: Store> TaskStorageAdapter for TaskStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        let mut stats = HashMap::new();
-        for task in &all {
-            *stats.entry(task.status.clone()).or_insert(0) += 1;
-        }
-        Ok(stats)
+        self.count_by_field("status").await
     }
 
     async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError> {
-        let all = self.entity_store.list(None).await?;
+        let filter = QueryFilter::new().with_field_lt("createdAt", older_than);
+        let all = self.entity_store.list(Some(&filter)).await?;
         let mut deleted = 0u64;
         for task in &all {
-            if task.created_at < older_than {
-                self.entity_store.delete(&task.id).await?;
-                deleted += 1;
-            }
+            self.entity_store.delete(&task.id).await?;
+            deleted += 1;
         }
         Ok(deleted)
     }
@@ -408,12 +317,7 @@ impl<S: Store> AgentLoopStorageAdapter for AgentLoopStorage<S> {
     }
 
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        let mut stats = HashMap::new();
-        for entry in &all {
-            *stats.entry(entry.status.clone()).or_insert(0) += 1;
-        }
-        Ok(stats)
+        self.count_by_field("status").await
     }
 }
 
@@ -424,8 +328,15 @@ impl<S: Store> FileCheckpointStorageAdapter for FileCheckpointStorage<S> {
         &self,
         file_path: &str,
     ) -> Result<Option<wf_types::FileCheckpointStorageMetadata>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        Ok(all.into_iter().find(|e| e.file_path == file_path))
+        let filter = QueryFilter::new()
+            .with_field("filePath", file_path)
+            .with_limit(1);
+        Ok(self
+            .entity_store
+            .list(Some(&filter))
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn list_by_entity(
@@ -453,12 +364,7 @@ impl<S: Store> TriggerStorageAdapter for TriggerStorage<S> {
 
 impl<S: Store> ToolStorageAdapter for ToolStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        let mut stats = HashMap::new();
-        for entry in &all {
-            *stats.entry(entry.tool_type.clone()).or_insert(0) += 1;
-        }
-        Ok(stats)
+        self.count_by_field("toolType").await
     }
 }
 
@@ -504,8 +410,13 @@ impl<S: Store> AgentProfileStorageAdapter for AgentProfileStorage<S> {
     async fn get_first(
         &self,
     ) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        Ok(all.into_iter().next())
+        let filter = QueryFilter::new().with_limit(1);
+        Ok(self
+            .entity_store
+            .list(Some(&filter))
+            .await?
+            .into_iter()
+            .next())
     }
 }
 
@@ -528,13 +439,8 @@ impl<S: Store> UserInteractionStorageAdapter for UserInteractionStorage<S> {
         self.entity_store.list(Some(&filter)).await
     }
 
-    async fn get_stats(&self) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        let all = self.entity_store.list(None).await?;
-        let mut stats = std::collections::HashMap::new();
-        for entry in &all {
-            *stats.entry(entry.status.clone()).or_insert(0) += 1;
-        }
-        Ok(stats)
+    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
+        self.count_by_field("status").await
     }
 }
 
@@ -565,9 +471,9 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
         self.entity_store.list(Some(&filter)).await
     }
 
-    async fn get_stats(&self) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         let all = self.entity_store.list(None).await?;
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         for entry in &all {
             let key = if entry.success {
                 "success".to_string()
@@ -580,13 +486,12 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
     }
 
     async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError> {
-        let all = self.entity_store.list(None).await?;
+        let filter = QueryFilter::new().with_field_lt("triggeredAt", older_than);
+        let all = self.entity_store.list(Some(&filter)).await?;
         let mut deleted = 0u64;
         for entry in &all {
-            if entry.triggered_at < older_than {
-                self.entity_store.delete(&entry.id).await?;
-                deleted += 1;
-            }
+            self.entity_store.delete(&entry.id).await?;
+            deleted += 1;
         }
         Ok(deleted)
     }
@@ -595,39 +500,29 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
 // ─── MetricsStorageAdapter (standalone, no BaseStorageAdapter) ───
 
 pub struct MetricsStorage<S> {
-    store: S,
+    entity_store: EntityStore<S, MetricRecord>,
 }
 
 impl<S: Store> MetricsStorage<S> {
     pub fn new(store: S) -> Self {
-        Self { store }
+        Self {
+            entity_store: EntityStore::new(store),
+        }
     }
 
     pub fn inner(&self) -> &S {
-        &self.store
+        self.entity_store.inner()
     }
 }
 
-pub type MemoryMetricsStorage = MetricsStorage<MemoryStorage>;
-#[cfg(feature = "sqlite")]
-pub type SqliteMetricsStorage = MetricsStorage<SqliteStorage>;
-#[cfg(feature = "postgres")]
-pub type PostgresMetricsStorage = MetricsStorage<PostgresStorage>;
-
-impl<S: Store> MetricsStorageAdapter for MetricsStorage<S> {
+impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
     async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError> {
-        for point in points {
-            let id = format!("metric:{}:{}", point.name, point.timestamp);
-            let data = serde_json::to_vec(point)?;
-            let metadata = serde_json::json!({
-                "entityType": "metric",
-                "metricName": point.name,
-                "timestamp": point.timestamp,
-                "compressed": false,
-            });
-            self.store.save(&id, &data, &metadata).await?;
-        }
-        Ok(())
+        let records: Vec<MetricRecord> = points
+            .iter()
+            .cloned()
+            .map(MetricRecord::from_point)
+            .collect();
+        self.entity_store.save_batch(&records).await
     }
 
     async fn query(
@@ -638,28 +533,19 @@ impl<S: Store> MetricsStorageAdapter for MetricsStorage<S> {
     ) -> Result<Vec<MetricsDataPoint>, StorageError> {
         let filter = QueryFilter::new()
             .with_field("metricName", name)
-            .with_timestamp_range(start_time, end_time);
-        let entries = self.store.list(Some(&filter)).await?;
-        let mut results = Vec::new();
-        for (id, _) in entries {
-            if let Some((data, _)) = self.store.load(&id).await? {
-                if let Ok(point) = serde_json::from_slice::<MetricsDataPoint>(&data) {
-                    results.push(point);
-                }
-            }
-        }
-        Ok(results)
+            .with_timestamp_range(start_time, end_time)
+            .with_order_by("timestamp", false);
+        let records = self.entity_store.list(Some(&filter)).await?;
+        Ok(records.into_iter().map(|r| r.point).collect())
     }
 
     async fn delete_old(&self, older_than: i64) -> Result<u64, StorageError> {
-        let all = self.store.list(None).await?;
+        let filter = QueryFilter::new().with_field_lt("timestamp", older_than);
+        let records = self.entity_store.list(Some(&filter)).await?;
         let mut deleted = 0u64;
-        for (id, meta) in all {
-            let ts = meta.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-            if ts < older_than {
-                self.store.delete(&id).await?;
-                deleted += 1;
-            }
+        for record in &records {
+            self.entity_store.delete(&record.id).await?;
+            deleted += 1;
         }
         Ok(deleted)
     }

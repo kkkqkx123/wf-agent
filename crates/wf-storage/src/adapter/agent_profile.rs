@@ -1,5 +1,5 @@
 use crate::adapter::base::BaseStorageAdapter;
-use crate::domain::store::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone, Default)]
@@ -12,18 +12,18 @@ pub struct AgentProfileListOptions {
 
 impl From<AgentProfileListOptions> for QueryFilter {
     fn from(opts: AgentProfileListOptions) -> Self {
-        let mut filter = QueryFilter {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
-        };
-        if let Some(name) = opts.name_filter {
-            filter.fields.insert("name".to_string(), name);
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
         }
-        if let Some(is_default) = opts.is_default {
-            filter
-                .fields
-                .insert("isDefault".to_string(), is_default.to_string());
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
+        }
+        if let Some(value) = opts.name_filter {
+            filter.add_op(FilterOp::Eq("name".into(), value));
+        }
+        if let Some(value) = opts.is_default {
+            filter.add_op(FilterOp::Eq("isDefault".into(), value.to_string()));
         }
         filter
     }

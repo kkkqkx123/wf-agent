@@ -1,8 +1,8 @@
-use crate::adapter::concrete::{
+use crate::adapter::adapter_impls::{
     AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, CheckpointStorage,
-    FileCheckpointStorage, HookTemplateStorage, MetricsStorage, NodeTemplateStorage,
-    ScriptStorage, TaskStorage, ToolStorage, TriggerExecutionStorage, TriggerStorage,
-    UserInteractionStorage, WorkflowExecutionStorage, WorkflowStorage,
+    FileCheckpointStorage, HookTemplateStorage, MetricsStorage, NodeTemplateStorage, ScriptStorage,
+    TaskStorage, ToolStorage, TriggerExecutionStorage, TriggerStorage, UserInteractionStorage,
+    WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::error::StorageError;
@@ -51,8 +51,14 @@ impl StorageContext {
             agent_profile: AgentProfileStorage::new(make_backend!(Memory, "agent_profile")),
             file_checkpoint: FileCheckpointStorage::new(make_backend!(Memory, "file_checkpoint")),
             trigger: TriggerStorage::new(make_backend!(Memory, "trigger")),
-            trigger_execution: TriggerExecutionStorage::new(make_backend!(Memory, "trigger_execution")),
-            user_interaction: UserInteractionStorage::new(make_backend!(Memory, "user_interaction")),
+            trigger_execution: TriggerExecutionStorage::new(make_backend!(
+                Memory,
+                "trigger_execution"
+            )),
+            user_interaction: UserInteractionStorage::new(make_backend!(
+                Memory,
+                "user_interaction"
+            )),
             tool: ToolStorage::new(make_backend!(Memory, "tool")),
             script: ScriptStorage::new(make_backend!(Memory, "script")),
             node_template: NodeTemplateStorage::new(make_backend!(Memory, "node_template")),

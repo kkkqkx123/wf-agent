@@ -21,7 +21,9 @@ impl Default for MemoryNoteStore {
     }
 }
 
-fn read_notes(store: &MemoryNoteStore) -> Result<RwLockReadGuard<'_, HashMap<String, NoteEntity>>, StorageError> {
+fn read_notes(
+    store: &MemoryNoteStore,
+) -> Result<RwLockReadGuard<'_, HashMap<String, NoteEntity>>, StorageError> {
     store.notes.read().map_err(|_| StorageError::General {
         operation: "note_read".to_string(),
         message: "lock poisoned".to_string(),
@@ -29,7 +31,9 @@ fn read_notes(store: &MemoryNoteStore) -> Result<RwLockReadGuard<'_, HashMap<Str
     })
 }
 
-fn write_notes(store: &MemoryNoteStore) -> Result<RwLockWriteGuard<'_, HashMap<String, NoteEntity>>, StorageError> {
+fn write_notes(
+    store: &MemoryNoteStore,
+) -> Result<RwLockWriteGuard<'_, HashMap<String, NoteEntity>>, StorageError> {
     store.notes.write().map_err(|_| StorageError::General {
         operation: "note_write".to_string(),
         message: "lock poisoned".to_string(),

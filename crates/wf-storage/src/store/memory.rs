@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::domain::store::{BatchItem, QueryFilter, Store};
+use crate::domain::store::{BatchItem, FilterOp, QueryFilter, Store};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
@@ -54,36 +54,76 @@ fn current_timestamp() -> i64 {
         .as_millis() as i64
 }
 
+fn matches_meta_str(metadata: &Value, key: &str, expected: &str) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|v| v == expected)
+        .unwrap_or(false)
+}
+
+fn matches_meta_lt(metadata: &Value, key: &str, value: i64) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_i64())
+        .map(|v| v < value)
+        .unwrap_or(false)
+}
+
+fn matches_meta_gt(metadata: &Value, key: &str, value: i64) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_i64())
+        .map(|v| v > value)
+        .unwrap_or(false)
+}
+
+fn matches_meta_prefix(metadata: &Value, key: &str, prefix: &str) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|v| v.starts_with(prefix))
+        .unwrap_or(false)
+}
+
+fn meta_cmp(a: &Value, b: &Value) -> std::cmp::Ordering {
+    if let (Some(x), Some(y)) = (a.as_i64(), b.as_i64()) {
+        return x.cmp(&y);
+    }
+    if let (Some(x), Some(y)) = (a.as_f64(), b.as_f64()) {
+        return x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal);
+    }
+    a.as_str()
+        .unwrap_or_default()
+        .cmp(b.as_str().unwrap_or_default())
+}
+
+fn matches_record(metadata: &Value, id: &str, op: &FilterOp) -> bool {
+    match op {
+        FilterOp::Eq(key, value) => matches_meta_str(metadata, key, value),
+        FilterOp::IdPrefix(prefix) => id.starts_with(prefix),
+        FilterOp::Prefix(key, prefix) => matches_meta_prefix(metadata, key, prefix),
+        FilterOp::Lt(key, value) => matches_meta_lt(metadata, key, *value),
+        FilterOp::Gt(key, value) => matches_meta_gt(metadata, key, *value),
+        FilterOp::Between(key, start, end) => metadata
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .map(|ts| ts >= *start && ts <= *end)
+            .unwrap_or(false),
+        FilterOp::OrderBy(_, _) | FilterOp::Offset(_) | FilterOp::Limit(_) => true,
+    }
+}
+
 fn apply_filter(
     records: &HashMap<String, StoredRecord>,
     filter: Option<&QueryFilter>,
 ) -> Vec<(String, Value)> {
     let mut results: Vec<(String, Value)> = records
         .iter()
-        .filter(|(_, rec)| {
+        .filter(|(id, rec)| {
             if let Some(f) = filter {
-                if let Some(ref entity_type) = f.entity_type {
-                    if !matches_meta_str(&rec.metadata, "entityType", entity_type) {
-                        return false;
-                    }
-                }
-                if let Some(ref status) = f.status {
-                    if !matches_meta_str(&rec.metadata, "status", status) {
-                        return false;
-                    }
-                }
-                for (key, value) in &f.fields {
-                    if !matches_meta_str(&rec.metadata, key, value) {
-                        return false;
-                    }
-                }
-                if let Some((start, end)) = f.timestamp_range {
-                    let ts = rec
-                        .metadata
-                        .get("timestamp")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    if ts < start || ts > end {
+                for op in &f.ops {
+                    if !matches_record(&rec.metadata, id, op) {
                         return false;
                     }
                 }
@@ -93,19 +133,36 @@ fn apply_filter(
         .map(|(id, rec)| (id.clone(), rec.metadata.clone()))
         .collect();
 
-    let offset = filter.and_then(|f| f.offset).unwrap_or(0) as usize;
-    let limit = filter.and_then(|f| f.limit).unwrap_or(u64::MAX) as usize;
+    if let Some(f) = filter {
+        for op in &f.ops {
+            if let FilterOp::OrderBy(key, descending) = op {
+                results.sort_by(|a, b| {
+                    let cmp = meta_cmp(
+                        a.1.get(key).unwrap_or(&Value::Null),
+                        b.1.get(key).unwrap_or(&Value::Null),
+                    );
+                    if *descending {
+                        cmp.reverse()
+                    } else {
+                        cmp
+                    }
+                });
+            }
+        }
 
-    results = results.into_iter().skip(offset).take(limit).collect();
+        let mut offset = 0usize;
+        let mut limit = usize::MAX;
+        for op in &f.ops {
+            match op {
+                FilterOp::Offset(o) => offset = *o as usize,
+                FilterOp::Limit(l) => limit = *l as usize,
+                _ => {}
+            }
+        }
+        results = results.into_iter().skip(offset).take(limit).collect();
+    }
+
     results
-}
-
-fn matches_meta_str(metadata: &Value, key: &str, expected: &str) -> bool {
-    metadata
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|v| v == expected)
-        .unwrap_or(false)
 }
 
 #[async_trait]
@@ -268,6 +325,46 @@ mod tests {
         let filter = QueryFilter::new().with_status("inactive");
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_with_pushdown_ops() {
+        let store = MemoryStorage::new("test");
+        for i in 0..5 {
+            store
+                .save(
+                    &format!("wf-{}:v{}", i, 1),
+                    b"data",
+                    &serde_json::json!({"entityType": "workflow", "timestamp": 1000 + i}),
+                )
+                .await
+                .unwrap();
+            store
+                .save(
+                    &format!("other-{}", i),
+                    b"data",
+                    &serde_json::json!({"entityType": "other", "timestamp": 2000 + i}),
+                )
+                .await
+                .unwrap();
+        }
+
+        let filter = QueryFilter::new().with_id_prefix("wf-");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 5);
+
+        let filter = QueryFilter::new()
+            .with_field("entityType", "workflow")
+            .with_order_by("timestamp", true)
+            .with_limit(2);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].1["timestamp"], 1004);
+        assert_eq!(results[1].1["timestamp"], 1003);
+
+        let filter = QueryFilter::new().with_field_lt("timestamp", 1003);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 3);
     }
 
     #[tokio::test]

@@ -3,7 +3,7 @@ use serde_json::Value;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
-use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 
 fn to_sqlite_url(path: &str) -> String {
@@ -27,6 +27,91 @@ fn sanitize_url(url: &str) -> String {
     } else {
         url.to_string()
     }
+}
+
+enum BindValue {
+    S(String),
+    I(i64),
+}
+
+/// Translates a QueryFilter into a complete SELECT statement.
+/// Field names come from a fixed metadata schema, so interpolation is safe.
+fn build_select_sql(
+    filter: Option<&QueryFilter>,
+    table_name: &str,
+    select_columns: &str,
+) -> (String, Vec<BindValue>) {
+    let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
+    let mut conditions: Vec<String> = Vec::new();
+    let mut params: Vec<BindValue> = Vec::new();
+    let mut order_by: Option<(String, bool)> = None;
+    let mut offset: Option<u64> = None;
+    let mut limit: Option<u64> = None;
+
+    if let Some(f) = filter {
+        for op in &f.ops {
+            match op {
+                FilterOp::Eq(key, value) => {
+                    conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
+                    params.push(BindValue::S(value.clone()));
+                }
+                FilterOp::IdPrefix(prefix) => {
+                    conditions.push("substr(id, 1, length(?)) = ?".into());
+                    params.push(BindValue::S(prefix.clone()));
+                    params.push(BindValue::S(prefix.clone()));
+                }
+                FilterOp::Prefix(key, prefix) => {
+                    conditions.push(format!(
+                        "substr(json_extract(metadata, '$.{}'), 1, length(?)) = ?",
+                        key
+                    ));
+                    params.push(BindValue::S(prefix.clone()));
+                    params.push(BindValue::S(prefix.clone()));
+                }
+                FilterOp::Lt(key, value) => {
+                    conditions.push(format!("json_extract(metadata, '$.{}') < ?", key));
+                    params.push(BindValue::I(*value));
+                }
+                FilterOp::Gt(key, value) => {
+                    conditions.push(format!("json_extract(metadata, '$.{}') > ?", key));
+                    params.push(BindValue::I(*value));
+                }
+                FilterOp::Between(key, start, end) => {
+                    conditions.push(format!(
+                        "(json_extract(metadata, '$.{}') >= ? AND json_extract(metadata, '$.{}') <= ?)",
+                        key, key
+                    ));
+                    params.push(BindValue::I(*start));
+                    params.push(BindValue::I(*end));
+                }
+                FilterOp::OrderBy(key, descending) => {
+                    order_by = Some((key.clone(), *descending));
+                }
+                FilterOp::Offset(o) => offset = Some(*o),
+                FilterOp::Limit(l) => limit = Some(*l),
+            }
+        }
+    }
+
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
+    }
+    if let Some((key, descending)) = order_by {
+        sql.push_str(&format!(
+            " ORDER BY json_extract(metadata, '$.{}') {}",
+            key,
+            if descending { "DESC" } else { "ASC" }
+        ));
+    }
+    if let Some(limit) = limit {
+        sql.push_str(&format!(" LIMIT {}", limit));
+    }
+    if let Some(offset) = offset {
+        sql.push_str(&format!(" OFFSET {}", offset));
+    }
+
+    (sql, params)
 }
 
 #[derive(Debug, Clone)]
@@ -208,47 +293,13 @@ impl Store for SqliteStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
-        let mut sql = format!("SELECT id, metadata FROM {}", self.table_name);
-        let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(f) = filter {
-            if let Some(ref entity_type) = f.entity_type {
-                conditions.push("json_extract(metadata, '$.entityType') = ?".into());
-                params.push(entity_type.clone());
-            }
-            if let Some(ref status) = f.status {
-                conditions.push("json_extract(metadata, '$.status') = ?".into());
-                params.push(status.clone());
-            }
-            for (key, value) in &f.fields {
-                conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
-                params.push(value.clone());
-            }
-            if let Some((start, end)) = f.timestamp_range {
-                conditions.push("(json_extract(metadata, '$.timestamp') >= ? AND json_extract(metadata, '$.timestamp') <= ?)".into());
-                params.push(start.to_string());
-                params.push(end.to_string());
-            }
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
-        if let Some(f) = filter {
-            if let Some(limit) = f.limit {
-                sql.push_str(&format!(" LIMIT {}", limit));
-            }
-            if let Some(offset) = f.offset {
-                sql.push_str(&format!(" OFFSET {}", offset));
-            }
-        }
-
+        let (sql, params) = build_select_sql(filter, &self.table_name, "id, metadata");
         let mut query = sqlx::query_as::<_, (String, String)>(&sql);
         for param in &params {
-            query = query.bind(param);
+            match param {
+                BindValue::S(s) => query = query.bind(s),
+                BindValue::I(i) => query = query.bind(*i),
+            }
         }
 
         let rows = query
@@ -272,47 +323,13 @@ impl Store for SqliteStorage {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
-        let mut sql = format!("SELECT data, metadata FROM {}", self.table_name);
-        let mut conditions: Vec<String> = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        if let Some(f) = filter {
-            if let Some(ref entity_type) = f.entity_type {
-                conditions.push("json_extract(metadata, '$.entityType') = ?".into());
-                params.push(entity_type.clone());
-            }
-            if let Some(ref status) = f.status {
-                conditions.push("json_extract(metadata, '$.status') = ?".into());
-                params.push(status.clone());
-            }
-            for (key, value) in &f.fields {
-                conditions.push(format!("json_extract(metadata, '$.{}') = ?", key));
-                params.push(value.clone());
-            }
-            if let Some((start, end)) = f.timestamp_range {
-                conditions.push("(json_extract(metadata, '$.timestamp') >= ? AND json_extract(metadata, '$.timestamp') <= ?)".into());
-                params.push(start.to_string());
-                params.push(end.to_string());
-            }
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
-        if let Some(f) = filter {
-            if let Some(limit) = f.limit {
-                sql.push_str(&format!(" LIMIT {}", limit));
-            }
-            if let Some(offset) = f.offset {
-                sql.push_str(&format!(" OFFSET {}", offset));
-            }
-        }
-
+        let (sql, params) = build_select_sql(filter, &self.table_name, "data, metadata");
         let mut query = sqlx::query_as::<_, (Vec<u8>, String)>(&sql);
         for param in &params {
-            query = query.bind(param);
+            match param {
+                BindValue::S(s) => query = query.bind(s),
+                BindValue::I(i) => query = query.bind(*i),
+            }
         }
 
         let rows = query
@@ -330,6 +347,28 @@ impl Store for SqliteStorage {
                 Ok((data, metadata))
             })
             .collect()
+    }
+
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        let sql = format!(
+            "SELECT CAST(json_extract(metadata, '$.{}') AS TEXT) AS k, COUNT(*) AS c FROM {} GROUP BY k",
+            field, self.table_name
+        );
+        let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "count_by_metadata_field".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
+            .collect())
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
@@ -571,6 +610,41 @@ mod tests {
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "id1");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_list_pushdown_ops() {
+        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        for i in 0..5 {
+            store
+                .save(
+                    &format!("wf-{}:v{}", i, 1),
+                    b"data",
+                    &serde_json::json!({"entityType": "workflow", "timestamp": 1000 + i}),
+                )
+                .await
+                .unwrap();
+        }
+
+        let filter = QueryFilter::new().with_id_prefix("wf-");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 5);
+
+        let filter = QueryFilter::new()
+            .with_field("entityType", "workflow")
+            .with_order_by("timestamp", true)
+            .with_limit(2);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].1["timestamp"], 1004);
+        assert_eq!(results[1].1["timestamp"], 1003);
+
+        let filter = QueryFilter::new().with_field_lt("timestamp", 1003);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 3);
+
+        let counts = store.count_by_metadata_field("entityType").await.unwrap();
+        assert_eq!(*counts.get("workflow").unwrap(), 5);
     }
 
     #[tokio::test]

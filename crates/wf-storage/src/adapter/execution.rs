@@ -1,5 +1,5 @@
 use crate::adapter::base::BaseStorageAdapter;
-use crate::domain::store::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone, Default)]
@@ -12,16 +12,18 @@ pub struct WorkflowExecutionListOptions {
 
 impl From<WorkflowExecutionListOptions> for QueryFilter {
     fn from(opts: WorkflowExecutionListOptions) -> Self {
-        let mut filter = QueryFilter {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
-        };
-        if let Some(status) = opts.status_filter {
-            filter.status = Some(status);
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
         }
-        if let Some(workflow_id) = opts.workflow_id_filter {
-            filter.fields.insert("workflowId".to_string(), workflow_id);
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
+        }
+        if let Some(value) = opts.status_filter {
+            filter.add_op(FilterOp::Eq("status".into(), value));
+        }
+        if let Some(value) = opts.workflow_id_filter {
+            filter.add_op(FilterOp::Eq("workflowId".into(), value));
         }
         filter
     }

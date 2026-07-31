@@ -34,7 +34,11 @@ impl ContributionBridge for WfPluginBridge {
         Ok(())
     }
 
-    async fn unsync_all(&self, plugin_id: &str, _manager: &ContributionManager) -> PluginResult<()> {
+    async fn unsync_all(
+        &self,
+        plugin_id: &str,
+        _manager: &ContributionManager,
+    ) -> PluginResult<()> {
         tracing::info!("[bridge] unsyncing contributions for '{}'", plugin_id);
         Ok(())
     }

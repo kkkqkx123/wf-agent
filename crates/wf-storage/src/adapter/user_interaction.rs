@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::adapter::base::BaseStorageAdapter;
-use crate::domain::QueryFilter;
+use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone, Default)]
@@ -15,19 +15,21 @@ pub struct UserInteractionListOptions {
 
 impl From<UserInteractionListOptions> for QueryFilter {
     fn from(opts: UserInteractionListOptions) -> Self {
-        let mut filter = QueryFilter {
-            offset: opts.offset,
-            limit: opts.limit,
-            ..Default::default()
-        };
-        if let Some(eid) = opts.execution_id_filter {
-            filter.fields.insert("executionId".to_string(), eid);
+        let mut filter = QueryFilter::new();
+        if let Some(offset) = opts.offset {
+            filter.add_op(FilterOp::Offset(offset));
         }
-        if let Some(status) = opts.status_filter {
-            filter.fields.insert("status".to_string(), status);
+        if let Some(limit) = opts.limit {
+            filter.add_op(FilterOp::Limit(limit));
         }
-        if let Some(itype) = opts.interaction_type_filter {
-            filter.fields.insert("interactionType".to_string(), itype);
+        if let Some(value) = opts.execution_id_filter {
+            filter.add_op(FilterOp::Eq("executionId".into(), value));
+        }
+        if let Some(value) = opts.status_filter {
+            filter.add_op(FilterOp::Eq("status".into(), value));
+        }
+        if let Some(value) = opts.interaction_type_filter {
+            filter.add_op(FilterOp::Eq("interactionType".into(), value));
         }
         filter
     }
@@ -46,7 +48,5 @@ pub trait UserInteractionStorageAdapter:
         status: &str,
     ) -> Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError>;
 
-    async fn get_stats(
-        &self,
-    ) -> Result<HashMap<String, u64>, StorageError>;
+    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
 }

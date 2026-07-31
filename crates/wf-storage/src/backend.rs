@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
 use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
@@ -9,18 +10,33 @@ use crate::store::postgres::PostgresStorage;
 #[cfg(feature = "sqlite")]
 use crate::store::sqlite::SqliteStorage;
 
+/// Store backend with per-operation instrumentation: every variant counts
+/// save/load/delete/list/exists/clear/batch calls, latency and bytes so the
+/// runtime can export storage load as metrics.
 #[derive(Debug, Clone)]
 pub enum StorageBackend {
-    Memory(MemoryStorage),
+    Memory(InstrumentedStore<MemoryStorage>),
     #[cfg(feature = "sqlite")]
-    Sqlite(SqliteStorage),
+    Sqlite(InstrumentedStore<SqliteStorage>),
     #[cfg(feature = "postgres")]
-    Postgres(PostgresStorage),
+    Postgres(InstrumentedStore<PostgresStorage>),
 }
 
 impl StorageBackend {
     pub fn new_memory() -> Self {
-        Self::Memory(MemoryStorage::new("default"))
+        Self::Memory(InstrumentedStore::new(MemoryStorage::new("default")))
+    }
+
+    /// Operation counters for this backend (the instrumentation wrapper is
+    /// always present).
+    pub fn op_metrics(&self) -> &StorageMetrics {
+        match self {
+            Self::Memory(s) => s.metrics(),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(s) => s.metrics(),
+            #[cfg(feature = "postgres")]
+            Self::Postgres(s) => s.metrics(),
+        }
     }
 }
 

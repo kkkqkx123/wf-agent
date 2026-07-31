@@ -1,14 +1,8 @@
 use serde::Serialize;
 
 use crate::collector::{BaseMetricCollector, CollectorConfig};
+use crate::constants::agent_metrics;
 use crate::labels;
-
-pub const EXECUTION_COUNT: &str = "agent.execution.count";
-pub const EXECUTION_DURATION: &str = "agent.execution.duration";
-pub const SUCCESS_COUNT: &str = "agent.execution.success.count";
-pub const FAILURE_COUNT: &str = "agent.execution.failure.count";
-pub const ITERATION_COUNT: &str = "agent.iteration.count";
-pub const TOOL_CALL_COUNT: &str = "agent.tool_call.count";
 
 /// Usage statistics aggregated from agent execution records.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -42,7 +36,7 @@ impl AgentMetricsCollector {
 
     pub fn record_execution_start(&self, profile_id: &str, execution_id: &str) {
         self.inner.increment_counter(
-            EXECUTION_COUNT,
+            agent_metrics::EXECUTION_COUNT,
             labels(&[("profile_id", profile_id), ("execution_id", execution_id)]),
         );
     }
@@ -61,24 +55,24 @@ impl AgentMetricsCollector {
         ]);
         self.inner.increment_counter(
             if success {
-                SUCCESS_COUNT
+                agent_metrics::SUCCESS_COUNT
             } else {
-                FAILURE_COUNT
+                agent_metrics::FAILURE_COUNT
             },
             labels.clone(),
         );
         self.inner
-            .observe_summary(EXECUTION_DURATION, duration_ms, labels);
+            .observe_histogram(agent_metrics::EXECUTION_DURATION, duration_ms, labels);
     }
 
     pub fn record_iteration(&self, profile_id: &str) {
         self.inner
-            .increment_counter(ITERATION_COUNT, labels(&[("profile_id", profile_id)]));
+            .increment_counter(agent_metrics::ITERATION_COUNT, labels(&[("profile_id", profile_id)]));
     }
 
     pub fn record_tool_call(&self, profile_id: &str) {
         self.inner
-            .increment_counter(TOOL_CALL_COUNT, labels(&[("profile_id", profile_id)]));
+            .increment_counter(agent_metrics::TOOL_CALL_COUNT, labels(&[("profile_id", profile_id)]));
     }
 
     pub fn usage_stats(&self) -> AgentUsageStats {
@@ -94,14 +88,14 @@ impl AgentMetricsCollector {
         &self,
         filter: &std::collections::HashMap<String, String>,
     ) -> AgentUsageStats {
-        let total = crate::collectors::counter_total_labeled(&self.inner, EXECUTION_COUNT, filter);
-        let success = crate::collectors::counter_total_labeled(&self.inner, SUCCESS_COUNT, filter);
-        let failure = crate::collectors::counter_total_labeled(&self.inner, FAILURE_COUNT, filter);
-        let duration = crate::collectors::latest_labeled(&self.inner, EXECUTION_DURATION, filter);
+        let total = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::EXECUTION_COUNT, filter);
+        let success = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::SUCCESS_COUNT, filter);
+        let failure = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::FAILURE_COUNT, filter);
+        let duration = crate::collectors::latest_labeled(&self.inner, agent_metrics::EXECUTION_DURATION, filter);
         let total_iterations =
-            crate::collectors::counter_total_labeled(&self.inner, ITERATION_COUNT, filter);
+            crate::collectors::counter_total_labeled(&self.inner, agent_metrics::ITERATION_COUNT, filter);
         let total_tool_calls =
-            crate::collectors::counter_total_labeled(&self.inner, TOOL_CALL_COUNT, filter);
+            crate::collectors::counter_total_labeled(&self.inner, agent_metrics::TOOL_CALL_COUNT, filter);
 
         AgentUsageStats {
             total: total as u64,

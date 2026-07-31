@@ -55,6 +55,27 @@ pub mod resource_metrics {
     pub const EVENT_QUEUE_LENGTH: &str = "resource.event.queue.length";
 }
 
+/// Storage I/O gauges recorded by the runtime resource sampler from the
+/// `wf-storage` per-operation instrumentation.
+pub mod storage_metrics {
+    pub const OP_COUNT: &str = "storage.op.count";
+    pub const OP_AVG_TIME_MS: &str = "storage.op.avg_time_ms";
+    pub const OP_TOTAL_BYTES: &str = "storage.op.total_bytes";
+}
+
+pub mod agent_metrics {
+    pub const EXECUTION_COUNT: &str = "agent.execution.count";
+    pub const EXECUTION_DURATION: &str = "agent.execution.duration";
+    pub const SUCCESS_COUNT: &str = "agent.execution.success.count";
+    pub const FAILURE_COUNT: &str = "agent.execution.failure.count";
+    pub const ITERATION_COUNT: &str = "agent.iteration.count";
+    pub const TOOL_CALL_COUNT: &str = "agent.tool_call.count";
+}
+
+pub mod event_metrics {
+    pub const EVENT_COUNT: &str = "event.count";
+}
+
 pub mod agent_loop_metrics {
     pub const EXECUTION_DURATION: &str = "agent_loop.execution.duration";
     pub const EXECUTION_COUNT: &str = "agent_loop.execution.count";

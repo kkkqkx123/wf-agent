@@ -84,6 +84,8 @@ pub fn merge_metrics_with_defaults(
         error_metrics: merge_collector_with_defaults(user.error_metrics.as_ref()),
         resource_metrics: merge_collector_with_defaults(user.resource_metrics.as_ref()),
         agent_loop_metrics: merge_collector_with_defaults(user.agent_loop_metrics.as_ref()),
+        subgraph_metrics: merge_collector_with_defaults(user.subgraph_metrics.as_ref()),
+        http_addr: user.http_addr.clone(),
     }
 }
 

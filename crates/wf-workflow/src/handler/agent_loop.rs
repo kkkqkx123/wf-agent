@@ -58,7 +58,10 @@ impl NodeHandler for AgentLoopHandler {
             text
         };
 
-        let llm_wrapper = LlmWrapper::new();
+        let mut llm_wrapper = LlmWrapper::new();
+        if let Some(metrics) = &ctx.metrics {
+            llm_wrapper = llm_wrapper.with_token_metrics(metrics.token().as_ref().clone());
+        }
         let tool_registry = ToolRegistry::new();
 
         let coordinator = AgentLoopCoordinator::new(

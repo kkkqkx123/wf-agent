@@ -84,13 +84,25 @@ impl NodeHandler for SubgraphHandler {
         let event_bus = ctx.event_bus.clone();
         let tool_registry = Arc::new(ToolRegistry::new());
 
+        let subgraph_metrics = ctx.metrics.as_ref().map(|m| m.subgraph());
+        let depth = ctx.depth + 1;
+        if let Some(metrics) = &subgraph_metrics {
+            metrics.record_execution_start(&ctx.node_id, &ctx.execution_id, depth);
+        }
+        let start = wf_common::now();
+
         let exec_ctx = ExecutorContext::new(
             execution_id,
             sub_workflow_id,
             event_bus,
             tool_registry,
             options,
-        );
+        )
+        .with_parent_execution(ctx.execution_id.clone());
+        let exec_ctx = match &ctx.metrics {
+            Some(metrics) => exec_ctx.with_metrics(metrics.clone()),
+            None => exec_ctx,
+        };
 
         emit_subgraph_event(
             ctx.event_bus.as_ref(),
@@ -100,16 +112,54 @@ impl NodeHandler for SubgraphHandler {
         );
 
         let mut coordinator: WorkflowCoordinator =
-            WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
+            match WorkflowCoordinator::new(exec_ctx, subgraph, handlers) {
+                Ok(coordinator) => coordinator.with_entity(entity),
+                Err(err) => {
+                    if let Some(metrics) = &subgraph_metrics {
+                        metrics.record_execution_complete(
+                            &ctx.node_id,
+                            &ctx.execution_id,
+                            false,
+                            (wf_common::now() - start) as f64,
+                            Some("subgraph_failed"),
+                        );
+                    }
+                    return Err(err);
+                }
+            };
 
-        let output = coordinator.execute().await?;
-
-        emit_subgraph_event(
-            ctx.event_bus.as_ref(),
-            EventType::SubgraphCompleted,
-            &ctx.execution_id,
-            &ctx.node_id,
-        );
+        let output = match coordinator.execute().await {
+            Ok(output) => {
+                emit_subgraph_event(
+                    ctx.event_bus.as_ref(),
+                    EventType::SubgraphCompleted,
+                    &ctx.execution_id,
+                    &ctx.node_id,
+                );
+                if let Some(metrics) = &subgraph_metrics {
+                    metrics.record_execution_complete(
+                        &ctx.node_id,
+                        &ctx.execution_id,
+                        true,
+                        (wf_common::now() - start) as f64,
+                        None,
+                    );
+                }
+                output
+            }
+            Err(err) => {
+                if let Some(metrics) = &subgraph_metrics {
+                    metrics.record_execution_complete(
+                        &ctx.node_id,
+                        &ctx.execution_id,
+                        false,
+                        (wf_common::now() - start) as f64,
+                        Some("subgraph_failed"),
+                    );
+                }
+                return Err(err);
+            }
+        };
 
         let mut metadata = HashMap::new();
         metadata.insert(

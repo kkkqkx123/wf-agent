@@ -65,7 +65,7 @@ impl AgentLoopMetricsCollector {
             labels.clone(),
         );
         self.inner
-            .observe_summary(agent_loop_metrics::EXECUTION_DURATION, duration_ms, labels);
+            .observe_histogram(agent_loop_metrics::EXECUTION_DURATION, duration_ms, labels);
         self.inner.set_gauge(
             agent_loop_metrics::ACTIVE_COUNT,
             0.0,
@@ -78,7 +78,7 @@ impl AgentLoopMetricsCollector {
             agent_loop_metrics::ITERATION_COUNT,
             labels(&[("execution_id", execution_id)]),
         );
-        self.inner.observe_summary(
+        self.inner.observe_histogram(
             agent_loop_metrics::ITERATION_DURATION,
             duration_ms,
             labels(&[("execution_id", execution_id)]),

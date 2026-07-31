@@ -50,6 +50,12 @@ impl EventBus {
     pub fn receiver_count(&self) -> usize {
         self.sender.receiver_count()
     }
+
+    /// Number of events sent but not yet received by any subscriber
+    /// (backlog depth of the broadcast channel).
+    pub fn queue_len(&self) -> usize {
+        self.sender.len()
+    }
 }
 
 impl EventBusBuilder {

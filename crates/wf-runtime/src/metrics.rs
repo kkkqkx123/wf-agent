@@ -4,10 +4,11 @@ use std::time::Duration;
 use wf_core::event::EventBus;
 use wf_core::EventMetricsBridge;
 use wf_metrics::{
-    generate_report, ConfigMetricsCollector, MetricPoint, MetricsError, MetricsRegistry,
-    MetricsSink, ReportOptions, ResourceSample,
+    generate_report, labels, ConfigMetricsCollector, MetricPoint, MetricsError, MetricsRegistry,
+    MetricsSink, ReportOptions, ResourceSample, storage_metrics,
 };
 use wf_storage::adapter::metrics::{MetricsDataPoint, MetricsStorageAdapter};
+use wf_storage::context::StorageContext;
 use wf_types::config::metrics::MetricsConfig;
 
 use crate::error::RuntimeResult;
@@ -91,7 +92,8 @@ fn parse_metric_type(value: &str) -> wf_metrics::MetricType {
 }
 
 /// Runtime-owned metrics system: registry + persistence sink + background
-/// flush/cleanup/report/sampling tasks and the event bridge subscription.
+/// flush/cleanup/report/sampling tasks, the event bridge subscription and
+/// the optional HTTP export server.
 ///
 /// Created from `SdkOptions`-style metrics config; returns `None` when
 /// metrics are disabled.
@@ -150,12 +152,25 @@ impl MetricsContext {
         }
         {
             let registry = registry.clone();
+            let retention_ms = config
+                .workflow_metrics
+                .as_ref()
+                .and_then(|c| c.max_age)
+                .unwrap_or(3_600_000);
             tasks.push(tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(cleanup_interval);
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     ticker.tick().await;
                     registry.cleanup_all();
+                    // Prune persisted metric points older than the retention
+                    // window (in-memory cleanup handles buffered data).
+                    if let Some(Ok(_)) = registry
+                        .delete_old_persisted(wf_common::now() - retention_ms)
+                        .await
+                    {
+                        tracing::debug!(target: "wf_metrics", "pruned persisted metrics older than {retention_ms}ms");
+                    }
                 }
             }));
         }
@@ -185,10 +200,40 @@ impl MetricsContext {
             .and_then(|c| c.flush_interval)
             .map(|ms| Duration::from_millis(ms.max(100) as u64))
             .unwrap_or(Duration::from_millis(5000));
-        tasks.push(ResourceSampler::new(registry.clone(), sampler_interval).spawn());
+        let storage_ctx = storage.shared_context();
+        let sampler = ResourceSampler::new(registry.clone(), sampler_interval)
+            .with_event_bus(event_bus.clone())
+            .with_storage(storage_ctx);
+        tasks.push(sampler.spawn());
 
         let event_bridge_task =
             event_bus.map(|bus| EventMetricsBridge::new(registry.clone()).spawn(bus));
+
+        if let Some(ref addr) = config.http_addr {
+            match addr.parse::<std::net::SocketAddr>() {
+                Ok(socket_addr) => {
+                    let server_registry = registry.clone();
+                    tasks.push(tokio::spawn(async move {
+                        tracing::info!(target: "wf_metrics", %socket_addr, "metrics HTTP server listening");
+                        if let Err(err) = wf_server::serve(server_registry, socket_addr).await {
+                            tracing::error!(
+                                target: "wf_metrics",
+                                error = %err,
+                                "metrics HTTP server failed"
+                            );
+                        }
+                    }));
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        target: "wf_metrics",
+                        error = %err,
+                        addr = %addr,
+                        "invalid metrics http_addr, server not started"
+                    );
+                }
+            }
+        }
 
         Ok(Some(Arc::new(Self {
             registry,
@@ -201,7 +246,7 @@ impl MetricsContext {
         &self.registry
     }
 
-    /// Abort background tasks and stop the event bridge.
+    /// Abort background tasks and stop the event bridge and HTTP server.
     pub async fn shutdown(&self) {
         if let Some(task) = self.event_bridge_task.as_ref() {
             task.abort();
@@ -214,17 +259,35 @@ impl MetricsContext {
 
 /// Periodic process/entity resource sampler.
 ///
-/// Records process-level RSS each tick; entity-level gauges (active
-/// executions, queued tasks, event queue length) record 0 until a data
-/// source exists (no active execution registry / queue statistics yet).
+/// Records process RSS, the event bus backlog depth and storage I/O counters
+/// each tick. Entity gauges without a data source yet (active executions,
+/// queued tasks) record 0; `wf_core::scheduler::TaskScheduler::stats()` is
+/// the future source once a scheduler instance exists.
 pub struct ResourceSampler {
     registry: Arc<MetricsRegistry>,
     interval: Duration,
+    event_bus: Option<Arc<EventBus>>,
+    storage: Option<Arc<StorageContext>>,
 }
 
 impl ResourceSampler {
     pub fn new(registry: Arc<MetricsRegistry>, interval: Duration) -> Self {
-        Self { registry, interval }
+        Self {
+            registry,
+            interval,
+            event_bus: None,
+            storage: None,
+        }
+    }
+
+    pub fn with_event_bus(mut self, event_bus: Option<Arc<EventBus>>) -> Self {
+        self.event_bus = event_bus;
+        self
+    }
+
+    pub fn with_storage(mut self, storage: Option<Arc<StorageContext>>) -> Self {
+        self.storage = storage;
+        self
     }
 
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
@@ -243,9 +306,39 @@ impl ResourceSampler {
             memory_bytes: process_rss_bytes(),
             active_executions: Some(0),
             queued_tasks: Some(0),
-            event_queue_length: Some(0),
+            event_queue_length: self.event_bus.as_ref().map(|bus| bus.queue_len() as u64),
         };
         self.registry.resource().record_sample(&sample);
+
+        if let Some(storage) = &self.storage {
+            let snapshot = storage.ops_snapshot();
+            let resource = self.registry.resource();
+            for (op, metrics) in [
+                ("save", &snapshot.save),
+                ("load", &snapshot.load),
+                ("delete", &snapshot.delete),
+                ("list", &snapshot.list),
+                ("exists", &snapshot.exists),
+                ("clear", &snapshot.clear),
+                ("batch", &snapshot.batch),
+            ] {
+                resource.collector().set_gauge(
+                    storage_metrics::OP_COUNT,
+                    metrics.count() as f64,
+                    labels(&[("op", op)]),
+                );
+                resource.collector().set_gauge(
+                    storage_metrics::OP_AVG_TIME_MS,
+                    metrics.avg_time_ms(),
+                    labels(&[("op", op)]),
+                );
+                resource.collector().set_gauge(
+                    storage_metrics::OP_TOTAL_BYTES,
+                    metrics.total_bytes() as f64,
+                    labels(&[("op", op)]),
+                );
+            }
+        }
     }
 }
 
@@ -386,6 +479,80 @@ mod tests {
             "sampler should record process RSS"
         );
         ctx.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn start_serves_http_export_when_addr_configured() {
+        let storage = StorageManager::new(StorageConfig {
+            backend_type: StorageBackendType::Memory,
+            ..Default::default()
+        });
+        let config = MetricsConfig {
+            enabled: Some(true),
+            http_addr: Some("127.0.0.1:0".to_string()),
+            ..Default::default()
+        };
+        let ctx = MetricsContext::start(&config, &storage, None, None)
+            .await
+            .unwrap()
+            .expect("metrics should be enabled");
+
+        let _ = ctx; // server task aborts on shutdown; bind is exercised
+        ctx.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn sampler_records_event_queue_and_storage_ops() {
+        let storage = StorageManager::new(StorageConfig {
+            backend_type: StorageBackendType::Memory,
+            ..Default::default()
+        });
+        let mut storage = storage;
+        storage.initialize().await.unwrap();
+        let bus = Arc::new(EventBus::new(16));
+        let _subscription = bus.subscribe(); // keep a receiver so publish succeeds
+
+        let registry = Arc::new(MetricsRegistry::new());
+        let sampler = ResourceSampler::new(registry.clone(), Duration::from_millis(1000))
+            .with_event_bus(Some(bus.clone()))
+            .with_storage(storage.shared_context());
+        bus.publish(wf_types::events::BaseEvent {
+            id: "e".into(),
+            r#type: wf_types::events::EventType::Heartbeat,
+            timestamp: wf_common::now(),
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: None,
+        })
+        .unwrap();
+        sampler.sample();
+
+        let event_len = registry
+            .resource()
+            .collector()
+            .query(&wf_metrics::MetricFilter {
+                name: Some(wf_metrics::resource_metrics::EVENT_QUEUE_LENGTH.to_string()),
+                ..Default::default()
+            })
+            .metrics
+            .into_iter()
+            .find(|m| m.name == wf_metrics::resource_metrics::EVENT_QUEUE_LENGTH)
+            .map(|m| m.value)
+            .unwrap_or(0.0);
+        assert_eq!(event_len, 1.0);
+
+        let op_count = registry
+            .resource()
+            .collector()
+            .query(&wf_metrics::MetricFilter {
+                name: Some(wf_metrics::storage_metrics::OP_COUNT.to_string()),
+                ..Default::default()
+            })
+            .metrics
+            .into_iter()
+            .find(|m| m.name == wf_metrics::storage_metrics::OP_COUNT);
+        assert!(op_count.is_some());
     }
 
     #[test]

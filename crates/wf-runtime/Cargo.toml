@@ -19,6 +19,7 @@ wf-resource = { path = "../wf-resource" }
 wf-config = { path = "../wf-config" }
 wf-checkpoint = { path = "../wf-checkpoint", optional = true }
 wf-plugin = { path = "../wf-plugin", optional = true }
+wf-server = { path = "../wf-server" }
 async-trait.workspace = true
 
 [features]

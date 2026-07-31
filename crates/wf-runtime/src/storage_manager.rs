@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tracing::{info, warn};
 
@@ -74,7 +75,7 @@ impl PostgresConfig {
 pub struct StorageManager {
     config: StorageConfig,
     initialized: bool,
-    context: Option<StorageContext>,
+    context: Option<Arc<StorageContext>>,
 }
 
 impl std::fmt::Debug for StorageManager {
@@ -100,7 +101,12 @@ impl StorageManager {
     }
 
     pub fn context(&self) -> RuntimeResult<&StorageContext> {
-        self.context.as_ref().ok_or(RuntimeError::NotInitialized)
+        Ok(self.context.as_ref().ok_or(RuntimeError::NotInitialized)?)
+    }
+
+    /// Arc'd storage context for background tasks; `None` when uninitialized.
+    pub fn shared_context(&self) -> Option<Arc<StorageContext>> {
+        self.context.clone()
     }
 
     pub async fn initialize(&mut self) -> RuntimeResult<()> {
@@ -153,7 +159,7 @@ impl StorageManager {
             }
         };
 
-        self.context = Some(ctx);
+        self.context = Some(Arc::new(ctx));
         self.initialized = true;
         info!("StorageManager initialized successfully");
         Ok(())

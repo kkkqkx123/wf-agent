@@ -87,7 +87,10 @@ impl NodeHandler for LlmHandler {
             dead_loop_detection: None,
         };
 
-        let llm_wrapper = LlmWrapper::new();
+        let mut llm_wrapper = LlmWrapper::new();
+        if let Some(metrics) = &ctx.metrics {
+            llm_wrapper = llm_wrapper.with_token_metrics(metrics.token().as_ref().clone());
+        }
         let response = llm_wrapper
             .generate(&request)
             .await

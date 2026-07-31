@@ -310,6 +310,9 @@ impl BaseMetricCollector {
             .entry(state_key(name, &labels))
             .or_insert_with(HistogramState::new);
         state.observe(value);
+        let buckets = state.serialize_buckets();
+        let percentiles =
+            percentiles_from_buckets(&buckets, state.count as f64, &DEFAULT_PERCENTILE_TARGETS);
         let metric = Metric {
             name: name.to_string(),
             metric_type: MetricType::Histogram,
@@ -317,8 +320,10 @@ impl BaseMetricCollector {
             timestamp: 0,
             labels: labels.clone(),
             source: String::new(),
-            buckets: state.serialize_buckets(),
-            percentiles: Vec::new(),
+            buckets,
+            // Bucket-derived percentiles keep `usage_stats()` p95/p99
+            // queries working for histogram durations (TS design parity).
+            percentiles,
             sum: state.sum,
             count: state.count,
         };
@@ -361,8 +366,11 @@ impl BaseMetricCollector {
 
     /// Flush buffered and pending metrics.
     ///
-    /// Summary metrics are not persisted. The buffer is cleared regardless of
-    /// sink outcome so the collector degrades gracefully.
+    /// Summary metrics are not persisted (TS parity): their percentiles
+    /// live in the in-memory sliding window and cannot be reproduced from
+    /// raw samples by the storage model. Duration metrics are histograms,
+    /// which do persist. The buffer is cleared regardless of sink outcome
+    /// so the collector degrades gracefully.
     pub async fn flush(&self) {
         let points: Vec<MetricPoint> = {
             let mut inner = self.lock();
@@ -521,6 +529,12 @@ impl BaseMetricCollector {
         Some(self.sink()?.query(name, from, to).await)
     }
 
+    /// Delete persisted metrics older than `older_than` (epoch ms) through
+    /// the attached sink. `None` when no sink is attached.
+    pub async fn delete_old_sink(&self, older_than: i64) -> Option<Result<u64, MetricsError>> {
+        Some(self.sink()?.delete_old(older_than).await)
+    }
+
     /// Snapshot of the collector self-monitoring metrics.
     pub fn get_internal_metrics(&self) -> InternalMetrics {
         self.lock().internal.clone()
@@ -624,6 +638,56 @@ fn calculate_percentiles(state: &SummaryState, targets: &[f64]) -> Vec<Percentil
             value: percentile_value(&values, *p),
         })
         .collect()
+}
+
+/// Approximate percentiles from cumulative histogram buckets by linear
+/// interpolation inside the bucket containing the target rank.
+///
+/// The last bucket has an infinite upper bound; its percentile estimate is
+/// clamped to the previous bucket's bound.
+fn percentiles_from_buckets(
+    buckets: &[HistogramBucket],
+    count: f64,
+    targets: &[f64],
+) -> Vec<PercentileValue> {
+    if count <= 0.0 || buckets.is_empty() {
+        return Vec::new();
+    }
+    let mut result = Vec::with_capacity(targets.len());
+    for target in targets {
+        let rank = target * count;
+        let mut cumulative = 0.0;
+        let mut estimate = f64::NAN;
+        for (i, bucket) in buckets.iter().enumerate() {
+            let next_cumulative = cumulative + bucket.count as f64;
+            if next_cumulative >= rank {
+                let fraction = if bucket.count > 0 {
+                    (rank - cumulative) / bucket.count as f64
+                } else {
+                    0.0
+                };
+                let lower = if i == 0 {
+                    0.0
+                } else {
+                    buckets[i - 1].upper_bound
+                };
+                estimate = if bucket.upper_bound.is_infinite() {
+                    lower
+                } else {
+                    lower + (bucket.upper_bound - lower) * fraction
+                };
+                break;
+            }
+            cumulative = next_cumulative;
+        }
+        if estimate.is_finite() {
+            result.push(PercentileValue {
+                percentile: *target,
+                value: estimate,
+            });
+        }
+    }
+    result
 }
 
 /// Linear-interpolated value at `percentile` (0..=1) from a sorted slice.
@@ -864,6 +928,57 @@ mod tests {
         assert_eq!(raw.count, 2);
         assert_eq!(raw.buckets[0].upper_bound, 0.005);
         assert!(raw.buckets[11].upper_bound.is_infinite());
+    }
+
+    #[test]
+    fn histogram_exposes_bucket_derived_percentiles() {
+        let c = collector(None);
+        for i in 1..=10 {
+            c.observe_histogram("test.histogram", i as f64, HashMap::new());
+        }
+        let raw = c.raw_latest("test.histogram");
+        assert_eq!(raw.percentiles.len(), DEFAULT_PERCENTILE_TARGETS.len());
+        let p50 = raw
+            .percentiles
+            .iter()
+            .find(|p| (p.percentile - 0.5).abs() < f64::EPSILON)
+            .unwrap();
+        // Half of the samples land in the 2.5-5.0ms bucket: the median
+        // estimate interpolates inside it.
+        assert!(
+            (2.5..=5.0).contains(&p50.value),
+            "p50 estimate: {}",
+            p50.value
+        );
+        let p99 = raw
+            .percentiles
+            .iter()
+            .find(|p| (p.percentile - 0.99).abs() < f64::EPSILON)
+            .unwrap();
+        assert!(
+            (5.0..=10.0).contains(&p99.value),
+            "p99 estimate: {}",
+            p99.value
+        );
+    }
+
+    #[test]
+    fn percentiles_from_buckets_edge_cases() {
+        assert!(percentiles_from_buckets(&[], 0.0, &DEFAULT_PERCENTILE_TARGETS).is_empty());
+        let buckets = vec![
+            HistogramBucket {
+                upper_bound: 1.0,
+                count: 5,
+            },
+            HistogramBucket {
+                upper_bound: f64::INFINITY,
+                count: 5,
+            },
+        ];
+        // Tail estimates clamp to the last finite bucket bound.
+        let p = percentiles_from_buckets(&buckets, 10.0, &[1.0]);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].value, 1.0);
     }
 
     #[test]

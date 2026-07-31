@@ -22,7 +22,12 @@ pub struct MetricsConfig {
     pub error_metrics: Option<MetricCollectorConfig>,
     pub resource_metrics: Option<MetricCollectorConfig>,
     pub agent_loop_metrics: Option<MetricCollectorConfig>,
+    pub subgraph_metrics: Option<MetricCollectorConfig>,
     pub enable_periodic_reporting: Option<bool>,
     pub reporting_interval: Option<i64>,
     pub enabled: Option<bool>,
+    /// Optional HTTP address for the metrics export server, e.g.
+    /// `127.0.0.1:9090`. Absent when no server should be started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_addr: Option<String>,
 }

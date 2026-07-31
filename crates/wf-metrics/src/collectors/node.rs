@@ -77,7 +77,7 @@ impl NodeMetricsCollector {
         );
         self.inner
             .increment_counter(node_metrics::EXECUTION_COUNT, labels.clone());
-        self.inner.observe_summary(
+        self.inner.observe_histogram(
             node_metrics::EXECUTION_DURATION,
             record.duration_ms,
             labels.clone(),

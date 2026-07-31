@@ -607,6 +607,7 @@ impl WorkflowCoordinator {
         ctx.event_bus = self.ctx.event_bus.clone();
         ctx.handler_registry = Some(self.handlers.clone());
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));
+        ctx.metrics = self.ctx.metrics.clone();
 
         Ok(ctx)
     }

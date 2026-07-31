@@ -7,7 +7,8 @@ use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
     AgentLoopMetricsCollector, AgentMetricsCollector, ConfigMetricsCollector,
     ErrorMetricsCollector, EventMetricsCollector, NodeMetricsCollector, ResourceMetricsCollector,
-    TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
+    SubgraphMetricsCollector, TokenMetricsCollector, ToolMetricsCollector,
+    WorkflowMetricsCollector,
 };
 use crate::report::{MetricReport, ReportCallback};
 use crate::sink::{MetricPoint, MetricsSink};
@@ -29,6 +30,7 @@ pub struct MetricsRegistry {
     error: Arc<ErrorMetricsCollector>,
     config: Arc<ConfigMetricsCollector>,
     resource: Arc<ResourceMetricsCollector>,
+    subgraph: Arc<SubgraphMetricsCollector>,
     subscribers: Mutex<Vec<(usize, ReportCallback)>>,
     next_subscription_id: AtomicUsize,
 }
@@ -117,6 +119,13 @@ impl MetricsRegistry {
                     .map(CollectorConfig::from)
                     .unwrap_or_default(),
             )),
+            subgraph: Arc::new(SubgraphMetricsCollector::new(
+                config
+                    .subgraph_metrics
+                    .as_ref()
+                    .map(CollectorConfig::from)
+                    .unwrap_or_default(),
+            )),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
         }
@@ -162,6 +171,10 @@ impl MetricsRegistry {
         self.resource.clone()
     }
 
+    pub fn subgraph(&self) -> Arc<SubgraphMetricsCollector> {
+        self.subgraph.clone()
+    }
+
     /// All domain collectors, for export and monitoring.
     pub fn collectors(&self) -> Vec<&BaseMetricCollector> {
         vec![
@@ -175,6 +188,7 @@ impl MetricsRegistry {
             self.error.collector(),
             self.config.collector(),
             self.resource.collector(),
+            self.subgraph.collector(),
         ]
     }
 
@@ -282,6 +296,21 @@ impl MetricsRegistry {
         }
         None
     }
+
+    /// Delete persisted metrics older than `older_than` (epoch ms) through
+    /// the shared sink. All collectors share one sink, so a single call
+    /// suffices; `None` when no sink is attached.
+    pub async fn delete_old_persisted(
+        &self,
+        older_than: i64,
+    ) -> Option<Result<u64, crate::sink::MetricsError>> {
+        for collector in self.collectors() {
+            if let Some(result) = collector.delete_old_sink(older_than).await {
+                return Some(result);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -292,7 +321,7 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 10);
+        assert_eq!(registry.collectors().len(), 11);
         registry.workflow().record_execution_start("exec-1", "wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);
@@ -303,6 +332,9 @@ mod tests {
         registry.agent_loop().record_iteration("exec-1", 100.0);
         registry.config().record_access();
         registry.resource().record_memory_usage(1024);
+        registry
+            .subgraph()
+            .record_execution_complete("sg-1", "exec-1", true, 10.0, None);
         assert!(registry.workflow().usage_stats().total >= 1);
     }
 

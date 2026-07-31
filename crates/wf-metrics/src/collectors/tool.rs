@@ -56,7 +56,7 @@ impl ToolMetricsCollector {
             ("success", if success { "true" } else { "false" }),
         ]);
         self.inner
-            .observe_summary(tool_metrics::CALL_DURATION, duration_ms, labels.clone());
+            .observe_histogram(tool_metrics::CALL_DURATION, duration_ms, labels.clone());
         self.inner.set_gauge(
             tool_metrics::PARAMETER_SIZE,
             parameter_size as f64,

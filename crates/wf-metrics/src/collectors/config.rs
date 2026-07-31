@@ -43,7 +43,7 @@ impl ConfigMetricsCollector {
 
     /// Record a completed config load/parse cycle with its duration.
     pub fn record_load_complete(&self, duration_ms: f64) {
-        self.inner.observe_summary(
+        self.inner.observe_histogram(
             config_metrics::LOAD_DURATION,
             duration_ms,
             std::collections::HashMap::new(),

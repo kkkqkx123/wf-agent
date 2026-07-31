@@ -63,6 +63,8 @@ pub struct NodeExecutionContext {
     pub event_bus: Option<Arc<EventBus>>,
     pub handler_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
     pub graph_structure: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// Shared metrics registry; absent when metrics are disabled.
+    pub metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl NodeExecutionContext {
@@ -86,6 +88,7 @@ impl NodeExecutionContext {
             event_bus: None,
             handler_registry: None,
             graph_structure: None,
+            metrics: None,
         }
     }
 
@@ -106,6 +109,11 @@ impl NodeExecutionContext {
 
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 

@@ -5,6 +5,7 @@ use crate::adapter::adapter_impls::{
     WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
+use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
 use crate::error::StorageError;
 use crate::note::memory::MemoryNoteStore;
 use crate::store::memory::MemoryStorage;
@@ -35,7 +36,7 @@ pub struct StorageContext {
 
 macro_rules! make_backend {
     ($variant:ident, $name:expr) => {
-        StorageBackend::$variant(MemoryStorage::new($name))
+        StorageBackend::$variant(InstrumentedStore::new(MemoryStorage::new($name)))
     };
 }
 
@@ -72,7 +73,7 @@ impl StorageContext {
     pub async fn new_sqlite(path: &str) -> Result<Self, StorageError> {
         macro_rules! sqlite_backend {
             ($table:expr) => {
-                StorageBackend::Sqlite(SqliteStorage::new(path, $table).await?)
+                StorageBackend::Sqlite(InstrumentedStore::new(SqliteStorage::new(path, $table).await?))
             };
         }
         Ok(Self {
@@ -100,7 +101,9 @@ impl StorageContext {
     pub async fn new_postgres(connection_string: &str) -> Result<Self, StorageError> {
         macro_rules! pg_backend {
             ($table:expr) => {
-                StorageBackend::Postgres(PostgresStorage::new(connection_string, $table).await?)
+                StorageBackend::Postgres(InstrumentedStore::new(
+                    PostgresStorage::new(connection_string, $table).await?,
+                ))
             };
         }
         Ok(Self {
@@ -122,5 +125,35 @@ impl StorageContext {
             metrics: MetricsStorage::new(pg_backend!("metrics")),
             note_store: MemoryNoteStore::new(),
         })
+    }
+}
+
+impl StorageContext {
+    /// Aggregate operation counters of every store backend (save/load/delete
+    /// /list/exists/clear/batch), exported to the metrics sampler.
+    pub fn ops_snapshot(&self) -> StorageMetrics {
+        let mut total = StorageMetrics::default();
+        let backends = [
+            self.workflow.store().op_metrics(),
+            self.workflow_execution.store().op_metrics(),
+            self.checkpoint.store().op_metrics(),
+            self.task.store().op_metrics(),
+            self.agent_loop.store().op_metrics(),
+            self.agent_execution.store().op_metrics(),
+            self.agent_profile.store().op_metrics(),
+            self.file_checkpoint.store().op_metrics(),
+            self.trigger.store().op_metrics(),
+            self.trigger_execution.store().op_metrics(),
+            self.user_interaction.store().op_metrics(),
+            self.tool.store().op_metrics(),
+            self.script.store().op_metrics(),
+            self.node_template.store().op_metrics(),
+            self.hook_template.store().op_metrics(),
+            self.metrics.inner().op_metrics(),
+        ];
+        for backend in backends {
+            total = total.accumulate(backend);
+        }
+        total
     }
 }

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::collector::{BaseMetricCollector, CollectorConfig};
+use crate::constants::event_metrics;
 use crate::labels;
 
-pub const EVENT_COUNT: &str = "event.count";
 
 /// Event statistics aggregated by event type.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -44,7 +44,7 @@ impl EventMetricsCollector {
         if let Some(wf_id) = workflow_id {
             pairs.push(("workflow_id", wf_id));
         }
-        self.inner.increment_counter(EVENT_COUNT, labels(&pairs));
+        self.inner.increment_counter(event_metrics::EVENT_COUNT, labels(&pairs));
     }
 
     /// Event counts grouped by event type.
@@ -53,12 +53,12 @@ impl EventMetricsCollector {
         if let Some(agg) = self
             .inner
             .query(&crate::metric::MetricFilter {
-                name: Some(EVENT_COUNT.to_string()),
+                name: Some(event_metrics::EVENT_COUNT.to_string()),
                 ..Default::default()
             })
             .metrics
             .into_iter()
-            .find(|m| m.name == EVENT_COUNT)
+            .find(|m| m.name == event_metrics::EVENT_COUNT)
         {
             for group in agg.by_label {
                 if let Some(event_type) = group.labels.get("event_type") {
@@ -70,7 +70,7 @@ impl EventMetricsCollector {
     }
 
     pub fn total(&self) -> u64 {
-        crate::collectors::counter_total(&self.inner, EVENT_COUNT) as u64
+        crate::collectors::counter_total(&self.inner, event_metrics::EVENT_COUNT) as u64
     }
 
     pub fn stats(&self) -> EventStats {

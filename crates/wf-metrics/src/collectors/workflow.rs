@@ -72,7 +72,7 @@ impl WorkflowMetricsCollector {
             },
             labels.clone(),
         );
-        self.inner.observe_summary(
+        self.inner.observe_histogram(
             workflow_metrics::EXECUTION_DURATION,
             duration_ms,
             labels.clone(),
@@ -100,7 +100,7 @@ impl WorkflowMetricsCollector {
     }
 
     pub fn record_retry_delay(&self, delay_ms: f64) {
-        self.inner.increment_counter_by(
+        self.inner.observe_histogram(
             workflow_metrics::RETRY_DELAY_TIME,
             delay_ms,
             std::collections::HashMap::new(),

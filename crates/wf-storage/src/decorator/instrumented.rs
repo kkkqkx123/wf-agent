@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::domain::store::{BatchItem, BatchStore, Maintainable, QueryFilter, Store};
 use crate::error::StorageError;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct StorageMetrics {
     pub save: OperationMetrics,
     pub load: OperationMetrics,
@@ -19,7 +19,7 @@ pub struct StorageMetrics {
     pub batch: OperationMetrics,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct OperationMetrics {
     pub count: std::sync::atomic::AtomicU64,
     pub total_time_ms: std::sync::atomic::AtomicU64,
@@ -45,6 +45,18 @@ impl OperationMetrics {
         }
     }
 
+    pub fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    pub fn total_time_ms(&self) -> u64 {
+        self.total_time_ms.load(Ordering::Relaxed)
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.total_bytes.load(Ordering::Relaxed)
+    }
+
     pub fn record(&self, elapsed_ms: u64, bytes: u64) {
         self.count.fetch_add(1, Ordering::Relaxed);
         self.total_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
@@ -52,6 +64,30 @@ impl OperationMetrics {
     }
 }
 
+impl StorageMetrics {
+    /// Sum of this snapshot and `other`, used to aggregate the operation
+    /// counters of multiple stores into one view.
+    pub fn accumulate(&self, other: &StorageMetrics) -> StorageMetrics {
+        fn combine(a: &OperationMetrics, b: &OperationMetrics) -> OperationMetrics {
+            OperationMetrics {
+                count: (a.count() + b.count()).into(),
+                total_time_ms: (a.total_time_ms() + b.total_time_ms()).into(),
+                total_bytes: (a.total_bytes() + b.total_bytes()).into(),
+            }
+        }
+        StorageMetrics {
+            save: combine(&self.save, &other.save),
+            load: combine(&self.load, &other.load),
+            delete: combine(&self.delete, &other.delete),
+            list: combine(&self.list, &other.list),
+            exists: combine(&self.exists, &other.exists),
+            clear: combine(&self.clear, &other.clear),
+            batch: combine(&self.batch, &other.batch),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct InstrumentedStore<S> {
     inner: S,
     metrics: Arc<StorageMetrics>,

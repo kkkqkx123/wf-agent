@@ -103,14 +103,27 @@ impl WorkflowMetricsCollector {
     }
 
     pub fn usage_stats(&self) -> WorkflowUsageStats {
-        let total = crate::collectors::counter_total(&self.inner, workflow_metrics::EXECUTION_COUNT);
-        let success = crate::collectors::counter_total(&self.inner, workflow_metrics::SUCCESS_COUNT);
-        let failure = crate::collectors::counter_total(&self.inner, workflow_metrics::FAILURE_COUNT);
-        let duration = crate::collectors::latest(&self.inner, workflow_metrics::EXECUTION_DURATION);
+        self.usage_stats_filtered(&std::collections::HashMap::new())
+    }
+
+    /// Usage statistics scoped to a single workflow.
+    pub fn usage_stats_for(&self, workflow_id: &str) -> WorkflowUsageStats {
+        self.usage_stats_filtered(&crate::labels(&[("workflow_id", workflow_id)]))
+    }
+
+    fn usage_stats_filtered(
+        &self,
+        filter: &std::collections::HashMap<String, String>,
+    ) -> WorkflowUsageStats {
+        let total = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::EXECUTION_COUNT, filter);
+        let success = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::SUCCESS_COUNT, filter);
+        let failure = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::FAILURE_COUNT, filter);
+        let duration = crate::collectors::latest_labeled(&self.inner, workflow_metrics::EXECUTION_DURATION, filter);
         let by_version = self
             .inner
             .query(&crate::metric::MetricFilter {
                 name: Some(workflow_metrics::SUCCESS_COUNT.to_string()),
+                labels: if filter.is_empty() { None } else { Some(filter.clone()) },
                 ..Default::default()
             })
             .metrics

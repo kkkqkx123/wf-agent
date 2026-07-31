@@ -10,7 +10,7 @@ use crate::metric::{
     AggregatedMetric, HistogramBucket, LabelGroup, Metric, MetricFilter, MetricQueryResult,
     MetricType, PercentileValue, TimePoint,
 };
-use crate::sink::{MetricPoint, MetricsSink};
+use crate::sink::{MetricPoint, MetricsError, MetricsSink};
 
 /// Prometheus default histogram bucket upper bounds, plus the +Inf bucket.
 pub const DEFAULT_HISTOGRAM_BUCKETS: [f64; 12] = [
@@ -251,7 +251,10 @@ impl BaseMetricCollector {
     }
 
     fn sink(&self) -> Option<Arc<dyn MetricsSink>> {
-        self.sink.lock().expect("metrics sink lock poisoned").clone()
+        self.sink
+            .lock()
+            .expect("metrics sink lock poisoned")
+            .clone()
     }
 
     fn record_checked(&self, metric: Metric) {
@@ -484,22 +487,17 @@ impl BaseMetricCollector {
     pub fn latest_snapshots(&self, filter: &MetricFilter) -> Vec<Metric> {
         let inner = self.lock();
         let mut latest: HashMap<String, Metric> = HashMap::new();
-        for m in inner
-            .buffer
-            .iter()
-            .chain(inner.pending.iter())
-            .filter(|m| {
-                filter.name.as_ref().is_none_or(|n| &m.name == n)
-                    && filter.metric_type.is_none_or(|t| m.metric_type == t)
-                    && filter
-                        .labels
-                        .as_ref()
-                        .is_none_or(|l| l.iter().all(|(k, v)| m.labels.get(k) == Some(v)))
-                    && filter
-                        .time_range
-                        .is_none_or(|r| m.timestamp >= r.from && m.timestamp <= r.to)
-            })
-        {
+        for m in inner.buffer.iter().chain(inner.pending.iter()).filter(|m| {
+            filter.name.as_ref().is_none_or(|n| &m.name == n)
+                && filter.metric_type.is_none_or(|t| m.metric_type == t)
+                && filter
+                    .labels
+                    .as_ref()
+                    .is_none_or(|l| l.iter().all(|(k, v)| m.labels.get(k) == Some(v)))
+                && filter
+                    .time_range
+                    .is_none_or(|r| m.timestamp >= r.from && m.timestamp <= r.to)
+        }) {
             match latest.get(&m.name) {
                 Some(existing) if existing.timestamp > m.timestamp => {}
                 _ => {
@@ -508,6 +506,19 @@ impl BaseMetricCollector {
             }
         }
         latest.into_values().collect()
+    }
+
+    /// Query the attached persistence sink for a metric over a time range.
+    ///
+    /// `None` when no sink is attached (callers fall back to buffers);
+    /// `Some(Err(..))` propagates sink failures for the caller to decide.
+    pub async fn query_sink(
+        &self,
+        name: &str,
+        from: i64,
+        to: i64,
+    ) -> Option<Result<Vec<MetricPoint>, MetricsError>> {
+        Some(self.sink()?.query(name, from, to).await)
     }
 
     /// Snapshot of the collector self-monitoring metrics.
@@ -1145,15 +1156,9 @@ mod tests {
         c.increment_counter_by("metric.b", 2.0, HashMap::new());
         let snapshots = c.latest_snapshots(&MetricFilter::default());
         assert_eq!(snapshots.len(), 2);
-        let a = snapshots
-            .iter()
-            .find(|m| m.name == "metric.a")
-            .unwrap();
+        let a = snapshots.iter().find(|m| m.name == "metric.a").unwrap();
         assert_eq!(a.value, 1.0);
-        let b = snapshots
-            .iter()
-            .find(|m| m.name == "metric.b")
-            .unwrap();
+        let b = snapshots.iter().find(|m| m.name == "metric.b").unwrap();
         assert_eq!(b.value, 2.0);
     }
 

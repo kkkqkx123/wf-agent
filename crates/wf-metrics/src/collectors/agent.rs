@@ -60,33 +60,48 @@ impl AgentMetricsCollector {
             ("success", if success { "true" } else { "false" }),
         ]);
         self.inner.increment_counter(
-            if success { SUCCESS_COUNT } else { FAILURE_COUNT },
+            if success {
+                SUCCESS_COUNT
+            } else {
+                FAILURE_COUNT
+            },
             labels.clone(),
         );
-        self.inner.observe_summary(EXECUTION_DURATION, duration_ms, labels);
+        self.inner
+            .observe_summary(EXECUTION_DURATION, duration_ms, labels);
     }
 
     pub fn record_iteration(&self, profile_id: &str) {
-        self.inner.increment_counter(
-            ITERATION_COUNT,
-            labels(&[("profile_id", profile_id)]),
-        );
+        self.inner
+            .increment_counter(ITERATION_COUNT, labels(&[("profile_id", profile_id)]));
     }
 
     pub fn record_tool_call(&self, profile_id: &str) {
-        self.inner.increment_counter(
-            TOOL_CALL_COUNT,
-            labels(&[("profile_id", profile_id)]),
-        );
+        self.inner
+            .increment_counter(TOOL_CALL_COUNT, labels(&[("profile_id", profile_id)]));
     }
 
     pub fn usage_stats(&self) -> AgentUsageStats {
-        let total = crate::collectors::counter_total(&self.inner, EXECUTION_COUNT);
-        let success = crate::collectors::counter_total(&self.inner, SUCCESS_COUNT);
-        let failure = crate::collectors::counter_total(&self.inner, FAILURE_COUNT);
-        let duration = crate::collectors::latest(&self.inner, EXECUTION_DURATION);
-        let total_iterations = crate::collectors::counter_total(&self.inner, ITERATION_COUNT);
-        let total_tool_calls = crate::collectors::counter_total(&self.inner, TOOL_CALL_COUNT);
+        self.usage_stats_filtered(&std::collections::HashMap::new())
+    }
+
+    /// Usage statistics scoped to a single agent profile.
+    pub fn usage_stats_for(&self, profile_id: &str) -> AgentUsageStats {
+        self.usage_stats_filtered(&crate::labels(&[("profile_id", profile_id)]))
+    }
+
+    fn usage_stats_filtered(
+        &self,
+        filter: &std::collections::HashMap<String, String>,
+    ) -> AgentUsageStats {
+        let total = crate::collectors::counter_total_labeled(&self.inner, EXECUTION_COUNT, filter);
+        let success = crate::collectors::counter_total_labeled(&self.inner, SUCCESS_COUNT, filter);
+        let failure = crate::collectors::counter_total_labeled(&self.inner, FAILURE_COUNT, filter);
+        let duration = crate::collectors::latest_labeled(&self.inner, EXECUTION_DURATION, filter);
+        let total_iterations =
+            crate::collectors::counter_total_labeled(&self.inner, ITERATION_COUNT, filter);
+        let total_tool_calls =
+            crate::collectors::counter_total_labeled(&self.inner, TOOL_CALL_COUNT, filter);
 
         AgentUsageStats {
             total: total as u64,
@@ -97,11 +112,21 @@ impl AgentMetricsCollector {
             total_tool_calls: total_tool_calls as u64,
             avg_duration_ms: duration
                 .as_ref()
-                .map(|d| if d.count > 0 { d.sum / d.count as f64 } else { 0.0 })
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0),
             p95_duration_ms: duration
                 .as_ref()
-                .and_then(|d| d.percentiles.iter().find(|q| (q.percentile - 0.95).abs() < f64::EPSILON))
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - 0.95).abs() < f64::EPSILON)
+                })
                 .map(|q| q.value)
                 .unwrap_or(0.0),
         }

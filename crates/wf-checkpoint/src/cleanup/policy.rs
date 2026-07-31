@@ -1,4 +1,9 @@
+use std::time::Instant;
+
+use wf_types::checkpoint::CheckpointCleanupMetrics;
 use wf_types::storage::CheckpointStorageMetadata;
+
+use crate::metrics::CheckpointMetricsCollector;
 
 #[derive(Debug, Clone)]
 pub enum CleanupStrategy {
@@ -13,6 +18,27 @@ pub struct CleanupExecutor;
 impl CleanupExecutor {
     pub fn new() -> Self {
         Self
+    }
+
+    /// Evaluate which checkpoints to remove, optionally recording cleanup
+    /// metrics. `None` keeps the path zero-overhead. Freed bytes are
+    /// unavailable at evaluation time and reported as 0.
+    pub fn evaluate_with_metrics(
+        &self,
+        checkpoints: &[CheckpointStorageMetadata],
+        strategy: &CleanupStrategy,
+        metrics: Option<&CheckpointMetricsCollector>,
+    ) -> Vec<String> {
+        let start = Instant::now();
+        let to_remove = self.evaluate(checkpoints, strategy);
+        if let Some(metrics) = metrics {
+            metrics.record_cleanup(&CheckpointCleanupMetrics {
+                deleted_count: to_remove.len() as u32,
+                freed_bytes: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+        to_remove
     }
 
     pub fn evaluate(

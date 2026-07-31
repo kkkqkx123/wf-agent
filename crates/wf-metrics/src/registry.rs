@@ -1,13 +1,16 @@
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use wf_types::config::metrics::MetricsConfig;
 
 use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
-    AgentLoopMetricsCollector, AgentMetricsCollector, ErrorMetricsCollector, EventMetricsCollector,
-    NodeMetricsCollector, TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
+    AgentLoopMetricsCollector, AgentMetricsCollector, ConfigMetricsCollector,
+    ErrorMetricsCollector, EventMetricsCollector, NodeMetricsCollector, ResourceMetricsCollector,
+    TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
 };
-use crate::sink::MetricsSink;
+use crate::report::{MetricReport, ReportCallback};
+use crate::sink::{MetricPoint, MetricsSink};
 
 /// Central registry owning the domain collectors.
 ///
@@ -24,6 +27,10 @@ pub struct MetricsRegistry {
     tool: Arc<ToolMetricsCollector>,
     token: Arc<TokenMetricsCollector>,
     error: Arc<ErrorMetricsCollector>,
+    config: Arc<ConfigMetricsCollector>,
+    resource: Arc<ResourceMetricsCollector>,
+    subscribers: Mutex<Vec<(usize, ReportCallback)>>,
+    next_subscription_id: AtomicUsize,
 }
 
 impl Default for MetricsRegistry {
@@ -96,6 +103,22 @@ impl MetricsRegistry {
                     .map(CollectorConfig::from)
                     .unwrap_or_default(),
             )),
+            config: Arc::new(ConfigMetricsCollector::new(
+                config
+                    .config_metrics
+                    .as_ref()
+                    .map(CollectorConfig::from)
+                    .unwrap_or_default(),
+            )),
+            resource: Arc::new(ResourceMetricsCollector::new(
+                config
+                    .resource_metrics
+                    .as_ref()
+                    .map(CollectorConfig::from)
+                    .unwrap_or_default(),
+            )),
+            subscribers: Mutex::new(Vec::new()),
+            next_subscription_id: AtomicUsize::new(1),
         }
     }
 
@@ -131,6 +154,14 @@ impl MetricsRegistry {
         self.error.clone()
     }
 
+    pub fn config(&self) -> Arc<ConfigMetricsCollector> {
+        self.config.clone()
+    }
+
+    pub fn resource(&self) -> Arc<ResourceMetricsCollector> {
+        self.resource.clone()
+    }
+
     /// All domain collectors, for export and monitoring.
     pub fn collectors(&self) -> Vec<&BaseMetricCollector> {
         vec![
@@ -142,6 +173,8 @@ impl MetricsRegistry {
             self.tool.collector(),
             self.token.collector(),
             self.error.collector(),
+            self.config.collector(),
+            self.resource.collector(),
         ]
     }
 
@@ -151,6 +184,13 @@ impl MetricsRegistry {
         for c in collectors {
             c.set_sink(sink.clone());
         }
+        self
+    }
+
+    /// Replace the config collector (e.g. with an instance already wired
+    /// into the config merge path), keeping a single shared counter.
+    pub fn with_config_collector(mut self, collector: Arc<ConfigMetricsCollector>) -> Self {
+        self.config = collector;
         self
     }
 
@@ -174,6 +214,74 @@ impl MetricsRegistry {
             c.clear();
         }
     }
+
+    /// Subscribe to periodic reports. Returns a subscription id for
+    /// `unsubscribe`. Callback failures are logged, never propagated.
+    pub fn on_report(&self, callback: ReportCallback) -> usize {
+        let id = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
+        self.subscribers
+            .lock()
+            .expect("metrics subscribers lock poisoned")
+            .push((id, callback));
+        id
+    }
+
+    pub fn unsubscribe(&self, id: usize) {
+        self.subscribers
+            .lock()
+            .expect("metrics subscribers lock poisoned")
+            .retain(|(sid, _)| *sid != id);
+    }
+
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers
+            .lock()
+            .expect("metrics subscribers lock poisoned")
+            .len()
+    }
+
+    /// Deliver a report to all subscribers; a panicking callback is caught
+    /// and logged so one subscriber never breaks the reporting loop.
+    pub fn publish_report(&self, report: &MetricReport) {
+        let subscribers = self
+            .subscribers
+            .lock()
+            .expect("metrics subscribers lock poisoned")
+            .clone();
+        for (_, callback) in subscribers {
+            if let Err(err) =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(report)))
+            {
+                tracing::error!(
+                    target: "wf_metrics",
+                    panic = %format!("{err:?}"),
+                    "metrics report subscriber panicked"
+                );
+            }
+        }
+    }
+
+    /// Query the shared persistence sink for a metric over a time range.
+    ///
+    /// Returns the first non-error result; `None` when no sink is attached.
+    pub async fn query_sink(&self, name: &str, from: i64, to: i64) -> Option<Vec<MetricPoint>> {
+        for collector in self.collectors() {
+            match collector.query_sink(name, from, to).await {
+                Some(Ok(points)) => return Some(points),
+                Some(Err(err)) => {
+                    tracing::warn!(
+                        target: "wf_metrics",
+                        error = %err,
+                        metric = name,
+                        "persisted metrics query failed, falling back to buffers"
+                    );
+                    return None;
+                }
+                None => continue,
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -184,7 +292,7 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 8);
+        assert_eq!(registry.collectors().len(), 10);
         registry.workflow().record_execution_start("exec-1", "wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);
@@ -193,6 +301,8 @@ mod tests {
         registry.error().record_error("llm", "agent", None);
         registry.agent().record_execution_start("default", "exec-1");
         registry.agent_loop().record_iteration("exec-1", 100.0);
+        registry.config().record_access();
+        registry.resource().record_memory_usage(1024);
         assert!(registry.workflow().usage_stats().total >= 1);
     }
 
@@ -229,5 +339,37 @@ mod tests {
         registry.workflow().record_execution_start("exec-1", "wf-1");
         registry.flush_all().await;
         assert_eq!(registry.workflow().collector().buffer_len(), 0);
+    }
+
+    #[test]
+    fn on_report_subscription_delivers_and_unsubscribes() {
+        let registry = MetricsRegistry::new();
+        let delivered = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = delivered.clone();
+        let id = registry.on_report(Arc::new(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }));
+        let report = crate::report::MetricReport::default();
+        registry.publish_report(&report);
+        assert_eq!(delivered.load(Ordering::Relaxed), 1);
+        assert_eq!(registry.subscriber_count(), 1);
+
+        registry.unsubscribe(id);
+        registry.publish_report(&report);
+        assert_eq!(delivered.load(Ordering::Relaxed), 1);
+        assert_eq!(registry.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn on_report_panicking_subscriber_does_not_block_others() {
+        let registry = MetricsRegistry::new();
+        let delivered = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = delivered.clone();
+        registry.on_report(Arc::new(|_| panic!("subscriber bug")));
+        registry.on_report(Arc::new(move |_| {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }));
+        registry.publish_report(&MetricReport::default());
+        assert_eq!(delivered.load(Ordering::Relaxed), 1);
     }
 }

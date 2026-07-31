@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod metrics;
+pub mod stats;
 pub mod task;
 pub mod trigger_execution;
 pub mod user_interaction;
@@ -36,8 +37,16 @@ pub struct ApiContext {
 }
 
 impl ApiContext {
-    pub fn new(storage: StorageContext, registries: Arc<Registries>, bundles: Arc<BundleRegistry>) -> Self {
-        Self { storage, registries, bundles }
+    pub fn new(
+        storage: StorageContext,
+        registries: Arc<Registries>,
+        bundles: Arc<BundleRegistry>,
+    ) -> Self {
+        Self {
+            storage,
+            registries,
+            bundles,
+        }
     }
 }
 

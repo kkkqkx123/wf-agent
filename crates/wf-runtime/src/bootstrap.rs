@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use wf_core::event::EventBus;
 use wf_config::processor::infrastructure::merge_metrics_with_defaults;
+use wf_core::event::EventBus;
 use wf_resource::registrar::{Options as ResourceOptions, Registries};
 use wf_resource::starter::BundleRegistry;
 use wf_types::config::metrics::MetricsConfig;
@@ -94,8 +94,19 @@ impl Runtime {
         let event_bus = Arc::new(EventBus::new(1024));
         let metrics = match config.metrics.as_ref() {
             Some(cfg) => {
-                let merged = merge_metrics_with_defaults(cfg);
-                MetricsContext::start(&merged, &storage_manager, Some(event_bus.clone())).await?
+                // Share one config collector between the merge path (records
+                // access) and the metrics registry (exposes the counters).
+                let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
+                    wf_metrics::CollectorConfig::default(),
+                ));
+                let merged = merge_metrics_with_defaults(cfg, Some(&config_metrics));
+                MetricsContext::start(
+                    &merged,
+                    &storage_manager,
+                    Some(event_bus.clone()),
+                    Some(config_metrics),
+                )
+                .await?
             }
             None => None,
         };
@@ -367,8 +378,13 @@ mod tests {
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
-        let metrics = runtime.metrics().expect("metrics system should be initialized");
-        metrics.registry().workflow().record_execution_start("exec-1", "wf-1");
+        let metrics = runtime
+            .metrics()
+            .expect("metrics system should be initialized");
+        metrics
+            .registry()
+            .workflow()
+            .record_execution_start("exec-1", "wf-1");
         assert_eq!(metrics.registry().workflow().usage_stats().total, 1);
 
         // Background flush task persists buffered metrics into storage.

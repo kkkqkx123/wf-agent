@@ -3,7 +3,10 @@ use std::time::Duration;
 
 use wf_core::event::EventBus;
 use wf_core::EventMetricsBridge;
-use wf_metrics::{MetricPoint, MetricsError, MetricsRegistry, MetricsSink};
+use wf_metrics::{
+    generate_report, ConfigMetricsCollector, MetricPoint, MetricsError, MetricsRegistry,
+    MetricsSink, ReportOptions, ResourceSample,
+};
 use wf_storage::adapter::metrics::{MetricsDataPoint, MetricsStorageAdapter};
 use wf_types::config::metrics::MetricsConfig;
 
@@ -33,7 +36,11 @@ impl<A: MetricsStorageAdapter> MetricsSink for StorageMetricsSink<A> {
                 metric_type: p.metric_type.as_str().to_string(),
                 value: p.value,
                 timestamp: p.timestamp,
-                tags: if p.labels.is_empty() { None } else { Some(p.labels.clone()) },
+                tags: if p.labels.is_empty() {
+                    None
+                } else {
+                    Some(p.labels.clone())
+                },
             })
             .collect();
         self.adapter.save_batch(&data).await.map_err(map_err)
@@ -84,7 +91,7 @@ fn parse_metric_type(value: &str) -> wf_metrics::MetricType {
 }
 
 /// Runtime-owned metrics system: registry + persistence sink + background
-/// flush/cleanup tasks and the event bridge subscription.
+/// flush/cleanup/report/sampling tasks and the event bridge subscription.
 ///
 /// Created from `SdkOptions`-style metrics config; returns `None` when
 /// metrics are disabled.
@@ -98,16 +105,23 @@ impl MetricsContext {
     /// Initialize metrics from a merged config. The registry is created only
     /// when `enabled` (default true for a present config) so disabled or
     /// absent metrics configs add no overhead.
+    ///
+    /// `config_metrics` optionally supplies the config collector instance
+    /// already wired into the config merge path, keeping a single counter.
     pub async fn start(
         config: &MetricsConfig,
         storage: &StorageManager,
         event_bus: Option<Arc<EventBus>>,
+        config_metrics: Option<Arc<ConfigMetricsCollector>>,
     ) -> RuntimeResult<Option<Arc<Self>>> {
         if !config.enabled.unwrap_or(false) {
             return Ok(None);
         }
 
         let mut registry = MetricsRegistry::with_config(config);
+        if let Some(metrics) = config_metrics {
+            registry = registry.with_config_collector(metrics);
+        }
 
         if let Ok(ctx) = storage.context() {
             let sink: Arc<dyn MetricsSink> = Arc::new(StorageMetricsSink::new(ctx.metrics.clone()));
@@ -120,7 +134,9 @@ impl MetricsContext {
         let mut tasks = Vec::new();
 
         let flush_interval = flush_interval(config);
-        let cleanup_interval = flush_interval.saturating_mul(12).max(Duration::from_secs(30));
+        let cleanup_interval = flush_interval
+            .saturating_mul(12)
+            .max(Duration::from_secs(30));
         {
             let registry = registry.clone();
             tasks.push(tokio::spawn(async move {
@@ -144,7 +160,35 @@ impl MetricsContext {
             }));
         }
 
-        let event_bridge_task = event_bus.map(|bus| EventMetricsBridge::new(registry.clone()).spawn(bus));
+        if config.enable_periodic_reporting.unwrap_or(false) {
+            let report_interval =
+                Duration::from_millis(config.reporting_interval.unwrap_or(60_000) as u64);
+            let registry = registry.clone();
+            tasks.push(tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(report_interval);
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    // Skip generation entirely when nobody listens.
+                    if registry.subscriber_count() == 0 {
+                        continue;
+                    }
+                    let report = generate_report(&registry, &ReportOptions::default()).await;
+                    registry.publish_report(&report);
+                }
+            }));
+        }
+
+        let sampler_interval = config
+            .resource_metrics
+            .as_ref()
+            .and_then(|c| c.flush_interval)
+            .map(|ms| Duration::from_millis(ms.max(100) as u64))
+            .unwrap_or(Duration::from_millis(5000));
+        tasks.push(ResourceSampler::new(registry.clone(), sampler_interval).spawn());
+
+        let event_bridge_task =
+            event_bus.map(|bus| EventMetricsBridge::new(registry.clone()).spawn(bus));
 
         Ok(Some(Arc::new(Self {
             registry,
@@ -166,6 +210,52 @@ impl MetricsContext {
             task.abort();
         }
     }
+}
+
+/// Periodic process/entity resource sampler.
+///
+/// Records process-level RSS each tick; entity-level gauges (active
+/// executions, queued tasks, event queue length) record 0 until a data
+/// source exists (no active execution registry / queue statistics yet).
+pub struct ResourceSampler {
+    registry: Arc<MetricsRegistry>,
+    interval: Duration,
+}
+
+impl ResourceSampler {
+    pub fn new(registry: Arc<MetricsRegistry>, interval: Duration) -> Self {
+        Self { registry, interval }
+    }
+
+    pub fn spawn(self) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(self.interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                self.sample();
+            }
+        })
+    }
+
+    pub fn sample(&self) {
+        let sample = ResourceSample {
+            memory_bytes: process_rss_bytes(),
+            active_executions: Some(0),
+            queued_tasks: Some(0),
+            event_queue_length: Some(0),
+        };
+        self.registry.resource().record_sample(&sample);
+    }
+}
+
+/// Resident set size of the current process in bytes, parsed from
+/// `/proc/self/status` (Linux; zero dependencies).
+fn process_rss_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
 }
 
 /// Periodic flush cadence: the smallest configured collector flush interval
@@ -209,7 +299,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(flush_interval(&config), Duration::from_millis(1000));
-        assert_eq!(flush_interval(&MetricsConfig::default()), Duration::from_millis(5000));
+        assert_eq!(
+            flush_interval(&MetricsConfig::default()),
+            Duration::from_millis(5000)
+        );
         assert_eq!(
             flush_interval(&MetricsConfig {
                 workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
@@ -241,8 +334,65 @@ mod tests {
             enabled: Some(false),
             ..Default::default()
         };
-        let ctx = MetricsContext::start(&config, &storage, None).await.unwrap();
+        let ctx = MetricsContext::start(&config, &storage, None, None)
+            .await
+            .unwrap();
         assert!(ctx.is_none());
+    }
+
+    #[tokio::test]
+    async fn start_runs_resource_sampler_and_report_task() {
+        let storage = StorageManager::new(StorageConfig {
+            backend_type: StorageBackendType::Memory,
+            ..Default::default()
+        });
+        let config = MetricsConfig {
+            enabled: Some(true),
+            enable_periodic_reporting: Some(true),
+            reporting_interval: Some(50),
+            resource_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
+                flush_interval: Some(50),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let ctx = MetricsContext::start(&config, &storage, None, None)
+            .await
+            .unwrap()
+            .expect("metrics should be enabled");
+
+        let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = delivered.clone();
+        ctx.registry().on_report(Arc::new(move |_| {
+            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }));
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(
+            delivered.load(std::sync::atomic::Ordering::Relaxed) >= 1,
+            "periodic report should be delivered to subscribers"
+        );
+
+        let memory = ctx
+            .registry()
+            .resource()
+            .collector()
+            .query(&wf_metrics::MetricFilter {
+                name: Some(wf_metrics::resource_metrics::MEMORY_USAGE.to_string()),
+                ..Default::default()
+            });
+        assert!(
+            memory.metrics.iter().any(|m| m.value > 0.0),
+            "sampler should record process RSS"
+        );
+        ctx.shutdown().await;
+    }
+
+    #[test]
+    fn parses_process_rss() {
+        if let Some(bytes) = process_rss_bytes() {
+            assert!(bytes > 0);
+        }
     }
 
     #[tokio::test]
@@ -269,6 +419,9 @@ mod tests {
         assert_eq!(loaded[0].name, "test.metric");
         assert_eq!(loaded[0].value, 1.0);
         assert_eq!(loaded[0].metric_type, MetricType::Counter);
-        assert_eq!(loaded[0].labels.get("env").map(String::as_str), Some("prod"));
+        assert_eq!(
+            loaded[0].labels.get("env").map(String::as_str),
+            Some("prod")
+        );
     }
 }

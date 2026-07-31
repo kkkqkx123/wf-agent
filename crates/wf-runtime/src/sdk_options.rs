@@ -52,7 +52,9 @@ impl SdkOptions {
 
     /// Merged metrics configuration, or `None` when no metrics config was set.
     pub fn metrics_config(&self) -> Option<MetricsConfig> {
-        self.metrics.as_ref().map(merge_metrics_with_defaults)
+        self.metrics
+            .as_ref()
+            .map(|m| merge_metrics_with_defaults(m, None))
     }
 
     /// Whether the metrics system should be initialized (default: enabled

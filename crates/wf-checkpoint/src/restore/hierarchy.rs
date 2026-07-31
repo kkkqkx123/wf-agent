@@ -1,7 +1,10 @@
 use crate::error::CheckpointError;
+use crate::metrics::CheckpointMetricsCollector;
 use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
+use wf_types::checkpoint::CheckpointLoadMetrics;
 use wf_types::storage::CheckpointStorageMetadata;
 
 pub trait ChildCheckpointResolver: Send + Sync {
@@ -107,11 +110,15 @@ impl HierarchyRestorer {
         Self { resolver }
     }
 
+    /// Restore children breadth-first, optionally recording load metrics per
+    /// child. Size bytes are unavailable at metadata load and reported as 0;
+    /// `None` keeps the path zero-overhead.
     pub fn restore_children_bfs(
         &self,
         parent_id: &str,
         loader: &dyn CheckpointLoader,
         max_depth: usize,
+        metrics: Option<&CheckpointMetricsCollector>,
     ) -> Result<Vec<RestoreResult>, CheckpointError> {
         let mut results = Vec::new();
         let mut visited = std::collections::HashSet::new();
@@ -133,6 +140,7 @@ impl HierarchyRestorer {
                 }
                 visited.insert(child_id.clone());
 
+                let start = Instant::now();
                 let result = match loader.load_metadata(child_id) {
                     Ok(_) => RestoreResult::Success {
                         checkpoint_id: child_id.clone(),
@@ -143,6 +151,16 @@ impl HierarchyRestorer {
                         error: e.to_string(),
                     },
                 };
+                if let Some(metrics) = metrics {
+                    metrics.record_load(
+                        &CheckpointLoadMetrics {
+                            duration_ms: start.elapsed().as_millis() as u64,
+                            size_bytes: 0,
+                            compressed: false,
+                        },
+                        matches!(result, RestoreResult::Success { .. }),
+                    );
+                }
 
                 results.push(result);
                 queue.push_back((child_id.clone(), depth + 1));
@@ -326,7 +344,7 @@ mod tests {
         }
 
         let results = restorer
-            .restore_children_bfs("root", &MockLoader, 3)
+            .restore_children_bfs("root", &MockLoader, 3, None)
             .unwrap();
 
         assert_eq!(results.len(), 3);
@@ -334,6 +352,59 @@ mod tests {
         let summary = HierarchyRestorer::summarize_results(&results);
         assert_eq!(summary.total, 3);
         assert!(summary.all_succeeded());
+    }
+
+    #[test]
+    fn restore_records_load_metrics() {
+        let storage_resolver = StorageChildResolver::new();
+        storage_resolver.register_relationship("root", "child-a");
+        storage_resolver.register_relationship("root", "child-b");
+        let resolver: Arc<dyn ChildCheckpointResolver> = Arc::new(storage_resolver);
+
+        let restorer = HierarchyRestorer::new(resolver);
+        let metrics = CheckpointMetricsCollector::new();
+
+        struct FailingLoader;
+        impl CheckpointLoader for FailingLoader {
+            fn load_metadata(
+                &self,
+                _id: &str,
+            ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+                Err(CheckpointError::NotFound {
+                    id: _id.to_string(),
+                })
+            }
+        }
+
+        struct MockLoader;
+        impl CheckpointLoader for MockLoader {
+            fn load_metadata(
+                &self,
+                _id: &str,
+            ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+                Ok(Some(CheckpointStorageMetadata {
+                    id: _id.to_string(),
+                    entity_type: "test".to_string(),
+                    entity_id: "test-entity".to_string(),
+                    checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
+                    timestamp: 0,
+                    status: wf_types::checkpoint::CheckpointStatus::Completed,
+                }))
+            }
+        }
+
+        let _ = restorer
+            .restore_children_bfs("root", &FailingLoader, 3, Some(&metrics))
+            .unwrap();
+        let _ = restorer
+            .restore_children_bfs("root", &MockLoader, 3, Some(&metrics))
+            .unwrap();
+
+        let agg = metrics.aggregate();
+        assert_eq!(agg.load_count, 4);
+        assert_eq!(agg.load_failed, 2);
+        assert_eq!(agg.load_success, 2);
+        assert!(agg.avg_load_duration_ms >= 0.0);
     }
 
     #[test]

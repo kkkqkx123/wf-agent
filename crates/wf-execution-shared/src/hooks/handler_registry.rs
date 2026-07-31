@@ -29,11 +29,7 @@ impl HookHandlerRegistry {
     }
 
     pub fn remove(&self, hook_type: &str) -> bool {
-        self.handlers
-            .write()
-            .unwrap()
-            .remove(hook_type)
-            .is_some()
+        self.handlers.write().unwrap().remove(hook_type).is_some()
     }
 
     pub fn list_types(&self) -> Vec<String> {
@@ -65,17 +61,19 @@ mod tests {
 
     fn make_handler(id: &str) -> HookHandler {
         let id = id.to_string();
-        Arc::new(move |ctx: BaseHookContext| -> BoxFuture<'static, HookExecutionResult> {
-            let id = id.clone();
-            let exec_id = ctx.execution_id.clone();
-            Box::pin(async move {
-                HookExecutionResult {
-                    hook_id: exec_id,
-                    success: true,
-                    error: Some(id),
-                }
-            })
-        })
+        Arc::new(
+            move |ctx: BaseHookContext| -> BoxFuture<'static, HookExecutionResult> {
+                let id = id.clone();
+                let exec_id = ctx.execution_id.clone();
+                Box::pin(async move {
+                    HookExecutionResult {
+                        hook_id: exec_id,
+                        success: true,
+                        error: Some(id),
+                    }
+                })
+            },
+        )
     }
 
     #[test]

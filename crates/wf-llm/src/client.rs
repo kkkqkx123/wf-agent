@@ -2,17 +2,23 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use reqwest::Client as ReqwestClient;
-use tokio_util::sync::CancellationToken;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile};
-use wf_types::message::MessageContentValue;
 use crate::error::{LlmError, LlmResult};
 use crate::formatters::LlmFormatter;
 use crate::message_stream::MessageStream;
+use reqwest::Client as ReqwestClient;
+use tokio_util::sync::CancellationToken;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
+use wf_types::message::MessageContentValue;
 
 pub trait LlmClient: Send + Sync {
-    fn generate(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<LlmResponseType>> + Send;
-    fn generate_stream(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<Box<dyn MessageStream>>> + Send;
+    fn generate(
+        &self,
+        request: &LlmRequest,
+    ) -> impl Future<Output = LlmResult<LlmResponseType>> + Send;
+    fn generate_stream(
+        &self,
+        request: &LlmRequest,
+    ) -> impl Future<Output = LlmResult<Box<dyn MessageStream>>> + Send;
     fn count_tokens(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<u32>> + Send;
 }
 
@@ -23,8 +29,16 @@ pub struct LlmClientImpl {
 }
 
 impl LlmClientImpl {
-    pub fn new(client: ReqwestClient, formatter: Arc<dyn LlmFormatter>, profile: LlmProfile) -> Self {
-        Self { client, formatter, profile }
+    pub fn new(
+        client: ReqwestClient,
+        formatter: Arc<dyn LlmFormatter>,
+        profile: LlmProfile,
+    ) -> Self {
+        Self {
+            client,
+            formatter,
+            profile,
+        }
     }
 
     pub fn profile(&self) -> &LlmProfile {
@@ -46,7 +60,10 @@ impl LlmClientImpl {
 
     fn map_http_error(status: reqwest::StatusCode, body: &str, timeout_ms: u64) -> LlmError {
         if status.is_success() {
-            return LlmError::InvalidResponse(format!("Unexpected success status with body: {}", body));
+            return LlmError::InvalidResponse(format!(
+                "Unexpected success status with body: {}",
+                body
+            ));
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), body);
         match status.as_u16() {
@@ -58,7 +75,11 @@ impl LlmClientImpl {
 }
 
 impl LlmClientImpl {
-    async fn generate_inner(&self, request: &LlmRequest, cancel: Option<CancellationToken>) -> LlmResult<LlmResponseType> {
+    async fn generate_inner(
+        &self,
+        request: &LlmRequest,
+        cancel: Option<CancellationToken>,
+    ) -> LlmResult<LlmResponseType> {
         let start = Instant::now();
 
         let http_request = self.formatter.build_request(request, &self.profile)?;
@@ -102,11 +123,17 @@ impl LlmClientImpl {
         Ok(result)
     }
 
-    async fn generate_stream_inner(&self, request: &LlmRequest, cancel: Option<CancellationToken>) -> LlmResult<Box<dyn MessageStream>> {
+    async fn generate_stream_inner(
+        &self,
+        request: &LlmRequest,
+        cancel: Option<CancellationToken>,
+    ) -> LlmResult<Box<dyn MessageStream>> {
         let mut stream_request = request.clone();
         stream_request.stream = Some(true);
 
-        let http_request = self.formatter.build_request(&stream_request, &self.profile)?;
+        let http_request = self
+            .formatter
+            .build_request(&stream_request, &self.profile)?;
 
         let timeout_dur = self.build_timeout();
         let timeout_ms = timeout_dur.as_millis() as u64;
@@ -165,7 +192,8 @@ impl LlmClient for LlmClientImpl {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
+        Err(last_err
+            .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
     }
 
     async fn generate_stream(&self, request: &LlmRequest) -> LlmResult<Box<dyn MessageStream>> {
@@ -183,7 +211,8 @@ impl LlmClient for LlmClientImpl {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
+        Err(last_err
+            .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
     }
 
     async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {

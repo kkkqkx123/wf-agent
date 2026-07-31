@@ -21,33 +21,42 @@ pub fn transform_to_agent_loop_config(definition: &AgentDefinition) -> AgentRunt
         max_retries: None,
         execution_timeout: None,
         initial_messages: config.and_then(|c| c.initial_messages.clone()),
-        available_tools: config.and_then(|c| {
-            c.available_tools
-                .as_ref()
-                .map(|t| t.available.clone())
-        }),
+        available_tools: config
+            .and_then(|c| c.available_tools.as_ref().map(|t| t.available.clone())),
         stream: config.and_then(|c| c.stream),
         tool_call_format: None,
         on_failure: None,
         fallback_output: None,
         hooks: config.and_then(|c| c.hooks.clone()),
         triggers: config.and_then(|c| c.triggers.clone()),
-        dynamic_context_config: config.and_then(|c| {
-            c.dynamic_context.as_ref().map(|d| {
-                serde_json::to_value(d)
-                    .ok()
-                    .and_then(|v| serde_json::from_value::<std::collections::HashMap<String, serde_json::Value>>(v).ok())
-                    .unwrap_or_default()
-            })
-        }),
-        checkpoint_config: config.and_then(|c| {
-            c.checkpoint.as_ref().map(|cp| {
-                serde_json::to_value(cp)
-                    .ok()
-                    .and_then(|v| serde_json::from_value::<std::collections::HashMap<String, serde_json::Value>>(v).ok())
-                    .unwrap_or_default()
-            })
-        }),
+        dynamic_context_config:
+            config.and_then(|c| {
+                c.dynamic_context.as_ref().map(|d| {
+                    serde_json::to_value(d)
+                        .ok()
+                        .and_then(|v| {
+                            serde_json::from_value::<
+                                std::collections::HashMap<String, serde_json::Value>,
+                            >(v)
+                            .ok()
+                        })
+                        .unwrap_or_default()
+                })
+            }),
+        checkpoint_config:
+            config.and_then(|c| {
+                c.checkpoint.as_ref().map(|cp| {
+                    serde_json::to_value(cp)
+                        .ok()
+                        .and_then(|v| {
+                            serde_json::from_value::<
+                                std::collections::HashMap<String, serde_json::Value>,
+                            >(v)
+                            .ok()
+                        })
+                        .unwrap_or_default()
+                })
+            }),
     }
 }
 

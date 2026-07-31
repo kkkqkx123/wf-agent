@@ -32,11 +32,7 @@ pub static PREDEFINED_FRAGMENT_IDS: &[&str] = &[
     "fragments.task-instruction.data-analysis",
 ];
 
-pub static PREDEFINED_PROMPT_IDS: &[&str] = &[
-    "system.default",
-    "system.code",
-    "system.agent",
-];
+pub static PREDEFINED_PROMPT_IDS: &[&str] = &["system.default", "system.code", "system.agent"];
 
 pub static PREDEFINED_TOOL_DESCRIPTION_IDS: &[&str] = &[
     "read_file",
@@ -165,7 +161,11 @@ pub fn register_all(regs: &Registries, bundle_reg: &BundleRegistry, opts: &Optio
         let base_dir_str = opts.custom_base_dir.as_deref().unwrap_or(".");
         let base_dir = Path::new(base_dir_str);
         let resources = custom::loader::load_custom_resources(custom_config, base_dir);
-        total.merge(custom::register::register_custom_resources(regs, resources, opts.skip_if_exists));
+        total.merge(custom::register::register_custom_resources(
+            regs,
+            resources,
+            opts.skip_if_exists,
+        ));
     }
 
     // Pipeline 3: Starter activation

@@ -1,4 +1,7 @@
-use wf_types::checkpoint::{CheckpointContext, CheckpointContentConfig, CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy};
+use wf_types::checkpoint::{
+    CheckpointContentConfig, CheckpointContext, CheckpointRetentionConfig, CheckpointTrigger,
+    UnifiedCheckpointPolicy,
+};
 
 use super::inner::{CheckpointStrategy, StandardStrategy};
 
@@ -41,11 +44,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
     where
         F: Fn(&CheckpointTrigger) -> Option<T>,
     {
-        let timings: Vec<T> = policy
-            .triggers
-            .iter()
-            .filter_map(map_trigger)
-            .collect();
+        let timings: Vec<T> = policy.triggers.iter().filter_map(map_trigger).collect();
         Self {
             inner: StandardStrategy::from_policy(policy),
             timings,

@@ -183,10 +183,8 @@ fn bench_dag_is_ancestor(c: &mut criterion::Criterion) {
 fn bench_dag_ancestors(c: &mut criterion::Criterion) {
     for &size in &[10, 50, 200] {
         let (dag, ids) = build_dag_linear(size);
-        let parents: HashMap<CheckpointId, Vec<CheckpointId>> = ids
-            .windows(2)
-            .map(|w| (w[1], vec![w[0]]))
-            .collect();
+        let parents: HashMap<CheckpointId, Vec<CheckpointId>> =
+            ids.windows(2).map(|w| (w[1], vec![w[0]])).collect();
         let get_parents = |id: &CheckpointId| -> Vec<CheckpointId> {
             parents.get(id).cloned().unwrap_or_default()
         };

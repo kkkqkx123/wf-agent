@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BranchResult {
     pub branch_id: String,
@@ -52,11 +51,17 @@ impl FailureStrategy {
 
         match self {
             FailureStrategy::FailFast => {
-                if failures > 0 { ForkOutcome::Failed } else { ForkOutcome::Succeeded }
+                if failures > 0 {
+                    ForkOutcome::Failed
+                } else {
+                    ForkOutcome::Succeeded
+                }
             }
             FailureStrategy::ContinueOnError => ForkOutcome::Succeeded,
             FailureStrategy::FailOnThreshold { threshold } => {
-                if total == 0 { return ForkOutcome::Succeeded; }
+                if total == 0 {
+                    return ForkOutcome::Succeeded;
+                }
                 let failure_rate = failures as f64 / total as f64;
                 if failure_rate > *threshold {
                     ForkOutcome::Failed

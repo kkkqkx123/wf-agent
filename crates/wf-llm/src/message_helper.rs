@@ -58,20 +58,25 @@ pub fn merge_consecutive_messages(messages: &[Message]) -> Vec<Message> {
 pub fn split_long_message(message: &Message, max_chars: usize) -> Vec<Message> {
     match &message.content {
         MessageContentValue::Text(text) if text.len() > max_chars => {
-            let chunks: Vec<&str> = text.as_bytes()
+            let chunks: Vec<&str> = text
+                .as_bytes()
                 .chunks(max_chars)
                 .filter_map(|chunk| std::str::from_utf8(chunk).ok())
                 .collect();
 
-            chunks.iter().enumerate().map(|(i, chunk)| {
-                let mut msg = message.clone();
-                msg.id = wf_types::Id::new();
-                msg.content = MessageContentValue::Text(chunk.to_string());
-                if i > 0 {
-                    msg.tool_calls = None;
-                }
-                msg
-            }).collect()
+            chunks
+                .iter()
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let mut msg = message.clone();
+                    msg.id = wf_types::Id::new();
+                    msg.content = MessageContentValue::Text(chunk.to_string());
+                    if i > 0 {
+                        msg.tool_calls = None;
+                    }
+                    msg
+                })
+                .collect()
         }
         _ => vec![message.clone()],
     }
@@ -80,31 +85,31 @@ pub fn split_long_message(message: &Message, max_chars: usize) -> Vec<Message> {
 pub fn extract_text_content(message: &Message) -> String {
     match &message.content {
         MessageContentValue::Text(text) => text.clone(),
-        MessageContentValue::Rich(blocks) => {
-            blocks.iter().filter_map(|block| {
-                match block {
-                    MessageContent::Text { text } => Some(text.clone()),
-                    _ => None,
-                }
-            }).collect::<Vec<_>>().join("\n")
-        }
+        MessageContentValue::Rich(blocks) => blocks
+            .iter()
+            .filter_map(|block| match block {
+                MessageContent::Text { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
     }
 }
 
 pub fn count_total_chars(messages: &[Message]) -> usize {
-    messages.iter().map(|m| {
-        match &m.content {
+    messages
+        .iter()
+        .map(|m| match &m.content {
             MessageContentValue::Text(text) => text.len(),
-            MessageContentValue::Rich(blocks) => {
-                blocks.iter().filter_map(|b| {
-                    match b {
-                        MessageContent::Text { text } => Some(text.len()),
-                        _ => None,
-                    }
-                }).sum()
-            }
-        }
-    }).sum()
+            MessageContentValue::Rich(blocks) => blocks
+                .iter()
+                .filter_map(|b| match b {
+                    MessageContent::Text { text } => Some(text.len()),
+                    _ => None,
+                })
+                .sum(),
+        })
+        .sum()
 }
 
 #[cfg(test)]

@@ -23,10 +23,16 @@ fn render_xml(tools: &[ToolDescriptionData]) -> String {
     let mut parts = Vec::new();
     parts.push("<tools>".into());
     for t in tools {
-        let mut entry = format!("  <tool name=\"{}\">\n    <description>{}</description>", t.id, t.description);
+        let mut entry = format!(
+            "  <tool name=\"{}\">\n    <description>{}</description>",
+            t.id, t.description
+        );
         for p in &t.parameters {
             let req = if p.required { "required" } else { "optional" };
-            entry.push_str(&format!("\n    <parameter name=\"{}\" type=\"{}\" {}/>", p.name, p.r#type, req));
+            entry.push_str(&format!(
+                "\n    <parameter name=\"{}\" type=\"{}\" {}/>",
+                p.name, p.r#type, req
+            ));
         }
         entry.push_str("\n  </tool>");
         parts.push(entry);
@@ -50,7 +56,11 @@ fn render_json(tools: &[ToolDescriptionData]) -> String {
                 "description": p.description,
             })).collect::<Vec<_>>(),
         });
-        parts.push(format!("  {}{}", serde_json::to_string_pretty(&json).unwrap_or_default(), comma));
+        parts.push(format!(
+            "  {}{}",
+            serde_json::to_string_pretty(&json).unwrap_or_default(),
+            comma
+        ));
     }
     parts.push(']'.into());
     parts.join("\n")
@@ -79,7 +89,12 @@ fn render_compact(tools: &[ToolDescriptionData]) -> String {
     let mut parts = Vec::new();
     for t in tools {
         let params: Vec<&str> = t.parameters.iter().map(|p| p.name.as_str()).collect();
-        parts.push(format!("{}: {} ({})", t.id, t.description, params.join(", ")));
+        parts.push(format!(
+            "{}: {} ({})",
+            t.id,
+            t.description,
+            params.join(", ")
+        ));
     }
     parts.join("\n")
 }
@@ -111,6 +126,5 @@ fn render_schema(tools: &[ToolDescriptionData]) -> String {
             })
         })
         .collect();
-    serde_json::to_string_pretty(&serde_json::json!({"tools": schemas}))
-        .unwrap_or_default()
+    serde_json::to_string_pretty(&serde_json::json!({"tools": schemas})).unwrap_or_default()
 }

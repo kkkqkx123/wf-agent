@@ -5,18 +5,12 @@ use wf_types::TaskStorageMetadata;
 
 use crate::not_found;
 
-pub async fn save_task(
-    ctx: &StorageContext,
-    task: &TaskStorageMetadata,
-) -> crate::ApiResult<()> {
+pub async fn save_task(ctx: &StorageContext, task: &TaskStorageMetadata) -> crate::ApiResult<()> {
     ctx.task.save(task).await?;
     Ok(())
 }
 
-pub async fn get_task(
-    ctx: &StorageContext,
-    id: &str,
-) -> crate::ApiResult<TaskStorageMetadata> {
+pub async fn get_task(ctx: &StorageContext, id: &str) -> crate::ApiResult<TaskStorageMetadata> {
     ctx.task
         .load(id)
         .await?
@@ -40,9 +34,6 @@ pub async fn get_task_stats(
     ctx.task.get_stats().await.map_err(Into::into)
 }
 
-pub async fn cleanup_tasks(
-    ctx: &StorageContext,
-    older_than: i64,
-) -> crate::ApiResult<u64> {
+pub async fn cleanup_tasks(ctx: &StorageContext, older_than: i64) -> crate::ApiResult<u64> {
     ctx.task.cleanup(older_than).await.map_err(Into::into)
 }

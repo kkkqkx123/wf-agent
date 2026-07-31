@@ -1,6 +1,4 @@
-use wf_types::{
-    FragmentCompositionConfig, PromptVariableDefinition, SystemPromptFragment,
-};
+use wf_types::{FragmentCompositionConfig, PromptVariableDefinition, SystemPromptFragment};
 
 use crate::registrar::{register_item, Options, Registries};
 use crate::result::Summary;

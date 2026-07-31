@@ -134,13 +134,12 @@ impl McpConnectionManager {
     }
 
     pub async fn connect(&self, server_name: &str) -> ToolResult<()> {
-        let entry = self
-            .registry
-            .get(server_name)
-            .ok_or_else(|| crate::error::ToolError::NotFound(format!(
+        let entry = self.registry.get(server_name).ok_or_else(|| {
+            crate::error::ToolError::NotFound(format!(
                 "MCP server '{}' not registered",
                 server_name
-            )))?;
+            ))
+        })?;
 
         let is_disabled = match &entry.config {
             McpServerConfig::Stdio(c) => c.base.disabled == Some(true),
@@ -165,7 +164,8 @@ impl McpConnectionManager {
             Ok(()) => {
                 self.registry
                     .update_status(server_name, McpServerStatus::Connected);
-                self.clients.insert(server_name.to_string(), Arc::new(client));
+                self.clients
+                    .insert(server_name.to_string(), Arc::new(client));
                 Ok(())
             }
             Err(e) => {
@@ -203,10 +203,7 @@ impl McpConnectionManager {
 
     pub async fn discover_tools(&self, server_name: &str) -> ToolResult<Vec<McpToolInfo>> {
         let client = self.clients.get(server_name).ok_or_else(|| {
-            crate::error::ToolError::McpError(format!(
-                "Server '{}' not connected",
-                server_name
-            ))
+            crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
         })?;
 
         let timeout_ms = self
@@ -287,7 +284,8 @@ impl McpHealthMonitor {
     }
 
     pub fn record_activity(&self, server_name: &str) {
-        self.last_activity.insert(server_name.to_string(), Instant::now());
+        self.last_activity
+            .insert(server_name.to_string(), Instant::now());
     }
 
     pub async fn check_health(&self, server_name: &str) -> ToolResult<bool> {
@@ -305,11 +303,8 @@ impl McpHealthMonitor {
             })
             .unwrap_or(10000);
 
-        match tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            client.list_tools(10000),
-        )
-        .await
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), client.list_tools(10000))
+            .await
         {
             Ok(Ok(_)) => {
                 self.record_activity(server_name);
@@ -363,7 +358,10 @@ impl McpHealthMonitor {
 
     pub async fn reconnect(&self, server_name: &str) -> ToolResult<()> {
         let entry = self.registry.get(server_name).ok_or_else(|| {
-            crate::error::ToolError::NotFound(format!("MCP server '{}' not registered", server_name))
+            crate::error::ToolError::NotFound(format!(
+                "MCP server '{}' not registered",
+                server_name
+            ))
         })?;
 
         let transport = transport::create_transport(&entry.config);

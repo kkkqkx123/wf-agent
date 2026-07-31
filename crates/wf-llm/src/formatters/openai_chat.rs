@@ -1,9 +1,9 @@
-use reqwest::Method;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
-use crate::error::LlmResult;
-use wf_types::tool::Tool;
-use super::LlmFormatter;
 use super::shared;
+use super::LlmFormatter;
+use crate::error::LlmResult;
+use reqwest::Method;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::tool::Tool;
 
 pub struct OpenaiChatFormatter {
     base_url: String,
@@ -38,9 +38,9 @@ impl OpenaiChatFormatter {
         }
         tool_text.push_str("\n\nWhen using a tool, respond with XML:\n<tool_use>\n  <tool_name>tool_name</tool_name>\n  <parameters>\n    <param_name>value</param_name>\n  </parameters>\n</tool_use>");
 
-        let system_idx = messages.iter().position(|m| {
-            m.get("role").and_then(|v| v.as_str()) == Some("system")
-        });
+        let system_idx = messages
+            .iter()
+            .position(|m| m.get("role").and_then(|v| v.as_str()) == Some("system"));
 
         if let Some(idx) = system_idx {
             if let Some(existing) = messages[idx].get("content").and_then(|v| v.as_str()) {
@@ -50,17 +50,27 @@ impl OpenaiChatFormatter {
                 messages[idx]["content"] = serde_json::json!(tool_text.trim().to_string());
             }
         } else {
-            messages.insert(0, serde_json::json!({
-                "role": "system",
-                "content": tool_text.trim().to_string(),
-            }));
+            messages.insert(
+                0,
+                serde_json::json!({
+                    "role": "system",
+                    "content": tool_text.trim().to_string(),
+                }),
+            );
         }
     }
 }
 
 impl LlmFormatter for OpenaiChatFormatter {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
-        let url = format!("{}/chat/completions", profile.base_url.as_deref().unwrap_or(&self.base_url));
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request> {
+        let url = format!(
+            "{}/chat/completions",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
 
         let mut messages = shared::convert_openai_messages(&request.messages);
 
@@ -97,7 +107,9 @@ impl LlmFormatter for OpenaiChatFormatter {
 
         req_builder = shared::add_auth_and_headers(req_builder, profile, "bearer");
 
-        req_builder.build().map_err(crate::error::LlmError::HttpError)
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {

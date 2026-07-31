@@ -35,13 +35,17 @@ impl ErrorMetricsCollector {
         if let Some(exec_id) = execution_id {
             pairs.push(("execution_id", exec_id));
         }
-        self.inner.increment_counter(error_metrics::OCCURRENCE_COUNT, labels(&pairs));
+        self.inner
+            .increment_counter(error_metrics::OCCURRENCE_COUNT, labels(&pairs));
     }
 
     pub fn record_recovery(&self, source: &str, success: bool) {
         self.inner.increment_counter(
             error_metrics::RECOVERY_RATE,
-            labels(&[("source", source), ("success", if success { "true" } else { "false" })]),
+            labels(&[
+                ("source", source),
+                ("success", if success { "true" } else { "false" }),
+            ]),
         );
     }
 

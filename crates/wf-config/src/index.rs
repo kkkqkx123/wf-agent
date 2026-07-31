@@ -59,8 +59,11 @@ pub struct ResolvedIndex {
 }
 
 pub type IndexResolver = Arc<
-    dyn Fn(&Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = ConfigResult<ResolvedIndex>> + Send>>
-        + Send
+    dyn Fn(
+            &Path,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = ConfigResult<ResolvedIndex>> + Send>,
+        > + Send
         + Sync,
 >;
 
@@ -87,9 +90,10 @@ impl IndexRegistry {
     }
 
     pub async fn resolve(&self, ty: &IndexType, path: &Path) -> ConfigResult<ResolvedIndex> {
-        let resolver = self.resolvers.get(ty).ok_or_else(|| {
-            ConfigError::Index(format!("no resolver registered for {:?}", ty))
-        })?;
+        let resolver = self
+            .resolvers
+            .get(ty)
+            .ok_or_else(|| ConfigError::Index(format!("no resolver registered for {:?}", ty)))?;
         resolver(path).await
     }
 
@@ -128,7 +132,10 @@ pub fn filter_by_tags(entries: &[ResolvedIndexEntry], tags: &[String]) -> Vec<Re
         .collect()
 }
 
-pub fn filter_by_category(entries: &[ResolvedIndexEntry], category: &str) -> Vec<ResolvedIndexEntry> {
+pub fn filter_by_category(
+    entries: &[ResolvedIndexEntry],
+    category: &str,
+) -> Vec<ResolvedIndexEntry> {
     entries
         .iter()
         .filter(|entry| entry.metadata.get("category").map(|c| c.as_str()) == Some(category))
@@ -202,11 +209,9 @@ mod tests {
                 })
             })
         });
-        assert!(
-            registry
-                .register(IndexType::LlmProfiles, duplicate)
-                .is_err()
-        );
+        assert!(registry
+            .register(IndexType::LlmProfiles, duplicate)
+            .is_err());
     }
 
     fn make_entry(id: &str, tags: Option<&str>, category: Option<&str>) -> ResolvedIndexEntry {
@@ -260,10 +265,7 @@ mod tests {
 
     #[test]
     fn test_find_entry_by_id() {
-        let entries = vec![
-            make_entry("a", None, None),
-            make_entry("b", None, None),
-        ];
+        let entries = vec![make_entry("a", None, None), make_entry("b", None, None)];
 
         assert!(find_entry_by_id(&entries, "a").is_some());
         assert!(find_entry_by_id(&entries, "b").is_some());

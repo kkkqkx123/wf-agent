@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_common::now;
 use wf_common::error_chain::ErrorRecord;
-use wf_llm::messaging::conversation_session::{ConversationSession, ConversationState};
+use wf_common::now;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_execution_shared::types::state_manager::StateManager;
+use wf_llm::messaging::conversation_session::{ConversationSession, ConversationState};
 
 use crate::error::AgentResult;
 
@@ -86,7 +86,10 @@ impl AgentLoopState {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        matches!(self.status, ExecutionStatus::Cancelled | ExecutionStatus::Stopped)
+        matches!(
+            self.status,
+            ExecutionStatus::Cancelled | ExecutionStatus::Stopped
+        )
     }
 
     pub fn current_iteration(&self) -> u32 {
@@ -191,7 +194,9 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         Ok(())
     }
 
-    async fn create_snapshot(&self) -> Result<AgentLoopStateSnapshot, wf_execution_shared::error::ExecutionSharedError> {
+    async fn create_snapshot(
+        &self,
+    ) -> Result<AgentLoopStateSnapshot, wf_execution_shared::error::ExecutionSharedError> {
         Ok(AgentLoopStateSnapshot {
             status: self.status.clone(),
             current_iteration: self.current_iteration,
@@ -205,7 +210,10 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         })
     }
 
-    async fn restore_from_snapshot(&mut self, snapshot: AgentLoopStateSnapshot) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
+    async fn restore_from_snapshot(
+        &mut self,
+        snapshot: AgentLoopStateSnapshot,
+    ) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.status = snapshot.status;
         self.current_iteration = snapshot.current_iteration;
         self.tool_call_count = snapshot.tool_call_count;
@@ -245,10 +253,20 @@ impl AgentStateCoordinator {
     }
 
     pub async fn snapshot(&self) -> AgentResult<ConversationState> {
-        self.session.read().await.create_snapshot().await.map_err(Into::into)
+        self.session
+            .read()
+            .await
+            .create_snapshot()
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn restore(&self, state: ConversationState) -> AgentResult<()> {
-        self.session.write().await.restore_from_snapshot(state).await.map_err(Into::into)
+        self.session
+            .write()
+            .await
+            .restore_from_snapshot(state)
+            .await
+            .map_err(Into::into)
     }
 }

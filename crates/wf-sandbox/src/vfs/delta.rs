@@ -3,18 +3,11 @@ use std::path::PathBuf;
 
 pub type MemoryDelta = HashMap<PathBuf, Vec<u8>>;
 
-pub fn delta_read(
-    delta: &MemoryDelta,
-    path: &PathBuf,
-) -> Option<Vec<u8>> {
+pub fn delta_read(delta: &MemoryDelta, path: &PathBuf) -> Option<Vec<u8>> {
     delta.get(path).cloned()
 }
 
-pub fn delta_write(
-    delta: &mut MemoryDelta,
-    path: PathBuf,
-    data: Vec<u8>,
-) {
+pub fn delta_write(delta: &mut MemoryDelta, path: PathBuf, data: Vec<u8>) {
     delta.insert(path, data);
 }
 

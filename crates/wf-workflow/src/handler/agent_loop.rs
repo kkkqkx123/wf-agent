@@ -21,17 +21,29 @@ impl NodeHandler for AgentLoopHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
 
-        let max_iterations = config.get("max_iterations")
+        let max_iterations = config
+            .get("max_iterations")
             .and_then(|v| v.as_u64())
             .unwrap_or(10) as u32;
 
-        let model = config.get("model").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let system_prompt = config.get("system_prompt").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let model = config
+            .get("model")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let system_prompt = config
+            .get("system_prompt")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-        let tool_names: Vec<String> = config.get("available_tools")
+        let tool_names: Vec<String> = config
+            .get("available_tools")
             .or_else(|| config.get("available_tool_names"))
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let text = if let Value::String(s) = &ctx.input {
@@ -70,7 +82,10 @@ impl NodeHandler for AgentLoopHandler {
         match coordinator.execute(loop_config, loop_input).await {
             Ok(output) => {
                 let mut metadata = std::collections::HashMap::new();
-                metadata.insert("iteration_count".to_string(), Value::Number(output.iterations.into()));
+                metadata.insert(
+                    "iteration_count".to_string(),
+                    Value::Number(output.iterations.into()),
+                );
                 metadata.insert("node_id".to_string(), Value::String(ctx.node_id.clone()));
 
                 let final_content = output.result;
@@ -81,9 +96,7 @@ impl NodeHandler for AgentLoopHandler {
                     metadata,
                 })
             }
-            Err(e) => {
-                Err(WorkflowError::AgentError(e))
-            }
+            Err(e) => Err(WorkflowError::AgentError(e)),
         }
     }
 }

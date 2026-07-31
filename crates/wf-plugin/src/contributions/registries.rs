@@ -1,6 +1,6 @@
+use dashmap::DashMap;
 use std::borrow::Borrow;
 use std::hash::Hash;
-use dashmap::DashMap;
 
 struct RegistryEntry<V> {
     plugin_id: String,
@@ -13,7 +13,9 @@ pub struct Registry<K, V> {
 
 impl<K: Hash + Eq, V: Clone> Registry<K, V> {
     pub fn new() -> Self {
-        Self { entries: DashMap::new() }
+        Self {
+            entries: DashMap::new(),
+        }
     }
 
     pub fn register(&self, key: K, plugin_id: String, value: V) {
@@ -80,7 +82,9 @@ pub struct MultiRegistry<K, V> {
 
 impl<K: Hash + Eq, V: Clone> MultiRegistry<K, V> {
     pub fn new() -> Self {
-        Self { entries: DashMap::new() }
+        Self {
+            entries: DashMap::new(),
+        }
     }
 
     pub fn register(&self, key: K, plugin_id: String, value: V) {
@@ -135,4 +139,3 @@ impl<K: Hash + Eq, V: Clone> Default for MultiRegistry<K, V> {
         Self::new()
     }
 }
-

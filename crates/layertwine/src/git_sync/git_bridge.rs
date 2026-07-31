@@ -202,28 +202,24 @@ impl GitBridge {
         let checkpoint = checkpoint.clone();
 
         match config.ref_namespace {
-            RefNamespace::Isolated => {
-                Self::push_to_git_isolated(
-                    &git_repo,
-                    storage,
-                    checkpoint_repo,
-                    &checkpoint,
-                    branch_name,
-                    message,
-                    config,
-                )
-            }
-            RefNamespace::CurrentBranch => {
-                Self::push_to_git_current_branch(
-                    &git_repo,
-                    storage,
-                    checkpoint_repo,
-                    &checkpoint,
-                    branch_name,
-                    message,
-                    config,
-                )
-            }
+            RefNamespace::Isolated => Self::push_to_git_isolated(
+                &git_repo,
+                storage,
+                checkpoint_repo,
+                &checkpoint,
+                branch_name,
+                message,
+                config,
+            ),
+            RefNamespace::CurrentBranch => Self::push_to_git_current_branch(
+                &git_repo,
+                storage,
+                checkpoint_repo,
+                &checkpoint,
+                branch_name,
+                message,
+                config,
+            ),
         }
     }
 
@@ -266,9 +262,7 @@ impl GitBridge {
 
         let workdir = git_repo
             .workdir()
-            .ok_or_else(|| {
-                LayertwineError::GitSync("bare repository has no workdir".to_string())
-            })?
+            .ok_or_else(|| LayertwineError::GitSync("bare repository has no workdir".to_string()))?
             .to_path_buf();
 
         let mut index = git_repo
@@ -368,9 +362,9 @@ impl GitBridge {
     where
         S: SnapshotStore + DeltaStore + FileNodeStore,
     {
-        let mut tree_builder = git_repo
-            .treebuilder(None)
-            .map_err(|e| LayertwineError::GitSync(format!("failed to create tree builder: {}", e)))?;
+        let mut tree_builder = git_repo.treebuilder(None).map_err(|e| {
+            LayertwineError::GitSync(format!("failed to create tree builder: {}", e))
+        })?;
 
         for snapshot_id in &checkpoint.baseline_snapshots {
             let snapshot = storage
@@ -440,7 +434,10 @@ impl GitBridge {
                 .ok()
                 .and_then(|oid| git_repo.find_commit(oid).ok())
         } else {
-            git_repo.head().ok().and_then(|head| head.peel_to_commit().ok())
+            git_repo
+                .head()
+                .ok()
+                .and_then(|head| head.peel_to_commit().ok())
         };
 
         let git_commit = if let Some(parent) = &parent_commit {

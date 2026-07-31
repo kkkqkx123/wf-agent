@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use wf_types::script::sandbox::{
-    FilesystemPolicy, JavaScriptPolicy, LuaPolicy, NetworkAccessType, NetworkPolicy,
-    ProcessPolicy, PythonPolicy, ResourcePolicy, SandboxMode, SandboxPolicy, ShellPolicy,
+    FilesystemPolicy, JavaScriptPolicy, LuaPolicy, NetworkAccessType, NetworkPolicy, ProcessPolicy,
+    PythonPolicy, ResourcePolicy, SandboxMode, SandboxPolicy, ShellPolicy,
 };
 
 fn build_default_sandbox_policy() -> SandboxPolicy {
@@ -99,7 +99,11 @@ mod tests {
     fn test_default_policy_denies_sudo() {
         let policy = default_sandbox_policy();
         let shell = policy.shell.as_ref().unwrap();
-        assert!(shell.denied_commands.as_ref().unwrap().contains(&"sudo".to_string()));
+        assert!(shell
+            .denied_commands
+            .as_ref()
+            .unwrap()
+            .contains(&"sudo".to_string()));
     }
 
     #[test]

@@ -1,6 +1,6 @@
+use dashmap::DashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use dashmap::DashMap;
 
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
@@ -59,18 +59,25 @@ impl PluginRegistry {
         }
     }
 
-    pub fn register(&self, manifest: PluginManifest, instance: Arc<dyn Plugin>) -> PluginResult<()> {
+    pub fn register(
+        &self,
+        manifest: PluginManifest,
+        instance: Arc<dyn Plugin>,
+    ) -> PluginResult<()> {
         if self.plugins.contains_key(&manifest.id) {
             return Err(PluginError::AlreadyExists(manifest.id));
         }
-        self.plugins.insert(manifest.id.clone(), PluginRecord {
-            manifest,
-            instance,
-            status: PluginStatus::Discovered,
-            error: None,
-            activated_at: None,
-            contributions: Vec::new(),
-        });
+        self.plugins.insert(
+            manifest.id.clone(),
+            PluginRecord {
+                manifest,
+                instance,
+                status: PluginStatus::Discovered,
+                error: None,
+                activated_at: None,
+                contributions: Vec::new(),
+            },
+        );
         Ok(())
     }
 
@@ -133,7 +140,8 @@ impl PluginRegistry {
     }
 
     pub fn list_by_status(&self, status: PluginStatus) -> Vec<PluginInfo> {
-        self.plugins.iter()
+        self.plugins
+            .iter()
             .filter(|r| r.status == status)
             .map(|r| r.info())
             .collect()
@@ -143,8 +151,12 @@ impl PluginRegistry {
         self.plugins.iter().map(|r| r.info()).collect()
     }
 
-    pub fn len(&self) -> usize { self.plugins.len() }
-    pub fn is_empty(&self) -> bool { self.plugins.is_empty() }
+    pub fn len(&self) -> usize {
+        self.plugins.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.plugins.is_empty()
+    }
     pub fn clear(&self) {
         self.plugins.clear();
         self.contributions_index.clear();
@@ -152,7 +164,9 @@ impl PluginRegistry {
 }
 
 impl Default for PluginRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone)]

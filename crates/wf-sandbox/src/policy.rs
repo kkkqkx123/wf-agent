@@ -1,6 +1,6 @@
 use wf_types::script::sandbox::{
-    FilesystemPolicy, JavaScriptPolicy, LuaPolicy, NetworkAccessType, NetworkPolicy,
-    ProcessPolicy, PythonPolicy, ResourcePolicy, SandboxMode, SandboxPolicy, ShellPolicy,
+    FilesystemPolicy, JavaScriptPolicy, LuaPolicy, NetworkAccessType, NetworkPolicy, ProcessPolicy,
+    PythonPolicy, ResourcePolicy, SandboxMode, SandboxPolicy, ShellPolicy,
 };
 
 pub struct SandboxPolicyManager;
@@ -40,9 +40,7 @@ impl SandboxPolicyManager {
                     "su".to_string(),
                     "chroot".to_string(),
                 ]),
-                dangerous_patterns: Some(vec![
-                    "rm\\s+(-rf|--recursive)".to_string(),
-                ]),
+                dangerous_patterns: Some(vec!["rm\\s+(-rf|--recursive)".to_string()]),
                 allow_pipe: Some(true),
                 allow_redirect: Some(true),
             }),

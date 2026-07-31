@@ -18,7 +18,10 @@ pub enum Error {
     FragmentNotFound(String),
 }
 
-pub fn compose(cfg: &Config, fragments: &ConcurrentRegistry<SystemPromptFragment>) -> Result<String, Error> {
+pub fn compose(
+    cfg: &Config,
+    fragments: &ConcurrentRegistry<SystemPromptFragment>,
+) -> Result<String, Error> {
     let sep = cfg.separator.as_deref().unwrap_or("\n\n");
     let mut parts: Vec<String> = Vec::with_capacity(cfg.fragment_ids.len());
 
@@ -97,7 +100,10 @@ mod tests {
     fn test_compose_two_fragments() {
         let reg = test_registry();
         let cfg = Config {
-            fragment_ids: vec!["fragments.role.assistant".into(), "fragments.constraint.general".into()],
+            fragment_ids: vec![
+                "fragments.role.assistant".into(),
+                "fragments.constraint.general".into(),
+            ],
             separator: Some("\n".into()),
             prefix: None,
             suffix: None,

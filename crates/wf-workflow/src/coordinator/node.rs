@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
+use wf_common::retry::RetryBudget;
+use wf_core::interruption::check_execution_interruption;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::{BaseHookContext, BaseHookDefinition, HookExecutorConfig};
-use wf_core::interruption::check_execution_interruption;
-use wf_common::retry::RetryBudget;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::entity::WorkflowExecutionEntity;
@@ -37,32 +37,54 @@ impl NodeCoordinator {
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
 
-        Self::emit_event(event_bus, EventType::NodeStarted, entity, &node_id, &serde_json::json!({
-            "node_name": node_name,
-            "node_type": format!("{:?}", ctx.node_type),
-        })).await;
+        Self::emit_event(
+            event_bus,
+            EventType::NodeStarted,
+            entity,
+            &node_id,
+            &serde_json::json!({
+                "node_name": node_name,
+                "node_type": format!("{:?}", ctx.node_type),
+            }),
+        )
+        .await;
 
         Self::execute_hooks(hooks, hook_executor, entity, "BEFORE_EXECUTE").await;
 
         let check = check_execution_interruption(entity.interruption(), None);
-        if !matches!(check, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
-            return Err(WorkflowError::CoordinatorError(
-                format!("Execution interrupted before node {}: {:?}", node_id, check)
-            ));
+        if !matches!(
+            check,
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
+        ) {
+            return Err(WorkflowError::CoordinatorError(format!(
+                "Execution interrupted before node {}: {:?}",
+                node_id, check
+            )));
         }
 
         let result = handler.execute(ctx).await;
 
         match &result {
             Ok(output) => {
-                entity.state.write().await.mark_node_completed(node_id.clone());
+                entity
+                    .state
+                    .write()
+                    .await
+                    .mark_node_completed(node_id.clone());
 
                 Self::execute_hooks(hooks, hook_executor, entity, "AFTER_EXECUTE").await;
 
-                Self::emit_event(event_bus, EventType::NodeCompleted, entity, &node_id, &serde_json::json!({
-                    "has_next_nodes": !output.next_node_ids.is_empty(),
-                    "node_name": node_name,
-                })).await;
+                Self::emit_event(
+                    event_bus,
+                    EventType::NodeCompleted,
+                    entity,
+                    &node_id,
+                    &serde_json::json!({
+                        "has_next_nodes": !output.next_node_ids.is_empty(),
+                        "node_name": node_name,
+                    }),
+                )
+                .await;
 
                 Ok(NodeExecutionResult {
                     output: output.output.clone(),
@@ -71,10 +93,17 @@ impl NodeCoordinator {
                 })
             }
             Err(e) => {
-                Self::emit_event(event_bus, EventType::NodeFailed, entity, &node_id, &serde_json::json!({
-                    "error": e.to_string(),
-                    "node_name": node_name,
-                })).await;
+                Self::emit_event(
+                    event_bus,
+                    EventType::NodeFailed,
+                    entity,
+                    &node_id,
+                    &serde_json::json!({
+                        "error": e.to_string(),
+                        "node_name": node_name,
+                    }),
+                )
+                .await;
 
                 Err(WorkflowError::NodeExecutionFailed {
                     node_id: node_id.clone(),
@@ -97,7 +126,8 @@ impl NodeCoordinator {
                     if !retry_budget.can_retry() {
                         return Err(e);
                     }
-                    let delay = std::time::Duration::from_millis(1000 * 2_u64.pow(retry_budget.attempts()));
+                    let delay =
+                        std::time::Duration::from_millis(1000 * 2_u64.pow(retry_budget.attempts()));
                     retry_budget.record_attempt(delay);
                     tokio::time::sleep(delay).await;
                 }
@@ -122,10 +152,19 @@ impl NodeCoordinator {
         };
 
         let mut data = std::collections::HashMap::new();
-        data.insert("entity_id".to_string(), serde_json::Value::String(entity.id().to_string()));
-        data.insert("hook_type".to_string(), serde_json::Value::String(hook_type.to_string()));
+        data.insert(
+            "entity_id".to_string(),
+            serde_json::Value::String(entity.id().to_string()),
+        );
+        data.insert(
+            "hook_type".to_string(),
+            serde_json::Value::String(hook_type.to_string()),
+        );
         let status = entity.state.read().await.status();
-        data.insert("status".to_string(), serde_json::Value::String(format!("{:?}", status)));
+        data.insert(
+            "status".to_string(),
+            serde_json::Value::String(format!("{:?}", status)),
+        );
 
         let hook_ctx = BaseHookContext {
             execution_id: entity.id().to_string(),
@@ -140,12 +179,22 @@ impl NodeCoordinator {
         let _ = executor.execute_hooks(&filtered, &hook_ctx, &config).await;
     }
 
-    async fn emit_event(event_bus: Option<&EventBus>, event_type: EventType, entity: &WorkflowExecutionEntity, node_id: &str, data: &serde_json::Value) {
+    async fn emit_event(
+        event_bus: Option<&EventBus>,
+        event_type: EventType,
+        entity: &WorkflowExecutionEntity,
+        node_id: &str,
+        data: &serde_json::Value,
+    ) {
         let Some(bus) = event_bus else { return };
-        let mut metadata: HashMap<String, serde_json::Value> = data.as_object().map(|obj| {
-            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        }).unwrap_or_default();
-        metadata.insert("node_id".to_string(), serde_json::Value::String(node_id.to_string()));
+        let mut metadata: HashMap<String, serde_json::Value> = data
+            .as_object()
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        metadata.insert(
+            "node_id".to_string(),
+            serde_json::Value::String(node_id.to_string()),
+        );
 
         let event = BaseEvent {
             id: wf_types::Id::new(),

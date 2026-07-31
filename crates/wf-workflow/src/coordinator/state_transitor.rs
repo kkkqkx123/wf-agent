@@ -1,4 +1,3 @@
-
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::WorkflowResult;
 
@@ -20,12 +19,17 @@ impl WorkflowStateTransitor {
         Ok(())
     }
 
-    pub async fn complete_workflow_execution(entity: &WorkflowExecutionEntity) -> WorkflowResult<()> {
+    pub async fn complete_workflow_execution(
+        entity: &WorkflowExecutionEntity,
+    ) -> WorkflowResult<()> {
         entity.state.write().await.complete();
         Ok(())
     }
 
-    pub async fn fail_workflow_execution(entity: &WorkflowExecutionEntity, error: String) -> WorkflowResult<()> {
+    pub async fn fail_workflow_execution(
+        entity: &WorkflowExecutionEntity,
+        error: String,
+    ) -> WorkflowResult<()> {
         entity.state.write().await.fail(error);
         Ok(())
     }

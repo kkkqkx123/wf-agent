@@ -15,10 +15,7 @@ impl BaseExecutor {
         Self
     }
 
-    pub fn validate_parameters(
-        tool: &wf_types::tool::Tool,
-        parameters: &Value,
-    ) -> ToolResult<()> {
+    pub fn validate_parameters(tool: &wf_types::tool::Tool, parameters: &Value) -> ToolResult<()> {
         let Some(schema) = &tool.parameters else {
             return Ok(());
         };
@@ -148,9 +145,9 @@ impl BaseExecutor {
     fn validate_format(key: &str, s: &str, format: &str) -> ToolResult<()> {
         match format {
             "date-time" => {
-                let dt_re = Regex::new(
-                    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
-                ).unwrap();
+                let dt_re =
+                    Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+                        .unwrap();
                 if !dt_re.is_match(s) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid date-time (RFC3339): {}",
@@ -177,7 +174,10 @@ impl BaseExecutor {
                 }
             }
             "uri" => {
-                if !s.starts_with("http://") && !s.starts_with("https://") && !s.starts_with("file://") {
+                if !s.starts_with("http://")
+                    && !s.starts_with("https://")
+                    && !s.starts_with("file://")
+                {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid URI: {}",
                         key, s
@@ -207,28 +207,29 @@ impl BaseExecutor {
             }
             "ipv4" => {
                 let octets: Vec<&str> = s.split('.').collect();
-                if octets.len() != 4
-                    || octets.iter().any(|o| o.parse::<u8>().is_err())
-                {
+                if octets.len() != 4 || octets.iter().any(|o| o.parse::<u8>().is_err()) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid IPv4 address: {}",
                         key, s
                     )));
                 }
             }
-            "ipv6"
-                if (!s.contains(':') || s.split(':').count() > 8) => {
-                    return Err(crate::error::ToolError::ValidationFailed(format!(
-                        "Parameter '{}' is not a valid IPv6 address: {}",
-                        key, s
-                    )));
-                }
+            "ipv6" if (!s.contains(':') || s.split(':').count() > 8) => {
+                return Err(crate::error::ToolError::ValidationFailed(format!(
+                    "Parameter '{}' is not a valid IPv6 address: {}",
+                    key, s
+                )));
+            }
             _ => {}
         }
         Ok(())
     }
 
-    fn validate_number(key: &str, n: &serde_json::Number, prop: &wf_types::tool::ToolProperty) -> ToolResult<()> {
+    fn validate_number(
+        key: &str,
+        n: &serde_json::Number,
+        prop: &wf_types::tool::ToolProperty,
+    ) -> ToolResult<()> {
         let num = n.as_f64().unwrap_or(f64::NAN);
         if let Some(min) = prop.value.get("minimum").and_then(|v| v.as_f64()) {
             if num < min {
@@ -265,7 +266,11 @@ impl BaseExecutor {
         Ok(())
     }
 
-    fn validate_array(key: &str, arr: &[Value], prop: &wf_types::tool::ToolProperty) -> ToolResult<()> {
+    fn validate_array(
+        key: &str,
+        arr: &[Value],
+        prop: &wf_types::tool::ToolProperty,
+    ) -> ToolResult<()> {
         if let Some(min_items) = prop.value.get("minItems").and_then(|v| v.as_u64()) {
             if arr.len() < min_items as usize {
                 return Err(crate::error::ToolError::ValidationFailed(format!(

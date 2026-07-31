@@ -91,7 +91,10 @@ impl WorkflowExecutionEntity {
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
-        self.child_execution_ids.write().await.retain(|id| id != child_id);
+        self.child_execution_ids
+            .write()
+            .await
+            .retain(|id| id != child_id);
     }
 }
 
@@ -102,39 +105,27 @@ impl IExecutionEntity for WorkflowExecutionEntity {
     }
 
     fn status(&self) -> ExecutionStatus {
-        futures::executor::block_on(async {
-            self.state.read().await.status()
-        })
+        futures::executor::block_on(async { self.state.read().await.status() })
     }
 
     fn is_running(&self) -> bool {
-        futures::executor::block_on(async {
-            self.state.read().await.is_running()
-        })
+        futures::executor::block_on(async { self.state.read().await.is_running() })
     }
 
     fn is_paused(&self) -> bool {
-        futures::executor::block_on(async {
-            self.state.read().await.is_paused()
-        })
+        futures::executor::block_on(async { self.state.read().await.is_paused() })
     }
 
     fn is_completed(&self) -> bool {
-        futures::executor::block_on(async {
-            self.state.read().await.is_completed()
-        })
+        futures::executor::block_on(async { self.state.read().await.is_completed() })
     }
 
     fn is_failed(&self) -> bool {
-        futures::executor::block_on(async {
-            self.state.read().await.is_failed()
-        })
+        futures::executor::block_on(async { self.state.read().await.is_failed() })
     }
 
     fn is_cancelled(&self) -> bool {
-        futures::executor::block_on(async {
-            self.state.read().await.is_cancelled()
-        })
+        futures::executor::block_on(async { self.state.read().await.is_cancelled() })
     }
 
     async fn pause(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {

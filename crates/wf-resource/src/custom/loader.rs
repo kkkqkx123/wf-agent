@@ -9,7 +9,8 @@ use crate::custom::types::{
 };
 
 fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
     serde_json::from_str(&content).map_err(|e| format!("parse error in {}: {}", path.display(), e))
 }
 
@@ -22,7 +23,10 @@ fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {
     }
 }
 
-pub fn load_custom_tools(path: &Path, _base_dir: &Path) -> Result<Vec<CustomToolDefinition>, Vec<String>> {
+pub fn load_custom_tools(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<CustomToolDefinition>, Vec<String>> {
     #[derive(Deserialize)]
     struct ToolsFile {
         tools: Vec<CustomToolDefinition>,
@@ -34,7 +38,10 @@ pub fn load_custom_tools(path: &Path, _base_dir: &Path) -> Result<Vec<CustomTool
     }
 }
 
-pub fn load_custom_triggers(path: &Path, _base_dir: &Path) -> Result<Vec<CustomTriggerDefinition>, Vec<String>> {
+pub fn load_custom_triggers(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<CustomTriggerDefinition>, Vec<String>> {
     #[derive(Deserialize)]
     struct TriggersFile {
         triggers: Vec<CustomTriggerDefinition>,
@@ -46,7 +53,10 @@ pub fn load_custom_triggers(path: &Path, _base_dir: &Path) -> Result<Vec<CustomT
     }
 }
 
-pub fn load_custom_prompts(path: &Path, _base_dir: &Path) -> Result<Vec<CustomPromptDefinition>, Vec<String>> {
+pub fn load_custom_prompts(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<CustomPromptDefinition>, Vec<String>> {
     #[derive(Deserialize)]
     struct PromptsFile {
         prompts: Vec<CustomPromptDefinition>,

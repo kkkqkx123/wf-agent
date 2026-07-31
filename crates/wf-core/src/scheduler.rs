@@ -217,11 +217,7 @@ impl TaskScheduler {
 
     pub fn stats(&self) -> SchedulerStats {
         let inner = self.inner.lock().unwrap();
-        let pending: usize = inner
-            .pending_by_priority
-            .values()
-            .map(|b| b.len())
-            .sum();
+        let pending: usize = inner.pending_by_priority.values().map(|b| b.len()).sum();
         SchedulerStats {
             pending,
             executing: inner.executing.len(),

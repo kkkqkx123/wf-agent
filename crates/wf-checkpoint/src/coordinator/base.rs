@@ -24,11 +24,16 @@ pub trait CheckpointCoordinator: Send + Sync {
         entity_id: &str,
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
 
-    fn restore(&self, checkpoint_id: &str) -> impl std::future::Future<Output = Result<Self::Entity, CheckpointError>> + Send;
+    fn restore(
+        &self,
+        checkpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<Self::Entity, CheckpointError>> + Send;
 
     fn determine_type(
         &self,
         entity_id: &str,
         config: &DeltaStorageConfig,
-    ) -> impl std::future::Future<Output = Result<wf_types::checkpoint::CheckpointType, CheckpointError>> + Send;
+    ) -> impl std::future::Future<
+        Output = Result<wf_types::checkpoint::CheckpointType, CheckpointError>,
+    > + Send;
 }

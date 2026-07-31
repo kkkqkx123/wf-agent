@@ -54,15 +54,10 @@ pub async fn list_interactions_by_status(
         .map_err(Into::into)
 }
 
-pub async fn get_interaction_stats(
-    ctx: &StorageContext,
-) -> crate::ApiResult<HashMap<String, u64>> {
+pub async fn get_interaction_stats(ctx: &StorageContext) -> crate::ApiResult<HashMap<String, u64>> {
     ctx.user_interaction.get_stats().await.map_err(Into::into)
 }
 
-pub async fn delete_interaction(
-    ctx: &StorageContext,
-    id: &str,
-) -> crate::ApiResult<bool> {
+pub async fn delete_interaction(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
     ctx.user_interaction.delete(id).await.map_err(Into::into)
 }

@@ -7,13 +7,28 @@ pub struct PythonBuiltinHookStrategy;
 
 impl PythonBuiltinHookStrategy {
     fn build_wrapper(code: &str, policy: &PythonPolicy) -> String {
-        let allowed = serde_json::to_string(&policy.allowed_modules).unwrap_or_else(|_| "[]".to_string());
-        let denied = serde_json::to_string(&policy.denied_modules).unwrap_or_else(|_| "[]".to_string());
-        let allow_subprocess = if policy.allow_subprocess { "True" } else { "False" };
-        let restrict_open = if policy.restrict_builtin_open { "True" } else { "False" };
-        let allow_eval = if policy.allow_dynamic_eval { "True" } else { "False" };
+        let allowed =
+            serde_json::to_string(&policy.allowed_modules).unwrap_or_else(|_| "[]".to_string());
+        let denied =
+            serde_json::to_string(&policy.denied_modules).unwrap_or_else(|_| "[]".to_string());
+        let allow_subprocess = if policy.allow_subprocess {
+            "True"
+        } else {
+            "False"
+        };
+        let restrict_open = if policy.restrict_builtin_open {
+            "True"
+        } else {
+            "False"
+        };
+        let allow_eval = if policy.allow_dynamic_eval {
+            "True"
+        } else {
+            "False"
+        };
 
-        format!(r#"
+        format!(
+            r#"
 import sys as _sys
 _sys.path.clear()
 
@@ -49,7 +64,8 @@ if not {allow_eval}:
 
 # User code follows
 {code}
-"#)
+"#
+        )
     }
 }
 
@@ -137,11 +153,7 @@ impl StrategyImplementation for PythonBuiltinHookStrategy {
 mod tests {
     use super::*;
 
-    fn make_policy(
-        allow_subprocess: bool,
-        restrict_open: bool,
-        allow_eval: bool,
-    ) -> SandboxPolicy {
+    fn make_policy(allow_subprocess: bool, restrict_open: bool, allow_eval: bool) -> SandboxPolicy {
         SandboxPolicy {
             mode: wf_types::script::sandbox::SandboxMode::Strict,
             shell: None,

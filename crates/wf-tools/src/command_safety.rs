@@ -89,9 +89,10 @@ pub fn contains_dangerous_substitution(command: &str) -> bool {
             || command[..pos].ends_with('&')
             || command[..pos].ends_with('<')
             || command[..pos].ends_with('('))
-            && command[pos..].trim_end().ends_with(')') {
-                return true;
-            }
+            && command[pos..].trim_end().ends_with(')')
+        {
+            return true;
+        }
     }
 
     false
@@ -201,9 +202,7 @@ pub fn get_command_decision(
     let decisions: Vec<CommandDecision> = sub_commands
         .iter()
         .map(|cmd| {
-            let cleaned = fd_redirect_re()
-                .replace(cmd.trim(), "")
-                .to_string();
+            let cleaned = fd_redirect_re().replace(cmd.trim(), "").to_string();
             let cleaned = cleaned.trim().to_string();
             get_single_command_decision(&cleaned, allowed_commands, denied_commands)
         })
@@ -291,11 +290,8 @@ mod tests {
     fn test_chain_decision() {
         let allowed = vec!["git".to_string()];
         let denied: Vec<String> = vec![];
-        let result = get_command_decision(
-            "git add . && git commit -m 'fix'",
-            &allowed,
-            Some(&denied),
-        );
+        let result =
+            get_command_decision("git add . && git commit -m 'fix'", &allowed, Some(&denied));
         assert_eq!(result, CommandDecision::AutoApprove);
     }
 
@@ -303,11 +299,7 @@ mod tests {
     fn test_chain_blocks_denied() {
         let allowed = vec!["git".to_string(), "rm".to_string()];
         let denied = vec!["rm -rf".to_string()];
-        let result = get_command_decision(
-            "git checkout main && rm -rf /",
-            &allowed,
-            Some(&denied),
-        );
+        let result = get_command_decision("git checkout main && rm -rf /", &allowed, Some(&denied));
         assert_eq!(result, CommandDecision::AutoDeny);
     }
 }

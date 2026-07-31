@@ -108,9 +108,9 @@ where
         .get_snapshot(&feature_part.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    let staged_partition = storage.get_partition(&staged_pid).map_err(|_| {
-        LayertwineError::NotFound("staged partition not found".into())
-    })?;
+    let staged_partition = storage
+        .get_partition(&staged_pid)
+        .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
 
     // If staged and feature already point to the same snapshot, no merge needed
     if staged_partition.current_snapshot == feature_part.current_snapshot {

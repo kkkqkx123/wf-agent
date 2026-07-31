@@ -9,5 +9,10 @@ pub trait ContributionRegistrar {
     fn register_formatter(&mut self, name: &str, formatter: Arc<dyn PluginLLMFormatter>);
     fn register_event_handler(&mut self, event_type: &str, handler: Arc<dyn PluginEventHandler>);
     fn register_hook_handler(&mut self, hook_type: &str, handler: Arc<dyn PluginHookHandler>);
-    fn register_middleware(&mut self, phase: &str, priority: i32, handler: Arc<dyn PluginMiddlewareHandler>);
+    fn register_middleware(
+        &mut self,
+        phase: &str,
+        priority: i32,
+        handler: Arc<dyn PluginMiddlewareHandler>,
+    );
 }

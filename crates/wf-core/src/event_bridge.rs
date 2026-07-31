@@ -45,9 +45,11 @@ impl EventMetricsBridge {
                     .and_then(|m| m.get("source").and_then(|v| v.as_str()))
                     .unwrap_or("event")
                     .to_string();
-                self.registry
-                    .error()
-                    .record_error(error_type, &source, event.execution_id.as_deref());
+                self.registry.error().record_error(
+                    error_type,
+                    &source,
+                    event.execution_id.as_deref(),
+                );
                 if let Some(execution_id) = event.execution_id.as_deref() {
                     self.registry
                         .agent_loop()
@@ -89,9 +91,11 @@ impl EventMetricsBridge {
                 let (tool_name, execution_id) = tool_context(event);
                 if let Some(execution_id) = execution_id {
                     let error_type = metadata(event, "error_type").unwrap_or("unknown");
-                    self.registry
-                        .tool()
-                        .record_tool_call_error(tool_name, execution_id, error_type);
+                    self.registry.tool().record_tool_call_error(
+                        tool_name,
+                        execution_id,
+                        error_type,
+                    );
                 }
             }
             EventType::AgentIterationStarted => {
@@ -142,7 +146,11 @@ mod tests {
     use super::*;
     use wf_types::events::EventType;
 
-    fn event(event_type: EventType, execution_id: &str, metadata: Option<serde_json::Value>) -> BaseEvent {
+    fn event(
+        event_type: EventType,
+        execution_id: &str,
+        metadata: Option<serde_json::Value>,
+    ) -> BaseEvent {
         BaseEvent {
             id: wf_common::generate_id(),
             r#type: event_type,
@@ -150,8 +158,7 @@ mod tests {
             workflow_id: None,
             execution_id: Some(execution_id.to_string()),
             agent_loop_id: None,
-            metadata: metadata
-                .and_then(|m| serde_json::from_value(m).ok()),
+            metadata: metadata.and_then(|m| serde_json::from_value(m).ok()),
         }
     }
 
@@ -211,8 +218,10 @@ mod tests {
         let _task = bridge.spawn(bus.clone());
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-        bus.publish(event(EventType::NodeStarted, "exec-1", None)).unwrap();
-        bus.publish(event(EventType::NodeCompleted, "exec-1", None)).unwrap();
+        bus.publish(event(EventType::NodeStarted, "exec-1", None))
+            .unwrap();
+        bus.publish(event(EventType::NodeCompleted, "exec-1", None))
+            .unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
         let stats = registry.event().stats();

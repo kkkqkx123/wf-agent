@@ -125,13 +125,14 @@ impl ToolFailureProtectionState {
 
     pub fn record_failure(&self, tool_id: &str, error_message: String) {
         let now = wf_common::time::now();
-        let mut entry = self.failures.entry(tool_id.to_string()).or_insert_with(|| {
-            ToolFailureInfo {
-                failure_count: 0,
-                last_failure_timestamp: now,
-                last_error: String::new(),
-            }
-        });
+        let mut entry =
+            self.failures
+                .entry(tool_id.to_string())
+                .or_insert_with(|| ToolFailureInfo {
+                    failure_count: 0,
+                    last_failure_timestamp: now,
+                    last_error: String::new(),
+                });
         entry.failure_count += 1;
         entry.last_failure_timestamp = now;
         entry.last_error = error_message;

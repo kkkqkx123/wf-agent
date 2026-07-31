@@ -10,7 +10,10 @@ pub struct ValidationError {
 
 impl ValidationError {
     fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { field: field.into(), message: message.into() }
+        Self {
+            field: field.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -27,7 +30,11 @@ impl GraphValidator {
         errors.extend(Self::validate_references(graph));
         errors.extend(Self::validate_fork_join(graph));
 
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     fn validate_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
@@ -35,7 +42,10 @@ impl GraphValidator {
         let mut node_ids = HashSet::new();
 
         if graph.nodes.is_empty() {
-            errors.push(ValidationError::new("nodes", "Graph must have at least one node"));
+            errors.push(ValidationError::new(
+                "nodes",
+                "Graph must have at least one node",
+            ));
             return errors;
         }
 
@@ -82,14 +92,22 @@ impl GraphValidator {
     fn validate_start_end(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
-        let node_types: HashMap<&str, &str> = graph.nodes.iter()
+        let node_types: HashMap<&str, &str> = graph
+            .nodes
+            .iter()
             .map(|n| (n.id.as_str(), n.node_type.as_str()))
             .collect();
 
         let start_count = node_types.values().filter(|t| **t == "START").count();
         let end_count = node_types.values().filter(|t| **t == "END").count();
-        let trigger_start_count = node_types.values().filter(|t| **t == "START_FROM_TRIGGER").count();
-        let trigger_end_count = node_types.values().filter(|t| **t == "CONTINUE_FROM_TRIGGER").count();
+        let trigger_start_count = node_types
+            .values()
+            .filter(|t| **t == "START_FROM_TRIGGER")
+            .count();
+        let trigger_end_count = node_types
+            .values()
+            .filter(|t| **t == "CONTINUE_FROM_TRIGGER")
+            .count();
 
         let has_special = trigger_start_count > 0 || trigger_end_count > 0;
 
@@ -120,13 +138,22 @@ impl GraphValidator {
             }
         } else {
             if start_count == 0 {
-                errors.push(ValidationError::new("nodes", "Workflow must have a START node"));
+                errors.push(ValidationError::new(
+                    "nodes",
+                    "Workflow must have a START node",
+                ));
             } else if start_count > 1 {
-                errors.push(ValidationError::new("nodes", "Workflow must have exactly one START node"));
+                errors.push(ValidationError::new(
+                    "nodes",
+                    "Workflow must have exactly one START node",
+                ));
             }
 
             if end_count == 0 {
-                errors.push(ValidationError::new("nodes", "Workflow must have at least one END node"));
+                errors.push(ValidationError::new(
+                    "nodes",
+                    "Workflow must have at least one END node",
+                ));
             }
         }
 
@@ -138,7 +165,10 @@ impl GraphValidator {
                 ));
             }
         } else if !has_special {
-            errors.push(ValidationError::new("start_node_id", "Graph must have a start_node_id"));
+            errors.push(ValidationError::new(
+                "start_node_id",
+                "Graph must have a start_node_id",
+            ));
         }
 
         errors
@@ -168,12 +198,16 @@ impl GraphValidator {
 
     fn validate_fork_join(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         let mut errors = Vec::new();
-        let fork_nodes: Vec<&WorkflowNode> = graph.nodes.iter()
+        let fork_nodes: Vec<&WorkflowNode> = graph
+            .nodes
+            .iter()
             .filter(|n| n.node_type == "FORK")
             .collect();
 
         for fork in &fork_nodes {
-            let outgoing: Vec<&WorkflowEdge> = graph.edges.iter()
+            let outgoing: Vec<&WorkflowEdge> = graph
+                .edges
+                .iter()
                 .filter(|e| e.source_node_id == fork.id)
                 .collect();
 
@@ -194,12 +228,16 @@ impl GraphValidator {
             }
         }
 
-        let join_nodes: Vec<&WorkflowNode> = graph.nodes.iter()
+        let join_nodes: Vec<&WorkflowNode> = graph
+            .nodes
+            .iter()
             .filter(|n| n.node_type == "JOIN")
             .collect();
 
         for join in &join_nodes {
-            let incoming: Vec<&WorkflowEdge> = graph.edges.iter()
+            let incoming: Vec<&WorkflowEdge> = graph
+                .edges
+                .iter()
                 .filter(|e| e.target_node_id == join.id)
                 .collect();
 
@@ -250,7 +288,12 @@ mod tests {
         }
     }
 
-    fn make_graph(nodes: Vec<WorkflowNode>, edges: Vec<WorkflowEdge>, start: Option<&str>, ends: Vec<&str>) -> WorkflowGraphStructure {
+    fn make_graph(
+        nodes: Vec<WorkflowNode>,
+        edges: Vec<WorkflowEdge>,
+        start: Option<&str>,
+        ends: Vec<&str>,
+    ) -> WorkflowGraphStructure {
         WorkflowGraphStructure {
             nodes,
             edges,
@@ -278,7 +321,9 @@ mod tests {
         let result = GraphValidator::validate(&graph);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("at least one node")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("at least one node")));
     }
 
     #[test]
@@ -326,7 +371,10 @@ mod tests {
     #[test]
     fn test_trigger_graph() {
         let graph = make_graph(
-            vec![make_node("trigger_start", "START_FROM_TRIGGER"), make_node("trigger_end", "CONTINUE_FROM_TRIGGER")],
+            vec![
+                make_node("trigger_start", "START_FROM_TRIGGER"),
+                make_node("trigger_end", "CONTINUE_FROM_TRIGGER"),
+            ],
             vec![make_edge("e1", "trigger_start", "trigger_end")],
             None,
             vec![],
@@ -337,7 +385,11 @@ mod tests {
     #[test]
     fn test_trigger_graph_with_start() {
         let graph = make_graph(
-            vec![make_node("start", "START"), make_node("trigger_start", "START_FROM_TRIGGER"), make_node("trigger_end", "CONTINUE_FROM_TRIGGER")],
+            vec![
+                make_node("start", "START"),
+                make_node("trigger_start", "START_FROM_TRIGGER"),
+                make_node("trigger_end", "CONTINUE_FROM_TRIGGER"),
+            ],
             vec![],
             None,
             vec![],
@@ -345,7 +397,9 @@ mod tests {
         let result = GraphValidator::validate(&graph);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("cannot contain START")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot contain START")));
     }
 
     #[test]
@@ -356,7 +410,10 @@ mod tests {
                 make_node_with_inner("fork", "FORK", serde_json::json!({"branches": []})),
                 make_node("end", "END"),
             ],
-            vec![make_edge("e1", "start", "fork"), make_edge("e2", "fork", "end")],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "end"),
+            ],
             Some("start"),
             vec!["end"],
         );

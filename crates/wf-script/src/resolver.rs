@@ -65,7 +65,8 @@ impl ArgumentResolver {
                         )));
                     }
                 }
-                super::types::ScriptArgumentType::File | super::types::ScriptArgumentType::String => {
+                super::types::ScriptArgumentType::File
+                | super::types::ScriptArgumentType::String => {
                     if !value.is_string() {
                         return Err(ScriptError::Internal(format!(
                             "Argument '{}' must be a string, got {}",
@@ -95,10 +96,7 @@ fn json_type_name(value: &Value) -> &str {
 pub struct DynamicResolver;
 
 impl DynamicResolver {
-    pub fn resolve(
-        value: &Value,
-        context: &HashMap<String, Value>,
-    ) -> Value {
+    pub fn resolve(value: &Value, context: &HashMap<String, Value>) -> Value {
         match value {
             Value::String(s) => {
                 let resolved = Self::resolve_string(s, context);

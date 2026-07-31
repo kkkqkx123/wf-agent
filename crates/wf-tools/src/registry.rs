@@ -2,16 +2,17 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
 
-use crate::error::{ToolError, ToolResult};
 use crate::callback::ExecutionCallback;
+use crate::error::{ToolError, ToolResult};
 use crate::executor::{
-    BuiltinExecutor, InstanceFactory, McpExecutor, RestExecutor, StatelessExecutor,
-    StatefulExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
+    BuiltinExecutor, InstanceFactory, McpExecutor, RestExecutor, StatefulExecutor,
+    StatelessExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
 };
 use wf_types::tool::ToolType;
 use wf_types::Id;
 
-type ExecutorFactory = Arc<dyn Fn(&wf_types::tool::Tool) -> ToolResult<Arc<dyn ToolExecutor>> + Send + Sync>;
+type ExecutorFactory =
+    Arc<dyn Fn(&wf_types::tool::Tool) -> ToolResult<Arc<dyn ToolExecutor>> + Send + Sync>;
 
 #[async_trait]
 pub trait ToolStorage: Send + Sync {
@@ -81,7 +82,12 @@ impl ToolRegistry {
         let h = sl_handlers.clone();
         self.register_executor(
             ToolType::Stateless,
-            Arc::new(move |tool| Ok(Arc::new(StatelessExecutor::from_tool_config_shared(tool, h.clone())))),
+            Arc::new(move |tool| {
+                Ok(Arc::new(StatelessExecutor::from_tool_config_shared(
+                    tool,
+                    h.clone(),
+                )))
+            }),
         );
         let f = sf_factories.clone();
         self.register_executor(
@@ -126,7 +132,10 @@ impl ToolRegistry {
     }
 
     pub fn list_tools(&self) -> Vec<wf_types::tool::Tool> {
-        self.tools.iter().map(|entry| entry.value().clone()).collect()
+        self.tools
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     pub fn list_tools_by_type(&self, tool_type: &ToolType) -> Vec<wf_types::tool::Tool> {
@@ -138,13 +147,12 @@ impl ToolRegistry {
     }
 
     pub fn get_executor(&self, tool: &wf_types::tool::Tool) -> ToolResult<Arc<dyn ToolExecutor>> {
-        let factory = self
-            .executors
-            .get(&tool.tool_type)
-            .ok_or_else(|| ToolError::NotFound(format!(
+        let factory = self.executors.get(&tool.tool_type).ok_or_else(|| {
+            ToolError::NotFound(format!(
                 "No executor registered for tool type: {:?}",
                 tool.tool_type
-            )))?;
+            ))
+        })?;
         (factory)(tool)
     }
 
@@ -286,7 +294,9 @@ mod tests {
             exponential_backoff: None,
         };
 
-        let result = registry.execute_tool("t1", &serde_json::json!({}), &options, &ctx).await;
+        let result = registry
+            .execute_tool("t1", &serde_json::json!({}), &options, &ctx)
+            .await;
         assert!(result.is_err());
     }
 

@@ -4,7 +4,9 @@ use serde_json::Value;
 
 use wf_execution_shared::error::ExecutionSharedResult;
 use wf_execution_shared::hooks::executor::HookExecutor;
-use wf_execution_shared::hooks::types::{BaseHookContext, BaseHookDefinition, HookExecutorConfig, HookExecutionResult};
+use wf_execution_shared::hooks::types::{
+    BaseHookContext, BaseHookDefinition, HookExecutionResult, HookExecutorConfig,
+};
 use wf_types::Id;
 
 use crate::entity::AgentLoopEntity;
@@ -26,7 +28,10 @@ impl AgentHookHandler {
         hook_executor.execute_hooks(&matching, ctx, config).await
     }
 
-    pub fn build_base_hook_context(execution_id: Id, data: HashMap<String, Value>) -> BaseHookContext {
+    pub fn build_base_hook_context(
+        execution_id: Id,
+        data: HashMap<String, Value>,
+    ) -> BaseHookContext {
         BaseHookContext { execution_id, data }
     }
 
@@ -37,11 +42,20 @@ impl AgentHookHandler {
         extra_data: HashMap<String, Value>,
     ) -> ExecutionSharedResult<Vec<HookExecutionResult>> {
         let mut data = HashMap::new();
-        data.insert("execution_id".to_string(), Value::String(entity.id().clone()));
-        data.insert("current_iteration".to_string(), Value::Number(serde_json::Number::from(
-            entity.state.read().await.current_iteration(),
-        )));
-        data.insert("status".to_string(), Value::String(format!("{:?}", entity.state.read().await.status())));
+        data.insert(
+            "execution_id".to_string(),
+            Value::String(entity.id().clone()),
+        );
+        data.insert(
+            "current_iteration".to_string(),
+            Value::Number(serde_json::Number::from(
+                entity.state.read().await.current_iteration(),
+            )),
+        );
+        data.insert(
+            "status".to_string(),
+            Value::String(format!("{:?}", entity.state.read().await.status())),
+        );
         data.extend(extra_data);
 
         let ctx = Self::build_base_hook_context(entity.id().clone(), data);

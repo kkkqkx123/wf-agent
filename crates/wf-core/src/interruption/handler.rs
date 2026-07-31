@@ -50,12 +50,9 @@ where
                 iteration
             )))
         }
-        ExecutionInterruptionCheckResult::Aborted { reason } => {
-            Err(CoreError::InterruptionError(format!(
-                "execution aborted after operation: {}",
-                reason
-            )))
-        }
+        ExecutionInterruptionCheckResult::Aborted { reason } => Err(CoreError::InterruptionError(
+            format!("execution aborted after operation: {}", reason),
+        )),
     }
 }
 
@@ -66,10 +63,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_when_not_interrupted() {
         let state = InterruptionState::new();
-        let result = execute_with_interruption_handling(&state, Some(0), || async {
-            Ok(42)
-        })
-        .await;
+        let result = execute_with_interruption_handling(&state, Some(0), || async { Ok(42) }).await;
         assert_eq!(result.unwrap(), 42);
     }
 

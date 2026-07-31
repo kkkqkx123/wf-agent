@@ -8,7 +8,12 @@ use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
 // ============== Seccomp BPF filter builder ==============
 
 fn bpf_stmt(code: u16, k: u32) -> libc::sock_filter {
-    libc::sock_filter { code, jt: 0, jf: 0, k }
+    libc::sock_filter {
+        code,
+        jt: 0,
+        jf: 0,
+        k,
+    }
 }
 
 fn bpf_jump(code: u16, k: u32, jt: u8, jf: u8) -> libc::sock_filter {
@@ -34,50 +39,50 @@ fn build_deny_filter(denied: &[i64]) -> Vec<libc::sock_filter> {
 fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
     use libc::*;
     let mut denied: Vec<i64> = vec![
-        SYS_ptrace,                  // 101
-        SYS_process_vm_readv,        // 310
-        SYS_process_vm_writev,       // 311
-        SYS_bpf,                     // 321
-        SYS_kexec_file_load,         // 320
-        SYS_kexec_load,              // 246
-        SYS_swapon,                  // 167
-        SYS_swapoff,                 // 168
-        SYS_init_module,             // 175
-        SYS_delete_module,           // 176
-        SYS_finit_module,            // 313
-        SYS_iopl,                    // 172
-        SYS_ioperm,                  // 173
-        SYS_chroot,                  // 161
-        SYS_modify_ldt,              // 154
-        SYS_pivot_root,              // 155
-        SYS_mount,                   // 165
-        SYS_umount2,                 // 166
-        SYS_syslog,                  // 103
-        SYS_sethostname,             // 170
-        SYS_setdomainname,           // 171
-        SYS_reboot,                  // 169
-        SYS_perf_event_open,         // 298
-        SYS_quotactl,                // 179
-        SYS_add_key,                 // 248
-        SYS_request_key,             // 249
-        SYS_keyctl,                  // 250
-        SYS_lookup_dcookie,          // 212
-        SYS_acct,                    // 163
-        SYS_vhangup,                 // 153
-        SYS_clock_settime,           // 227
-        SYS_settimeofday,            // 164
-        SYS_adjtimex,                // 159
-        SYS_setuid,                  // 105
-        SYS_setgid,                  // 106
-        SYS_setreuid,                // 113
-        SYS_setregid,                // 114
-        SYS_setresuid,               // 117
-        SYS_setresgid,               // 119
-        SYS_setfsuid,                // 122
-        SYS_setfsgid,                // 123
-        SYS_setgroups,               // 116
-        SYS_setpgid,                 // 109
-        SYS_setsid,                  // 112
+        SYS_ptrace,            // 101
+        SYS_process_vm_readv,  // 310
+        SYS_process_vm_writev, // 311
+        SYS_bpf,               // 321
+        SYS_kexec_file_load,   // 320
+        SYS_kexec_load,        // 246
+        SYS_swapon,            // 167
+        SYS_swapoff,           // 168
+        SYS_init_module,       // 175
+        SYS_delete_module,     // 176
+        SYS_finit_module,      // 313
+        SYS_iopl,              // 172
+        SYS_ioperm,            // 173
+        SYS_chroot,            // 161
+        SYS_modify_ldt,        // 154
+        SYS_pivot_root,        // 155
+        SYS_mount,             // 165
+        SYS_umount2,           // 166
+        SYS_syslog,            // 103
+        SYS_sethostname,       // 170
+        SYS_setdomainname,     // 171
+        SYS_reboot,            // 169
+        SYS_perf_event_open,   // 298
+        SYS_quotactl,          // 179
+        SYS_add_key,           // 248
+        SYS_request_key,       // 249
+        SYS_keyctl,            // 250
+        SYS_lookup_dcookie,    // 212
+        SYS_acct,              // 163
+        SYS_vhangup,           // 153
+        SYS_clock_settime,     // 227
+        SYS_settimeofday,      // 164
+        SYS_adjtimex,          // 159
+        SYS_setuid,            // 105
+        SYS_setgid,            // 106
+        SYS_setreuid,          // 113
+        SYS_setregid,          // 114
+        SYS_setresuid,         // 117
+        SYS_setresgid,         // 119
+        SYS_setfsuid,          // 122
+        SYS_setfsgid,          // 123
+        SYS_setgroups,         // 116
+        SYS_setpgid,           // 109
+        SYS_setsid,            // 112
     ];
 
     let network_allowed = policy
@@ -149,73 +154,74 @@ impl StrategyImplementation for LinuxSeccompStrategy {
         let mut filters = build_deny_filter(&allowed);
 
         let cmd = options.command.clone();
-        let result = tokio::task::spawn_blocking(move || -> std::io::Result<ScriptExecutionResult> {
-            let started = std::time::Instant::now();
-            let mut child = std::process::Command::new("sh");
-            child.args(["-c", &cmd]);
+        let result =
+            tokio::task::spawn_blocking(move || -> std::io::Result<ScriptExecutionResult> {
+                let started = std::time::Instant::now();
+                let mut child = std::process::Command::new("sh");
+                child.args(["-c", &cmd]);
 
-            unsafe {
-                child.pre_exec(move || {
-                    let ret = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-                    if ret < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    let prog = libc::sock_fprog {
-                        len: filters.len() as u16,
-                        filter: filters.as_mut_ptr(),
-                    };
-                    let ret = libc::syscall(
-                        libc::SYS_seccomp,
-                        libc::SECCOMP_SET_MODE_FILTER,
-                        0i32,
-                        &prog as *const libc::sock_fprog,
-                    );
-                    if ret < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
+                unsafe {
+                    child.pre_exec(move || {
+                        let ret = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+                        if ret < 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        let prog = libc::sock_fprog {
+                            len: filters.len() as u16,
+                            filter: filters.as_mut_ptr(),
+                        };
+                        let ret = libc::syscall(
+                            libc::SYS_seccomp,
+                            libc::SECCOMP_SET_MODE_FILTER,
+                            0i32,
+                            &prog as *const libc::sock_fprog,
+                        );
+                        if ret < 0 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
 
-            let output = child.output()?;
-            let elapsed = started.elapsed().as_millis() as u64;
+                let output = child.output()?;
+                let elapsed = started.elapsed().as_millis() as u64;
 
-            let (exit_code, error_msg) = if let Some(code) = output.status.code() {
-                (
-                    Some(code),
-                    if code == 0 {
-                        None
+                let (exit_code, error_msg) = if let Some(code) = output.status.code() {
+                    (
+                        Some(code),
+                        if code == 0 {
+                            None
+                        } else {
+                            Some(format!("Command failed with exit code {code}"))
+                        },
+                    )
+                } else if let Some(sig) = output.status.signal() {
+                    let reason = if sig == 9 || sig == 31 {
+                        "Process killed by seccomp: system call denied by policy"
                     } else {
-                        Some(format!("Command failed with exit code {code}"))
-                    },
-                )
-            } else if let Some(sig) = output.status.signal() {
-                let reason = if sig == 9 || sig == 31 {
-                    "Process killed by seccomp: system call denied by policy"
+                        "Process terminated by signal"
+                    };
+                    (Some(-sig), Some(reason.to_string()))
                 } else {
-                    "Process terminated by signal"
+                    (None, Some("Process exited abnormally".to_string()))
                 };
-                (Some(-sig), Some(reason.to_string()))
-            } else {
-                (None, Some("Process exited abnormally".to_string()))
-            };
 
-            Ok(ScriptExecutionResult {
-                success: output.status.success(),
-                script_name: "sandbox-os-hook".to_string(),
-                stdout: Some(String::from_utf8_lossy(&output.stdout).to_string()),
-                stderr: Some(String::from_utf8_lossy(&output.stderr).to_string()),
-                exit_code,
-                execution_time: elapsed,
-                error: error_msg,
-                sandbox_mode: None,
-                strategy_id: Some("os-hook".to_string()),
-                violations: None,
+                Ok(ScriptExecutionResult {
+                    success: output.status.success(),
+                    script_name: "sandbox-os-hook".to_string(),
+                    stdout: Some(String::from_utf8_lossy(&output.stdout).to_string()),
+                    stderr: Some(String::from_utf8_lossy(&output.stderr).to_string()),
+                    exit_code,
+                    execution_time: elapsed,
+                    error: error_msg,
+                    sandbox_mode: None,
+                    strategy_id: Some("os-hook".to_string()),
+                    violations: None,
+                })
             })
-        })
-        .await
-        .map_err(|e| format!("Task join error: {e}"))?
-        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+            .await
+            .map_err(|e| format!("Task join error: {e}"))?
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
         Ok(result)
     }
@@ -296,12 +302,7 @@ mod tests {
             .unwrap();
         if cfg!(target_os = "linux") {
             assert!(result.success, "echo should work: {:?}", result.stderr);
-            assert!(
-                result
-                    .stdout
-                    .unwrap_or_default()
-                    .contains("hello seccomp")
-            );
+            assert!(result.stdout.unwrap_or_default().contains("hello seccomp"));
         }
     }
 
@@ -315,9 +316,18 @@ mod tests {
         assert!(denied.contains(&169), "reboot (169) must be in deny list");
         assert!(denied.contains(&165), "mount (165) must be in deny list");
         assert!(denied.contains(&161), "chroot (161) must be in deny list");
-        assert!(denied.contains(&175), "init_module (175) must be in deny list");
-        assert!(denied.contains(&310), "process_vm_readv (310) must be in deny list");
-        assert!(denied.contains(&311), "process_vm_writev (311) must be in deny list");
+        assert!(
+            denied.contains(&175),
+            "init_module (175) must be in deny list"
+        );
+        assert!(
+            denied.contains(&310),
+            "process_vm_readv (310) must be in deny list"
+        );
+        assert!(
+            denied.contains(&311),
+            "process_vm_writev (311) must be in deny list"
+        );
     }
 
     #[tokio::test]
@@ -353,10 +363,22 @@ mod tests {
     fn test_seccomp_deny_list_includes_network_when_disabled() {
         let policy = basic_policy();
         let denied = get_denied_syscalls(&policy);
-        assert!(denied.contains(&41), "socket (41) must be in deny list when network disabled");
-        assert!(denied.contains(&42), "connect (42) must be in deny list when network disabled");
-        assert!(denied.contains(&44), "sendto (44) must be in deny list when network disabled");
-        assert!(denied.contains(&45), "recvfrom (45) must be in deny list when network disabled");
+        assert!(
+            denied.contains(&41),
+            "socket (41) must be in deny list when network disabled"
+        );
+        assert!(
+            denied.contains(&42),
+            "connect (42) must be in deny list when network disabled"
+        );
+        assert!(
+            denied.contains(&44),
+            "sendto (44) must be in deny list when network disabled"
+        );
+        assert!(
+            denied.contains(&45),
+            "recvfrom (45) must be in deny list when network disabled"
+        );
     }
 
     #[test]
@@ -372,6 +394,9 @@ mod tests {
             ..basic_policy()
         };
         let denied = get_denied_syscalls(&policy);
-        assert!(!denied.contains(&41), "socket (41) must NOT be in deny list when network enabled");
+        assert!(
+            !denied.contains(&41),
+            "socket (41) must NOT be in deny list when network enabled"
+        );
     }
 }

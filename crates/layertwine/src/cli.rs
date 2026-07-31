@@ -313,9 +313,7 @@ pub fn run_with_cli(cli: Cli) -> i32 {
                     "Committed to local Git branch (commit: {})",
                     r.git_commit_hash
                 );
-                println!(
-                    "  Run `git push` manually to push to remote."
-                );
+                println!("  Run `git push` manually to push to remote.");
             }
             resp.map(|_| ())
         }

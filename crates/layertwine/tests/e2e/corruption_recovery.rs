@@ -40,10 +40,7 @@ fn test_storage_exists_checks() {
     let delta_exists = env.storage.delta_exists(&fake_id).unwrap_or(false);
     assert!(!delta_exists, "non-existent delta should not exist");
 
-    let checkpoint_exists = env
-        .storage
-        .checkpoint_exists(&fake_id)
-        .unwrap_or(false);
+    let checkpoint_exists = env.storage.checkpoint_exists(&fake_id).unwrap_or(false);
     assert!(
         !checkpoint_exists,
         "non-existent checkpoint should not exist"

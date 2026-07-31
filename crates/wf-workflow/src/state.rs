@@ -67,7 +67,10 @@ impl WorkflowExecutionState {
     }
 
     pub fn is_cancelled(&self) -> bool {
-        matches!(self.status, ExecutionStatus::Cancelled | ExecutionStatus::Stopped)
+        matches!(
+            self.status,
+            ExecutionStatus::Cancelled | ExecutionStatus::Stopped
+        )
     }
 
     pub fn current_node_id(&self) -> Option<&str> {
@@ -139,7 +142,10 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         Ok(())
     }
 
-    async fn create_snapshot(&self) -> Result<WorkflowExecutionStateSnapshot, wf_execution_shared::error::ExecutionSharedError> {
+    async fn create_snapshot(
+        &self,
+    ) -> Result<WorkflowExecutionStateSnapshot, wf_execution_shared::error::ExecutionSharedError>
+    {
         Ok(WorkflowExecutionStateSnapshot {
             status: self.status.clone(),
             current_node_id: self.current_node_id.clone(),
@@ -152,7 +158,10 @@ impl StateManager<WorkflowExecutionStateSnapshot> for WorkflowExecutionState {
         })
     }
 
-    async fn restore_from_snapshot(&mut self, snapshot: WorkflowExecutionStateSnapshot) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
+    async fn restore_from_snapshot(
+        &mut self,
+        snapshot: WorkflowExecutionStateSnapshot,
+    ) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.status = snapshot.status;
         self.current_node_id = snapshot.current_node_id;
         self.completed_nodes = snapshot.completed_nodes;

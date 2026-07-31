@@ -18,11 +18,7 @@ impl ScriptFlowEngine {
         Self
     }
 
-    pub async fn execute<F, Fut>(
-        &self,
-        flow: &ScriptFlow,
-        execute_module: F,
-    ) -> FlowExecutionResult
+    pub async fn execute<F, Fut>(&self, flow: &ScriptFlow, execute_module: F) -> FlowExecutionResult
     where
         F: Fn(&str, &str) -> Fut,
         Fut: std::future::Future<Output = ScriptResult<String>>,
@@ -204,13 +200,18 @@ mod tests {
         let engine = ScriptFlowEngine::new();
         let result = engine.topological_sort(&flow);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Circular dependency"));    }
+        assert!(result.unwrap_err().contains("Circular dependency"));
+    }
 
     #[test]
     fn test_topological_sort_missing_dep() {
         let flow = ScriptFlow {
             name: "missing".to_string(),
-            branches: vec![make_branch("a", Some(vec!["nonexistent".to_string()]), vec!["1"])],
+            branches: vec![make_branch(
+                "a",
+                Some(vec!["nonexistent".to_string()]),
+                vec!["1"],
+            )],
         };
 
         let engine = ScriptFlowEngine::new();

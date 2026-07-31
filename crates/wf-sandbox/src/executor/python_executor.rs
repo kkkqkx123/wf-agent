@@ -13,11 +13,7 @@ impl SandboxPythonExecutor {
         Self { runtime }
     }
 
-    pub async fn execute(
-        &self,
-        code: &str,
-        config: &SandboxConfig,
-    ) -> ScriptExecutionResult {
+    pub async fn execute(&self, code: &str, config: &SandboxConfig) -> ScriptExecutionResult {
         self.runtime.execute("python", code, config).await
     }
 }

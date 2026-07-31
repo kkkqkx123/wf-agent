@@ -229,9 +229,11 @@ mod tests {
     #[test]
     fn test_validate_all() {
         assert!(validate_all(vec![Ok(()), Ok(())]).is_ok());
-        assert!(
-            validate_all(vec![Ok(()), Err(ConfigError::Validation("fail".to_string()))]).is_err()
-        );
+        assert!(validate_all(vec![
+            Ok(()),
+            Err(ConfigError::Validation("fail".to_string()))
+        ])
+        .is_err());
     }
 
     #[test]

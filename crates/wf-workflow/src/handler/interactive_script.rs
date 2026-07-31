@@ -21,11 +21,15 @@ impl InteractiveScriptHandler {
     }
 
     pub fn with_sandbox(sandbox: Arc<SandboxRuntime>) -> Self {
-        Self { sandbox: Some(sandbox) }
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     fn get_sandbox(&self) -> Arc<SandboxRuntime> {
-        self.sandbox.clone().unwrap_or_else(|| Arc::new(SandboxRuntime::new()))
+        self.sandbox
+            .clone()
+            .unwrap_or_else(|| Arc::new(SandboxRuntime::new()))
     }
 }
 
@@ -44,12 +48,17 @@ impl NodeHandler for InteractiveScriptHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
         let code = config.get("code").and_then(|v| v.as_str());
-        let language = config.get("language").and_then(|v| v.as_str()).unwrap_or("javascript");
+        let language = config
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("javascript");
         let template = config.get("template").and_then(|v| v.as_str());
-        let interaction_input = config.get("interactionInput")
+        let interaction_input = config
+            .get("interactionInput")
             .or_else(|| config.get("interaction_input"))
             .and_then(|v| v.as_str());
-        let output_mapping = config.get("outputMapping")
+        let output_mapping = config
+            .get("outputMapping")
             .or_else(|| config.get("output_mapping"));
 
         let code = if let Some(tmpl) = template {
@@ -58,12 +67,15 @@ impl NodeHandler for InteractiveScriptHandler {
         } else if let Some(c) = code {
             c.to_string()
         } else {
-            return Err(WorkflowError::Internal("InteractiveScript node requires 'code' or 'template' field".to_string()));
+            return Err(WorkflowError::Internal(
+                "InteractiveScript node requires 'code' or 'template' field".to_string(),
+            ));
         };
 
         let sandbox = self.get_sandbox();
         let sandbox_config = crate::handler::script::ScriptHandler::build_sandbox_config(
-            config.get("sandboxConfig"), language,
+            config.get("sandboxConfig"),
+            language,
         );
 
         let user_input = interaction_input
@@ -77,18 +89,27 @@ impl NodeHandler for InteractiveScriptHandler {
             code.clone()
         };
 
-        let result = sandbox.execute(language, &augmented_code, &sandbox_config).await;
+        let result = sandbox
+            .execute(language, &augmented_code, &sandbox_config)
+            .await;
 
         if !result.success {
             let stderr = result.stderr.as_deref().unwrap_or("unknown error");
-            return Err(WorkflowError::Internal(format!("Interactive script failed: {}", stderr)));
+            return Err(WorkflowError::Internal(format!(
+                "Interactive script failed: {}",
+                stderr
+            )));
         }
 
-        let output = result.stdout.clone()
+        let output = result
+            .stdout
+            .clone()
             .map(Value::String)
             .unwrap_or(Value::Null);
 
-        let parsed_output = result.stdout.as_deref()
+        let parsed_output = result
+            .stdout
+            .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .unwrap_or(output);
 
@@ -100,7 +121,10 @@ impl NodeHandler for InteractiveScriptHandler {
 
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("language".to_string(), Value::String(language.to_string()));
-        metadata.insert("had_input".to_string(), Value::Bool(user_input != Value::Null));
+        metadata.insert(
+            "had_input".to_string(),
+            Value::Bool(user_input != Value::Null),
+        );
         if let Some(strategy) = result.strategy_id {
             metadata.insert("strategy".to_string(), Value::String(strategy));
         }

@@ -2,10 +2,22 @@ use crate::error::CheckpointError;
 use dashmap::DashMap;
 
 pub trait BranchStorageAdapter: Send + Sync {
-    fn create_branch(&self, name: &str, base: Option<&str>) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn delete_branch(&self, name: &str) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn list_branches(&self) -> impl std::future::Future<Output = Result<Vec<String>, CheckpointError>> + Send;
-    fn branch_exists(&self, name: &str) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
+    fn create_branch(
+        &self,
+        name: &str,
+        base: Option<&str>,
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
+    fn delete_branch(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
+    fn list_branches(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, CheckpointError>> + Send;
+    fn branch_exists(
+        &self,
+        name: &str,
+    ) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
 }
 
 pub trait BranchManager: Send + Sync {
@@ -14,11 +26,25 @@ pub trait BranchManager: Send + Sync {
         branch_name: &str,
         base_branch: Option<&str>,
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn switch_branch(&self, branch_name: &str) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn merge_branch(&self, source: &str, target: &str) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn delete_branch(&self, branch_name: &str) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn list_branches(&self) -> impl std::future::Future<Output = Result<Vec<String>, CheckpointError>> + Send;
-    fn current_branch(&self) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send;
+    fn switch_branch(
+        &self,
+        branch_name: &str,
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
+    fn merge_branch(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
+    fn delete_branch(
+        &self,
+        branch_name: &str,
+    ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
+    fn list_branches(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, CheckpointError>> + Send;
+    fn current_branch(
+        &self,
+    ) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send;
 }
 
 #[derive(Debug, Clone)]

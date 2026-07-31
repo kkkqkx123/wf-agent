@@ -157,15 +157,13 @@ mod tests {
             description: "Default description".to_string(),
             category: "review".to_string(),
             content: "Default content: {{code}}".to_string(),
-            variables: Some(vec![
-                wf_types::prompt_template::PromptVariableDefinition {
-                    name: "code".to_string(),
-                    r#type: "string".to_string(),
-                    required: true,
-                    description: None,
-                    default_value: None,
-                },
-            ]),
+            variables: Some(vec![wf_types::prompt_template::PromptVariableDefinition {
+                name: "code".to_string(),
+                r#type: "string".to_string(),
+                required: true,
+                description: None,
+                default_value: None,
+            }]),
             fragments: Some(vec!["header".to_string()]),
         }
     }

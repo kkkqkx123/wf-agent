@@ -81,11 +81,8 @@ fn test_concurrent_writes() {
             let s = storage.clone();
             thread::spawn(move || {
                 let content = format!("content-{}", i);
-                let sid = store_snapshot_with_content(
-                    &s,
-                    &format!("f-{}.txt", i),
-                    content.as_bytes(),
-                );
+                let sid =
+                    store_snapshot_with_content(&s, &format!("f-{}.txt", i), content.as_bytes());
                 // Re-read to verify
                 let snapshot = s.get_snapshot(&sid).unwrap();
                 assert_eq!(snapshot.file.path_str(), format!("f-{}.txt", i));
@@ -118,8 +115,7 @@ fn test_concurrent_mixed_read_write() {
             let b = barrier.clone();
             thread::spawn(move || {
                 b.wait();
-                let sid =
-                    store_snapshot_with_content(&s, &format!("w-{}.txt", i), b"writer data");
+                let sid = store_snapshot_with_content(&s, &format!("w-{}.txt", i), b"writer data");
                 s.snapshot_exists(&sid).unwrap()
             })
         })
@@ -182,10 +178,8 @@ fn test_parallel_agent_edits() {
     assert_eq!(results.len(), 3);
 
     // Verify all agent partitions were created (1 initial + 3 new = 4)
-    let agent_parts = get_partitions_by_layer(
-        &env_arc,
-        layertwine::core::types::LayerType::AgentEdit,
-    );
+    let agent_parts =
+        get_partitions_by_layer(&env_arc, layertwine::core::types::LayerType::AgentEdit);
     assert!(
         agent_parts.len() >= 3,
         "should have at least 3 agent partitions, got {}",

@@ -107,10 +107,7 @@ impl DeltaStore for SqliteStorage {
         let blob_params: Vec<Vec<u8>> = ids.iter().map(|id| id.0.to_vec()).collect();
         let param_refs: Vec<&[u8]> = blob_params.iter().map(|v| v.as_slice()).collect();
 
-        let deltas = stmt.query_map(
-            rusqlite::params_from_iter(&param_refs),
-            row_to_delta,
-        )?;
+        let deltas = stmt.query_map(rusqlite::params_from_iter(&param_refs), row_to_delta)?;
 
         // Collect into a HashMap so we can return results in the original ID order
         let mut delta_map: HashMap<Vec<u8>, Delta> = HashMap::new();

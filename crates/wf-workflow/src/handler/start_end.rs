@@ -15,7 +15,8 @@ impl NodeHandler for StartHandler {
     }
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx.get_variable(&format!("__completed_{}", ctx.node_id))
+        let already_executed = ctx
+            .get_variable(&format!("__completed_{}", ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {
@@ -35,7 +36,8 @@ impl NodeHandler for EndHandler {
     }
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
-        let already_executed = ctx.get_variable(&format!("__completed_{}", ctx.node_id))
+        let already_executed = ctx
+            .get_variable(&format!("__completed_{}", ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {

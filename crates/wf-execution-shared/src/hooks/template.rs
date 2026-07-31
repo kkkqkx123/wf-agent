@@ -132,7 +132,10 @@ mod tests {
         let result = resolve_payload_template(&Value::Object(payload), &ctx).unwrap();
         match result {
             Value::Object(map) => {
-                assert_eq!(map.get("key").unwrap(), &Value::String("replaced".to_string()));
+                assert_eq!(
+                    map.get("key").unwrap(),
+                    &Value::String("replaced".to_string())
+                );
                 assert_eq!(map.get("num").unwrap(), &Value::Number(42.into()));
             }
             _ => panic!("expected object"),

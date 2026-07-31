@@ -112,8 +112,7 @@ impl ConditionCache {
     }
 
     pub fn entry_count(&self) -> usize {
-        self.compilation_cache.entry_count() as usize
-            + self.execution_cache.entry_count() as usize
+        self.compilation_cache.entry_count() as usize + self.execution_cache.entry_count() as usize
     }
 }
 
@@ -207,7 +206,9 @@ impl ConditionEvaluator {
     fn resolve_value(val: &str, context: &HashMap<String, Value>) -> Value {
         let val = val.trim();
 
-        if (val.starts_with('"') && val.ends_with('"')) || (val.starts_with('\'') && val.ends_with('\'')) {
+        if (val.starts_with('"') && val.ends_with('"'))
+            || (val.starts_with('\'') && val.ends_with('\''))
+        {
             return Value::String(val[1..val.len() - 1].to_string());
         }
 
@@ -225,7 +226,9 @@ impl ConditionEvaluator {
             return Value::Number(n.into());
         }
         if let Ok(f) = val.parse::<f64>() {
-            return serde_json::Number::from_f64(f).map(Value::Number).unwrap_or(Value::Null);
+            return serde_json::Number::from_f64(f)
+                .map(Value::Number)
+                .unwrap_or(Value::Null);
         }
 
         if let Some(v) = Self::lookup_variable(val, context) {
@@ -255,9 +258,10 @@ impl ConditionEvaluator {
     fn eval_eq(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[3..]);
         if args.len() != 2 {
-            return Err(CoreError::ConditionError(
-                format!("eq() expects 2 args, got {}", args.len()),
-            ));
+            return Err(CoreError::ConditionError(format!(
+                "eq() expects 2 args, got {}",
+                args.len()
+            )));
         }
         Ok(Self::resolve_value(args[0], context) == Self::resolve_value(args[1], context))
     }
@@ -265,9 +269,10 @@ impl ConditionEvaluator {
     fn eval_ne(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[3..]);
         if args.len() != 2 {
-            return Err(CoreError::ConditionError(
-                format!("ne() expects 2 args, got {}", args.len()),
-            ));
+            return Err(CoreError::ConditionError(format!(
+                "ne() expects 2 args, got {}",
+                args.len()
+            )));
         }
         Ok(Self::resolve_value(args[0], context) != Self::resolve_value(args[1], context))
     }
@@ -275,9 +280,10 @@ impl ConditionEvaluator {
     fn eval_gt(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[3..]);
         if args.len() != 2 {
-            return Err(CoreError::ConditionError(
-                format!("gt() expects 2 args, got {}", args.len()),
-            ));
+            return Err(CoreError::ConditionError(format!(
+                "gt() expects 2 args, got {}",
+                args.len()
+            )));
         }
         let a = Self::resolve_value(args[0], context);
         let b = Self::resolve_value(args[1], context);
@@ -292,9 +298,10 @@ impl ConditionEvaluator {
     fn eval_lt(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[3..]);
         if args.len() != 2 {
-            return Err(CoreError::ConditionError(
-                format!("lt() expects 2 args, got {}", args.len()),
-            ));
+            return Err(CoreError::ConditionError(format!(
+                "lt() expects 2 args, got {}",
+                args.len()
+            )));
         }
         let a = Self::resolve_value(args[0], context);
         let b = Self::resolve_value(args[1], context);
@@ -329,9 +336,10 @@ impl ConditionEvaluator {
     fn eval_not(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[4..]);
         if args.len() != 1 {
-            return Err(CoreError::ConditionError(
-                format!("not() expects 1 arg, got {}", args.len()),
-            ));
+            return Err(CoreError::ConditionError(format!(
+                "not() expects 1 arg, got {}",
+                args.len()
+            )));
         }
         Ok(!Self::resolve_bool(args[0], context)?)
     }
@@ -350,10 +358,14 @@ impl ConditionEvaluator {
     fn resolve_bool(val: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let val = val.trim();
 
-        if val.starts_with("eq(") || val.starts_with("ne(") ||
-           val.starts_with("gt(") || val.starts_with("lt(") ||
-           val.starts_with("and(") || val.starts_with("or(") ||
-           val.starts_with("not(") {
+        if val.starts_with("eq(")
+            || val.starts_with("ne(")
+            || val.starts_with("gt(")
+            || val.starts_with("lt(")
+            || val.starts_with("and(")
+            || val.starts_with("or(")
+            || val.starts_with("not(")
+        {
             return Self::evaluate(val, context);
         }
 
@@ -373,7 +385,9 @@ mod tests {
     use super::*;
 
     fn ctx(vars: &[(&str, Value)]) -> HashMap<String, Value> {
-        vars.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        vars.iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -399,20 +413,14 @@ mod tests {
 
     #[test]
     fn test_and() {
-        let ctx = ctx(&[
-            ("a", Value::Bool(true)),
-            ("b", Value::Bool(true)),
-        ]);
+        let ctx = ctx(&[("a", Value::Bool(true)), ("b", Value::Bool(true))]);
         assert!(ConditionEvaluator::evaluate("and(eq(a, true), eq(b, true))", &ctx).unwrap());
         assert!(!ConditionEvaluator::evaluate("and(eq(a, true), eq(b, false))", &ctx).unwrap());
     }
 
     #[test]
     fn test_or() {
-        let ctx = ctx(&[
-            ("a", Value::Bool(false)),
-            ("b", Value::Bool(true)),
-        ]);
+        let ctx = ctx(&[("a", Value::Bool(false)), ("b", Value::Bool(true))]);
         assert!(ConditionEvaluator::evaluate("or(eq(a, true), eq(b, true))", &ctx).unwrap());
         assert!(!ConditionEvaluator::evaluate("or(eq(a, true), eq(b, false))", &ctx).unwrap());
     }

@@ -98,7 +98,10 @@ impl BundleRegistry {
         registries: &Registries,
         skip_if_exists: bool,
     ) -> Result<Summary, String> {
-        let starter = self.starters.get(id).ok_or_else(|| format!("Starter \"{id}\" not found"))?;
+        let starter = self
+            .starters
+            .get(id)
+            .ok_or_else(|| format!("Starter \"{id}\" not found"))?;
 
         starter.on_before_assemble(config)?;
 
@@ -107,31 +110,66 @@ impl BundleRegistry {
 
         for wf in &bundle.workflows {
             let key = wf.id.clone();
-            total.merge(register_item(&registries.workflows, key, wf.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.workflows,
+                key,
+                wf.clone(),
+                skip_if_exists,
+            ));
         }
         for tool in &bundle.tools {
             let key = tool.id.clone();
-            total.merge(register_item(&registries.tools, key, tool.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.tools,
+                key,
+                tool.clone(),
+                skip_if_exists,
+            ));
         }
         for trigger in &bundle.triggers {
             let key = trigger.name.clone();
-            total.merge(register_item(&registries.trigger_templates, key, trigger.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.trigger_templates,
+                key,
+                trigger.clone(),
+                skip_if_exists,
+            ));
         }
         for prompt in &bundle.prompts {
             let key = prompt.id.clone();
-            total.merge(register_item(&registries.prompt_templates, key, prompt.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.prompt_templates,
+                key,
+                prompt.clone(),
+                skip_if_exists,
+            ));
         }
         for node_tmpl in &bundle.node_templates {
             let key = node_tmpl.id.clone();
-            total.merge(register_item(&registries.node_templates, key, node_tmpl.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.node_templates,
+                key,
+                node_tmpl.clone(),
+                skip_if_exists,
+            ));
         }
         for hook_tmpl in &bundle.hook_templates {
             let key = hook_tmpl.id.clone();
-            total.merge(register_item(&registries.hook_templates, key, hook_tmpl.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.hook_templates,
+                key,
+                hook_tmpl.clone(),
+                skip_if_exists,
+            ));
         }
         for agent_tmpl in &bundle.agent_templates {
             let key = agent_tmpl.id.clone();
-            total.merge(register_item(&registries.agent_templates, key, agent_tmpl.clone(), skip_if_exists));
+            total.merge(register_item(
+                &registries.agent_templates,
+                key,
+                agent_tmpl.clone(),
+                skip_if_exists,
+            ));
         }
 
         starter.on_after_install(&bundle)?;
@@ -140,7 +178,10 @@ impl BundleRegistry {
     }
 
     pub fn deactivate(&self, id: &str, registries: &Registries) -> Result<Summary, String> {
-        let starter = self.starters.get(id).ok_or_else(|| format!("Starter \"{id}\" not found"))?;
+        let starter = self
+            .starters
+            .get(id)
+            .ok_or_else(|| format!("Starter \"{id}\" not found"))?;
 
         starter.on_before_uninstall()?;
 

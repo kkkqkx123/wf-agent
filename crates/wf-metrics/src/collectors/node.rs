@@ -68,17 +68,27 @@ impl NodeMetricsCollector {
         let labels = labels(&l);
 
         self.inner.increment_counter(
-            if record.success { node_metrics::SUCCESS_COUNT } else { node_metrics::FAILURE_COUNT },
+            if record.success {
+                node_metrics::SUCCESS_COUNT
+            } else {
+                node_metrics::FAILURE_COUNT
+            },
             labels.clone(),
         );
-        self.inner.increment_counter(node_metrics::EXECUTION_COUNT, labels.clone());
+        self.inner
+            .increment_counter(node_metrics::EXECUTION_COUNT, labels.clone());
         self.inner.observe_summary(
             node_metrics::EXECUTION_DURATION,
             record.duration_ms,
             labels.clone(),
         );
-        self.inner.set_gauge(node_metrics::INPUT_SIZE, record.input_size as f64, labels.clone());
-        self.inner.set_gauge(node_metrics::OUTPUT_SIZE, record.output_size as f64, labels);
+        self.inner.set_gauge(
+            node_metrics::INPUT_SIZE,
+            record.input_size as f64,
+            labels.clone(),
+        );
+        self.inner
+            .set_gauge(node_metrics::OUTPUT_SIZE, record.output_size as f64, labels);
     }
 
     pub fn record_retry(&self, node_id: &str, node_type: &str) {
@@ -91,7 +101,11 @@ impl NodeMetricsCollector {
     pub fn record_error(&self, node_id: &str, node_type: &str, error_type: &str) {
         self.inner.increment_counter(
             node_metrics::ERROR_COUNT,
-            labels(&[("node_id", node_id), ("node_type", node_type), ("error_type", error_type)]),
+            labels(&[
+                ("node_id", node_id),
+                ("node_type", node_type),
+                ("error_type", error_type),
+            ]),
         );
     }
 
@@ -126,7 +140,11 @@ impl NodeMetricsCollector {
         let percentile = |p: f64| {
             duration
                 .as_ref()
-                .and_then(|d| d.percentiles.iter().find(|q| (q.percentile - p).abs() < f64::EPSILON))
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - p).abs() < f64::EPSILON)
+                })
                 .map(|q| q.value)
                 .unwrap_or(0.0)
         };
@@ -138,7 +156,13 @@ impl NodeMetricsCollector {
             success_rate: if total > 0.0 { success / total } else { 0.0 },
             avg_duration_ms: duration
                 .as_ref()
-                .map(|d| if d.count > 0 { d.sum / d.count as f64 } else { 0.0 })
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0),
             p95_duration_ms: percentile(0.95),
             p99_duration_ms: percentile(0.99),

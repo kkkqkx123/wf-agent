@@ -9,8 +9,10 @@ pub trait GitCheckpointAdapter: Send + Sync {
         metadata: &HashMap<String, String>,
     ) -> impl std::future::Future<Output = Result<(), LayertwineError>> + Send;
 
-    fn get_checkpoint(&self, checkpoint_id: &str)
-        -> impl std::future::Future<Output = Result<Option<Vec<u8>>, LayertwineError>> + Send;
+    fn get_checkpoint(
+        &self,
+        checkpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<Option<Vec<u8>>, LayertwineError>> + Send;
 
     fn list_checkpoints(
         &self,

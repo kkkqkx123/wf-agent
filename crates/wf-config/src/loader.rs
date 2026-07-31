@@ -9,9 +9,7 @@ pub async fn load_config_file<T: serde::de::DeserializeOwned>(path: &Path) -> Co
     parser::parse_config(&content, format)
 }
 
-pub async fn try_load_config_file<T: serde::de::DeserializeOwned>(
-    path: &Path,
-) -> Option<T> {
+pub async fn try_load_config_file<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     load_config_file(path).await.ok()
 }
 
@@ -54,9 +52,8 @@ pub async fn load_config_from_paths<T: serde::de::DeserializeOwned>(
 }
 
 pub fn expand_glob_paths(pattern: &str) -> ConfigResult<Vec<PathBuf>> {
-    let entries = glob::glob(pattern).map_err(|e| {
-        ConfigError::Parse(format!("invalid glob pattern '{pattern}': {e}"))
-    })?;
+    let entries = glob::glob(pattern)
+        .map_err(|e| ConfigError::Parse(format!("invalid glob pattern '{pattern}': {e}")))?;
 
     let mut paths = Vec::new();
     for entry in entries {

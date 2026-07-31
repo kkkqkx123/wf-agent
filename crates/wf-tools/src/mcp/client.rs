@@ -3,9 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::error::{ToolError, ToolResult};
-use crate::mcp::transport::{
-    JsonRpcRequest, JsonRpcResponse, McpTransport,
-};
+use crate::mcp::transport::{JsonRpcRequest, JsonRpcResponse, McpTransport};
 
 pub struct McpClient {
     transport: Arc<Mutex<Box<dyn McpTransport>>>,
@@ -44,10 +42,13 @@ impl McpClient {
         arguments: &Value,
         timeout_ms: u64,
     ) -> ToolResult<Value> {
-        let request = self.build_request("tools/call", serde_json::json!({
-            "name": tool_name,
-            "arguments": arguments,
-        }));
+        let request = self.build_request(
+            "tools/call",
+            serde_json::json!({
+                "name": tool_name,
+                "arguments": arguments,
+            }),
+        );
 
         let request_id = request.id.clone();
         let response = self.send_request(request, timeout_ms).await?;
@@ -112,14 +113,17 @@ impl McpClient {
     }
 
     pub async fn initialize(&self, timeout_ms: u64) -> ToolResult<Value> {
-        let request = self.build_request("initialize", serde_json::json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "wf-tools",
-                "version": "0.1.0",
-            },
-        }));
+        let request = self.build_request(
+            "initialize",
+            serde_json::json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "wf-tools",
+                    "version": "0.1.0",
+                },
+            }),
+        );
 
         let request_id = request.id.clone();
         let response = self.send_request(request, timeout_ms).await?;

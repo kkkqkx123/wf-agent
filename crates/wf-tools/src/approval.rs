@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 
-use wf_types::interaction::tool_approval::{
-    ToolApprovalRequestData, ToolApprovalResponseData,
-};
-use wf_types::tool::approval::{
-    SecurityPreset, ToolApprovalOptions, ToolApprovalResult,
-};
+use wf_types::interaction::tool_approval::{ToolApprovalRequestData, ToolApprovalResponseData};
+use wf_types::tool::approval::{SecurityPreset, ToolApprovalOptions, ToolApprovalResult};
 use wf_types::tool::file_permission::{
     is_operation_allowed, FileOperationType, FilePermissionSettings,
 };
@@ -63,10 +59,7 @@ impl ToolApprovalCoordinator {
         self
     }
 
-    pub fn process_batch(
-        &self,
-        tools: Vec<ToolApprovalRequestData>,
-    ) -> ToolBatch {
+    pub fn process_batch(&self, tools: Vec<ToolApprovalRequestData>) -> ToolBatch {
         let batch_id = wf_common::generate_id();
         let mut auto_approved = Vec::new();
         let mut pending = Vec::new();
@@ -99,10 +92,7 @@ impl ToolApprovalCoordinator {
         if let Some(ref patterns) = self.options.auto_approve_patterns {
             if !patterns.is_empty() {
                 let matched = patterns.iter().any(|p| {
-                    if let Ok(glob) = globset::GlobBuilder::new(p)
-                        .case_insensitive(true)
-                        .build()
-                    {
+                    if let Ok(glob) = globset::GlobBuilder::new(p).case_insensitive(true).build() {
                         glob.compile_matcher().is_match(&tool.tool_name)
                     } else {
                         false
@@ -118,9 +108,7 @@ impl ToolApprovalCoordinator {
             if let Ok(op) = extract_file_operation(&tool.tool_name, &tool.parameters) {
                 if let Some(file_path) = extract_file_path(&tool.tool_name, &tool.parameters) {
                     if !check_file_permission(&file_path, &op, fp) {
-                        return ApprovalDecision::Deny(
-                            "File permission denied".to_string(),
-                        );
+                        return ApprovalDecision::Deny("File permission denied".to_string());
                     }
                 }
             }
@@ -132,11 +120,10 @@ impl ToolApprovalCoordinator {
                     .unwrap_or(FileOperationType::Read);
                 if (op == FileOperationType::Write || op == FileOperationType::Delete)
                     && pc.is_write_protected(&file_path)
-                        && self.options.allow_write_protected != Some(true) {
-                            return ApprovalDecision::Deny(
-                                "File is write-protected".to_string(),
-                            );
-                        }
+                    && self.options.allow_write_protected != Some(true)
+                {
+                    return ApprovalDecision::Deny("File is write-protected".to_string());
+                }
             }
         }
 
@@ -149,9 +136,7 @@ impl ToolApprovalCoordinator {
         match risk_level {
             "read_only" => {
                 let cat = self.options.categories.as_ref();
-                let allow = cat
-                    .and_then(|c| c.always_allow_read_only)
-                    .unwrap_or(true);
+                let allow = cat.and_then(|c| c.always_allow_read_only).unwrap_or(true);
                 if allow {
                     ApprovalDecision::Approve
                 } else {
@@ -165,9 +150,7 @@ impl ToolApprovalCoordinator {
                     .as_ref()
                     .and_then(|c| c.always_allow_write)
                     .unwrap_or(false);
-                if cat_allow
-                    || self.options.security_preset == Some(SecurityPreset::Permissive)
-                {
+                if cat_allow || self.options.security_preset == Some(SecurityPreset::Permissive) {
                     ApprovalDecision::Approve
                 } else {
                     ApprovalDecision::Ask
@@ -217,7 +200,9 @@ impl ToolApprovalCoordinator {
                             .as_ref()
                             .and_then(|n| n.allowed_domains.as_ref());
                         if let Some(allowed) = allowed {
-                            if !allowed.is_empty() && !allowed.iter().any(|d| domain.contains(d.as_str())) {
+                            if !allowed.is_empty()
+                                && !allowed.iter().any(|d| domain.contains(d.as_str()))
+                            {
                                 return ApprovalDecision::Ask;
                             }
                         }
@@ -330,12 +315,7 @@ fn handle_mcp_approval(
     options: &ToolApprovalOptions,
     tool: &ToolApprovalRequestData,
 ) -> ApprovalDecision {
-    if options
-        .categories
-        .as_ref()
-        .and_then(|c| c.always_allow_mcp)
-        != Some(true)
-    {
+    if options.categories.as_ref().and_then(|c| c.always_allow_mcp) != Some(true) {
         return ApprovalDecision::Ask;
     }
 
@@ -368,10 +348,7 @@ fn build_mcp_request(tool: &ToolApprovalRequestData) -> Option<McpRequest> {
     })
 }
 
-pub fn check_mcp_approval(
-    settings: &McpApprovalSettings,
-    request: &McpRequest,
-) -> McpDecision {
+pub fn check_mcp_approval(settings: &McpApprovalSettings, request: &McpRequest) -> McpDecision {
     let server_config = settings
         .servers
         .iter()
@@ -412,9 +389,7 @@ pub fn check_mcp_approval(
                 }
                 None => match server.default_tool_behavior {
                     Some(McpDefaultBehavior::AlwaysApprove) => McpDecision::Approve,
-                    Some(McpDefaultBehavior::AlwaysDeny) => {
-                        McpDecision::Deny
-                    }
+                    Some(McpDefaultBehavior::AlwaysDeny) => McpDecision::Deny,
                     _ => McpDecision::Ask,
                 },
             }
@@ -503,7 +478,10 @@ fn extract_file_path(tool_name: &str, params: &serde_json::Value) -> Option<Stri
         "rename_file",
     ];
     if file_tools.contains(&tool_name) {
-        params.get("path").and_then(|v| v.as_str()).map(|s| s.to_string())
+        params
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
     } else {
         None
     }
@@ -656,7 +634,10 @@ mod tests {
             uri: None,
             arguments: None,
         };
-        assert_eq!(check_mcp_approval(&settings, &approve_req), McpDecision::Approve);
+        assert_eq!(
+            check_mcp_approval(&settings, &approve_req),
+            McpDecision::Approve
+        );
 
         let ask_req = McpRequest {
             r#type: McpRequestType::UseMcp,

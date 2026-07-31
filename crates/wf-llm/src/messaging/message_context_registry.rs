@@ -69,13 +69,15 @@ impl MessageContextRegistry {
     pub fn append(&self, name: &str, message: Message) {
         let mut contexts = self.contexts.lock().unwrap();
         let now = wf_common::now();
-        let ctx = contexts.entry(name.to_string()).or_insert_with(|| NamedMessageContext {
-            id: name.to_string(),
-            messages: Vec::new(),
-            created_at: now,
-            updated_at: now,
-            metadata: None,
-        });
+        let ctx = contexts
+            .entry(name.to_string())
+            .or_insert_with(|| NamedMessageContext {
+                id: name.to_string(),
+                messages: Vec::new(),
+                created_at: now,
+                updated_at: now,
+                metadata: None,
+            });
         ctx.messages.push(message);
         ctx.updated_at = now;
     }
@@ -118,7 +120,11 @@ impl MessageContextRegistry {
         }
     }
 
-    pub fn set_metadata(&self, name: &str, metadata: HashMap<String, Value>) -> Result<(), LlmError> {
+    pub fn set_metadata(
+        &self,
+        name: &str,
+        metadata: HashMap<String, Value>,
+    ) -> Result<(), LlmError> {
         let mut contexts = self.contexts.lock().unwrap();
         match contexts.get_mut(name) {
             Some(ctx) => {
@@ -302,7 +308,10 @@ mod tests {
         let named = registry.get_named("ctx1").unwrap();
         assert!(named.metadata.is_some());
         let meta = named.metadata.unwrap();
-        assert_eq!(meta.get("source").unwrap(), &Value::String("node-a".to_string()));
+        assert_eq!(
+            meta.get("source").unwrap(),
+            &Value::String("node-a".to_string())
+        );
     }
 
     #[test]

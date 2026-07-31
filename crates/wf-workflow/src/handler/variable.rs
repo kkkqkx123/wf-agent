@@ -20,7 +20,8 @@ impl NodeHandler for VariableHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let assignments = config.get("assignments")
+        let assignments = config
+            .get("assignments")
             .or_else(|| config.get("variables"));
 
         if let Some(assignments) = assignments {
@@ -28,11 +29,13 @@ impl NodeHandler for VariableHandler {
                 Value::Object(map) => {
                     for (key, value) in map {
                         if is_readonly_var(key) {
-                            return Err(WorkflowError::VariableError(
-                                format!("Cannot modify read-only variable: {}", key),
-                            ));
+                            return Err(WorkflowError::VariableError(format!(
+                                "Cannot modify read-only variable: {}",
+                                key
+                            )));
                         }
-                        let resolved = crate::variable::VariableResolver::resolve(value, &ctx.variables);
+                        let resolved =
+                            crate::variable::VariableResolver::resolve(value, &ctx.variables);
                         ctx.set_variable(key.clone(), resolved);
                     }
                 }
@@ -40,12 +43,14 @@ impl NodeHandler for VariableHandler {
                     for entry in arr {
                         if let Some(name) = entry.get("name").and_then(|n| n.as_str()) {
                             if is_readonly_var(name) {
-                                return Err(WorkflowError::VariableError(
-                                    format!("Cannot modify read-only variable: {}", name),
-                                ));
+                                return Err(WorkflowError::VariableError(format!(
+                                    "Cannot modify read-only variable: {}",
+                                    name
+                                )));
                             }
                             let value = entry.get("value").cloned().unwrap_or(Value::Null);
-                            let resolved = crate::variable::VariableResolver::resolve(&value, &ctx.variables);
+                            let resolved =
+                                crate::variable::VariableResolver::resolve(&value, &ctx.variables);
                             ctx.set_variable(name.to_string(), resolved);
                         }
                     }

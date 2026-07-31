@@ -45,6 +45,9 @@ impl NodeHandler for RouteHandler {
             }
         }
 
-        Ok(NodeExecutionResult::with_next_nodes(ctx.input.clone(), next_nodes))
+        Ok(NodeExecutionResult::with_next_nodes(
+            ctx.input.clone(),
+            next_nodes,
+        ))
     }
 }

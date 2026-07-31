@@ -17,7 +17,11 @@ pub mod lua;
 pub mod native;
 
 pub use context::PluginContext;
-pub use contributions::{middleware_phase, ContributionBridge, ContributionManager, ContributionRegistrar, NextFn, OverridePolicy, RegistrarGuard, PluginNodeHandler, PluginToolExecutor, PluginLLMFormatter, PluginEventHandler, PluginHookHandler, PluginMiddlewareHandler};
+pub use contributions::{
+    middleware_phase, ContributionBridge, ContributionManager, ContributionRegistrar, NextFn,
+    OverridePolicy, PluginEventHandler, PluginHookHandler, PluginLLMFormatter,
+    PluginMiddlewareHandler, PluginNodeHandler, PluginToolExecutor, RegistrarGuard,
+};
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};
 pub use error::{PluginError, PluginResult};
@@ -26,4 +30,6 @@ pub use events::PluginEvent;
 pub use guard::PluginGuard;
 pub use manifest::{PluginManifest, PluginType};
 pub use plugin::Plugin;
-pub use registry::{ContributionRecord, DiscoveredPlugin, PluginInfo, PluginRegistry, PluginStatus};
+pub use registry::{
+    ContributionRecord, DiscoveredPlugin, PluginInfo, PluginRegistry, PluginStatus,
+};

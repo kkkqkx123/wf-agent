@@ -1,6 +1,9 @@
 use crate::error::ConfigResult;
 use crate::validator::validate_min;
-use wf_types::checkpoint::base::{CheckpointContentConfig, CheckpointErrorHandlingConfig, CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy};
+use wf_types::checkpoint::base::{
+    CheckpointContentConfig, CheckpointErrorHandlingConfig, CheckpointRetentionConfig,
+    CheckpointTrigger, UnifiedCheckpointPolicy,
+};
 
 pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
     UnifiedCheckpointPolicy {
@@ -21,11 +24,14 @@ pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> Unified
             max_age: None,
             compression: Some(true),
         })),
-        error_handling: user.error_handling.clone().or(Some(CheckpointErrorHandlingConfig {
-            fail_on_checkpoint_error: Some(false),
-            retry_on_failure: Some(true),
-            max_retries: Some(3),
-        })),
+        error_handling: user
+            .error_handling
+            .clone()
+            .or(Some(CheckpointErrorHandlingConfig {
+                fail_on_checkpoint_error: Some(false),
+                retry_on_failure: Some(true),
+                max_retries: Some(3),
+            })),
     }
 }
 

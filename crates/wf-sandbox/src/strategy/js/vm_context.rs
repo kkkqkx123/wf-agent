@@ -7,13 +7,24 @@ pub struct JavaScriptVmContextStrategy;
 
 impl JavaScriptVmContextStrategy {
     fn build_wrapper(code: &str, policy: &JavaScriptPolicy) -> String {
-        let allowed = policy.allowed_modules.iter().map(|m| format!("\"{m}\"")).collect::<Vec<_>>().join(", ");
-        let denied = policy.denied_modules.iter().map(|m| format!("\"{m}\"")).collect::<Vec<_>>().join(", ");
+        let allowed = policy
+            .allowed_modules
+            .iter()
+            .map(|m| format!("\"{m}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let denied = policy
+            .denied_modules
+            .iter()
+            .map(|m| format!("\"{m}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
         let allow_child_process = policy.allow_child_process;
         let allow_fs_write = policy.allow_fs_write;
         let allow_dynamic_eval = policy.allow_dynamic_eval;
 
-        let prefix = format!(r#"(function() {{
+        let prefix = format!(
+            r#"(function() {{
     const MODULE_ALLOWLIST = new Set([{allowed}]);
     const MODULE_DENYLIST = new Set([{denied}]);
     const ALLOW_CHILD_PROCESS = {allow_child_process};
@@ -92,14 +103,16 @@ impl JavaScriptVmContextStrategy {
     }});
 
     var userCode = function(require, global, globalThis) {{
-"#);
+"#
+        );
 
         let suffix = r#"
     };
 
     userCode(safeRequire, safeGlobal, safeGlobal);
 })();
-"#.to_string();
+"#
+        .to_string();
 
         format!("{prefix}\n{code}\n{suffix}")
     }
@@ -150,13 +163,17 @@ impl StrategyImplementation for JavaScriptVmContextStrategy {
             });
         }
 
-        let js_policy = policy.javascript.as_ref().cloned().unwrap_or(JavaScriptPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![],
-            allow_child_process: false,
-            allow_fs_write: false,
-            allow_dynamic_eval: false,
-        });
+        let js_policy = policy
+            .javascript
+            .as_ref()
+            .cloned()
+            .unwrap_or(JavaScriptPolicy {
+                allowed_modules: vec![],
+                denied_modules: vec![],
+                allow_child_process: false,
+                allow_fs_write: false,
+                allow_dynamic_eval: false,
+            });
 
         let wrapped = Self::build_wrapper(code, &js_policy);
 
@@ -232,7 +249,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(result.success, "simple math should work: {:?}", result.stderr);
+        assert!(
+            result.success,
+            "simple math should work: {:?}",
+            result.stderr
+        );
     }
 
     #[tokio::test]
@@ -286,7 +307,8 @@ mod tests {
         let result = strategy
             .execute(
                 StrategyExecuteOptions {
-                    command: "var fs = require('fs'); fs.writeFileSync('/tmp/x', 'data')".to_string(),
+                    command: "var fs = require('fs'); fs.writeFileSync('/tmp/x', 'data')"
+                        .to_string(),
                     shell_type: None,
                     runtime: None,
                     workdir: None,
@@ -298,7 +320,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!result.success, "fs.writeFileSync should fail when disallowed");
+        assert!(
+            !result.success,
+            "fs.writeFileSync should fail when disallowed"
+        );
     }
 
     #[tokio::test]
@@ -308,7 +333,8 @@ mod tests {
         let result = strategy
             .execute(
                 StrategyExecuteOptions {
-                    command: "var fs = require('fs'); console.log(typeof fs.readFileSync)".to_string(),
+                    command: "var fs = require('fs'); console.log(typeof fs.readFileSync)"
+                        .to_string(),
                     shell_type: None,
                     runtime: None,
                     workdir: None,

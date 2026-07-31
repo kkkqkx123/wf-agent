@@ -7,8 +7,16 @@ where
     SS: Send + Sync,
     DS: Send + Sync,
 {
-    fn calculate_diff(&self, previous: &SS, current: &SS) -> impl Future<Output = Result<DS, CheckpointError>> + Send;
-    fn apply_delta(&self, base: &SS, delta: &DS) -> impl Future<Output = Result<SS, CheckpointError>> + Send;
+    fn calculate_diff(
+        &self,
+        previous: &SS,
+        current: &SS,
+    ) -> impl Future<Output = Result<DS, CheckpointError>> + Send;
+    fn apply_delta(
+        &self,
+        base: &SS,
+        delta: &DS,
+    ) -> impl Future<Output = Result<SS, CheckpointError>> + Send;
 }
 
 pub trait DeltaRestorer<SS, DS>: Send + Sync

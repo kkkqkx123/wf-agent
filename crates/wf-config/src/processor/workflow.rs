@@ -1,9 +1,9 @@
 use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_required;
 
+use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::definition::WorkflowDefinition;
 use wf_types::workflow::edge::{Edge, EdgeType};
-use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
 
 pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigResult<()> {
     validate_required(&definition.id, "id")?;

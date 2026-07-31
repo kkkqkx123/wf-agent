@@ -38,8 +38,12 @@ impl RetryBudget {
 
         let elapsed = self.start_time.elapsed();
         match self.config.time_budget_mode {
-            TimeBudgetMode::DelayOnly => self.total_delay < Duration::from_millis(self.config.time_budget_ms),
-            TimeBudgetMode::TotalTime => elapsed < Duration::from_millis(self.config.time_budget_ms),
+            TimeBudgetMode::DelayOnly => {
+                self.total_delay < Duration::from_millis(self.config.time_budget_ms)
+            }
+            TimeBudgetMode::TotalTime => {
+                elapsed < Duration::from_millis(self.config.time_budget_ms)
+            }
         }
     }
 

@@ -9,7 +9,9 @@ pub struct PluginGuard {
 
 impl PluginGuard {
     pub fn new(timeout_ms: u64) -> Self {
-        Self { timeout: Duration::from_millis(timeout_ms) }
+        Self {
+            timeout: Duration::from_millis(timeout_ms),
+        }
     }
 
     pub async fn execute<F, T>(&self, plugin_id: &str, f: F) -> PluginResult<T>
@@ -19,7 +21,9 @@ impl PluginGuard {
         if self.timeout.as_millis() > 0 {
             timeout(self.timeout, f)
                 .await
-                .map_err(|_| PluginError::Timeout { plugin_id: plugin_id.to_owned() })?
+                .map_err(|_| PluginError::Timeout {
+                    plugin_id: plugin_id.to_owned(),
+                })?
         } else {
             f.await
         }
@@ -27,5 +31,7 @@ impl PluginGuard {
 }
 
 impl Default for PluginGuard {
-    fn default() -> Self { Self::new(10000) }
+    fn default() -> Self {
+        Self::new(10000)
+    }
 }

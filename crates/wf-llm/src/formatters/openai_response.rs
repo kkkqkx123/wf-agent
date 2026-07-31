@@ -1,8 +1,8 @@
-use reqwest::Method;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
-use crate::error::LlmResult;
-use wf_types::tool::Tool;
 use super::LlmFormatter;
+use crate::error::LlmResult;
+use reqwest::Method;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::tool::Tool;
 
 pub struct OpenaiResponseFormatter {
     base_url: String,
@@ -26,67 +26,91 @@ impl OpenaiResponseFormatter {
     }
 
     fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
-        messages.iter().map(|msg| {
-            let role = match msg.role {
-                wf_types::message::MessageRole::System => "system",
-                wf_types::message::MessageRole::User => "user",
-                wf_types::message::MessageRole::Assistant => "assistant",
-                wf_types::message::MessageRole::Tool => "tool",
-            };
+        messages
+            .iter()
+            .map(|msg| {
+                let role = match msg.role {
+                    wf_types::message::MessageRole::System => "system",
+                    wf_types::message::MessageRole::User => "user",
+                    wf_types::message::MessageRole::Assistant => "assistant",
+                    wf_types::message::MessageRole::Tool => "tool",
+                };
 
-            let mut entry = serde_json::json!({
-                "role": role,
-                "content": msg.content,
-            });
+                let mut entry = serde_json::json!({
+                    "role": role,
+                    "content": msg.content,
+                });
 
-            if let Some(ref tool_calls) = msg.tool_calls {
-                let calls: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
-                    serde_json::json!({
-                        "id": tc.id,
-                        "type": tc.r#type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        }
-                    })
-                }).collect();
-                entry["tool_calls"] = serde_json::json!(calls);
-            }
+                if let Some(ref tool_calls) = msg.tool_calls {
+                    let calls: Vec<serde_json::Value> = tool_calls
+                        .iter()
+                        .map(|tc| {
+                            serde_json::json!({
+                                "id": tc.id,
+                                "type": tc.r#type,
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                }
+                            })
+                        })
+                        .collect();
+                    entry["tool_calls"] = serde_json::json!(calls);
+                }
 
-            if let Some(ref tool_call_id) = msg.tool_call_id {
-                entry["tool_call_id"] = serde_json::json!(tool_call_id);
-            }
+                if let Some(ref tool_call_id) = msg.tool_call_id {
+                    entry["tool_call_id"] = serde_json::json!(tool_call_id);
+                }
 
-            entry
-        }).collect()
+                entry
+            })
+            .collect()
     }
 
-    fn parse_tool_calls_from_output(&self, output: &[serde_json::Value]) -> Vec<wf_types::message::LlmToolCall> {
-        output.iter().filter_map(|item| {
-            let item_type = item.get("type").and_then(|v| v.as_str())?;
-            if item_type != "function_call" {
-                return None;
-            }
-            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let arguments = item.get("arguments")
-                .and_then(|v| v.as_str())
-                .unwrap_or("{}")
-                .to_string();
-            Some(wf_types::message::LlmToolCall {
-                id,
-                r#type: "function".to_string(),
-                function: wf_types::message::LlmFunctionCall {
-                    name: String::new(),
-                    arguments,
-                },
+    fn parse_tool_calls_from_output(
+        &self,
+        output: &[serde_json::Value],
+    ) -> Vec<wf_types::message::LlmToolCall> {
+        output
+            .iter()
+            .filter_map(|item| {
+                let item_type = item.get("type").and_then(|v| v.as_str())?;
+                if item_type != "function_call" {
+                    return None;
+                }
+                let id = item
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let arguments = item
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("{}")
+                    .to_string();
+                Some(wf_types::message::LlmToolCall {
+                    id,
+                    r#type: "function".to_string(),
+                    function: wf_types::message::LlmFunctionCall {
+                        name: String::new(),
+                        arguments,
+                    },
+                })
             })
-        }).collect()
+            .collect()
     }
 }
 
 impl LlmFormatter for OpenaiResponseFormatter {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
-        let url = format!("{}/responses", profile.base_url.as_deref().unwrap_or(&self.base_url));
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request> {
+        let url = format!(
+            "{}/responses",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
 
         let mut body = serde_json::json!({
             "model": profile.model,
@@ -97,7 +121,8 @@ impl LlmFormatter for OpenaiResponseFormatter {
             body["stream"] = serde_json::json!(true);
         }
 
-        let merged_params = crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        let merged_params =
+            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
         if let Some(temp) = merged_params.get("temperature") {
             body["temperature"] = temp.clone();
         }
@@ -121,16 +146,19 @@ impl LlmFormatter for OpenaiResponseFormatter {
         }
 
         if let Some(tools) = &request.tools {
-            let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    }
+            let tool_defs: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
                 })
-            }).collect();
+                .collect();
             body["tools"] = serde_json::json!(tool_defs);
         }
 
@@ -149,15 +177,24 @@ impl LlmFormatter for OpenaiResponseFormatter {
             }
         }
 
-        req_builder.build().map_err(crate::error::LlmError::HttpError)
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
-        let model = json.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let _status = json.get("status").and_then(|v| v.as_str()).map(String::from);
+        let model = json
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let _status = json
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let output = json.get("output").and_then(|v| v.as_array());
         let last_output = output.and_then(|o| o.last());
@@ -195,7 +232,9 @@ impl LlmFormatter for OpenaiResponseFormatter {
         let message = wf_types::message::Message {
             id: wf_types::Id::new(),
             role: wf_types::message::MessageRole::Assistant,
-            content: wf_types::message::MessageContentValue::Text(content.clone().unwrap_or_default()),
+            content: wf_types::message::MessageContentValue::Text(
+                content.clone().unwrap_or_default(),
+            ),
             timestamp: wf_common::time::now(),
             tool_call_id: None,
             tool_name: None,
@@ -204,7 +243,10 @@ impl LlmFormatter for OpenaiResponseFormatter {
             metadata: None,
         };
 
-        let finish_reason = json.get("status").and_then(|s| s.as_str()).map(String::from);
+        let finish_reason = json
+            .get("status")
+            .and_then(|s| s.as_str())
+            .map(String::from);
 
         Ok(LlmResponseType {
             id,
@@ -235,12 +277,16 @@ impl LlmFormatter for OpenaiResponseFormatter {
             Some("response.output_text.delta") => {
                 if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
                     return Ok(Some(MessageStreamEvent::Text(
-                        wf_types::llm::MessageStreamText { text: delta.to_string() }
+                        wf_types::llm::MessageStreamText {
+                            text: delta.to_string(),
+                        },
                     )));
                 }
             }
             Some("response.completed") | Some("response.incomplete") => {
-                return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                return Ok(Some(MessageStreamEvent::End(
+                    wf_types::llm::MessageStreamEnd {},
+                )));
             }
             _ => {}
         }
@@ -249,16 +295,19 @@ impl LlmFormatter for OpenaiResponseFormatter {
     }
 
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-            serde_json::json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                }
+        let tool_defs: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    }
+                })
             })
-        }).collect();
+            .collect();
         Ok(tool_defs)
     }
 

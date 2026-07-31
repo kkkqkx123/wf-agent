@@ -49,27 +49,34 @@ impl NodeHandler for SyncHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
 
-        let sync_id = config.get("sync_id")
+        let sync_id = config
+            .get("sync_id")
             .and_then(|v| v.as_str())
             .unwrap_or(&ctx.node_id)
             .to_string();
 
-        let source_paths = config.get("source_paths")
+        let source_paths = config
+            .get("source_paths")
             .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
-        let data_inputs = config.get("dataInputs")
+        let data_inputs = config
+            .get("dataInputs")
             .or_else(|| config.get("data_inputs"))
             .and_then(|v| v.as_array())
             .map(|arr| {
-                arr.iter().filter_map(|v| {
-                    let source = v.get("source").and_then(|s| s.as_str())?;
-                    let target = v.get("target").and_then(|t| t.as_str())?;
-                    Some((source.to_string(), target.to_string()))
-                }).collect::<Vec<_>>()
+                arr.iter()
+                    .filter_map(|v| {
+                        let source = v.get("source").and_then(|s| s.as_str())?;
+                        let target = v.get("target").and_then(|t| t.as_str())?;
+                        Some((source.to_string(), target.to_string()))
+                    })
+                    .collect::<Vec<_>>()
             })
             .unwrap_or_default();
 
@@ -92,9 +99,15 @@ impl NodeHandler for SyncHandler {
 
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("sync_id".to_string(), Value::String(sync_id));
-        metadata.insert("source_paths".to_string(), Value::Array(
-            source_paths.iter().map(|s| Value::String(s.clone())).collect()
-        ));
+        metadata.insert(
+            "source_paths".to_string(),
+            Value::Array(
+                source_paths
+                    .iter()
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            ),
+        );
 
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),
@@ -104,7 +117,11 @@ impl NodeHandler for SyncHandler {
     }
 }
 
-async fn emit_sync_event(event_bus: Option<&wf_core::EventBus>, event_type: EventType, ctx: &NodeExecutionContext) {
+async fn emit_sync_event(
+    event_bus: Option<&wf_core::EventBus>,
+    event_type: EventType,
+    ctx: &NodeExecutionContext,
+) {
     let Some(bus) = event_bus else { return };
     let event = BaseEvent {
         id: wf_types::Id::new(),
@@ -113,9 +130,10 @@ async fn emit_sync_event(event_bus: Option<&wf_core::EventBus>, event_type: Even
         workflow_id: None,
         execution_id: Some(ctx.execution_id.clone()),
         agent_loop_id: None,
-        metadata: Some(std::collections::HashMap::from([
-            ("node_id".to_string(), Value::String(ctx.node_id.clone())),
-        ])),
+        metadata: Some(std::collections::HashMap::from([(
+            "node_id".to_string(),
+            Value::String(ctx.node_id.clone()),
+        )])),
     };
     let _ = bus.publish(event);
 }

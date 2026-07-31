@@ -2,7 +2,6 @@ use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;
 
-
 pub type VariableStore = Arc<DashMap<String, Value>>;
 
 pub fn create_variable_store() -> VariableStore {
@@ -16,15 +15,15 @@ impl VariableResolver {
         match input {
             Value::String(s) => Self::resolve_str(s, variables),
             Value::Object(map) => {
-                let resolved: serde_json::Map<String, Value> = map.iter()
+                let resolved: serde_json::Map<String, Value> = map
+                    .iter()
                     .map(|(k, v)| (k.clone(), Self::resolve(v, variables)))
                     .collect();
                 Value::Object(resolved)
             }
             Value::Array(arr) => {
-                let resolved: Vec<Value> = arr.iter()
-                    .map(|v| Self::resolve(v, variables))
-                    .collect();
+                let resolved: Vec<Value> =
+                    arr.iter().map(|v| Self::resolve(v, variables)).collect();
                 Value::Array(resolved)
             }
             other => other.clone(),

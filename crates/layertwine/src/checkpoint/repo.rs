@@ -44,18 +44,22 @@ impl LazyCheckpointMap {
     /// Get a checkpoint by ID. If not loaded, attempt to load from storage.
     pub fn get(&self, id: &CheckpointId) -> Result<Checkpoint> {
         // Fast path: check if already loaded
-        if let Some(cp) = self.loaded.read().map_err(|e| {
-            LayertwineError::General(format!("RwLock poisoned: {}", e))
-        })?.get(id) {
+        if let Some(cp) = self
+            .loaded
+            .read()
+            .map_err(|e| LayertwineError::General(format!("RwLock poisoned: {}", e)))?
+            .get(id)
+        {
             return Ok(cp.clone());
         }
 
         // Slow path: load from storage
         if let Some(storage) = &self.storage {
             let cp = storage.get_checkpoint(id)?;
-            self.loaded.write().map_err(|e| {
-                LayertwineError::General(format!("RwLock poisoned: {}", e))
-            })?.insert(*id, cp.clone());
+            self.loaded
+                .write()
+                .map_err(|e| LayertwineError::General(format!("RwLock poisoned: {}", e)))?
+                .insert(*id, cp.clone());
             return Ok(cp);
         }
 
@@ -67,7 +71,10 @@ impl LazyCheckpointMap {
 
     /// Check if a checkpoint ID is loaded.
     pub fn contains_key(&self, id: &CheckpointId) -> bool {
-        self.loaded.read().map(|m| m.contains_key(id)).unwrap_or(false)
+        self.loaded
+            .read()
+            .map(|m| m.contains_key(id))
+            .unwrap_or(false)
     }
 
     /// Insert a checkpoint into the map.
@@ -79,7 +86,10 @@ impl LazyCheckpointMap {
 
     /// Get all loaded checkpoint IDs.
     pub fn keys(&self) -> Vec<CheckpointId> {
-        self.loaded.read().map(|m| m.keys().copied().collect()).unwrap_or_default()
+        self.loaded
+            .read()
+            .map(|m| m.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     /// Get a reference to the underlying loaded map (for migration purposes).
@@ -178,8 +188,7 @@ impl CheckpointRepo {
 
         // Initialize with root when storage is empty
         if checkpoints.is_empty() {
-            let (_root_id, root, main_branch) =
-                Self::create_root_checkpoint(vec![]);
+            let (_root_id, root, main_branch) = Self::create_root_checkpoint(vec![]);
 
             storage.store_checkpoint(&root)?;
             checkpoints.insert(root.id, root);
@@ -192,9 +201,13 @@ impl CheckpointRepo {
 
         // Try to load DAG from persistent storage; fallback to rebuilding from checkpoints.
         // The DAG persistence enables fast loading without scanning all checkpoint entities.
-        let checkpoint_dag = if storage.dag_has_node(&branches.first()
-            .map(|b| b.head)
-            .unwrap_or(ContentId([0u8; 32])))
+        let checkpoint_dag = if storage
+            .dag_has_node(
+                &branches
+                    .first()
+                    .map(|b| b.head)
+                    .unwrap_or(ContentId([0u8; 32])),
+            )
             .unwrap_or(false)
         {
             // DAG table has data — load from persistent storage
@@ -302,9 +315,8 @@ impl CheckpointRepo {
             self.checkpoints = checkpoints;
         }
         self.checkpoint_dag = Self::build_dag_from_checkpoints(&self.checkpoints);
-        self.time_index = TimeIndex::from_checkpoints(
-            &self.checkpoints.values().cloned().collect::<Vec<_>>(),
-        );
+        self.time_index =
+            TimeIndex::from_checkpoints(&self.checkpoints.values().cloned().collect::<Vec<_>>());
         Ok(())
     }
 
@@ -1124,7 +1136,9 @@ mod tests {
         let mut repo = CheckpointRepo::new_single(snap);
 
         // Normal commit would fail with "no changes", but allow_empty should succeed
-        let cp_id = repo.commit_allow_empty(vec![snap], "tag commit", "user").unwrap();
+        let cp_id = repo
+            .commit_allow_empty(vec![snap], "tag commit", "user")
+            .unwrap();
 
         let cp = repo.get_checkpoint(&cp_id).unwrap();
         assert_eq!(cp.baseline_snapshots, vec![snap]);
@@ -1138,7 +1152,9 @@ mod tests {
         let mut repo = CheckpointRepo::new_single(snap);
 
         // Allow committing with empty snapshot list (annotation-style)
-        let cp_id = repo.commit_allow_empty(vec![], "annotation", "user").unwrap();
+        let cp_id = repo
+            .commit_allow_empty(vec![], "annotation", "user")
+            .unwrap();
 
         let cp = repo.get_checkpoint(&cp_id).unwrap();
         assert!(cp.baseline_snapshots.is_empty());

@@ -60,12 +60,8 @@ impl ToolExecutionCoordinator {
         tool_calls: &[LlmToolCall],
     ) -> AgentResult<Vec<Message>> {
         match self.mode {
-            ToolExecutionMode::Sequential => {
-                self.execute_sequential(entity, tool_calls).await
-            }
-            ToolExecutionMode::Parallel => {
-                self.execute_parallel(entity, tool_calls).await
-            }
+            ToolExecutionMode::Sequential => self.execute_sequential(entity, tool_calls).await,
+            ToolExecutionMode::Parallel => self.execute_parallel(entity, tool_calls).await,
         }
     }
 
@@ -82,7 +78,9 @@ impl ToolExecutionCoordinator {
                 entity,
                 "BEFORE_TOOL_CALL",
                 Self::build_hook_data(tc),
-            ).await.map_err(|e| crate::error::AgentError::HookError(e.to_string()))?;
+            )
+            .await
+            .map_err(|e| crate::error::AgentError::HookError(e.to_string()))?;
 
             let msg = self.execute_single_tool(entity, tc).await?;
 
@@ -91,7 +89,9 @@ impl ToolExecutionCoordinator {
                 entity,
                 "AFTER_TOOL_CALL",
                 Self::build_hook_data(tc),
-            ).await.map_err(|e| crate::error::AgentError::HookError(e.to_string()))?;
+            )
+            .await
+            .map_err(|e| crate::error::AgentError::HookError(e.to_string()))?;
 
             messages.push(msg);
         }
@@ -126,21 +126,41 @@ impl ToolExecutionCoordinator {
                         execution_id: entity_id.clone(),
                         data: hook_data.clone(),
                     },
-                    &HookExecutorConfig { parallel: true, continue_on_error: true, warn_on_condition_failure: true },
-                ).await;
+                    &HookExecutorConfig {
+                        parallel: true,
+                        continue_on_error: true,
+                        warn_on_condition_failure: true,
+                    },
+                )
+                .await;
 
-                let params: Value = serde_json::from_str(&tool_call.function.arguments).unwrap_or(Value::Null);
+                let params: Value =
+                    serde_json::from_str(&tool_call.function.arguments).unwrap_or(Value::Null);
                 let result_msg = Self::build_result_msg(
-                    &tool_registry, &tool_call, &params, &entity_id, &entity_state, metrics.as_ref(),
-                ).await;
+                    &tool_registry,
+                    &tool_call,
+                    &params,
+                    &entity_id,
+                    &entity_state,
+                    metrics.as_ref(),
+                )
+                .await;
 
                 let _ = AgentHookHandler::execute_hooks(
                     &hook_executor,
                     &entity_hooks,
                     "AFTER_TOOL_CALL",
-                    &BaseHookContext { execution_id: entity_id, data: hook_data },
-                    &HookExecutorConfig { parallel: true, continue_on_error: true, warn_on_condition_failure: true },
-                ).await;
+                    &BaseHookContext {
+                        execution_id: entity_id,
+                        data: hook_data,
+                    },
+                    &HookExecutorConfig {
+                        parallel: true,
+                        continue_on_error: true,
+                        warn_on_condition_failure: true,
+                    },
+                )
+                .await;
 
                 result_msg
             });
@@ -154,7 +174,9 @@ impl ToolExecutionCoordinator {
             match r {
                 Ok(msg) => messages.push(msg),
                 Err(e) => messages.push(Self::error_message(
-                    &format!("Tool execution panicked: {}", e), None, None,
+                    &format!("Tool execution panicked: {}", e),
+                    None,
+                    None,
                 )),
             }
         }
@@ -163,7 +185,12 @@ impl ToolExecutionCoordinator {
     }
 
     fn resolve_timeout(&self, tool_name: &str) -> u64 {
-        if let Some(tool) = self.tool_registry.list_tools().iter().find(|t| t.name == tool_name) {
+        if let Some(tool) = self
+            .tool_registry
+            .list_tools()
+            .iter()
+            .find(|t| t.name == tool_name)
+        {
             if let Some(ms) = tool.default_timeout_ms {
                 return ms;
             }
@@ -201,16 +228,22 @@ impl ToolExecutionCoordinator {
 
         match tool_id {
             Some(tid) => {
-                let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new(entity.id().clone());
+                let ctx =
+                    wf_tools::executor::trait_def::ToolExecutionContext::new(entity.id().clone());
                 let options = ToolExecutionOptions {
-                    timeout: Some(timeout_ms), retries: None, retry_delay: None, exponential_backoff: None,
+                    timeout: Some(timeout_ms),
+                    retries: None,
+                    retry_delay: None,
+                    exponential_backoff: None,
                 };
 
                 let start = wf_common::now();
                 let result = tokio::time::timeout(
                     Self::tool_execution_deadline(timeout_ms),
-                    self.tool_registry.execute_tool(&tid, &params, &options, &ctx),
-                ).await;
+                    self.tool_registry
+                        .execute_tool(&tid, &params, &options, &ctx),
+                )
+                .await;
                 let duration_ms = (wf_common::now() - start) as f64;
 
                 entity.state.write().await.record_tool_call();
@@ -236,9 +269,11 @@ impl ToolExecutionCoordinator {
                                 parameter_size,
                                 0,
                             );
-                            metrics
-                                .tool()
-                                .record_tool_call_error(&tool_name, &execution_id, "execution_failed");
+                            metrics.tool().record_tool_call_error(
+                                &tool_name,
+                                &execution_id,
+                                "execution_failed",
+                            );
                             tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
                         }
                         Err(_) => {
@@ -250,9 +285,11 @@ impl ToolExecutionCoordinator {
                                 parameter_size,
                                 0,
                             );
-                            metrics
-                                .tool()
-                                .record_tool_call_error(&tool_name, &execution_id, "timeout");
+                            metrics.tool().record_tool_call_error(
+                                &tool_name,
+                                &execution_id,
+                                "timeout",
+                            );
                             tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
                         }
                     }
@@ -263,7 +300,11 @@ impl ToolExecutionCoordinator {
                         id: wf_types::Id::new(),
                         role: MessageRole::Tool,
                         content: MessageContentValue::Text(
-                            tool_result.result.as_ref().map(|v| v.to_string()).unwrap_or_default(),
+                            tool_result
+                                .result
+                                .as_ref()
+                                .map(|v| v.to_string())
+                                .unwrap_or_default(),
                         ),
                         timestamp: wf_common::now(),
                         tool_call_id: Some(tc.id.clone()),
@@ -272,8 +313,19 @@ impl ToolExecutionCoordinator {
                         thinking: None,
                         metadata: None,
                     }),
-                    Ok(Err(e)) => Ok(Self::error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))),
-                    Err(_) => Ok(Self::error_message(&format!("Tool '{}' timed out after {}ms", tc.function.name, timeout_ms), Some(&tc.id), Some(&tc.function.name))),
+                    Ok(Err(e)) => Ok(Self::error_message(
+                        &e.to_string(),
+                        Some(&tc.id),
+                        Some(&tc.function.name),
+                    )),
+                    Err(_) => Ok(Self::error_message(
+                        &format!(
+                            "Tool '{}' timed out after {}ms",
+                            tc.function.name, timeout_ms
+                        ),
+                        Some(&tc.id),
+                        Some(&tc.function.name),
+                    )),
                 }
             }
             None => {
@@ -283,7 +335,9 @@ impl ToolExecutionCoordinator {
                         .record_tool_call_error(&tool_name, &execution_id, "not_found");
                 }
                 Ok(Self::error_message(
-                    &format!("Tool not found: {}", tc.function.name), Some(&tc.id), Some(&tc.function.name),
+                    &format!("Tool not found: {}", tc.function.name),
+                    Some(&tc.id),
+                    Some(&tc.function.name),
                 ))
             }
         }
@@ -298,23 +352,30 @@ impl ToolExecutionCoordinator {
         metrics: Option<&Arc<MetricsRegistry>>,
     ) -> Message {
         let tool_id = Self::find_tool_id_by_name(tool_registry, &tc.function.name);
-        let timeout_ms = tool_id.as_ref().and_then(|tid| {
-            tool_registry.get_tool(tid).and_then(|t| t.default_timeout_ms)
-        }).unwrap_or(120_000);
+        let timeout_ms = tool_id
+            .as_ref()
+            .and_then(|tid| {
+                tool_registry
+                    .get_tool(tid)
+                    .and_then(|t| t.default_timeout_ms)
+            })
+            .unwrap_or(120_000);
         let tool_name = tc.function.name.clone();
         let parameter_size = json_size(params);
 
         if let Some(metrics) = metrics {
-            metrics
-                .tool()
-                .record_tool_call_start(&tool_name, entity_id);
+            metrics.tool().record_tool_call_start(&tool_name, entity_id);
         }
 
         match tool_id {
             Some(tid) => {
-                let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.to_string());
+                let ctx =
+                    wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.to_string());
                 let options = ToolExecutionOptions {
-                    timeout: Some(timeout_ms), retries: None, retry_delay: None, exponential_backoff: None,
+                    timeout: Some(timeout_ms),
+                    retries: None,
+                    retry_delay: None,
+                    exponential_backoff: None,
                 };
                 let deadline = Duration::from_millis(timeout_ms + 30_000);
 
@@ -322,7 +383,8 @@ impl ToolExecutionCoordinator {
                 let result = tokio::time::timeout(
                     deadline,
                     tool_registry.execute_tool(&tid, params, &options, &ctx),
-                ).await;
+                )
+                .await;
                 let duration_ms = (wf_common::now() - start) as f64;
 
                 entity_state.write().await.record_tool_call();
@@ -364,11 +426,9 @@ impl ToolExecutionCoordinator {
                                 parameter_size,
                                 0,
                             );
-                            metrics.tool().record_tool_call_error(
-                                &tool_name,
-                                entity_id,
-                                "timeout",
-                            );
+                            metrics
+                                .tool()
+                                .record_tool_call_error(&tool_name, entity_id, "timeout");
                             tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
                         }
                     }
@@ -379,7 +439,11 @@ impl ToolExecutionCoordinator {
                         id: wf_types::Id::new(),
                         role: MessageRole::Tool,
                         content: MessageContentValue::Text(
-                            tool_result.result.as_ref().map(|v| v.to_string()).unwrap_or_default(),
+                            tool_result
+                                .result
+                                .as_ref()
+                                .map(|v| v.to_string())
+                                .unwrap_or_default(),
                         ),
                         timestamp: wf_common::now(),
                         tool_call_id: Some(tc.id.clone()),
@@ -388,16 +452,29 @@ impl ToolExecutionCoordinator {
                         thinking: None,
                         metadata: None,
                     },
-                    Ok(Err(e)) => Self::error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name)),
-                    Err(_) => Self::error_message(&format!("Tool '{}' timed out after {}ms", tc.function.name, timeout_ms), Some(&tc.id), Some(&tc.function.name)),
+                    Ok(Err(e)) => {
+                        Self::error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))
+                    }
+                    Err(_) => Self::error_message(
+                        &format!(
+                            "Tool '{}' timed out after {}ms",
+                            tc.function.name, timeout_ms
+                        ),
+                        Some(&tc.id),
+                        Some(&tc.function.name),
+                    ),
                 }
             }
             None => {
                 if let Some(metrics) = metrics {
-                    metrics.tool().record_tool_call_error(&tool_name, entity_id, "not_found");
+                    metrics
+                        .tool()
+                        .record_tool_call_error(&tool_name, entity_id, "not_found");
                 }
                 Self::error_message(
-                    &format!("Tool not found: {}", tc.function.name), Some(&tc.id), Some(&tc.function.name),
+                    &format!("Tool not found: {}", tc.function.name),
+                    Some(&tc.id),
+                    Some(&tc.function.name),
                 )
             }
         }
@@ -407,9 +484,7 @@ impl ToolExecutionCoordinator {
         Message {
             id: wf_types::Id::new(),
             role: MessageRole::Tool,
-            content: MessageContentValue::Text(
-                serde_json::json!({"error": error}).to_string(),
-            ),
+            content: MessageContentValue::Text(serde_json::json!({"error": error}).to_string()),
             timestamp: wf_common::now(),
             tool_call_id: tool_call_id.map(String::from),
             tool_name: tool_name.map(String::from),
@@ -422,17 +497,29 @@ impl ToolExecutionCoordinator {
     fn build_hook_data(tc: &LlmToolCall) -> HashMap<String, Value> {
         let mut data = HashMap::new();
         data.insert("tool_call_id".to_string(), Value::String(tc.id.clone()));
-        data.insert("tool_name".to_string(), Value::String(tc.function.name.clone()));
-        data.insert("tool_arguments".to_string(), Value::String(tc.function.arguments.clone()));
+        data.insert(
+            "tool_name".to_string(),
+            Value::String(tc.function.name.clone()),
+        );
+        data.insert(
+            "tool_arguments".to_string(),
+            Value::String(tc.function.arguments.clone()),
+        );
         data
     }
 
     fn find_tool_id_by_name(registry: &ToolRegistry, name: &str) -> Option<String> {
-        registry.list_tools().into_iter().find(|t| t.name == name).map(|t| t.id)
+        registry
+            .list_tools()
+            .into_iter()
+            .find(|t| t.name == name)
+            .map(|t| t.id)
     }
 }
 
 /// Serialized size of a value in bytes, used for tool parameter/result metrics.
 fn json_size(value: &Value) -> u64 {
-    serde_json::to_string(value).map(|s| s.len() as u64).unwrap_or(0)
+    serde_json::to_string(value)
+        .map(|s| s.len() as u64)
+        .unwrap_or(0)
 }

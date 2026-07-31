@@ -21,7 +21,10 @@ impl ToolSchemaFormatter {
             for (k, v) in properties {
                 props_map.insert(k.clone(), Self::format_property(k, v));
             }
-            map.insert("properties".to_string(), serde_json::Value::Object(props_map));
+            map.insert(
+                "properties".to_string(),
+                serde_json::Value::Object(props_map),
+            );
         }
 
         if let Some(ref required) = prop.required {
@@ -37,13 +40,19 @@ impl ToolSchemaFormatter {
 
     pub fn format_parameters(params: &ToolParametersSchema) -> serde_json::Value {
         let mut map = serde_json::Map::new();
-        map.insert("type".to_string(), serde_json::json!(params.parameters_type));
+        map.insert(
+            "type".to_string(),
+            serde_json::json!(params.parameters_type),
+        );
 
         let mut props_map = serde_json::Map::new();
         for (k, v) in &params.properties {
             props_map.insert(k.clone(), Self::format_property(k, v));
         }
-        map.insert("properties".to_string(), serde_json::Value::Object(props_map));
+        map.insert(
+            "properties".to_string(),
+            serde_json::Value::Object(props_map),
+        );
 
         if let Some(ref required) = params.required {
             map.insert("required".to_string(), serde_json::json!(required));

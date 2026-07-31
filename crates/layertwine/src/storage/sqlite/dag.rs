@@ -97,11 +97,13 @@ impl DagStore for SqliteStorage {
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction()?;
         {
-            let mut edge_stmt = tx.prepare(
-                "INSERT OR IGNORE INTO dag_edges (parent_id, child_id) VALUES (?1, ?2)",
-            )?;
+            let mut edge_stmt = tx
+                .prepare("INSERT OR IGNORE INTO dag_edges (parent_id, child_id) VALUES (?1, ?2)")?;
             for (parent_id, child_id) in edges {
-                edge_stmt.execute(rusqlite::params![&parent_id.0.to_vec(), &child_id.0.to_vec()])?;
+                edge_stmt.execute(rusqlite::params![
+                    &parent_id.0.to_vec(),
+                    &child_id.0.to_vec()
+                ])?;
             }
         }
         {
@@ -109,8 +111,7 @@ impl DagStore for SqliteStorage {
                 "INSERT OR REPLACE INTO dag_generations (node_id, generation) VALUES (?1, ?2)",
             )?;
             for (node_id, generation) in nodes {
-                gen_stmt
-                    .execute(rusqlite::params![&node_id.0.to_vec(), *generation as i64])?;
+                gen_stmt.execute(rusqlite::params![&node_id.0.to_vec(), *generation as i64])?;
             }
         }
         tx.commit()?;
@@ -153,7 +154,9 @@ impl DagStore for SqliteStorage {
         Ok(())
     }
 
-    fn load_dag(&self) -> StorageResult<(
+    fn load_dag(
+        &self,
+    ) -> StorageResult<(
         HashMap<CheckpointId, HashSet<CheckpointId>>,
         HashMap<CheckpointId, u64>,
     )> {

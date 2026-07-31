@@ -13,11 +13,7 @@ impl SandboxJavaScriptExecutor {
         Self { runtime }
     }
 
-    pub async fn execute(
-        &self,
-        code: &str,
-        config: &SandboxConfig,
-    ) -> ScriptExecutionResult {
+    pub async fn execute(&self, code: &str, config: &SandboxConfig) -> ScriptExecutionResult {
         self.runtime.execute("javascript", code, config).await
     }
 }

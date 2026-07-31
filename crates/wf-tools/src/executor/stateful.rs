@@ -151,9 +151,17 @@ impl ToolExecutor for StatefulExecutor {
             if let Some(instance) = exec.get(&tool_id) {
                 let result = instance.execute(parameters)?;
                 let execution_time = start.elapsed().as_millis() as i64;
-                return Ok(BaseExecutor::build_result(true, Some(result), None, execution_time, 0));
+                return Ok(BaseExecutor::build_result(
+                    true,
+                    Some(result),
+                    None,
+                    execution_time,
+                    0,
+                ));
             }
-            return Err(ToolError::Internal("Failed to create stateful instance".into()));
+            return Err(ToolError::Internal(
+                "Failed to create stateful instance".into(),
+            ));
         }
 
         self.set_state(
@@ -178,7 +186,13 @@ impl ToolExecutor for StatefulExecutor {
         });
 
         let execution_time = start.elapsed().as_millis() as i64;
-        Ok(BaseExecutor::build_result(true, Some(result), None, execution_time, 0))
+        Ok(BaseExecutor::build_result(
+            true,
+            Some(result),
+            None,
+            execution_time,
+            0,
+        ))
     }
 
     fn executor_type(&self) -> &str {

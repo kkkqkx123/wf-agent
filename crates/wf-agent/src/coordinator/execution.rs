@@ -126,7 +126,8 @@ impl AgentExecutionCoordinator {
             match iteration_result {
                 Some(result) => {
                     if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint(entity, CheckpointTrigger::AfterExecute).await
+                        cp.create_checkpoint(entity, CheckpointTrigger::AfterExecute)
+                            .await
                             .unwrap_or_else(|e| {
                                 tracing::warn!("Failed to create iteration checkpoint: {}", e);
                             });
@@ -157,7 +158,8 @@ impl AgentExecutionCoordinator {
         };
 
         if let Some(ref cp) = self.checkpoint {
-            cp.create_checkpoint(entity, CheckpointTrigger::OnComplete).await
+            cp.create_checkpoint(entity, CheckpointTrigger::OnComplete)
+                .await
                 .unwrap_or_else(|e| {
                     tracing::warn!("Failed to create agent completion checkpoint: {}", e);
                 });
@@ -189,7 +191,8 @@ impl AgentExecutionCoordinator {
                 Ok(result) => return Ok(Some(result)),
                 Err(e) => {
                     if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint(entity, CheckpointTrigger::OnError).await
+                        cp.create_checkpoint(entity, CheckpointTrigger::OnError)
+                            .await
                             .unwrap_or_else(|ce| {
                                 tracing::warn!("Failed to create error checkpoint: {}", ce);
                             });

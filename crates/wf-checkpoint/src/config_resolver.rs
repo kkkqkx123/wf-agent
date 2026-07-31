@@ -1,17 +1,18 @@
-use wf_types::checkpoint::base::{CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy};
+use wf_types::checkpoint::base::{
+    CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy,
+};
 
 #[derive(Debug, Clone)]
 pub struct CheckpointConfigResolver;
 
 impl CheckpointConfigResolver {
-    pub fn resolve_from_user_config(user_policy: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
+    pub fn resolve_from_user_config(
+        user_policy: &UnifiedCheckpointPolicy,
+    ) -> UnifiedCheckpointPolicy {
         let mut policy = user_policy.clone();
 
         if policy.triggers.is_empty() {
-            policy.triggers = vec![
-                CheckpointTrigger::AfterExecute,
-                CheckpointTrigger::OnError,
-            ];
+            policy.triggers = vec![CheckpointTrigger::AfterExecute, CheckpointTrigger::OnError];
         }
 
         if policy.retention.is_none() {
@@ -63,8 +64,14 @@ mod tests {
     #[test]
     fn test_should_checkpoint() {
         let triggers = vec![CheckpointTrigger::BeforeExecute, CheckpointTrigger::OnError];
-        assert!(CheckpointConfigResolver::should_checkpoint_before_node(&triggers));
-        assert!(!CheckpointConfigResolver::should_checkpoint_after_node(&triggers));
-        assert!(CheckpointConfigResolver::should_checkpoint_on_error(&triggers));
+        assert!(CheckpointConfigResolver::should_checkpoint_before_node(
+            &triggers
+        ));
+        assert!(!CheckpointConfigResolver::should_checkpoint_after_node(
+            &triggers
+        ));
+        assert!(CheckpointConfigResolver::should_checkpoint_on_error(
+            &triggers
+        ));
     }
 }

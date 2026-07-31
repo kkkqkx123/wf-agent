@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use dashmap::DashMap;
-use wf_types::llm::LlmProfile;
 use crate::error::LlmResult;
+use dashmap::DashMap;
+use std::sync::Arc;
+use wf_types::llm::LlmProfile;
 
 #[derive(Clone)]
 pub struct ProfileManager {

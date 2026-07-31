@@ -27,9 +27,11 @@ impl HistoryConverter {
             let mut condensed = msg.clone();
             if let MessageContentValue::Text(text) = &condensed.content {
                 if text.len() > 200 {
-                    condensed.content = MessageContentValue::Text(
-                        format!("{}...[{} chars]", &text[..200], text.len())
-                    );
+                    condensed.content = MessageContentValue::Text(format!(
+                        "{}...[{} chars]",
+                        &text[..200],
+                        text.len()
+                    ));
                 }
             }
             result.push(condensed);
@@ -39,45 +41,54 @@ impl HistoryConverter {
     }
 
     fn filter_tool_messages(messages: &[Message]) -> Vec<Message> {
-        messages.iter()
+        messages
+            .iter()
             .filter(|m| m.role == MessageRole::Tool || m.tool_calls.is_some())
             .cloned()
             .collect()
     }
 
     fn remove_tool_messages(messages: &[Message]) -> Vec<Message> {
-        messages.iter()
+        messages
+            .iter()
             .filter(|m| m.role != MessageRole::Tool && m.tool_calls.is_none())
             .cloned()
             .collect()
     }
 
     pub fn to_plain_text(messages: &[Message]) -> String {
-        messages.iter().map(|msg| {
-            let role_prefix = match msg.role {
-                MessageRole::System => "[System]",
-                MessageRole::User => "[User]",
-                MessageRole::Assistant => "[Assistant]",
-                MessageRole::Tool => "[Tool]",
-            };
+        messages
+            .iter()
+            .map(|msg| {
+                let role_prefix = match msg.role {
+                    MessageRole::System => "[System]",
+                    MessageRole::User => "[User]",
+                    MessageRole::Assistant => "[Assistant]",
+                    MessageRole::Tool => "[Tool]",
+                };
 
-            let content = match &msg.content {
-                MessageContentValue::Text(text) => text.clone(),
-                MessageContentValue::Rich(blocks) => {
-                    blocks.iter().filter_map(|b| match b {
-                        MessageContent::Text { text } => Some(text.clone()),
-                        _ => None,
-                    }).collect::<Vec<_>>().join(" ")
-                }
-            };
+                let content = match &msg.content {
+                    MessageContentValue::Text(text) => text.clone(),
+                    MessageContentValue::Rich(blocks) => blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            MessageContent::Text { text } => Some(text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                };
 
-            format!("{} {}", role_prefix, content)
-        }).collect::<Vec<_>>().join("\n")
+                format!("{} {}", role_prefix, content)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     pub fn summarize(messages: &[Message]) -> String {
         let total = messages.len();
-        let tool_calls: usize = messages.iter()
+        let tool_calls: usize = messages
+            .iter()
             .map(|m| m.tool_calls.as_ref().map(|tc| tc.len()).unwrap_or(0))
             .sum();
 

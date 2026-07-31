@@ -1,9 +1,9 @@
-use reqwest::Method;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
-use crate::error::LlmResult;
-use wf_types::tool::Tool;
-use super::LlmFormatter;
 use super::shared;
+use super::LlmFormatter;
+use crate::error::LlmResult;
+use reqwest::Method;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::tool::Tool;
 
 pub struct GeminiOpenaiFormatter {
     base_url: String,
@@ -28,8 +28,15 @@ impl GeminiOpenaiFormatter {
 }
 
 impl LlmFormatter for GeminiOpenaiFormatter {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
-        let url = format!("{}/chat/completions", profile.base_url.as_deref().unwrap_or(&self.base_url));
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request> {
+        let url = format!(
+            "{}/chat/completions",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
 
         let messages = shared::convert_openai_messages(&request.messages);
 
@@ -55,7 +62,9 @@ impl LlmFormatter for GeminiOpenaiFormatter {
 
         req_builder = shared::add_auth_and_headers(req_builder, profile, "bearer");
 
-        req_builder.build().map_err(crate::error::LlmError::HttpError)
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {

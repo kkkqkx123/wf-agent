@@ -78,10 +78,7 @@ pub trait PartitionStore {
     fn reset_partition_to_baseline(&self, partition_id: &PartitionId) -> StorageResult<()> {
         let partition = self.get_partition(partition_id)?;
         let baseline = partition.history.first().ok_or_else(|| {
-            crate::StorageError::NotFound(format!(
-                "partition {:?} has empty history",
-                partition_id
-            ))
+            crate::StorageError::NotFound(format!("partition {:?} has empty history", partition_id))
         })?;
         self.update_pointer(partition_id, baseline)
     }

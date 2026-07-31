@@ -74,9 +74,7 @@ mod tests {
         let result = check_execution_interruption(&state, Some(3));
         assert!(matches!(
             result,
-            ExecutionInterruptionCheckResult::Paused {
-                iteration: Some(3)
-            }
+            ExecutionInterruptionCheckResult::Paused { iteration: Some(3) }
         ));
     }
 
@@ -87,9 +85,7 @@ mod tests {
         let result = check_execution_interruption(&state, Some(7));
         assert!(matches!(
             result,
-            ExecutionInterruptionCheckResult::Stopped {
-                iteration: Some(7)
-            }
+            ExecutionInterruptionCheckResult::Stopped { iteration: Some(7) }
         ));
     }
 
@@ -107,18 +103,14 @@ mod tests {
     #[tokio::test]
     async fn test_iterate_with_interruption_handling_completes() {
         let state = InterruptionState::new();
-        let result = iterate_with_interruption_handling(&state, 0, |i| async move {
-            Ok(i * 2)
-        })
-        .await
-        .unwrap();
+        let result = iterate_with_interruption_handling(&state, 0, |i| async move { Ok(i * 2) })
+            .await
+            .unwrap();
         assert_eq!(result, Some(0));
 
-        let result = iterate_with_interruption_handling(&state, 5, |i| async move {
-            Ok(i * 2)
-        })
-        .await
-        .unwrap();
+        let result = iterate_with_interruption_handling(&state, 5, |i| async move { Ok(i * 2) })
+            .await
+            .unwrap();
         assert_eq!(result, Some(10));
     }
 
@@ -126,11 +118,9 @@ mod tests {
     async fn test_iterate_cancelled_before() {
         let state = InterruptionState::new();
         state.stop().unwrap();
-        let result = iterate_with_interruption_handling(&state, 0, |_| async move {
-            Ok(42)
-        })
-        .await
-        .unwrap();
+        let result = iterate_with_interruption_handling(&state, 0, |_| async move { Ok(42) })
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -158,10 +148,11 @@ mod tests {
     #[tokio::test]
     async fn test_iterate_error_propagation() {
         let state = InterruptionState::new();
-        let result: CoreResult<Option<i32>> = iterate_with_interruption_handling(&state, 0, |_| async move {
-            Err(crate::error::CoreError::Internal("fail".to_string()))
-        })
-        .await;
+        let result: CoreResult<Option<i32>> =
+            iterate_with_interruption_handling(&state, 0, |_| async move {
+                Err(crate::error::CoreError::Internal("fail".to_string()))
+            })
+            .await;
         assert!(result.is_err());
     }
 }

@@ -40,7 +40,11 @@ fn generate_modified_text(base: &str, change_rate: f64) -> String {
 fn setup_storage_and_snapshot(
     lines: usize,
     change_rate: f64,
-) -> (SqliteStorage, BackupRepo, layertwine::core::types::SnapshotId) {
+) -> (
+    SqliteStorage,
+    BackupRepo,
+    layertwine::core::types::SnapshotId,
+) {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let backup_repo = BackupRepo::new_in_memory().unwrap();
 
@@ -57,14 +61,20 @@ fn setup_storage_and_snapshot(
     storage.store_delta(&delta).unwrap();
 
     let snapshot = Snapshot::new_initial(file_node, delta.id);
-    storage.store_snapshot(&snapshot, content.as_bytes()).unwrap();
+    storage
+        .store_snapshot(&snapshot, content.as_bytes())
+        .unwrap();
 
     (storage, backup_repo, snapshot.id)
 }
 
 fn setup_storage_with_partition(
     lines: usize,
-) -> (SqliteStorage, BackupRepo, layertwine::core::types::SnapshotId) {
+) -> (
+    SqliteStorage,
+    BackupRepo,
+    layertwine::core::types::SnapshotId,
+) {
     let storage = SqliteStorage::new_in_memory().unwrap();
     let backup_repo = BackupRepo::new_in_memory().unwrap();
 
@@ -80,7 +90,9 @@ fn setup_storage_with_partition(
     storage.store_delta(&delta).unwrap();
 
     let snapshot = Snapshot::new_initial(file_node, delta.id);
-    storage.store_snapshot(&snapshot, content.as_bytes()).unwrap();
+    storage
+        .store_snapshot(&snapshot, content.as_bytes())
+        .unwrap();
 
     // Create staged partition
     let partition = Partition {
@@ -114,18 +126,21 @@ fn bench_backup_snapshot(c: &mut criterion::Criterion) {
 
 fn bench_backup_snapshot_with_label(c: &mut criterion::Criterion) {
     for &lines in &[10, 100] {
-        c.bench_function(&format!("backup_snapshot_with_label_{}_lines", lines), |b| {
-            b.iter_with_setup(
-                || setup_storage_and_snapshot(lines, 0.1),
-                |(storage, backup_repo, snap_id)| {
-                    let _ = backup_repo.backup_snapshot(
-                        &storage,
-                        snap_id,
-                        Some("performance-test-backup".to_string()),
-                    );
-                },
-            );
-        });
+        c.bench_function(
+            &format!("backup_snapshot_with_label_{}_lines", lines),
+            |b| {
+                b.iter_with_setup(
+                    || setup_storage_and_snapshot(lines, 0.1),
+                    |(storage, backup_repo, snap_id)| {
+                        let _ = backup_repo.backup_snapshot(
+                            &storage,
+                            snap_id,
+                            Some("performance-test-backup".to_string()),
+                        );
+                    },
+                );
+            },
+        );
     }
 }
 
@@ -161,10 +176,8 @@ fn bench_query_backups(c: &mut criterion::Criterion) {
 
             for i in 0..count {
                 let content = generate_test_text(10);
-                let file_node = FileNode::new(
-                    PathBuf::from(format!("file_{}.txt", i)),
-                    content.as_bytes(),
-                );
+                let file_node =
+                    FileNode::new(PathBuf::from(format!("file_{}.txt", i)), content.as_bytes());
                 storage
                     .store_file_node(&file_node, content.as_bytes())
                     .unwrap();
@@ -200,10 +213,7 @@ fn bench_query_backups_filtered(c: &mut criterion::Criterion) {
 
     for i in 0..count {
         let content = generate_test_text(10);
-        let file_node = FileNode::new(
-            PathBuf::from(format!("file_{}.txt", i)),
-            content.as_bytes(),
-        );
+        let file_node = FileNode::new(PathBuf::from(format!("file_{}.txt", i)), content.as_bytes());
         storage
             .store_file_node(&file_node, content.as_bytes())
             .unwrap();
@@ -255,9 +265,7 @@ fn bench_merge_to_staged(c: &mut criterion::Criterion) {
                 delta.id,
                 "backup".to_string(),
             );
-            storage
-                .store_snapshot(&backup_snapshot, &[])
-                .unwrap();
+            storage.store_snapshot(&backup_snapshot, &[]).unwrap();
 
             let backup_id = backup_repo
                 .backup_snapshot(&storage, backup_snapshot.id, None)
@@ -267,9 +275,7 @@ fn bench_merge_to_staged(c: &mut criterion::Criterion) {
                 || {
                     // Before each iteration: reset staged pointer back to initial
                     let staged = storage.get_partition_by_name("staged").unwrap();
-                    storage
-                        .update_pointer(&staged.id, &initial_id)
-                        .unwrap();
+                    storage.update_pointer(&staged.id, &initial_id).unwrap();
                     backup_id
                 },
                 |bid| {
@@ -293,10 +299,8 @@ fn bench_delete_backup(c: &mut criterion::Criterion) {
 
             for i in 0..count {
                 let content = generate_test_text(10);
-                let file_node = FileNode::new(
-                    PathBuf::from(format!("del_{}.txt", i)),
-                    content.as_bytes(),
-                );
+                let file_node =
+                    FileNode::new(PathBuf::from(format!("del_{}.txt", i)), content.as_bytes());
                 storage
                     .store_file_node(&file_node, content.as_bytes())
                     .unwrap();
@@ -375,11 +379,7 @@ criterion::criterion_group!(
 
 criterion::criterion_group!(backup_restore_ops, bench_merge_to_staged);
 
-criterion::criterion_group!(
-    backup_admin_ops,
-    bench_delete_backup,
-    bench_backup_count
-);
+criterion::criterion_group!(backup_admin_ops, bench_delete_backup, bench_backup_count);
 
 criterion::criterion_main!(
     backup_snapshot_ops,

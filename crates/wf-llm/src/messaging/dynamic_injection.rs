@@ -1,5 +1,5 @@
-use wf_types::message::{Message, MessageContentValue, MessageRole};
 use std::collections::HashMap;
+use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 pub struct DynamicInjection;
 
@@ -19,7 +19,10 @@ impl DynamicInjection {
         injected
     }
 
-    pub fn inject_context_messages(messages: &[Message], context: &HashMap<String, String>) -> Vec<Message> {
+    pub fn inject_context_messages(
+        messages: &[Message],
+        context: &HashMap<String, String>,
+    ) -> Vec<Message> {
         if context.is_empty() {
             return messages.to_vec();
         }
@@ -106,7 +109,9 @@ mod tests {
 
     #[test]
     fn test_has_unresolved_variables() {
-        assert!(DynamicInjection::has_unresolved_variables("Hello ${{name}}"));
+        assert!(DynamicInjection::has_unresolved_variables(
+            "Hello ${{name}}"
+        ));
         assert!(!DynamicInjection::has_unresolved_variables("Hello World"));
     }
 }

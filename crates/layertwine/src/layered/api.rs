@@ -6,8 +6,8 @@
 //! - Merging multiple features
 
 use crate::core::types::{AgentInstanceId, SnapshotId};
-use crate::error::Result;
 use crate::error::LayertwineError;
+use crate::error::Result;
 use crate::layered::agent;
 use crate::layered::integrated;
 use crate::layered::staged;
@@ -169,9 +169,11 @@ fn get_current_baseline<S>(storage: &S) -> Result<crate::core::snapshot::Snapsho
 where
     S: SnapshotStore + PartitionStore,
 {
-    let staged = storage.get_partition(&staged::staged_partition_id()).map_err(|_| {
-        LayertwineError::NotFound("No baseline found. Please initialize staged first.".into())
-    })?;
+    let staged = storage
+        .get_partition(&staged::staged_partition_id())
+        .map_err(|_| {
+            LayertwineError::NotFound("No baseline found. Please initialize staged first.".into())
+        })?;
     storage
         .get_snapshot(&staged.current_snapshot)
         .map_err(crate::error::LayertwineError::Storage)

@@ -3,9 +3,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::callback::{
-    AgentLoopConfig, AgentLoopInput, ExecutionCallback, WorkflowInput,
-};
+use crate::callback::{AgentLoopConfig, AgentLoopInput, ExecutionCallback, WorkflowInput};
 use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
@@ -22,7 +20,9 @@ impl BuiltinExecutor {
     }
 
     pub fn with_callback(callback: Arc<dyn ExecutionCallback>) -> Self {
-        Self { callback: Some(callback) }
+        Self {
+            callback: Some(callback),
+        }
     }
 
     pub fn with_callback_opt(callback: Option<Arc<dyn ExecutionCallback>>) -> Self {
@@ -98,7 +98,10 @@ impl BuiltinExecutor {
             message,
             context: {
                 let mut m = std::collections::HashMap::new();
-                m.insert("parent_execution_id".into(), Value::String(context.execution_id.clone()));
+                m.insert(
+                    "parent_execution_id".into(),
+                    Value::String(context.execution_id.clone()),
+                );
                 m
             },
         };
@@ -203,7 +206,13 @@ impl ToolExecutor for BuiltinExecutor {
         let execution_time = start.elapsed().as_millis() as i64;
 
         match result {
-            Ok(value) => Ok(BaseExecutor::build_result(true, Some(value), None, execution_time, 0)),
+            Ok(value) => Ok(BaseExecutor::build_result(
+                true,
+                Some(value),
+                None,
+                execution_time,
+                0,
+            )),
             Err(e) => Ok(BaseExecutor::build_result(
                 false,
                 None,

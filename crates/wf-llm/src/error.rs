@@ -42,9 +42,7 @@ pub enum LlmError {
 impl LlmError {
     pub fn is_retryable(&self) -> bool {
         match self {
-            LlmError::HttpError(e) => {
-                e.is_timeout() || e.is_connect() || e.is_request()
-            }
+            LlmError::HttpError(e) => e.is_timeout() || e.is_connect() || e.is_request(),
             LlmError::ProviderError(msg) => {
                 // 5xx errors are retryable, 4xx are not
                 msg.starts_with("HTTP 5") || msg.starts_with("HTTP 429")

@@ -152,19 +152,31 @@ impl ContributionManager {
         next().await
     }
 
-    fn check_conflict(&self, type_name: &str, key: &str, owner_check: impl Fn() -> Option<String>) -> PluginResult<()> {
+    fn check_conflict(
+        &self,
+        type_name: &str,
+        key: &str,
+        owner_check: impl Fn() -> Option<String>,
+    ) -> PluginResult<()> {
         let policy = *self.override_policy.read().unwrap();
         if let Some(owner) = owner_check() {
             let current = self.current_plugin_id.read().unwrap().clone();
             if owner != current {
                 match policy {
                     OverridePolicy::Forbid => {
-                        return Err(PluginError::ContributionConflict(
-                            format!("plugin '{}' cannot override {} '{}' (owned by '{}')", current, type_name, key, owner)
-                        ));
+                        return Err(PluginError::ContributionConflict(format!(
+                            "plugin '{}' cannot override {} '{}' (owned by '{}')",
+                            current, type_name, key, owner
+                        )));
                     }
                     OverridePolicy::Warn => {
-                        tracing::warn!("plugin '{}' overriding {} '{}' (was '{}')", current, type_name, key, owner);
+                        tracing::warn!(
+                            "plugin '{}' overriding {} '{}' (was '{}')",
+                            current,
+                            type_name,
+                            key,
+                            owner
+                        );
                     }
                     OverridePolicy::Allow | OverridePolicy::Priority => {}
                 }
@@ -181,44 +193,87 @@ pub struct RegistrarGuard<'a> {
 impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_node_type(&mut self, type_name: &str, handler: Arc<dyn PluginNodeHandler>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        if self.manager.check_conflict("node-type", type_name, || self.manager.node_type_registry.get_owner(type_name)).is_ok() {
-            self.manager.node_type_registry.register(type_name.into(), plugin_id, handler);
+        if self
+            .manager
+            .check_conflict("node-type", type_name, || {
+                self.manager.node_type_registry.get_owner(type_name)
+            })
+            .is_ok()
+        {
+            self.manager
+                .node_type_registry
+                .register(type_name.into(), plugin_id, handler);
         }
     }
 
     fn register_tool_type(&mut self, type_name: &str, executor: Arc<dyn PluginToolExecutor>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        if self.manager.check_conflict("tool-type", type_name, || self.manager.tool_type_registry.get_owner(type_name)).is_ok() {
-            self.manager.tool_type_registry.register(type_name.into(), plugin_id, executor);
+        if self
+            .manager
+            .check_conflict("tool-type", type_name, || {
+                self.manager.tool_type_registry.get_owner(type_name)
+            })
+            .is_ok()
+        {
+            self.manager
+                .tool_type_registry
+                .register(type_name.into(), plugin_id, executor);
         }
     }
 
     fn register_llm_provider(&mut self, name: &str, formatter: Arc<dyn PluginLLMFormatter>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        if self.manager.check_conflict("llm-provider", name, || self.manager.llm_provider_registry.get_owner(name)).is_ok() {
-            self.manager.llm_provider_registry.register(name.into(), plugin_id, formatter);
+        if self
+            .manager
+            .check_conflict("llm-provider", name, || {
+                self.manager.llm_provider_registry.get_owner(name)
+            })
+            .is_ok()
+        {
+            self.manager
+                .llm_provider_registry
+                .register(name.into(), plugin_id, formatter);
         }
     }
 
     fn register_formatter(&mut self, name: &str, formatter: Arc<dyn PluginLLMFormatter>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        if self.manager.check_conflict("formatter", name, || self.manager.formatter_registry.get_owner(name)).is_ok() {
-            self.manager.formatter_registry.register(name.into(), plugin_id, formatter);
+        if self
+            .manager
+            .check_conflict("formatter", name, || {
+                self.manager.formatter_registry.get_owner(name)
+            })
+            .is_ok()
+        {
+            self.manager
+                .formatter_registry
+                .register(name.into(), plugin_id, formatter);
         }
     }
 
     fn register_event_handler(&mut self, event_type: &str, handler: Arc<dyn PluginEventHandler>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        self.manager.event_handler_registry.register(event_type.into(), plugin_id, handler);
+        self.manager
+            .event_handler_registry
+            .register(event_type.into(), plugin_id, handler);
     }
 
     fn register_hook_handler(&mut self, hook_type: &str, handler: Arc<dyn PluginHookHandler>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        self.manager.hook_handler_registry.register(hook_type.into(), plugin_id, handler);
+        self.manager
+            .hook_handler_registry
+            .register(hook_type.into(), plugin_id, handler);
     }
 
-    fn register_middleware(&mut self, phase: &str, priority: i32, handler: Arc<dyn PluginMiddlewareHandler>) {
+    fn register_middleware(
+        &mut self,
+        phase: &str,
+        priority: i32,
+        handler: Arc<dyn PluginMiddlewareHandler>,
+    ) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
-        self.manager.middleware_registry.register(phase.into(), plugin_id, (priority, handler));
+        self.manager
+            .middleware_registry
+            .register(phase.into(), plugin_id, (priority, handler));
     }
 }

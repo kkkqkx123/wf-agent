@@ -55,9 +55,15 @@ impl ToolMetricsCollector {
             ("execution_id", execution_id),
             ("success", if success { "true" } else { "false" }),
         ]);
-        self.inner.observe_summary(tool_metrics::CALL_DURATION, duration_ms, labels.clone());
-        self.inner.set_gauge(tool_metrics::PARAMETER_SIZE, parameter_size as f64, labels.clone());
-        self.inner.set_gauge(tool_metrics::RESULT_SIZE, result_size as f64, labels);
+        self.inner
+            .observe_summary(tool_metrics::CALL_DURATION, duration_ms, labels.clone());
+        self.inner.set_gauge(
+            tool_metrics::PARAMETER_SIZE,
+            parameter_size as f64,
+            labels.clone(),
+        );
+        self.inner
+            .set_gauge(tool_metrics::RESULT_SIZE, result_size as f64, labels);
     }
 
     pub fn record_tool_call_error(&self, tool_name: &str, execution_id: &str, error_type: &str) {
@@ -93,7 +99,11 @@ impl ToolMetricsCollector {
         let percentile = |p: f64| {
             duration
                 .as_ref()
-                .and_then(|d| d.percentiles.iter().find(|q| (q.percentile - p).abs() < f64::EPSILON))
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - p).abs() < f64::EPSILON)
+                })
                 .map(|q| q.value)
                 .unwrap_or(0.0)
         };
@@ -102,10 +112,20 @@ impl ToolMetricsCollector {
             total: total as u64,
             success: (total - errors).max(0.0) as u64,
             failure: errors as u64,
-            success_rate: if total > 0.0 { (total - errors) / total } else { 0.0 },
+            success_rate: if total > 0.0 {
+                (total - errors) / total
+            } else {
+                0.0
+            },
             avg_duration_ms: duration
                 .as_ref()
-                .map(|d| if d.count > 0 { d.sum / d.count as f64 } else { 0.0 })
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0),
             p95_duration_ms: percentile(0.95),
             p99_duration_ms: percentile(0.99),

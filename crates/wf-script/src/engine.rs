@@ -4,9 +4,7 @@ use serde_json::Value;
 
 use super::resolver::{ArgumentResolver, DynamicResolver};
 use super::template::ScriptTemplateEngine;
-use super::types::{
-    ExecutorMode, ScriptDefinition, ScriptExecutionOptions, ScriptExecutionResult,
-};
+use super::types::{ExecutorMode, ScriptDefinition, ScriptExecutionOptions, ScriptExecutionResult};
 use crate::error::ScriptResult;
 
 pub struct ScriptEngine;
@@ -73,9 +71,14 @@ impl ScriptEngine {
         if let Some(ref template) = script.template {
             let args = script.arguments.as_deref().unwrap_or_default();
 
-            let resolved_args = ArgumentResolver::resolve(args, &engine_options.args, &engine_options.context_variables)?;
+            let resolved_args = ArgumentResolver::resolve(
+                args,
+                &engine_options.args,
+                &engine_options.context_variables,
+            )?;
 
-            let dynamic_args = DynamicResolver::resolve_map(&resolved_args, &engine_options.context_variables);
+            let dynamic_args =
+                DynamicResolver::resolve_map(&resolved_args, &engine_options.context_variables);
 
             let render_result = ScriptTemplateEngine::render(template, &dynamic_args)?;
 
@@ -103,7 +106,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_with_template() {
-
         let script = ScriptDefinition {
             name: "test".to_string(),
             content: None,
@@ -124,7 +126,8 @@ mod tests {
         args.insert("msg".to_string(), Value::String("world".to_string()));
 
         let se = ScriptEngine;
-        let result = se.execute(
+        let result = se
+            .execute(
                 &script,
                 None,
                 &ScriptEngineOptions {

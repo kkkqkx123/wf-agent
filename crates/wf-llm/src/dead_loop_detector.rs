@@ -94,7 +94,11 @@ impl DeadLoopDetector {
             return LoopDetectionResult::NoLoop;
         }
 
-        for period in 1..=self.config.max_period_length.min(len / self.config.min_repeat_count) {
+        for period in 1..=self
+            .config
+            .max_period_length
+            .min(len / self.config.min_repeat_count)
+        {
             let pattern = &text[len - period..];
             let mut count = 0;
             let mut pos = len;
@@ -108,7 +112,8 @@ impl DeadLoopDetector {
                 }
             }
 
-            if count >= self.config.min_repeat_count && period >= self.config.min_repeat_unit_length {
+            if count >= self.config.min_repeat_count && period >= self.config.min_repeat_unit_length
+            {
                 return LoopDetectionResult::Detected {
                     pattern: pattern.to_string(),
                     count,
@@ -158,8 +163,14 @@ mod tests {
         };
         let mut detector = DeadLoopDetector::new(config);
 
-        assert_eq!(detector.check_tool_call("search", r#"{"q":"a"}"#), LoopDetectionResult::NoLoop);
-        assert_eq!(detector.check_tool_call("search", r#"{"q":"a"}"#), LoopDetectionResult::NoLoop);
+        assert_eq!(
+            detector.check_tool_call("search", r#"{"q":"a"}"#),
+            LoopDetectionResult::NoLoop
+        );
+        assert_eq!(
+            detector.check_tool_call("search", r#"{"q":"a"}"#),
+            LoopDetectionResult::NoLoop
+        );
         let result = detector.check_tool_call("search", r#"{"q":"a"}"#);
         assert!(matches!(result, LoopDetectionResult::Detected { .. }));
     }

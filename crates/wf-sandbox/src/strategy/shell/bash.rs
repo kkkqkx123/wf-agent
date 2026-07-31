@@ -6,11 +6,38 @@ use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, Shel
 const SHELL_TYPE: ShellType = ShellType::Bash;
 
 const DENIED_COMMANDS: &[&str] = &[
-    "sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown",
-    "poweroff", "halt", "passwd", "useradd", "userdel", "usermod", "groupadd",
-    "groupdel", "groupmod", "lvremove", "pvremove", "ifdown", "ifup", "killall",
-    "pkill", "service", "systemctl", "insmod", "modprobe", "modprobe.d", "depmod",
-    "swapon", "swapoff",
+    "sudo",
+    "su",
+    "chroot",
+    "mount",
+    "umount",
+    "dd",
+    "mkfs",
+    "reboot",
+    "shutdown",
+    "poweroff",
+    "halt",
+    "passwd",
+    "useradd",
+    "userdel",
+    "usermod",
+    "groupadd",
+    "groupdel",
+    "groupmod",
+    "lvremove",
+    "pvremove",
+    "ifdown",
+    "ifup",
+    "killall",
+    "pkill",
+    "service",
+    "systemctl",
+    "insmod",
+    "modprobe",
+    "modprobe.d",
+    "depmod",
+    "swapon",
+    "swapoff",
 ];
 
 pub const DANGEROUS_PATTERNS: &[&str] = &[
@@ -46,12 +73,14 @@ impl BashAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
             allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy.denied_commands.clone().unwrap_or_else(|| {
-                DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()
-            }),
-            dangerous_patterns: policy.dangerous_patterns.clone().unwrap_or_else(|| {
-                DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()
-            }),
+            denied_commands: policy
+                .denied_commands
+                .clone()
+                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
+            dangerous_patterns: policy
+                .dangerous_patterns
+                .clone()
+                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
@@ -72,7 +101,14 @@ impl BashAnalyzer {
 
         tokens.get(idx).map(|s| {
             s.chars()
-                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.' || *c == '/' || *c == '\\')
+                .filter(|c| {
+                    c.is_alphanumeric()
+                        || *c == '_'
+                        || *c == '-'
+                        || *c == '.'
+                        || *c == '/'
+                        || *c == '\\'
+                })
                 .collect()
         })
     }
@@ -99,9 +135,7 @@ impl ShellAnalyzer for BashAnalyzer {
             }
         };
 
-        if !policy.allowed_commands.is_empty()
-            && !policy.allowed_commands.contains(&primary)
-        {
+        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
             return ShellAnalysisResult {
                 allowed: false,
                 reason: Some(format!("Command not in whitelist: {primary}")),

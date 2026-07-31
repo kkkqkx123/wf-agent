@@ -155,13 +155,7 @@ pub trait CliExecutor: Send + Sync {
         let (stdout_res, stderr_res, status) = if let Some(ms) = options.timeout_ms {
             tokio::time::timeout(
                 Duration::from_millis(ms),
-                collect_child_output(
-                    &mut child,
-                    max_lines,
-                    max_bytes,
-                    &stdout_path,
-                    &stderr_path,
-                ),
+                collect_child_output(&mut child, max_lines, max_bytes, &stdout_path, &stderr_path),
             )
             .await
             .map_err(|_| ToolError::Timeout {
@@ -169,14 +163,8 @@ pub trait CliExecutor: Send + Sync {
                 timeout_ms: ms,
             })??
         } else {
-            collect_child_output(
-                &mut child,
-                max_lines,
-                max_bytes,
-                &stdout_path,
-                &stderr_path,
-            )
-            .await?
+            collect_child_output(&mut child, max_lines, max_bytes, &stdout_path, &stderr_path)
+                .await?
         };
 
         Ok(CliExecutionResult {
@@ -356,12 +344,14 @@ async fn run_command(
 ) -> ToolResult<(PipeOutput, PipeOutput, std::process::ExitStatus)> {
     let exec = async {
         let mut child = cmd.spawn()?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            ToolError::Internal("stdout pipe not configured".to_string())
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            ToolError::Internal("stderr pipe not configured".to_string())
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ToolError::Internal("stdout pipe not configured".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ToolError::Internal("stderr pipe not configured".to_string()))?;
 
         let (stdout_res, stderr_res) = tokio::join!(
             read_pipe(stdout, max_lines, max_bytes, &None),
@@ -499,7 +489,11 @@ impl ToolExecutor for CliToolExecutor {
                 "stderr": stderr.text,
                 "exit_code": status.code().unwrap_or(-1),
             })),
-            if status.success() { None } else { Some(stderr.text) },
+            if status.success() {
+                None
+            } else {
+                Some(stderr.text)
+            },
             execution_time,
             0,
         ))
@@ -621,8 +615,7 @@ mod tests {
     #[test]
     fn test_build_truncated_output_line_limit() {
         let input = "line1\nline2\nline3\nline4\nline5";
-        let (text, truncated, reason) =
-            build_truncated_output(input, 30, 3, false, &None);
+        let (text, truncated, reason) = build_truncated_output(input, 30, 3, false, &None);
         assert!(truncated);
         assert_eq!(reason.as_deref(), Some("lines"));
         assert!(text.contains("line1"));
@@ -643,8 +636,7 @@ mod tests {
     #[test]
     fn test_build_truncated_output_both_limits() {
         let input = "line1\nline2\nline3\nline4\nline5";
-        let (text, truncated, reason) =
-            build_truncated_output(input, 20, 2, true, &None);
+        let (text, truncated, reason) = build_truncated_output(input, 20, 2, true, &None);
         assert!(truncated);
         assert_eq!(reason.as_deref(), Some("size+lines"));
         assert!(text.contains("line1"));
@@ -657,8 +649,7 @@ mod tests {
     fn test_build_truncated_output_with_path_hint() {
         let path = Some(PathBuf::from("/tmp/output.txt"));
         let input = "line1\nline2\nline3";
-        let (text, truncated, _) =
-            build_truncated_output(input, 30, 1, false, &path);
+        let (text, truncated, _) = build_truncated_output(input, 30, 1, false, &path);
         assert!(truncated);
         assert!(text.contains("/tmp/output.txt"));
         assert!(text.contains("grep"));

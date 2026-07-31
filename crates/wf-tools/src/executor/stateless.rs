@@ -49,15 +49,15 @@ impl StatelessExecutor {
 
     pub fn from_tool_config(tool: &wf_types::tool::Tool) -> Self {
         let runtime = tool.config.as_ref().map(|config| StatelessToolRuntime {
-                endpoint: config
-                    .get("endpoint")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                method: config
-                    .get("method")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-            });
+            endpoint: config
+                .get("endpoint")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            method: config
+                .get("method")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        });
 
         Self {
             handlers: Arc::new(DashMap::new()),
@@ -65,17 +65,20 @@ impl StatelessExecutor {
         }
     }
 
-    pub fn from_tool_config_shared(tool: &wf_types::tool::Tool, handlers: Arc<DashMap<String, StatelessHandler>>) -> Self {
+    pub fn from_tool_config_shared(
+        tool: &wf_types::tool::Tool,
+        handlers: Arc<DashMap<String, StatelessHandler>>,
+    ) -> Self {
         let runtime = tool.config.as_ref().map(|config| StatelessToolRuntime {
-                endpoint: config
-                    .get("endpoint")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-                method: config
-                    .get("method")
-                    .and_then(|v| v.as_str())
-                    .map(String::from),
-            });
+            endpoint: config
+                .get("endpoint")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            method: config
+                .get("method")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        });
 
         Self { handlers, runtime }
     }
@@ -123,7 +126,13 @@ impl ToolExecutor for StatelessExecutor {
 
         let execution_time = start.elapsed().as_millis() as i64;
         match result {
-            Ok(value) => Ok(BaseExecutor::build_result(true, Some(value), None, execution_time, 0)),
+            Ok(value) => Ok(BaseExecutor::build_result(
+                true,
+                Some(value),
+                None,
+                execution_time,
+                0,
+            )),
             Err(e) => Ok(BaseExecutor::build_result(
                 false,
                 None,

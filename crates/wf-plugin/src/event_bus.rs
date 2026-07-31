@@ -44,10 +44,15 @@ impl Default for PluginEventBus {
 
 impl PluginEventSubscription {
     pub async fn recv(&mut self) -> PluginResult<PluginEvent> {
-        self.receiver.recv().await.map_err(|e| PluginError::Internal(format!("event bus recv failed: {}", e)))
+        self.receiver
+            .recv()
+            .await
+            .map_err(|e| PluginError::Internal(format!("event bus recv failed: {}", e)))
     }
 
     pub fn try_recv(&mut self) -> PluginResult<PluginEvent> {
-        self.receiver.try_recv().map_err(|e| PluginError::Internal(format!("event bus try_recv failed: {}", e)))
+        self.receiver
+            .try_recv()
+            .map_err(|e| PluginError::Internal(format!("event bus try_recv failed: {}", e)))
     }
 }

@@ -1,84 +1,95 @@
+use crate::error::LlmResult;
 use wf_types::llm::{LlmProfile, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
-use crate::error::LlmResult;
 
 pub fn convert_openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
-    messages.iter().map(|msg| {
-        let role = match msg.role {
-            MessageRole::System => "system",
-            MessageRole::User => "user",
-            MessageRole::Assistant => "assistant",
-            MessageRole::Tool => "tool",
-        };
+    messages
+        .iter()
+        .map(|msg| {
+            let role = match msg.role {
+                MessageRole::System => "system",
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::Tool => "tool",
+            };
 
-        let mut entry = match &msg.content {
-            MessageContentValue::Text(text) => {
-                serde_json::json!({"role": role, "content": text})
-            }
-            MessageContentValue::Rich(blocks) => {
-                let content: Vec<serde_json::Value> = blocks.iter().map(|block| {
-                    match block {
-                        MessageContent::Text { text } => {
-                            serde_json::json!({"type": "text", "text": text})
-                        }
-                        MessageContent::ImageUrl { image_url } => {
-                            let mut img = serde_json::json!({
-                                "type": "image_url",
-                                "image_url": {"url": image_url.url}
-                            });
-                            if let Some(ref detail) = image_url.detail {
-                                img["image_url"]["detail"] = serde_json::json!(detail);
+            let mut entry = match &msg.content {
+                MessageContentValue::Text(text) => {
+                    serde_json::json!({"role": role, "content": text})
+                }
+                MessageContentValue::Rich(blocks) => {
+                    let content: Vec<serde_json::Value> = blocks
+                        .iter()
+                        .map(|block| match block {
+                            MessageContent::Text { text } => {
+                                serde_json::json!({"type": "text", "text": text})
                             }
-                            img
-                        }
-                        MessageContent::ToolUse { tool_use } => {
-                            serde_json::json!({
-                                "type": "tool_use",
-                                "id": tool_use.id,
-                                "name": tool_use.name,
-                                "input": tool_use.input,
-                            })
-                        }
-                        MessageContent::ToolResult { tool_result } => {
-                            serde_json::json!({
-                                "type": "tool_result",
-                                "tool_use_id": tool_result.tool_use_id,
-                                "content": tool_result.content,
-                                "is_error": tool_result.is_error.unwrap_or(false),
-                            })
-                        }
-                        MessageContent::Thinking { thinking, .. } => {
-                            serde_json::json!({"type": "text", "text": thinking})
-                        }
-                    }
-                }).collect();
-                serde_json::json!({"role": role, "content": content})
+                            MessageContent::ImageUrl { image_url } => {
+                                let mut img = serde_json::json!({
+                                    "type": "image_url",
+                                    "image_url": {"url": image_url.url}
+                                });
+                                if let Some(ref detail) = image_url.detail {
+                                    img["image_url"]["detail"] = serde_json::json!(detail);
+                                }
+                                img
+                            }
+                            MessageContent::ToolUse { tool_use } => {
+                                serde_json::json!({
+                                    "type": "tool_use",
+                                    "id": tool_use.id,
+                                    "name": tool_use.name,
+                                    "input": tool_use.input,
+                                })
+                            }
+                            MessageContent::ToolResult { tool_result } => {
+                                serde_json::json!({
+                                    "type": "tool_result",
+                                    "tool_use_id": tool_result.tool_use_id,
+                                    "content": tool_result.content,
+                                    "is_error": tool_result.is_error.unwrap_or(false),
+                                })
+                            }
+                            MessageContent::Thinking { thinking, .. } => {
+                                serde_json::json!({"type": "text", "text": thinking})
+                            }
+                        })
+                        .collect();
+                    serde_json::json!({"role": role, "content": content})
+                }
+            };
+
+            if let Some(ref tool_calls) = msg.tool_calls {
+                let calls: Vec<serde_json::Value> = tool_calls
+                    .iter()
+                    .map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": tc.r#type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        })
+                    })
+                    .collect();
+                entry["tool_calls"] = serde_json::json!(calls);
             }
-        };
 
-        if let Some(ref tool_calls) = msg.tool_calls {
-            let calls: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
-                serde_json::json!({
-                    "id": tc.id,
-                    "type": tc.r#type,
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    }
-                })
-            }).collect();
-            entry["tool_calls"] = serde_json::json!(calls);
-        }
+            if let Some(ref tool_call_id) = msg.tool_call_id {
+                entry["tool_call_id"] = serde_json::json!(tool_call_id);
+            }
 
-        if let Some(ref tool_call_id) = msg.tool_call_id {
-            entry["tool_call_id"] = serde_json::json!(tool_call_id);
-        }
-
-        entry
-    }).collect()
+            entry
+        })
+        .collect()
 }
 
-pub fn merge_and_apply_params(body: &mut serde_json::Value, profile: &LlmProfile, request_params: &Option<serde_json::Value>) {
+pub fn merge_and_apply_params(
+    body: &mut serde_json::Value,
+    profile: &LlmProfile,
+    request_params: &Option<serde_json::Value>,
+) {
     let merged_params = crate::formatter_helpers::merge_parameters(profile, request_params);
     if let Some(temp) = merged_params.get("temperature") {
         body["temperature"] = temp.clone();
@@ -98,10 +109,17 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
     let json: serde_json::Value = serde_json::from_str(body)?;
 
     let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
-    let model = json.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let model = json
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     let empty_choices = vec![];
-    let choices = json.get("choices").and_then(|v| v.as_array()).unwrap_or(&empty_choices);
+    let choices = json
+        .get("choices")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty_choices);
     let first_choice = choices.first();
     let message = first_choice.and_then(|c| c.get("message"));
 
@@ -124,27 +142,33 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
         .and_then(|m| m.get("tool_calls"))
         .and_then(|t| t.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|tc| {
-                let id = tc.get("id")?.as_str()?.to_string();
-                let function = tc.get("function")?;
-                let name = function.get("name")?.as_str()?.to_string();
-                let arguments = function.get("arguments")?.as_str()?.to_string();
-                Some(wf_types::message::LlmToolCall {
-                    id,
-                    r#type: "function".to_string(),
-                    function: wf_types::message::LlmFunctionCall { name, arguments },
+            arr.iter()
+                .filter_map(|tc| {
+                    let id = tc.get("id")?.as_str()?.to_string();
+                    let function = tc.get("function")?;
+                    let name = function.get("name")?.as_str()?.to_string();
+                    let arguments = function.get("arguments")?.as_str()?.to_string();
+                    Some(wf_types::message::LlmToolCall {
+                        id,
+                        r#type: "function".to_string(),
+                        function: wf_types::message::LlmFunctionCall { name, arguments },
+                    })
                 })
-            }).collect()
+                .collect()
         });
 
     let usage = json.get("usage").map(|u| {
-        let reasoning_tokens = u.get("completion_tokens_details")
+        let reasoning_tokens = u
+            .get("completion_tokens_details")
             .and_then(|d| d.get("reasoning_tokens"))
             .and_then(|r| r.as_u64())
             .map(|r| r as u32);
         wf_types::llm::TokenUsageStats {
             prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            completion_tokens: u
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32,
             total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             reasoning_tokens,
             prompt_tokens_cost: None,
@@ -153,8 +177,7 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
         }
     });
 
-    let reasoning_tokens = usage.as_ref()
-        .and_then(|u| u.reasoning_tokens);
+    let reasoning_tokens = usage.as_ref().and_then(|u| u.reasoning_tokens);
 
     let msg = wf_types::message::Message {
         id: wf_types::Id::new(),
@@ -175,7 +198,11 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
     if let Some(fp) = json.get("system_fingerprint").and_then(|v| v.as_str()) {
         metadata.insert("system_fingerprint".to_string(), serde_json::json!(fp));
     }
-    let metadata = if metadata.is_empty() { None } else { Some(metadata) };
+    let metadata = if metadata.is_empty() {
+        None
+    } else {
+        Some(metadata)
+    };
 
     Ok(LlmResponseType {
         id,
@@ -196,30 +223,44 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
 
 pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEvent>> {
     if data == "[DONE]" {
-        return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+        return Ok(Some(MessageStreamEvent::End(
+            wf_types::llm::MessageStreamEnd {},
+        )));
     }
 
     let json: serde_json::Value = serde_json::from_str(data)?;
 
     let empty_choices = vec![];
-    let choices = json.get("choices").and_then(|v| v.as_array()).unwrap_or(&empty_choices);
+    let choices = json
+        .get("choices")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty_choices);
     if let Some(choice) = choices.first() {
         if let Some(delta) = choice.get("delta") {
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                 return Ok(Some(MessageStreamEvent::Text(
-                    wf_types::llm::MessageStreamText { text: content.to_string() }
+                    wf_types::llm::MessageStreamText {
+                        text: content.to_string(),
+                    },
                 )));
             }
             if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                    wf_types::llm::MessageStreamReasoning { reasoning: reasoning.to_string() }
+                    wf_types::llm::MessageStreamReasoning {
+                        reasoning: reasoning.to_string(),
+                    },
                 )));
             }
         }
         if let Some(finish_reason) = choice.get("finish_reason").and_then(|r| r.as_str()) {
-            let is_done = matches!(finish_reason, "stop" | "tool_calls" | "length" | "content_filter");
+            let is_done = matches!(
+                finish_reason,
+                "stop" | "tool_calls" | "length" | "content_filter"
+            );
             if is_done {
-                return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                return Ok(Some(MessageStreamEvent::End(
+                    wf_types::llm::MessageStreamEnd {},
+                )));
             }
         }
     }
@@ -228,16 +269,19 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
 }
 
 pub fn convert_openai_tools(tools: &[wf_types::tool::Tool]) -> LlmResult<Vec<serde_json::Value>> {
-    let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-        serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.parameters,
-            }
+    let tool_defs: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
         })
-    }).collect();
+        .collect();
     Ok(tool_defs)
 }
 

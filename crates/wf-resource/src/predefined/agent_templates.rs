@@ -121,7 +121,12 @@ pub fn register(regs: &Registries, opts: &Options) -> Summary {
     let mut total = Summary::new();
     for tmpl in builtin_agent_templates() {
         let id = tmpl.id.clone();
-        total.merge(register_item(&regs.agent_templates, id, tmpl, opts.skip_if_exists));
+        total.merge(register_item(
+            &regs.agent_templates,
+            id,
+            tmpl,
+            opts.skip_if_exists,
+        ));
     }
     total
 }

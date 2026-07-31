@@ -10,13 +10,34 @@ pub const PLUGIN_CONFIG_CHANGED: &str = "plugin:config-changed";
 
 #[derive(Debug, Clone)]
 pub enum PluginEvent {
-    Discovered { plugin_id: String },
-    Loading { plugin_id: String },
-    Loaded { plugin_id: String, version: String },
-    Activating { plugin_id: String },
-    Activated { plugin_id: String },
-    Deactivating { plugin_id: String },
-    Deactivated { plugin_id: String },
-    Error { plugin_id: String, error: String },
-    ConfigChanged { plugin_id: String, config: serde_json::Value },
+    Discovered {
+        plugin_id: String,
+    },
+    Loading {
+        plugin_id: String,
+    },
+    Loaded {
+        plugin_id: String,
+        version: String,
+    },
+    Activating {
+        plugin_id: String,
+    },
+    Activated {
+        plugin_id: String,
+    },
+    Deactivating {
+        plugin_id: String,
+    },
+    Deactivated {
+        plugin_id: String,
+    },
+    Error {
+        plugin_id: String,
+        error: String,
+    },
+    ConfigChanged {
+        plugin_id: String,
+        config: serde_json::Value,
+    },
 }

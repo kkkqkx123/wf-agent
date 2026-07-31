@@ -1,20 +1,30 @@
-use wf_types::config::presets::{ContextCompressionPresetConfig, PredefinedPromptsPresetConfig, PredefinedToolsPresetConfig, PresetsConfig};
+use wf_types::config::presets::{
+    ContextCompressionPresetConfig, PredefinedPromptsPresetConfig, PredefinedToolsPresetConfig,
+    PresetsConfig,
+};
 
 pub fn merge_presets_with_defaults(user: &PresetsConfig) -> PresetsConfig {
     PresetsConfig {
-        context_compression: user.context_compression.as_ref().map(|c| ContextCompressionPresetConfig {
-            enabled: c.enabled.or(Some(true)),
-            threshold: c.threshold.or(Some(0.7)),
-            max_tokens: c.max_tokens.or(Some(4096)),
-            strategy: c.strategy.clone().or(Some("sliding_window".to_string())),
+        context_compression: user.context_compression.as_ref().map(|c| {
+            ContextCompressionPresetConfig {
+                enabled: c.enabled.or(Some(true)),
+                threshold: c.threshold.or(Some(0.7)),
+                max_tokens: c.max_tokens.or(Some(4096)),
+                strategy: c.strategy.clone().or(Some("sliding_window".to_string())),
+            }
         }),
-        predefined_tools: user.predefined_tools.as_ref().map(|t| PredefinedToolsPresetConfig {
-            enabled: t.enabled.or(Some(true)),
-            tools: t.tools.clone(),
-        }),
-        predefined_prompts: user.predefined_prompts.as_ref().map(|p| PredefinedPromptsPresetConfig {
-            enabled: p.enabled.or(Some(true)),
-            prompts: p.prompts.clone(),
+        predefined_tools: user
+            .predefined_tools
+            .as_ref()
+            .map(|t| PredefinedToolsPresetConfig {
+                enabled: t.enabled.or(Some(true)),
+                tools: t.tools.clone(),
+            }),
+        predefined_prompts: user.predefined_prompts.as_ref().map(|p| {
+            PredefinedPromptsPresetConfig {
+                enabled: p.enabled.or(Some(true)),
+                prompts: p.prompts.clone(),
+            }
         }),
     }
 }

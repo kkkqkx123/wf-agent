@@ -63,7 +63,10 @@ impl IgnoreMode {
     pub fn use_builtin(&self) -> bool {
         matches!(
             self,
-            IgnoreMode::Builtin | IgnoreMode::BuiltinGitignore | IgnoreMode::BuiltinCustom | IgnoreMode::All
+            IgnoreMode::Builtin
+                | IgnoreMode::BuiltinGitignore
+                | IgnoreMode::BuiltinCustom
+                | IgnoreMode::All
         )
     }
 
@@ -93,7 +96,9 @@ fn build_glob_matcher(patterns: &[String]) -> globset::GlobSet {
             builder.add(glob);
         }
     }
-    builder.build().unwrap_or_else(|_| globset::GlobSet::empty())
+    builder
+        .build()
+        .unwrap_or_else(|_| globset::GlobSet::empty())
 }
 
 fn builtin_patterns() -> Vec<String> {
@@ -238,7 +243,12 @@ mod tests {
     #[test]
     fn test_should_include_directory() {
         let ic = IgnoreController::new("/workspace", IgnoreMode::Builtin);
-        assert!(!ic.should_include_directory("node_modules", "/workspace/node_modules", false, false));
+        assert!(!ic.should_include_directory(
+            "node_modules",
+            "/workspace/node_modules",
+            false,
+            false
+        ));
         assert!(ic.should_include_directory("src", "/workspace/src", false, false));
     }
 

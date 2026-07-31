@@ -15,12 +15,12 @@ pub async fn query_metrics(
     start_time: i64,
     end_time: i64,
 ) -> crate::ApiResult<Vec<MetricsDataPoint>> {
-    ctx.metrics.query(name, start_time, end_time).await.map_err(Into::into)
+    ctx.metrics
+        .query(name, start_time, end_time)
+        .await
+        .map_err(Into::into)
 }
 
-pub async fn delete_old_metrics(
-    ctx: &StorageContext,
-    older_than: i64,
-) -> crate::ApiResult<u64> {
+pub async fn delete_old_metrics(ctx: &StorageContext, older_than: i64) -> crate::ApiResult<u64> {
     ctx.metrics.delete_old(older_than).await.map_err(Into::into)
 }

@@ -171,18 +171,19 @@ impl ErrorChainManager {
             }
         }
 
-        let most_common_type = type_dist
-            .iter()
-            .max_by_key(|(_, count)| *count)
-            .and_then(|(name, _)| match name.as_str() {
-                "ToolError" => Some(ErrorType::ToolError),
-                "LlmError" => Some(ErrorType::LlmError),
-                "Timeout" => Some(ErrorType::Timeout),
-                "Validation" => Some(ErrorType::Validation),
-                "Internal" => Some(ErrorType::Internal),
-                "Interruption" => Some(ErrorType::Interruption),
-                _ => None,
-            });
+        let most_common_type =
+            type_dist
+                .iter()
+                .max_by_key(|(_, count)| *count)
+                .and_then(|(name, _)| match name.as_str() {
+                    "ToolError" => Some(ErrorType::ToolError),
+                    "LlmError" => Some(ErrorType::LlmError),
+                    "Timeout" => Some(ErrorType::Timeout),
+                    "Validation" => Some(ErrorType::Validation),
+                    "Internal" => Some(ErrorType::Internal),
+                    "Interruption" => Some(ErrorType::Interruption),
+                    _ => None,
+                });
 
         ErrorPattern {
             total_errors: records.len(),
@@ -231,7 +232,11 @@ mod tests {
         let exec_id = "exec-1".to_string();
 
         let id1 = manager.record(exec_id.clone(), "error 1".to_string(), None);
-        let id2 = manager.record(exec_id.clone(), "error 2".to_string(), Some("node-a".to_string()));
+        let id2 = manager.record(
+            exec_id.clone(),
+            "error 2".to_string(),
+            Some("node-a".to_string()),
+        );
 
         let records = manager.get_records(&exec_id);
         assert_eq!(records.len(), 2);
@@ -246,9 +251,21 @@ mod tests {
         let manager = ErrorChainManager::new();
         let exec_id = "exec-1".to_string();
 
-        manager.record(exec_id.clone(), "root cause".to_string(), Some("node-1".to_string()));
-        manager.record(exec_id.clone(), "intermediate".to_string(), Some("node-2".to_string()));
-        manager.record(exec_id.clone(), "top error".to_string(), Some("node-3".to_string()));
+        manager.record(
+            exec_id.clone(),
+            "root cause".to_string(),
+            Some("node-1".to_string()),
+        );
+        manager.record(
+            exec_id.clone(),
+            "intermediate".to_string(),
+            Some("node-2".to_string()),
+        );
+        manager.record(
+            exec_id.clone(),
+            "top error".to_string(),
+            Some("node-3".to_string()),
+        );
 
         let chain = manager.get_chain(&exec_id);
         assert_eq!(chain.len(), 3);
@@ -289,8 +306,14 @@ mod tests {
         assert_eq!(records[2].parent_error_id, Some(mid_id.clone()));
 
         assert_eq!(records[0].error_chain, vec![root_id.clone()]);
-        assert_eq!(records[1].error_chain, vec![root_id.clone(), mid_id.clone()]);
-        assert_eq!(records[2].error_chain, vec![root_id.clone(), mid_id.clone(), top_id]);
+        assert_eq!(
+            records[1].error_chain,
+            vec![root_id.clone(), mid_id.clone()]
+        );
+        assert_eq!(
+            records[2].error_chain,
+            vec![root_id.clone(), mid_id.clone(), top_id]
+        );
     }
 
     #[test]
@@ -354,7 +377,10 @@ mod tests {
         assert_eq!(records[0].id, id);
         assert!(matches!(records[0].error_type, Some(ErrorType::Timeout)));
         assert!(records[0].is_recoverable);
-        assert!(matches!(records[0].recovery_action, Some(RecoveryAction::Retry)));
+        assert!(matches!(
+            records[0].recovery_action,
+            Some(RecoveryAction::Retry)
+        ));
     }
 
     #[test]
@@ -400,13 +426,34 @@ mod tests {
 
         let pattern = manager.analyze_error_pattern(&exec_id);
         assert_eq!(pattern.total_errors, 3);
-        assert_eq!(pattern.type_distribution.get("Timeout").copied().unwrap_or(0), 2);
-        assert_eq!(pattern.type_distribution.get("Validation").copied().unwrap_or(0), 1);
+        assert_eq!(
+            pattern
+                .type_distribution
+                .get("Timeout")
+                .copied()
+                .unwrap_or(0),
+            2
+        );
+        assert_eq!(
+            pattern
+                .type_distribution
+                .get("Validation")
+                .copied()
+                .unwrap_or(0),
+            1
+        );
         assert_eq!(pattern.most_common_type, Some(ErrorType::Timeout));
         assert!(pattern.has_recoverable);
         assert!(pattern.affected_nodes.contains(&"node-a".to_string()));
         assert!(pattern.affected_nodes.contains(&"node-b".to_string()));
-        assert_eq!(pattern.recovery_action_count.get("Retry").copied().unwrap_or(0), 2);
+        assert_eq!(
+            pattern
+                .recovery_action_count
+                .get("Retry")
+                .copied()
+                .unwrap_or(0),
+            2
+        );
     }
 
     #[test]

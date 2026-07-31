@@ -1,8 +1,8 @@
-use reqwest::Method;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
-use crate::error::LlmResult;
-use wf_types::tool::Tool;
 use super::LlmFormatter;
+use crate::error::LlmResult;
+use reqwest::Method;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::tool::Tool;
 
 pub struct AnthropicFormatter {
     base_url: String,
@@ -39,12 +39,15 @@ impl AnthropicFormatter {
 
             let content = match &msg.content {
                 wf_types::message::MessageContentValue::Text(text) => {
-                    if text.is_empty() { continue; }
+                    if text.is_empty() {
+                        continue;
+                    }
                     serde_json::json!([{"type": "text", "text": text}])
                 }
                 wf_types::message::MessageContentValue::Rich(blocks) => {
-                    let converted: Vec<serde_json::Value> = blocks.iter().map(|block| {
-                        match block {
+                    let converted: Vec<serde_json::Value> = blocks
+                        .iter()
+                        .map(|block| match block {
                             wf_types::message::MessageContent::Text { text } => {
                                 serde_json::json!({"type": "text", "text": text})
                             }
@@ -66,17 +69,21 @@ impl AnthropicFormatter {
                             }
                             wf_types::message::MessageContent::ImageUrl { image_url } => {
                                 let url = &image_url.url;
-                                let (media_type, data) = if let Some(rest) = url.strip_prefix("data:") {
-                                    if let Some(semicolon) = rest.find(';') {
-                                        let mime = &rest[..semicolon];
-                                        let b64 = rest[semicolon + 1..].strip_prefix("base64,").unwrap_or("").to_string();
-                                        (mime.to_string(), b64)
+                                let (media_type, data) =
+                                    if let Some(rest) = url.strip_prefix("data:") {
+                                        if let Some(semicolon) = rest.find(';') {
+                                            let mime = &rest[..semicolon];
+                                            let b64 = rest[semicolon + 1..]
+                                                .strip_prefix("base64,")
+                                                .unwrap_or("")
+                                                .to_string();
+                                            (mime.to_string(), b64)
+                                        } else {
+                                            ("image/png".to_string(), rest.to_string())
+                                        }
                                     } else {
-                                        ("image/png".to_string(), rest.to_string())
-                                    }
-                                } else {
-                                    ("image/png".to_string(), url.clone())
-                                };
+                                        ("image/png".to_string(), url.clone())
+                                    };
                                 serde_json::json!({
                                     "type": "image",
                                     "source": {
@@ -87,8 +94,8 @@ impl AnthropicFormatter {
                                 })
                             }
                             _ => serde_json::json!({"type": "text", "text": ""}),
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     serde_json::json!(converted)
                 }
             };
@@ -134,7 +141,8 @@ impl AnthropicFormatter {
                         }
                     }
                     for tc in tool_calls {
-                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                        let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                         blocks.push(serde_json::json!({
                             "type": "tool_use",
                             "id": tc.id,
@@ -159,8 +167,15 @@ impl AnthropicFormatter {
 }
 
 impl LlmFormatter for AnthropicFormatter {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
-        let url = format!("{}/messages", profile.base_url.as_deref().unwrap_or(&self.base_url));
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request> {
+        let url = format!(
+            "{}/messages",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
 
         let messages = self.convert_messages(&request.messages);
 
@@ -170,7 +185,8 @@ impl LlmFormatter for AnthropicFormatter {
             "max_tokens": 4096,
         });
 
-        let merged_params = crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        let merged_params =
+            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
         if let Some(temp) = merged_params.get("temperature") {
             body["temperature"] = temp.clone();
         }
@@ -185,13 +201,16 @@ impl LlmFormatter for AnthropicFormatter {
         }
 
         if let Some(tools) = &request.tools {
-            let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "input_schema": t.parameters,
+            let tool_defs: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.parameters,
+                    })
                 })
-            }).collect();
+                .collect();
             body["tools"] = serde_json::json!(tool_defs);
         }
 
@@ -215,15 +234,24 @@ impl LlmFormatter for AnthropicFormatter {
             }
         }
 
-        req_builder.build().map_err(crate::error::LlmError::HttpError)
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
-        let model = json.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let stop_reason = json.get("stop_reason").and_then(|v| v.as_str()).map(String::from);
+        let model = json
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let stop_reason = json
+            .get("stop_reason")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         let content_arr = json.get("content").and_then(|v| v.as_array());
         let mut text_content = String::new();
@@ -239,9 +267,20 @@ impl LlmFormatter for AnthropicFormatter {
                         }
                     }
                     Some("tool_use") => {
-                        let tc_id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let input = block.get("input").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                        let tc_id = block
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let name = block
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let input = block
+                            .get("input")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                         let arguments = serde_json::to_string(&input).unwrap_or_default();
                         tool_calls.push(wf_types::message::LlmToolCall {
                             id: tc_id,
@@ -275,12 +314,17 @@ impl LlmFormatter for AnthropicFormatter {
             timestamp: wf_common::time::now(),
             tool_call_id: None,
             tool_name: None,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls.clone())
+            },
             thinking: None,
             metadata: None,
         };
 
-        let reasoning_token_count = json.get("usage")
+        let reasoning_token_count = json
+            .get("usage")
             .and_then(|u| u.get("completion_tokens_details"))
             .and_then(|d| d.get("reasoning_tokens"))
             .and_then(|r| r.as_u64());
@@ -292,14 +336,26 @@ impl LlmFormatter for AnthropicFormatter {
         if let Some(sr) = &stop_reason {
             metadata.insert("stop_reason".to_string(), serde_json::json!(sr));
         }
-        let metadata = if metadata.is_empty() { None } else { Some(metadata) };
+        let metadata = if metadata.is_empty() {
+            None
+        } else {
+            Some(metadata)
+        };
 
         Ok(LlmResponseType {
             id,
             model,
-            content: if text_content.is_empty() { None } else { Some(text_content) },
+            content: if text_content.is_empty() {
+                None
+            } else {
+                Some(text_content)
+            },
             message,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
             usage,
             finish_reason: stop_reason,
             duration: 0,
@@ -337,14 +393,18 @@ impl LlmFormatter for AnthropicFormatter {
                         Some("text_delta") => {
                             if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText { text: text.to_string() }
+                                    wf_types::llm::MessageStreamText {
+                                        text: text.to_string(),
+                                    },
                                 )));
                             }
                         }
                         Some("thinking_delta") => {
                             if let Some(reasoning) = d.get("thinking").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning { reasoning: reasoning.to_string() }
+                                    wf_types::llm::MessageStreamReasoning {
+                                        reasoning: reasoning.to_string(),
+                                    },
                                 )));
                             }
                         }
@@ -357,27 +417,37 @@ impl LlmFormatter for AnthropicFormatter {
                 let delta = json.get("delta");
                 if let Some(d) = delta {
                     if let Some(stop_reason) = d.get("stop_reason").and_then(|v| v.as_str()) {
-                        let is_done = matches!(stop_reason, "end_turn" | "max_tokens" | "stop_sequence" | "tool_use");
+                        let is_done = matches!(
+                            stop_reason,
+                            "end_turn" | "max_tokens" | "stop_sequence" | "tool_use"
+                        );
                         if is_done {
-                            return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                            return Ok(Some(MessageStreamEvent::End(
+                                wf_types::llm::MessageStreamEnd {},
+                            )));
                         }
                     }
                 }
                 Ok(None)
             }
-            Some("message_stop") => Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}))),
+            Some("message_stop") => Ok(Some(MessageStreamEvent::End(
+                wf_types::llm::MessageStreamEnd {},
+            ))),
             _ => Ok(None),
         }
     }
 
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let tool_defs: Vec<serde_json::Value> = tools.iter().map(|t| {
-            serde_json::json!({
-                "name": t.name,
-                "description": t.description,
-                "input_schema": t.parameters,
+        let tool_defs: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters,
+                })
             })
-        }).collect();
+            .collect();
         Ok(tool_defs)
     }
 

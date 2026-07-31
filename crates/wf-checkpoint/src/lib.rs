@@ -21,5 +21,5 @@ pub use cache::CheckpointCache;
 pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;
 pub use event::{CheckpointEvent, CheckpointEventBus};
-pub use metadata_builder::{CheckpointMetadataBuilder, build_checkpoint_state};
+pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use serializer::{CheckpointCodec, CheckpointSerializer};

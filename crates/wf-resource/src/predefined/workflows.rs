@@ -3,7 +3,8 @@ use serde_json::json;
 use wf_types::node::BaseStaticNode;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow::{
-    Edge, EdgeType, TriggeredSubworkflowConfig, WorkflowDefinition, WorkflowMetadata, WorkflowTemplate,
+    Edge, EdgeType, TriggeredSubworkflowConfig, WorkflowDefinition, WorkflowMetadata,
+    WorkflowTemplate,
 };
 
 use crate::registrar::{register_item, Options, Registries};
@@ -27,7 +28,9 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             id: "llm-summary-start".into(),
             node_type: StaticNodeType::StartFromTrigger,
             name: Some("Start LLM Summary".into()),
-            description: Some("Receive the full conversation history from the main workflow execution".into()),
+            description: Some(
+                "Receive the full conversation history from the main workflow execution".into(),
+            ),
             config: Some(json!({
                 "messageInputs": [{
                     "sourceContextId": "conversationHistory",
@@ -42,7 +45,9 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             id: "llm-summary-llm".into(),
             node_type: StaticNodeType::Llm,
             name: Some("Summarize Context".into()),
-            description: Some("Use LLM to generate a compressed summary of the conversation history".into()),
+            description: Some(
+                "Use LLM to generate a compressed summary of the conversation history".into(),
+            ),
             config: Some(json!({
                 "profileId": "DEFAULT",
                 "contextId": "current",
@@ -57,7 +62,9 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             id: "llm-summary-truncate".into(),
             node_type: StaticNodeType::ContextProcessor,
             name: Some("Replace with Summary".into()),
-            description: Some("Replace the original conversation context with the compressed summary only".into()),
+            description: Some(
+                "Replace the original conversation context with the compressed summary only".into(),
+            ),
             config: Some(json!({
                 "sourceContext": "current",
                 "targetContext": "current",
@@ -77,7 +84,10 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             id: "llm-summary-end".into(),
             node_type: StaticNodeType::ContinueFromTrigger,
             name: Some("Complete LLM Summary".into()),
-            description: Some("Pass the compressed conversation summary back to the main workflow execution".into()),
+            description: Some(
+                "Pass the compressed conversation summary back to the main workflow execution"
+                    .into(),
+            ),
             config: Some(json!({
                 "messageOutputs": [{
                     "internalName": "current",

@@ -2,11 +2,7 @@ use serde_json::Value;
 use wf_execution_shared::context::NodeExecutionContext;
 use wf_types::node::configs::script::ScriptOutputMapping;
 
-pub fn apply_output_mappings(
-    ctx: &NodeExecutionContext,
-    output: &Value,
-    mapping_val: &Value,
-) {
+pub fn apply_output_mappings(ctx: &NodeExecutionContext, output: &Value, mapping_val: &Value) {
     if let Ok(mappings) = serde_json::from_value::<Vec<ScriptOutputMapping>>(mapping_val.clone()) {
         for mapping in &mappings {
             let value = if let Some(ref path) = mapping.path {

@@ -301,7 +301,12 @@ pub fn register(regs: &Registries, opts: &Options) -> Summary {
         if crate::registrar::is_resource_disabled(&id, opts) {
             continue;
         }
-        total.merge(register_item(&regs.tools, id, tool_def, opts.skip_if_exists));
+        total.merge(register_item(
+            &regs.tools,
+            id,
+            tool_def,
+            opts.skip_if_exists,
+        ));
     }
     total
 }

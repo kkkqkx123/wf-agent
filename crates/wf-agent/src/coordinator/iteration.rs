@@ -3,17 +3,17 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_core::interruption::check_execution_interruption;
+use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_llm::LlmWrapper;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::LlmRequest;
 
+use crate::coordinator::tool::ToolExecutionCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
-use crate::coordinator::tool::ToolExecutionCoordinator;
 
 #[derive(Debug, Clone)]
 pub struct IterationResult {
@@ -56,8 +56,13 @@ impl AgentIterationCoordinator {
         let execution_id = entity.id().clone();
 
         AgentHookHandler::execute_agent_hook(
-            &self.hook_executor, entity, "BEFORE_ITERATION", HashMap::new(),
-        ).await.map_err(|e| AgentError::HookError(e.to_string()))?;
+            &self.hook_executor,
+            entity,
+            "BEFORE_ITERATION",
+            HashMap::new(),
+        )
+        .await
+        .map_err(|e| AgentError::HookError(e.to_string()))?;
 
         entity.state.write().await.start_iteration();
 
@@ -65,7 +70,10 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(
+            interruption,
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
+        ) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,
@@ -76,12 +84,21 @@ impl AgentIterationCoordinator {
         }
 
         AgentHookHandler::execute_agent_hook(
-            &self.hook_executor, entity, "BEFORE_LLM_CALL", HashMap::new(),
-        ).await.map_err(|e| AgentError::HookError(e.to_string()))?;
+            &self.hook_executor,
+            entity,
+            "BEFORE_LLM_CALL",
+            HashMap::new(),
+        )
+        .await
+        .map_err(|e| AgentError::HookError(e.to_string()))?;
 
         let messages = entity.conversation().read().await.messages().to_vec();
         let available_tools = entity.get_available_tools(self.tool_coordinator.tool_registry());
-        let tools = if available_tools.is_empty() { None } else { Some(available_tools) };
+        let tools = if available_tools.is_empty() {
+            None
+        } else {
+            Some(available_tools)
+        };
 
         let request = LlmRequest {
             profile_id: entity.model().map(|m| m.to_string()),
@@ -112,7 +129,10 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(
+            interruption,
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
+        ) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,
@@ -123,23 +143,51 @@ impl AgentIterationCoordinator {
         }
 
         let mut hook_data = HashMap::new();
-        hook_data.insert("llm_content".to_string(), llm_result.content.clone().map(Value::String).unwrap_or(Value::Null));
-        hook_data.insert("finish_reason".to_string(), Value::String(llm_result.finish_reason.clone().unwrap_or_default()));
+        hook_data.insert(
+            "llm_content".to_string(),
+            llm_result
+                .content
+                .clone()
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        hook_data.insert(
+            "finish_reason".to_string(),
+            Value::String(llm_result.finish_reason.clone().unwrap_or_default()),
+        );
         AgentHookHandler::execute_agent_hook(
-            &self.hook_executor, entity, "AFTER_LLM_CALL", hook_data,
-        ).await.map_err(|e| AgentError::HookError(e.to_string()))?;
+            &self.hook_executor,
+            entity,
+            "AFTER_LLM_CALL",
+            hook_data,
+        )
+        .await
+        .map_err(|e| AgentError::HookError(e.to_string()))?;
 
         let assistant_msg = llm_result.message.clone();
-        let has_tool_calls = llm_result.tool_calls.as_ref().map(|c| !c.is_empty()).unwrap_or(false);
-        entity.conversation().write().await.add_message(assistant_msg);
+        let has_tool_calls = llm_result
+            .tool_calls
+            .as_ref()
+            .map(|c| !c.is_empty())
+            .unwrap_or(false);
+        entity
+            .conversation()
+            .write()
+            .await
+            .add_message(assistant_msg);
 
         if !has_tool_calls {
             let content = llm_result.content.clone().unwrap_or_default();
             entity.state.write().await.end_iteration();
 
             AgentHookHandler::execute_agent_hook(
-                &self.hook_executor, entity, "AFTER_ITERATION", HashMap::new(),
-            ).await.map_err(|e| AgentError::HookError(e.to_string()))?;
+                &self.hook_executor,
+                entity,
+                "AFTER_ITERATION",
+                HashMap::new(),
+            )
+            .await
+            .map_err(|e| AgentError::HookError(e.to_string()))?;
 
             return Ok(IterationResult {
                 should_continue: false,
@@ -150,7 +198,10 @@ impl AgentIterationCoordinator {
         }
 
         let tool_calls = llm_result.tool_calls.unwrap_or_default();
-        let tool_messages = self.tool_coordinator.execute_tool_calls(entity, &tool_calls).await?;
+        let tool_messages = self
+            .tool_coordinator
+            .execute_tool_calls(entity, &tool_calls)
+            .await?;
         let tool_call_count = tool_calls.len() as u32;
 
         if let Some(ref metrics) = self.metrics {
@@ -163,7 +214,10 @@ impl AgentIterationCoordinator {
             entity.interruption(),
             Some(entity.state.read().await.current_iteration()),
         );
-        if !matches!(interruption, wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue) {
+        if !matches!(
+            interruption,
+            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
+        ) {
             entity.state.write().await.end_iteration();
             return Ok(IterationResult {
                 should_continue: false,
@@ -187,8 +241,13 @@ impl AgentIterationCoordinator {
         entity.state.write().await.end_iteration();
 
         AgentHookHandler::execute_agent_hook(
-            &self.hook_executor, entity, "AFTER_ITERATION", HashMap::new(),
-        ).await.map_err(|e| AgentError::HookError(e.to_string()))?;
+            &self.hook_executor,
+            entity,
+            "AFTER_ITERATION",
+            HashMap::new(),
+        )
+        .await
+        .map_err(|e| AgentError::HookError(e.to_string()))?;
 
         let should_continue = completion_data.is_none();
         let content = llm_result.content.clone().unwrap_or_default();

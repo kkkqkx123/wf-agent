@@ -5,9 +5,7 @@ use tokio::sync::mpsc;
 use crate::error::ToolResult;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutorExt};
 use crate::registry::ToolRegistry;
-use wf_types::tool::{
-    ToolCall, ToolExecutionOptions, ToolExecutionResult,
-};
+use wf_types::tool::{ToolCall, ToolExecutionOptions, ToolExecutionResult};
 
 #[derive(Debug, Clone)]
 pub enum ToolCallEvent {
@@ -42,7 +40,10 @@ impl ToolCallExecutor {
         }
     }
 
-    pub fn with_event_channel(registry: Arc<ToolRegistry>, event_tx: mpsc::Sender<ToolCallEvent>) -> Self {
+    pub fn with_event_channel(
+        registry: Arc<ToolRegistry>,
+        event_tx: mpsc::Sender<ToolCallEvent>,
+    ) -> Self {
         Self {
             registry,
             event_tx: Some(event_tx),
@@ -157,7 +158,13 @@ impl ToolCallExecutor {
 
         for call in tool_calls {
             let result = self
-                .execute_single(&call.tool_id, &call.parameters, options, execution_id, &call.id)
+                .execute_single(
+                    &call.tool_id,
+                    &call.parameters,
+                    options,
+                    execution_id,
+                    &call.id,
+                )
                 .await;
             results.push((call.id.clone(), result));
         }
@@ -181,7 +188,9 @@ impl ToolCallExecutor {
                 let exec_id = execution_id;
                 let this = self.clone();
                 async move {
-                    let result = this.execute_single(&tool_id, &parameters, &options, exec_id, &call_id).await;
+                    let result = this
+                        .execute_single(&tool_id, &parameters, &options, exec_id, &call_id)
+                        .await;
                     (call.id.clone(), result)
                 }
             })
@@ -250,7 +259,13 @@ mod tests {
         };
 
         let result = executor
-            .execute_single("t1", &serde_json::json!({"key": "value"}), &options, "exec1", "c1")
+            .execute_single(
+                "t1",
+                &serde_json::json!({"key": "value"}),
+                &options,
+                "exec1",
+                "c1",
+            )
             .await;
 
         assert!(result.is_ok());
@@ -270,7 +285,13 @@ mod tests {
         };
 
         let result = executor
-            .execute_single("nonexistent", &serde_json::json!({}), &options, "exec1", "c1")
+            .execute_single(
+                "nonexistent",
+                &serde_json::json!({}),
+                &options,
+                "exec1",
+                "c1",
+            )
             .await;
 
         assert!(result.is_err());

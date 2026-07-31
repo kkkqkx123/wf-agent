@@ -29,7 +29,9 @@ fn convert_tool_type(tt: &CustomToolType) -> ToolType {
     }
 }
 
-fn build_properties(params: &[crate::custom::types::CustomParamDef]) -> (HashMap<String, ToolProperty>, Vec<String>) {
+fn build_properties(
+    params: &[crate::custom::types::CustomParamDef],
+) -> (HashMap<String, ToolProperty>, Vec<String>) {
     let mut properties = HashMap::new();
     let mut required = Vec::new();
     for p in params {
@@ -73,9 +75,7 @@ pub fn register_custom_tools(
             parameters: Some(schema),
             metadata: t.metadata.map(|m| {
                 let map: HashMap<String, serde_json::Value> = match m {
-                    serde_json::Value::Object(obj) => {
-                        obj.into_iter().collect()
-                    }
+                    serde_json::Value::Object(obj) => obj.into_iter().collect(),
                     other => {
                         let mut h = HashMap::new();
                         h.insert("value".into(), other);
@@ -139,14 +139,12 @@ pub fn register_custom_triggers(
             action: None,
             enabled: Some(true),
             max_triggers: None,
-            metadata: t.metadata.and_then(|m| {
-                match m {
-                    serde_json::Value::Object(obj) => {
-                        let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
-                        Some(map)
-                    }
-                    _ => None,
+            metadata: t.metadata.and_then(|m| match m {
+                serde_json::Value::Object(obj) => {
+                    let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
+                    Some(map)
                 }
+                _ => None,
             }),
             created_at: ts,
             updated_at: ts,

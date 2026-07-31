@@ -68,8 +68,16 @@ fn write_metric(out: &mut String, metric: &Metric) {
                     bucket.count
                 ));
             }
-            out.push_str(&format!("{}_sum{} {}\n", metric.name, labels, format_value(metric.sum)));
-            out.push_str(&format!("{}_count{} {}\n", metric.name, labels, metric.count));
+            out.push_str(&format!(
+                "{}_sum{} {}\n",
+                metric.name,
+                labels,
+                format_value(metric.sum)
+            ));
+            out.push_str(&format!(
+                "{}_count{} {}\n",
+                metric.name, labels, metric.count
+            ));
         }
         MetricType::Summary => {
             for p in &metric.percentiles {
@@ -80,8 +88,16 @@ fn write_metric(out: &mut String, metric: &Metric) {
                     format_value(p.value)
                 ));
             }
-            out.push_str(&format!("{}_sum{} {}\n", metric.name, labels, format_value(metric.sum)));
-            out.push_str(&format!("{}_count{} {}\n", metric.name, labels, metric.count));
+            out.push_str(&format!(
+                "{}_sum{} {}\n",
+                metric.name,
+                labels,
+                format_value(metric.sum)
+            ));
+            out.push_str(&format!(
+                "{}_count{} {}\n",
+                metric.name, labels, metric.count
+            ));
         }
     }
 }

@@ -187,7 +187,10 @@ impl PartitionStore for SqliteStorage {
             let (pid, sid) = row?;
             let mut snap_arr = [0u8; 32];
             snap_arr.copy_from_slice(&sid);
-            history_map.entry(pid).or_default().push(ContentId(snap_arr));
+            history_map
+                .entry(pid)
+                .or_default()
+                .push(ContentId(snap_arr));
         }
 
         let mut result = Vec::with_capacity(rows.len());
@@ -233,7 +236,11 @@ impl SqliteStorage {
     }
 
     /// Load partition history for a given partition ID.
-    fn load_history(&self, conn: &Connection, partition_id: &[u8]) -> StorageResult<Vec<SnapshotId>> {
+    fn load_history(
+        &self,
+        conn: &Connection,
+        partition_id: &[u8],
+    ) -> StorageResult<Vec<SnapshotId>> {
         let mut hist_stmt = conn.prepare(
             "SELECT snapshot_id, seq FROM partition_history WHERE partition_id = ?1 ORDER BY seq",
         )?;

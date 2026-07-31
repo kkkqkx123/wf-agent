@@ -65,9 +65,7 @@ fn bench_get_file_content(c: &mut criterion::Criterion) {
         let content = generate_test_text(lines).as_bytes().to_vec();
         let storage = SqliteStorage::new_in_memory().unwrap();
         let file_node = FileNode::new(PathBuf::from("test.txt"), &content);
-        storage
-            .store_file_node(&file_node, &content)
-            .unwrap();
+        storage.store_file_node(&file_node, &content).unwrap();
         let hash = file_node.base_hash;
 
         c.bench_function(&format!("get_file_content_{}_lines", lines), |b| {
@@ -87,9 +85,7 @@ fn bench_file_node_exists(c: &mut criterion::Criterion) {
         let content = generate_test_text(lines).as_bytes().to_vec();
         let storage = SqliteStorage::new_in_memory().unwrap();
         let file_node = FileNode::new(PathBuf::from("test.txt"), &content);
-        storage
-            .store_file_node(&file_node, &content)
-            .unwrap();
+        storage.store_file_node(&file_node, &content).unwrap();
         let hash = file_node.base_hash;
 
         c.bench_function(&format!("file_node_exists_true_{}_lines", lines), |b| {
@@ -149,10 +145,8 @@ fn bench_get_deltas_batch(c: &mut criterion::Criterion) {
         for i in 0..batch_size {
             let base = generate_test_text(10);
             let modified = generate_modified_text(&base, 0.2);
-            let file_node = FileNode::new(
-                PathBuf::from(format!("file_{}.txt", i)),
-                base.as_bytes(),
-            );
+            let file_node =
+                FileNode::new(PathBuf::from(format!("file_{}.txt", i)), base.as_bytes());
             let diff = diff_to_line_diff(&base, &modified);
             let delta = Delta::new(file_node, diff, SourceType::Manual);
             let id = delta.id;
@@ -282,21 +276,11 @@ criterion::criterion_group!(
     bench_file_node_exists
 );
 
-criterion::criterion_group!(
-    delta_ops,
-    bench_store_delta_size,
-    bench_get_deltas_batch
-);
+criterion::criterion_group!(delta_ops, bench_store_delta_size, bench_get_deltas_batch);
 
-criterion::criterion_group!(
-    composite_ops,
-    bench_store_snapshot_chain
-);
+criterion::criterion_group!(composite_ops, bench_store_snapshot_chain);
 
-criterion::criterion_group!(
-    content_id_large,
-    bench_content_id_large_data
-);
+criterion::criterion_group!(content_id_large, bench_content_id_large_data);
 
 criterion::criterion_main!(
     file_node_store,

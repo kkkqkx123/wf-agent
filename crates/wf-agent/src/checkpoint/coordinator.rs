@@ -41,12 +41,11 @@ impl AgentCheckpointIntegration {
         trigger: CheckpointTrigger,
     ) -> Result<(), CheckpointError> {
         let snapshot = self.build_snapshot(entity).await;
-        let ctx = self
-            .inner
-            .prepare(entity.id().as_str(), trigger)
-            .await?;
+        let ctx = self.inner.prepare(entity.id().as_str(), trigger).await?;
         let checkpoint = self.inner.build(ctx, snapshot).await?;
-        self.inner.persist(&checkpoint, entity.id().as_str()).await?;
+        self.inner
+            .persist(&checkpoint, entity.id().as_str())
+            .await?;
         Ok(())
     }
 

@@ -156,7 +156,9 @@ impl WorkflowCheckpointIntegration {
             .prepare(entity.id().as_str(), trigger.clone())
             .await?;
         let checkpoint = self.inner.build(ctx, snapshot).await?;
-        self.inner.persist(&checkpoint, entity.id().as_str()).await?;
+        self.inner
+            .persist(&checkpoint, entity.id().as_str())
+            .await?;
 
         if let Some(ref bus) = self.event_bus {
             let _ = bus.publish(BaseEvent {
@@ -167,8 +169,14 @@ impl WorkflowCheckpointIntegration {
                 execution_id: Some(entity.id().clone()),
                 agent_loop_id: None,
                 metadata: Some(HashMap::from([
-                    ("trigger".to_string(), Value::String(format!("{:?}", trigger))),
-                    ("checkpoint_id".to_string(), Value::String(checkpoint.id.to_string())),
+                    (
+                        "trigger".to_string(),
+                        Value::String(format!("{:?}", trigger)),
+                    ),
+                    (
+                        "checkpoint_id".to_string(),
+                        Value::String(checkpoint.id.to_string()),
+                    ),
                 ])),
             });
         }

@@ -22,22 +22,25 @@ impl GraphTraversal {
 
         if let Some(ref start_id) = graph.start_node_id {
             if !node_id_set.contains(start_id) {
-                return Err(WorkflowError::GraphError(
-                    format!("Start node '{}' not found in graph nodes", start_id),
-                ));
+                return Err(WorkflowError::GraphError(format!(
+                    "Start node '{}' not found in graph nodes",
+                    start_id
+                )));
             }
         }
 
         for edge in &graph.edges {
             if !node_id_set.contains(&edge.source_node_id) {
-                return Err(WorkflowError::GraphError(
-                    format!("Edge source node '{}' not found in graph", edge.source_node_id),
-                ));
+                return Err(WorkflowError::GraphError(format!(
+                    "Edge source node '{}' not found in graph",
+                    edge.source_node_id
+                )));
             }
             if !node_id_set.contains(&edge.target_node_id) {
-                return Err(WorkflowError::GraphError(
-                    format!("Edge target node '{}' not found in graph", edge.target_node_id),
-                ));
+                return Err(WorkflowError::GraphError(format!(
+                    "Edge target node '{}' not found in graph",
+                    edge.target_node_id
+                )));
             }
         }
 
@@ -45,9 +48,10 @@ impl GraphTraversal {
             let reachable = Self::compute_reachable(&graph, start_id);
             for node in &graph.nodes {
                 if !reachable.contains(&node.id) {
-                    return Err(WorkflowError::GraphError(
-                        format!("Node '{}' is unreachable from start node", node.id),
-                    ));
+                    return Err(WorkflowError::GraphError(format!(
+                        "Node '{}' is unreachable from start node",
+                        node.id
+                    )));
                 }
             }
         }
@@ -63,9 +67,7 @@ impl GraphTraversal {
 
         while let Some(current) = queue.pop_front() {
             for edge in &graph.edges {
-                if edge.source_node_id == current
-                    && visited.insert(edge.target_node_id.clone())
-                {
+                if edge.source_node_id == current && visited.insert(edge.target_node_id.clone()) {
                     queue.push_back(edge.target_node_id.clone());
                 }
             }
@@ -86,14 +88,24 @@ impl GraphTraversal {
         self.graph.nodes.iter().find(|n| n.id == node_id)
     }
 
-    pub fn get_outgoing_edges(&self, node_id: &str) -> Vec<&wf_types::workflow_execution::WorkflowEdge> {
-        self.graph.edges.iter()
+    pub fn get_outgoing_edges(
+        &self,
+        node_id: &str,
+    ) -> Vec<&wf_types::workflow_execution::WorkflowEdge> {
+        self.graph
+            .edges
+            .iter()
             .filter(|e| e.source_node_id == node_id)
             .collect()
     }
 
-    pub fn get_incoming_edges(&self, node_id: &str) -> Vec<&wf_types::workflow_execution::WorkflowEdge> {
-        self.graph.edges.iter()
+    pub fn get_incoming_edges(
+        &self,
+        node_id: &str,
+    ) -> Vec<&wf_types::workflow_execution::WorkflowEdge> {
+        self.graph
+            .edges
+            .iter()
             .filter(|e| e.target_node_id == node_id)
             .collect()
     }
@@ -112,7 +124,10 @@ impl GraphTraversal {
             if completed.contains(&node.id) {
                 continue;
             }
-            let all_deps_completed = self.graph.edges.iter()
+            let all_deps_completed = self
+                .graph
+                .edges
+                .iter()
                 .filter(|e| e.target_node_id == node.id)
                 .all(|e| completed.contains(&e.source_node_id));
             if all_deps_completed {

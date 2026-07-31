@@ -13,10 +13,8 @@ use wf_types::tool::runtime_config::RestToolConfig;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
-pub type RequestInterceptor =
-    Arc<dyn Fn(RequestBuilder) -> RequestBuilder + Send + Sync>;
-pub type ResponseInterceptor =
-    Arc<dyn Fn(reqwest::Response) -> reqwest::Response + Send + Sync>;
+pub type RequestInterceptor = Arc<dyn Fn(RequestBuilder) -> RequestBuilder + Send + Sync>;
+pub type ResponseInterceptor = Arc<dyn Fn(reqwest::Response) -> reqwest::Response + Send + Sync>;
 
 const CIRCUIT_CLOSED: u8 = 0;
 const CIRCUIT_OPEN: u8 = 1;
@@ -219,9 +217,9 @@ impl ToolExecutor for RestExecutor {
         }
 
         let config = Self::parse_config(tool);
-        let base_url = config.base_url.ok_or_else(|| ToolError::ValidationFailed(
-            "REST tool requires base_url in config".into(),
-        ))?;
+        let base_url = config.base_url.ok_or_else(|| {
+            ToolError::ValidationFailed("REST tool requires base_url in config".into())
+        })?;
 
         let url = format!("{}/{}", base_url.trim_end_matches('/'), tool.name);
         let timeout_ms = options.timeout.or(config.timeout).unwrap_or(30000);
@@ -238,11 +236,8 @@ impl ToolExecutor for RestExecutor {
 
         request = self.apply_request_interceptors(request);
 
-        let response = tokio::time::timeout(
-            Duration::from_millis(timeout_ms),
-            request.send(),
-        )
-        .await;
+        let response =
+            tokio::time::timeout(Duration::from_millis(timeout_ms), request.send()).await;
 
         let execution_time = start.elapsed().as_millis() as i64;
 
@@ -255,7 +250,13 @@ impl ToolExecutor for RestExecutor {
                     if let Some(ref cb) = self.circuit_breaker {
                         cb.record_success();
                     }
-                    Ok(BaseExecutor::build_result(true, Some(body), None, execution_time, 0))
+                    Ok(BaseExecutor::build_result(
+                        true,
+                        Some(body),
+                        None,
+                        execution_time,
+                        0,
+                    ))
                 } else {
                     let error_text = resp.text().await.unwrap_or_default();
                     if let Some(ref cb) = self.circuit_breaker {

@@ -13,7 +13,9 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-pub fn create_context_compression_trigger(triggered_workflow_id: Option<String>) -> TriggerTemplate {
+pub fn create_context_compression_trigger(
+    triggered_workflow_id: Option<String>,
+) -> TriggerTemplate {
     let t = now_ms();
     TriggerTemplate {
         name: CONTEXT_COMPRESSION_TRIGGER_NAME.into(),

@@ -42,5 +42,3 @@ impl ConversationSession {
         self.state.token_usage += tokens;
     }
 }
-
-

@@ -6,10 +6,7 @@ use crate::error::{ConfigError, ConfigResult};
 static PARAM_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\{\{parameters\.([a-zA-Z0-9_.-]+)\}\}").unwrap());
 
-pub fn substitute_string(
-    input: &str,
-    parameters: &HashMap<String, String>,
-) -> String {
+pub fn substitute_string(input: &str, parameters: &HashMap<String, String>) -> String {
     PARAM_REGEX
         .replace_all(input, |caps: &regex::Captures| {
             let param_name = &caps[1];
@@ -43,7 +40,10 @@ pub fn substitute_parameters_in_value(
     }
 }
 
-pub fn substitute_in_struct<T>(value: &mut T, parameters: &HashMap<String, String>) -> ConfigResult<()>
+pub fn substitute_in_struct<T>(
+    value: &mut T,
+    parameters: &HashMap<String, String>,
+) -> ConfigResult<()>
 where
     T: serde::Serialize + serde::de::DeserializeOwned,
 {

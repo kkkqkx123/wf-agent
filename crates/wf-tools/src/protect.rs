@@ -59,8 +59,10 @@ pub struct ProtectController {
 
 impl ProtectController {
     pub fn new(additional_patterns: Option<&[String]>) -> Self {
-        let mut patterns: Vec<String> =
-            DEFAULT_PROTECTED_PATTERNS.iter().map(|s| s.to_string()).collect();
+        let mut patterns: Vec<String> = DEFAULT_PROTECTED_PATTERNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         if let Some(extra) = additional_patterns {
             patterns.extend_from_slice(extra);
@@ -71,9 +73,7 @@ impl ProtectController {
 
     pub fn is_write_protected(&self, file_path: &str) -> bool {
         let normalized = file_path.replace('\\', "/");
-        self.patterns
-            .iter()
-            .any(|p| glob_match(p, &normalized))
+        self.patterns.iter().any(|p| glob_match(p, &normalized))
     }
 
     pub fn get_protected_files<'a>(&self, paths: &'a [String]) -> Vec<&'a str> {
@@ -84,10 +84,7 @@ impl ProtectController {
             .collect()
     }
 
-    pub fn annotate_paths(
-        &self,
-        paths: &[String],
-    ) -> Vec<(String, bool)> {
+    pub fn annotate_paths(&self, paths: &[String]) -> Vec<(String, bool)> {
         paths
             .iter()
             .map(|p| (p.clone(), self.is_write_protected(p)))

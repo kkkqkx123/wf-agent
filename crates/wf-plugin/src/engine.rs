@@ -120,9 +120,12 @@ impl PluginEngine {
 
         let plugin = load_plugin_module(manifest.clone()).await?;
         self.registry.register(manifest, plugin)?;
-        self.registry.update_status(&plugin_id, PluginStatus::Loaded);
+        self.registry
+            .update_status(&plugin_id, PluginStatus::Loaded);
 
-        self.publish(PluginEvent::Discovered { plugin_id: plugin_id.clone() });
+        self.publish(PluginEvent::Discovered {
+            plugin_id: plugin_id.clone(),
+        });
         tracing::info!("discovered plugin: {}", plugin_id);
 
         Ok(())
@@ -141,17 +144,25 @@ impl PluginEngine {
             return Err(PluginError::NotFound(manifest_path.display().to_string()));
         }
 
-        let content = fs::read_to_string(manifest_path).await.map_err(PluginError::Io)?;
-        let manifest: PluginManifest = toml::from_str(&content)
-            .map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
+        let content = fs::read_to_string(manifest_path)
+            .await
+            .map_err(PluginError::Io)?;
+        let manifest: PluginManifest =
+            toml::from_str(&content).map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
 
         // Set base path from parent dir for loading relative entry points
-        let plugin_dir = manifest_path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let plugin_dir = manifest_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
         let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
         self.registry.register(manifest.clone(), plugin)?;
-        self.registry.update_status(&manifest.id, PluginStatus::Loaded);
+        self.registry
+            .update_status(&manifest.id, PluginStatus::Loaded);
 
-        self.publish(PluginEvent::Discovered { plugin_id: manifest.id.clone() });
+        self.publish(PluginEvent::Discovered {
+            plugin_id: manifest.id.clone(),
+        });
         tracing::info!("loaded plugin '{}' from {:?}", manifest.id, manifest_path);
 
         Ok(self.registry.get(&manifest.id).unwrap())
@@ -173,7 +184,12 @@ impl PluginEngine {
 
         self.discover().await?;
 
-        let manifests: Vec<PluginManifest> = self.registry.all().into_iter().map(|i| i.manifest).collect();
+        let manifests: Vec<PluginManifest> = self
+            .registry
+            .all()
+            .into_iter()
+            .map(|i| i.manifest)
+            .collect();
         let resolved = resolve_dependencies(&manifests);
         if let Ok(ref graph) = resolved {
             if !graph.cycles.is_empty() {
@@ -205,7 +221,9 @@ impl PluginEngine {
     }
 
     pub async fn activate(&self, plugin_id: &str) -> PluginResult<()> {
-        let record = self.registry.get(plugin_id)
+        let record = self
+            .registry
+            .get(plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
 
         if record.status != PluginStatus::Loaded {
@@ -215,11 +233,19 @@ impl PluginEngine {
             });
         }
 
-        self.publish(PluginEvent::Activating { plugin_id: plugin_id.to_owned() });
-        self.registry.update_status(plugin_id, PluginStatus::Activating);
+        self.publish(PluginEvent::Activating {
+            plugin_id: plugin_id.to_owned(),
+        });
+        self.registry
+            .update_status(plugin_id, PluginStatus::Activating);
 
         let instance = self.registry.instance(plugin_id).unwrap();
-        let plugin_config = self.options.config.get(plugin_id).cloned().unwrap_or_default();
+        let plugin_config = self
+            .options
+            .config
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
         let ctx = PluginContext {
             plugin_id: plugin_id.to_owned(),
             sdk_version: self.sdk_version.clone(),
@@ -232,7 +258,10 @@ impl PluginEngine {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
-                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
+                self.publish(PluginEvent::Error {
+                    plugin_id: plugin_id.to_owned(),
+                    error: e.to_string(),
+                });
                 return Err(e);
             }
         }
@@ -240,33 +269,51 @@ impl PluginEngine {
         self.contribution_manager.start_registration(plugin_id);
         let mut registrar = self.contribution_manager.as_registrar();
 
-        match self.guard.execute(plugin_id, async {
-            instance.register_contributions(&mut registrar);
-            PluginResult::Ok(())
-        }).await {
+        match self
+            .guard
+            .execute(plugin_id, async {
+                instance.register_contributions(&mut registrar);
+                PluginResult::Ok(())
+            })
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
-                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
+                self.publish(PluginEvent::Error {
+                    plugin_id: plugin_id.to_owned(),
+                    error: e.to_string(),
+                });
                 return Err(e);
             }
         }
 
         if let Some(ref bridge) = self.bridge {
-            bridge.sync_all(plugin_id, &self.contribution_manager).await?;
+            bridge
+                .sync_all(plugin_id, &self.contribution_manager)
+                .await?;
         }
 
-        match self.guard.execute(plugin_id, instance.on_activate(&ctx)).await {
+        match self
+            .guard
+            .execute(plugin_id, instance.on_activate(&ctx))
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 self.registry.set_error(plugin_id, e.to_string());
-                self.publish(PluginEvent::Error { plugin_id: plugin_id.to_owned(), error: e.to_string() });
+                self.publish(PluginEvent::Error {
+                    plugin_id: plugin_id.to_owned(),
+                    error: e.to_string(),
+                });
                 return Err(e);
             }
         }
 
         self.registry.update_status(plugin_id, PluginStatus::Active);
-        self.publish(PluginEvent::Activated { plugin_id: plugin_id.to_owned() });
+        self.publish(PluginEvent::Activated {
+            plugin_id: plugin_id.to_owned(),
+        });
         Ok(())
     }
 
@@ -276,11 +323,16 @@ impl PluginEngine {
             return Ok(());
         }
 
-        self.publish(PluginEvent::Deactivating { plugin_id: plugin_id.to_owned() });
-        self.registry.update_status(plugin_id, PluginStatus::Deactivating);
+        self.publish(PluginEvent::Deactivating {
+            plugin_id: plugin_id.to_owned(),
+        });
+        self.registry
+            .update_status(plugin_id, PluginStatus::Deactivating);
 
         if let Some(ref bridge) = self.bridge {
-            let _ = bridge.unsync_all(plugin_id, &self.contribution_manager).await;
+            let _ = bridge
+                .unsync_all(plugin_id, &self.contribution_manager)
+                .await;
         }
 
         self.contribution_manager.unregister_all(plugin_id);
@@ -297,18 +349,33 @@ impl PluginEngine {
             let _ = instance.on_unload(&ctx).await;
         }
 
-        self.registry.update_status(plugin_id, PluginStatus::Deactivated);
-        self.publish(PluginEvent::Deactivated { plugin_id: plugin_id.to_owned() });
+        self.registry
+            .update_status(plugin_id, PluginStatus::Deactivated);
+        self.publish(PluginEvent::Deactivated {
+            plugin_id: plugin_id.to_owned(),
+        });
         Ok(())
     }
 
-    pub async fn update_plugin_config(&mut self, plugin_id: &str, config: Value) -> PluginResult<()> {
-        let instance = self.registry.instance(plugin_id)
+    pub async fn update_plugin_config(
+        &mut self,
+        plugin_id: &str,
+        config: Value,
+    ) -> PluginResult<()> {
+        let instance = self
+            .registry
+            .instance(plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
 
-        self.options.config.insert(plugin_id.to_owned(), config.clone());
+        self.options
+            .config
+            .insert(plugin_id.to_owned(), config.clone());
 
-        match self.guard.execute(plugin_id, instance.on_config_change(&config)).await {
+        match self
+            .guard
+            .execute(plugin_id, instance.on_config_change(&config))
+            .await
+        {
             Ok(_) => {}
             Err(e) => {
                 return Err(PluginError::ConfigChangeFailed {
@@ -343,10 +410,11 @@ impl PluginEngine {
     pub async fn reload(&self, plugin_id: &str) -> PluginResult<()> {
         let plugin_dir = self.find_plugin_dir(plugin_id).await?;
         let manifest_path = plugin_dir.join("plugin.toml");
-        let content = fs::read_to_string(&manifest_path).await
+        let content = fs::read_to_string(&manifest_path)
+            .await
             .map_err(PluginError::Io)?;
-        let manifest: PluginManifest = toml::from_str(&content)
-            .map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
+        let manifest: PluginManifest =
+            toml::from_str(&content).map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
 
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
@@ -363,12 +431,23 @@ impl PluginEngine {
     }
 
     pub async fn refresh(&self) -> PluginResult<Vec<String>> {
-        let current_ids: Vec<String> = self.registry.all().into_iter().map(|i| i.manifest.id.clone()).collect();
+        let current_ids: Vec<String> = self
+            .registry
+            .all()
+            .into_iter()
+            .map(|i| i.manifest.id.clone())
+            .collect();
         let manifests = scan_plugin_manifests(&self.options.paths).await?;
 
         let new_ids: Vec<String> = manifests.iter().map(|m| m.id.clone()).collect();
-        let removed: Vec<String> = current_ids.into_iter().filter(|id| !new_ids.contains(id)).collect();
-        let added: Vec<String> = new_ids.into_iter().filter(|id| !self.registry.has(id)).collect();
+        let removed: Vec<String> = current_ids
+            .into_iter()
+            .filter(|id| !new_ids.contains(id))
+            .collect();
+        let added: Vec<String> = new_ids
+            .into_iter()
+            .filter(|id| !self.registry.has(id))
+            .collect();
 
         for id in &removed {
             let _ = self.deactivate(id).await;
@@ -387,7 +466,8 @@ impl PluginEngine {
                 }
                 let plugin = load_plugin_module(manifest.clone()).await?;
                 self.registry.register(manifest, plugin)?;
-                self.registry.update_status(&plugin_id, PluginStatus::Loaded);
+                self.registry
+                    .update_status(&plugin_id, PluginStatus::Loaded);
 
                 if self.options.auto_activate {
                     let _ = self.activate(&plugin_id).await;
@@ -398,13 +478,28 @@ impl PluginEngine {
         Ok(added)
     }
 
-    pub fn registry(&self) -> &PluginRegistry { &self.registry }
-    pub fn contribution_manager(&self) -> &Arc<ContributionManager> { &self.contribution_manager }
-    pub fn plugin_event_bus(&self) -> &PluginEventBus { &self.plugin_event_bus }
-    pub fn is_initialized(&self) -> bool { self.initialized }
-    pub fn central_event_bus(&self) -> Option<&wf_core::EventBus> { self.event_bus.as_ref() }
+    pub fn registry(&self) -> &PluginRegistry {
+        &self.registry
+    }
+    pub fn contribution_manager(&self) -> &Arc<ContributionManager> {
+        &self.contribution_manager
+    }
+    pub fn plugin_event_bus(&self) -> &PluginEventBus {
+        &self.plugin_event_bus
+    }
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
+    }
+    pub fn central_event_bus(&self) -> Option<&wf_core::EventBus> {
+        self.event_bus.as_ref()
+    }
     pub fn resolved_graph(&self) -> PluginResult<ResolvedGraph> {
-        let manifests: Vec<PluginManifest> = self.registry.all().into_iter().map(|i| i.manifest).collect();
+        let manifests: Vec<PluginManifest> = self
+            .registry
+            .all()
+            .into_iter()
+            .map(|i| i.manifest)
+            .collect();
         resolve_dependencies(&manifests)
     }
 
@@ -434,24 +529,78 @@ fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::BaseEvent {
     use wf_types::events::{BaseEvent, EventType};
 
     let (etype, meta): (EventType, Option<HashMap<String, serde_json::Value>>) = match event {
-        PluginEvent::Discovered { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:discovered".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Loading { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:loading".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Loaded { plugin_id, version } => (EventType::Heartbeat, Some(HashMap::from([
-            ("plugin:loaded".into(), serde_json::Value::String(plugin_id.clone())),
-            ("version".into(), serde_json::Value::String(version.clone())),
-        ]))),
-        PluginEvent::Activating { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:activating".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Activated { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:activated".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Deactivating { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:deactivating".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Deactivated { plugin_id } => (EventType::Heartbeat, Some(HashMap::from([("plugin:deactivated".into(), serde_json::Value::String(plugin_id.clone()))]))),
-        PluginEvent::Error { plugin_id, error } => (EventType::Error, Some(HashMap::from([
-            ("plugin:error".into(), serde_json::Value::String(plugin_id.clone())),
-            ("error".into(), serde_json::Value::String(error.clone())),
-        ]))),
-        PluginEvent::ConfigChanged { plugin_id, config } => (EventType::Heartbeat, Some(HashMap::from([
-            ("plugin:config-changed".into(), serde_json::Value::String(plugin_id.clone())),
-            ("config".into(), config.clone()),
-        ]))),
+        PluginEvent::Discovered { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:discovered".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Loading { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:loading".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Loaded { plugin_id, version } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([
+                (
+                    "plugin:loaded".into(),
+                    serde_json::Value::String(plugin_id.clone()),
+                ),
+                ("version".into(), serde_json::Value::String(version.clone())),
+            ])),
+        ),
+        PluginEvent::Activating { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:activating".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Activated { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:activated".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Deactivating { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:deactivating".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Deactivated { plugin_id } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([(
+                "plugin:deactivated".into(),
+                serde_json::Value::String(plugin_id.clone()),
+            )])),
+        ),
+        PluginEvent::Error { plugin_id, error } => (
+            EventType::Error,
+            Some(HashMap::from([
+                (
+                    "plugin:error".into(),
+                    serde_json::Value::String(plugin_id.clone()),
+                ),
+                ("error".into(), serde_json::Value::String(error.clone())),
+            ])),
+        ),
+        PluginEvent::ConfigChanged { plugin_id, config } => (
+            EventType::Heartbeat,
+            Some(HashMap::from([
+                (
+                    "plugin:config-changed".into(),
+                    serde_json::Value::String(plugin_id.clone()),
+                ),
+                ("config".into(), config.clone()),
+            ])),
+        ),
     };
     BaseEvent {
         id: uuid_or_fallback(),
@@ -465,7 +614,10 @@ fn plugin_event_to_base(event: &PluginEvent) -> wf_types::events::BaseEvent {
 }
 
 fn uuid_or_fallback() -> String {
-    format!("plugin-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0))
+    format!(
+        "plugin-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    )
 }
 
 // ============================================================
@@ -488,7 +640,9 @@ async fn scan_plugin_manifests(paths: &[PathBuf]) -> PluginResult<Vec<PluginMani
             if !manifest_path.exists() {
                 continue;
             }
-            let content = fs::read_to_string(&manifest_path).await.map_err(PluginError::Io)?;
+            let content = fs::read_to_string(&manifest_path)
+                .await
+                .map_err(PluginError::Io)?;
             match toml::from_str::<PluginManifest>(&content) {
                 Ok(m) => manifests.push(m),
                 Err(e) => tracing::warn!("failed to parse {:?}: {}", manifest_path, e),
@@ -500,10 +654,20 @@ async fn scan_plugin_manifests(paths: &[PathBuf]) -> PluginResult<Vec<PluginMani
 
 fn validate_manifest(manifest: &PluginManifest) -> Option<Vec<String>> {
     let mut errors = Vec::new();
-    if manifest.id.is_empty() { errors.push("id is required".into()); }
-    if manifest.version.is_empty() { errors.push("version is required".into()); }
-    if manifest.entry_point.is_empty() { errors.push("entry_point is required".into()); }
-    if errors.is_empty() { None } else { Some(errors) }
+    if manifest.id.is_empty() {
+        errors.push("id is required".into());
+    }
+    if manifest.version.is_empty() {
+        errors.push("version is required".into());
+    }
+    if manifest.entry_point.is_empty() {
+        errors.push("entry_point is required".into());
+    }
+    if errors.is_empty() {
+        None
+    } else {
+        Some(errors)
+    }
 }
 
 fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
@@ -530,7 +694,10 @@ async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Pl
     }
 }
 
-async fn load_plugin_module_with_base(manifest: &PluginManifest, base: &Path) -> PluginResult<Arc<dyn Plugin>> {
+async fn load_plugin_module_with_base(
+    manifest: &PluginManifest,
+    base: &Path,
+) -> PluginResult<Arc<dyn Plugin>> {
     match resolve_plugin_type(manifest)? {
         #[cfg(feature = "lua")]
         PluginType::Lua => crate::lua::loader::load_lua_plugin_with_base(manifest, base).await,

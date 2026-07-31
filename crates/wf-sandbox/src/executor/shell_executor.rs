@@ -13,11 +13,7 @@ impl SandboxShellExecutor {
         Self { runtime }
     }
 
-    pub async fn execute(
-        &self,
-        command: &str,
-        config: &SandboxConfig,
-    ) -> ScriptExecutionResult {
+    pub async fn execute(&self, command: &str, config: &SandboxConfig) -> ScriptExecutionResult {
         self.runtime.execute("shell", command, config).await
     }
 }

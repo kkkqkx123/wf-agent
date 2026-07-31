@@ -50,30 +50,25 @@ impl TriggerCoordinator {
     ) -> TriggerExecutionResult {
         let start = wf_common::now();
         let result = match action {
-            TriggerAction::StopWorkflowExecution { .. } => {
-                Self::handle_stop_workflow(ctx).await
-            }
-            TriggerAction::PauseWorkflowExecution { .. } => {
-                Self::handle_pause_workflow(ctx).await
-            }
+            TriggerAction::StopWorkflowExecution { .. } => Self::handle_stop_workflow(ctx).await,
+            TriggerAction::PauseWorkflowExecution { .. } => Self::handle_pause_workflow(ctx).await,
             TriggerAction::ResumeWorkflowExecution { .. } => {
                 Self::handle_resume_workflow(ctx).await
             }
             TriggerAction::SkipNode { node_id } => {
                 Self::handle_skip_node(node_id.as_deref().unwrap_or(""), ctx).await
             }
-            TriggerAction::SetVariable { variable_name, value } => {
-                Self::handle_set_variable(variable_name, value.clone(), ctx).await
-            }
+            TriggerAction::SetVariable {
+                variable_name,
+                value,
+            } => Self::handle_set_variable(variable_name, value.clone(), ctx).await,
             TriggerAction::SendNotification { message } => {
                 Self::handle_send_notification(message, ctx).await
             }
             TriggerAction::ExecuteTriggeredSubworkflow { .. } => {
                 Self::handle_execute_subworkflow(action, ctx).await
             }
-            TriggerAction::ExecuteScript { .. } => {
-                Self::handle_execute_script(action, ctx).await
-            }
+            TriggerAction::ExecuteScript { .. } => Self::handle_execute_script(action, ctx).await,
         };
 
         let (result_val, error_val) = match result {
@@ -92,43 +87,90 @@ impl TriggerCoordinator {
     }
 
     async fn handle_stop_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
-        ctx.variables.insert("__trigger_stop".to_string(), Value::Bool(true));
-        Self::emit(ctx, EventType::ExecutionStopped, "workflow_stopped_by_trigger").await;
+        ctx.variables
+            .insert("__trigger_stop".to_string(), Value::Bool(true));
+        Self::emit(
+            ctx,
+            EventType::ExecutionStopped,
+            "workflow_stopped_by_trigger",
+        )
+        .await;
         Ok(Value::String("workflow_stopped".to_string()))
     }
 
     async fn handle_pause_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
-        ctx.variables.insert("__trigger_pause".to_string(), Value::Bool(true));
-        Self::emit(ctx, EventType::WorkflowExecutionPaused, "workflow_paused_by_trigger").await;
+        ctx.variables
+            .insert("__trigger_pause".to_string(), Value::Bool(true));
+        Self::emit(
+            ctx,
+            EventType::WorkflowExecutionPaused,
+            "workflow_paused_by_trigger",
+        )
+        .await;
         Ok(Value::String("workflow_paused".to_string()))
     }
 
     async fn handle_resume_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
         ctx.variables.remove("__trigger_pause");
-        Self::emit(ctx, EventType::WorkflowExecutionResumed, "workflow_resumed_by_trigger").await;
+        Self::emit(
+            ctx,
+            EventType::WorkflowExecutionResumed,
+            "workflow_resumed_by_trigger",
+        )
+        .await;
         Ok(Value::String("workflow_resumed".to_string()))
     }
 
     async fn handle_skip_node(node_id: &str, ctx: &TriggerContext) -> WorkflowResult<Value> {
-        ctx.variables.insert(format!("__skipped_{}", node_id), Value::Bool(true));
-        Self::emit(ctx, EventType::NodeCustomEvent, &format!("node_skipped:{}", node_id)).await;
+        ctx.variables
+            .insert(format!("__skipped_{}", node_id), Value::Bool(true));
+        Self::emit(
+            ctx,
+            EventType::NodeCustomEvent,
+            &format!("node_skipped:{}", node_id),
+        )
+        .await;
         Ok(serde_json::json!({"skipped_node": node_id}))
     }
 
-    async fn handle_set_variable(var_name: &str, var_value: Value, ctx: &TriggerContext) -> WorkflowResult<Value> {
-        ctx.variables.insert(var_name.to_string(), var_value.clone());
-        Self::emit(ctx, EventType::VariableChanged, &format!("variable_set:{}", var_name)).await;
+    async fn handle_set_variable(
+        var_name: &str,
+        var_value: Value,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
+        ctx.variables
+            .insert(var_name.to_string(), var_value.clone());
+        Self::emit(
+            ctx,
+            EventType::VariableChanged,
+            &format!("variable_set:{}", var_name),
+        )
+        .await;
         Ok(serde_json::json!({"variable": var_name, "value": var_value}))
     }
 
-    async fn handle_send_notification(message: &str, ctx: &TriggerContext) -> WorkflowResult<Value> {
-        Self::emit(ctx, EventType::NodeCustomEvent, &format!("notification:{}", message)).await;
+    async fn handle_send_notification(
+        message: &str,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
+        Self::emit(
+            ctx,
+            EventType::NodeCustomEvent,
+            &format!("notification:{}", message),
+        )
+        .await;
         Ok(serde_json::json!({"sent": true, "message": message}))
     }
 
-    async fn handle_execute_subworkflow(action: &TriggerAction, ctx: &TriggerContext) -> WorkflowResult<Value> {
+    async fn handle_execute_subworkflow(
+        action: &TriggerAction,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
         let triggered_workflow_id = match action {
-            TriggerAction::ExecuteTriggeredSubworkflow { triggered_workflow_id, .. } => triggered_workflow_id.clone(),
+            TriggerAction::ExecuteTriggeredSubworkflow {
+                triggered_workflow_id,
+                ..
+            } => triggered_workflow_id.clone(),
             _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
         };
 
@@ -137,11 +179,19 @@ impl TriggerCoordinator {
             serde_json::json!({"workflow_id": triggered_workflow_id}),
         );
 
-        Self::emit(ctx, EventType::SubgraphStarted, &format!("triggered_subworkflow:{}", triggered_workflow_id)).await;
+        Self::emit(
+            ctx,
+            EventType::SubgraphStarted,
+            &format!("triggered_subworkflow:{}", triggered_workflow_id),
+        )
+        .await;
         Ok(serde_json::json!({"submitted": true, "workflow_id": triggered_workflow_id}))
     }
 
-    async fn handle_execute_script(action: &TriggerAction, ctx: &TriggerContext) -> WorkflowResult<Value> {
+    async fn handle_execute_script(
+        action: &TriggerAction,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
         let script_name = match action {
             TriggerAction::ExecuteScript { script_name, .. } => script_name.clone(),
             _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
@@ -152,7 +202,12 @@ impl TriggerCoordinator {
             serde_json::json!({"script_name": script_name}),
         );
 
-        Self::emit(ctx, EventType::ScriptStarted, &format!("trigger_script:{}", script_name)).await;
+        Self::emit(
+            ctx,
+            EventType::ScriptStarted,
+            &format!("trigger_script:{}", script_name),
+        )
+        .await;
         Ok(serde_json::json!({"submitted": true, "script_name": script_name}))
     }
 
@@ -165,9 +220,10 @@ impl TriggerCoordinator {
                 workflow_id: Some(ctx.workflow_id.clone()),
                 execution_id: Some(ctx.execution_id.clone()),
                 agent_loop_id: None,
-                metadata: Some(std::collections::HashMap::from([
-                    ("trigger_message".to_string(), Value::String(message.to_string())),
-                ])),
+                metadata: Some(std::collections::HashMap::from([(
+                    "trigger_message".to_string(),
+                    Value::String(message.to_string()),
+                )])),
             };
             let _ = bus.publish(event);
         }

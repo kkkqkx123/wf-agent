@@ -1,5 +1,9 @@
-use wf_checkpoint::strategy::cadenced::{CadencedCheckpointStrategy, CheckpointTiming as CadencedCheckpointTiming};
-use wf_types::checkpoint::{CheckpointContentConfig, CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy};
+use wf_checkpoint::strategy::cadenced::{
+    CadencedCheckpointStrategy, CheckpointTiming as CadencedCheckpointTiming,
+};
+use wf_types::checkpoint::{
+    CheckpointContentConfig, CheckpointRetentionConfig, CheckpointTrigger, UnifiedCheckpointPolicy,
+};
 
 /// Node-level checkpoint timing variants.
 #[derive(Debug, Clone, PartialEq, Eq)]

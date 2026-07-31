@@ -68,12 +68,8 @@ impl ExecutionPool {
     }
 
     pub async fn acquire(&self) -> Result<PoolPermit, PoolError> {
-        let permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|e| {
+        let permit =
+            self.semaphore.clone().acquire_owned().await.map_err(|e| {
                 PoolError::PoolExhausted(format!("failed to acquire permit: {}", e))
             })?;
 
@@ -99,11 +95,7 @@ impl ExecutionPool {
         result
     }
 
-    pub async fn submit_with_timeout<F, T>(
-        &self,
-        duration: Duration,
-        f: F,
-    ) -> Result<T, PoolError>
+    pub async fn submit_with_timeout<F, T>(&self, duration: Duration, f: F) -> Result<T, PoolError>
     where
         F: std::future::Future<Output = Result<T, PoolError>> + Send + 'static,
         T: Send + 'static,
@@ -328,9 +320,7 @@ mod tests {
     async fn test_submit_error_propagation() {
         let pool = ExecutionPool::new(2);
         let result: Result<i32, PoolError> = pool
-            .submit(async {
-                Err(PoolError::Internal("task failed".to_string()))
-            })
+            .submit(async { Err(PoolError::Internal("task failed".to_string())) })
             .await;
         assert!(result.is_err());
     }
@@ -373,13 +363,9 @@ mod tests {
         let external = CancellationToken::new();
         external.cancel();
 
-        let result: Result<i32, PoolError> = pool
-            .submit_with_cancel(&external, async { Ok(42) })
-            .await;
-        assert!(matches!(
-            result,
-            Err(PoolError::Cancelled(_))
-        ));
+        let result: Result<i32, PoolError> =
+            pool.submit_with_cancel(&external, async { Ok(42) }).await;
+        assert!(matches!(result, Err(PoolError::Cancelled(_))));
     }
 
     #[tokio::test]
@@ -387,9 +373,7 @@ mod tests {
         let pool = ExecutionPool::new(2);
         let external = CancellationToken::new();
 
-        let result = pool
-            .submit_with_cancel(&external, async { Ok(42) })
-            .await;
+        let result = pool.submit_with_cancel(&external, async { Ok(42) }).await;
         assert_eq!(result.unwrap(), 42);
     }
 
@@ -412,10 +396,7 @@ mod tests {
         pool.shutdown();
 
         let result = handle.await.unwrap();
-        assert!(matches!(
-            result,
-            Err(PoolError::Cancelled(_))
-        ));
+        assert!(matches!(result, Err(PoolError::Cancelled(_))));
     }
 
     #[tokio::test]
@@ -441,10 +422,7 @@ mod tests {
                 Ok(42)
             })
             .await;
-        assert!(matches!(
-            result,
-            Err(PoolError::Cancelled(_))
-        ));
+        assert!(matches!(result, Err(PoolError::Cancelled(_))));
     }
 
     #[tokio::test]
@@ -488,9 +466,8 @@ mod tests {
         let external = CancellationToken::new();
         external.cancel();
 
-        let result: Result<i32, PoolError> = pool
-            .submit_with_cancel(&external, async { Ok(42) })
-            .await;
+        let result: Result<i32, PoolError> =
+            pool.submit_with_cancel(&external, async { Ok(42) }).await;
         assert!(result.is_err());
 
         let stats = pool.stats();

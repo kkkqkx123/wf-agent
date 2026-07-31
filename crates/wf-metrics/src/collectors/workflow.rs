@@ -55,23 +55,35 @@ impl WorkflowMetricsCollector {
         duration_ms: f64,
         error_type: Option<&str>,
     ) {
-        let mut l = vec![("workflow_id", workflow_id), ("success", if success { "true" } else { "false" })];
+        let mut l = vec![
+            ("workflow_id", workflow_id),
+            ("success", if success { "true" } else { "false" }),
+        ];
         if let Some(v) = version {
             l.push(("version", v));
         }
         let labels = labels(&l);
 
         self.inner.increment_counter(
-            if success { workflow_metrics::SUCCESS_COUNT } else { workflow_metrics::FAILURE_COUNT },
+            if success {
+                workflow_metrics::SUCCESS_COUNT
+            } else {
+                workflow_metrics::FAILURE_COUNT
+            },
             labels.clone(),
         );
-        self.inner.observe_summary(workflow_metrics::EXECUTION_DURATION, duration_ms, labels.clone());
+        self.inner.observe_summary(
+            workflow_metrics::EXECUTION_DURATION,
+            duration_ms,
+            labels.clone(),
+        );
         if !success {
             let mut err_l = vec![("workflow_id", workflow_id)];
             if let Some(t) = error_type {
                 err_l.push(("error_type", t));
             }
-            self.inner.increment_counter(workflow_metrics::ERROR_COUNT, crate::labels(&err_l));
+            self.inner
+                .increment_counter(workflow_metrics::ERROR_COUNT, crate::labels(&err_l));
         }
         self.inner.set_gauge(
             workflow_metrics::ACTIVE_COUNT,
@@ -115,15 +127,35 @@ impl WorkflowMetricsCollector {
         &self,
         filter: &std::collections::HashMap<String, String>,
     ) -> WorkflowUsageStats {
-        let total = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::EXECUTION_COUNT, filter);
-        let success = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::SUCCESS_COUNT, filter);
-        let failure = crate::collectors::counter_total_labeled(&self.inner, workflow_metrics::FAILURE_COUNT, filter);
-        let duration = crate::collectors::latest_labeled(&self.inner, workflow_metrics::EXECUTION_DURATION, filter);
+        let total = crate::collectors::counter_total_labeled(
+            &self.inner,
+            workflow_metrics::EXECUTION_COUNT,
+            filter,
+        );
+        let success = crate::collectors::counter_total_labeled(
+            &self.inner,
+            workflow_metrics::SUCCESS_COUNT,
+            filter,
+        );
+        let failure = crate::collectors::counter_total_labeled(
+            &self.inner,
+            workflow_metrics::FAILURE_COUNT,
+            filter,
+        );
+        let duration = crate::collectors::latest_labeled(
+            &self.inner,
+            workflow_metrics::EXECUTION_DURATION,
+            filter,
+        );
         let by_version = self
             .inner
             .query(&crate::metric::MetricFilter {
                 name: Some(workflow_metrics::SUCCESS_COUNT.to_string()),
-                labels: if filter.is_empty() { None } else { Some(filter.clone()) },
+                labels: if filter.is_empty() {
+                    None
+                } else {
+                    Some(filter.clone())
+                },
                 ..Default::default()
             })
             .metrics
@@ -138,7 +170,11 @@ impl WorkflowMetricsCollector {
         let percentile = |p: f64| {
             duration
                 .as_ref()
-                .and_then(|d| d.percentiles.iter().find(|q| (q.percentile - p).abs() < f64::EPSILON))
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - p).abs() < f64::EPSILON)
+                })
                 .map(|q| q.value)
                 .unwrap_or(0.0)
         };
@@ -150,7 +186,13 @@ impl WorkflowMetricsCollector {
             success_rate: if total > 0.0 { success / total } else { 0.0 },
             avg_duration_ms: duration
                 .as_ref()
-                .map(|d| if d.count > 0 { d.sum / d.count as f64 } else { 0.0 })
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0),
             p95_duration_ms: percentile(0.95),
             p99_duration_ms: percentile(0.99),

@@ -31,7 +31,12 @@ impl EventMetricsCollector {
         &self.inner
     }
 
-    pub fn record_event(&self, event_type: &str, execution_id: Option<&str>, workflow_id: Option<&str>) {
+    pub fn record_event(
+        &self,
+        event_type: &str,
+        execution_id: Option<&str>,
+        workflow_id: Option<&str>,
+    ) {
         let mut pairs = vec![("event_type", event_type)];
         if let Some(exec_id) = execution_id {
             pairs.push(("execution_id", exec_id));

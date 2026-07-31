@@ -60,9 +60,7 @@ impl ToolExecutor for McpExecutor {
         let timeout_ms = options.timeout.unwrap_or(30000);
 
         let result = if let Some(manager) = &self.connection_manager {
-            manager
-                .call_tool(&tool.name, parameters, timeout_ms)
-                .await
+            manager.call_tool(&tool.name, parameters, timeout_ms).await
         } else {
             Err(ToolError::McpError(format!(
                 "No connection manager for MCP server '{}'",
@@ -72,7 +70,13 @@ impl ToolExecutor for McpExecutor {
 
         let execution_time = start.elapsed().as_millis() as i64;
         match result {
-            Ok(value) => Ok(BaseExecutor::build_result(true, Some(value), None, execution_time, 0)),
+            Ok(value) => Ok(BaseExecutor::build_result(
+                true,
+                Some(value),
+                None,
+                execution_time,
+                0,
+            )),
             Err(e) => Ok(BaseExecutor::build_result(
                 false,
                 None,

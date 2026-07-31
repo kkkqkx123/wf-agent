@@ -22,11 +22,15 @@ impl ScriptHandler {
     }
 
     pub fn with_sandbox(sandbox: Arc<SandboxRuntime>) -> Self {
-        Self { sandbox: Some(sandbox) }
+        Self {
+            sandbox: Some(sandbox),
+        }
     }
 
     fn get_sandbox(&self) -> Arc<SandboxRuntime> {
-        self.sandbox.clone().unwrap_or_else(|| Arc::new(SandboxRuntime::new()))
+        self.sandbox
+            .clone()
+            .unwrap_or_else(|| Arc::new(SandboxRuntime::new()))
     }
 }
 
@@ -45,7 +49,10 @@ impl NodeHandler for ScriptHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
         let code = config.get("code").and_then(|v| v.as_str());
-        let language = config.get("language").and_then(|v| v.as_str()).unwrap_or("javascript");
+        let language = config
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("javascript");
         let template = config.get("template").and_then(|v| v.as_str());
         let sandbox_cfg = config.get("sandboxConfig");
         let output_mapping = config.get("outputMapping");
@@ -56,7 +63,9 @@ impl NodeHandler for ScriptHandler {
         } else if let Some(c) = code {
             c.to_string()
         } else {
-            return Err(WorkflowError::Internal("Script node requires 'code' or 'template' field".to_string()));
+            return Err(WorkflowError::Internal(
+                "Script node requires 'code' or 'template' field".to_string(),
+            ));
         };
 
         let sandbox = self.get_sandbox();
@@ -66,14 +75,21 @@ impl NodeHandler for ScriptHandler {
 
         if !result.success {
             let stderr = result.stderr.as_deref().unwrap_or("unknown error");
-            return Err(WorkflowError::Internal(format!("Script execution failed: {}", stderr)));
+            return Err(WorkflowError::Internal(format!(
+                "Script execution failed: {}",
+                stderr
+            )));
         }
 
-        let output = result.stdout.clone()
+        let output = result
+            .stdout
+            .clone()
             .map(Value::String)
             .unwrap_or(Value::Null);
 
-        let parsed_output = result.stdout.as_deref()
+        let parsed_output = result
+            .stdout
+            .as_deref()
             .and_then(|s| serde_json::from_str::<Value>(s).ok())
             .unwrap_or(output);
 
@@ -83,7 +99,10 @@ impl NodeHandler for ScriptHandler {
 
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("script_name".to_string(), Value::String(result.script_name));
-        metadata.insert("execution_time".to_string(), Value::Number(result.execution_time.into()));
+        metadata.insert(
+            "execution_time".to_string(),
+            Value::Number(result.execution_time.into()),
+        );
         metadata.insert("language".to_string(), Value::String(language.to_string()));
         if let Some(sandbox_mode) = result.sandbox_mode {
             metadata.insert("sandbox_mode".to_string(), Value::String(sandbox_mode));
@@ -132,15 +151,21 @@ impl ScriptHandler {
         }
 
         match language {
-            "shell" => { config.shell_strategy = Some(vec!["os-hook".to_string()]); }
-            "python" | "py" => { config.python_strategy = Some(vec!["os-hook".to_string()]); }
-            "javascript" | "js" => { config.javascript_strategy = Some(vec!["os-hook".to_string()]); }
-            "lua" => { config.lua_strategy = Some(vec!["mlua-sandbox".to_string()]); }
+            "shell" => {
+                config.shell_strategy = Some(vec!["os-hook".to_string()]);
+            }
+            "python" | "py" => {
+                config.python_strategy = Some(vec!["os-hook".to_string()]);
+            }
+            "javascript" | "js" => {
+                config.javascript_strategy = Some(vec!["os-hook".to_string()]);
+            }
+            "lua" => {
+                config.lua_strategy = Some(vec!["mlua-sandbox".to_string()]);
+            }
             _ => {}
         }
 
         config
     }
 }
-
-

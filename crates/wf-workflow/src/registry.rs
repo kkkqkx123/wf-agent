@@ -44,9 +44,10 @@ impl WorkflowExecutionPool {
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
     ) -> WorkflowResult<serde_json::Value> {
-        let _permit = self.semaphore.acquire().await
-            .expect("semaphore closed");
-        executor.execute_workflow(workflow_id, graph, options, tool_registry, handlers).await
+        let _permit = self.semaphore.acquire().await.expect("semaphore closed");
+        executor
+            .execute_workflow(workflow_id, graph, options, tool_registry, handlers)
+            .await
     }
 }
 

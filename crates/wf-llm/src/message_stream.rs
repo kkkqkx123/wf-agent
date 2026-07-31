@@ -1,11 +1,11 @@
-use async_trait::async_trait;
-use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 use crate::error::LlmError;
 use crate::formatters::LlmFormatter;
-use wf_types::llm::MessageStreamEvent;
+use async_trait::async_trait;
 use eventsource_stream::EventStream;
 use futures::StreamExt;
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
+use wf_types::llm::MessageStreamEvent;
 
 #[async_trait]
 pub trait MessageStream: Send {
@@ -20,8 +20,17 @@ pub struct SseMessageStream<S> {
 }
 
 impl<S> SseMessageStream<S> {
-    pub fn new(stream: EventStream<S>, formatter: Arc<dyn LlmFormatter>, cancel: Option<CancellationToken>) -> Self {
-        Self { stream, formatter, cancel, done: false }
+    pub fn new(
+        stream: EventStream<S>,
+        formatter: Arc<dyn LlmFormatter>,
+        cancel: Option<CancellationToken>,
+    ) -> Self {
+        Self {
+            stream,
+            formatter,
+            cancel,
+            done: false,
+        }
     }
 }
 
@@ -56,7 +65,9 @@ where
                     match self.formatter.parse_stream_chunk(&data) {
                         Ok(Some(MessageStreamEvent::End(_))) => {
                             self.done = true;
-                            return Some(Ok(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                            return Some(Ok(MessageStreamEvent::End(
+                                wf_types::llm::MessageStreamEnd {},
+                            )));
                         }
                         Ok(Some(event)) => return Some(Ok(event)),
                         Ok(None) => continue,

@@ -13,10 +13,7 @@ impl SecurityValidator {
         if expr.len() > MAX_EXPRESSION_LENGTH {
             violations.push(SecurityViolation {
                 field: "expression".to_string(),
-                reason: format!(
-                    "Expression exceeds max length of {}",
-                    MAX_EXPRESSION_LENGTH
-                ),
+                reason: format!("Expression exceeds max length of {}", MAX_EXPRESSION_LENGTH),
                 severity: SecuritySeverity::Error,
             });
             return violations;
@@ -108,10 +105,7 @@ impl SecurityValidator {
         if index as usize >= length {
             violations.push(SecurityViolation {
                 field: "array_index".to_string(),
-                reason: format!(
-                    "Array index {} out of bounds for length {}",
-                    index, length
-                ),
+                reason: format!("Array index {} out of bounds for length {}", index, length),
                 severity: SecuritySeverity::Error,
             });
         }
@@ -242,12 +236,14 @@ mod tests {
     fn test_expression_depth() {
         let deep = "a[b[c[d[e[f[g]]]]]]";
         let violations = SecurityValidator::validate_expression(deep);
-        assert!(violations.is_empty(),
-            "depth 7 should be within limit 10: {:?}", violations);
+        assert!(
+            violations.is_empty(),
+            "depth 7 should be within limit 10: {:?}",
+            violations
+        );
 
         let too_deep = "a(b(c(d(e(f(g(h(i(j(k(l(m(n(o(p))))))))))))))";
         let violations = SecurityValidator::validate_expression(too_deep);
-        assert!(!violations.is_empty(),
-            "depth > 10 should be flagged");
+        assert!(!violations.is_empty(), "depth > 10 should be flagged");
     }
 }

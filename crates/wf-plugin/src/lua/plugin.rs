@@ -5,12 +5,12 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::context::PluginContext;
-use crate::contributions::types::*;
 use crate::contributions::registrar::ContributionRegistrar;
+use crate::contributions::types::*;
+use crate::contributions::NextFn;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
-use crate::contributions::NextFn;
 
 pub struct LuaPlugin {
     manifest: PluginManifest,
@@ -19,30 +19,47 @@ pub struct LuaPlugin {
 
 impl LuaPlugin {
     pub fn new(manifest: PluginManifest, lua: mlua::Lua) -> Self {
-        Self { manifest, lua: Arc::new(Mutex::new(lua)) }
+        Self {
+            manifest,
+            lua: Arc::new(Mutex::new(lua)),
+        }
     }
 
     fn call_hook(&self, hook_name: &str, ctx: &PluginContext) -> PluginResult<()> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
 
-        let plugin_table: mlua::Table = lua.globals().get("plugin")
+        let plugin_table: mlua::Table = lua
+            .globals()
+            .get("plugin")
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
 
         let hook: mlua::Function = match plugin_table.get(hook_name) {
             Ok(f) => f,
             Err(_) => {
-                tracing::debug!("lua plugin '{}' has no hook '{}'", self.manifest.id, hook_name);
+                tracing::debug!(
+                    "lua plugin '{}' has no hook '{}'",
+                    self.manifest.id,
+                    hook_name
+                );
                 return Ok(());
             }
         };
 
         let ctx_tbl = build_lua_context(&lua, ctx)?;
-        hook.call::<_, ()>(ctx_tbl).map_err(|e| PluginError::LuaError(e.to_string()))
+        hook.call::<_, ()>(ctx_tbl)
+            .map_err(|e| PluginError::LuaError(e.to_string()))
     }
 }
 
-fn build_lua_context<'lua>(lua: &'lua mlua::Lua, ctx: &PluginContext) -> PluginResult<mlua::Table<'lua>> {
-    let t = lua.create_table()
+fn build_lua_context<'lua>(
+    lua: &'lua mlua::Lua,
+    ctx: &PluginContext,
+) -> PluginResult<mlua::Table<'lua>> {
+    let t = lua
+        .create_table()
         .map_err(|e| PluginError::LuaError(format!("create context table: {}", e)))?;
     t.set("plugin_id", ctx.plugin_id.as_str())
         .map_err(|e| PluginError::LuaError(format!("set plugin_id: {}", e)))?;
@@ -56,13 +73,11 @@ fn to_lua_value<'lua>(lua: &'lua mlua::Lua, value: &Value) -> mlua::Value<'lua> 
         match v {
             Value::Null => Ok(mlua::Value::Nil),
             Value::Bool(b) => Ok(mlua::Value::Boolean(*b)),
-            Value::Number(n) => {
-                Ok(n.as_i64().map(mlua::Value::Integer)
-                    .unwrap_or_else(|| mlua::Value::Number(n.as_f64().unwrap_or(0.0))))
-            }
-            Value::String(s) => {
-                Ok(mlua::Value::String(l.create_string(s.as_bytes())?))
-            }
+            Value::Number(n) => Ok(n
+                .as_i64()
+                .map(mlua::Value::Integer)
+                .unwrap_or_else(|| mlua::Value::Number(n.as_f64().unwrap_or(0.0)))),
+            Value::String(s) => Ok(mlua::Value::String(l.create_string(s.as_bytes())?)),
             Value::Array(arr) => {
                 let t = l.create_table()?;
                 for (i, v) in arr.iter().enumerate() {
@@ -92,26 +107,31 @@ fn from_lua_value(value: mlua::Value) -> Value {
                 if n.is_nan() || n.is_infinite() {
                     Some(Value::Null)
                 } else {
-                    Some(Value::Number(serde_json::Number::from_f64(n).unwrap_or(0.into())))
+                    Some(Value::Number(
+                        serde_json::Number::from_f64(n).unwrap_or(0.into()),
+                    ))
                 }
             }
-            mlua::Value::String(s) => {
-                match s.to_str() {
-                    Ok(s) => Some(Value::String(s.to_owned())),
-                    Err(_) => Some(Value::Null),
-                }
-            }
+            mlua::Value::String(s) => match s.to_str() {
+                Ok(s) => Some(Value::String(s.to_owned())),
+                Err(_) => Some(Value::Null),
+            },
             mlua::Value::Table(t) => {
                 let mut is_array = true;
                 let mut map = serde_json::Map::new();
                 let mut arr: Vec<Value> = Vec::new();
                 for pair in t.pairs::<mlua::Value, mlua::Value>() {
-                    let (k, v) = match pair { Ok(p) => p, Err(_) => continue };
+                    let (k, v) = match pair {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
                     let v = try_convert(v).unwrap_or(Value::Null);
                     match k {
                         mlua::Value::Integer(i) if i >= 1 => {
                             let idx = (i - 1) as usize;
-                            while arr.len() <= idx { arr.push(Value::Null); }
+                            while arr.len() <= idx {
+                                arr.push(Value::Null);
+                            }
                             arr[idx] = v;
                         }
                         mlua::Value::String(s) => {
@@ -187,42 +207,64 @@ struct LuaMiddlewareHandler {
 #[async_trait]
 impl PluginNodeHandler for LuaNodeHandler {
     async fn execute(&self, ctx: PluginExecutionContext) -> PluginResult<PluginNodeResult> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let ctx_tbl = create_lua_handler_table(&lua)?;
         set_table_str(&ctx_tbl, "node_id", &ctx.node_id)?;
         set_table_value(&ctx_tbl, "inputs", to_lua_value(&lua, &ctx.inputs))?;
         set_table_value(&ctx_tbl, "config", to_lua_value(&lua, &ctx.config))?;
-        let result: mlua::Value = func.call(ctx_tbl).map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let o = result.as_table()
+        let result: mlua::Value = func
+            .call(ctx_tbl)
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let o = result
+            .as_table()
             .and_then(|t| t.get::<&str, mlua::Value>("outputs").ok())
             .unwrap_or(mlua::Value::Nil);
-        Ok(PluginNodeResult { outputs: from_lua_value(o) })
+        Ok(PluginNodeResult {
+            outputs: from_lua_value(o),
+        })
     }
 }
 
 #[async_trait]
 impl PluginToolExecutor for LuaToolExecutor {
     async fn execute(&self, ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let ctx_tbl = create_lua_handler_table(&lua)?;
         set_table_value(&ctx_tbl, "args", to_lua_value(&lua, &ctx.args))?;
-        let result: mlua::Value = func.call(ctx_tbl).map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let r = result.as_table()
+        let result: mlua::Value = func
+            .call(ctx_tbl)
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let r = result
+            .as_table()
             .and_then(|t| t.get::<&str, mlua::Value>("result").ok())
             .unwrap_or(mlua::Value::Nil);
-        Ok(PluginToolResult { result: from_lua_value(r) })
+        Ok(PluginToolResult {
+            result: from_lua_value(r),
+        })
     }
 }
 
 #[async_trait]
 impl PluginLLMFormatter for LuaLLMFormatter {
     async fn format(&self, request: PluginLLMRequest) -> PluginResult<PluginLLMResponse> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let req_tbl = create_lua_handler_table(&lua)?;
         let msgs_arr = create_lua_handler_table(&lua)?;
@@ -230,7 +272,8 @@ impl PluginLLMFormatter for LuaLLMFormatter {
             let msg_tbl = create_lua_handler_table(&lua)?;
             set_table_str(&msg_tbl, "role", &msg.role)?;
             set_table_str(&msg_tbl, "content", &msg.content)?;
-            msgs_arr.set(i + 1, msg_tbl)
+            msgs_arr
+                .set(i + 1, msg_tbl)
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
         }
         set_table_value(&req_tbl, "messages", mlua::Value::Table(msgs_arr))?;
@@ -239,24 +282,34 @@ impl PluginLLMFormatter for LuaLLMFormatter {
             set_table_str(&cfg_tbl, "model", &config.model)?;
             set_table_str(&cfg_tbl, "provider", &config.provider)?;
             if let Some(t) = config.temperature {
-                cfg_tbl.set("temperature", t)
+                cfg_tbl
+                    .set("temperature", t)
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
             }
             if let Some(m) = config.max_tokens {
-                cfg_tbl.set("max_tokens", m)
+                cfg_tbl
+                    .set("max_tokens", m)
                     .map_err(|e| PluginError::LuaError(e.to_string()))?;
             }
             set_table_value(&req_tbl, "config", mlua::Value::Table(cfg_tbl))?;
         }
-        let result: mlua::Value = func.call(req_tbl).map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let t = result.as_table().ok_or_else(|| PluginError::LuaError("result must be a table".into()))?;
-        let content: String = t.get("content")
+        let result: mlua::Value = func
+            .call(req_tbl)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let usage = t.get::<&str, mlua::Table>("usage").ok().map(|ut| PluginLLMUsage {
-            prompt_tokens: ut.get("prompt_tokens").unwrap_or(0),
-            completion_tokens: ut.get("completion_tokens").unwrap_or(0),
-            total_tokens: ut.get("total_tokens").unwrap_or(0),
-        });
+        let t = result
+            .as_table()
+            .ok_or_else(|| PluginError::LuaError("result must be a table".into()))?;
+        let content: String = t
+            .get("content")
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let usage = t
+            .get::<&str, mlua::Table>("usage")
+            .ok()
+            .map(|ut| PluginLLMUsage {
+                prompt_tokens: ut.get("prompt_tokens").unwrap_or(0),
+                completion_tokens: ut.get("completion_tokens").unwrap_or(0),
+                total_tokens: ut.get("total_tokens").unwrap_or(0),
+            });
         Ok(PluginLLMResponse { content, usage })
     }
 }
@@ -264,44 +317,63 @@ impl PluginLLMFormatter for LuaLLMFormatter {
 #[async_trait]
 impl PluginEventHandler for LuaEventHandler {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let evt_tbl = create_lua_handler_table(&lua)?;
         set_table_str(&evt_tbl, "event_type", &event.event_type)?;
         set_table_value(&evt_tbl, "data", to_lua_value(&lua, &event.data))?;
-        func.call(evt_tbl).map_err(|e| PluginError::LuaError(e.to_string()))
+        func.call(evt_tbl)
+            .map_err(|e| PluginError::LuaError(e.to_string()))
     }
 }
 
 #[async_trait]
 impl PluginHookHandler for LuaHookHandler {
     async fn handle(&self, context: Value) -> PluginResult<()> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let val = to_lua_value(&lua, &context);
-        func.call(val).map_err(|e| PluginError::LuaError(e.to_string()))
+        func.call(val)
+            .map_err(|e| PluginError::LuaError(e.to_string()))
     }
 }
 
 #[async_trait]
 impl PluginMiddlewareHandler for LuaMiddlewareHandler {
     async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
-        let lua = self.lua.lock().map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = lua.registry_value(&self.func_key)
+        let lua = self
+            .lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = lua
+            .registry_value(&self.func_key)
             .map_err(|e| PluginError::LuaError(e.to_string()))?;
         let ctx_val = to_lua_value(&lua, &context);
         let next = std::sync::Mutex::new(Some(next));
-        let next_wrapper = lua.create_function(move |_lua, _: ()| {
-            let f = next.lock().unwrap().take()
-                .ok_or_else(|| mlua::Error::external("next already called"))?;
-            let fut = f();
-            tokio::task::block_in_place(|| {
-                futures::executor::block_on(fut)
-            }).map_err(|e| mlua::Error::external(e.to_string()))
-        }).map_err(|e| PluginError::LuaError(e.to_string()))?;
-        func.call::<_, ()>((ctx_val, next_wrapper)).map_err(|e| PluginError::LuaError(e.to_string()))
+        let next_wrapper = lua
+            .create_function(move |_lua, _: ()| {
+                let f = next
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .ok_or_else(|| mlua::Error::external("next already called"))?;
+                let fut = f();
+                tokio::task::block_in_place(|| futures::executor::block_on(fut))
+                    .map_err(|e| mlua::Error::external(e.to_string()))
+            })
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        func.call::<_, ()>((ctx_val, next_wrapper))
+            .map_err(|e| PluginError::LuaError(e.to_string()))
     }
 }
 
@@ -309,7 +381,9 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
 
 #[async_trait]
 impl Plugin for LuaPlugin {
-    fn manifest(&self) -> &PluginManifest { &self.manifest }
+    fn manifest(&self) -> &PluginManifest {
+        &self.manifest
+    }
 
     async fn on_load(&self, ctx: &PluginContext) -> PluginResult<()> {
         self.call_hook("on_load", ctx)
@@ -341,7 +415,8 @@ impl Plugin for LuaPlugin {
             Err(_) => return Ok(()),
         };
         let cfg_val = to_lua_value(&lua, config);
-        hook.call::<_, ()>(cfg_val).map_err(|e| PluginError::LuaError(e.to_string()))
+        hook.call::<_, ()>(cfg_val)
+            .map_err(|e| PluginError::LuaError(e.to_string()))
     }
 
     fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
@@ -383,7 +458,13 @@ impl Plugin for LuaPlugin {
                     for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
                         if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
                             if let Ok(key) = locked.create_registry_value(&func) {
-                                out.push(RegEntry { name, key, kind, phase: String::new(), priority: 0 });
+                                out.push(RegEntry {
+                                    name,
+                                    key,
+                                    kind,
+                                    phase: String::new(),
+                                    priority: 0,
+                                });
                             }
                         }
                     }
@@ -403,7 +484,13 @@ impl Plugin for LuaPlugin {
                     let priority: i32 = mw_tbl.get("priority").unwrap_or(0);
                     if let Ok(func) = mw_tbl.get::<_, mlua::Function>("handle") {
                         if let Ok(key) = locked.create_registry_value(&func) {
-                            out.push(RegEntry { name: String::new(), key, kind: 6, phase, priority });
+                            out.push(RegEntry {
+                                name: String::new(),
+                                key,
+                                kind: 6,
+                                phase,
+                                priority,
+                            });
                         }
                     }
                 }
@@ -415,17 +502,58 @@ impl Plugin for LuaPlugin {
         // Phase 2: register (no Lua access)
         for e in entries {
             match e.kind {
-                0 => registrar.register_node_type(&e.name, Arc::new(LuaNodeHandler { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                1 => registrar.register_tool_type(&e.name, Arc::new(LuaToolExecutor { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                2 => registrar.register_llm_provider(&e.name, Arc::new(LuaLLMFormatter { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                3 => registrar.register_formatter(&e.name, Arc::new(LuaLLMFormatter { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                4 => registrar.register_event_handler(&e.name, Arc::new(LuaEventHandler { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                5 => registrar.register_hook_handler(&e.name, Arc::new(LuaHookHandler { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
-                6 => registrar.register_middleware(&e.phase, e.priority, Arc::new(LuaMiddlewareHandler { lua: self.lua.clone(), func_key: Arc::new(e.key) })),
+                0 => registrar.register_node_type(
+                    &e.name,
+                    Arc::new(LuaNodeHandler {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                1 => registrar.register_tool_type(
+                    &e.name,
+                    Arc::new(LuaToolExecutor {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                2 => registrar.register_llm_provider(
+                    &e.name,
+                    Arc::new(LuaLLMFormatter {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                3 => registrar.register_formatter(
+                    &e.name,
+                    Arc::new(LuaLLMFormatter {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                4 => registrar.register_event_handler(
+                    &e.name,
+                    Arc::new(LuaEventHandler {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                5 => registrar.register_hook_handler(
+                    &e.name,
+                    Arc::new(LuaHookHandler {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
+                6 => registrar.register_middleware(
+                    &e.phase,
+                    e.priority,
+                    Arc::new(LuaMiddlewareHandler {
+                        lua: self.lua.clone(),
+                        func_key: Arc::new(e.key),
+                    }),
+                ),
                 _ => {}
             }
         }
     }
 }
-
-

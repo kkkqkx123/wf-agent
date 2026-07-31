@@ -9,7 +9,10 @@ use crate::contributions::registrar::ContributionRegistrar;
 use crate::contributions::types::*;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
-use crate::native::abi::{load_abi_info, ptr_to_string, ContributionRegistrarC, DispatchFn, PluginAbiResult, PluginContextC, WF_PLUGIN_ABI_VERSION};
+use crate::native::abi::{
+    load_abi_info, ptr_to_string, ContributionRegistrarC, DispatchFn, PluginAbiResult,
+    PluginContextC, WF_PLUGIN_ABI_VERSION,
+};
 use crate::plugin::Plugin;
 
 pub struct NativePlugin {
@@ -21,23 +24,30 @@ pub struct NativePlugin {
 impl NativePlugin {
     pub fn new(manifest: PluginManifest, lib: libloading::Library) -> PluginResult<Self> {
         let abi = load_abi_info(&lib)?;
-        let loaded_manifest: PluginManifest = toml::from_str(
-            &String::from_utf8_lossy(&abi.manifest_bytes)
-        ).map_err(|e| PluginError::NativeError(format!("manifest parse: {}", e)))?;
+        let loaded_manifest: PluginManifest =
+            toml::from_str(&String::from_utf8_lossy(&abi.manifest_bytes))
+                .map_err(|e| PluginError::NativeError(format!("manifest parse: {}", e)))?;
 
         if manifest.id != loaded_manifest.id {
-            return Err(PluginError::NativeError(
-                format!("manifest id mismatch: '{}' vs '{}'", manifest.id, loaded_manifest.id)
-            ));
+            return Err(PluginError::NativeError(format!(
+                "manifest id mismatch: '{}' vs '{}'",
+                manifest.id, loaded_manifest.id
+            )));
         }
 
-        Ok(Self { manifest, _lib: Arc::new(lib), abi })
+        Ok(Self {
+            manifest,
+            _lib: Arc::new(lib),
+            abi,
+        })
     }
 }
 
 #[async_trait]
 impl Plugin for NativePlugin {
-    fn manifest(&self) -> &PluginManifest { &self.manifest }
+    fn manifest(&self) -> &PluginManifest {
+        &self.manifest
+    }
 
     async fn on_load(&self, ctx: &PluginContext) -> PluginResult<()> {
         call_hook_fn(self.abi.on_load, ctx)
@@ -86,10 +96,16 @@ impl Plugin for NativePlugin {
             register_middleware: Some(ffi_register_middleware),
         };
 
-        let result = func(&c_registrar as *const ContributionRegistrarC as *mut ContributionRegistrarC);
-        unsafe { drop(Box::from_raw(context_ptr as *mut RegistrarWithDispatch)); }
+        let result =
+            func(&c_registrar as *const ContributionRegistrarC as *mut ContributionRegistrarC);
+        unsafe {
+            drop(Box::from_raw(context_ptr as *mut RegistrarWithDispatch));
+        }
         if result != 0 {
-            tracing::warn!("wf_plugin_register_contributions returned non-zero: {}", result);
+            tracing::warn!(
+                "wf_plugin_register_contributions returned non-zero: {}",
+                result
+            );
         }
     }
 }
@@ -99,11 +115,17 @@ struct RegistrarWithDispatch<'a> {
     dispatch: Option<DispatchFn>,
 }
 
-unsafe fn registrar_from_ctx(ctx: *mut std::ffi::c_void) -> &'static mut RegistrarWithDispatch<'static> {
+unsafe fn registrar_from_ctx(
+    ctx: *mut std::ffi::c_void,
+) -> &'static mut RegistrarWithDispatch<'static> {
     &mut *(ctx as *mut RegistrarWithDispatch)
 }
 
-fn call_config_hook_fn(hook: Option<extern "C" fn(*const PluginContextC) -> i32>, plugin_id: &str, config: &serde_json::Value) -> PluginResult<()> {
+fn call_config_hook_fn(
+    hook: Option<extern "C" fn(*const PluginContextC) -> i32>,
+    plugin_id: &str,
+    config: &serde_json::Value,
+) -> PluginResult<()> {
     match hook {
         None => Ok(()),
         Some(func) => {
@@ -119,18 +141,25 @@ fn call_config_hook_fn(hook: Option<extern "C" fn(*const PluginContextC) -> i32>
             };
             let result = func(&c_ctx as *const PluginContextC);
             if result != 0 {
-                return Err(PluginError::NativeError(format!("on_config_change returned {}", result)));
+                return Err(PluginError::NativeError(format!(
+                    "on_config_change returned {}",
+                    result
+                )));
             }
             Ok(())
         }
     }
 }
 
-fn call_hook_fn(hook: Option<extern "C" fn(*const PluginContextC) -> i32>, ctx: &PluginContext) -> PluginResult<()> {
+fn call_hook_fn(
+    hook: Option<extern "C" fn(*const PluginContextC) -> i32>,
+    ctx: &PluginContext,
+) -> PluginResult<()> {
     match hook {
         None => Ok(()),
         Some(func) => {
-            let config_json = serde_json::to_string(&ctx.config).unwrap_or_else(|_| "{}".to_string());
+            let config_json =
+                serde_json::to_string(&ctx.config).unwrap_or_else(|_| "{}".to_string());
             let plugin_id_c = CString::new(ctx.plugin_id.as_str())
                 .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
             let config_c = CString::new(config_json)
@@ -144,7 +173,10 @@ fn call_hook_fn(hook: Option<extern "C" fn(*const PluginContextC) -> i32>, ctx: 
 
             let result = func(&c_ctx as *const PluginContextC);
             if result != 0 {
-                return Err(PluginError::NativeError(format!("hook returned {}", result)));
+                return Err(PluginError::NativeError(format!(
+                    "hook returned {}",
+                    result
+                )));
             }
             Ok(())
         }
@@ -159,9 +191,12 @@ fn dispatch_call(
 ) -> PluginResult<Vec<u8>> {
     let func = match dispatch {
         Some(f) => f,
-        None => return Err(PluginError::NativeError(format!(
-            "native plugin '{}' does not export wf_plugin_dispatch_handler", handler_name
-        ))),
+        None => {
+            return Err(PluginError::NativeError(format!(
+                "native plugin '{}' does not export wf_plugin_dispatch_handler",
+                handler_name
+            )))
+        }
     };
 
     let c_type = CString::new(handler_type)
@@ -184,7 +219,8 @@ fn dispatch_call(
 
     if result != 0 {
         return Err(PluginError::NativeError(format!(
-            "dispatch '{}' failed for '{}'", handler_type, handler_name
+            "dispatch '{}' failed for '{}'",
+            handler_type, handler_name
         )));
     }
 
@@ -200,7 +236,9 @@ extern "C" fn ffi_register_node_type(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() { return 1; }
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_node_type(
@@ -217,7 +255,9 @@ extern "C" fn ffi_register_tool_type(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() { return 1; }
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_tool_type(
@@ -234,7 +274,9 @@ extern "C" fn ffi_register_llm_provider(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() { return 1; }
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_llm_provider(
@@ -251,7 +293,9 @@ extern "C" fn ffi_register_formatter(
     ctx_ptr: *mut std::ffi::c_void,
     name: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() { return 1; }
+    if ctx_ptr.is_null() || name.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_formatter(
@@ -268,7 +312,9 @@ extern "C" fn ffi_register_event_handler(
     ctx_ptr: *mut std::ffi::c_void,
     event_type: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || event_type.is_null() { return 1; }
+    if ctx_ptr.is_null() || event_type.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let event_str = unsafe { ptr_to_string(event_type) };
     registrar_ctx.registrar.register_event_handler(
@@ -285,7 +331,9 @@ extern "C" fn ffi_register_hook_handler(
     ctx_ptr: *mut std::ffi::c_void,
     hook_type: *const std::os::raw::c_char,
 ) -> i32 {
-    if ctx_ptr.is_null() || hook_type.is_null() { return 1; }
+    if ctx_ptr.is_null() || hook_type.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let hook_str = unsafe { ptr_to_string(hook_type) };
     registrar_ctx.registrar.register_hook_handler(
@@ -303,7 +351,9 @@ extern "C" fn ffi_register_middleware(
     phase: *const std::os::raw::c_char,
     priority: i32,
 ) -> i32 {
-    if ctx_ptr.is_null() || phase.is_null() { return 1; }
+    if ctx_ptr.is_null() || phase.is_null() {
+        return 1;
+    }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let phase_str = unsafe { ptr_to_string(phase) };
     registrar_ctx.registrar.register_middleware(
@@ -411,8 +461,7 @@ impl PluginMiddlewareHandler for NativeMiddlewareHandler {
             .map_err(|e| PluginError::NativeError(format!("serialize context: {}", e)))?;
         let output = dispatch_call(self.dispatch, "mw", &self.phase, &ctx_json)?;
         // Middleware can signal whether to proceed via the response
-        let result: Value = serde_json::from_slice(&output)
-            .unwrap_or(Value::Null);
+        let result: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
         if result.as_bool().unwrap_or(true) {
             next().await?;
         }

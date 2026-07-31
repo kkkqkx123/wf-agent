@@ -26,9 +26,8 @@ pub use hierarchy::manager::{
     ExecutionHierarchyManager, ExecutionHierarchyMetadata, ParentExecutionContext, MAX_DEPTH,
 };
 pub use interruption::{
-    check_execution_interruption, combine_cancellation_tokens,
-    execute_with_interruption_handling, iterate_with_interruption_handling,
-    InterruptionSignal, InterruptionState,
+    check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,
+    iterate_with_interruption_handling, InterruptionSignal, InterruptionState,
 };
 pub use registry::{ConcurrentRegistry, RegistryError};
 pub use scheduler::{
@@ -36,4 +35,3 @@ pub use scheduler::{
     TimeoutPolicy,
 };
 pub use state::{NodeStateMachine, WorkflowStateMachine};
-

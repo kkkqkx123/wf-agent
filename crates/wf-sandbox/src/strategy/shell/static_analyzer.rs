@@ -155,10 +155,7 @@ fn extract_file_paths(command: &str) -> Vec<String> {
     paths
 }
 
-async fn check_vfs_paths(
-    sub_command: &str,
-    vfs: &Arc<dyn VfsProvider>,
-) -> Option<String> {
+async fn check_vfs_paths(sub_command: &str, vfs: &Arc<dyn VfsProvider>) -> Option<String> {
     let paths = extract_file_paths(sub_command);
     if paths.is_empty() {
         return None;
@@ -259,15 +256,12 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
         let shell_policy = policy.shell.as_ref().cloned().unwrap_or_default();
         let analyzer = self.get_analyzer(shell_type);
 
-        let resolved_patterns = shell_policy
-            .dangerous_patterns
-            .clone()
-            .unwrap_or_else(|| {
-                self.default_dangerous_patterns(shell_type)
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
-            });
+        let resolved_patterns = shell_policy.dangerous_patterns.clone().unwrap_or_else(|| {
+            self.default_dangerous_patterns(shell_type)
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        });
 
         for pattern in &resolved_patterns {
             if let Ok(re) = Regex::new(pattern) {

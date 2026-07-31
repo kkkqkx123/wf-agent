@@ -38,8 +38,6 @@ impl Default for ServiceConfig {
     }
 }
 
-
-
 // ── Helpers ──
 
 fn open_storage(db_path: &str) -> LayertwineResult<Arc<SqliteStorage>> {
@@ -136,8 +134,7 @@ impl ApiService {
         // Open backup repo (dedicated SQLite DB for physical isolation)
         let backup_db_path = db_dir.join("layertwine-backup.db");
         let backup_repo = Arc::new(
-            BackupRepo::new(&backup_db_path)
-                .map_err(|e| map_error(LayertwineError::Storage(e)))?,
+            BackupRepo::new(&backup_db_path).map_err(|e| map_error(LayertwineError::Storage(e)))?,
         );
 
         Ok(ApiService {
@@ -421,7 +418,7 @@ impl ApiService {
     pub fn edit(&self, req: EditRequest) -> ApiResult<EditResponse> {
         let content = req.content.as_deref().ok_or_else(|| {
             ApiError::invalid_params(
-                "edit content is required (provide via -c/--content or pipe via stdin)"
+                "edit content is required (provide via -c/--content or pipe via stdin)",
             )
         })?;
         let snapshot_id =
@@ -559,11 +556,9 @@ impl ApiService {
         let staged_snapshot_id = if names.is_empty() {
             approve_resp.integrated_snapshot_id.clone()
         } else {
-            let result = crate::layered::staged::merge_features_to_staged(
-                self.storage.as_ref(),
-                &names,
-            )
-            .map_err(map_error)?;
+            let result =
+                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names)
+                    .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
         };
 
@@ -1311,7 +1306,10 @@ impl ApiService {
 
     /// Merge integrated partitions directly to staged (replaces former unified layer).
     /// Kept for backward compatibility — the unified layer has been removed.
-    pub fn merge_to_unified(&self, req: MergeToUnifiedRequest) -> ApiResult<MergeToUnifiedResponse> {
+    pub fn merge_to_unified(
+        &self,
+        req: MergeToUnifiedRequest,
+    ) -> ApiResult<MergeToUnifiedResponse> {
         let names = req.integration_names.unwrap_or_else(|| {
             // Auto-detect all integrated partition names
             self.storage
@@ -1368,9 +1366,10 @@ impl ApiService {
         let staged_snapshot_id = if names.is_empty() {
             // No integrated partitions — staged is already up to date
             let staged_pid = crate::layered::staged::staged_partition_id();
-            let staged = self.storage.get_partition(&staged_pid).map_err(|e| {
-                map_error(LayertwineError::Storage(e))
-            })?;
+            let staged = self
+                .storage
+                .get_partition(&staged_pid)
+                .map_err(|e| map_error(LayertwineError::Storage(e)))?;
             snapshot_id_to_hex(&staged.current_snapshot)
         } else {
             let result =

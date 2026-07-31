@@ -62,7 +62,12 @@ impl ExecutionHierarchyManager {
         let children: HashMap<String, ChildExecutionReference> = metadata
             .children
             .into_iter()
-            .map(|c| (format!("{}:{}", child_type_str(&c.child_type), c.child_id), c))
+            .map(|c| {
+                (
+                    format!("{}:{}", child_type_str(&c.child_type), c.child_id),
+                    c,
+                )
+            })
             .collect();
 
         Self {
@@ -108,7 +113,11 @@ impl ExecutionHierarchyManager {
 
     pub fn add_child(&self, child_ref: ChildExecutionReference) {
         let mut inner = self.inner.write().unwrap();
-        let key = format!("{}:{}", child_type_str(&child_ref.child_type), child_ref.child_id);
+        let key = format!(
+            "{}:{}",
+            child_type_str(&child_ref.child_type),
+            child_ref.child_id
+        );
         inner.children.insert(key, child_ref);
     }
 
@@ -119,7 +128,13 @@ impl ExecutionHierarchyManager {
     }
 
     pub fn children(&self) -> Vec<ChildExecutionReference> {
-        self.inner.read().unwrap().children.values().cloned().collect()
+        self.inner
+            .read()
+            .unwrap()
+            .children
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub fn depth(&self) -> u32 {
@@ -131,11 +146,7 @@ impl ExecutionHierarchyManager {
     }
 
     pub fn root_execution_type(&self) -> ExecutionType {
-        self.inner
-            .read()
-            .unwrap()
-            .root_execution_type
-            .clone()
+        self.inner.read().unwrap().root_execution_type.clone()
     }
 
     pub fn to_metadata(&self) -> ExecutionHierarchyMetadata {
@@ -255,8 +266,11 @@ mod tests {
         assert_eq!(metadata.children.len(), 2);
         assert_eq!(metadata.root_execution_id, "exec1");
 
-        let restored =
-            ExecutionHierarchyManager::from_metadata("exec1".to_string(), ExecutionType::AgentLoop, metadata);
+        let restored = ExecutionHierarchyManager::from_metadata(
+            "exec1".to_string(),
+            ExecutionType::AgentLoop,
+            metadata,
+        );
         assert_eq!(restored.children().len(), 2);
         assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
     }

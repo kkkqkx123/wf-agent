@@ -19,9 +19,18 @@ fn test_large_file_edit_commit_restore() {
 
     // Generate 500KB of content (10000 lines × ~50 chars)
     let large_content: String = (0..10_000)
-        .map(|i| format!("line_{:05}  {}  some padding data here for size\n", i, "x".repeat(30)))
+        .map(|i| {
+            format!(
+                "line_{:05}  {}  some padding data here for size\n",
+                i,
+                "x".repeat(30)
+            )
+        })
         .collect();
-    assert!(large_content.len() > 400_000, "content should be at least 400KB");
+    assert!(
+        large_content.len() > 400_000,
+        "content should be at least 400KB"
+    );
 
     let _sid = apply_edit(&env, "large.rs", &large_content);
     commit_changes(&env, "large file initial", "dev");
@@ -32,7 +41,11 @@ fn test_large_file_edit_commit_restore() {
             if i == 5_000 {
                 format!("line_{:05}  MODIFIED  some padding data here for size\n", i)
             } else {
-                format!("line_{:05}  {}  some padding data here for size\n", i, "x".repeat(30))
+                format!(
+                    "line_{:05}  {}  some padding data here for size\n",
+                    i,
+                    "x".repeat(30)
+                )
             }
         })
         .collect();
@@ -49,7 +62,10 @@ fn test_large_file_edit_commit_restore() {
     let staged_parts = get_partitions_by_layer(&env, LayerType::Staged);
     if let Some(staged) = staged_parts.first() {
         let staged_text = reconstruct_text(&env, &staged.current_snapshot).unwrap_or_default();
-        assert!(!staged_text.is_empty(), "staged content should not be empty");
+        assert!(
+            !staged_text.is_empty(),
+            "staged content should not be empty"
+        );
         assert!(
             staged_text.contains("MODIFIED"),
             "staged content should contain the modification"
@@ -69,8 +85,14 @@ fn test_one_megabyte_file() {
 
     // Generate ~1MB content
     let line = "A".repeat(100) + "\n";
-    let megabyte: String = (0..10_000).map(|_| line.clone()).collect::<Vec<_>>().concat();
-    assert!(megabyte.len() >= 1_000_000, "content should be at least 1MB");
+    let megabyte: String = (0..10_000)
+        .map(|_| line.clone())
+        .collect::<Vec<_>>()
+        .concat();
+    assert!(
+        megabyte.len() >= 1_000_000,
+        "content should be at least 1MB"
+    );
 
     let _sid = apply_edit(&env, "megabyte.txt", &megabyte);
 

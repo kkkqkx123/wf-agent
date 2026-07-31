@@ -24,24 +24,31 @@ impl CrossBoundaryConverter {
     }
 
     fn workflow_to_agent_to_workflow(messages: &[Message]) -> Vec<Message> {
-        messages.iter().map(|msg| {
-            let mut converted = msg.clone();
-            converted.tool_calls = None;
-            converted
-        }).collect()
+        messages
+            .iter()
+            .map(|msg| {
+                let mut converted = msg.clone();
+                converted.tool_calls = None;
+                converted
+            })
+            .collect()
     }
 
     fn agent_to_workflow_to_agent(messages: &[Message]) -> Vec<Message> {
-        messages.iter().filter_map(|msg| {
-            match msg.role {
+        messages
+            .iter()
+            .filter_map(|msg| match msg.role {
                 MessageRole::System => None,
                 MessageRole::Tool => None,
                 _ => Some(msg.clone()),
-            }
-        }).collect()
+            })
+            .collect()
     }
 
-    pub fn inject_context(messages: &[Message], context_vars: &std::collections::HashMap<String, String>) -> Vec<Message> {
+    pub fn inject_context(
+        messages: &[Message],
+        context_vars: &std::collections::HashMap<String, String>,
+    ) -> Vec<Message> {
         if context_vars.is_empty() {
             return messages.to_vec();
         }
@@ -76,46 +83,46 @@ mod tests {
 
     #[test]
     fn test_workflow_to_agent_strips_tool_calls() {
-        let messages = vec![
-            Message {
-                id: wf_types::Id::new(),
-                role: MessageRole::Assistant,
-                content: MessageContentValue::Text("test".to_string()),
-                timestamp: 0,
-                tool_call_id: None,
-                tool_name: None,
-                tool_calls: Some(vec![wf_types::message::LlmToolCall {
-                    id: "tc1".to_string(),
-                    r#type: "function".to_string(),
-                    function: wf_types::message::LlmFunctionCall {
-                        name: "search".to_string(),
-                        arguments: "{}".to_string(),
-                    },
-                }]),
-                thinking: None,
-                metadata: None,
-            },
-        ];
+        let messages = vec![Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::Assistant,
+            content: MessageContentValue::Text("test".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: Some(vec![wf_types::message::LlmToolCall {
+                id: "tc1".to_string(),
+                r#type: "function".to_string(),
+                function: wf_types::message::LlmFunctionCall {
+                    name: "search".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            thinking: None,
+            metadata: None,
+        }];
 
-        let converted = CrossBoundaryConverter::convert(&messages, &BoundaryType::WorkflowToAgent, &BoundaryType::AgentToWorkflow);
+        let converted = CrossBoundaryConverter::convert(
+            &messages,
+            &BoundaryType::WorkflowToAgent,
+            &BoundaryType::AgentToWorkflow,
+        );
         assert!(converted[0].tool_calls.is_none());
     }
 
     #[test]
     fn test_inject_context() {
-        let messages = vec![
-            Message {
-                id: wf_types::Id::new(),
-                role: MessageRole::User,
-                content: MessageContentValue::Text("Hello".to_string()),
-                timestamp: 0,
-                tool_call_id: None,
-                tool_name: None,
-                tool_calls: None,
-                thinking: None,
-                metadata: None,
-            },
-        ];
+        let messages = vec![Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text("Hello".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }];
 
         let mut vars = std::collections::HashMap::new();
         vars.insert("key1".to_string(), "value1".to_string());

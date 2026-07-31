@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use dashmap::DashMap;
-use reqwest::Client as ReqwestClient;
-use wf_types::llm::LlmProfile;
 use crate::client::LlmClientImpl;
 use crate::formatters::create_formatter;
+use dashmap::DashMap;
+use reqwest::Client as ReqwestClient;
+use std::sync::Arc;
+use wf_types::llm::LlmProfile;
 
 #[derive(Clone)]
 pub struct ClientFactory {
@@ -29,14 +29,16 @@ impl ClientFactory {
 
     pub fn get_or_create(&self, profile: &LlmProfile) -> Arc<LlmClientImpl> {
         let key = &profile.id;
-        
+
         if let Some(client) = self.clients.get(key) {
             return client.clone();
         }
 
         let formatter = create_formatter(&profile.provider);
         let client = ReqwestClient::builder()
-            .timeout(std::time::Duration::from_secs(profile.timeout.unwrap_or(60)))
+            .timeout(std::time::Duration::from_secs(
+                profile.timeout.unwrap_or(60),
+            ))
             .build()
             .unwrap_or_default();
 

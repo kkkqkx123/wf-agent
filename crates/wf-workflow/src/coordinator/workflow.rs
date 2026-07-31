@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use wf_common::now;
-use wf_core::EventBus;
 use wf_core::condition::ConditionEvaluator;
+use wf_core::interruption::check_execution_interruption;
+use wf_core::EventBus;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_metrics::collectors::node::NodeExecutionRecord;
-use wf_core::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::WorkflowGraphStructure;
@@ -23,7 +23,9 @@ use crate::handler::NodeHandler;
 
 /// Serialized size of a value in bytes, used for node input/output metrics.
 fn json_size(value: &Value) -> u64 {
-    serde_json::to_string(value).map(|s| s.len() as u64).unwrap_or(0)
+    serde_json::to_string(value)
+        .map(|s| s.len() as u64)
+        .unwrap_or(0)
 }
 
 fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
@@ -79,7 +81,8 @@ impl WorkflowCoordinator {
         handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
     ) -> WorkflowResult<Self> {
         let traversal = GraphTraversal::new(graph)?;
-        let start_node_id = traversal.start_node_id()
+        let start_node_id = traversal
+            .start_node_id()
             .ok_or_else(|| WorkflowError::GraphError("Start node not found".to_string()))?
             .to_string();
 
@@ -142,9 +145,15 @@ impl WorkflowCoordinator {
 
         let event_bus: Option<&EventBus> = self.ctx.event_bus.as_deref();
 
-        self.emit_event(event_bus, EventType::WorkflowExecutionStarted, entity, &serde_json::json!({
-            "workflow_id": self.ctx.workflow_id,
-        })).await;
+        self.emit_event(
+            event_bus,
+            EventType::WorkflowExecutionStarted,
+            entity,
+            &serde_json::json!({
+                "workflow_id": self.ctx.workflow_id,
+            }),
+        )
+        .await;
 
         if let Some(ref mut cp) = self.checkpoint {
             cp.on_workflow_start(entity).await;
@@ -155,32 +164,60 @@ impl WorkflowCoordinator {
         while let Some(node_id) = &self.current_node_id.clone() {
             let interruption_check = check_execution_interruption(entity.interruption(), None);
             match interruption_check {
-                wf_core::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
-                    self.emit_event(event_bus, EventType::WorkflowExecutionCancelled, entity, &serde_json::json!({
-                        "reason": "interrupted",
-                    })).await;
-                    return Err(WorkflowError::CoordinatorError("Execution stopped by interruption".to_string()));
+                wf_core::types::interruption::ExecutionInterruptionCheckResult::Stopped {
+                    ..
+                } => {
+                    self.emit_event(
+                        event_bus,
+                        EventType::WorkflowExecutionCancelled,
+                        entity,
+                        &serde_json::json!({
+                            "reason": "interrupted",
+                        }),
+                    )
+                    .await;
+                    return Err(WorkflowError::CoordinatorError(
+                        "Execution stopped by interruption".to_string(),
+                    ));
                 }
-                wf_core::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
-                    self.emit_event(event_bus, EventType::WorkflowExecutionPaused, entity, &serde_json::json!({
-                        "node_id": node_id,
-                    })).await;
-                    return Err(WorkflowError::CoordinatorError("Execution paused".to_string()));
+                wf_core::types::interruption::ExecutionInterruptionCheckResult::Paused {
+                    ..
+                } => {
+                    self.emit_event(
+                        event_bus,
+                        EventType::WorkflowExecutionPaused,
+                        entity,
+                        &serde_json::json!({
+                            "node_id": node_id,
+                        }),
+                    )
+                    .await;
+                    return Err(WorkflowError::CoordinatorError(
+                        "Execution paused".to_string(),
+                    ));
                 }
                 _ => {}
             }
 
-            if self.ctx.options.max_steps.is_some_and(|max| self.completed_nodes.len() as u32 >= max) {
+            if self
+                .ctx
+                .options
+                .max_steps
+                .is_some_and(|max| self.completed_nodes.len() as u32 >= max)
+            {
                 break;
             }
 
             self.navigation_count += 1;
             let max_allowed = self.total_node_count * self.max_navigation_multiplier;
             if self.navigation_count > max_allowed && max_allowed > 0 {
-                return Err(WorkflowError::CoordinatorError(
-                    format!("Infinite loop detected: {} navigations exceeded max {} ({} nodes x {})",
-                        self.navigation_count, max_allowed, self.total_node_count, self.max_navigation_multiplier)
-                ));
+                return Err(WorkflowError::CoordinatorError(format!(
+                    "Infinite loop detected: {} navigations exceeded max {} ({} nodes x {})",
+                    self.navigation_count,
+                    max_allowed,
+                    self.total_node_count,
+                    self.max_navigation_multiplier
+                )));
             }
 
             if self.completed_nodes.contains(node_id) {
@@ -188,25 +225,25 @@ impl WorkflowCoordinator {
                 continue;
             }
 
-            let node = self.traversal.get_node(node_id)
-                .ok_or_else(|| WorkflowError::GraphError(
-                    format!("Node {} not found in graph", node_id),
-                ))?;
+            let node = self.traversal.get_node(node_id).ok_or_else(|| {
+                WorkflowError::GraphError(format!("Node {} not found in graph", node_id))
+            })?;
 
             let node_type = parse_node_type(&node.node_type)?;
             let node_type_str = node.node_type.clone();
 
             let mut node_ctx = self.build_node_context(node_id, &node_type).await?;
 
-            let handler = self.handlers.get(&node_type)
-                .ok_or_else(|| WorkflowError::HandlerNotFound {
-                    node_type: node.node_type.clone(),
-                })?;
+            let handler =
+                self.handlers
+                    .get(&node_type)
+                    .ok_or_else(|| WorkflowError::HandlerNotFound {
+                        node_type: node.node_type.clone(),
+                    })?;
 
             let coordinator = NodeCoordinator::new();
-            let node_timeout_ms = node_timeout.or_else(|| {
-                node.inner.get("timeout").and_then(|v| v.as_u64())
-            });
+            let node_timeout_ms =
+                node_timeout.or_else(|| node.inner.get("timeout").and_then(|v| v.as_u64()));
             let timeout_dur = node_timeout_ms.map(std::time::Duration::from_millis);
 
             let metrics = self.ctx.metrics.clone();
@@ -225,35 +262,46 @@ impl WorkflowCoordinator {
                     &self.hooks,
                     self.hook_executor.as_deref(),
                 );
-                tokio::time::timeout(tout_dur, fut).await.map_err(|_| WorkflowError::CoordinatorError(
-                    format!("Node '{}' timed out after {:?}", node_id, tout_dur)
-                ))?
+                tokio::time::timeout(tout_dur, fut).await.map_err(|_| {
+                    WorkflowError::CoordinatorError(format!(
+                        "Node '{}' timed out after {:?}",
+                        node_id, tout_dur
+                    ))
+                })?
             } else {
-                coordinator.execute_node(
-                    entity,
-                    handler.as_ref(),
-                    &mut node_ctx,
-                    event_bus,
-                    &self.hooks,
-                    self.hook_executor.as_deref(),
-                ).await
+                coordinator
+                    .execute_node(
+                        entity,
+                        handler.as_ref(),
+                        &mut node_ctx,
+                        event_bus,
+                        &self.hooks,
+                        self.hook_executor.as_deref(),
+                    )
+                    .await
             };
             let node_duration_ms = (wf_common::now() - node_start) as f64;
 
             let on_failure = self.ctx.options.on_failure.as_deref().unwrap_or("fail");
             let max_retries = self.ctx.options.max_retries.unwrap_or(0);
-            let retry_delay = std::time::Duration::from_millis(self.ctx.options.retry_delay_ms.unwrap_or(1000));
+            let retry_delay =
+                std::time::Duration::from_millis(self.ctx.options.retry_delay_ms.unwrap_or(1000));
 
             match result {
                 Ok(output) => {
-                    self.node_outputs.insert(node_id.clone(), output.output.clone());
+                    self.node_outputs
+                        .insert(node_id.clone(), output.output.clone());
                     self.completed_nodes.push(node_id.clone());
 
                     for (k, v) in &output.metadata {
                         self.ctx.variables.insert(k.clone(), v.clone());
                     }
 
-                    entity.state.write().await.mark_node_completed(node_id.clone());
+                    entity
+                        .state
+                        .write()
+                        .await
+                        .mark_node_completed(node_id.clone());
 
                     if let Some(ref mut cp) = self.checkpoint {
                         cp.on_node_completed(entity).await;
@@ -298,18 +346,30 @@ impl WorkflowCoordinator {
                         "retry" | "continue" => {
                             let mut retried = false;
                             for attempt in 0..max_retries {
-                                tracing::warn!("Node '{}' failed (attempt {}/{}): {}. Retrying in {:?}...",
-                                    node_id, attempt + 1, max_retries, e, retry_delay);
+                                tracing::warn!(
+                                    "Node '{}' failed (attempt {}/{}): {}. Retrying in {:?}...",
+                                    node_id,
+                                    attempt + 1,
+                                    max_retries,
+                                    e,
+                                    retry_delay
+                                );
                                 if let Some(node_metrics) = &node_metrics {
                                     node_metrics.record_retry(node_id, &node_type_str);
                                 }
                                 tokio::time::sleep(retry_delay).await;
-                                let mut retry_node_ctx = self.build_node_context(node_id, &node_type).await?;
+                                let mut retry_node_ctx =
+                                    self.build_node_context(node_id, &node_type).await?;
                                 let retry_ok = handler.execute(&mut retry_node_ctx).await;
                                 if let Ok(retry_output) = retry_ok {
-                                    self.node_outputs.insert(node_id.clone(), retry_output.output.clone());
+                                    self.node_outputs
+                                        .insert(node_id.clone(), retry_output.output.clone());
                                     self.completed_nodes.push(node_id.clone());
-                                    entity.state.write().await.mark_node_completed(node_id.clone());
+                                    entity
+                                        .state
+                                        .write()
+                                        .await
+                                        .mark_node_completed(node_id.clone());
                                     if let Some(node_metrics) = &node_metrics {
                                         node_metrics.record_execution(NodeExecutionRecord {
                                             node_id,
@@ -322,15 +382,21 @@ impl WorkflowCoordinator {
                                             error_type: None,
                                         });
                                     }
-                                    self.current_node_id = self.determine_next_node(&retry_output).await?;
+                                    self.current_node_id =
+                                        self.determine_next_node(&retry_output).await?;
                                     retried = true;
                                     break;
                                 }
                             }
                             if !retried {
                                 if on_failure == "continue" {
-                                    tracing::warn!("Node '{}' failed after {} retries, continuing", node_id, max_retries);
-                                    self.current_node_id = self.determine_next_node_without_output().await?;
+                                    tracing::warn!(
+                                        "Node '{}' failed after {} retries, continuing",
+                                        node_id,
+                                        max_retries
+                                    );
+                                    self.current_node_id =
+                                        self.determine_next_node_without_output().await?;
                                 } else {
                                     return Err(e);
                                 }
@@ -338,8 +404,13 @@ impl WorkflowCoordinator {
                         }
                         "skip" | "skipped" => {
                             tracing::warn!("Skipping failed node '{}': {}", node_id, e);
-                            entity.state.write().await.mark_node_completed(node_id.clone());
-                            self.current_node_id = self.determine_next_node_without_output().await?;
+                            entity
+                                .state
+                                .write()
+                                .await
+                                .mark_node_completed(node_id.clone());
+                            self.current_node_id =
+                                self.determine_next_node_without_output().await?;
                         }
                         _ => {
                             return Err(e);
@@ -354,10 +425,16 @@ impl WorkflowCoordinator {
 
         entity.state.write().await.complete();
 
-        self.emit_event(event_bus, EventType::WorkflowExecutionCompleted, entity, &serde_json::json!({
-            "execution_time": execution_time,
-            "node_count": self.completed_nodes.len(),
-        })).await;
+        self.emit_event(
+            event_bus,
+            EventType::WorkflowExecutionCompleted,
+            entity,
+            &serde_json::json!({
+                "execution_time": execution_time,
+                "node_count": self.completed_nodes.len(),
+            }),
+        )
+        .await;
 
         if let Some(ref mut cp) = self.checkpoint {
             cp.on_workflow_end(entity).await;
@@ -524,10 +601,18 @@ impl WorkflowCoordinator {
         }
     }
 
-    async fn emit_event(&self, event_bus: Option<&EventBus>, event_type: EventType, entity: &WorkflowExecutionEntity, data: &serde_json::Value) {
+    async fn emit_event(
+        &self,
+        event_bus: Option<&EventBus>,
+        event_type: EventType,
+        entity: &WorkflowExecutionEntity,
+        data: &serde_json::Value,
+    ) {
         let Some(bus) = event_bus else { return };
         let metadata = data.as_object().map(|obj| {
-            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<HashMap<_, _>>()
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<HashMap<_, _>>()
         });
 
         let event = BaseEvent {

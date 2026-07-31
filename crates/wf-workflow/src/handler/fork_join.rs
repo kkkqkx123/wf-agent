@@ -5,9 +5,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use serde_json::Value;
 use wf_core::EventBus;
-use wf_execution_shared::context::{
-    ExecutorContext, NodeExecutionContext, NodeExecutionResult,
-};
+use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
 use wf_tools::registry::ToolRegistry;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
@@ -65,10 +63,8 @@ fn extract_branch_subgraph(
     let mut branch_edges: Vec<WorkflowEdge> = Vec::new();
 
     let mut current = branch_edge.target_node_id.clone();
-    let edge_map: HashMap<&str, Vec<&WorkflowEdge>> = graph
-        .edges
-        .iter()
-        .fold(HashMap::new(), |mut acc, e| {
+    let edge_map: HashMap<&str, Vec<&WorkflowEdge>> =
+        graph.edges.iter().fold(HashMap::new(), |mut acc, e| {
             acc.entry(e.source_node_id.as_str())
                 .or_insert_with(Vec::new)
                 .push(e);
@@ -217,11 +213,8 @@ impl NodeHandler for ForkHandler {
             let handle = tokio::spawn(async move {
                 let result = match &graph {
                     Some(g) => {
-                        let outgoing: Vec<&WorkflowEdge> = g
-                            .edges
-                            .iter()
-                            .filter(|e| e.source_node_id == nid)
-                            .collect();
+                        let outgoing: Vec<&WorkflowEdge> =
+                            g.edges.iter().filter(|e| e.source_node_id == nid).collect();
 
                         let branch_edge = outgoing
                             .iter()
@@ -234,26 +227,24 @@ impl NodeHandler for ForkHandler {
 
                         match branch_edge {
                             Some(edge) => {
-                                let join_target =
-                                    join_node_id.clone().unwrap_or_default();
-                                let subgraph = extract_branch_subgraph(
-                                    g, &nid, edge, &join_target,
-                                );
+                                let join_target = join_node_id.clone().unwrap_or_default();
+                                let subgraph = extract_branch_subgraph(g, &nid, edge, &join_target);
 
                                 if subgraph.nodes.is_empty() {
                                     BranchResult::success(&branch_id, branch_input)
                                 } else {
                                     match execute_branch(
-                                        &eid, &branch_id, branch_input,
-                                        subgraph, handlers, eb,
+                                        &eid,
+                                        &branch_id,
+                                        branch_input,
+                                        subgraph,
+                                        handlers,
+                                        eb,
                                     )
                                     .await
                                     {
                                         Ok(output) => output,
-                                        Err(e) => BranchResult::failure(
-                                            &branch_id,
-                                            e.to_string(),
-                                        ),
+                                        Err(e) => BranchResult::failure(&branch_id, e.to_string()),
                                     }
                                 }
                             }
@@ -399,10 +390,7 @@ async fn execute_branch(
     )
     .with_parent_execution(parent_execution_id.clone());
 
-    let entity = WorkflowExecutionEntity::new(
-        execution_id.clone(),
-        workflow_id,
-    );
+    let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
 
     let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
@@ -459,8 +447,7 @@ impl NodeHandler for JoinHandler {
                 let handler = config.get("handler").and_then(|h| h.as_str());
                 if handler == Some("sum") {
                     if let Value::Array(items) = &ctx.input {
-                        let sum: f64 =
-                            items.iter().filter_map(|v| v.as_f64()).sum();
+                        let sum: f64 = items.iter().filter_map(|v| v.as_f64()).sum();
                         Value::Number(
                             serde_json::Number::from_f64(sum)
                                 .unwrap_or(serde_json::Number::from(0)),

@@ -1,6 +1,8 @@
 use crate::error::ConfigResult;
 use crate::validator::validate_min;
-use wf_types::config::file_checkpoint::{FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType};
+use wf_types::config::file_checkpoint::{
+    FileCheckpointConfig, FileCheckpointStorageConfig, FileCheckpointStorageType,
+};
 
 pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileCheckpointConfig {
     FileCheckpointConfig {
@@ -17,7 +19,11 @@ pub fn merge_file_checkpoint_with_defaults(user: &FileCheckpointConfig) -> FileC
 }
 
 pub fn validate_file_checkpoint_config(config: &FileCheckpointConfig) -> ConfigResult<()> {
-    validate_min(config.max_delta_chain_length as u64, 1, "file_checkpoint.max_delta_chain_length")?;
+    validate_min(
+        config.max_delta_chain_length as u64,
+        1,
+        "file_checkpoint.max_delta_chain_length",
+    )?;
     Ok(())
 }
 

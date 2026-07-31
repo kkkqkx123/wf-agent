@@ -105,7 +105,9 @@ fn test_concurrent_connections_isolated() {
     let storage2 = create_test_storage();
 
     assert!(
-        !storage2.file_node_exists(file.path_str(), &file.base_hash).unwrap_or(false),
+        !storage2
+            .file_node_exists(file.path_str(), &file.base_hash)
+            .unwrap_or(false),
         "separate in-memory DBs should be isolated"
     );
 }
@@ -140,5 +142,8 @@ fn test_delete_checkpoint_not_found() {
     let storage = create_test_storage();
     let fake_id = ContentId::from_content(b"nonexistent");
     let result = storage.delete_checkpoint(&fake_id);
-    assert!(result.is_err(), "deleting non-existent checkpoint should fail");
+    assert!(
+        result.is_err(),
+        "deleting non-existent checkpoint should fail"
+    );
 }

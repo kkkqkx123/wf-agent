@@ -60,9 +60,13 @@ fn cache_key(cfg: &SystemConfig) -> i64 {
     let mut key = 0i64;
     key = key.wrapping_mul(31).wrapping_add(cfg.include_time as i64);
     key = key.wrapping_mul(31).wrapping_add(cfg.include_env as i64);
-    key = key.wrapping_mul(31).wrapping_add(cfg.include_tool_descriptions as i64);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(cfg.include_tool_descriptions as i64);
     key = key.wrapping_mul(31).wrapping_add(cfg.include_skills as i64);
-    key = key.wrapping_mul(31).wrapping_add(cfg.include_workflows as i64);
+    key = key
+        .wrapping_mul(31)
+        .wrapping_add(cfg.include_workflows as i64);
     key
 }
 

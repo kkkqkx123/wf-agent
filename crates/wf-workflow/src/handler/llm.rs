@@ -22,7 +22,8 @@ impl NodeHandler for LlmHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
 
-        let profile_id = config.get("profile_id")
+        let profile_id = config
+            .get("profile_id")
             .or_else(|| config.get("model"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -87,10 +88,14 @@ impl NodeHandler for LlmHandler {
         };
 
         let llm_wrapper = LlmWrapper::new();
-        let response = llm_wrapper.generate(&request).await
+        let response = llm_wrapper
+            .generate(&request)
+            .await
             .map_err(|e| WorkflowError::Internal(format!("LLM call failed: {}", e)))?;
 
-        let output = response.content.clone()
+        let output = response
+            .content
+            .clone()
             .map(Value::String)
             .unwrap_or(Value::Null);
 
@@ -100,8 +105,14 @@ impl NodeHandler for LlmHandler {
             metadata.insert("finish_reason".to_string(), Value::String(finish_reason));
         }
         if let Some(usage) = response.usage {
-            metadata.insert("prompt_tokens".to_string(), Value::Number(usage.prompt_tokens.into()));
-            metadata.insert("completion_tokens".to_string(), Value::Number(usage.completion_tokens.into()));
+            metadata.insert(
+                "prompt_tokens".to_string(),
+                Value::Number(usage.prompt_tokens.into()),
+            );
+            metadata.insert(
+                "completion_tokens".to_string(),
+                Value::Number(usage.completion_tokens.into()),
+            );
         }
 
         Ok(NodeExecutionResult {

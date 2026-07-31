@@ -56,7 +56,9 @@ pub fn env_parse_float(value: &str) -> ConfigResult<EnvValue> {
 
 pub fn env_parse_bool(value: &str) -> ConfigResult<EnvValue> {
     let lower = value.to_lowercase();
-    Ok(EnvValue::Bool(lower == "true" || lower == "1" || lower == "yes"))
+    Ok(EnvValue::Bool(
+        lower == "true" || lower == "1" || lower == "yes",
+    ))
 }
 
 pub fn env_parse_list(value: &str) -> ConfigResult<EnvValue> {
@@ -201,10 +203,7 @@ pub fn apply_env_overrides(
                     continue;
                 }
                 let parsed = (entry.parser)(&value).map_err(|e| {
-                    ConfigError::EnvVar(format!(
-                        "failed to parse env var {}: {e}",
-                        entry.env_var
-                    ))
+                    ConfigError::EnvVar(format!("failed to parse env var {}: {e}", entry.env_var))
                 })?;
                 apply_fn(key, parsed);
             }

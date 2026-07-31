@@ -107,10 +107,7 @@ fn bench_apply_deltas_long_chain(c: &mut criterion::Criterion) {
         }
 
         c.bench_function(
-            &format!(
-                "apply_deltas_chain_{}_lines_{}_deltas",
-                lines, num_deltas
-            ),
+            &format!("apply_deltas_chain_{}_lines_{}_deltas", lines, num_deltas),
             |b| b.iter(|| apply_deltas(&base, &deltas)),
         );
     }
@@ -157,10 +154,9 @@ fn bench_apply_deltas_multi_hunk(c: &mut criterion::Criterion) {
         }
         let delta = create_delta_from_texts(&base, &modified);
 
-        c.bench_function(
-            &format!("apply_deltas_multi_hunk_{}_lines", lines),
-            |b| b.iter(|| apply_deltas(&base, std::slice::from_ref(&delta))),
-        );
+        c.bench_function(&format!("apply_deltas_multi_hunk_{}_lines", lines), |b| {
+            b.iter(|| apply_deltas(&base, std::slice::from_ref(&delta)))
+        });
     }
 }
 
@@ -272,10 +268,9 @@ fn bench_merge_texts_empty_base(c: &mut criterion::Criterion) {
 fn bench_apply_deltas_extreme_small(c: &mut criterion::Criterion) {
     let contents = ["x", "", "a\nb\nc\n"];
     for &content in &contents {
-        c.bench_function(
-            &format!("apply_deltas_extreme_small_{:?}", content),
-            |b| b.iter(|| apply_deltas(content, &[])),
-        );
+        c.bench_function(&format!("apply_deltas_extreme_small_{:?}", content), |b| {
+            b.iter(|| apply_deltas(content, &[]))
+        });
     }
 }
 
@@ -283,15 +278,9 @@ fn bench_apply_deltas_extreme_small(c: &mut criterion::Criterion) {
 // Criterion group definitions
 // ============================================================================
 
-criterion::criterion_group!(
-    apply_deltas_empty_group,
-    bench_apply_deltas_empty
-);
+criterion::criterion_group!(apply_deltas_empty_group, bench_apply_deltas_empty);
 
-criterion::criterion_group!(
-    apply_deltas_single_group,
-    bench_apply_deltas_single
-);
+criterion::criterion_group!(apply_deltas_single_group, bench_apply_deltas_single);
 
 criterion::criterion_group!(
     apply_deltas_chain_group,
@@ -308,10 +297,7 @@ criterion::criterion_group!(
     bench_merge_texts_empty_base
 );
 
-criterion::criterion_group!(
-    edge_extreme_small,
-    bench_apply_deltas_extreme_small
-);
+criterion::criterion_group!(edge_extreme_small, bench_apply_deltas_extreme_small);
 
 criterion::criterion_main!(
     apply_deltas_empty_group,

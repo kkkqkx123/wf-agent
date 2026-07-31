@@ -440,7 +440,10 @@ fn test_approval_integrated_staged_chain() {
             .unwrap();
 
     // Staged snapshot should be different from integrated snapshot
-    assert_ne!(staged_result.snapshot_id, integrated_sid, "staged snapshot must advance");
+    assert_ne!(
+        staged_result.snapshot_id, integrated_sid,
+        "staged snapshot must advance"
+    );
 
     let text = staged_text(&storage);
     assert_eq!(text, "start\nchained\n");
@@ -532,9 +535,7 @@ fn test_state_machine_integration() {
 
     // Verify via sm
     let staged_pid = layertwine::layered::staged::staged_partition_id();
-    let part = sm
-        .get_partition(&staged_pid)
-        .unwrap();
+    let part = sm.get_partition(&staged_pid).unwrap();
     assert_eq!(part.current_snapshot, sid);
 
     // Sync layers

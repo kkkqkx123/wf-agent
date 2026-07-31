@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use wf_types::checkpoint::base::{CheckpointMetadata, CheckpointStateBase};
 use wf_types::Id;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct CheckpointMetadataBuilder {
@@ -34,8 +34,7 @@ impl CheckpointMetadataBuilder {
     }
 
     pub fn custom_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
-        let map = self.custom_fields
-            .get_or_insert_with(HashMap::new);
+        let map = self.custom_fields.get_or_insert_with(HashMap::new);
         map.insert(key.into(), value);
         self
     }
@@ -43,7 +42,11 @@ impl CheckpointMetadataBuilder {
     pub fn build(self) -> CheckpointMetadata {
         CheckpointMetadata {
             description: self.description,
-            tags: if self.tags.is_empty() { None } else { Some(self.tags) },
+            tags: if self.tags.is_empty() {
+                None
+            } else {
+                Some(self.tags)
+            },
             custom_fields: self.custom_fields,
         }
     }
@@ -88,7 +91,10 @@ mod tests {
             .build();
 
         assert_eq!(metadata.description, Some("test checkpoint".to_string()));
-        assert_eq!(metadata.tags, Some(vec!["auto".to_string(), "node-1".to_string()]));
+        assert_eq!(
+            metadata.tags,
+            Some(vec!["auto".to_string(), "node-1".to_string()])
+        );
         assert!(metadata.custom_fields.is_some());
     }
 

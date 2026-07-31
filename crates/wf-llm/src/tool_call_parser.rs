@@ -35,19 +35,30 @@ fn extract_tool_calls(value: &serde_json::Value) -> Vec<LlmToolCall> {
 fn parse_single_tool_call(value: &serde_json::Value) -> Option<LlmToolCall> {
     let obj = value.as_object()?;
 
-    let id = obj.get("id")
+    let id = obj
+        .get("id")
         .or_else(|| obj.get("tool_use_id"))
         .and_then(|v| v.as_str())
         .map(String::from)
         .unwrap_or_default();
 
     let (name, arguments) = if let Some(function) = obj.get("function") {
-        let name = function.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let args = function.get("arguments").and_then(|v| v.as_str()).unwrap_or("{}");
+        let name = function
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let args = function
+            .get("arguments")
+            .and_then(|v| v.as_str())
+            .unwrap_or("{}");
         (name, args.to_string())
     } else {
         let name = obj.get("name").and_then(|v| v.as_str())?;
-        let input = obj.get("input").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+        let input = obj
+            .get("input")
+            .cloned()
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
         let args = serde_json::to_string(&input).unwrap_or_default();
         (name.to_string(), args)
     };
@@ -65,9 +76,20 @@ pub fn parse_anthropic_tool_use(content: &serde_json::Value) -> Vec<LlmToolCall>
     if let Some(blocks) = content.as_array() {
         for block in blocks {
             if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let input = block.get("input").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                let id = block
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = block
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let input = block
+                    .get("input")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                 let arguments = serde_json::to_string(&input).unwrap_or_default();
                 calls.push(LlmToolCall {
                     id,

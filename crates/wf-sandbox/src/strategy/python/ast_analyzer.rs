@@ -261,7 +261,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(result.success, "print should be allowed: {:?}", result.stderr);
+        assert!(
+            result.success,
+            "print should be allowed: {:?}",
+            result.stderr
+        );
     }
 
     #[tokio::test]

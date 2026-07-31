@@ -1121,4 +1121,3 @@ fn test_diamond_merge_dag() {
     assert!(dag.is_ancestor(&merge_a, &head));
     assert!(dag.is_ancestor(&merge_b, &head));
 }
-

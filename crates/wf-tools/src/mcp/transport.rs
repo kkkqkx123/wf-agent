@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::{ToolError, ToolResult};
 
 use wf_types::tool::mcp_connection::{
-    McpServerConfig, McpStdioConfig, McpSseConfig, McpStreamableHttpConfig,
+    McpServerConfig, McpSseConfig, McpStdioConfig, McpStreamableHttpConfig,
 };
 
 #[derive(Debug, Clone)]
@@ -34,9 +34,7 @@ pub enum TransportConfig {
 
 impl From<&McpServerConfig> for TransportConfig {
     fn from(config: &McpServerConfig) -> Self {
-        fn metadata_to_map(
-            m: &wf_types::Metadata,
-        ) -> HashMap<String, String> {
+        fn metadata_to_map(m: &wf_types::Metadata) -> HashMap<String, String> {
             m.iter()
                 .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
                 .collect()
@@ -154,17 +152,18 @@ impl McpTransport for StdioTransport {
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::null());
 
-        let mut child = cmd.spawn().map_err(|e| ToolError::TransportError(format!(
-            "Failed to spawn MCP server process: {}",
-            e
-        )))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            ToolError::TransportError(format!("Failed to spawn MCP server process: {}", e))
+        })?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            ToolError::TransportError("Failed to open stdin".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            ToolError::TransportError("Failed to open stdout".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ToolError::TransportError("Failed to open stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ToolError::TransportError("Failed to open stdout".into()))?;
 
         let (request_tx, mut request_rx) = mpsc::channel::<JsonRpcRequest>(64);
         let (response_tx, response_rx) = mpsc::channel::<JsonRpcResponse>(64);
@@ -259,12 +258,14 @@ impl SseTransport {
     }
 
     async fn post_request(&self, request: &JsonRpcRequest) -> ToolResult<()> {
-        let endpoint = self.endpoint_url.as_ref().ok_or_else(|| {
-            ToolError::TransportError("SSE: no endpoint URL received yet".into())
-        })?;
-        let client = self.client.as_ref().ok_or_else(|| {
-            ToolError::TransportError("SSE transport not started".into())
-        })?;
+        let endpoint = self
+            .endpoint_url
+            .as_ref()
+            .ok_or_else(|| ToolError::TransportError("SSE: no endpoint URL received yet".into()))?;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| ToolError::TransportError("SSE transport not started".into()))?;
 
         let mut req = client.post(endpoint).json(request);
         if let Some(headers) = &self.config.headers {
@@ -298,9 +299,10 @@ impl McpTransport for SseTransport {
             }
         }
 
-        let response = request.send().await.map_err(|e| {
-            ToolError::TransportError(format!("Failed to connect SSE: {}", e))
-        })?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ToolError::TransportError(format!("Failed to connect SSE: {}", e)))?;
 
         if !response.status().is_success() {
             return Err(ToolError::TransportError(format!(
@@ -333,9 +335,9 @@ impl McpTransport for SseTransport {
                         _ => {}
                     },
                     Err(_) => {
-                        let _ = response_tx_clone.send(Err(ToolError::TransportError(
-                            "SSE stream error".into(),
-                        ))).await;
+                        let _ = response_tx_clone
+                            .send(Err(ToolError::TransportError("SSE stream error".into())))
+                            .await;
                         break;
                     }
                 }
@@ -410,9 +412,10 @@ impl StreamableHttpTransport {
     }
 
     async fn send_request(&self, body: &Value) -> ToolResult<Value> {
-        let client = self.client.as_ref().ok_or_else(|| {
-            ToolError::TransportError("Transport not started".into())
-        })?;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| ToolError::TransportError("Transport not started".into()))?;
 
         let mut req = client.post(&self.config.url).json(body);
 

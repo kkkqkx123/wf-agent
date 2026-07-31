@@ -33,9 +33,10 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
                 if let Ok(req) = semver::VersionReq::parse(req_str) {
                     if let Ok(ver) = semver::Version::parse(&dep.version) {
                         if !req.matches(&ver) {
-                            version_mismatches.push(
-                                format!("{}: dependency {} requires '{}', found '{}'", m.id, dep_id, req_str, dep.version)
-                            );
+                            version_mismatches.push(format!(
+                                "{}: dependency {} requires '{}', found '{}'",
+                                m.id, dep_id, req_str, dep.version
+                            ));
                         }
                     }
                 }
@@ -50,9 +51,10 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
                 if let Ok(req) = semver::VersionReq::parse(req_str) {
                     if let Ok(ver) = semver::Version::parse(&dep.version) {
                         if !req.matches(&ver) {
-                            version_mismatches.push(
-                                format!("{}: optional dependency {} requires '{}', found '{}'", m.id, dep_id, req_str, dep.version)
-                            );
+                            version_mismatches.push(format!(
+                                "{}: optional dependency {} requires '{}', found '{}'",
+                                m.id, dep_id, req_str, dep.version
+                            ));
                         }
                     }
                 }
@@ -124,7 +126,10 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
 
     let mut cycles = Vec::new();
     let processed: HashSet<&str> = load_order.iter().map(|s| s.as_str()).collect();
-    let unprocessed: Vec<&&str> = all_ids.iter().filter(|id| !processed.contains(*id)).collect();
+    let unprocessed: Vec<&&str> = all_ids
+        .iter()
+        .filter(|id| !processed.contains(*id))
+        .collect();
 
     if !unprocessed.is_empty() {
         let mut visited: HashSet<&str> = HashSet::new();
@@ -133,12 +138,24 @@ pub fn resolve_dependencies(manifests: &[PluginManifest]) -> PluginResult<Resolv
         for id in unprocessed {
             if !visited.contains(id) {
                 let mut path = Vec::new();
-                detect_cycle(&graph, id, &mut visited, &mut in_stack, &mut path, &mut cycles);
+                detect_cycle(
+                    &graph,
+                    id,
+                    &mut visited,
+                    &mut in_stack,
+                    &mut path,
+                    &mut cycles,
+                );
             }
         }
     }
 
-    Ok(ResolvedGraph { load_order, cycles, missing, version_mismatches })
+    Ok(ResolvedGraph {
+        load_order,
+        cycles,
+        missing,
+        version_mismatches,
+    })
 }
 
 fn detect_cycle<'a>(
@@ -157,7 +174,8 @@ fn detect_cycle<'a>(
         for t in targets {
             if in_stack.contains(t) {
                 let cycle_start = path.iter().position(|n| *n == *t).unwrap_or(0);
-                let cycle: Vec<String> = path[cycle_start..].iter().map(|s| s.to_string()).collect();
+                let cycle: Vec<String> =
+                    path[cycle_start..].iter().map(|s| s.to_string()).collect();
                 cycles.push(cycle);
             } else if !visited.contains(t) {
                 detect_cycle(graph, t, visited, in_stack, path, cycles);
@@ -205,10 +223,7 @@ mod tests {
 
     #[test]
     fn test_linear_deps() {
-        let manifests = vec![
-            make_manifest("b", &["a"]),
-            make_manifest("a", &[]),
-        ];
+        let manifests = vec![make_manifest("b", &["a"]), make_manifest("a", &[])];
         let graph = resolve_dependencies(&manifests).unwrap();
         assert_eq!(graph.load_order, vec!["a", "b"]);
         assert!(graph.cycles.is_empty());
@@ -236,16 +251,15 @@ mod tests {
     #[test]
     fn test_version_mismatch_detected() {
         let req = make_manifest("b", &["a"]);
-        let mut manifests = vec![
-            make_manifest("a", &[]),
-            req,
-        ];
+        let mut manifests = vec![make_manifest("a", &[]), req];
         // b requires a@1.0.0, both at 1.0.0 — should match
         let graph = resolve_dependencies(&manifests).unwrap();
         assert!(graph.version_mismatches.is_empty());
 
         // Change b to require a@^2.0.0
-        manifests[1].dependencies.insert("a".into(), "^2.0.0".into());
+        manifests[1]
+            .dependencies
+            .insert("a".into(), "^2.0.0".into());
         let graph = resolve_dependencies(&manifests).unwrap();
         assert!(!graph.version_mismatches.is_empty());
     }

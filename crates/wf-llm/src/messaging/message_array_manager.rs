@@ -1,12 +1,11 @@
 use std::sync::Mutex;
 
-use wf_types::message::{
-    AppendMessageOperation, ClearMessageOperation, FilterMessageOperation,
-    InsertMessageOperation, Message, MessageOperationConfig,
-    MessageOperationResult, MessageOperationStats, ReplaceMessageOperation,
-    RollbackMessageOperation, TruncateMessageOperation,
-};
 use wf_types::message::BatchSnapshot;
+use wf_types::message::{
+    AppendMessageOperation, ClearMessageOperation, FilterMessageOperation, InsertMessageOperation,
+    Message, MessageOperationConfig, MessageOperationResult, MessageOperationStats,
+    ReplaceMessageOperation, RollbackMessageOperation, TruncateMessageOperation,
+};
 
 #[derive(Debug)]
 struct InternalState {
@@ -39,18 +38,16 @@ impl MessageArrayManager {
             MessageOperationConfig::Clear(op) => self.execute_clear(op),
             MessageOperationConfig::Filter(op) => self.execute_filter(op),
             MessageOperationConfig::Rollback(op) => self.execute_rollback(op),
-            MessageOperationConfig::BatchManagement(_) => {
-                MessageOperationResult {
-                    messages: self.state.lock().unwrap().messages.clone(),
-                    affected_batch_index: None,
-                    stats: MessageOperationStats {
-                        added: 0,
-                        removed: 0,
-                        modified: 0,
-                        total_after: 0,
-                    },
-                }
-            }
+            MessageOperationConfig::BatchManagement(_) => MessageOperationResult {
+                messages: self.state.lock().unwrap().messages.clone(),
+                affected_batch_index: None,
+                stats: MessageOperationStats {
+                    added: 0,
+                    removed: 0,
+                    modified: 0,
+                    total_after: 0,
+                },
+            },
         }
     }
 

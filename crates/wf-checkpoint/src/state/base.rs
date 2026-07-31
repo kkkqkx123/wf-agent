@@ -10,8 +10,14 @@ pub trait CheckpointStateManager: Send + Sync {
         entity_type: &str,
         entity_id: &str,
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
-    fn load(&self, id: &str) -> impl std::future::Future<Output = Result<Option<Self::Checkpoint>, CheckpointError>> + Send;
-    fn delete(&self, id: &str) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
+    fn load(
+        &self,
+        id: &str,
+    ) -> impl std::future::Future<Output = Result<Option<Self::Checkpoint>, CheckpointError>> + Send;
+    fn delete(
+        &self,
+        id: &str,
+    ) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
     fn list_by_entity(
         &self,
         entity_id: &str,
@@ -19,7 +25,8 @@ pub trait CheckpointStateManager: Send + Sync {
     fn get_latest(
         &self,
         entity_id: &str,
-    ) -> impl std::future::Future<Output = Result<Option<CheckpointStorageMetadata>, CheckpointError>> + Send;
+    ) -> impl std::future::Future<Output = Result<Option<CheckpointStorageMetadata>, CheckpointError>>
+           + Send;
     fn cleanup(
         &self,
         entity_id: &str,

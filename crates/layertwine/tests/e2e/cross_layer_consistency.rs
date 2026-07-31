@@ -24,7 +24,12 @@ fn test_full_pipeline_layer_consistency() {
     commit_changes(&env, "manual edit v1", "dev");
 
     // Phase 2: Agent edits the same file
-    apply_agent_edit(&env, "agent-loop-1", "app.rs", "fn main() {\n    println!(\"v2-agent\");\n}\n");
+    apply_agent_edit(
+        &env,
+        "agent-loop-1",
+        "app.rs",
+        "fn main() {\n    println!(\"v2-agent\");\n}\n",
+    );
     submit_agent(&env, "agent-loop-1");
     approve_agent(&env, "agent-loop-1", "feature-1");
 
@@ -35,7 +40,10 @@ fn test_full_pipeline_layer_consistency() {
     let staged_parts = get_partitions_by_layer(&env, LayerType::Staged);
     let final_sid = &staged_parts[0].current_snapshot;
     let final_text = reconstruct_text(&env, final_sid).unwrap_or_default();
-    assert!(final_text.contains("v2-agent"), "final staged should have agent edit content");
+    assert!(
+        final_text.contains("v2-agent"),
+        "final staged should have agent edit content"
+    );
 
     // Verify commit created checkpoint entries
     let log = get_log(&env, Some(10));
@@ -60,8 +68,18 @@ fn test_multiple_agents_pipeline_consistency() {
     commit_changes(&env, "init", "dev");
 
     // Two independent agents edit the same file
-    apply_agent_edit(&env, "agent-a", "multi.rs", "base content\n// agent-a change\n");
-    apply_agent_edit(&env, "agent-b", "multi.rs", "base content\n// agent-b change\n");
+    apply_agent_edit(
+        &env,
+        "agent-a",
+        "multi.rs",
+        "base content\n// agent-a change\n",
+    );
+    apply_agent_edit(
+        &env,
+        "agent-b",
+        "multi.rs",
+        "base content\n// agent-b change\n",
+    );
 
     // Both submit → approval layer
     submit_agent(&env, "agent-a");
@@ -77,6 +95,8 @@ fn test_multiple_agents_pipeline_consistency() {
     // Final staged content should contain at least one agent's changes
     let staged_parts = get_partitions_by_layer(&env, LayerType::Staged);
     let final_text = reconstruct_text(&env, &staged_parts[0].current_snapshot).unwrap_or_default();
-    assert!(final_text.contains("agent-a change") || final_text.contains("agent-b change"),
-        "staged should contain at least one agent's changes");
+    assert!(
+        final_text.contains("agent-a change") || final_text.contains("agent-b change"),
+        "staged should contain at least one agent's changes"
+    );
 }

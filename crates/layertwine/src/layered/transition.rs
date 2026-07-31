@@ -155,8 +155,7 @@ where
                 )
             })?;
             let names: Vec<String> = names_str.split(',').map(|s| s.trim().to_string()).collect();
-            crate::layered::staged::merge_features_to_staged(storage, &names)
-                .map(|r| r.snapshot_id)
+            crate::layered::staged::merge_features_to_staged(storage, &names).map(|r| r.snapshot_id)
         }
     }
 }
@@ -314,8 +313,7 @@ where
         .get_deltas(&snapshot.deltas)
         .map_err(LayertwineError::Storage)?;
 
-    apply_deltas(&content_str, &deltas)
-        .map_err(|e| LayertwineError::Engine(e.to_string()))
+    apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))
 }
 
 /// Checks if the snapshot contains a parent of the specified partition_type.

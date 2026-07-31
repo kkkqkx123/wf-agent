@@ -57,7 +57,10 @@ impl ToolDescriptionGenerator {
                 for (name, prop) in &params.properties {
                     let param_type = prop.r#type.as_deref().unwrap_or("any");
                     let param_desc = prop.description.as_deref().unwrap_or("");
-                    result.push_str(&format!("| `{}` | `{}` | {} |\n", name, param_type, param_desc));
+                    result.push_str(&format!(
+                        "| `{}` | `{}` | {} |\n",
+                        name, param_type, param_desc
+                    ));
                 }
                 result.push('\n');
             }
@@ -76,13 +79,16 @@ mod tests {
         use wf_types::tool::{ToolParameterSchema, ToolProperty};
 
         let mut properties = HashMap::new();
-        properties.insert("query".to_string(), ToolProperty {
-            name: "query".to_string(),
-            value: serde_json::json!(""),
-            r#type: Some("string".to_string()),
-            required: Some(true),
-            description: Some("Search query".to_string()),
-        });
+        properties.insert(
+            "query".to_string(),
+            ToolProperty {
+                name: "query".to_string(),
+                value: serde_json::json!(""),
+                r#type: Some("string".to_string()),
+                required: Some(true),
+                description: Some("Search query".to_string()),
+            },
+        );
 
         Tool {
             id: wf_types::Id::new(),

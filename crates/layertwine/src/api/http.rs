@@ -437,5 +437,3 @@ async fn handle_checkpoint_rollback(
         Err(e) => err_response::<CheckpointRollbackResponse>(e).into_response(),
     }
 }
-
-

@@ -6,10 +6,7 @@ use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
 pub struct LuaMluaSandboxStrategy;
 
 impl LuaMluaSandboxStrategy {
-    fn create_safe_environment(
-        lua: &mlua::Lua,
-        policy: &LuaPolicy,
-    ) -> Result<(), mlua::Error> {
+    fn create_safe_environment(lua: &mlua::Lua, policy: &LuaPolicy) -> Result<(), mlua::Error> {
         let globals = lua.globals();
 
         let denied_by_default = ["os", "io", "package", "debug", "ffi"];
@@ -30,22 +27,30 @@ impl LuaMluaSandboxStrategy {
         let allowed = policy.allowed_modules.clone();
         let denied = policy.denied_modules.clone();
 
-        let safe_require = lua.create_function(move |lua, module_name: String| -> mlua::Result<mlua::Value> {
-            if !allowed.is_empty() && !allowed.contains(&module_name) {
-                return Err(mlua::Error::RuntimeError(format!("Module not allowed: {module_name}")));
-            }
-
-            if denied.contains(&module_name) {
-                return Err(mlua::Error::RuntimeError(format!("Module denied: {module_name}")));
-            }
-
-            match module_name.as_str() {
-                "table" | "string" | "math" | "utf8" | "coroutine" => {
-                    lua.load(format!("return require('{module_name}')")).eval()
+        let safe_require = lua.create_function(
+            move |lua, module_name: String| -> mlua::Result<mlua::Value> {
+                if !allowed.is_empty() && !allowed.contains(&module_name) {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "Module not allowed: {module_name}"
+                    )));
                 }
-                _ => Err(mlua::Error::RuntimeError("Module not supported in sandbox".to_string())),
-            }
-        })?;
+
+                if denied.contains(&module_name) {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "Module denied: {module_name}"
+                    )));
+                }
+
+                match module_name.as_str() {
+                    "table" | "string" | "math" | "utf8" | "coroutine" => {
+                        lua.load(format!("return require('{module_name}')")).eval()
+                    }
+                    _ => Err(mlua::Error::RuntimeError(
+                        "Module not supported in sandbox".to_string(),
+                    )),
+                }
+            },
+        )?;
         globals.set("require", safe_require)?;
 
         Ok(())

@@ -57,10 +57,15 @@ impl AgentLoopMetricsCollector {
             ("success", if success { "true" } else { "false" }),
         ]);
         self.inner.increment_counter(
-            if success { agent_loop_metrics::SUCCESS_RATE } else { agent_loop_metrics::ERROR_COUNT },
+            if success {
+                agent_loop_metrics::SUCCESS_RATE
+            } else {
+                agent_loop_metrics::ERROR_COUNT
+            },
             labels.clone(),
         );
-        self.inner.observe_summary(agent_loop_metrics::EXECUTION_DURATION, duration_ms, labels);
+        self.inner
+            .observe_summary(agent_loop_metrics::EXECUTION_DURATION, duration_ms, labels);
         self.inner.set_gauge(
             agent_loop_metrics::ACTIVE_COUNT,
             0.0,
@@ -138,29 +143,62 @@ impl AgentLoopMetricsCollector {
     }
 
     pub fn usage_stats(&self) -> AgentLoopUsageStats {
-        let total = crate::collectors::counter_total(&self.inner, agent_loop_metrics::EXECUTION_COUNT);
-        let success = crate::collectors::counter_total(&self.inner, agent_loop_metrics::SUCCESS_RATE);
-        let duration = crate::collectors::latest(&self.inner, agent_loop_metrics::EXECUTION_DURATION);
+        let total =
+            crate::collectors::counter_total(&self.inner, agent_loop_metrics::EXECUTION_COUNT);
+        let success =
+            crate::collectors::counter_total(&self.inner, agent_loop_metrics::SUCCESS_RATE);
+        let duration =
+            crate::collectors::latest(&self.inner, agent_loop_metrics::EXECUTION_DURATION);
 
         AgentLoopUsageStats {
             total: total as u64,
             success: success as u64,
-            failure: crate::collectors::counter_total(&self.inner, agent_loop_metrics::ERROR_COUNT) as u64,
+            failure: crate::collectors::counter_total(&self.inner, agent_loop_metrics::ERROR_COUNT)
+                as u64,
             success_rate: if total > 0.0 { success / total } else { 0.0 },
-            iterations: crate::collectors::counter_total(&self.inner, agent_loop_metrics::ITERATION_COUNT) as u64,
-            max_iterations_reached: crate::collectors::counter_total(&self.inner, agent_loop_metrics::MAX_ITERATIONS_REACHED) as u64,
-            pause_count: crate::collectors::counter_total(&self.inner, agent_loop_metrics::PAUSE_COUNT) as u64,
-            resume_count: crate::collectors::counter_total(&self.inner, agent_loop_metrics::RESUME_COUNT) as u64,
-            protocol_locked: crate::collectors::counter_total(&self.inner, protocol_metrics::LOCKED_COUNT) as u64,
-            protocol_violations: crate::collectors::counter_total(&self.inner, protocol_metrics::VIOLATION_COUNT) as u64,
-            errors: crate::collectors::counter_total(&self.inner, agent_loop_metrics::ERROR_COUNT) as u64,
+            iterations: crate::collectors::counter_total(
+                &self.inner,
+                agent_loop_metrics::ITERATION_COUNT,
+            ) as u64,
+            max_iterations_reached: crate::collectors::counter_total(
+                &self.inner,
+                agent_loop_metrics::MAX_ITERATIONS_REACHED,
+            ) as u64,
+            pause_count: crate::collectors::counter_total(
+                &self.inner,
+                agent_loop_metrics::PAUSE_COUNT,
+            ) as u64,
+            resume_count: crate::collectors::counter_total(
+                &self.inner,
+                agent_loop_metrics::RESUME_COUNT,
+            ) as u64,
+            protocol_locked: crate::collectors::counter_total(
+                &self.inner,
+                protocol_metrics::LOCKED_COUNT,
+            ) as u64,
+            protocol_violations: crate::collectors::counter_total(
+                &self.inner,
+                protocol_metrics::VIOLATION_COUNT,
+            ) as u64,
+            errors: crate::collectors::counter_total(&self.inner, agent_loop_metrics::ERROR_COUNT)
+                as u64,
             avg_duration_ms: duration
                 .as_ref()
-                .map(|d| if d.count > 0 { d.sum / d.count as f64 } else { 0.0 })
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0),
             p95_duration_ms: duration
                 .as_ref()
-                .and_then(|d| d.percentiles.iter().find(|q| (q.percentile - 0.95).abs() < f64::EPSILON))
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - 0.95).abs() < f64::EPSILON)
+                })
                 .map(|q| q.value)
                 .unwrap_or(0.0),
         }

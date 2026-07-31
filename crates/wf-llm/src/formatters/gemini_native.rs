@@ -1,8 +1,8 @@
-use reqwest::Method;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, MessageStreamEvent};
-use crate::error::LlmResult;
-use wf_types::tool::Tool;
 use super::LlmFormatter;
+use crate::error::LlmResult;
+use reqwest::Method;
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::tool::Tool;
 
 pub struct GeminiNativeFormatter {
     base_url: String,
@@ -26,46 +26,52 @@ impl GeminiNativeFormatter {
     }
 
     fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
-        messages.iter().filter_map(|msg| {
-            let role = match msg.role {
-                wf_types::message::MessageRole::System => return None,
-                wf_types::message::MessageRole::User => "user",
-                wf_types::message::MessageRole::Assistant => "model",
-                wf_types::message::MessageRole::Tool => "function",
-            };
+        messages
+            .iter()
+            .filter_map(|msg| {
+                let role = match msg.role {
+                    wf_types::message::MessageRole::System => return None,
+                    wf_types::message::MessageRole::User => "user",
+                    wf_types::message::MessageRole::Assistant => "model",
+                    wf_types::message::MessageRole::Tool => "function",
+                };
 
-            let parts = match &msg.content {
-                wf_types::message::MessageContentValue::Text(text) => {
-                    if text.is_empty() && msg.tool_calls.is_none() {
-                        return None;
-                    }
-                    let mut p = Vec::new();
-                    if !text.is_empty() {
-                        p.push(serde_json::json!({"text": text}));
-                    }
-                    if let Some(ref tool_calls) = msg.tool_calls {
-                        for tc in tool_calls {
-                            let args: serde_json::Value = serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-                            p.push(serde_json::json!({
-                                "function_call": {
-                                    "name": tc.function.name,
-                                    "args": args,
-                                }
-                            }));
+                let parts = match &msg.content {
+                    wf_types::message::MessageContentValue::Text(text) => {
+                        if text.is_empty() && msg.tool_calls.is_none() {
+                            return None;
                         }
+                        let mut p = Vec::new();
+                        if !text.is_empty() {
+                            p.push(serde_json::json!({"text": text}));
+                        }
+                        if let Some(ref tool_calls) = msg.tool_calls {
+                            for tc in tool_calls {
+                                let args: serde_json::Value = serde_json::from_str(
+                                    &tc.function.arguments,
+                                )
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                                p.push(serde_json::json!({
+                                    "function_call": {
+                                        "name": tc.function.name,
+                                        "args": args,
+                                    }
+                                }));
+                            }
+                        }
+                        p
                     }
-                    p
-                }
-                wf_types::message::MessageContentValue::Rich(blocks) => {
-                    blocks.iter().filter_map(|block| {
-                        match block {
+                    wf_types::message::MessageContentValue::Rich(blocks) => blocks
+                        .iter()
+                        .filter_map(|block| match block {
                             wf_types::message::MessageContent::Text { text } => {
                                 Some(serde_json::json!({"text": text}))
                             }
                             wf_types::message::MessageContent::ToolResult { tool_result } => {
-                                let content_val: serde_json::Value = serde_json::from_str(&tool_result.content)
-                                    .unwrap_or_else(|_| serde_json::Value::String(tool_result.content.clone()));
+                                let content_val: serde_json::Value =
+                                    serde_json::from_str(&tool_result.content).unwrap_or_else(
+                                        |_| serde_json::Value::String(tool_result.content.clone()),
+                                    );
                                 Some(serde_json::json!({
                                     "function_response": {
                                         "name": "",
@@ -74,19 +80,24 @@ impl GeminiNativeFormatter {
                                 }))
                             }
                             _ => None,
-                        }
-                    }).collect()
-                }
-            };
+                        })
+                        .collect(),
+                };
 
-            Some(serde_json::json!({"role": role, "parts": parts}))
-        }).collect()
+                Some(serde_json::json!({"role": role, "parts": parts}))
+            })
+            .collect()
     }
 
-    fn convert_generation_config(&self, request: &LlmRequest, profile: &LlmProfile) -> serde_json::Value {
+    fn convert_generation_config(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> serde_json::Value {
         let mut config = serde_json::json!({});
 
-        let merged_params = crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        let merged_params =
+            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
         if let Some(temp) = merged_params.get("temperature") {
             config["temperature"] = temp.clone();
         }
@@ -100,8 +111,13 @@ impl GeminiNativeFormatter {
             config["topK"] = top_k.clone();
         }
         if let Some(stop) = merged_params.get("stop") {
-            let stop_seqs: Vec<String> = stop.as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            let stop_seqs: Vec<String> = stop
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             config["stopSequences"] = serde_json::json!(stop_seqs);
         }
@@ -111,8 +127,13 @@ impl GeminiNativeFormatter {
 }
 
 impl LlmFormatter for GeminiNativeFormatter {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request> {
-        let url = format!("{}/models/{}:generateContent?key={}",
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request> {
+        let url = format!(
+            "{}/models/{}:generateContent?key={}",
             profile.base_url.as_deref().unwrap_or(&self.base_url),
             profile.model,
             profile.api_key.as_deref().unwrap_or("")
@@ -127,13 +148,16 @@ impl LlmFormatter for GeminiNativeFormatter {
         });
 
         if let Some(tools) = &request.tools {
-            let function_declarations: Vec<serde_json::Value> = tools.iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
+            let function_declarations: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    })
                 })
-            }).collect();
+                .collect();
             body["tools"] = serde_json::json!([{"functionDeclarations": function_declarations}]);
         }
 
@@ -148,7 +172,9 @@ impl LlmFormatter for GeminiNativeFormatter {
             }
         }
 
-        req_builder.build().map_err(crate::error::LlmError::HttpError)
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
     }
 
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
@@ -171,11 +197,20 @@ impl LlmFormatter for GeminiNativeFormatter {
                             text_content.push_str(text);
                         }
                         if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
-                            reasoning_content.get_or_insert_with(String::new).push_str(thought);
+                            reasoning_content
+                                .get_or_insert_with(String::new)
+                                .push_str(thought);
                         }
                         if let Some(func_call) = part.get("functionCall") {
-                            let name = func_call.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                            let args = func_call.get("args").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            let name = func_call
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let args = func_call
+                                .get("args")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                             let arguments = serde_json::to_string(&args).unwrap_or_default();
                             tool_calls.push(wf_types::message::LlmToolCall {
                                 id: format!("gemini_call_{}", wf_common::generate_id()),
@@ -188,15 +223,26 @@ impl LlmFormatter for GeminiNativeFormatter {
             }
         }
 
-        let usage = json.get("usageMetadata").map(|u| wf_types::llm::TokenUsageStats {
-            prompt_tokens: u.get("promptTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u.get("candidatesTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            total_tokens: u.get("totalTokenCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            reasoning_tokens: None,
-            prompt_tokens_cost: None,
-            completion_tokens_cost: None,
-            total_cost: None,
-        });
+        let usage = json
+            .get("usageMetadata")
+            .map(|u| wf_types::llm::TokenUsageStats {
+                prompt_tokens: u
+                    .get("promptTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                completion_tokens: u
+                    .get("candidatesTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                total_tokens: u
+                    .get("totalTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32,
+                reasoning_tokens: None,
+                prompt_tokens_cost: None,
+                completion_tokens_cost: None,
+                total_cost: None,
+            });
 
         let message = wf_types::message::Message {
             id: wf_types::Id::new(),
@@ -205,7 +251,11 @@ impl LlmFormatter for GeminiNativeFormatter {
             timestamp: wf_common::time::now(),
             tool_call_id: None,
             tool_name: None,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls.clone()) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls.clone())
+            },
             thinking: None,
             metadata: None,
         };
@@ -219,14 +269,30 @@ impl LlmFormatter for GeminiNativeFormatter {
         if let Some(fr) = &finish_reason {
             metadata.insert("finish_reason".to_string(), serde_json::json!(fr));
         }
-        let metadata = if metadata.is_empty() { None } else { Some(metadata) };
+        let metadata = if metadata.is_empty() {
+            None
+        } else {
+            Some(metadata)
+        };
 
         Ok(LlmResponseType {
             id: Some(wf_common::generate_id()),
-            model: json.get("modelVersion").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            content: if text_content.is_empty() { None } else { Some(text_content) },
+            model: json
+                .get("modelVersion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            content: if text_content.is_empty() {
+                None
+            } else {
+                Some(text_content)
+            },
             message,
-            tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+            tool_calls: if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls)
+            },
             usage,
             finish_reason,
             duration: 0,
@@ -252,19 +318,25 @@ impl LlmFormatter for GeminiNativeFormatter {
                         for part in parts {
                             if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText { text: text.to_string() }
+                                    wf_types::llm::MessageStreamText {
+                                        text: text.to_string(),
+                                    },
                                 )));
                             }
                             if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning { reasoning: thought.to_string() }
+                                    wf_types::llm::MessageStreamReasoning {
+                                        reasoning: thought.to_string(),
+                                    },
                                 )));
                             }
                         }
                     }
                 }
                 if candidate.get("finishReason").is_some() {
-                    return Ok(Some(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {})));
+                    return Ok(Some(MessageStreamEvent::End(
+                        wf_types::llm::MessageStreamEnd {},
+                    )));
                 }
             }
         }
@@ -273,13 +345,16 @@ impl LlmFormatter for GeminiNativeFormatter {
     }
 
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let function_declarations: Vec<serde_json::Value> = tools.iter().map(|t| {
-            serde_json::json!({
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.parameters,
+        let function_declarations: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
             })
-        }).collect();
+            .collect();
         Ok(function_declarations)
     }
 

@@ -198,11 +198,7 @@ impl CheckpointRepo {
                             .as_ref()
                             .map(|c| c.content_type().to_string())
                             .unwrap_or_else(|| "unknown".to_string());
-                        let sz = s
-                            .content
-                            .as_ref()
-                            .map(|c| c.to_bytes().len())
-                            .unwrap_or(0);
+                        let sz = s.content.as_ref().map(|c| c.to_bytes().len()).unwrap_or(0);
                         (ct, sz)
                     })
                     .unwrap_or_else(|_| ("unknown".to_string(), 0));
@@ -321,10 +317,7 @@ impl CheckpointRepo {
                 // test repos that never persisted deltas).
                 let content = match &self.storage {
                     Some(storage) => {
-                        let text = crate::layered::transition::reconstruct_text(
-                            &**storage,
-                            &snap,
-                        )?;
+                        let text = crate::layered::transition::reconstruct_text(&**storage, &snap)?;
                         SnapshotContent::FileContent(text.into_bytes())
                     }
                     None => snap
@@ -383,9 +376,7 @@ impl CheckpointRepo {
         for (_snap_id, content, source) in &response.snapshots {
             // Apply optional source filter
             if let Some(filters) = source_filter {
-                let matched = filters
-                    .iter()
-                    .any(|f| source::matches_glob(source, f));
+                let matched = filters.iter().any(|f| source::matches_glob(source, f));
                 if !matched {
                     continue;
                 }
@@ -407,10 +398,7 @@ impl CheckpointRepo {
                     }
                 }
                 std::fs::write(file_path, &bytes).map_err(|e| {
-                    LayertwineError::General(format!(
-                        "failed to write file '{}': {}",
-                        file_path, e
-                    ))
+                    LayertwineError::General(format!("failed to write file '{}': {}", file_path, e))
                 })?;
                 files_written.push(file_path.to_string());
             }

@@ -34,19 +34,13 @@ impl HierarchyIntegrityService {
 
         if let Some(ref parent) = hierarchy.parent {
             if !registry.contains(&parent.parent_id) {
-                issues.push(format!(
-                    "Parent execution '{}' not found",
-                    parent.parent_id
-                ));
+                issues.push(format!("Parent execution '{}' not found", parent.parent_id));
             }
         }
 
         for child in &hierarchy.children {
             if !registry.contains(&child.child_id) {
-                issues.push(format!(
-                    "Child execution '{}' not found",
-                    child.child_id
-                ));
+                issues.push(format!("Child execution '{}' not found", child.child_id));
             }
         }
 
@@ -205,12 +199,7 @@ mod tests {
             }],
         };
 
-        let hierarchy = make_hierarchy(
-            None,
-            vec![],
-            root_id,
-            ExecutionType::Workflow,
-        );
+        let hierarchy = make_hierarchy(None, vec![], root_id, ExecutionType::Workflow);
 
         let result = HierarchyIntegrityService::validate_integrity(&hierarchy, &registry);
         assert!(result.valid);
@@ -307,7 +296,8 @@ mod tests {
             ExecutionType::Workflow,
         );
 
-        let repaired = HierarchyIntegrityService::cleanup_orphaned_references(&hierarchy, &registry);
+        let repaired =
+            HierarchyIntegrityService::cleanup_orphaned_references(&hierarchy, &registry);
         assert!(repaired.parent.is_none());
     }
 
@@ -327,19 +317,18 @@ mod tests {
 
         let hierarchy = make_hierarchy(
             None,
-            vec![
-                ChildExecutionReference {
-                    child_type: ExecutionType::AgentLoop,
-                    child_id: child_id.clone(),
-                    created_at: 0,
-                    fork_path_id: None,
-                },
-            ],
+            vec![ChildExecutionReference {
+                child_type: ExecutionType::AgentLoop,
+                child_id: child_id.clone(),
+                created_at: 0,
+                fork_path_id: None,
+            }],
             root_id.clone(),
             ExecutionType::Workflow,
         );
 
-        let repaired = HierarchyIntegrityService::cleanup_orphaned_references(&hierarchy, &registry);
+        let repaired =
+            HierarchyIntegrityService::cleanup_orphaned_references(&hierarchy, &registry);
         assert!(repaired.children.is_empty());
     }
 

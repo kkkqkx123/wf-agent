@@ -79,7 +79,10 @@ mod tests {
     #[test]
     fn test_partial_json() {
         let result = parse_partial_json(r#"{"key": "va"#);
-        assert_eq!(result, PartialParseResult::Partial(r#"{"key": "va"#.to_string()));
+        assert_eq!(
+            result,
+            PartialParseResult::Partial(r#"{"key": "va"#.to_string())
+        );
     }
 
     #[test]

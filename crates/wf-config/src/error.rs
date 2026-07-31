@@ -21,7 +21,7 @@ pub enum ConfigError {
     #[error("not found: {0}")]
     NotFound(String),
 
- #[error("internal error: {0}")]
+    #[error("internal error: {0}")]
     Internal(String),
 }
 

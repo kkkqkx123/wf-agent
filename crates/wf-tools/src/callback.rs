@@ -68,10 +68,7 @@ pub trait ExecutionCallback: Send + Sync {
         input: WorkflowInput,
     ) -> ToolResult<WorkflowOutput>;
 
-    async fn query_execution_status(
-        &self,
-        execution_id: &str,
-    ) -> ToolResult<ExecutionStatus>;
+    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus>;
 
     async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()>;
 }

@@ -259,17 +259,17 @@ pub fn merge_texts(base: &str, ours: &str, theirs: &str) -> (String, Vec<MergeCo
                         base_pos = oc_end;
                     } else if oc.base_len == 0 && tc.base_len == 0 {
                         // Both are pure insertions at the same position.
-                    // If one side is a prefix of the other, take the longer one (no conflict).
-                    if tc.new_lines.starts_with(&oc.new_lines) {
-                        // Theirs includes all of ours → accept theirs
-                        append_unchanged(&mut result, &base_lines, base_pos, oc.base_start);
-                        append_change(&mut result, tc);
-                        base_pos = oc.base_start;
-                    } else if oc.new_lines.starts_with(&tc.new_lines) {
-                        // Ours includes all of theirs → accept ours
-                        append_unchanged(&mut result, &base_lines, base_pos, oc.base_start);
-                        append_change(&mut result, oc);
-                        base_pos = oc.base_start;
+                        // If one side is a prefix of the other, take the longer one (no conflict).
+                        if tc.new_lines.starts_with(&oc.new_lines) {
+                            // Theirs includes all of ours → accept theirs
+                            append_unchanged(&mut result, &base_lines, base_pos, oc.base_start);
+                            append_change(&mut result, tc);
+                            base_pos = oc.base_start;
+                        } else if oc.new_lines.starts_with(&tc.new_lines) {
+                            // Ours includes all of theirs → accept ours
+                            append_unchanged(&mut result, &base_lines, base_pos, oc.base_start);
+                            append_change(&mut result, oc);
+                            base_pos = oc.base_start;
                         } else {
                             // Different insertions at same position = conflict
                             append_unchanged(&mut result, &base_lines, base_pos, oc.base_start);
@@ -329,7 +329,8 @@ pub fn merge_texts(base: &str, ours: &str, theirs: &str) -> (String, Vec<MergeCo
     let result_str = result.join("\n");
     // Preserve trailing newline (consistent with apply_deltas behavior)
     // so downstream consumers get accurate line-terminated text.
-    let has_trailing_newline = base.ends_with('\n') || ours.ends_with('\n') || theirs.ends_with('\n');
+    let has_trailing_newline =
+        base.ends_with('\n') || ours.ends_with('\n') || theirs.ends_with('\n');
     if has_trailing_newline && !result_str.is_empty() {
         (result_str + "\n", conflicts)
     } else {
@@ -367,10 +368,7 @@ fn flush_change(
 ///
 /// Skips the Equal context and extracts only the actual change area (Delete/Insert/Replace).
 /// Each hunk may generate multiple ChangeRanges (Equal segregated multiple change segments).
-fn extract_changes_from_line_diff(
-    diff: &LineDiff,
-    changes: &mut Vec<ChangeRange>,
-) {
+fn extract_changes_from_line_diff(diff: &LineDiff, changes: &mut Vec<ChangeRange>) {
     for hunk in &diff.hunks {
         let has_change = hunk
             .ops

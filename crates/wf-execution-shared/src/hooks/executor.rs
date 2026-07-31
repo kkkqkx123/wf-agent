@@ -10,10 +10,15 @@ use wf_types::events::{BaseEvent, EventType};
 use crate::error::{ExecutionSharedError, ExecutionSharedResult};
 use crate::hooks::context_builder::HookContextBuilder;
 use crate::hooks::template::resolve_payload_template;
-use crate::hooks::types::{BaseHookContext, BaseHookDefinition, HookExecutionResult, HookExecutorConfig};
+use crate::hooks::types::{
+    BaseHookContext, BaseHookDefinition, HookExecutionResult, HookExecutorConfig,
+};
 
-pub type HookHandler =
-    Arc<dyn Fn(BaseHookContext) -> futures::future::BoxFuture<'static, HookExecutionResult> + Send + Sync>;
+pub type HookHandler = Arc<
+    dyn Fn(BaseHookContext) -> futures::future::BoxFuture<'static, HookExecutionResult>
+        + Send
+        + Sync,
+>;
 
 pub struct HookExecutor {
     handlers: HashMap<String, HookHandler>,
@@ -81,7 +86,10 @@ impl HookExecutor {
             None => HookExecutionResult {
                 hook_id: hook.id.clone(),
                 success: false,
-                error: Some(format!("no handler registered for hook type '{}'", hook.hook_type)),
+                error: Some(format!(
+                    "no handler registered for hook type '{}'",
+                    hook.hook_type
+                )),
             },
         }
     }
@@ -120,7 +128,10 @@ impl HookExecutor {
             None => Ok(HookExecutionResult {
                 hook_id: hook.id.clone(),
                 success: false,
-                error: Some(format!("no handler registered for hook type '{}'", hook.hook_type)),
+                error: Some(format!(
+                    "no handler registered for hook type '{}'",
+                    hook.hook_type
+                )),
             }),
         }
     }
@@ -131,7 +142,8 @@ impl HookExecutor {
         ctx: &BaseHookContext,
         config: &HookExecutorConfig,
     ) -> ExecutionSharedResult<Vec<HookExecutionResult>> {
-        self.execute_hooks_with_cancellation(hooks, ctx, config, None).await
+        self.execute_hooks_with_cancellation(hooks, ctx, config, None)
+            .await
     }
 
     pub async fn execute_hooks_with_cancellation(
@@ -143,7 +155,9 @@ impl HookExecutor {
     ) -> ExecutionSharedResult<Vec<HookExecutionResult>> {
         let executable_hooks: Vec<_> = hooks
             .iter()
-            .filter(|h| Self::evaluate_hook_condition(h.condition.as_deref(), &ctx.data).unwrap_or(false))
+            .filter(|h| {
+                Self::evaluate_hook_condition(h.condition.as_deref(), &ctx.data).unwrap_or(false)
+            })
             .collect();
 
         if executable_hooks.is_empty() {
@@ -357,15 +371,18 @@ mod tests {
     #[tokio::test]
     async fn test_register_and_execute_handler() {
         let mut executor = HookExecutor::new();
-        executor.register_handler("test", Arc::new(|ctx| {
-            Box::pin(async move {
-                HookExecutionResult {
-                    hook_id: ctx.execution_id.clone(),
-                    success: true,
-                    error: None,
-                }
-            })
-        }));
+        executor.register_handler(
+            "test",
+            Arc::new(|ctx| {
+                Box::pin(async move {
+                    HookExecutionResult {
+                        hook_id: ctx.execution_id.clone(),
+                        success: true,
+                        error: None,
+                    }
+                })
+            }),
+        );
 
         let hooks = vec![BaseHookDefinition {
             id: "hook-1".to_string(),
@@ -390,7 +407,10 @@ mod tests {
     #[test]
     fn test_resolve_payload_template_from_executor() {
         let mut ctx_data = HashMap::new();
-        ctx_data.insert("name".to_string(), serde_json::Value::String("world".to_string()));
+        ctx_data.insert(
+            "name".to_string(),
+            serde_json::Value::String("world".to_string()),
+        );
         let ctx = BaseHookContext {
             execution_id: Id::new(),
             data: ctx_data,
@@ -403,15 +423,18 @@ mod tests {
     #[tokio::test]
     async fn test_cancellation_stops_sequential_hooks() {
         let mut executor = HookExecutor::new();
-        executor.register_handler("test", Arc::new(|_| {
-            Box::pin(async move {
-                HookExecutionResult {
-                    hook_id: Id::new(),
-                    success: true,
-                    error: None,
-                }
-            })
-        }));
+        executor.register_handler(
+            "test",
+            Arc::new(|_| {
+                Box::pin(async move {
+                    HookExecutionResult {
+                        hook_id: Id::new(),
+                        success: true,
+                        error: None,
+                    }
+                })
+            }),
+        );
 
         let hooks = vec![
             make_hook("1", "test", 3, true),
@@ -442,15 +465,18 @@ mod tests {
         let bus = Arc::new(EventBus::new(16));
         let mut executor = HookExecutor::new();
         executor.set_event_bus(bus.clone());
-        executor.register_handler("test", Arc::new(|_| {
-            Box::pin(async move {
-                HookExecutionResult {
-                    hook_id: Id::new(),
-                    success: true,
-                    error: None,
-                }
-            })
-        }));
+        executor.register_handler(
+            "test",
+            Arc::new(|_| {
+                Box::pin(async move {
+                    HookExecutionResult {
+                        hook_id: Id::new(),
+                        success: true,
+                        error: None,
+                    }
+                })
+            }),
+        );
 
         let hooks = vec![make_hook("1", "test", 1, true)];
         let ctx = BaseHookContext {

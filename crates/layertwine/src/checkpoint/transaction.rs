@@ -54,8 +54,7 @@ impl CheckpointTransaction {
     /// The snapshot ID is computed by Snapshot::compute_id during commit,
     /// which hashes source, content, file path, and other metadata together.
     pub fn add_snapshot(mut self, source: &str, content: SnapshotContent) -> Self {
-        self.snapshots_to_commit
-            .push((content, source.to_string()));
+        self.snapshots_to_commit.push((content, source.to_string()));
         self
     }
 

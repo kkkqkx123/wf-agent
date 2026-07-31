@@ -59,7 +59,10 @@ impl SandboxRuntime {
     }
 
     pub fn get_audit_log(&self) -> Vec<AuditEvent> {
-        self.audit_log.lock().map(|log| log.clone()).unwrap_or_default()
+        self.audit_log
+            .lock()
+            .map(|log| log.clone())
+            .unwrap_or_default()
     }
 
     pub fn clear_audit_log(&self) {
@@ -68,13 +71,25 @@ impl SandboxRuntime {
         }
     }
 
-    fn merge_profile_into_config(profile: &SandboxProfile, config: &SandboxConfig) -> SandboxConfig {
+    fn merge_profile_into_config(
+        profile: &SandboxProfile,
+        config: &SandboxConfig,
+    ) -> SandboxConfig {
         SandboxConfig {
             mode: config.mode.clone().or(profile.mode.clone()),
             policy: config.policy.clone().or(profile.policy.clone()),
-            shell_strategy: config.shell_strategy.clone().or(profile.shell_strategy.clone()),
-            python_strategy: config.python_strategy.clone().or(profile.python_strategy.clone()),
-            javascript_strategy: config.javascript_strategy.clone().or(profile.javascript_strategy.clone()),
+            shell_strategy: config
+                .shell_strategy
+                .clone()
+                .or(profile.shell_strategy.clone()),
+            python_strategy: config
+                .python_strategy
+                .clone()
+                .or(profile.python_strategy.clone()),
+            javascript_strategy: config
+                .javascript_strategy
+                .clone()
+                .or(profile.javascript_strategy.clone()),
             lua_strategy: config.lua_strategy.clone().or(profile.lua_strategy.clone()),
             vfs: config.vfs.clone().or(profile.vfs.clone()),
             legacy_type: config.legacy_type.clone(),
@@ -111,10 +126,8 @@ impl SandboxRuntime {
                 config.javascript_strategy = Some(vec!["vm-context".to_string()]);
             }
             Some("python") => {
-                config.python_strategy = Some(vec![
-                    "ast-analyzer".to_string(),
-                    "builtin-hook".to_string(),
-                ]);
+                config.python_strategy =
+                    Some(vec!["ast-analyzer".to_string(), "builtin-hook".to_string()]);
             }
             _ => {}
         }
@@ -189,22 +202,13 @@ impl SandboxRuntime {
             .unwrap_or_else(|| self.default_policy.clone());
 
         let preferred_ids: Vec<String> = match language {
-            "shell" => resolved_config
-                .shell_strategy
-                .clone()
-                .unwrap_or_default(),
-            "python" => resolved_config
-                .python_strategy
-                .clone()
-                .unwrap_or_default(),
+            "shell" => resolved_config.shell_strategy.clone().unwrap_or_default(),
+            "python" => resolved_config.python_strategy.clone().unwrap_or_default(),
             "javascript" | "js" => resolved_config
                 .javascript_strategy
                 .clone()
                 .unwrap_or_default(),
-            "lua" => resolved_config
-                .lua_strategy
-                .clone()
-                .unwrap_or_default(),
+            "lua" => resolved_config.lua_strategy.clone().unwrap_or_default(),
             _ => vec![],
         };
 
@@ -237,13 +241,12 @@ impl SandboxRuntime {
                             .as_ref()
                             .map(PathBuf::from)
                             .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
-                        let path_policy = vfs_config
-                            .path_policy
-                            .clone()
-                            .unwrap_or(wf_types::script::sandbox::PathPolicy {
+                        let path_policy = vfs_config.path_policy.clone().unwrap_or(
+                            wf_types::script::sandbox::PathPolicy {
                                 allowed_read: vec![],
                                 allowed_write: vec![],
-                            });
+                            },
+                        );
                         Some(Arc::new(OverlayVFS::new(base, path_policy))
                             as Arc<dyn crate::resolver::VfsProvider>)
                     } else {

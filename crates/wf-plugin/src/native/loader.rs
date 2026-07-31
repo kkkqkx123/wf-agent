@@ -1,21 +1,27 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use super::plugin::NativePlugin;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
-use super::plugin::NativePlugin;
 
 pub fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     let base_path = determine_native_base_path(manifest)?;
     load_native_plugin_at(manifest, &base_path)
 }
 
-pub fn load_native_plugin_with_base(manifest: &PluginManifest, base: &Path) -> PluginResult<Arc<dyn Plugin>> {
+pub fn load_native_plugin_with_base(
+    manifest: &PluginManifest,
+    base: &Path,
+) -> PluginResult<Arc<dyn Plugin>> {
     load_native_plugin_at(manifest, base)
 }
 
-fn load_native_plugin_at(manifest: &PluginManifest, base_path: &Path) -> PluginResult<Arc<dyn Plugin>> {
+fn load_native_plugin_at(
+    manifest: &PluginManifest,
+    base_path: &Path,
+) -> PluginResult<Arc<dyn Plugin>> {
     let lib_path = base_path.join(&manifest.entry_point);
 
     let lib = unsafe {
@@ -35,7 +41,8 @@ fn determine_native_base_path(manifest: &PluginManifest) -> PluginResult<std::pa
     if std::path::Path::new(&manifest.entry_point).exists() {
         return Ok(std::path::PathBuf::from("."));
     }
-    Err(PluginError::LoadFailed(
-        format!("cannot find entry point '{}' for plugin '{}'", manifest.entry_point, manifest.id)
-    ))
+    Err(PluginError::LoadFailed(format!(
+        "cannot find entry point '{}' for plugin '{}'",
+        manifest.entry_point, manifest.id
+    )))
 }

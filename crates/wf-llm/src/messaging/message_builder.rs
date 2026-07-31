@@ -1,5 +1,5 @@
-use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_common::time;
+use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 pub fn user_text(text: impl Into<String>) -> Message {
     Message {

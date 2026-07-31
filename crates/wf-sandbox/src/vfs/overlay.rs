@@ -34,11 +34,7 @@ impl OverlayVFS {
         tokio::fs::read(full_path).await
     }
 
-    pub async fn write_file(
-        &self,
-        path: &Path,
-        data: Vec<u8>,
-    ) -> Result<(), std::io::Error> {
+    pub async fn write_file(&self, path: &Path, data: Vec<u8>) -> Result<(), std::io::Error> {
         let path_str = path.to_string_lossy().to_string();
         if !self
             .path_policy
@@ -122,9 +118,7 @@ mod tests {
         };
         let vfs = OverlayVFS::new(dir.clone(), policy);
 
-        let result = vfs
-            .write_file(Path::new("/etc/passwd"), vec![])
-            .await;
+        let result = vfs.write_file(Path::new("/etc/passwd"), vec![]).await;
         assert!(result.is_err());
 
         let _ = tokio::fs::remove_dir_all(&dir).await;

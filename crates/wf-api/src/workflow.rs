@@ -20,10 +20,7 @@ pub async fn save_workflow(
     Ok(())
 }
 
-pub async fn get_workflow(
-    ctx: &StorageContext,
-    id: &str,
-) -> crate::ApiResult<WorkflowDefinition> {
+pub async fn get_workflow(ctx: &StorageContext, id: &str) -> crate::ApiResult<WorkflowDefinition> {
     ctx.workflow
         .load(id)
         .await?
@@ -91,10 +88,7 @@ pub async fn save_execution(
     Ok(())
 }
 
-pub async fn get_execution(
-    ctx: &StorageContext,
-    id: &str,
-) -> crate::ApiResult<WorkflowExecution> {
+pub async fn get_execution(ctx: &StorageContext, id: &str) -> crate::ApiResult<WorkflowExecution> {
     ctx.workflow_execution
         .load(id)
         .await?

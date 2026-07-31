@@ -15,10 +15,15 @@ use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 
-fn resolve_parent_handlers(ctx: &NodeExecutionContext) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+fn resolve_parent_handlers(
+    ctx: &NodeExecutionContext,
+) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
     match &ctx.handler_registry {
         Some(any) => {
-            match any.clone().downcast::<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>() {
+            match any
+                .clone()
+                .downcast::<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>()
+            {
                 Ok(handlers) => handlers,
                 Err(_) => Arc::new(HashMap::new()),
             }
@@ -40,14 +45,22 @@ impl NodeHandler for SubgraphHandler {
         let subgraph_value = config.get("subgraph").or_else(|| config.get("graph"));
 
         let subgraph: WorkflowGraphStructure = match subgraph_value {
-            Some(v) => serde_json::from_value(v.clone())
-                .map_err(|e| WorkflowError::SubgraphError(format!("Invalid subgraph definition: {}", e)))?,
-            None => return Err(WorkflowError::SubgraphError("No subgraph definition found".to_string())),
+            Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
+                WorkflowError::SubgraphError(format!("Invalid subgraph definition: {}", e))
+            })?,
+            None => {
+                return Err(WorkflowError::SubgraphError(
+                    "No subgraph definition found".to_string(),
+                ))
+            }
         };
 
         let options = WorkflowExecutionOptions {
             input: Some(ctx.input.clone()),
-            max_steps: config.get("max_steps").and_then(|v| v.as_u64()).map(|v| v as u32),
+            max_steps: config
+                .get("max_steps")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32),
             timeout: None,
             max_execution_time: None,
             enable_checkpoints: Some(false),
@@ -66,10 +79,7 @@ impl NodeHandler for SubgraphHandler {
         let execution_id = wf_types::Id::new();
         let sub_workflow_id = wf_types::Id::new();
 
-        let entity = WorkflowExecutionEntity::new(
-            execution_id.clone(),
-            sub_workflow_id.clone(),
-        );
+        let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
 
         let event_bus = ctx.event_bus.clone();
         let tool_registry = Arc::new(ToolRegistry::new());
@@ -82,19 +92,32 @@ impl NodeHandler for SubgraphHandler {
             options,
         );
 
-        emit_subgraph_event(ctx.event_bus.as_ref(), EventType::SubgraphStarted, &ctx.execution_id, &ctx.node_id);
+        emit_subgraph_event(
+            ctx.event_bus.as_ref(),
+            EventType::SubgraphStarted,
+            &ctx.execution_id,
+            &ctx.node_id,
+        );
 
-        let mut coordinator: WorkflowCoordinator = WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?
-            .with_entity(entity);
+        let mut coordinator: WorkflowCoordinator =
+            WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
 
         let output = coordinator.execute().await?;
 
-        emit_subgraph_event(ctx.event_bus.as_ref(), EventType::SubgraphCompleted, &ctx.execution_id, &ctx.node_id);
+        emit_subgraph_event(
+            ctx.event_bus.as_ref(),
+            EventType::SubgraphCompleted,
+            &ctx.execution_id,
+            &ctx.node_id,
+        );
 
         let mut metadata = HashMap::new();
-        metadata.insert("node_count".to_string(), Value::Number(
-            serde_json::Number::from(coordinator.completed_nodes().len() as u64)
-        ));
+        metadata.insert(
+            "node_count".to_string(),
+            Value::Number(serde_json::Number::from(
+                coordinator.completed_nodes().len() as u64,
+            )),
+        );
 
         Ok(NodeExecutionResult {
             output,
@@ -104,7 +127,12 @@ impl NodeHandler for SubgraphHandler {
     }
 }
 
-fn emit_subgraph_event(event_bus: Option<&Arc<EventBus>>, event_type: EventType, execution_id: &wf_types::Id, node_id: &str) {
+fn emit_subgraph_event(
+    event_bus: Option<&Arc<EventBus>>,
+    event_type: EventType,
+    execution_id: &wf_types::Id,
+    node_id: &str,
+) {
     let Some(bus) = event_bus else { return };
     let event = BaseEvent {
         id: wf_types::Id::new(),
@@ -113,9 +141,10 @@ fn emit_subgraph_event(event_bus: Option<&Arc<EventBus>>, event_type: EventType,
         workflow_id: None,
         execution_id: Some(execution_id.clone()),
         agent_loop_id: None,
-        metadata: Some(HashMap::from([
-            ("node_id".to_string(), Value::String(node_id.to_string())),
-        ])),
+        metadata: Some(HashMap::from([(
+            "node_id".to_string(),
+            Value::String(node_id.to_string()),
+        )])),
     };
     let _ = bus.publish(event);
 }

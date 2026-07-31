@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 
 use wf_llm::LlmWrapper;
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus, WorkflowInput, WorkflowOutput};
+use wf_tools::callback::{
+    AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
+    WorkflowInput, WorkflowOutput,
+};
 use wf_tools::error::ToolResult;
 use wf_tools::registry::ToolRegistry;
 
@@ -36,10 +39,8 @@ impl AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
-        let coordinator = AgentLoopCoordinator::new(
-            self.llm_wrapper.clone(),
-            self.registry.clone(),
-        );
+        let coordinator =
+            AgentLoopCoordinator::new(self.llm_wrapper.clone(), self.registry.clone());
         coordinator.execute(config, input).await
     }
 }
@@ -51,9 +52,9 @@ impl ExecutionCallback for AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> ToolResult<AgentLoopOutput> {
-        self.execute(config, input).await.map_err(|e| {
-            wf_tools::error::ToolError::ExecutionError(e.to_string())
-        })
+        self.execute(config, input)
+            .await
+            .map_err(|e| wf_tools::error::ToolError::ExecutionError(e.to_string()))
     }
 
     async fn execute_workflow(
@@ -63,14 +64,14 @@ impl ExecutionCallback for AgentLoopExecutor {
     ) -> ToolResult<WorkflowOutput> {
         Ok(WorkflowOutput {
             execution_id: workflow_id.to_string(),
-            result: serde_json::Value::String(format!("Workflow {} execution not yet implemented", workflow_id)),
+            result: serde_json::Value::String(format!(
+                "Workflow {} execution not yet implemented",
+                workflow_id
+            )),
         })
     }
 
-    async fn query_execution_status(
-        &self,
-        execution_id: &str,
-    ) -> ToolResult<ExecutionStatus> {
+    async fn query_execution_status(&self, execution_id: &str) -> ToolResult<ExecutionStatus> {
         Ok(ExecutionStatus {
             execution_id: execution_id.to_string(),
             status: "unknown".to_string(),

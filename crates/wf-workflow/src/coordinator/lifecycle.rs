@@ -73,27 +73,23 @@ impl WorkflowLifecycleCoordinator {
         self
     }
 
-    pub async fn execute_workflow(
-        &self,
-        params: WorkflowExecutionParams,
-    ) -> WorkflowResult<Value> {
+    pub async fn execute_workflow(&self, params: WorkflowExecutionParams) -> WorkflowResult<Value> {
         let execution_id = params.execution_id;
         let workflow_id = params.workflow_id;
         let workflow_id_metrics = workflow_id.clone();
         let execution_id_metrics = execution_id.clone();
 
         let mut wf_state = WorkflowStateMachine::new(&execution_id);
-        wf_state.start().map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
+        wf_state
+            .start()
+            .map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
 
         let mut opts = params.options;
         if opts.input.is_none() {
             opts.input = params.input;
         }
 
-        let entity = WorkflowExecutionEntity::new(
-            execution_id.clone(),
-            workflow_id.clone(),
-        );
+        let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id.clone());
 
         if let Some(ref input) = opts.input {
             entity.set_variable("input", input.clone());
@@ -138,9 +134,9 @@ impl WorkflowLifecycleCoordinator {
 
         match &result {
             Ok(output) => {
-                wf_state.complete(Some(output.clone())).map_err(|e| {
-                    WorkflowError::StateTransitionError(e.to_string())
-                })?;
+                wf_state
+                    .complete(Some(output.clone()))
+                    .map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
                 if let Some(ref metrics) = self.metrics {
                     metrics.workflow().record_execution_complete(
                         &execution_id_metrics,
@@ -153,9 +149,9 @@ impl WorkflowLifecycleCoordinator {
                 }
             }
             Err(e) => {
-                wf_state.fail(e.to_string()).map_err(|e| {
-                    WorkflowError::StateTransitionError(e.to_string())
-                })?;
+                wf_state
+                    .fail(e.to_string())
+                    .map_err(|e| WorkflowError::StateTransitionError(e.to_string()))?;
                 if let Some(ref metrics) = self.metrics {
                     metrics.workflow().record_execution_complete(
                         &execution_id_metrics,

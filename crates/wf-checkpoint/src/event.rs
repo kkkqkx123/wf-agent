@@ -17,10 +17,22 @@ pub struct CheckpointData {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CheckpointEvent {
-    Created { base: BaseEvent, data: CheckpointData },
-    Restored { base: BaseEvent, data: CheckpointData },
-    Deleted { base: BaseEvent, data: CheckpointData },
-    Failed { base: BaseEvent, data: CheckpointData },
+    Created {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
+    Restored {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
+    Deleted {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
+    Failed {
+        base: BaseEvent,
+        data: CheckpointData,
+    },
 }
 
 pub type EventSender = broadcast::Sender<CheckpointEvent>;
@@ -163,7 +175,9 @@ mod tests {
         let event = rx.try_recv().unwrap();
 
         match event {
-            CheckpointEvent::Created { data, .. } => assert_eq!(data.checkpoint_id, Some("cp-1".to_string())),
+            CheckpointEvent::Created { data, .. } => {
+                assert_eq!(data.checkpoint_id, Some("cp-1".to_string()))
+            }
             _ => panic!("wrong event type"),
         }
     }

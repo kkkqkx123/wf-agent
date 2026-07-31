@@ -52,21 +52,11 @@ pub trait StrategyImplementation: Send + Sync {
 
 #[async_trait]
 pub trait StrategyResolver: Send + Sync {
-    fn resolve_shell_strategy(
-        &self,
-        id: &str,
-    ) -> Option<Arc<dyn StrategyImplementation>>;
-    fn resolve_python_strategy(
-        &self,
-        id: &str,
-    ) -> Option<Arc<dyn StrategyImplementation>>;
+    fn resolve_shell_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
+    fn resolve_python_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
     fn resolve_js_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
     fn resolve_lua_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
-    fn register_strategy(
-        &mut self,
-        language: &str,
-        strategy: Arc<dyn StrategyImplementation>,
-    );
+    fn register_strategy(&mut self, language: &str, strategy: Arc<dyn StrategyImplementation>);
     fn resolve_best(
         &self,
         language: &str,
@@ -111,10 +101,8 @@ impl DefaultStrategyResolver {
             Arc::new(ShellStaticAnalyzerStrategy::new()),
         );
         use crate::strategy::shell::os_hook::LinuxSeccompStrategy;
-        self.shell_strategies.insert(
-            "os-hook".to_string(),
-            Arc::new(LinuxSeccompStrategy),
-        );
+        self.shell_strategies
+            .insert("os-hook".to_string(), Arc::new(LinuxSeccompStrategy));
 
         // Python strategies
         use crate::strategy::python::builtin_hook::PythonBuiltinHookStrategy;
@@ -128,10 +116,8 @@ impl DefaultStrategyResolver {
             Arc::new(PythonAstAnalyzerStrategy),
         );
         use crate::strategy::python::os_hook::PythonOsHookStrategy;
-        self.python_strategies.insert(
-            "os-hook".to_string(),
-            Arc::new(PythonOsHookStrategy),
-        );
+        self.python_strategies
+            .insert("os-hook".to_string(), Arc::new(PythonOsHookStrategy));
 
         // JavaScript strategies
         use crate::strategy::js::vm_context::JavaScriptVmContextStrategy;
@@ -145,10 +131,8 @@ impl DefaultStrategyResolver {
             Arc::new(JavaScriptSubprocessStrategy),
         );
         use crate::strategy::js::os_hook::JavaScriptOsHookStrategy;
-        self.js_strategies.insert(
-            "os-hook".to_string(),
-            Arc::new(JavaScriptOsHookStrategy),
-        );
+        self.js_strategies
+            .insert("os-hook".to_string(), Arc::new(JavaScriptOsHookStrategy));
 
         // Lua strategies
         use crate::strategy::lua::static_analyzer::LuaStaticAnalyzerStrategy;
@@ -167,17 +151,11 @@ impl DefaultStrategyResolver {
 
 #[async_trait]
 impl StrategyResolver for DefaultStrategyResolver {
-    fn resolve_shell_strategy(
-        &self,
-        id: &str,
-    ) -> Option<Arc<dyn StrategyImplementation>> {
+    fn resolve_shell_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>> {
         self.shell_strategies.get(id).cloned()
     }
 
-    fn resolve_python_strategy(
-        &self,
-        id: &str,
-    ) -> Option<Arc<dyn StrategyImplementation>> {
+    fn resolve_python_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>> {
         self.python_strategies.get(id).cloned()
     }
 
@@ -189,11 +167,7 @@ impl StrategyResolver for DefaultStrategyResolver {
         self.lua_strategies.get(id).cloned()
     }
 
-    fn register_strategy(
-        &mut self,
-        language: &str,
-        strategy: Arc<dyn StrategyImplementation>,
-    ) {
+    fn register_strategy(&mut self, language: &str, strategy: Arc<dyn StrategyImplementation>) {
         let map = match language {
             "shell" => &mut self.shell_strategies,
             "python" => &mut self.python_strategies,
@@ -229,10 +203,7 @@ impl StrategyResolver for DefaultStrategyResolver {
 
         let mut candidates: Vec<&Arc<dyn StrategyImplementation>> = map.values().collect();
         candidates.sort_by_key(|b| std::cmp::Reverse(b.priority()));
-        candidates
-            .into_iter()
-            .find(|s| s.is_available())
-            .cloned()
+        candidates.into_iter().find(|s| s.is_available()).cloned()
     }
 }
 

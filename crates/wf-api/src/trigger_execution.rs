@@ -70,10 +70,7 @@ pub async fn list_by_workflow(
 pub async fn get_trigger_execution_stats(
     ctx: &StorageContext,
 ) -> crate::ApiResult<HashMap<String, u64>> {
-    ctx.trigger_execution
-        .get_stats()
-        .await
-        .map_err(Into::into)
+    ctx.trigger_execution.get_stats().await.map_err(Into::into)
 }
 
 pub async fn cleanup_old_trigger_executions(
@@ -86,12 +83,6 @@ pub async fn cleanup_old_trigger_executions(
         .map_err(Into::into)
 }
 
-pub async fn delete_trigger_execution(
-    ctx: &StorageContext,
-    id: &str,
-) -> crate::ApiResult<bool> {
-    ctx.trigger_execution
-        .delete(id)
-        .await
-        .map_err(Into::into)
+pub async fn delete_trigger_execution(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
+    ctx.trigger_execution.delete(id).await.map_err(Into::into)
 }

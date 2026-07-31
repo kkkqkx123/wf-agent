@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_core::interruption::InterruptionState;
-use wf_llm::messaging::conversation_session::ConversationSession;
+use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
+use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_types::llm::ToolCallFormatConfig;
 use wf_types::Id;
 
@@ -106,10 +106,16 @@ impl AgentLoopEntity {
     }
 
     pub async fn unregister_child(&self, child_id: &Id) {
-        self.child_execution_ids.write().await.retain(|id| id != child_id);
+        self.child_execution_ids
+            .write()
+            .await
+            .retain(|id| id != child_id);
     }
 
-    pub fn get_available_tools(&self, registry: &wf_tools::registry::ToolRegistry) -> Vec<wf_types::tool::Tool> {
+    pub fn get_available_tools(
+        &self,
+        registry: &wf_tools::registry::ToolRegistry,
+    ) -> Vec<wf_types::tool::Tool> {
         let all_tools = registry.list_tools();
         if self.available_tool_names.is_empty() {
             return all_tools;
@@ -130,7 +136,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn status(&self) -> ExecutionStatus {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.status() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.status() })
+            })
         } else {
             ExecutionStatus::Running
         }
@@ -139,7 +147,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn is_running(&self) -> bool {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.is_running() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.is_running() })
+            })
         } else {
             false
         }
@@ -148,7 +158,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn is_paused(&self) -> bool {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.is_paused() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.is_paused() })
+            })
         } else {
             false
         }
@@ -157,7 +169,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn is_completed(&self) -> bool {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.is_completed() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.is_completed() })
+            })
         } else {
             false
         }
@@ -166,7 +180,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn is_failed(&self) -> bool {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.is_failed() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.is_failed() })
+            })
         } else {
             false
         }
@@ -175,7 +191,9 @@ impl IExecutionEntity for AgentLoopEntity {
     fn is_cancelled(&self) -> bool {
         use tokio::runtime::Handle;
         if let Ok(handle) = Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(async { self.state.read().await.is_cancelled() }))
+            tokio::task::block_in_place(|| {
+                handle.block_on(async { self.state.read().await.is_cancelled() })
+            })
         } else {
             false
         }

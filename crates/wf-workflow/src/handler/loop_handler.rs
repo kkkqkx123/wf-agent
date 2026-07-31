@@ -18,16 +18,19 @@ impl NodeHandler for LoopStartHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let loop_id = config.get("loop_id")
+        let loop_id = config
+            .get("loop_id")
             .and_then(|v| v.as_str())
             .unwrap_or(&ctx.node_id)
             .to_string();
-        let max_iterations = config.get("max_iterations")
+        let max_iterations = config
+            .get("max_iterations")
             .and_then(|v| v.as_u64())
             .unwrap_or(100) as u32;
 
         let counter_var = format!("__loop_{}_counter", loop_id);
-        let current = ctx.get_variable(&counter_var)
+        let current = ctx
+            .get_variable(&counter_var)
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
@@ -55,7 +58,8 @@ impl NodeHandler for LoopEndHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let loop_id = config.get("loop_id")
+        let loop_id = config
+            .get("loop_id")
             .and_then(|v| v.as_str())
             .unwrap_or("default")
             .to_string();
@@ -64,7 +68,8 @@ impl NodeHandler for LoopEndHandler {
         let target_node = config.get("target_node").and_then(|t| t.as_str());
 
         let counter_var = format!("__loop_{}_counter", loop_id);
-        let current = ctx.get_variable(&counter_var)
+        let current = ctx
+            .get_variable(&counter_var)
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
@@ -73,8 +78,7 @@ impl NodeHandler for LoopEndHandler {
             for entry in ctx.variables.iter() {
                 vars.insert(entry.key().clone(), entry.value().clone());
             }
-            wf_core::condition::ConditionEvaluator::evaluate(cond, &vars)
-                .unwrap_or(false)
+            wf_core::condition::ConditionEvaluator::evaluate(cond, &vars).unwrap_or(false)
         } else {
             current > 0
         };

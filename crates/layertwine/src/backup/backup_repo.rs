@@ -27,8 +27,9 @@ fn compress_deltas(deltas: &[Delta]) -> StorageResult<Vec<u8>> {
 fn decompress_deltas(compressed: &[u8]) -> StorageResult<Vec<Delta>> {
     let decompressed = zstd::decode_all(compressed)
         .map_err(|e| StorageError::Serialization(format!("zstd decompression failed: {}", e)))?;
-    serde_json::from_slice(&decompressed)
-        .map_err(|e| StorageError::Serialization(format!("delta JSON deserialization failed: {}", e)))
+    serde_json::from_slice(&decompressed).map_err(|e| {
+        StorageError::Serialization(format!("delta JSON deserialization failed: {}", e))
+    })
 }
 
 const BACKUP_MIGRATION_SQL: &str = "

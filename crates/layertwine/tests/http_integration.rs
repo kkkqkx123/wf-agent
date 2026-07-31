@@ -7,9 +7,8 @@
 //! Each test mirrors a real business scenario from the user guide.
 
 use layertwine::api::{
-    ApproveRequest, BackupRequest, BranchCreateRequest, BranchSwitchRequest,
-    CommitRequest, EditRequest, GcRequest, InitRequest, LogRequest, MergeRequest, RestoreRequest,
-    ShowRequest,
+    ApproveRequest, BackupRequest, BranchCreateRequest, BranchSwitchRequest, CommitRequest,
+    EditRequest, GcRequest, InitRequest, LogRequest, MergeRequest, RestoreRequest, ShowRequest,
 };
 
 mod common;

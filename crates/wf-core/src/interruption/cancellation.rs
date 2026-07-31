@@ -1,6 +1,9 @@
 use tokio_util::sync::CancellationToken;
 
-pub fn combine_cancellation_tokens(a: &CancellationToken, b: &CancellationToken) -> CancellationToken {
+pub fn combine_cancellation_tokens(
+    a: &CancellationToken,
+    b: &CancellationToken,
+) -> CancellationToken {
     let combined = CancellationToken::new();
 
     let a_clone = a.clone();

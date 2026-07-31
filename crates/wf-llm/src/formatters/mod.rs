@@ -1,6 +1,8 @@
-use std::sync::Arc;
-use wf_types::llm::{LlmRequest, LlmResult as LlmResponseType, LlmProfile, LlmProvider, MessageStreamEvent};
 use crate::error::LlmResult;
+use std::sync::Arc;
+use wf_types::llm::{
+    LlmProfile, LlmProvider, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent,
+};
 use wf_types::tool::Tool;
 
 pub mod anthropic;
@@ -17,7 +19,11 @@ pub use openai_chat::OpenaiChatFormatter;
 pub use openai_response::OpenaiResponseFormatter;
 
 pub trait LlmFormatter: Send + Sync {
-    fn build_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<reqwest::Request>;
+    fn build_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<reqwest::Request>;
     fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType>;
     fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>>;
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>>;

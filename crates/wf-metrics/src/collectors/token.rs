@@ -56,19 +56,31 @@ impl TokenMetricsCollector {
             (prompt_tokens + completion_tokens) as f64,
             labels.clone(),
         );
-        self.inner.increment_counter(token_metrics::REQUEST_COUNT, labels.clone());
+        self.inner
+            .increment_counter(token_metrics::REQUEST_COUNT, labels.clone());
         if let Some(c) = cost {
-            self.inner.increment_counter_by(token_metrics::COST, c, labels);
+            self.inner
+                .increment_counter_by(token_metrics::COST, c, labels);
         }
     }
 
     pub fn usage_stats(&self) -> TokenUsageStats {
         TokenUsageStats {
-            total_tokens: crate::collectors::counter_total(&self.inner, token_metrics::TOTAL_TOKENS) as u64,
-            prompt_tokens: crate::collectors::counter_total(&self.inner, token_metrics::PROMPT_TOKENS) as u64,
-            completion_tokens: crate::collectors::counter_total(&self.inner, token_metrics::COMPLETION_TOKENS) as u64,
+            total_tokens: crate::collectors::counter_total(&self.inner, token_metrics::TOTAL_TOKENS)
+                as u64,
+            prompt_tokens: crate::collectors::counter_total(
+                &self.inner,
+                token_metrics::PROMPT_TOKENS,
+            ) as u64,
+            completion_tokens: crate::collectors::counter_total(
+                &self.inner,
+                token_metrics::COMPLETION_TOKENS,
+            ) as u64,
             total_cost: crate::collectors::counter_total(&self.inner, token_metrics::COST),
-            request_count: crate::collectors::counter_total(&self.inner, token_metrics::REQUEST_COUNT) as u64,
+            request_count: crate::collectors::counter_total(
+                &self.inner,
+                token_metrics::REQUEST_COUNT,
+            ) as u64,
             by_model: self
                 .inner
                 .query(&crate::metric::MetricFilter {

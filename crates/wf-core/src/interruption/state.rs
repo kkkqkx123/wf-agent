@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::{Notify, watch};
+use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 use wf_types::events::{BaseEvent, EventType};
 
@@ -46,9 +46,9 @@ impl InterruptionState {
 
     pub fn pause(&self) -> CoreResult<()> {
         self.ensure_not_disposed()?;
-        self.tx.send(InterruptionSignal::Pause).map_err(|_| {
-            CoreError::InterruptionError("failed to send pause signal".to_string())
-        })?;
+        self.tx
+            .send(InterruptionSignal::Pause)
+            .map_err(|_| CoreError::InterruptionError("failed to send pause signal".to_string()))?;
         self.cancellation_token.cancel();
         self.emit_event(EventType::ExecutionPaused);
         Ok(())
@@ -56,9 +56,9 @@ impl InterruptionState {
 
     pub fn stop(&self) -> CoreResult<()> {
         self.ensure_not_disposed()?;
-        self.tx.send(InterruptionSignal::Stop).map_err(|_| {
-            CoreError::InterruptionError("failed to send stop signal".to_string())
-        })?;
+        self.tx
+            .send(InterruptionSignal::Stop)
+            .map_err(|_| CoreError::InterruptionError("failed to send stop signal".to_string()))?;
         self.cancellation_token.cancel();
         self.emit_event(EventType::ExecutionCancelled);
         Ok(())

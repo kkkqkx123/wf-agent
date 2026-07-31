@@ -1,4 +1,3 @@
-
 use async_trait::async_trait;
 use serde_json::Value;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
@@ -68,9 +67,7 @@ impl NodeHandler for ContextProcessorHandler {
                                 current
                             }
                         }
-                        "toString" => {
-                            Value::String(current.to_string())
-                        }
+                        "toString" => Value::String(current.to_string()),
                         _ => current,
                     };
                     ctx.set_variable(key.clone(), result);

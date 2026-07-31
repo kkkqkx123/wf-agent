@@ -5,9 +5,7 @@ use wf_storage::adapter::agent_loop::{AgentLoopListOptions, AgentLoopStorageAdap
 use wf_storage::adapter::agent_profile::AgentProfileListOptions;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::context::StorageContext;
-use wf_types::{
-    AgentExecution, AgentLoopStorageMetadata, AgentProfileStorageMetadata,
-};
+use wf_types::{AgentExecution, AgentLoopStorageMetadata, AgentProfileStorageMetadata};
 
 use crate::not_found;
 

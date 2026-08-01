@@ -297,6 +297,7 @@ impl NodeHandler for LlmHandler {
                 execution_id: Some(ctx.execution_id.to_string()),
                 stream: None,
                 dead_loop_detection: None,
+                protocol_auto_converted: None,
             };
 
             if stream_enabled {

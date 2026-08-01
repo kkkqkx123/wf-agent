@@ -535,6 +535,12 @@ mod tests {
             headers: None,
             metadata: None,
             tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
         }];
         let gateway = init_llm_gateway(&LlmConfig { profiles }, None).unwrap();
         assert!(gateway.has_profile("openai"));
@@ -555,6 +561,12 @@ mod tests {
                     headers: None,
                     metadata: None,
                     tool_call_format: None,
+                    auth_type: None,
+                    custom_headers: None,
+                    custom_body: None,
+                    custom_body_enabled: None,
+                    query_params: None,
+                    stream_options: None,
                 }],
             },
             None,

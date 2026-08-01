@@ -7,6 +7,15 @@ pub enum PartialParseResult {
     Invalid,
 }
 
+impl PartialParseResult {
+    pub fn as_complete(&self) -> Option<&Value> {
+        match self {
+            PartialParseResult::Complete(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
 pub fn parse_partial_json(input: &str) -> PartialParseResult {
     match serde_json::from_str::<Value>(input) {
         Ok(v) => PartialParseResult::Complete(v),

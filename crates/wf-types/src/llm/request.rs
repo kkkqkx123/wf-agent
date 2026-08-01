@@ -4,12 +4,20 @@ use serde::{Deserialize, Serialize};
 pub struct DeadLoopDetectionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Character-length checkpoints at which detection runs
+    /// (default: [500, 1000, 2000]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoints: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub short_sequence_window: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_repeat_unit_length: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_repeat_count: Option<u32>,
+    /// Minimum number of consecutive equal elements (paragraphs / normalized
+    /// lines) that must repeat to be flagged as a loop (default: 6).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_period_elements: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_period_length: Option<u32>,
 }
@@ -43,6 +51,10 @@ pub struct LlmRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dead_loop_detection: Option<DeadLoopDetectionConfig>,
+    /// Set by the gateway when a locked tool call format conflict was resolved
+    /// via the `auto_convert` policy; observed by formatters for observability.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol_auto_converted: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

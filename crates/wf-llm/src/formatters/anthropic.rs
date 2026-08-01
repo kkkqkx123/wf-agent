@@ -239,7 +239,7 @@ impl LlmFormatter for AnthropicFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
@@ -395,6 +395,7 @@ impl LlmFormatter for AnthropicFormatter {
                                 return Ok(Some(MessageStreamEvent::Text(
                                     wf_types::llm::MessageStreamText {
                                         text: text.to_string(),
+                                        snapshot: text.to_string(),
                                     },
                                 )));
                             }
@@ -404,6 +405,7 @@ impl LlmFormatter for AnthropicFormatter {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
                                     wf_types::llm::MessageStreamReasoning {
                                         reasoning: reasoning.to_string(),
+                                        snapshot: reasoning.to_string(),
                                     },
                                 )));
                             }

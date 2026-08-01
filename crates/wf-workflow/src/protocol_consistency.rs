@@ -243,6 +243,12 @@ mod tests {
             metadata: None,
             tool_call_format: format
                 .map(|f| wf_types::llm::ToolCallFormatConfig::from_format_str(f).unwrap()),
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
         }
     }
 

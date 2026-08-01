@@ -36,5 +36,6 @@ pub async fn build_agent_request(
         execution_id: Some(entity.id().to_string()),
         stream: Some(stream),
         dead_loop_detection: None,
+        protocol_auto_converted: None,
     })
 }

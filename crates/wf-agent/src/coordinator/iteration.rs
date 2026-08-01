@@ -394,7 +394,8 @@ impl AgentIterationCoordinator {
                 Ok(MessageStreamEvent::End(_))
                 | Ok(MessageStreamEvent::Connect(_))
                 | Ok(MessageStreamEvent::InputJson(_))
-                | Ok(MessageStreamEvent::Usage(_)) => {}
+                | Ok(MessageStreamEvent::Usage(_))
+                | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
                 Err(e) => return Err(e.into()),
             }
         }
@@ -563,13 +564,16 @@ mod tests {
         mock.script_stream(vec![
             MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
                 text: "hello ".to_string(),
+                snapshot: String::new(),
             }),
             MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
                 text: "world".to_string(),
+                snapshot: String::new(),
             }),
             MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
                 message: text_message("hello world"),
                 usage: None,
+                stream_stats: None,
             }),
             MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
         ]);
@@ -612,10 +616,12 @@ mod tests {
         mock.script_stream(vec![
             MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
                 text: "using tool".to_string(),
+                snapshot: String::new(),
             }),
             MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
                 message: tool_call_message("tc-9"),
                 usage: None,
+                stream_stats: None,
             }),
             MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
         ]);

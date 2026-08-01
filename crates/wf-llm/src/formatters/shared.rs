@@ -255,14 +255,14 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
         if let Some(delta) = choice.get("delta") {
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                 return Ok(Some(MessageStreamEvent::Text(
-                    wf_types::llm::MessageStreamText {
+                    wf_types::llm::MessageStreamText { snapshot: String::new(),
                         text: content.to_string(),
                     },
                 )));
             }
             if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                    wf_types::llm::MessageStreamReasoning {
+                    wf_types::llm::MessageStreamReasoning { snapshot: String::new(),
                         reasoning: reasoning.to_string(),
                     },
                 )));

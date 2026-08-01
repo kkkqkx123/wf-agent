@@ -5,6 +5,7 @@ use wf_metrics::collectors::TokenMetricsCollector;
 use wf_types::llm::{
     LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, TokenUsageStats,
     ToolCallFormat, ToolCallProtocolViolationPolicy,
+    DEFAULT_TOOL_CALL_PROTOCOL_POLICY,
 };
 
 use crate::client::LlmClient;
@@ -103,7 +104,7 @@ impl LlmGateway {
         )))
     }
 
-    pub async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {
+    pub async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<wf_types::llm::TokenCountResult> {
         #[cfg(feature = "mock")]
         if let Some(client) = self.mock_client(&request.profile_id) {
             return client.count_tokens(request).await;
@@ -122,9 +123,9 @@ impl LlmGateway {
     }
 
     fn get_or_create_client(&self, profile: &LlmProfile) -> Arc<LlmClientImpl> {
-        let key = &profile.id;
+        let key = format!("{}::{}", profile.id, profile.model);
 
-        if let Some(client) = self.clients.get(key) {
+        if let Some(client) = self.clients.get(key.as_str()) {
             return client.clone();
         }
 
@@ -137,7 +138,7 @@ impl LlmGateway {
             .unwrap_or_default();
 
         let client_impl = Arc::new(LlmClientImpl::new(client, formatter, profile.clone()));
-        self.clients.insert(key.clone(), client_impl.clone());
+        self.clients.insert(key, client_impl.clone());
         client_impl
     }
 
@@ -161,7 +162,14 @@ impl LlmGateway {
                 // Compatible formats (e.g. both JSON-based) proceed silently;
                 // a genuine protocol conflict is governed by the policy.
                 if attempted != locked.format && !attempted.is_compatible_with(&locked.format) {
-                    self.handle_protocol_violation(request, profile, &locked.format, attempted)?;
+                    let policy = effective
+                        .violation_policy
+                        .clone()
+                        .unwrap_or(DEFAULT_TOOL_CALL_PROTOCOL_POLICY);
+                    self.handle_protocol_violation(request, profile, &locked.format, attempted, policy.clone())?;
+                    if policy == ToolCallProtocolViolationPolicy::AutoConvert {
+                        effective.protocol_auto_converted = Some(true);
+                    }
                 }
             }
             effective.tool_call_format = Some(locked.format);
@@ -183,23 +191,37 @@ impl LlmGateway {
         profile: &LlmProfile,
         locked: &ToolCallFormat,
         attempted: ToolCallFormat,
+        policy: ToolCallProtocolViolationPolicy,
     ) -> LlmResult<()> {
-        match request.violation_policy {
-            Some(ToolCallProtocolViolationPolicy::Fail) => Err(LlmError::ConfigError(format!(
+        match policy {
+            ToolCallProtocolViolationPolicy::Fail => Err(LlmError::ConfigError(format!(
                 "Tool call protocol conflict: locked \"{}\" but profile \"{}\" attempted \"{}\". Execution interrupted per fail policy.",
                 locked, profile.id, attempted
             ))),
-            Some(ToolCallProtocolViolationPolicy::Warn) => {
+            ToolCallProtocolViolationPolicy::Warn => {
                 tracing::warn!(
                     profile_id = %profile.id,
                     locked_format = %locked,
                     attempted_format = %attempted,
+                    execution_id = ?request.execution_id,
                     "Tool call protocol violation detected, using the locked format"
                 );
                 Ok(())
             }
-            // Ignore / auto_convert: proceed with the locked format.
-            _ => Ok(()),
+            ToolCallProtocolViolationPolicy::AutoConvert => {
+                tracing::info!(
+                    profile_id = %profile.id,
+                    locked_format = %locked,
+                    attempted_format = %attempted,
+                    execution_id = ?request.execution_id,
+                    "Auto-converting tool call protocol to locked format"
+                );
+                Ok(())
+            }
+            ToolCallProtocolViolationPolicy::Ignore => {
+                // Silently use the locked protocol
+                Ok(())
+            }
         }
     }
 

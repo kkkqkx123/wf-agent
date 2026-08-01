@@ -68,6 +68,34 @@ pub struct ToolCallMarkers {
     pub end: Option<String>,
 }
 
+impl ToolCallMarkers {
+    /// Default markers for wrapped JSON format: `<<<TOOL_CALL>>> ... <<<END_TOOL_CALL>>>`.
+    pub fn default_json() -> Self {
+        Self {
+            start: Some("<<<TOOL_CALL>>>".to_string()),
+            end: Some("<<<END_TOOL_CALL>>>".to_string()),
+        }
+    }
+}
+
+impl ToolCallFormatConfig {
+    /// Resolve effective start marker, falling back to the JSON defaults.
+    pub fn effective_start(&self) -> &str {
+        self.markers
+            .as_ref()
+            .and_then(|m| m.start.as_deref())
+            .unwrap_or("<<<TOOL_CALL>>>")
+    }
+
+    /// Resolve effective end marker.
+    pub fn effective_end(&self) -> &str {
+        self.markers
+            .as_ref()
+            .and_then(|m| m.end.as_deref())
+            .unwrap_or("<<<END_TOOL_CALL>>>")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct XmlTags {
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -24,10 +24,23 @@ pub trait LlmFormatter: Send + Sync {
         request: &LlmRequest,
         profile: &LlmProfile,
     ) -> LlmResult<reqwest::Request>;
-    fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType>;
+    /// Parse a non-streaming response. `request` carries the effective tool
+    /// call format so the formatter can route to text-mode parsing when needed.
+    fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType>;
     fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>>;
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>>;
     fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall>;
+
+    /// Build a count-tokens request. Returns `Ok(None)` when the provider
+    /// does not support a token counting API (the caller falls back to
+    /// an estimate). Default implementation returns `None`.
+    fn build_count_tokens_request(
+        &self,
+        _request: &LlmRequest,
+        _profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        Ok(None)
+    }
 }
 
 pub fn create_formatter(provider: &LlmProvider) -> Arc<dyn LlmFormatter> {

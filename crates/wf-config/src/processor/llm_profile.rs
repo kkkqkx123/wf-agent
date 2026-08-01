@@ -45,6 +45,12 @@ mod tests {
             headers: None,
             metadata: None,
             tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
         }
     }
 

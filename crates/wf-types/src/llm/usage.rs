@@ -28,6 +28,14 @@ pub struct TokenUsageHistory {
     pub model: Option<String>,
 }
 
+/// Result of a provider-side token counting API call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TokenCountResult {
+    pub input_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TokenUsageStatistics {
     pub total_requests: u64,

@@ -140,12 +140,14 @@ impl LlmResponseSpec {
             if !content.is_empty() {
                 events.push(MessageStreamEvent::Text(MessageStreamText {
                     text: content.clone(),
+                    snapshot: content.clone(),
                 }));
             }
         }
-        events.push(MessageStreamEvent::FinalMessage(MessageStreamFinal {
+events.push(MessageStreamEvent::FinalMessage(MessageStreamFinal {
             message: result.message.clone(),
             usage: result.usage.clone(),
+            stream_stats: None,
         }));
         events.push(MessageStreamEvent::End(MessageStreamEnd {}));
         events
@@ -343,8 +345,13 @@ impl LlmClient for MockLlmClient {
         )))
     }
 
-    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {
-        Ok(crate::client::estimate_request_tokens(request))
+    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<wf_types::llm::TokenCountResult> {
+        // Mock returns a simple estimation wrapped in TokenCountResult
+        let estimated = crate::client::estimate_request_tokens(request);
+        Ok(wf_types::llm::TokenCountResult {
+            input_tokens: estimated,
+            raw: None,
+        })
     }
 }
 
@@ -408,6 +415,7 @@ mod tests {
             execution_id: None,
             stream: None,
             dead_loop_detection: None,
+            protocol_auto_converted: None,
         }
     }
 
@@ -505,6 +513,7 @@ mod tests {
             MessageStreamEvent::FinalMessage(MessageStreamFinal {
                 message: assistant,
                 usage: None,
+                stream_stats: None,
             }),
             MessageStreamEvent::End(MessageStreamEnd {}),
         ]);
@@ -540,6 +549,7 @@ mod tests {
             MessageStreamEvent::FinalMessage(MessageStreamFinal {
                 message: assistant,
                 usage: None,
+                stream_stats: None,
             }),
             MessageStreamEvent::End(MessageStreamEnd {}),
         ]);
@@ -551,6 +561,7 @@ mod tests {
     async fn count_tokens_matches_production_estimation() {
         let client = MockLlmClient::new();
         let req = request("mock", "a b c d e f g h"); // 15 chars -> 4 tokens
-        assert_eq!(client.count_tokens(&req).await.unwrap(), 4);
+        let result = client.count_tokens(&req).await.unwrap();
+        assert_eq!(result.input_tokens, 4);
     }
 }

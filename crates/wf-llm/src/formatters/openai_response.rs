@@ -182,7 +182,7 @@ impl LlmFormatter for OpenaiResponseFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
@@ -277,7 +277,7 @@ impl LlmFormatter for OpenaiResponseFormatter {
             Some("response.output_text.delta") => {
                 if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
                     return Ok(Some(MessageStreamEvent::Text(
-                        wf_types::llm::MessageStreamText {
+                        wf_types::llm::MessageStreamText { snapshot: String::new(),
                             text: delta.to_string(),
                         },
                     )));

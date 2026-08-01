@@ -151,6 +151,7 @@ async fn stream_emits_chunks_and_aggregates_output() {
                 completion_tokens_cost: None,
                 total_cost: None,
             }),
+            stream_stats: None,
         }),
         wf_types::llm::MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);

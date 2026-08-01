@@ -67,7 +67,7 @@ impl LlmFormatter for GeminiOpenaiFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
         shared::parse_openai_chat_response(body)
     }
 

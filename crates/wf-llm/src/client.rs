@@ -19,7 +19,7 @@ pub trait LlmClient: Send + Sync {
         &self,
         request: &LlmRequest,
     ) -> impl Future<Output = LlmResult<Box<dyn MessageStream>>> + Send;
-    fn count_tokens(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<u32>> + Send;
+    fn count_tokens(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<wf_types::llm::TokenCountResult>> + Send;
 }
 
 pub struct LlmClientImpl {
@@ -116,7 +116,7 @@ impl LlmClientImpl {
         }
 
         let body = response.text().await?;
-        let mut result = self.formatter.parse_response(&body)?;
+        let mut result = self.formatter.parse_response(&body, request)?;
 
         result.duration = start.elapsed().as_millis() as i64;
 
@@ -172,6 +172,7 @@ impl LlmClientImpl {
             stream,
             self.formatter.clone(),
             cancel,
+            request.dead_loop_detection.as_ref(),
         )))
     }
 }
@@ -215,8 +216,42 @@ impl LlmClient for LlmClientImpl {
             .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
     }
 
-    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {
-        Ok(estimate_request_tokens(request))
+    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<wf_types::llm::TokenCountResult> {
+        // Try provider's count_tokens API first
+        if let Some(http_request) = self.formatter.build_count_tokens_request(request, &self.profile)? {
+            let timeout_dur = self.build_timeout();
+            let response = tokio::time::timeout(timeout_dur, self.client.execute(http_request))
+                .await
+                .map_err(|_| LlmError::Timeout(timeout_dur.as_millis() as u64))?
+                .map_err(|e| {
+                    if e.is_timeout() {
+                        LlmError::Timeout(timeout_dur.as_millis() as u64)
+                    } else {
+                        LlmError::HttpError(e)
+                    }
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Self::map_http_error(status, &body, timeout_dur.as_millis() as u64));
+            }
+
+            let body = response.text().await?;
+            let json: serde_json::Value = serde_json::from_str(&body)?;
+            let input_tokens = json.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            Ok(wf_types::llm::TokenCountResult {
+                input_tokens,
+                raw: Some(json),
+            })
+        } else {
+            // Fallback to estimation
+            let estimated = estimate_request_tokens(request);
+            Ok(wf_types::llm::TokenCountResult {
+                input_tokens: estimated,
+                raw: None,
+            })
+        }
     }
 }
 

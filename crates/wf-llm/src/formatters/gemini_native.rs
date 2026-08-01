@@ -177,7 +177,7 @@ impl LlmFormatter for GeminiNativeFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let candidates = json.get("candidates").and_then(|v| v.as_array());
@@ -318,14 +318,14 @@ impl LlmFormatter for GeminiNativeFormatter {
                         for part in parts {
                             if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText {
+                                    wf_types::llm::MessageStreamText { snapshot: String::new(),
                                         text: text.to_string(),
                                     },
                                 )));
                             }
                             if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
                                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning {
+                                    wf_types::llm::MessageStreamReasoning { snapshot: String::new(),
                                         reasoning: thought.to_string(),
                                     },
                                 )));

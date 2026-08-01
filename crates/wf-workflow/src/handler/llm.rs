@@ -2,11 +2,13 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
-use wf_llm::{ClientFactory, LlmWrapper};
+
+use wf_llm::LlmGateway;
 use wf_types::events::{BaseEvent, EventType};
-use wf_types::llm::{LlmRequest, MessageStreamEvent};
+use wf_types::llm::{LlmRequest, MessageStreamEvent, ToolCallFormatConfig};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 
@@ -97,10 +99,7 @@ fn build_messages(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<Message>> {
 
     // transform_context: basic injection of extra messages before the context
     // (dynamic context injection; compression strategies are not implemented).
-    if let Some(transform) = config
-        .get("transform_context")
-        .or_else(|| config.get("transformContext"))
-    {
+    if let Some(transform) = config.get("transform_context") {
         if let Some(injected) = transform.get("messages").and_then(|v| v.as_array()) {
             for msg_val in injected {
                 if let Ok(msg) = serde_json::from_value::<Message>(msg_val.clone()) {
@@ -112,7 +111,6 @@ fn build_messages(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<Message>> {
 
     let context_id = config
         .get("context_id")
-        .or_else(|| config.get("contextId"))
         .and_then(|v| v.as_str())
         .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
     let context_messages = message_context::get_context(&ctx.variables, context_id);
@@ -178,10 +176,10 @@ fn resolve_tools(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<wf_types::too
 /// Single LLM call. Returns the model response and the messages that must be
 /// appended to the conversation (assistant message + any tool results).
 async fn call_llm(
-    llm_wrapper: &LlmWrapper,
+    gateway: &LlmGateway,
     request: &LlmRequest,
 ) -> WorkflowResult<wf_types::llm::LlmResult> {
-    llm_wrapper
+    gateway
         .generate(request)
         .await
         .map_err(|e| WorkflowError::Internal(format!("LLM call failed: {}", e)))
@@ -227,30 +225,12 @@ async fn execute_tool_call(
 }
 
 pub struct LlmHandler {
-    factory: Option<ClientFactory>,
+    gateway: Arc<LlmGateway>,
 }
 
 impl LlmHandler {
-    pub fn new() -> Self {
-        Self { factory: None }
-    }
-
-    /// Inject a client factory (e.g. one holding mock clients in tests).
-    /// `None` keeps the default behavior: a fresh factory is created per call.
-    pub fn with_factory(factory: ClientFactory) -> Self {
-        Self {
-            factory: Some(factory),
-        }
-    }
-
-    fn get_factory(&self) -> ClientFactory {
-        self.factory.clone().unwrap_or_default()
-    }
-}
-
-impl Default for LlmHandler {
-    fn default() -> Self {
-        Self::new()
+    pub fn new(gateway: Arc<LlmGateway>) -> Self {
+        Self { gateway }
     }
 }
 
@@ -265,9 +245,21 @@ impl NodeHandler for LlmHandler {
 
         let profile_id = config
             .get("profile_id")
-            .or_else(|| config.get("model"))
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .map(|s| s.to_string())
+            .ok_or_else(|| {
+                WorkflowError::OperationError("LLM node requires a profile_id".to_string())
+            })?;
+
+        // Node-level tool call format (canonical string) is applied at runtime
+        // so validation and execution agree on the effective protocol.
+        let tool_call_format = config
+            .get("tool_call_format")
+            .and_then(|v| v.as_str())
+            .and_then(ToolCallFormatConfig::from_format_str);
+        let violation_policy = config
+            .get("violation_policy")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
 
         let stream_enabled = config
             .get("stream")
@@ -275,17 +267,11 @@ impl NodeHandler for LlmHandler {
             .unwrap_or(false);
         let max_tool_calls = config
             .get("max_tool_calls_per_request")
-            .or_else(|| config.get("maxToolCallsPerRequest"))
             .and_then(|v| v.as_u64())
             .unwrap_or(5);
 
         let mut messages = build_messages(ctx)?;
         let tools = resolve_tools(ctx)?;
-
-        let mut llm_wrapper = LlmWrapper::with_factory(self.get_factory());
-        if let Some(metrics) = &ctx.metrics {
-            llm_wrapper = llm_wrapper.with_token_metrics(metrics.token().as_ref().clone());
-        }
 
         let mut executed_tool_calls: Vec<Value> = Vec::new();
         let mut final_response: Option<wf_types::llm::LlmResult> = None;
@@ -303,19 +289,21 @@ impl NodeHandler for LlmHandler {
                 } else {
                     Some(tools.clone())
                 },
-                tool_call_format: None,
-                locked_tool_call_format: None,
-                violation_policy: None,
+                tool_call_format: tool_call_format
+                    .as_ref()
+                    .map(|config| config.format.clone()),
+                locked_tool_call_format: tool_call_format.clone(),
+                violation_policy: violation_policy.clone(),
                 execution_id: Some(ctx.execution_id.to_string()),
                 stream: None,
                 dead_loop_detection: None,
             };
 
             if stream_enabled {
-                let mut stream = llm_wrapper
-                    .generate_stream(&request)
-                    .await
-                    .map_err(|e| WorkflowError::Internal(format!("LLM stream failed: {}", e)))?;
+                let mut stream =
+                    self.gateway.generate_stream(&request).await.map_err(|e| {
+                        WorkflowError::Internal(format!("LLM stream failed: {}", e))
+                    })?;
                 let mut content_parts: Vec<String> = Vec::new();
                 loop {
                     match stream.next().await {
@@ -347,7 +335,7 @@ impl NodeHandler for LlmHandler {
                             let tool_calls = final_msg.message.tool_calls.clone();
                             final_response = Some(wf_types::llm::LlmResult {
                                 id: None,
-                                model: profile_id.clone().unwrap_or_default(),
+                                model: profile_id.clone(),
                                 content: Some(message_to_text(&final_msg.message)),
                                 message: final_msg.message,
                                 tool_calls,
@@ -372,7 +360,7 @@ impl NodeHandler for LlmHandler {
                 break;
             }
 
-            let response = call_llm(&llm_wrapper, &request).await?;
+            let response = call_llm(&self.gateway, &request).await?;
             let has_tool_calls = response
                 .tool_calls
                 .as_ref()
@@ -448,7 +436,6 @@ impl NodeHandler for LlmHandler {
             if !content.is_empty() {
                 let output_context_id = config
                     .get("output_context")
-                    .or_else(|| config.get("outputContext"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 if let Some(id) = output_context_id {
@@ -588,6 +575,6 @@ mod tests {
     #[allow(dead_code)]
     fn _registry_check() {
         let mut reg = HandlerRegistry::new();
-        reg.register_defaults();
+        reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
     }
 }

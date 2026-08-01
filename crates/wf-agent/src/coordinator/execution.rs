@@ -102,10 +102,7 @@ impl AgentExecutionCoordinator {
             let iteration_duration_ms = (wf_common::now() - iteration_start) as f64;
 
             if let Some(ref metrics) = self.metrics {
-                let profile_id = entity
-                    .model()
-                    .map(|m| m.to_string())
-                    .unwrap_or_else(|| "default".to_string());
+                let profile_id = entity.model().to_string();
                 metrics
                     .agent_loop()
                     .record_iteration(entity.id(), iteration_duration_ms);

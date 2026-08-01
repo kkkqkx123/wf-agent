@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use wf_core::EventBus;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_llm::LlmGateway;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
@@ -13,6 +14,7 @@ use crate::handler::{HandlerRegistry, NodeHandler};
 
 pub struct WorkflowExecutor {
     event_bus: Option<Arc<EventBus>>,
+    gateway: Arc<LlmGateway>,
 }
 
 impl Default for WorkflowExecutor {
@@ -23,18 +25,30 @@ impl Default for WorkflowExecutor {
 
 impl WorkflowExecutor {
     pub fn new() -> Self {
-        Self { event_bus: None }
+        Self {
+            event_bus: None,
+            gateway: Arc::new(LlmGateway::new()),
+        }
+    }
+
+    pub fn with_gateway(gateway: Arc<LlmGateway>) -> Self {
+        Self {
+            event_bus: None,
+            gateway,
+        }
     }
 
     pub fn with_event_bus(event_bus: Arc<EventBus>) -> Self {
         Self {
             event_bus: Some(event_bus),
+            gateway: Arc::new(LlmGateway::new()),
         }
     }
 
     pub fn new_default() -> Self {
         Self {
             event_bus: Some(Arc::new(EventBus::new(1024))),
+            gateway: Arc::new(LlmGateway::new()),
         }
     }
 
@@ -49,7 +63,7 @@ impl WorkflowExecutor {
     ) -> WorkflowResult<WorkflowOutput> {
         let handlers = handlers.unwrap_or_else(|| {
             let mut registry = HandlerRegistry::new();
-            registry.register_defaults();
+            registry.register_defaults(self.gateway.clone());
             registry.into_arc()
         });
 

@@ -42,11 +42,7 @@ impl NodeHandler for EmbedHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let graph_value = config
-            .get("graph")
-            .or_else(|| config.get("subgraph"))
-            .or_else(|| config.get("inner").and_then(|i| i.get("graph")))
-            .or_else(|| config.get("inner").and_then(|i| i.get("subgraph")));
+        let graph_value = config.get("graph_definition");
 
         let subgraph: WorkflowGraphStructure = match graph_value {
             Some(v) => serde_json::from_value(v.clone()).map_err(|e| {

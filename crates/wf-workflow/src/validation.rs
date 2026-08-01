@@ -1,6 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use wf_llm::ProfileManager;
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
+
+use crate::analysis::{analyze_graph, analyze_reachability, detect_cycles, get_reachable_nodes};
+use crate::node_validation::validate_node_configs;
+use crate::protocol_consistency::validate_protocol_consistency_with;
 
 #[derive(Debug, Clone)]
 pub struct ValidationError {
@@ -9,7 +14,7 @@ pub struct ValidationError {
 }
 
 impl ValidationError {
-    fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
+    pub(crate) fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             field: field.into(),
             message: message.into(),
@@ -19,22 +24,105 @@ impl ValidationError {
 
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
 
+fn node_type_of<'a>(graph: &'a WorkflowGraphStructure, node_id: &str) -> Option<&'a str> {
+    graph
+        .nodes
+        .iter()
+        .find(|n| n.id == node_id)
+        .map(|n| n.node_type.as_str())
+}
+
+fn outgoing_edges<'a>(graph: &'a WorkflowGraphStructure, node_id: &str) -> Vec<&'a WorkflowEdge> {
+    graph
+        .edges
+        .iter()
+        .filter(|e| e.source_node_id == node_id)
+        .collect()
+}
+
+fn incoming_edges<'a>(graph: &'a WorkflowGraphStructure, node_id: &str) -> Vec<&'a WorkflowEdge> {
+    graph
+        .edges
+        .iter()
+        .filter(|e| e.target_node_id == node_id)
+        .collect()
+}
+
+/// Extract the path ids of a FORK node config (`fork_paths[].path_id`).
+fn fork_path_ids(node: &WorkflowNode) -> Vec<String> {
+    node.inner
+        .get("fork_paths")
+        .and_then(|v| v.as_array())
+        .map(|paths| {
+            paths
+                .iter()
+                .filter_map(|p| p.get("path_id").and_then(|v| v.as_str()))
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Join node config path ids (`fork_path_ids`).
+fn join_path_ids(node: &WorkflowNode) -> Vec<String> {
+    node.inner
+        .get("fork_path_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub struct GraphValidator;
 
 impl GraphValidator {
+    /// Validate a workflow graph against all graph-level and node-level
+    /// rules. Runs before execution; an invalid graph is rejected with a
+    /// structured error list.
     pub fn validate(graph: &WorkflowGraphStructure) -> ValidationResult {
+        Self::validate_with_profiles(graph, None)
+    }
+
+    /// Profile-aware validation: pass the registered LLM profile set so that
+    /// every `profile_id` reference is checked and node formats are checked
+    /// against the referenced profile formats.
+    pub fn validate_with_profiles(
+        graph: &WorkflowGraphStructure,
+        profiles: Option<&ProfileManager>,
+    ) -> ValidationResult {
         let mut errors: Vec<ValidationError> = Vec::new();
         errors.extend(Self::validate_nodes(graph));
         errors.extend(Self::validate_edges(graph));
         errors.extend(Self::validate_start_end(graph));
         errors.extend(Self::validate_references(graph));
-        errors.extend(Self::validate_fork_join(graph));
+        errors.extend(Self::validate_start_end_topology(graph));
+        errors.extend(Self::validate_isolated_nodes(graph));
+        errors.extend(Self::validate_fork_join_pairs(graph));
+        errors.extend(Self::validate_loop_pairs(graph));
+        errors.extend(Self::validate_sync_nodes(graph));
+        errors.extend(Self::validate_embed_graph(graph));
+        errors.extend(Self::validate_subgraph_nodes(graph));
+        errors.extend(Self::validate_triggered_subgraph(graph));
+        errors.extend(Self::validate_cycles(graph));
+        errors.extend(Self::validate_reachability(graph));
+        errors.extend(validate_node_configs(graph));
+        errors.extend(validate_protocol_consistency_with(graph, profiles));
 
         if errors.is_empty() {
             Ok(())
         } else {
             Err(errors)
         }
+    }
+
+    /// Complete structural analysis (cycle detection, topological sort,
+    /// reachability) without validation semantics.
+    pub fn analyze(graph: &WorkflowGraphStructure) -> crate::analysis::GraphAnalysis {
+        analyze_graph(graph)
     }
 
     fn validate_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
@@ -196,21 +284,117 @@ impl GraphValidator {
         errors
     }
 
-    fn validate_fork_join(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+    /// Topological constraints of boundary nodes: START cannot have incoming
+    /// edges, END cannot have outgoing edges, and the triggered-subgraph
+    /// boundaries follow the same rule.
+    fn validate_start_end_topology(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         let mut errors = Vec::new();
+
+        if let Some(ref start_id) = graph.start_node_id {
+            if node_type_of(graph, start_id).is_some()
+                && !incoming_edges(graph, start_id).is_empty()
+            {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", start_id),
+                    "START node cannot have incoming edges",
+                ));
+            }
+        }
+
+        for end_id in &graph.end_node_ids {
+            if node_type_of(graph, end_id).is_some() && !outgoing_edges(graph, end_id).is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", end_id),
+                    format!("END node ({}) cannot have outgoing edges", end_id),
+                ));
+            }
+        }
+
+        for node in &graph.nodes {
+            match node.node_type.as_str() {
+                "START_FROM_TRIGGER" if !incoming_edges(graph, &node.id).is_empty() => {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}", node.id),
+                        "START_FROM_TRIGGER node cannot have incoming edges",
+                    ));
+                }
+                "CONTINUE_FROM_TRIGGER" if !outgoing_edges(graph, &node.id).is_empty() => {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}", node.id),
+                        "CONTINUE_FROM_TRIGGER node cannot have outgoing edges",
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        errors
+    }
+
+    /// Boundary nodes are excluded; any other node without both an incoming
+    /// and an outgoing edge is reported as isolated.
+    fn validate_isolated_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        for node in &graph.nodes {
+            if matches!(
+                node.node_type.as_str(),
+                "START" | "END" | "START_FROM_TRIGGER" | "CONTINUE_FROM_TRIGGER"
+            ) {
+                continue;
+            }
+            if incoming_edges(graph, &node.id).is_empty()
+                && outgoing_edges(graph, &node.id).is_empty()
+            {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "Node ({}) is isolated, has no incoming or outgoing edges",
+                        node.id
+                    ),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// FORK/JOIN pairing: every FORK must have branches and a matching JOIN,
+    /// every JOIN must match a FORK; paired path ids must agree; the JOIN
+    /// must be reachable from its FORK.
+    fn validate_fork_join_pairs(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
         let fork_nodes: Vec<&WorkflowNode> = graph
             .nodes
             .iter()
             .filter(|n| n.node_type == "FORK")
             .collect();
+        let join_nodes: Vec<&WorkflowNode> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == "JOIN")
+            .collect();
 
+        // Global path id uniqueness across all FORK nodes.
+        let mut all_path_ids: HashSet<String> = HashSet::new();
         for fork in &fork_nodes {
-            let outgoing: Vec<&WorkflowEdge> = graph
-                .edges
-                .iter()
-                .filter(|e| e.source_node_id == fork.id)
-                .collect();
+            for path_id in fork_path_ids(fork) {
+                if !all_path_ids.insert(path_id.clone()) {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}", fork.id),
+                        format!(
+                            "pathId ({}) of FORK node ({}) is not unique within the workflow definition",
+                            path_id, fork.id
+                        ),
+                    ));
+                }
+            }
+        }
 
+        // FORK nodes must declare branches and have outgoing edges.
+        for fork in &fork_nodes {
+            let outgoing = outgoing_edges(graph, &fork.id);
             if outgoing.is_empty() {
                 errors.push(ValidationError::new(
                     format!("nodes.{}", fork.id),
@@ -218,35 +402,585 @@ impl GraphValidator {
                 ));
             }
 
-            if let Some(branches) = fork.inner.get("branches").and_then(|b| b.as_array()) {
-                if branches.is_empty() {
-                    errors.push(ValidationError::new(
-                        format!("nodes.{}", fork.id),
-                        format!("FORK node '{}' has empty branches", fork.id),
-                    ));
-                }
+            let branches = fork.inner.get("fork_paths").and_then(|b| b.as_array());
+            match branches {
+                None => errors.push(ValidationError::new(
+                    format!("nodes.{}", fork.id),
+                    format!(
+                        "FORK node '{}' must define a non-empty fork_paths array",
+                        fork.id
+                    ),
+                )),
+                Some(branches) if branches.is_empty() => errors.push(ValidationError::new(
+                    format!("nodes.{}", fork.id),
+                    format!("FORK node '{}' has empty fork_paths", fork.id),
+                )),
+                _ => {}
             }
         }
 
-        let join_nodes: Vec<&WorkflowNode> = graph
-            .nodes
-            .iter()
-            .filter(|n| n.node_type == "JOIN")
-            .collect();
-
+        // JOIN nodes must have incoming edges.
         for join in &join_nodes {
-            let incoming: Vec<&WorkflowEdge> = graph
-                .edges
-                .iter()
-                .filter(|e| e.target_node_id == join.id)
-                .collect();
-
-            if incoming.is_empty() {
+            if incoming_edges(graph, &join.id).is_empty() {
                 errors.push(ValidationError::new(
                     format!("nodes.{}", join.id),
                     format!("JOIN node '{}' has no incoming edges", join.id),
                 ));
             }
+        }
+
+        // Pairing by the first fork path id.
+        let join_by_first_path: HashMap<String, &WorkflowNode> = join_nodes
+            .iter()
+            .filter_map(|j| join_path_ids(j).into_iter().next().map(|first| (first, *j)))
+            .collect();
+
+        let mut pairs: Vec<(&WorkflowNode, &WorkflowNode)> = Vec::new();
+        let mut paired_joins: HashSet<&str> = HashSet::new();
+
+        for fork in &fork_nodes {
+            let path_ids = fork_path_ids(fork);
+            let matched: Option<&WorkflowNode> = path_ids
+                .first()
+                .and_then(|first| join_by_first_path.get(first).copied());
+
+            match matched {
+                Some(join) => {
+                    let join_ids = join_path_ids(join);
+                    let fork_ids = fork_path_ids(fork);
+                    if !fork_ids.is_empty() && !join_ids.is_empty() && fork_ids != join_ids {
+                        errors.push(ValidationError::new(
+                            format!("nodes.{}", fork.id),
+                            format!(
+                                "fork_path_ids of FORK node ({}) and JOIN node ({}) do not match",
+                                fork.id, join.id
+                            ),
+                        ));
+                    } else {
+                        pairs.push((fork, join));
+                        paired_joins.insert(join.id.as_str());
+                    }
+                }
+                None => {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}", fork.id),
+                        format!("FORK node ({}) has no matching JOIN node", fork.id),
+                    ));
+                }
+            }
+        }
+
+        for join in &join_nodes {
+            if !paired_joins.contains(join.id.as_str()) {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", join.id),
+                    format!("JOIN node ({}) has no matching FORK node", join.id),
+                ));
+            }
+        }
+
+        // Reachability from FORK to its paired JOIN.
+        for (fork, join) in &pairs {
+            let reachable = get_reachable_nodes(graph, &fork.id);
+            if !reachable.contains(&join.id) {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", fork.id),
+                    format!(
+                        "FORK node ({}) cannot reach the paired JOIN node ({})",
+                        fork.id, join.id
+                    ),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// LOOP_START/LOOP_END pairing: each loopId must have exactly one of
+    /// each, cross references must resolve, and boundary nodes must have
+    /// edges on the required sides.
+    fn validate_loop_pairs(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        let mut loop_starts: HashMap<String, String> = HashMap::new(); // node_id -> loop_id
+        let mut loop_ends: HashMap<String, (String, Option<String>)> = HashMap::new(); // node_id -> (loop_id, loop_start_node_id)
+
+        for node in &graph.nodes {
+            match node.node_type.as_str() {
+                "LOOP_START" => {
+                    let loop_id = node
+                        .inner
+                        .get("loop_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .filter(|s| !s.is_empty());
+                    match loop_id {
+                        Some(id) => {
+                            loop_starts.insert(node.id.clone(), id);
+                        }
+                        None => errors.push(ValidationError::new(
+                            format!("nodes.{}", node.id),
+                            format!(
+                                "LOOP_START node ({}) must have a non-empty loop_id in its config",
+                                node.id
+                            ),
+                        )),
+                    }
+                }
+                "LOOP_END" => {
+                    let loop_id = node
+                        .inner
+                        .get("loop_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .filter(|s| !s.is_empty());
+                    let loop_start_node_id = node
+                        .inner
+                        .get("loop_start_node_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .filter(|s| !s.is_empty());
+                    match loop_id {
+                        Some(id) => {
+                            loop_ends.insert(node.id.clone(), (id, loop_start_node_id));
+                        }
+                        None => errors.push(ValidationError::new(
+                            format!("nodes.{}", node.id),
+                            format!(
+                                "LOOP_END node ({}) must have a non-empty loop_id in its config",
+                                node.id
+                            ),
+                        )),
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Duplicate loop ids per node kind.
+        let start_ids_by_loop: HashMap<String, Vec<String>> =
+            loop_starts
+                .iter()
+                .fold(HashMap::new(), |mut acc, (nid, lid)| {
+                    acc.entry(lid.clone()).or_default().push(nid.clone());
+                    acc
+                });
+        let end_ids_by_loop: HashMap<String, Vec<String>> =
+            loop_ends
+                .iter()
+                .fold(HashMap::new(), |mut acc, (nid, (lid, _))| {
+                    acc.entry(lid.clone()).or_default().push(nid.clone());
+                    acc
+                });
+        for (loop_id, node_ids) in &start_ids_by_loop {
+            if node_ids.len() > 1 {
+                errors.push(ValidationError::new(
+                    "nodes",
+                    format!(
+                        "Multiple LOOP_START nodes share the same loopId ({}): [{}]",
+                        loop_id,
+                        node_ids.join(", ")
+                    ),
+                ));
+            }
+        }
+        for (loop_id, node_ids) in &end_ids_by_loop {
+            if node_ids.len() > 1 {
+                errors.push(ValidationError::new(
+                    "nodes",
+                    format!(
+                        "Multiple LOOP_END nodes share the same loopId ({}): [{}]",
+                        loop_id,
+                        node_ids.join(", ")
+                    ),
+                ));
+            }
+        }
+
+        // Pairing and boundary edges.
+        for (node_id, loop_id) in &loop_starts {
+            let ends = end_ids_by_loop
+                .get(loop_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if ends.is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node_id),
+                    format!(
+                        "LOOP_START node ({}) with loopId ({}) has no matching LOOP_END node",
+                        node_id, loop_id
+                    ),
+                ));
+            }
+            if outgoing_edges(graph, node_id).is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node_id),
+                    format!(
+                        "LOOP_START node ({}) must have at least one outgoing edge",
+                        node_id
+                    ),
+                ));
+            }
+            if incoming_edges(graph, node_id).is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node_id),
+                    format!(
+                        "LOOP_START node ({}) must have at least one incoming edge",
+                        node_id
+                    ),
+                ));
+            }
+        }
+
+        let loop_start_ids: HashSet<&str> = loop_starts.keys().map(String::as_str).collect();
+        for (node_id, (loop_id, loop_start_node_id)) in &loop_ends {
+            let starts = start_ids_by_loop
+                .get(loop_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if starts.is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node_id),
+                    format!(
+                        "LOOP_END node ({}) with loopId ({}) has no matching LOOP_START node",
+                        node_id, loop_id
+                    ),
+                ));
+            }
+            if outgoing_edges(graph, node_id).is_empty() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node_id),
+                    format!(
+                        "LOOP_END node ({}) must have at least one outgoing edge",
+                        node_id
+                    ),
+                ));
+            }
+
+            if let Some(ref referenced) = loop_start_node_id {
+                if !loop_start_ids.contains(referenced.as_str()) {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}", node_id),
+                        format!(
+                            "LOOP_END node ({}) references non-existent LOOP_START node ({}) via loop_start_node_id",
+                            node_id, referenced
+                        ),
+                    ));
+                } else if let Some(start_loop_id) = loop_starts.get(referenced) {
+                    if start_loop_id != loop_id {
+                        errors.push(ValidationError::new(
+                            format!("nodes.{}", node_id),
+                            format!(
+                                "LOOP_END node ({}) loopId ({}) does not match the loopId ({}) of the referenced LOOP_START node ({})",
+                                node_id, loop_id, start_loop_id, referenced
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+
+    /// SYNC nodes must reference an existing fork path on both sides and
+    /// have well-formed variable mappings.
+    fn validate_sync_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        let mut fork_path_ids_set: HashSet<String> = HashSet::new();
+        for node in &graph.nodes {
+            if node.node_type == "FORK" {
+                fork_path_ids_set.extend(fork_path_ids(node));
+            }
+        }
+
+        for node in &graph.nodes {
+            if node.node_type != "SYNC" {
+                continue;
+            }
+
+            let source_path_id = node
+                .inner
+                .get("source_path_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .filter(|s| !s.is_empty());
+            let target_path_id = node
+                .inner
+                .get("target_path_id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .filter(|s| !s.is_empty());
+
+            match &source_path_id {
+                Some(path_id) if fork_path_ids_set.contains(path_id) => {}
+                Some(path_id) => errors.push(ValidationError::new(
+                    format!("nodes.{}.config.source_path_id", node.id),
+                    format!(
+                        "SYNC node '{}' has source_path_id '{}' that does not exist in any FORK node's fork_paths",
+                        node.id, path_id
+                    ),
+                )),
+                None => errors.push(ValidationError::new(
+                    format!("nodes.{}.config.source_path_id", node.id),
+                    format!("SYNC node '{}' is missing required source_path_id", node.id),
+                )),
+            }
+
+            if let Some(path_id) = &target_path_id {
+                if !fork_path_ids_set.contains(path_id) {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}.config.target_path_id", node.id),
+                        format!(
+                            "SYNC node '{}' has target_path_id '{}' that does not exist in any FORK node's fork_paths",
+                            node.id, path_id
+                        ),
+                    ));
+                }
+            }
+
+            if let Some(mappings) = node
+                .inner
+                .get("variable_mappings")
+                .and_then(|v| v.as_array())
+            {
+                for (idx, mapping) in mappings.iter().enumerate() {
+                    let has_source = mapping
+                        .get("source_path")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+                    let has_internal = mapping
+                        .get("internal_name")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|s| !s.is_empty());
+                    if !has_source {
+                        errors.push(ValidationError::new(
+                            format!("nodes.{}.config.variable_mappings[{}]", node.id, idx),
+                            format!(
+                                "SYNC node '{}' has variableMapping with missing source_path",
+                                node.id
+                            ),
+                        ));
+                    }
+                    if !has_internal {
+                        errors.push(ValidationError::new(
+                            format!("nodes.{}.config.variable_mappings[{}]", node.id, idx),
+                            format!(
+                                "SYNC node '{}' has variableMapping with missing internal_name",
+                                node.id
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            if incoming_edges(graph, &node.id).is_empty()
+                && outgoing_edges(graph, &node.id).is_empty()
+            {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "SYNC node '{}' is isolated, has no incoming or outgoing edges",
+                        node.id
+                    ),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// EMBED_GRAPH nodes must reference an embed id or carry an inline graph
+    /// definition, and cannot declare variable mappings.
+    fn validate_embed_graph(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        for node in &graph.nodes {
+            if node.node_type != "EMBED_GRAPH" {
+                continue;
+            }
+
+            let has_embed_id = node
+                .inner
+                .get("embed_id")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.is_empty());
+            let has_inline = node
+                .inner
+                .get("graph_definition")
+                .is_some_and(|v| !v.is_null());
+            if !has_embed_id && !has_inline {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "EMBED_GRAPH node ({}) is missing embed_id configuration",
+                        node.id
+                    ),
+                ));
+            }
+
+            let has_variable_inputs = node
+                .inner
+                .get("variable_inputs")
+                .and_then(|v| v.as_array())
+                .is_some_and(|arr| !arr.is_empty());
+            let has_variable_outputs = node
+                .inner
+                .get("variable_outputs")
+                .and_then(|v| v.as_array())
+                .is_some_and(|arr| !arr.is_empty());
+            if has_variable_inputs {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "EMBED_GRAPH node '{}' should not have variable_inputs. Use SUBGRAPH for variable passing.",
+                        node.id
+                    ),
+                ));
+            }
+            if has_variable_outputs {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "EMBED_GRAPH node '{}' should not have variable_outputs. Use SUBGRAPH for variable passing.",
+                        node.id
+                    ),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// SUBGRAPH nodes must reference a subgraph id (or embed id); the
+    /// variable mapping format is checked by the node-level validators.
+    fn validate_subgraph_nodes(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        for node in &graph.nodes {
+            if node.node_type != "SUBGRAPH" {
+                continue;
+            }
+            let has_id = node
+                .inner
+                .get("subgraph_id")
+                .or_else(|| node.inner.get("embed_id"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.is_empty());
+            if !has_id {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "SUBGRAPH node ({}) is missing subgraph_id configuration",
+                        node.id
+                    ),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// Internal connectivity of triggered subgraphs: every node must be
+    /// reachable from START_FROM_TRIGGER and able to reach
+    /// CONTINUE_FROM_TRIGGER.
+    fn validate_triggered_subgraph(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        let start_id = graph
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "START_FROM_TRIGGER")
+            .map(|n| n.id.clone());
+        let end_id = graph
+            .nodes
+            .iter()
+            .find(|n| n.node_type == "CONTINUE_FROM_TRIGGER")
+            .map(|n| n.id.clone());
+
+        let (Some(start_id), Some(end_id)) = (start_id, end_id) else {
+            return errors;
+        };
+
+        let reachable_from_start = get_reachable_nodes(graph, &start_id);
+        for node in &graph.nodes {
+            if node.node_type == "START_FROM_TRIGGER" {
+                continue;
+            }
+            if !reachable_from_start.contains(&node.id) {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!(
+                        "Node '{}' is not reachable from START_FROM_TRIGGER",
+                        node.id
+                    ),
+                ));
+            }
+        }
+
+        for node in &graph.nodes {
+            if node.node_type == "CONTINUE_FROM_TRIGGER" {
+                continue;
+            }
+            if !reachable_from_start.contains(&node.id) {
+                continue;
+            }
+            let reachable = get_reachable_nodes(graph, &node.id);
+            if !reachable.contains(&end_id) {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}", node.id),
+                    format!("Node '{}' cannot reach CONTINUE_FROM_TRIGGER", node.id),
+                ));
+            }
+        }
+
+        errors
+    }
+
+    /// Structural cycles are rejected. Loop continuation edges
+    /// (LOOP_END -> LOOP_START) are legal control flow and excluded.
+    fn validate_cycles(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let result = detect_cycles(graph);
+        if result.has_cycle {
+            vec![ValidationError::new(
+                "nodes",
+                format!(
+                    "Circular dependencies exist in the workflow: cycle through nodes [{}]",
+                    result.cycle_nodes.join(", ")
+                ),
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Reachability for normal workflows: every node must be reachable from
+    /// START and must reach an END node. Triggered subgraphs use their own
+    /// connectivity validation instead.
+    fn validate_reachability(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        let has_trigger = graph
+            .nodes
+            .iter()
+            .any(|n| n.node_type == "START_FROM_TRIGGER" || n.node_type == "CONTINUE_FROM_TRIGGER");
+        if has_trigger {
+            return Vec::new();
+        }
+
+        let mut errors = Vec::new();
+        let analysis = analyze_reachability(graph);
+
+        for node_id in &analysis.unreachable_nodes {
+            errors.push(ValidationError::new(
+                format!("nodes.{}", node_id),
+                format!("Node ({}) is not reachable from START node", node_id),
+            ));
+        }
+        for node_id in &analysis.dead_end_nodes {
+            errors.push(ValidationError::new(
+                format!("nodes.{}", node_id),
+                format!("Node ({}) cannot reach END node", node_id),
+            ));
         }
 
         errors
@@ -407,7 +1141,7 @@ mod tests {
         let graph = make_graph(
             vec![
                 make_node("start", "START"),
-                make_node_with_inner("fork", "FORK", serde_json::json!({"branches": []})),
+                make_node_with_inner("fork", "FORK", serde_json::json!({"fork_paths": []})),
                 make_node("end", "END"),
             ],
             vec![
@@ -420,6 +1154,485 @@ mod tests {
         let result = GraphValidator::validate(&graph);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| e.message.contains("empty branches")));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("empty fork_paths")));
+    }
+
+    #[test]
+    fn test_isolated_node_detected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("v1", "VARIABLE"),
+                make_node("end", "END"),
+            ],
+            vec![make_edge("e1", "start", "end")],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("isolated")));
+    }
+
+    #[test]
+    fn test_start_cannot_have_incoming_edges() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("v1", "VARIABLE"),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "v1"),
+                make_edge("e2", "v1", "end"),
+                make_edge("e3", "v1", "start"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("START node cannot have incoming edges")));
+    }
+
+    #[test]
+    fn test_end_cannot_have_outgoing_edges() {
+        let graph = make_graph(
+            vec![make_node("start", "START"), make_node("end", "END")],
+            vec![
+                make_edge("e1", "start", "end"),
+                make_edge("e2", "end", "start"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("END node (end) cannot have outgoing edges")));
+    }
+
+    #[test]
+    fn test_cycle_detected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("a", "VARIABLE"),
+                make_node("b", "VARIABLE"),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "a"),
+                make_edge("e2", "a", "b"),
+                make_edge("e3", "b", "a"),
+                make_edge("e4", "b", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("Circular dependencies")));
+    }
+
+    #[test]
+    fn test_loop_pair_is_valid() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner("ls", "LOOP_START", serde_json::json!({"loop_id": "l1"})),
+                make_node_with_inner(
+                    "body",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "body", "expression": "1"}),
+                ),
+                make_node_with_inner(
+                    "le",
+                    "LOOP_END",
+                    serde_json::json!({"loop_id": "l1", "loop_start_node_id": "ls"}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "ls"),
+                make_edge("e2", "ls", "body"),
+                make_edge("e3", "body", "le"),
+                make_edge("e4", "le", "ls"),
+                make_edge("e5", "le", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        assert!(GraphValidator::validate(&graph).is_ok());
+    }
+
+    #[test]
+    fn test_unpaired_loop_end_detected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner("ls", "LOOP_START", serde_json::json!({"loop_id": "l1"})),
+                make_node("end", "END"),
+            ],
+            vec![make_edge("e1", "start", "ls"), make_edge("e2", "ls", "end")],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("no matching LOOP_END")));
+    }
+
+    #[test]
+    fn test_fork_join_pairing_ok() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [
+                            {"path_id": "p1", "child_node_id": "a1"},
+                            {"path_id": "p2", "child_node_id": "a2"}
+                        ]
+                    }),
+                ),
+                make_node_with_inner(
+                    "a1",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "a1", "expression": "1"}),
+                ),
+                make_node_with_inner(
+                    "a2",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "a2", "expression": "2"}),
+                ),
+                make_node_with_inner(
+                    "join",
+                    "JOIN",
+                    serde_json::json!({"fork_path_ids": ["p1", "p2"]}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "fork", "a2"),
+                make_edge("e4", "a1", "join"),
+                make_edge("e5", "a2", "join"),
+                make_edge("e6", "join", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        assert!(GraphValidator::validate(&graph).is_ok());
+    }
+
+    #[test]
+    fn test_fork_without_join_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [{"path_id": "p1", "child_node_id": "a1"}]
+                    }),
+                ),
+                make_node("a1", "VARIABLE"),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "a1", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("FORK node (fork) has no matching JOIN node")));
+    }
+
+    #[test]
+    fn test_fork_join_path_mismatch_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [
+                            {"path_id": "p1", "child_node_id": "a1"},
+                            {"path_id": "p2", "child_node_id": "a2"}
+                        ]
+                    }),
+                ),
+                make_node("a1", "VARIABLE"),
+                make_node("a2", "VARIABLE"),
+                make_node_with_inner(
+                    "join",
+                    "JOIN",
+                    serde_json::json!({"fork_path_ids": ["p1", "p3"]}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "fork", "a2"),
+                make_edge("e4", "a1", "join"),
+                make_edge("e5", "a2", "join"),
+                make_edge("e6", "join", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("do not match")));
+    }
+
+    #[test]
+    fn test_fork_join_unreachable_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [{"path_id": "p1", "child_node_id": "a1"}]
+                    }),
+                ),
+                make_node("a1", "VARIABLE"),
+                make_node_with_inner("join", "JOIN", serde_json::json!({"fork_path_ids": ["p1"]})),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                // a1 never connects to join: join is fed by nothing.
+                make_edge("e3", "join", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("cannot reach the paired JOIN node")));
+    }
+
+    #[test]
+    fn test_sync_with_invalid_path_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [{"path_id": "p1", "child_node_id": "a1"}]
+                    }),
+                ),
+                make_node("a1", "VARIABLE"),
+                make_node_with_inner("sync", "SYNC", serde_json::json!({"source_path_id": "pX"})),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "a1", "sync"),
+                make_edge("e4", "sync", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("does not exist in any FORK node's fork_paths")));
+    }
+
+    #[test]
+    fn test_embed_graph_requires_definition() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("embed", "EMBED_GRAPH"),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "embed"),
+                make_edge("e2", "embed", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("missing embed_id configuration")));
+    }
+
+    #[test]
+    fn test_embed_graph_with_inline_definition_passes_config() {
+        let inline = make_graph(
+            vec![make_node("s2", "START"), make_node("e2", "END")],
+            vec![make_edge("e2-1", "s2", "e2")],
+            Some("s2"),
+            vec!["e2"],
+        );
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "embed",
+                    "EMBED_GRAPH",
+                    serde_json::json!({"graph_definition": inline}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "embed"),
+                make_edge("e2", "embed", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        assert!(
+            GraphValidator::validate(&graph).is_ok(),
+            "inline graph definition must satisfy the embed requirement"
+        );
+    }
+
+    #[test]
+    fn test_triggered_subgraph_disconnected_detected() {
+        let graph = make_graph(
+            vec![
+                make_node("ts", "START_FROM_TRIGGER"),
+                make_node("v1", "VARIABLE"),
+                make_node("te", "CONTINUE_FROM_TRIGGER"),
+            ],
+            vec![make_edge("e1", "ts", "te")],
+            None,
+            vec![],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("not reachable from START_FROM_TRIGGER")));
+    }
+
+    #[test]
+    fn test_unreachable_node_detected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("a", "VARIABLE"),
+                make_node("end", "END"),
+            ],
+            vec![make_edge("e1", "start", "end")],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("is not reachable from START")));
+    }
+
+    #[test]
+    fn test_llm_node_missing_profile_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node("llm", "LLM"),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "llm"),
+                make_edge("e2", "llm", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("missing required config 'profile_id'")));
+    }
+
+    #[test]
+    fn test_inconsistent_tool_call_formats_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "l1",
+                    "LLM",
+                    serde_json::json!({
+                        "profile_id": "mock",
+                        "tool_call_format": "native",
+                    }),
+                ),
+                make_node_with_inner(
+                    "l2",
+                    "LLM",
+                    serde_json::json!({
+                        "profile_id": "mock",
+                        "tool_call_format": "xml",
+                    }),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "l1"),
+                make_edge("e2", "l1", "l2"),
+                make_edge("e3", "l2", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(&graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("Inconsistent tool call protocols")));
     }
 }

@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use wf_execution_shared::context::NodeExecutionContext;
+use wf_llm::LlmGateway;
 use wf_types::node::StaticNodeType;
 
 use crate::error::WorkflowResult;
@@ -39,6 +40,10 @@ pub struct HandlerRegistry {
 }
 
 impl HandlerRegistry {
+    // No `Default`: a usable registry requires an injected LLM gateway
+    // (`register_defaults`), an empty registry would silently lack LLM
+    // handlers.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
@@ -61,7 +66,9 @@ impl HandlerRegistry {
         Arc::new(self.handlers)
     }
 
-    pub fn register_defaults(&mut self) {
+    /// Register the standard handler set. The LLM gateway is injected here
+    /// and shared by the LLM and AGENT_LOOP handlers.
+    pub fn register_defaults(&mut self, gateway: Arc<LlmGateway>) {
         self.register(Arc::new(start_end::StartHandler));
         self.register(Arc::new(start_end::EndHandler));
         self.register(Arc::new(route::RouteHandler));
@@ -72,23 +79,15 @@ impl HandlerRegistry {
         self.register(Arc::new(fork_join::JoinHandler));
         self.register(Arc::new(sync::SyncHandler::new()));
         self.register(Arc::new(subgraph::SubgraphHandler));
-        self.register(Arc::new(llm::LlmHandler::new()));
+        self.register(Arc::new(llm::LlmHandler::new(gateway.clone())));
         self.register(Arc::new(context_processor::ContextProcessorHandler));
         self.register(Arc::new(script::ScriptHandler::new()));
         self.register(Arc::new(interactive_script::InteractiveScriptHandler::new()));
-        self.register(Arc::new(agent_loop::AgentLoopHandler::new()));
+        self.register(Arc::new(agent_loop::AgentLoopHandler::new(gateway)));
         self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
         self.register(Arc::new(embed::EmbedHandler));
         self.register(Arc::new(user_interaction::UserInteractionHandler));
         self.register(Arc::new(trigger::StartFromTriggerHandler));
         self.register(Arc::new(trigger::ContinueFromTriggerHandler));
-    }
-}
-
-impl Default for HandlerRegistry {
-    fn default() -> Self {
-        let mut reg = Self::new();
-        reg.register_defaults();
-        reg
     }
 }

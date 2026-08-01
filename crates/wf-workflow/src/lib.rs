@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod barrier;
 pub mod checkpoint;
 pub mod coordinator;
@@ -11,12 +12,20 @@ pub mod handler;
 pub mod hook;
 pub mod interaction;
 pub mod message_context;
+pub mod node_validation;
+pub mod preprocess;
+pub mod protocol_consistency;
 pub mod registry;
 pub mod state;
 pub mod types;
 pub mod validation;
 pub mod variable;
 
+pub use analysis::{
+    analyze_graph, analyze_reachability, detect_cycles, get_nodes_reaching_to, get_reachable_nodes,
+    topological_sort, CycleDetectionResult, GraphAnalysis, ReachabilityResult,
+    TopologicalSortResult,
+};
 pub use barrier::{BranchResult, FailureStrategy, ForkOutcome, SyncBarrier};
 pub use checkpoint::{CheckpointTiming, NodeCheckpointStrategy, WorkflowCheckpointIntegration};
 pub use coordinator::{
@@ -62,15 +71,20 @@ pub use registry::{
 };
 pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
+pub use validation::{GraphValidator, ValidationError, ValidationResult};
 pub use variable::{create_variable_store, VariableResolver, VariableStore};
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use wf_llm::LlmGateway;
+
 pub use wf_types::node::StaticNodeType;
 
-pub fn create_default_handlers() -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+pub fn create_default_handlers(
+    gateway: Arc<LlmGateway>,
+) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
     let mut registry = HandlerRegistry::new();
-    registry.register_defaults();
+    registry.register_defaults(gateway);
     registry.into_arc()
 }

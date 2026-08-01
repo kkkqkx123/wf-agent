@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
-use wf_llm::{ClientFactory, LlmError, LlmResponseSpec, LlmWrapper, MockLlmClient};
+use wf_llm::{LlmError, LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_tools::registry::ToolRegistry;
 use wf_types::message::{LlmFunctionCall, LlmToolCall, MessageRole};
@@ -47,16 +47,16 @@ fn registry_with_echo() -> Arc<ToolRegistry> {
     registry
 }
 
-fn wrapper_with(mock: Arc<MockLlmClient>) -> Arc<LlmWrapper> {
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock);
-    Arc::new(LlmWrapper::with_factory(factory))
+fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
+    let gateway = LlmGateway::new();
+    gateway.register_mock("mock", mock);
+    Arc::new(gateway)
 }
 
 fn config(max_iterations: u32) -> AgentLoopConfig {
     AgentLoopConfig {
         agent_id: "agent1".to_string(),
-        model: Some("mock".to_string()),
+        model: "mock".to_string(),
         max_iterations: Some(max_iterations),
         max_execution_time: None,
         hooks: Vec::new(),
@@ -83,7 +83,7 @@ async fn tool_loop_converges_with_mock_script() {
     )]));
     mock.script(LlmResponseSpec::text("final answer"));
 
-    let coordinator = AgentLoopCoordinator::new(wrapper_with(mock.clone()), registry_with_echo());
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock.clone()), registry_with_echo());
     let output = coordinator
         .execute(config(5), input("do it"))
         .await
@@ -111,7 +111,7 @@ async fn llm_error_fails_the_agent_loop() {
     // AuthError is classified as non-retryable by the agent failure policy.
     mock.script_error(LlmError::AuthError("invalid key".to_string()));
 
-    let coordinator = AgentLoopCoordinator::new(wrapper_with(mock), registry_with_echo());
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock), registry_with_echo());
     let err = coordinator
         .execute(config(3), input("do it"))
         .await
@@ -124,7 +124,7 @@ async fn stream_execution_emits_completed_event() {
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("streamed final"));
 
-    let coordinator = AgentLoopCoordinator::new(wrapper_with(mock), registry_with_echo());
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock), registry_with_echo());
     let mut stream = coordinator.execute_stream(config(3), input("do it")).await;
 
     let mut completed = None;
@@ -146,7 +146,7 @@ async fn max_iterations_limits_mock_driven_loops() {
         r#"{"text":"loop"}"#,
     )]));
 
-    let coordinator = AgentLoopCoordinator::new(wrapper_with(mock.clone()), registry_with_echo());
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock.clone()), registry_with_echo());
     let output = coordinator
         .execute(config(3), input("loop forever"))
         .await

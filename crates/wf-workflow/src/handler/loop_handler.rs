@@ -64,8 +64,8 @@ impl NodeHandler for LoopEndHandler {
             .unwrap_or("default")
             .to_string();
 
-        let condition = config.get("condition").and_then(|c| c.as_str());
-        let target_node = config.get("target_node").and_then(|t| t.as_str());
+        let break_condition = config.get("break_condition").and_then(|c| c.as_str());
+        let loop_start_node_id = config.get("loop_start_node_id").and_then(|t| t.as_str());
 
         let counter_var = format!("__loop_{}_counter", loop_id);
         let current = ctx
@@ -73,12 +73,12 @@ impl NodeHandler for LoopEndHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
-        let should_continue = if let Some(cond) = condition {
+        let should_continue = if let Some(cond) = break_condition {
             let mut vars = HashMap::new();
             for entry in ctx.variables.iter() {
                 vars.insert(entry.key().clone(), entry.value().clone());
             }
-            wf_core::condition::ConditionEvaluator::evaluate(cond, &vars).unwrap_or(false)
+            !wf_core::condition::ConditionEvaluator::evaluate(cond, &vars).unwrap_or(false)
         } else {
             current > 0
         };
@@ -89,7 +89,7 @@ impl NodeHandler for LoopEndHandler {
         metadata.insert("should_continue".to_string(), Value::Bool(should_continue));
 
         let next_node_ids = if should_continue {
-            if let Some(target) = target_node {
+            if let Some(target) = loop_start_node_id {
                 vec![target.to_string()]
             } else {
                 Vec::new()

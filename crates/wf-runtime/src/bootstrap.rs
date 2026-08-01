@@ -3,10 +3,13 @@ use std::sync::Arc;
 use tracing::info;
 
 use wf_config::processor::infrastructure::merge_metrics_with_defaults;
+use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
 use wf_core::event::EventBus;
+use wf_llm::LlmGateway;
 use wf_resource::registrar::{Options as ResourceOptions, Registries};
 use wf_resource::starter::BundleRegistry;
 use wf_types::config::metrics::MetricsConfig;
+use wf_types::llm::LlmProfile;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::{shutdown_channel, ShutdownHandle, ShutdownWaiter};
@@ -21,12 +24,18 @@ pub struct ResourceConfig {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct LlmConfig {
+    pub profiles: Vec<LlmProfile>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     pub storage: StorageConfig,
     pub log_config: LogConfig,
     pub mode_override: Option<super::mode::ExecutionMode>,
     pub resource: ResourceConfig,
     pub metrics: Option<MetricsConfig>,
+    pub llm: LlmConfig,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }
@@ -61,6 +70,7 @@ pub struct Runtime {
     pub bundles: Arc<BundleRegistry>,
     pub event_bus: Arc<EventBus>,
     pub metrics: Option<Arc<MetricsContext>>,
+    pub llm_gateway: Arc<LlmGateway>,
     #[cfg(feature = "plugins")]
     pub plugin_engine: Option<wf_plugin::PluginEngine>,
 }
@@ -119,6 +129,9 @@ impl Runtime {
         #[cfg(feature = "plugins")]
         let plugin_engine = init_plugins(&config.plugins).await?;
 
+        let llm_gateway =
+            init_llm_gateway(&config.llm, metrics.as_ref().map(|m| m.registry().as_ref()))?;
+
         info!("Runtime bootstrap complete");
 
         Ok(Self {
@@ -130,6 +143,7 @@ impl Runtime {
             bundles,
             event_bus,
             metrics,
+            llm_gateway,
             #[cfg(feature = "plugins")]
             plugin_engine,
         })
@@ -179,10 +193,45 @@ impl Runtime {
         self.metrics.as_ref()
     }
 
+    /// Shared LLM gateway; workflow and agent execution are injected with
+    /// this instance so all LLM calls resolve profiles from one registry.
+    pub fn llm_gateway(&self) -> &Arc<LlmGateway> {
+        &self.llm_gateway
+    }
+
     #[cfg(feature = "plugins")]
     pub fn plugin_engine(&self) -> Option<&wf_plugin::PluginEngine> {
         self.plugin_engine.as_ref()
     }
+}
+
+/// Build the shared LLM gateway: validate and register every configured
+/// profile (wf-config llm_profile processors), then attach the runtime token
+/// metrics collector when metrics are enabled.
+fn init_llm_gateway(
+    config: &LlmConfig,
+    metrics: Option<&wf_metrics::MetricsRegistry>,
+) -> RuntimeResult<Arc<LlmGateway>> {
+    let mut gateway = LlmGateway::new();
+
+    for profile in &config.profiles {
+        validate_llm_profile(profile).map_err(|e| {
+            crate::error::RuntimeError::Config(format!("Invalid LLM profile: {}", e))
+        })?;
+        let transformed = transform_llm_profile(profile, &std::collections::HashMap::new())
+            .map_err(|e| {
+                crate::error::RuntimeError::Config(format!("Invalid LLM profile: {}", e))
+            })?;
+        gateway.register_profile(transformed).map_err(|e| {
+            crate::error::RuntimeError::Config(format!("Failed to register LLM profile: {}", e))
+        })?;
+    }
+
+    if let Some(registry) = metrics {
+        gateway = gateway.with_token_metrics(registry.token().as_ref().clone());
+    }
+
+    Ok(Arc::new(gateway))
 }
 
 #[cfg(feature = "plugins")]
@@ -263,6 +312,7 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             metrics: None,
+            llm: LlmConfig::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -321,6 +371,7 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             metrics: None,
+            llm: LlmConfig::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -369,6 +420,7 @@ mod tests {
                 }),
                 ..Default::default()
             }),
+            llm: LlmConfig::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -421,6 +473,7 @@ mod tests {
                 enabled: Some(false),
                 ..Default::default()
             }),
+            llm: LlmConfig::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -464,5 +517,51 @@ mod tests {
         let adjusted = adjust_log_config(config, &mode);
 
         assert_eq!(adjusted.level, "off");
+    }
+
+    #[test]
+    fn test_llm_gateway_registers_and_rejects_invalid_profiles() {
+        let profiles = vec![wf_types::llm::LlmProfile {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            model: "gpt-4o".to_string(),
+            api_key: None,
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+        }];
+        let gateway = init_llm_gateway(&LlmConfig { profiles }, None).unwrap();
+        assert!(gateway.has_profile("openai"));
+
+        let err = match init_llm_gateway(
+            &LlmConfig {
+                profiles: vec![wf_types::llm::LlmProfile {
+                    id: String::new(),
+                    name: "broken".to_string(),
+                    provider: wf_types::llm::LlmProvider::OpenaiChat,
+                    model: String::new(),
+                    api_key: None,
+                    base_url: None,
+                    parameters: None,
+                    timeout: None,
+                    max_retries: None,
+                    retry_delay: None,
+                    headers: None,
+                    metadata: None,
+                    tool_call_format: None,
+                }],
+            },
+            None,
+        ) {
+            Ok(_) => panic!("invalid profile must be rejected"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("LLM profile"));
     }
 }

@@ -105,6 +105,27 @@ pub fn merge_and_apply_params(
     }
 }
 
+/// Parse an OpenAI-style usage object into token usage stats.
+pub fn parse_openai_usage(u: &serde_json::Value) -> wf_types::llm::TokenUsageStats {
+    let reasoning_tokens = u
+        .get("completion_tokens_details")
+        .and_then(|d| d.get("reasoning_tokens"))
+        .and_then(|r| r.as_u64())
+        .map(|r| r as u32);
+    wf_types::llm::TokenUsageStats {
+        prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        completion_tokens: u
+            .get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        reasoning_tokens,
+        prompt_tokens_cost: None,
+        completion_tokens_cost: None,
+        total_cost: None,
+    }
+}
+
 pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
     let json: serde_json::Value = serde_json::from_str(body)?;
 
@@ -157,25 +178,7 @@ pub fn parse_openai_chat_response(body: &str) -> LlmResult<LlmResponseType> {
                 .collect()
         });
 
-    let usage = json.get("usage").map(|u| {
-        let reasoning_tokens = u
-            .get("completion_tokens_details")
-            .and_then(|d| d.get("reasoning_tokens"))
-            .and_then(|r| r.as_u64())
-            .map(|r| r as u32);
-        wf_types::llm::TokenUsageStats {
-            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            completion_tokens: u
-                .get("completion_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            reasoning_tokens,
-            prompt_tokens_cost: None,
-            completion_tokens_cost: None,
-            total_cost: None,
-        }
-    });
+    let usage = json.get("usage").map(parse_openai_usage);
 
     let reasoning_tokens = usage.as_ref().and_then(|u| u.reasoning_tokens);
 
@@ -235,6 +238,19 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
         .get("choices")
         .and_then(|v| v.as_array())
         .unwrap_or(&empty_choices);
+
+    // A chunk without choices carries only usage (stream_options.include_usage).
+    if choices.is_empty() {
+        if let Some(usage) = json.get("usage") {
+            return Ok(Some(MessageStreamEvent::Usage(
+                wf_types::llm::MessageStreamUsage {
+                    usage: parse_openai_usage(usage),
+                },
+            )));
+        }
+        return Ok(None);
+    }
+
     if let Some(choice) = choices.first() {
         if let Some(delta) = choice.get("delta") {
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
@@ -307,4 +323,32 @@ pub fn add_auth_and_headers(
         }
     }
     builder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::MessageStreamEvent;
+
+    #[test]
+    fn stream_usage_chunk_is_extracted() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}"#;
+        let event = parse_openai_stream_chunk(chunk).expect("chunk must parse");
+        match event {
+            Some(MessageStreamEvent::Usage(usage)) => {
+                assert_eq!(usage.usage.prompt_tokens, 10);
+                assert_eq!(usage.usage.completion_tokens, 5);
+                assert_eq!(usage.usage.total_tokens, 15);
+            }
+            other => panic!("expected Usage event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn empty_choices_without_usage_is_ignored() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[]}"#;
+        assert!(parse_openai_stream_chunk(chunk)
+            .expect("chunk must parse")
+            .is_none());
+    }
 }

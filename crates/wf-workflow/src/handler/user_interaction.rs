@@ -66,14 +66,12 @@ impl NodeHandler for UserInteractionHandler {
         let config = ctx.node_config.clone().unwrap_or_default();
 
         let interaction_type = config
-            .get("interaction_type")
-            .or_else(|| config.get("type"))
+            .get("operation_type")
             .and_then(|v| v.as_str())
-            .unwrap_or("approval");
+            .unwrap_or("update_variables");
 
         let prompt = config
             .get("prompt")
-            .or_else(|| config.get("message"))
             .and_then(|v| v.as_str())
             .map(|s| {
                 let resolved = crate::variable::VariableResolver::resolve_str(s, &ctx.variables);
@@ -88,17 +86,8 @@ impl NodeHandler for UserInteractionHandler {
             .get("timeout")
             .and_then(|v| v.as_u64())
             .unwrap_or(30000);
-        let on_timeout = config
-            .get("on_timeout")
-            .or_else(|| config.get("onTimeout"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("fail");
 
-        let user_response_var = config
-            .get("response_variable")
-            .or_else(|| config.get("responseVariable"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("__interaction_response__");
+        let user_response_var = "__interaction_response__";
 
         // 1. Pre-set response (synchronous path, kept for compatibility).
         let existing_response = ctx
@@ -203,14 +192,10 @@ impl NodeHandler for UserInteractionHandler {
                                 ("reason".to_string(), Value::String(reason.to_string())),
                             ]),
                         );
-                        if on_timeout == "continue" {
-                            (None, Some(interaction_id), false)
-                        } else {
-                            return Err(WorkflowError::OperationError(format!(
-                                "User interaction {} after {}ms",
-                                reason, timeout_ms
-                            )));
-                        }
+                        return Err(WorkflowError::OperationError(format!(
+                            "User interaction {} after {}ms",
+                            reason, timeout_ms
+                        )));
                     }
                 }
             }
@@ -228,7 +213,7 @@ impl NodeHandler for UserInteractionHandler {
 
         let mut metadata = HashMap::new();
         metadata.insert(
-            "interaction_type".to_string(),
+            "operation_type".to_string(),
             Value::String(interaction_type.to_string()),
         );
         metadata.insert("responded".to_string(), Value::Bool(responded));
@@ -249,8 +234,7 @@ impl NodeHandler for UserInteractionHandler {
 
 fn operation_name(config: &Value) -> String {
     config
-        .get("operation")
-        .or_else(|| config.get("operationType"))
+        .get("operation_type")
         .and_then(|v| v.as_str())
         .unwrap_or("UNKNOWN")
         .to_string()
@@ -269,10 +253,7 @@ fn apply_operation(
         "UPDATE_VARIABLES" | "update_variables" => {
             if let Some(entries) = config.get("variables").and_then(|v| v.as_array()) {
                 for entry in entries {
-                    let name = entry
-                        .get("variableName")
-                        .or_else(|| entry.get("variable_name"))
-                        .and_then(|v| v.as_str());
+                    let name = entry.get("variable_name").and_then(|v| v.as_str());
                     let expression = entry
                         .get("expression")
                         .and_then(|v| v.as_str())
@@ -283,18 +264,6 @@ fn apply_operation(
                             crate::variable::VariableResolver::resolve(&value, &ctx.variables);
                         ctx.set_variable(name.to_string(), resolved);
                     }
-                }
-            } else if let Some(variables) = config.get("variables").and_then(|v| v.as_object()) {
-                // Legacy object-map format: values may reference {{input}}.
-                for (key, value) in variables {
-                    let value = if let Value::String(s) = value {
-                        evaluate_expression(s, input_data)
-                    } else {
-                        value.clone()
-                    };
-                    let resolved =
-                        crate::variable::VariableResolver::resolve(&value, &ctx.variables);
-                    ctx.set_variable(key.clone(), resolved);
                 }
             }
         }
@@ -311,20 +280,14 @@ fn apply_operation(
                     })
                     .unwrap_or(MessageRole::User);
                 let template = message
-                    .get("contentTemplate")
-                    .or_else(|| message.get("content"))
+                    .get("content_template")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let content = replace_input_placeholder(template, input_data);
 
-                let context_id = config
-                    .get("context_id")
-                    .or_else(|| config.get("contextId"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
                 message_context::append_context(
                     &ctx.variables,
-                    context_id,
+                    message_context::DEFAULT_CONTEXT_ID,
                     vec![Message {
                         id: wf_types::Id::new(),
                         role,
@@ -426,7 +389,7 @@ mod tests {
                     serde_json::json!({
                         "prompt": "enter value",
                         "timeout": 5000,
-                        "operation": "UPDATE_VARIABLES",
+                        "operation_type": "update_variables",
                         "variables": [
                             {"variable_name": "user_choice", "expression": "{{input}}"}
                         ]
@@ -439,7 +402,7 @@ mod tests {
 
         let handlers = {
             let mut reg = HandlerRegistry::new();
-            reg.register_defaults();
+            reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
             reg.into_arc()
         };
         let options = WorkflowExecutionOptions {
@@ -533,7 +496,7 @@ mod tests {
 
         let handlers = {
             let mut reg = HandlerRegistry::new();
-            reg.register_defaults();
+            reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
             reg.into_arc()
         };
         let options = WorkflowExecutionOptions {

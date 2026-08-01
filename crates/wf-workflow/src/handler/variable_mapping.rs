@@ -15,38 +15,26 @@ pub fn inherit_all_variables(
     }
 }
 
-/// Apply `variable_inputs` (or camelCase `variableInputs`) mapping:
-/// resolve `sourcePath` from the parent variables and store it under
-/// `internalName` in the child variables. Missing required inputs fail.
+/// Apply `variable_inputs` mapping: resolve `source_path` from the parent
+/// variables and store it under `internal_name` in the child variables.
+/// Missing required inputs fail.
 pub fn apply_variable_inputs(
     config: &Value,
     parent: &Arc<DashMap<String, Value>>,
     child: &Arc<DashMap<String, Value>>,
 ) -> WorkflowResult<()> {
-    let Some(inputs) = config
-        .get("variable_inputs")
-        .or_else(|| config.get("variableInputs"))
-        .and_then(|v| v.as_array())
-    else {
+    let Some(inputs) = config.get("variable_inputs").and_then(|v| v.as_array()) else {
         return Ok(());
     };
 
     for entry in inputs {
-        let source_path = entry
-            .get("source_path")
-            .or_else(|| entry.get("sourcePath"))
-            .and_then(|v| v.as_str());
-        let internal_name = entry
-            .get("internal_name")
-            .or_else(|| entry.get("internalName"))
-            .and_then(|v| v.as_str());
+        let source_path = entry.get("source_path").and_then(|v| v.as_str());
+        let internal_name = entry.get("internal_name").and_then(|v| v.as_str());
         let required = entry
             .get("required")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let default_value = entry
-            .get("default_value")
-            .or_else(|| entry.get("defaultValue"));
+        let default_value = entry.get("default_value");
 
         let (Some(source_path), Some(internal_name)) = (source_path, internal_name) else {
             continue;
@@ -73,31 +61,20 @@ pub fn apply_variable_inputs(
     Ok(())
 }
 
-/// Apply `variable_outputs` (or camelCase `variableOutputs`) mapping:
-/// read `internalName` from the child variables and write it to `targetPath`
-/// in the parent variables.
+/// Apply `variable_outputs` mapping: read `internal_name` from the child
+/// variables and write it to `target_path` in the parent variables.
 pub fn apply_variable_outputs(
     config: &Value,
     child: &Arc<DashMap<String, Value>>,
     parent: &Arc<DashMap<String, Value>>,
 ) {
-    let Some(outputs) = config
-        .get("variable_outputs")
-        .or_else(|| config.get("variableOutputs"))
-        .and_then(|v| v.as_array())
-    else {
+    let Some(outputs) = config.get("variable_outputs").and_then(|v| v.as_array()) else {
         return;
     };
 
     for entry in outputs {
-        let internal_name = entry
-            .get("internal_name")
-            .or_else(|| entry.get("internalName"))
-            .and_then(|v| v.as_str());
-        let target_path = entry
-            .get("target_path")
-            .or_else(|| entry.get("targetPath"))
-            .and_then(|v| v.as_str());
+        let internal_name = entry.get("internal_name").and_then(|v| v.as_str());
+        let target_path = entry.get("target_path").and_then(|v| v.as_str());
 
         let (Some(internal_name), Some(target_path)) = (internal_name, target_path) else {
             continue;

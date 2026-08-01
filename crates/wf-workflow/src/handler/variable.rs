@@ -5,6 +5,7 @@ use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
+use crate::variable::VariableResolver;
 
 fn is_readonly_var(name: &str) -> bool {
     name.starts_with("__")
@@ -20,49 +21,50 @@ impl NodeHandler for VariableHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let assignments = config
-            .get("assignments")
-            .or_else(|| config.get("variables"));
+        let variable_name = config
+            .get("variable_name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                WorkflowError::VariableError(
+                    "VARIABLE node requires a 'variable_name' config".to_string(),
+                )
+            })?;
+        let expression = config
+            .get("expression")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                WorkflowError::VariableError(
+                    "VARIABLE node requires an 'expression' config".to_string(),
+                )
+            })?;
 
-        if let Some(assignments) = assignments {
-            match assignments {
-                Value::Object(map) => {
-                    for (key, value) in map {
-                        if is_readonly_var(key) {
-                            return Err(WorkflowError::VariableError(format!(
-                                "Cannot modify read-only variable: {}",
-                                key
-                            )));
-                        }
-                        let resolved =
-                            crate::variable::VariableResolver::resolve(value, &ctx.variables);
-                        ctx.set_variable(key.clone(), resolved);
-                    }
-                }
-                Value::Array(arr) => {
-                    for entry in arr {
-                        if let Some(name) = entry.get("name").and_then(|n| n.as_str()) {
-                            if is_readonly_var(name) {
-                                return Err(WorkflowError::VariableError(format!(
-                                    "Cannot modify read-only variable: {}",
-                                    name
-                                )));
-                            }
-                            let value = entry.get("value").cloned().unwrap_or(Value::Null);
-                            let resolved =
-                                crate::variable::VariableResolver::resolve(&value, &ctx.variables);
-                            ctx.set_variable(name.to_string(), resolved);
-                        }
-                    }
-                }
-                _ => {
-                    return Err(WorkflowError::VariableError(
-                        "Assignments must be an object or array".to_string(),
-                    ));
-                }
-            }
+        if is_readonly_var(variable_name) {
+            return Err(WorkflowError::VariableError(format!(
+                "Cannot modify read-only variable: {}",
+                variable_name
+            )));
         }
 
-        Ok(NodeExecutionResult::simple(ctx.input.clone()))
+        let resolved =
+            VariableResolver::resolve(&Value::String(expression.to_string()), &ctx.variables);
+        let old_value = ctx.get_variable(variable_name);
+
+        ctx.set_variable(variable_name.to_string(), resolved.clone());
+
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert(
+            "variable_name".to_string(),
+            Value::String(variable_name.to_string()),
+        );
+        if let Some(old) = old_value {
+            metadata.insert("old_value".to_string(), old.clone());
+        }
+        metadata.insert("new_value".to_string(), resolved);
+
+        Ok(NodeExecutionResult {
+            output: ctx.input.clone(),
+            next_node_ids: Vec::new(),
+            metadata,
+        })
     }
 }

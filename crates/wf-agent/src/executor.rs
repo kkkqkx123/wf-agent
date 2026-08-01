@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use wf_llm::LlmWrapper;
+use wf_llm::LlmGateway;
 use wf_tools::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
     WorkflowInput, WorkflowOutput,
@@ -12,18 +12,18 @@ use crate::coordinator::lifecycle::AgentLoopCoordinator;
 use crate::error::AgentResult;
 
 pub struct AgentLoopExecutor {
-    llm_wrapper: std::sync::Arc<LlmWrapper>,
+    gateway: std::sync::Arc<LlmGateway>,
     registry: std::sync::Arc<ToolRegistry>,
     max_iterations: u32,
 }
 
 impl AgentLoopExecutor {
     pub fn new(
-        llm_wrapper: std::sync::Arc<LlmWrapper>,
+        gateway: std::sync::Arc<LlmGateway>,
         registry: std::sync::Arc<ToolRegistry>,
     ) -> Self {
         Self {
-            llm_wrapper,
+            gateway,
             registry,
             max_iterations: 10,
         }
@@ -39,8 +39,7 @@ impl AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
-        let coordinator =
-            AgentLoopCoordinator::new(self.llm_wrapper.clone(), self.registry.clone());
+        let coordinator = AgentLoopCoordinator::new(self.gateway.clone(), self.registry.clone());
         coordinator.execute(config, input).await
     }
 }

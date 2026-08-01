@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_execution_shared::context::NodeExecutionContext;
-use wf_llm::{ClientFactory, LlmError, LlmResponseSpec, MockLlmClient};
+use wf_llm::{LlmError, LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_tools::registry::ToolRegistry;
 use wf_types::message::{LlmFunctionCall, LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
@@ -75,9 +75,9 @@ async fn tool_calls_multi_round_loop_feeds_results_back() {
     )]));
     mock.script(LlmResponseSpec::text("done after tool"));
 
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
-    let handler = LlmHandler::with_factory(factory);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
 
     let mut ctx = llm_ctx(
         "llm1",
@@ -155,9 +155,9 @@ async fn stream_emits_chunks_and_aggregates_output() {
         wf_types::llm::MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
     ]);
 
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
-    let handler = LlmHandler::with_factory(factory);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();
 
@@ -198,9 +198,9 @@ async fn stream_emits_chunks_and_aggregates_output() {
 async fn output_context_contains_assistant_reply() {
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("context reply"));
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
-    let handler = LlmHandler::with_factory(factory);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
 
     let mut ctx = llm_ctx(
         "llm1",
@@ -225,9 +225,9 @@ async fn output_context_contains_assistant_reply() {
 async fn system_prompt_and_context_are_forwarded_to_mock() {
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("ok"));
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
-    let handler = LlmHandler::with_factory(factory);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
 
     let vars = Arc::new(dashmap::DashMap::new());
     message_context::append_context(
@@ -320,8 +320,8 @@ fn options() -> WorkflowExecutionOptions {
 }
 
 fn llm_handlers(mock: Arc<MockLlmClient>) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
     let mut map: HashMap<StaticNodeType, Arc<dyn NodeHandler>> = HashMap::new();
     map.insert(
         StaticNodeType::Start,
@@ -331,10 +331,7 @@ fn llm_handlers(mock: Arc<MockLlmClient>) -> Arc<HashMap<StaticNodeType, Arc<dyn
         StaticNodeType::End,
         Arc::new(wf_workflow::handler::start_end::EndHandler),
     );
-    map.insert(
-        StaticNodeType::Llm,
-        Arc::new(LlmHandler::with_factory(factory)),
-    );
+    map.insert(StaticNodeType::Llm, Arc::new(LlmHandler::new(gateway)));
     Arc::new(map)
 }
 
@@ -369,9 +366,12 @@ async fn retry_recovers_after_transient_llm_errors() {
             "LLM",
             serde_json::json!({
                 "profile_id": "mock",
-                "onFailure": "retry",
-                "maxRetries": 3,
-                "retryDelayMs": 1,
+                "on_failure": "retry",
+                "retry_policy": {
+                    "enabled": true,
+                    "max_retries": 3,
+                    "base_delay_ms": 1
+                },
             }),
         ),
         node("end", "END", serde_json::json!({})),
@@ -395,10 +395,13 @@ async fn fallback_output_used_when_retries_exhausted() {
             "LLM",
             serde_json::json!({
                 "profile_id": "mock",
-                "onFailure": "continue",
-                "maxRetries": 1,
-                "retryDelayMs": 1,
-                "fallbackOutput": {"fallback": true},
+                "on_failure": "continue",
+                "retry_policy": {
+                    "enabled": true,
+                    "max_retries": 1,
+                    "base_delay_ms": 1
+                },
+                "fallback_output": {"fallback": true},
             }),
         ),
         node("end", "END", serde_json::json!({})),
@@ -418,9 +421,9 @@ async fn agent_loop_runs_mock_driven_iterations() {
     )]));
     mock.script(LlmResponseSpec::text("agent final answer"));
 
-    let factory = ClientFactory::new();
-    factory.register_mock("mock", mock.clone());
-    let handler = wf_workflow::AgentLoopHandler::with_factory(factory);
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = wf_workflow::AgentLoopHandler::new(gateway);
 
     let vars = Arc::new(dashmap::DashMap::new());
     let mut ctx = NodeExecutionContext::new(
@@ -431,9 +434,17 @@ async fn agent_loop_runs_mock_driven_iterations() {
         vars,
     )
     .with_node_config(serde_json::json!({
-        "model": "mock",
-        "available_tools": ["echo"],
-        "max_iterations": 5,
+        "inline_definition": {
+            "id": "agent-1",
+            "name": "mock agent",
+            "created_at": 0,
+            "updated_at": 0,
+            "config": {
+                "profile_id": "mock",
+                "max_iterations": 5,
+                "available_tools": {"available": ["echo"]}
+            }
+        }
     }));
     ctx.tool_registry = Some(registered_echo_tool());
 

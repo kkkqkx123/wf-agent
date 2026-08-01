@@ -1,50 +1,40 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use serde_json::Value;
+use std::sync::Arc;
+
 use wf_agent::checkpoint::AgentCheckpointStrategy;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
-use wf_llm::{ClientFactory, LlmWrapper};
+use wf_llm::LlmGateway;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, HookConfig};
 use wf_tools::registry::ToolRegistry;
+
 use wf_types::message::Message;
 use wf_types::node::StaticNodeType;
-use wf_types::tool::approval::ToolApprovalOptions;
 
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 use crate::message_context;
 
-fn parse_hooks(config: &Value) -> Vec<HookConfig> {
-    config
-        .get("hooks")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|h| serde_json::from_value(h.clone()).ok())
+fn parse_agent_hooks(agent_config: Option<&wf_types::agent::AgentConfig>) -> Vec<HookConfig> {
+    agent_config
+        .and_then(|c| c.hooks.as_ref())
+        .map(|hooks| {
+            hooks
+                .iter()
+                .map(|h| HookConfig {
+                    hook_type: serde_json::to_string(&h.hook_type)
+                        .map(|t| t.trim_matches('"').to_string())
+                        .unwrap_or_else(|_| format!("{:?}", h.hook_type)),
+                    condition: h.condition.clone(),
+                    enabled: h.enabled.unwrap_or(true),
+                    parallel: None,
+                    continue_on_error: None,
+                })
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn parse_approval_options(config: &Value) -> Option<ToolApprovalOptions> {
-    let approval = config.get("approval")?;
-    if approval.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
-        return None;
-    }
-    serde_json::from_value(approval.clone()).ok()
-}
-
-fn parse_checkpoint_strategy(config: &Value) -> Option<AgentCheckpointStrategy> {
-    let checkpoint = config.get("checkpoint")?;
-    if checkpoint.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
-        return None;
-    }
-    let interval = checkpoint
-        .get("interval")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
-    Some(AgentCheckpointStrategy::every_n_iterations(interval as u32))
 }
 
 /// Collect the initial conversation: inline `conversation` messages plus all
@@ -102,30 +92,12 @@ fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Message]) {
 }
 
 pub struct AgentLoopHandler {
-    factory: Option<ClientFactory>,
+    gateway: Arc<LlmGateway>,
 }
 
 impl AgentLoopHandler {
-    pub fn new() -> Self {
-        Self { factory: None }
-    }
-
-    /// Inject a client factory (e.g. one holding mock clients in tests).
-    /// `None` keeps the default behavior: a fresh factory is created per call.
-    pub fn with_factory(factory: ClientFactory) -> Self {
-        Self {
-            factory: Some(factory),
-        }
-    }
-
-    fn get_factory(&self) -> ClientFactory {
-        self.factory.clone().unwrap_or_default()
-    }
-}
-
-impl Default for AgentLoopHandler {
-    fn default() -> Self {
-        Self::new()
+    pub fn new(gateway: Arc<LlmGateway>) -> Self {
+        Self { gateway }
     }
 }
 
@@ -138,34 +110,42 @@ impl NodeHandler for AgentLoopHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
 
-        let max_iterations = config
-            .get("max_iterations")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(10) as u32;
+        // Canonical AgentLoopNodeConfig: either an inline AgentDefinition or
+        // an agent_loop_id reference. Agent loop id resolution is not
+        // supported without an agent registry, so a referenced loop must
+        // ship an inline definition.
+        let definition: Option<wf_types::agent::AgentDefinition> = config
+            .get("inline_definition")
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let agent_config = definition.as_ref().and_then(|d| d.config.as_ref());
 
-        let max_execution_time = config.get("max_execution_time").and_then(|v| v.as_u64());
+        if definition.is_none() {
+            return Err(WorkflowError::Internal(
+                "AGENT_LOOP node requires an inline_definition (or a resolvable agent_loop_id)"
+                    .to_string(),
+            ));
+        }
 
-        let model = config
-            .get("model")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let system_prompt = config
-            .get("system_prompt")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let model = agent_config
+            .and_then(|c| c.profile_id.clone())
+            .ok_or_else(|| {
+                WorkflowError::OperationError(
+                    "AGENT_LOOP node requires a profile_id in inline_definition.config".to_string(),
+                )
+            })?;
+        let system_prompt = agent_config.and_then(|c| c.system_prompt.clone());
+        let max_iterations = agent_config.and_then(|c| c.max_iterations).unwrap_or(10);
+        let stream_enabled = agent_config.and_then(|c| c.stream).unwrap_or(false);
+        let max_execution_time = config.get("execution_timeout").and_then(|v| v.as_u64());
 
-        let stream_enabled = config
-            .get("stream")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let tool_names: Vec<String> = config
-            .get("available_tools")
-            .or_else(|| config.get("available_tool_names"))
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
+        let tool_names: Vec<String> = agent_config
+            .and_then(|c| c.available_tools.as_ref())
+            .map(|tools| {
+                tools
+                    .available
+                    .iter()
+                    .chain(tools.initial.as_ref().into_iter().flatten())
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
@@ -182,40 +162,33 @@ impl NodeHandler for AgentLoopHandler {
             text
         };
 
-        let mut llm_wrapper = LlmWrapper::with_factory(self.get_factory());
-        if let Some(metrics) = &ctx.metrics {
-            llm_wrapper = llm_wrapper.with_token_metrics(metrics.token().as_ref().clone());
-        }
         let tool_registry = ctx
             .tool_registry
             .clone()
             .unwrap_or_else(|| std::sync::Arc::new(ToolRegistry::new()));
-
-        let mut coordinator =
-            AgentLoopCoordinator::new(std::sync::Arc::new(llm_wrapper), tool_registry);
+        let mut coordinator = AgentLoopCoordinator::new(self.gateway.clone(), tool_registry);
         if let Some(ref bus) = ctx.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());
         }
-        if let Some(max_pause) = config.get("max_pause_duration").and_then(|v| v.as_u64()) {
-            coordinator = coordinator.with_max_pause_duration(max_pause);
-        }
-        if let Some(options) = parse_approval_options(config) {
-            coordinator = coordinator.with_approval_options(options);
-        }
-        if let Some(strategy) = parse_checkpoint_strategy(config) {
-            coordinator = coordinator.with_checkpoint_strategy(strategy);
+        if let Some(checkpoint) = agent_config.and_then(|c| c.checkpoint.as_ref()) {
+            if checkpoint.enabled {
+                let interval = checkpoint.interval_iterations.unwrap_or(1);
+                coordinator = coordinator.with_checkpoint_strategy(
+                    AgentCheckpointStrategy::every_n_iterations(interval),
+                );
+            }
         }
 
         let loop_config = AgentLoopConfig {
             agent_id: ctx.node_id.clone(),
             model,
             available_tool_names: tool_names,
-            hooks: parse_hooks(config),
+            hooks: parse_agent_hooks(agent_config),
             max_iterations: Some(max_iterations),
             max_execution_time,
-            tool_call_format: config
-                .get("tool_call_format")
-                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+            tool_call_format: agent_config
+                .and_then(|c| c.tool_call_format.as_ref())
+                .and_then(|format| wf_types::llm::ToolCallFormatConfig::from_format_str(format)),
         };
 
         let loop_input = AgentLoopInput {
@@ -340,57 +313,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_hooks_from_config() {
-        let config = serde_json::json!({
+    fn parses_hooks_from_agent_config() {
+        let agent_config = serde_json::from_value::<wf_types::agent::AgentConfig>(serde_json::json!({
+            "profile_id": "mock",
             "hooks": [
-                {"hook_type": "BEFORE_EXECUTE", "enabled": true},
-                {"hook_type": "AFTER_AGENT", "enabled": false, "parallel": false}
+                {"hook_type": "BEFORE_ITERATION", "event_name": "before_iteration", "enabled": true},
+                {"hook_type": "AFTER_TOOL_CALL", "event_name": "after_tool_call", "enabled": false}
             ]
-        });
-        let hooks = parse_hooks(&config);
+        }))
+        .expect("canonical agent config should parse");
+        let hooks = parse_agent_hooks(Some(&agent_config));
         assert_eq!(hooks.len(), 2);
-        assert_eq!(hooks[0].hook_type, "BEFORE_EXECUTE");
+        assert_eq!(hooks[0].hook_type, "BEFORE_ITERATION");
         assert!(hooks[0].enabled);
         assert!(!hooks[1].enabled);
     }
 
     #[test]
-    fn approval_disabled_yields_no_options() {
-        let config = serde_json::json!({"approval": {"enabled": false}});
-        assert!(parse_approval_options(&config).is_none());
-    }
-
-    #[test]
-    fn approval_options_parsed() {
-        let config = serde_json::json!({
-            "approval": {
-                "auto_approval_enabled": true,
-                "auto_approve_patterns": ["file_read"]
-            }
-        });
-        let options = parse_approval_options(&config).expect("options should parse");
-        assert_eq!(options.auto_approval_enabled, Some(true));
-        assert_eq!(
-            options.auto_approve_patterns,
-            Some(vec!["file_read".to_string()])
-        );
-    }
-
-    #[test]
-    fn checkpoint_strategy_config() {
-        assert!(
-            parse_checkpoint_strategy(&serde_json::json!({"checkpoint": {"enabled": false}}))
-                .is_none()
-        );
-        assert!(
-            parse_checkpoint_strategy(&serde_json::json!({"checkpoint": {"enabled": true}}))
-                .is_some()
-        );
-        assert!(
-            parse_checkpoint_strategy(&serde_json::json!({"checkpoint": {"interval": 3}}))
-                .is_some()
-        );
-        assert!(parse_checkpoint_strategy(&serde_json::json!({})).is_none());
+    fn no_hooks_without_agent_config() {
+        assert!(parse_agent_hooks(None).is_empty());
     }
 
     #[test]

@@ -48,28 +48,31 @@ impl NodeHandler for ScriptHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let code = config.get("code").and_then(|v| v.as_str());
+        let script_name = config
+            .get("script_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("script");
+        let inline = config.get("inline").and_then(|v| v.as_str());
+        let template = config.get("template").and_then(|v| v.as_str());
         let language = config
-            .get("language")
+            .get("executor")
             .and_then(|v| v.as_str())
             .unwrap_or("javascript");
-        let template = config.get("template").and_then(|v| v.as_str());
-        let sandbox_cfg = config.get("sandboxConfig");
-        let output_mapping = config.get("outputMapping");
+        let output_mapping = config.get("output_mapping");
 
         let code = if let Some(tmpl) = template {
             let rendered = VariableResolver::resolve_str(tmpl, &ctx.variables);
             rendered.as_str().unwrap_or(tmpl).to_string()
-        } else if let Some(c) = code {
+        } else if let Some(c) = inline {
             c.to_string()
         } else {
             return Err(WorkflowError::Internal(
-                "Script node requires 'code' or 'template' field".to_string(),
+                "Script node requires 'inline' or 'template' field".to_string(),
             ));
         };
 
         let sandbox = self.get_sandbox();
-        let sandbox_config = Self::build_sandbox_config(sandbox_cfg, language);
+        let sandbox_config = Self::build_sandbox_config(language);
 
         let result = sandbox.execute(language, &code, &sandbox_config).await;
 
@@ -98,7 +101,10 @@ impl NodeHandler for ScriptHandler {
         }
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("script_name".to_string(), Value::String(result.script_name));
+        metadata.insert(
+            "script_name".to_string(),
+            Value::String(script_name.to_string()),
+        );
         metadata.insert(
             "execution_time".to_string(),
             Value::Number(result.execution_time.into()),
@@ -120,7 +126,7 @@ impl NodeHandler for ScriptHandler {
 }
 
 impl ScriptHandler {
-    pub fn build_sandbox_config(sandbox_cfg: Option<&Value>, language: &str) -> SandboxConfig {
+    pub fn build_sandbox_config(language: &str) -> SandboxConfig {
         let mut config = SandboxConfig {
             mode: Some(SandboxMode::Lenient),
             policy: None,
@@ -135,20 +141,6 @@ impl ScriptHandler {
             network_enabled: None,
             allowed_paths: None,
         };
-
-        if let Some(cfg) = sandbox_cfg {
-            if let Some(mode) = cfg.get("mode").and_then(|v| v.as_str()) {
-                config.mode = Some(match mode {
-                    "disabled" => SandboxMode::Disabled,
-                    "lenient" => SandboxMode::Lenient,
-                    "strict" => SandboxMode::Strict,
-                    _ => SandboxMode::Lenient,
-                });
-            }
-            if let Some(policy) = cfg.get("policy") {
-                config.policy = serde_json::from_value(policy.clone()).ok();
-            }
-        }
 
         match language {
             "shell" => {

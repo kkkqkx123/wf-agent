@@ -62,13 +62,11 @@ impl AgentLoopValidator {
             ));
         }
 
-        if let Some(ref model) = config.model {
-            if model.trim().is_empty() {
-                issues.push(ValidationIssue::error(
-                    "model",
-                    "model must not be empty when provided",
-                ));
-            }
+        if config.model.trim().is_empty() {
+            issues.push(ValidationIssue::error(
+                "model",
+                "model (profile_id) must not be empty",
+            ));
         }
 
         if let Some(max_iterations) = config.max_iterations {
@@ -114,7 +112,8 @@ impl AgentLoopValidator {
     }
 
     /// Validate tool call format protocol locking between the agent config
-    /// and the LLM profile (TS validateAgentToolCallProtocol).
+    /// and the LLM profile (TS validateAgentToolCallProtocol). Uses the same
+    /// compatibility rule the gateway applies at runtime.
     pub fn validate_tool_call_protocol(
         config_format: Option<&ToolCallFormatConfig>,
         profile_format: Option<ToolCallFormat>,
@@ -125,6 +124,12 @@ impl AgentLoopValidator {
             (None, None) => result.valid = true,
             (Some(cfg), Some(profile)) => {
                 if cfg.format == profile {
+                    result.valid = true;
+                } else if cfg.format.is_compatible_with(&profile) {
+                    result.warnings.push(format!(
+                        "Tool call format mismatch: agent specifies \"{:?}\" but profile is configured for \"{:?}\". Both are JSON-based and may work, but markers may differ.",
+                        cfg.format, profile
+                    ));
                     result.valid = true;
                 } else {
                     result.errors.push(format!(
@@ -216,7 +221,7 @@ mod tests {
     fn base_config() -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: Id::from("agent-1".to_string()),
-            model: Some("mock".to_string()),
+            model: "mock".to_string(),
             max_iterations: Some(10),
             max_execution_time: Some(1000),
             hooks: Vec::new(),
@@ -243,6 +248,19 @@ mod tests {
         assert!(issues
             .iter()
             .any(|i| i.field == "agent_id" && i.severity == ValidationSeverity::Error));
+    }
+
+    #[test]
+    fn test_empty_model_fails() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            model: "".to_string(),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues
+            .iter()
+            .any(|i| i.field == "model" && i.severity == ValidationSeverity::Error));
     }
 
     #[test]

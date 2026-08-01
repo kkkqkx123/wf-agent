@@ -7,7 +7,7 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_core::event::EventBus;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_llm::LlmWrapper;
+use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
@@ -24,10 +24,10 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
-use crate::stream::{AgentEventStream, AgentStreamEvent, StreamingIteration};
+use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
 
 pub struct AgentLoopCoordinator {
-    llm_wrapper: Arc<LlmWrapper>,
+    gateway: Arc<LlmGateway>,
     tool_registry: Arc<ToolRegistry>,
     hook_executor: Arc<HookExecutor>,
     event_bus: Option<Arc<EventBus>>,
@@ -41,22 +41,22 @@ pub struct AgentLoopCoordinator {
 }
 
 impl AgentLoopCoordinator {
-    pub fn new(llm_wrapper: Arc<LlmWrapper>, tool_registry: Arc<ToolRegistry>) -> Self {
+    pub fn new(gateway: Arc<LlmGateway>, tool_registry: Arc<ToolRegistry>) -> Self {
         Self::with_store(
-            llm_wrapper,
+            gateway,
             tool_registry,
             Arc::new(StorageBackend::new_memory()),
         )
     }
 
     pub fn with_store(
-        llm_wrapper: Arc<LlmWrapper>,
+        gateway: Arc<LlmGateway>,
         tool_registry: Arc<ToolRegistry>,
         store: Arc<StorageBackend>,
     ) -> Self {
         let hook_executor = Arc::new(HookExecutor::new());
         Self {
-            llm_wrapper,
+            gateway,
             tool_registry,
             hook_executor,
             event_bus: None,
@@ -136,7 +136,7 @@ impl AgentLoopCoordinator {
 
         let iteration_coordinator = Arc::new(
             AgentIterationCoordinator::new(
-                self.llm_wrapper.clone(),
+                self.gateway.clone(),
                 self.tool_registry.clone(),
                 self.hook_executor.clone(),
                 self.metrics.clone(),
@@ -147,10 +147,7 @@ impl AgentLoopCoordinator {
             .with_checkpoint(checkpoint)
             .with_metrics(self.metrics.clone());
 
-        let profile_id = entity
-            .model()
-            .map(|m| m.to_string())
-            .unwrap_or_else(|| "default".to_string());
+        let profile_id = entity.model().to_string();
         if let Some(ref metrics) = self.metrics {
             metrics
                 .agent()
@@ -265,11 +262,9 @@ impl AgentLoopCoordinator {
             })
             .collect();
 
-        let mut entity = AgentLoopEntity::new(config.agent_id.clone()).with_hooks(hooks);
-
-        if let Some(ref model) = config.model {
-            entity = entity.with_model(model.clone());
-        }
+        let mut entity = AgentLoopEntity::new(config.agent_id.clone())
+            .with_hooks(hooks)
+            .with_model(config.model.clone());
 
         if !config.available_tool_names.is_empty() {
             entity = entity.with_available_tool_names(config.available_tool_names.clone());
@@ -319,7 +314,7 @@ impl AgentLoopCoordinator {
     ) -> AgentEventStream {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let bus = self.event_bus.clone();
-        let llm_wrapper = self.llm_wrapper.clone();
+        let gateway = self.gateway.clone();
         let tool_registry = self.tool_registry.clone();
         let hook_executor = self.hook_executor.clone();
         let store = self.store.clone();
@@ -344,10 +339,9 @@ impl AgentLoopCoordinator {
             .collect();
 
         tokio::spawn(async move {
-            let mut entity = AgentLoopEntity::new(config.agent_id.clone()).with_hooks(hooks);
-            if let Some(ref model) = config.model {
-                entity = entity.with_model(model.clone());
-            }
+            let mut entity = AgentLoopEntity::new(config.agent_id.clone())
+                .with_hooks(hooks)
+                .with_model(config.model.clone());
             if !config.available_tool_names.is_empty() {
                 entity = entity.with_available_tool_names(config.available_tool_names.clone());
             }
@@ -398,16 +392,16 @@ impl AgentLoopCoordinator {
                 Some(cp)
             };
 
-            let provider: Arc<dyn crate::stream::StreamProvider> = llm_wrapper;
+            let sink = AgentEventSink::new(tx.clone(), bus.clone());
             let iteration = Arc::new(
-                StreamingIteration::new(
-                    provider,
+                AgentIterationCoordinator::new(
+                    gateway,
                     tool_registry,
                     hook_executor.clone(),
-                    tx.clone(),
-                    bus.clone(),
+                    metrics.clone(),
                 )
-                .with_approval(approval_options, approval_handler),
+                .with_approval(approval_options, approval_handler)
+                .with_streaming(sink),
             );
             let execution_coordinator = AgentExecutionCoordinator::new(iteration)
                 .with_checkpoint(checkpoint)

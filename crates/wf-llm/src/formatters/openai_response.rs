@@ -284,6 +284,34 @@ impl LlmFormatter for OpenaiResponseFormatter {
                 }
             }
             Some("response.completed") | Some("response.incomplete") => {
+                // The completed event carries the final usage summary.
+                if let Some(usage) = json.get("usage") {
+                    return Ok(Some(MessageStreamEvent::Usage(
+                        wf_types::llm::MessageStreamUsage {
+                            usage: wf_types::llm::TokenUsageStats {
+                                prompt_tokens: usage
+                                    .get("input_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                completion_tokens: usage
+                                    .get("output_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                total_tokens: usage
+                                    .get("total_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                reasoning_tokens: None,
+                                prompt_tokens_cost: None,
+                                completion_tokens_cost: None,
+                                total_cost: None,
+                            },
+                        },
+                    )));
+                }
                 return Ok(Some(MessageStreamEvent::End(
                     wf_types::llm::MessageStreamEnd {},
                 )));

@@ -1,3 +1,4 @@
+pub mod agent_request;
 pub mod approval;
 pub mod callback;
 pub mod checkpoint;

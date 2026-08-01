@@ -9,7 +9,6 @@ use wf_types::node::StaticNodeType;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::output_mapping;
 use crate::handler::NodeHandler;
-use crate::variable::VariableResolver;
 
 pub struct InteractiveScriptHandler {
     sandbox: Option<Arc<SandboxRuntime>>,
@@ -47,41 +46,39 @@ impl NodeHandler for InteractiveScriptHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let code = config.get("code").and_then(|v| v.as_str());
-        let language = config
-            .get("language")
+        let script_name = config
+            .get("script_name")
             .and_then(|v| v.as_str())
-            .unwrap_or("javascript");
-        let template = config.get("template").and_then(|v| v.as_str());
-        let interaction_input = config
-            .get("interactionInput")
-            .or_else(|| config.get("interaction_input"))
-            .and_then(|v| v.as_str());
-        let output_mapping = config
-            .get("outputMapping")
-            .or_else(|| config.get("output_mapping"));
+            .ok_or_else(|| {
+                WorkflowError::Internal(
+                    "InteractiveScript node requires a 'script_name' config".to_string(),
+                )
+            })?;
+        let interaction_mode = config.get("interaction_mode").and_then(|v| v.as_str());
+        let output_mapping = config.get("output_mapping");
 
-        let code = if let Some(tmpl) = template {
-            let rendered = VariableResolver::resolve_str(tmpl, &ctx.variables);
-            rendered.as_str().unwrap_or(tmpl).to_string()
-        } else if let Some(c) = code {
-            c.to_string()
-        } else {
-            return Err(WorkflowError::Internal(
-                "InteractiveScript node requires 'code' or 'template' field".to_string(),
-            ));
-        };
+        let definition = crate::registry::lookup_script(script_name).ok_or_else(|| {
+            WorkflowError::Internal(format!(
+                "InteractiveScript node '{}': script '{}' is not registered",
+                ctx.node_id, script_name
+            ))
+        })?;
+        let language = config
+            .get("executor")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&definition.language)
+            .to_string();
 
+        let code = definition.code;
         let sandbox = self.get_sandbox();
-        let sandbox_config = crate::handler::script::ScriptHandler::build_sandbox_config(
-            config.get("sandboxConfig"),
-            language,
-        );
+        let sandbox_config = crate::handler::script::ScriptHandler::build_sandbox_config(&language);
 
-        let user_input = interaction_input
-            .and_then(|name| ctx.get_variable(name))
-            .or_else(|| ctx.get_variable("__interaction_input__"))
-            .unwrap_or(Value::Null);
+        let user_input = if interaction_mode.is_some() {
+            ctx.get_variable("__interaction_input__")
+                .unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
 
         let augmented_code = if user_input != Value::Null {
             format!("{}\n\n# User input: {}", code, user_input)
@@ -90,7 +87,7 @@ impl NodeHandler for InteractiveScriptHandler {
         };
 
         let result = sandbox
-            .execute(language, &augmented_code, &sandbox_config)
+            .execute(&language, &augmented_code, &sandbox_config)
             .await;
 
         if !result.success {
@@ -120,7 +117,7 @@ impl NodeHandler for InteractiveScriptHandler {
         ctx.set_variable("__interaction_output__", parsed_output.clone());
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("language".to_string(), Value::String(language.to_string()));
+        metadata.insert("language".to_string(), Value::String(language));
         metadata.insert(
             "had_input".to_string(),
             Value::Bool(user_input != Value::Null),

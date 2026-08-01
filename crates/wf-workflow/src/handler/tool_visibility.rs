@@ -70,7 +70,7 @@ impl NodeHandler for ToolVisibilityHandler {
             .and_then(|v| v.as_str())
             .unwrap_or("block");
         let tools = config
-            .get("tools")
+            .get("tool_ids")
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
@@ -81,7 +81,7 @@ impl NodeHandler for ToolVisibilityHandler {
 
         if tools.is_empty() {
             return Err(WorkflowError::OperationError(
-                "ToolVisibility node requires 'tools' list".to_string(),
+                "ToolVisibility node requires a 'tool_ids' list".to_string(),
             ));
         }
 
@@ -108,15 +108,10 @@ impl NodeHandler for ToolVisibilityHandler {
 
         // Record the change in the message context so agents/LLM nodes can
         // observe it in the conversation.
-        let context_id = config
-            .get("context_id")
-            .or_else(|| config.get("contextId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
         let content = build_visibility_message(action, &tools);
         message_context::append_context(
             &ctx.variables,
-            context_id,
+            message_context::DEFAULT_CONTEXT_ID,
             vec![Message {
                 id: wf_types::Id::new(),
                 role: MessageRole::System,
@@ -141,11 +136,6 @@ impl NodeHandler for ToolVisibilityHandler {
             "tools".to_string(),
             Value::Array(tools.iter().map(|t| Value::String(t.clone())).collect()),
         );
-        metadata.insert(
-            "context_id".to_string(),
-            Value::String(context_id.to_string()),
-        );
-
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),
             next_node_ids: Vec::new(),
@@ -184,7 +174,7 @@ mod tests {
         )
         .with_node_config(serde_json::json!({
             "action": "block",
-            "tools": ["file_read", "shell"]
+            "tool_ids": ["file_read", "shell"]
         }));
 
         let result = ToolVisibilityHandler.execute(&mut ctx).await;
@@ -231,7 +221,7 @@ mod tests {
         )
         .with_node_config(serde_json::json!({
             "action": "unblock",
-            "tools": ["shell"]
+            "tool_ids": ["shell"]
         }));
 
         let result = ToolVisibilityHandler.execute(&mut ctx).await;

@@ -190,7 +190,7 @@ mod tests {
     fn child_config(id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: Id::from(id.to_string()),
-            model: Some("mock".to_string()),
+            model: "mock".to_string(),
             max_iterations: Some(5),
             max_execution_time: None,
             hooks: Vec::new(),

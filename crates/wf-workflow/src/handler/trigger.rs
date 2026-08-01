@@ -249,10 +249,11 @@ impl TriggerCoordinator {
         )
         .await;
 
-        let handlers = ctx
-            .handlers
-            .clone()
-            .unwrap_or_else(|| HandlerRegistry::default().into_arc());
+        let handlers = ctx.handlers.clone().unwrap_or_else(|| {
+            let mut registry = HandlerRegistry::new();
+            registry.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
+            registry.into_arc()
+        });
         let tool_registry = ctx
             .tool_registry
             .clone()
@@ -862,7 +863,7 @@ mod tests {
     ) -> WorkflowResult<Value> {
         let handlers = {
             let mut reg = HandlerRegistry::new();
-            reg.register_defaults();
+            reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
             reg.into_arc()
         };
         let exec_ctx = ExecutorContext::new(
@@ -1054,7 +1055,7 @@ mod tests {
                 node(
                     "set",
                     "VARIABLE",
-                    serde_json::json!({"assignments": {"sum": 7}}),
+                    serde_json::json!({"variable_name": "sum", "expression": "7"}),
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
@@ -1064,7 +1065,7 @@ mod tests {
 
         let handlers = {
             let mut reg = HandlerRegistry::new();
-            reg.register_defaults();
+            reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
             reg.into_arc()
         };
         let ctx = TriggerContext::new(Id::new(), Id::new()).with_handlers(handlers);
@@ -1103,7 +1104,7 @@ mod tests {
             .expect("output mapping should write back")
             .value()
             .clone();
-        assert_eq!(mapped, serde_json::json!(7));
+        assert_eq!(mapped, serde_json::json!("7"));
     }
 
     #[tokio::test]

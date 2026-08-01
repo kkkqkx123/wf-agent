@@ -93,6 +93,20 @@ impl WorkflowLifecycleCoordinator {
         let execution_id_metrics = execution_id.clone();
         let workflow_id_metrics = workflow_id.clone();
 
+        // Reject structurally invalid graphs before execution starts.
+        crate::validation::GraphValidator::validate(&graph).map_err(|errors| {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            WorkflowError::GraphError(format!(
+                "Workflow graph validation failed ({} error(s)): {}",
+                errors.len(),
+                detail
+            ))
+        })?;
+
         let mut wf_state = WorkflowStateMachine::new(&execution_id);
         wf_state
             .start()
@@ -348,14 +362,16 @@ mod tests {
                     "v1",
                     "VARIABLE",
                     serde_json::json!({
-                        "assignments": { "mid": "${input.greeting}" }
+                        "variable_name": "mid",
+                        "expression": "${input.greeting}"
                     }),
                 ),
                 node(
                     "v2",
                     "VARIABLE",
                     serde_json::json!({
-                        "assignments": { "final": "${mid}" }
+                        "variable_name": "final",
+                        "expression": "${mid}"
                     }),
                 ),
                 node("end", "END", serde_json::json!({})),
@@ -370,7 +386,7 @@ mod tests {
 
     fn make_handlers() -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
         let mut reg = HandlerRegistry::new();
-        reg.register_defaults();
+        reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
         reg.into_arc()
     }
 
@@ -611,7 +627,7 @@ mod tests {
             nodes.push(node(
                 &format!("v{}", i),
                 "VARIABLE",
-                serde_json::json!({ "assignments": {} }),
+                serde_json::json!({ "variable_name": "v", "expression": "1" }),
             ));
         }
         nodes.push(node("end", "END", serde_json::json!({})));
@@ -716,12 +732,18 @@ mod tests {
                 node(
                     "v1",
                     "VARIABLE",
-                    serde_json::json!({ "assignments": { "__forbidden": 1 } }),
+                    serde_json::json!({
+                        "variable_name": "__forbidden",
+                        "expression": "1"
+                    }),
                 ),
                 node(
                     "v2",
                     "VARIABLE",
-                    serde_json::json!({ "assignments": { "final": "${input.greeting}" } }),
+                    serde_json::json!({
+                        "variable_name": "final",
+                        "expression": "${input.greeting}"
+                    }),
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
@@ -766,12 +788,18 @@ mod tests {
                 node(
                     "v1",
                     "VARIABLE",
-                    serde_json::json!({ "assignments": { "__forbidden": 1 } }),
+                    serde_json::json!({
+                        "variable_name": "__forbidden",
+                        "expression": "1"
+                    }),
                 ),
                 node(
                     "v2",
                     "VARIABLE",
-                    serde_json::json!({ "assignments": { "final": "${input.greeting}" } }),
+                    serde_json::json!({
+                        "variable_name": "final",
+                        "expression": "${input.greeting}"
+                    }),
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
@@ -980,7 +1008,10 @@ mod tests {
                 node(
                     "v1",
                     "VARIABLE",
-                    serde_json::json!({ "assignments": { "__forbidden": 1 } }),
+                    serde_json::json!({
+                        "variable_name": "__forbidden",
+                        "expression": "1"
+                    }),
                 ),
                 node("end", "END", serde_json::json!({})),
             ],

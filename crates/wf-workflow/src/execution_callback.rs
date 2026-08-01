@@ -37,6 +37,7 @@ pub struct WorkflowExecutionCallback {
     graphs: crate::registry::WorkflowGraphRegistry,
     executions: WorkflowExecutionRegistry,
     handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+    gateway: Arc<wf_llm::LlmGateway>,
     event_bus: Option<Arc<EventBus>>,
     tool_registry: Arc<ToolRegistry>,
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
@@ -51,6 +52,7 @@ impl WorkflowExecutionCallback {
             graphs: create_graph_registry(),
             executions: create_execution_registry(),
             handlers: None,
+            gateway: Arc::new(wf_llm::LlmGateway::new()),
             event_bus: None,
             tool_registry,
             checkpoint_strategy: None,
@@ -58,6 +60,11 @@ impl WorkflowExecutionCallback {
             metrics: None,
             hooks: Vec::new(),
         }
+    }
+
+    pub fn with_gateway(mut self, gateway: Arc<wf_llm::LlmGateway>) -> Self {
+        self.gateway = gateway;
+        self
     }
 
     pub fn with_handlers(
@@ -120,7 +127,7 @@ impl WorkflowExecutionCallback {
             Some(h) => h.clone(),
             None => {
                 let mut registry = HandlerRegistry::new();
-                registry.register_defaults();
+                registry.register_defaults(self.gateway.clone());
                 registry.into_arc()
             }
         }
@@ -308,6 +315,15 @@ mod tests {
         }
     }
 
+    fn make_node_with_inner(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
+        WorkflowNode {
+            id: id.to_string(),
+            name: Some(id.to_string()),
+            node_type: node_type.to_string(),
+            inner,
+        }
+    }
+
     fn make_edge(source: &str, target: &str) -> WorkflowEdge {
         WorkflowEdge {
             id: format!("{}-{}", source, target),
@@ -324,7 +340,14 @@ mod tests {
         make_graph(
             vec![
                 make_node("start", "START"),
-                make_node("var", "VARIABLE"),
+                make_node_with_inner(
+                    "var",
+                    "VARIABLE",
+                    serde_json::json!({
+                        "variable_name": "var",
+                        "expression": "${input.greeting}"
+                    }),
+                ),
                 make_node("end", "END"),
             ],
             vec![make_edge("start", "var"), make_edge("var", "end")],

@@ -102,7 +102,7 @@ impl LlmResponseSpec {
         let model = self
             .model
             .clone()
-            .unwrap_or_else(|| request.profile_id.clone().unwrap_or_default());
+            .unwrap_or_else(|| request.profile_id.clone());
         let message = Message {
             id: wf_types::Id::new(),
             role: MessageRole::Assistant,
@@ -285,7 +285,7 @@ impl MockLlmClient {
             };
             return LlmResponseType {
                 id: None,
-                model: request.profile_id.clone().unwrap_or_default(),
+                model: request.profile_id.clone(),
                 content: Some(extract_text_content(&message)),
                 message,
                 tool_calls: None,
@@ -388,7 +388,7 @@ mod tests {
 
     fn request(profile_id: &str, text: &str) -> LlmRequest {
         LlmRequest {
-            profile_id: Some(profile_id.to_string()),
+            profile_id: profile_id.to_string(),
             messages: vec![Message {
                 id: wf_types::Id::new(),
                 role: MessageRole::User,

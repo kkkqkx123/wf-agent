@@ -74,12 +74,19 @@ impl BuiltinExecutor {
             .unwrap_or_default()
             .to_string();
 
+        let profile_id = parameters
+            .get("profile_id")
+            .or_else(|| parameters.get("model"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ToolError::ExecutionError("call_agent requires a profile_id parameter".to_string())
+            })?
+            .to_string();
+
         let config = AgentLoopConfig {
             agent_id,
-            model: parameters
-                .get("model")
-                .and_then(|v| v.as_str())
-                .map(String::from),
+            model: profile_id,
             max_iterations: parameters
                 .get("max_iterations")
                 .and_then(|v| v.as_u64())
@@ -97,7 +104,8 @@ impl BuiltinExecutor {
                 .unwrap_or_default(),
             tool_call_format: parameters
                 .get("tool_call_format")
-                .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                .and_then(|v| v.as_str())
+                .and_then(wf_types::llm::ToolCallFormatConfig::from_format_str),
         };
 
         let input = AgentLoopInput {

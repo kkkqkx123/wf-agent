@@ -19,29 +19,37 @@ impl NodeHandler for RouteHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-
-        let branches = config.get("branches").and_then(|b| b.as_array());
         let mut next_nodes: Vec<String> = Vec::new();
 
-        if let Some(branches) = branches {
-            for branch in branches {
-                let condition = branch.get("condition").and_then(|c| c.as_str());
-                let target = branch.get("next_node").and_then(|n| n.as_str());
+        let conditions = config.get("conditions").and_then(|c| c.as_array());
+        if let Some(conditions) = conditions {
+            let mut vars = HashMap::new();
+            for entry in ctx.variables.iter() {
+                vars.insert(entry.key().clone(), entry.value().clone());
+            }
 
-                if let (Some(cond), Some(target)) = (condition, target) {
-                    let mut vars = HashMap::new();
-                    for entry in ctx.variables.iter() {
-                        vars.insert(entry.key().clone(), entry.value().clone());
+            for condition in conditions {
+                let expression = condition.get("expression").and_then(|e| e.as_str());
+                let target = condition.get("target_node_id").and_then(|t| t.as_str());
+                let (Some(expression), Some(target)) = (expression, target) else {
+                    continue;
+                };
+                match ConditionEvaluator::evaluate(expression, &vars) {
+                    Ok(true) => {
+                        next_nodes.push(target.to_string());
+                        break;
                     }
-
-                    match ConditionEvaluator::evaluate(cond, &vars) {
-                        Ok(true) => {
-                            next_nodes.push(target.to_string());
-                            break;
-                        }
-                        _ => continue,
-                    }
+                    _ => continue,
                 }
+            }
+        }
+
+        if next_nodes.is_empty() {
+            if let Some(default) = config
+                .get("default_target_node_id")
+                .and_then(|v| v.as_str())
+            {
+                next_nodes.push(default.to_string());
             }
         }
 

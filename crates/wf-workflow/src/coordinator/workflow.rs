@@ -70,6 +70,8 @@ struct ExecutionAttempt<'a> {
 
 /// Effective retry/timeout configuration for one node execution.
 /// Resolution order: node-level config > type-based default > global options.
+/// Node-level config uses the canonical fields `retry_policy`, `on_failure`
+/// and `fallback_output`.
 #[derive(Debug, Clone)]
 struct NodeRetryConfig {
     on_failure: String,
@@ -106,8 +108,12 @@ impl NodeRetryConfig {
 
         let type_default = matches!(node.node_type.as_str(), "LLM" | "AGENT_LOOP");
 
+        let retry_policy = cfg.get("retry_policy").and_then(|v| {
+            serde_json::from_value::<wf_types::execution::RetryPolicy>(v.clone()).ok()
+        });
+
         let on_failure = cfg
-            .get("onFailure")
+            .get("on_failure")
             .and_then(|v| v.as_str())
             .unwrap_or(if type_default {
                 "retry"
@@ -116,31 +122,34 @@ impl NodeRetryConfig {
             })
             .to_string();
 
-        let max_retries = cfg
-            .get("maxRetries")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as u32)
+        let max_retries = retry_policy
+            .as_ref()
+            .filter(|p| p.enabled)
+            .map(|p| p.max_retries)
             .unwrap_or(if type_default { 3 } else { base.max_retries });
 
-        let retry_delay_ms =
-            cfg.get("retryDelayMs")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(if type_default {
-                    1000
-                } else {
-                    base.retry_delay_ms
-                });
+        let retry_delay_ms = retry_policy
+            .as_ref()
+            .filter(|p| p.enabled)
+            .map(|p| p.base_delay_ms)
+            .unwrap_or(if type_default {
+                1000
+            } else {
+                base.retry_delay_ms
+            });
 
-        let exponential_backoff = cfg
-            .get("exponentialBackoff")
-            .and_then(|v| v.as_bool())
+        let exponential_backoff = retry_policy
+            .as_ref()
+            .filter(|p| p.enabled)
+            .and_then(|p| p.backoff_multiplier)
+            .map(|m| m > 1.0)
             .unwrap_or(if type_default {
                 true
             } else {
                 base.exponential_backoff
             });
 
-        let fallback_output = cfg.get("fallbackOutput").cloned().or(base.fallback_output);
+        let fallback_output = cfg.get("fallback_output").cloned().or(base.fallback_output);
 
         Self {
             on_failure,
@@ -449,7 +458,7 @@ impl WorkflowCoordinator {
 
             let coordinator = NodeCoordinator::new();
             let node_timeout_ms =
-                node_timeout.or_else(|| node.inner.get("timeout").and_then(|v| v.as_u64()));
+                node_timeout.or_else(|| node.inner.get("timeout_seconds").and_then(|v| v.as_u64()));
             let timeout_dur = node_timeout_ms.map(std::time::Duration::from_millis);
 
             let metrics = self.ctx.metrics.clone();
@@ -571,7 +580,7 @@ impl WorkflowCoordinator {
                     }
 
                     match retry_config.on_failure.as_str() {
-                        "retry" | "continue" => {
+                        "retry" | "continue" | "fallback" => {
                             let mut retried = false;
                             for attempt in 0..retry_config.max_retries {
                                 tracing::warn!(
@@ -650,7 +659,9 @@ impl WorkflowCoordinator {
                                 }
                             }
                             if !retried {
-                                if retry_config.on_failure == "continue" {
+                                if retry_config.on_failure == "continue"
+                                    || retry_config.on_failure == "fallback"
+                                {
                                     if let Some(ref fallback) = retry_config.fallback_output {
                                         tracing::warn!(
                                             "Node '{}' failed after {} retries, using fallback_output",
@@ -678,16 +689,6 @@ impl WorkflowCoordinator {
                                     return Err(e);
                                 }
                             }
-                        }
-                        "skip" | "skipped" => {
-                            tracing::warn!("Skipping failed node '{}': {}", node_id, e);
-                            entity
-                                .state
-                                .write()
-                                .await
-                                .mark_node_completed(node_id.clone());
-                            self.current_node_id =
-                                self.determine_next_node_without_output().await?;
                         }
                         _ => {
                             return Err(e);
@@ -1036,10 +1037,13 @@ mod tests {
             "llm1",
             "LLM",
             serde_json::json!({
-                "maxRetries": 5,
-                "retryDelayMs": 250,
-                "exponentialBackoff": false,
-                "onFailure": "continue"
+                "retry_policy": {
+                    "enabled": true,
+                    "max_retries": 5,
+                    "base_delay_ms": 250,
+                    "backoff_multiplier": 1.0
+                },
+                "on_failure": "continue"
             }),
         );
         let cfg = NodeRetryConfig::resolve(&n, &opts);
@@ -1066,7 +1070,7 @@ mod tests {
         let n = node(
             "s1",
             "SCRIPT",
-            serde_json::json!({"fallbackOutput": {"safe": true}}),
+            serde_json::json!({"fallback_output": {"safe": true}}),
         );
         let cfg = NodeRetryConfig::resolve(&n, &opts);
         assert_eq!(cfg.fallback_output, Some(serde_json::json!({"safe": true})));
@@ -1148,7 +1152,14 @@ mod tests {
             node(
                 "flaky",
                 "VARIABLE",
-                serde_json::json!({"onFailure": "retry", "maxRetries": 3, "retryDelayMs": 1}),
+                serde_json::json!({
+                    "on_failure": "retry",
+                    "retry_policy": {
+                        "enabled": true,
+                        "max_retries": 3,
+                        "base_delay_ms": 1
+                    }
+                }),
             ),
             node("end", "END", Value::Null),
         ]);
@@ -1185,10 +1196,13 @@ mod tests {
                 "flaky",
                 "VARIABLE",
                 serde_json::json!({
-                    "onFailure": "continue",
-                    "maxRetries": 2,
-                    "retryDelayMs": 1,
-                    "fallbackOutput": {"fallback": true}
+                    "on_failure": "continue",
+                    "retry_policy": {
+                        "enabled": true,
+                        "max_retries": 2,
+                        "base_delay_ms": 1
+                    },
+                    "fallback_output": {"fallback": true}
                 }),
             ),
             node("end", "END", Value::Null),

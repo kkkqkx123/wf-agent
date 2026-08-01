@@ -49,48 +49,38 @@ impl NodeHandler for SyncHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
 
-        let sync_id = config
-            .get("sync_id")
+        let source_path_id = config
+            .get("source_path_id")
             .and_then(|v| v.as_str())
             .unwrap_or(&ctx.node_id)
             .to_string();
+        let wait_for_completion = config
+            .get("wait_for_completion")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-        let source_paths = config
-            .get("source_paths")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        let data_inputs = config
-            .get("dataInputs")
-            .or_else(|| config.get("data_inputs"))
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| {
-                        let source = v.get("source").and_then(|s| s.as_str())?;
-                        let target = v.get("target").and_then(|t| t.as_str())?;
-                        Some((source.to_string(), target.to_string()))
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        emit_sync_event(ctx.event_bus.as_deref(), EventType::NodeSyncStarted, ctx).await;
-
-        for (source_var, target_var) in &data_inputs {
-            if let Some(val) = ctx.get_variable(source_var) {
-                let resolved = crate::variable::VariableResolver::resolve(&val, &ctx.variables);
-                ctx.set_variable(target_var.clone(), resolved);
+        let mut synced_variables: Vec<String> = Vec::new();
+        if let Some(exchanges) = config.get("variable_exchanges").and_then(|v| v.as_array()) {
+            for exchange in exchanges {
+                let source_variable = exchange.get("source_variable").and_then(|v| v.as_str());
+                let target_variable = exchange.get("target_variable").and_then(|v| v.as_str());
+                let (Some(source_variable), Some(target_variable)) =
+                    (source_variable, target_variable)
+                else {
+                    continue;
+                };
+                if let Some(val) = ctx.get_variable(source_variable) {
+                    let resolved = crate::variable::VariableResolver::resolve(&val, &ctx.variables);
+                    ctx.set_variable(target_variable.to_string(), resolved);
+                    synced_variables.push(target_variable.to_string());
+                }
             }
         }
 
-        if !source_paths.is_empty() {
-            if let Some(barrier) = self.get_barrier(&sync_id).await {
+        emit_sync_event(ctx.event_bus.as_deref(), EventType::NodeSyncStarted, ctx).await;
+
+        if wait_for_completion {
+            if let Some(barrier) = self.get_barrier(&source_path_id).await {
                 barrier.wait_for_all().await;
             }
         }
@@ -98,16 +88,18 @@ impl NodeHandler for SyncHandler {
         emit_sync_event(ctx.event_bus.as_deref(), EventType::NodeSyncCompleted, ctx).await;
 
         let mut metadata = std::collections::HashMap::new();
-        metadata.insert("sync_id".to_string(), Value::String(sync_id));
-        metadata.insert(
-            "source_paths".to_string(),
-            Value::Array(
-                source_paths
-                    .iter()
-                    .map(|s| Value::String(s.clone()))
-                    .collect(),
-            ),
-        );
+        metadata.insert("source_path_id".to_string(), Value::String(source_path_id));
+        if !synced_variables.is_empty() {
+            metadata.insert(
+                "synced_variables".to_string(),
+                Value::Array(
+                    synced_variables
+                        .iter()
+                        .map(|s| Value::String(s.clone()))
+                        .collect(),
+                ),
+            );
+        }
 
         Ok(NodeExecutionResult {
             output: ctx.input.clone(),

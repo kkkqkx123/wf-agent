@@ -11,31 +11,8 @@ pub fn apply_output_mappings(ctx: &NodeExecutionContext, output: &Value, mapping
                 output.clone()
             };
             match mapping.target.as_str() {
-                "variable" => {
+                "variable" | "output" => {
                     ctx.set_variable(mapping.key.clone(), value);
-                }
-                "output" => {
-                    ctx.set_variable(mapping.key.clone(), value);
-                }
-                _ => {}
-            }
-        }
-    } else if let Some(arr) = mapping_val.as_array() {
-        for entry in arr {
-            let target = entry.get("target").and_then(|v| v.as_str());
-            let key = entry.get("key").and_then(|v| v.as_str());
-            let path = entry.get("path").and_then(|v| v.as_str());
-            let value = extract_path_value(output, path);
-            match target {
-                Some("variable") => {
-                    if let Some(k) = key {
-                        ctx.set_variable(k.to_string(), value);
-                    }
-                }
-                Some("output") => {
-                    if let Some(k) = key {
-                        ctx.set_variable(k.to_string(), value);
-                    }
                 }
                 _ => {}
             }

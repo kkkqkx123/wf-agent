@@ -4,18 +4,22 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_core::interruption::check_execution_interruption;
+use wf_core::types::interruption::ExecutionInterruptionCheckResult;
 use wf_execution_shared::hooks::executor::HookExecutor;
-use wf_llm::LlmWrapper;
+use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
-use wf_types::llm::LlmRequest;
+use wf_types::llm::{LlmRequest, MessageStreamEvent};
+use wf_types::message::{LlmToolCall, Message, MessageContentValue};
 use wf_types::tool::approval::ToolApprovalOptions;
 
+use crate::agent_request::build_agent_request;
 use crate::approval::ToolApprovalHandler;
 use crate::coordinator::tool::ToolExecutionCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
+use crate::stream::{AgentEventSink, AgentStreamEvent};
 
 #[derive(Debug, Clone)]
 pub struct IterationResult {
@@ -26,7 +30,7 @@ pub struct IterationResult {
 }
 
 /// Abstraction over a single agent iteration so the execution coordinator
-/// can be driven by alternative iteration implementations (tests, streaming).
+/// can be driven by alternative iteration implementations (tests).
 #[async_trait::async_trait]
 pub trait IterationExecutor: Send + Sync {
     async fn execute_iteration(&self, entity: &AgentLoopEntity) -> AgentResult<IterationResult>;
@@ -39,16 +43,28 @@ impl IterationExecutor for AgentIterationCoordinator {
     }
 }
 
+/// How a single iteration talks to the LLM. Streaming is a transport-level
+/// mode of the same iteration skeleton: deltas are forwarded to the event
+/// sink while the final message is aggregated for tool call extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IterationMode {
+    Blocking,
+    Streaming,
+}
+
+/// Single iteration implementation shared by blocking and streaming runs.
 pub struct AgentIterationCoordinator {
-    llm_wrapper: Arc<LlmWrapper>,
+    gateway: Arc<LlmGateway>,
     tool_coordinator: ToolExecutionCoordinator,
     hook_executor: Arc<HookExecutor>,
     metrics: Option<Arc<MetricsRegistry>>,
+    mode: IterationMode,
+    event_sink: Option<AgentEventSink>,
 }
 
 impl AgentIterationCoordinator {
     pub fn new(
-        llm_wrapper: Arc<LlmWrapper>,
+        gateway: Arc<LlmGateway>,
         tool_registry: Arc<ToolRegistry>,
         hook_executor: Arc<HookExecutor>,
         metrics: Option<Arc<MetricsRegistry>>,
@@ -56,10 +72,12 @@ impl AgentIterationCoordinator {
         let tool_coordinator = ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())
             .with_metrics(metrics.clone());
         Self {
-            llm_wrapper,
+            gateway,
             tool_coordinator,
             hook_executor,
             metrics,
+            mode: IterationMode::Blocking,
+            event_sink: None,
         }
     }
 
@@ -75,6 +93,18 @@ impl AgentIterationCoordinator {
             .with_metrics(self.metrics.clone())
             .with_approval(options, handler);
         self
+    }
+
+    /// Switch the coordinator to streaming mode and attach the event sink
+    /// deltas and tool lifecycle events are forwarded to.
+    pub fn with_streaming(mut self, sink: AgentEventSink) -> Self {
+        self.mode = IterationMode::Streaming;
+        self.event_sink = Some(sink);
+        self
+    }
+
+    fn is_streaming(&self) -> bool {
+        self.mode == IterationMode::Streaming
     }
 
     pub async fn execute_iteration(
@@ -94,21 +124,16 @@ impl AgentIterationCoordinator {
 
         entity.state.write().await.start_iteration();
 
-        let interruption = check_execution_interruption(
-            entity.interruption(),
-            Some(entity.state.read().await.current_iteration()),
-        );
-        if !matches!(
-            interruption,
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
-        ) {
-            entity.state.write().await.end_iteration();
-            return Ok(IterationResult {
-                should_continue: false,
-                content: Value::String("Execution interrupted".to_string()),
-                completion_data: None,
-                tool_call_count: 0,
-            });
+        if self.is_streaming() {
+            if let Some(ref sink) = self.event_sink {
+                let iteration = entity.state.read().await.current_iteration();
+                sink.emit(entity.id(), AgentStreamEvent::IterationStart { iteration })
+                    .await?;
+            }
+        }
+
+        if let Some(result) = self.interrupted(entity, 0).await {
+            return Ok(result);
         }
 
         AgentHookHandler::execute_agent_hook(
@@ -120,68 +145,48 @@ impl AgentIterationCoordinator {
         .await
         .map_err(|e| AgentError::HookError(e.to_string()))?;
 
-        let messages = entity.conversation().read().await.messages().to_vec();
-        let available_tools = entity.get_available_tools(self.tool_coordinator.tool_registry());
-        let tools = if available_tools.is_empty() {
-            None
-        } else {
-            Some(available_tools)
-        };
-
-        let request = LlmRequest {
-            profile_id: entity.model().map(|m| m.to_string()),
-            messages,
-            parameters: Some(serde_json::json!({
-                "temperature": 0.7,
-                "max_tokens": 4096,
-            })),
-            tools,
-            tool_call_format: entity.tool_call_format().map(|f| f.format.clone()),
-            locked_tool_call_format: entity.tool_call_format().cloned(),
-            violation_policy: None,
-            execution_id: Some(execution_id.clone()),
-            stream: Some(false),
-            dead_loop_detection: None,
-        };
+        let request = build_agent_request(
+            entity,
+            self.tool_coordinator.tool_registry(),
+            self.is_streaming(),
+        )
+        .await?;
 
         if let Some(ref metrics) = self.metrics {
             if let Some(format) = entity.tool_call_format() {
                 metrics
                     .agent_loop()
-                    .record_protocol_locked(&execution_id, &format!("{:?}", format.format));
+                    .record_protocol_locked(&execution_id, &format.format.to_string());
             }
         }
 
-        let llm_result = self.llm_wrapper.generate(&request).await?;
-        let interruption = check_execution_interruption(
-            entity.interruption(),
-            Some(entity.state.read().await.current_iteration()),
-        );
-        if !matches!(
-            interruption,
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
-        ) {
-            entity.state.write().await.end_iteration();
-            return Ok(IterationResult {
-                should_continue: false,
-                content: Value::String("Execution interrupted".to_string()),
-                completion_data: None,
-                tool_call_count: 0,
-            });
+        let (assistant_msg, llm_content, finish_reason) = match self.mode {
+            IterationMode::Blocking => {
+                let llm_result = self.gateway.generate(&request).await?;
+                (
+                    llm_result.message.clone(),
+                    llm_result.content.clone(),
+                    llm_result.finish_reason.clone(),
+                )
+            }
+            IterationMode::Streaming => self.stream_llm_call(entity, &request).await?,
+        };
+
+        if let Some(result) = self.interrupted(entity, 0).await {
+            return Ok(result);
         }
 
         let mut hook_data = HashMap::new();
         hook_data.insert(
             "llm_content".to_string(),
-            llm_result
-                .content
+            llm_content
                 .clone()
                 .map(Value::String)
                 .unwrap_or(Value::Null),
         );
         hook_data.insert(
             "finish_reason".to_string(),
-            Value::String(llm_result.finish_reason.clone().unwrap_or_default()),
+            Value::String(finish_reason.unwrap_or_default()),
         );
         AgentHookHandler::execute_agent_hook(
             &self.hook_executor,
@@ -192,8 +197,7 @@ impl AgentIterationCoordinator {
         .await
         .map_err(|e| AgentError::HookError(e.to_string()))?;
 
-        let assistant_msg = llm_result.message.clone();
-        let has_tool_calls = llm_result
+        let has_tool_calls = assistant_msg
             .tool_calls
             .as_ref()
             .map(|c| !c.is_empty())
@@ -202,34 +206,25 @@ impl AgentIterationCoordinator {
             .conversation()
             .write()
             .await
-            .add_message(assistant_msg);
+            .add_message(assistant_msg.clone());
 
         if !has_tool_calls {
-            let content = llm_result.content.clone().unwrap_or_default();
-            entity.state.write().await.end_iteration();
-
-            AgentHookHandler::execute_agent_hook(
-                &self.hook_executor,
-                entity,
-                "AFTER_ITERATION",
-                HashMap::new(),
-            )
-            .await
-            .map_err(|e| AgentError::HookError(e.to_string()))?;
-
-            return Ok(IterationResult {
-                should_continue: false,
-                content: Value::String(content),
-                completion_data: None,
-                tool_call_count: 0,
-            });
+            let content = text_of(&assistant_msg.content);
+            return self.finish_iteration(entity, content, None, 0, false).await;
         }
 
-        let tool_calls = llm_result.tool_calls.unwrap_or_default();
-        let tool_messages = self
-            .tool_coordinator
-            .execute_tool_calls(entity, &tool_calls)
-            .await?;
+        let tool_calls = assistant_msg.tool_calls.unwrap_or_default();
+        let tool_messages = match self.mode {
+            IterationMode::Blocking => {
+                self.tool_coordinator
+                    .execute_tool_calls(entity, &tool_calls)
+                    .await?
+            }
+            IterationMode::Streaming => {
+                self.execute_tool_calls_streaming(entity, &tool_calls)
+                    .await?
+            }
+        };
         let tool_call_count = tool_calls.len() as u32;
 
         if let Some(ref metrics) = self.metrics {
@@ -238,21 +233,8 @@ impl AgentIterationCoordinator {
                 .record_tool_calls(&execution_id, tool_call_count as u64);
         }
 
-        let interruption = check_execution_interruption(
-            entity.interruption(),
-            Some(entity.state.read().await.current_iteration()),
-        );
-        if !matches!(
-            interruption,
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
-        ) {
-            entity.state.write().await.end_iteration();
-            return Ok(IterationResult {
-                should_continue: false,
-                content: Value::String("Execution interrupted after tool calls".to_string()),
-                completion_data: None,
-                tool_call_count,
-            });
+        if let Some(result) = self.interrupted(entity, tool_call_count).await {
+            return Ok(result);
         }
 
         let mut completion_data = None;
@@ -266,7 +248,69 @@ impl AgentIterationCoordinator {
             entity.conversation().write().await.add_message(msg.clone());
         }
 
+        let content = text_of(&assistant_msg.content);
+        let should_continue = completion_data.is_none();
+        self.finish_iteration(
+            entity,
+            content,
+            completion_data,
+            tool_call_count,
+            should_continue,
+        )
+        .await
+    }
+
+    /// Check for an interruption after an LLM call or tool execution; when
+    /// interrupted the iteration is closed and a terminal result returned.
+    async fn interrupted(
+        &self,
+        entity: &AgentLoopEntity,
+        tool_call_count: u32,
+    ) -> Option<IterationResult> {
+        let interruption = check_execution_interruption(
+            entity.interruption(),
+            Some(entity.state.read().await.current_iteration()),
+        );
+        if matches!(interruption, ExecutionInterruptionCheckResult::Continue) {
+            return None;
+        }
+
         entity.state.write().await.end_iteration();
+        if self.is_streaming() {
+            if let Some(ref sink) = self.event_sink {
+                let iteration = entity.state.read().await.current_iteration();
+                let _ = sink
+                    .emit(entity.id(), AgentStreamEvent::IterationEnd { iteration })
+                    .await;
+            }
+        }
+        Some(IterationResult {
+            should_continue: false,
+            content: Value::String("Execution interrupted".to_string()),
+            completion_data: None,
+            tool_call_count,
+        })
+    }
+
+    /// Close the iteration (state, stream events, AFTER_ITERATION hook) and
+    /// assemble the result.
+    async fn finish_iteration(
+        &self,
+        entity: &AgentLoopEntity,
+        content: String,
+        completion_data: Option<Value>,
+        tool_call_count: u32,
+        should_continue: bool,
+    ) -> AgentResult<IterationResult> {
+        entity.state.write().await.end_iteration();
+
+        if self.is_streaming() {
+            if let Some(ref sink) = self.event_sink {
+                let iteration = entity.state.read().await.current_iteration();
+                sink.emit(entity.id(), AgentStreamEvent::IterationEnd { iteration })
+                    .await?;
+            }
+        }
 
         AgentHookHandler::execute_agent_hook(
             &self.hook_executor,
@@ -277,14 +321,352 @@ impl AgentIterationCoordinator {
         .await
         .map_err(|e| AgentError::HookError(e.to_string()))?;
 
-        let should_continue = completion_data.is_none();
-        let content = llm_result.content.clone().unwrap_or_default();
-
         Ok(IterationResult {
             should_continue,
             content: Value::String(content),
             completion_data,
             tool_call_count,
         })
+    }
+
+    /// Streaming LLM call: forward deltas to the event sink while
+    /// aggregating the final message for tool call extraction.
+    async fn stream_llm_call(
+        &self,
+        entity: &AgentLoopEntity,
+        request: &LlmRequest,
+    ) -> AgentResult<(Message, Option<String>, Option<String>)> {
+        let mut stream = self.gateway.generate_stream(request).await?;
+        let mut final_message: Option<Message> = None;
+
+        loop {
+            let Some(event) = stream.next().await else {
+                break;
+            };
+            match event {
+                Ok(MessageStreamEvent::Text(t)) => {
+                    if let Some(ref sink) = self.event_sink {
+                        sink.emit_quiet(
+                            entity.id(),
+                            AgentStreamEvent::LlmDelta { content: t.text },
+                        )
+                        .await;
+                    }
+                }
+                Ok(MessageStreamEvent::Stream(chunk)) => {
+                    if let Some(ref sink) = self.event_sink {
+                        sink.emit_quiet(
+                            entity.id(),
+                            AgentStreamEvent::LlmDelta {
+                                content: chunk.content,
+                            },
+                        )
+                        .await;
+                    }
+                }
+                Ok(MessageStreamEvent::ReasoningText(reasoning)) => {
+                    if let Some(ref sink) = self.event_sink {
+                        sink.emit_quiet(
+                            entity.id(),
+                            AgentStreamEvent::LlmDelta {
+                                content: reasoning.reasoning,
+                            },
+                        )
+                        .await;
+                    }
+                }
+                Ok(MessageStreamEvent::Message(msg)) => {
+                    final_message = Some(msg.message);
+                }
+                Ok(MessageStreamEvent::FinalMessage(msg)) => {
+                    final_message = Some(msg.message);
+                }
+                Ok(MessageStreamEvent::Error(e)) => {
+                    return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
+                        e.error,
+                    )));
+                }
+                Ok(MessageStreamEvent::Abort(a)) => {
+                    return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
+                        a.reason,
+                    )));
+                }
+                Ok(MessageStreamEvent::End(_))
+                | Ok(MessageStreamEvent::Connect(_))
+                | Ok(MessageStreamEvent::InputJson(_))
+                | Ok(MessageStreamEvent::Usage(_)) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        let assistant_msg = final_message.ok_or_else(|| {
+            AgentError::LlmError(wf_llm::error::LlmError::StreamError(
+                "stream ended without a final message".to_string(),
+            ))
+        })?;
+        let content = text_of(&assistant_msg.content);
+        Ok((assistant_msg, Some(content), None))
+    }
+
+    /// Streaming tool execution: run each call sequentially and forward
+    /// ToolStart/ToolEnd lifecycle events.
+    async fn execute_tool_calls_streaming(
+        &self,
+        entity: &AgentLoopEntity,
+        tool_calls: &[LlmToolCall],
+    ) -> AgentResult<Vec<Message>> {
+        let mut tool_messages = Vec::with_capacity(tool_calls.len());
+        for tc in tool_calls {
+            if let Some(ref sink) = self.event_sink {
+                sink.emit(
+                    entity.id(),
+                    AgentStreamEvent::ToolStart {
+                        tool_call_id: tc.id.clone(),
+                        tool_name: tc.function.name.clone(),
+                    },
+                )
+                .await?;
+            }
+
+            let msg = self
+                .tool_coordinator
+                .execute_single_tool_for_stream(entity, tc)
+                .await;
+            let result_text = text_of(&msg.content);
+
+            if let Some(ref sink) = self.event_sink {
+                sink.emit(
+                    entity.id(),
+                    AgentStreamEvent::ToolEnd {
+                        tool_call_id: tc.id.clone(),
+                        tool_name: tc.function.name.clone(),
+                        success: !result_text.contains("\"error\""),
+                        result: result_text.clone(),
+                    },
+                )
+                .await?;
+            }
+            tool_messages.push(msg);
+        }
+        Ok(tool_messages)
+    }
+}
+
+fn text_of(content: &MessageContentValue) -> String {
+    match content {
+        MessageContentValue::Text(t) => t.clone(),
+        MessageContentValue::Rich(_) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+    use wf_llm::mock::MockLlmClient;
+    use wf_types::message::{LlmFunctionCall, LlmToolCall};
+    use wf_types::Id;
+
+    fn tool_call_message(tool_call_id: &str) -> Message {
+        Message {
+            id: Id::from(wf_common::generate_id()),
+            role: wf_types::message::MessageRole::Assistant,
+            content: MessageContentValue::Text("using tool".to_string()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: Some(vec![LlmToolCall {
+                id: tool_call_id.to_string(),
+                r#type: "function".to_string(),
+                function: LlmFunctionCall {
+                    name: "mock_write".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    fn text_message(content: &str) -> Message {
+        Message {
+            id: Id::from(wf_common::generate_id()),
+            role: wf_types::message::MessageRole::Assistant,
+            content: MessageContentValue::Text(content.to_string()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    fn mock_tool_registry(
+        executed: &Arc<std::sync::atomic::AtomicU32>,
+    ) -> Arc<wf_tools::registry::ToolRegistry> {
+        use std::sync::atomic::Ordering;
+        let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+        let handler: wf_tools::executor::stateless::StatelessHandler = {
+            let executed = executed.clone();
+            Arc::new(
+                move |_p: &Value, _c: &wf_tools::executor::trait_def::ToolExecutionContext| {
+                    executed.fetch_add(1, Ordering::SeqCst);
+                    Ok(Value::from("stream-tool-ok"))
+                },
+            )
+        };
+        registry.register_tool(wf_types::tool::Tool {
+            id: "tool-1".to_string(),
+            name: "mock_write".to_string(),
+            description: "mock".to_string(),
+            tool_type: wf_types::tool::ToolType::Stateless,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: Some(5000),
+        });
+        registry.register_stateless_handler("tool-1", handler);
+        registry
+    }
+
+    fn stream_gateway(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
+        let gateway = LlmGateway::new();
+        gateway.register_mock("mock", mock);
+        Arc::new(gateway)
+    }
+
+    async fn run_streaming(
+        gateway: Arc<LlmGateway>,
+        registry: Arc<wf_tools::registry::ToolRegistry>,
+        entity: &AgentLoopEntity,
+    ) -> (
+        AgentResult<IterationResult>,
+        mpsc::Receiver<AgentStreamEvent>,
+    ) {
+        let (tx, rx) = mpsc::channel(32);
+        let coordinator =
+            AgentIterationCoordinator::new(gateway, registry, Arc::new(HookExecutor::new()), None)
+                .with_streaming(AgentEventSink::new(tx, None));
+        (coordinator.execute_iteration(entity).await, rx)
+    }
+
+    #[tokio::test]
+    async fn test_stream_events_text_only() {
+        let executed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = mock_tool_registry(&executed);
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script_stream(vec![
+            MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
+                text: "hello ".to_string(),
+            }),
+            MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
+                text: "world".to_string(),
+            }),
+            MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
+                message: text_message("hello world"),
+                usage: None,
+            }),
+            MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
+        ]);
+        let entity = AgentLoopEntity::new(Id::from("agent-stream-1".to_string()))
+            .with_model("mock".to_string());
+        entity.state.write().await.start();
+
+        let (result, mut rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
+        let result = result.expect("stream iteration must succeed");
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert_eq!(events.len(), 4); // IterationStart + 2 deltas + IterationEnd
+        match &events[0] {
+            AgentStreamEvent::IterationStart { iteration } => assert_eq!(*iteration, 1),
+            other => panic!("expected IterationStart, got {:?}", other),
+        }
+        assert!(
+            matches!(&events[1], AgentStreamEvent::LlmDelta { content } if content == "hello ")
+        );
+        assert!(matches!(&events[2], AgentStreamEvent::LlmDelta { content } if content == "world"));
+        assert!(matches!(
+            &events[3],
+            AgentStreamEvent::IterationEnd { iteration: 1 }
+        ));
+
+        // No tool calls -> complete immediately with content.
+        assert!(!result.should_continue);
+        assert_eq!(result.content, Value::String("hello world".to_string()));
+        assert_eq!(executed.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_stream_events_with_tool_call() {
+        let executed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let registry = mock_tool_registry(&executed);
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script_stream(vec![
+            MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
+                text: "using tool".to_string(),
+            }),
+            MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
+                message: tool_call_message("tc-9"),
+                usage: None,
+            }),
+            MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
+        ]);
+        let entity = AgentLoopEntity::new(Id::from("agent-stream-2".to_string()))
+            .with_model("mock".to_string());
+        entity.state.write().await.start();
+
+        let (result, mut rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
+        let result = result.expect("stream iteration with tool must succeed");
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        let tool_start = events
+            .iter()
+            .find(|e| matches!(e, AgentStreamEvent::ToolStart { .. }));
+        let tool_end = events
+            .iter()
+            .find(|e| matches!(e, AgentStreamEvent::ToolEnd { .. }));
+        assert!(tool_start.is_some(), "ToolStart missing: {:?}", events);
+        assert!(tool_end.is_some(), "ToolEnd missing: {:?}", events);
+        if let Some(AgentStreamEvent::ToolEnd {
+            success, result: r, ..
+        }) = tool_end
+        {
+            assert!(*success);
+            assert!(r.contains("stream-tool-ok"), "unexpected result: {}", r);
+        }
+        assert_eq!(executed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // Tool call was mock_write (not attempt_completion) -> keep looping.
+        assert!(result.should_continue);
+        assert_eq!(result.tool_call_count, 1);
+        // Tool message added to conversation (assistant + tool).
+        let messages = entity.conversation().read().await.messages().to_vec();
+        assert_eq!(messages.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_stream_error_propagates() {
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script_error(wf_llm::error::LlmError::StreamError(
+            "upstream exploded".to_string(),
+        ));
+        let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+        let entity = AgentLoopEntity::new(Id::from("agent-stream-3".to_string()))
+            .with_model("mock".to_string());
+        entity.state.write().await.start();
+
+        let (result, _rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
+        let err = result.expect_err("stream error must fail the iteration");
+        assert!(err.to_string().contains("upstream exploded"));
     }
 }

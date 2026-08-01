@@ -1,12 +1,45 @@
-use crate::error::ConfigResult;
+use std::collections::HashSet;
+use std::str::FromStr;
+
+use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_required;
 
 use wf_types::agent::definition::AgentDefinition;
 use wf_types::agent_execution::runtime_config::AgentRuntimeConfig;
+use wf_types::llm::ToolCallFormat;
 
 pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<()> {
     validate_required(&definition.id, "id")?;
     validate_required(&definition.name, "name")?;
+    if let Some(format) = definition
+        .config
+        .as_ref()
+        .and_then(|c| c.tool_call_format.as_ref())
+    {
+        ToolCallFormat::from_str(format).map_err(ConfigError::Validation)?;
+    }
+    Ok(())
+}
+
+/// Profile-aware variant: the referenced `profile_id` must exist in the
+/// registered profile set (assembly-time reference closure).
+pub fn validate_agent_definition_with_profiles(
+    definition: &AgentDefinition,
+    known_profile_ids: &HashSet<String>,
+) -> ConfigResult<()> {
+    validate_agent_definition(definition)?;
+    if let Some(profile_id) = definition
+        .config
+        .as_ref()
+        .and_then(|c| c.profile_id.as_ref())
+    {
+        if !known_profile_ids.contains(profile_id) {
+            return Err(ConfigError::Validation(format!(
+                "agent '{}' references profile '{}' which is not registered",
+                definition.id, profile_id
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -93,6 +126,50 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_tool_call_format_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            profile_id: None,
+            system_prompt: None,
+            system_prompt_template_id: None,
+            system_prompt_template_variables: None,
+            max_iterations: None,
+            initial_messages: None,
+            available_tools: None,
+            stream: None,
+            tool_call_format: Some("yaml".to_string()),
+            hooks: None,
+            triggers: None,
+            dynamic_context: None,
+            checkpoint: None,
+            violation_policy: None,
+        });
+        assert!(validate_agent_definition(&def).is_err());
+    }
+
+    #[test]
+    fn test_valid_tool_call_format_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            profile_id: None,
+            system_prompt: None,
+            system_prompt_template_id: None,
+            system_prompt_template_variables: None,
+            max_iterations: None,
+            initial_messages: None,
+            available_tools: None,
+            stream: None,
+            tool_call_format: Some("json_wrapped".to_string()),
+            hooks: None,
+            triggers: None,
+            dynamic_context: None,
+            checkpoint: None,
+            violation_policy: None,
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
     fn test_transform_to_agent_loop_config() {
         let mut def = make_definition();
         def.config = Some(wf_types::agent::config::AgentConfig {
@@ -124,5 +201,36 @@ mod tests {
         let exported = export_agent_loop_config(def.clone());
         assert_eq!(exported.id, def.id);
         assert_eq!(exported.name, def.name);
+    }
+
+    #[test]
+    fn test_profile_aware_definition_validation() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            profile_id: Some("profile-1".to_string()),
+            system_prompt: None,
+            system_prompt_template_id: None,
+            system_prompt_template_variables: None,
+            max_iterations: None,
+            initial_messages: None,
+            available_tools: None,
+            stream: None,
+            tool_call_format: None,
+            hooks: None,
+            triggers: None,
+            dynamic_context: None,
+            checkpoint: None,
+            violation_policy: None,
+        });
+
+        let mut known = HashSet::new();
+        known.insert("profile-1".to_string());
+        assert!(validate_agent_definition_with_profiles(&def, &known).is_ok());
+
+        assert!(validate_agent_definition_with_profiles(&def, &HashSet::new()).is_err());
+
+        // Without a registry the plain validator stays lenient about the
+        // profile reference (checked at assembly time instead).
+        assert!(validate_agent_definition(&def).is_ok());
     }
 }

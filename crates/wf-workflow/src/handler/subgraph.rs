@@ -42,25 +42,26 @@ impl NodeHandler for SubgraphHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let subgraph_value = config.get("subgraph").or_else(|| config.get("graph"));
+        let subgraph_id = config
+            .get("subgraph_id")
+            .or_else(|| config.get("embed_id"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
 
-        let subgraph: WorkflowGraphStructure = match subgraph_value {
-            Some(v) => serde_json::from_value(v.clone()).map_err(|e| {
-                WorkflowError::SubgraphError(format!("Invalid subgraph definition: {}", e))
+        let subgraph: WorkflowGraphStructure = match subgraph_id {
+            Some(id) => crate::registry::lookup_graph(id).ok_or_else(|| {
+                WorkflowError::SubgraphError(format!("Subgraph '{}' is not registered", id))
             })?,
             None => {
                 return Err(WorkflowError::SubgraphError(
-                    "No subgraph definition found".to_string(),
+                    "SUBGRAPH node requires a subgraph_id (or embed_id) config".to_string(),
                 ))
             }
         };
 
         let options = WorkflowExecutionOptions {
             input: Some(ctx.input.clone()),
-            max_steps: config
-                .get("max_steps")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32),
+            max_steps: None,
             timeout: None,
             max_execution_time: None,
             enable_checkpoints: Some(false),

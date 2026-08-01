@@ -123,6 +123,25 @@ fn extract_branch_subgraph(
     }
 }
 
+/// Find the JOIN node whose `fork_path_ids` equal the fork's `path_ids`.
+fn find_join_node(graph: &WorkflowGraphStructure, path_ids: &[String]) -> Option<String> {
+    graph
+        .nodes
+        .iter()
+        .find(|n| {
+            n.node_type == "JOIN"
+                && n.inner
+                    .get("fork_path_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|ids| {
+                        ids.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()
+                            == path_ids.iter().map(String::as_str).collect::<Vec<_>>()
+                    })
+                    .unwrap_or(false)
+        })
+        .map(|n| n.id.clone())
+}
+
 pub struct ForkHandler;
 
 #[async_trait]
@@ -133,15 +152,15 @@ impl NodeHandler for ForkHandler {
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-        let branches = config
-            .get("branches")
-            .and_then(|b| b.as_array())
+        let paths = config
+            .get("fork_paths")
+            .and_then(|p| p.as_array())
             .cloned()
             .unwrap_or_default();
 
-        if branches.is_empty() {
+        if paths.is_empty() {
             return Err(WorkflowError::ForkJoinError(
-                "No branches defined for fork node".to_string(),
+                "No fork_paths defined for fork node".to_string(),
             ));
         }
 
@@ -162,6 +181,11 @@ impl NodeHandler for ForkHandler {
             })
             .unwrap_or(FailureStrategy::FailFast);
 
+        let fork_strategy = config
+            .get("fork_strategy")
+            .and_then(|s| s.as_str())
+            .unwrap_or("parallel");
+
         let event_bus = ctx.event_bus.clone();
         let execution_id = ctx.execution_id.clone();
         let node_id = ctx.node_id.clone();
@@ -173,7 +197,7 @@ impl NodeHandler for ForkHandler {
             HashMap::from([
                 (
                     "branch_count".to_string(),
-                    Value::Number(serde_json::Number::from(branches.len() as u64)),
+                    Value::Number(serde_json::Number::from(paths.len() as u64)),
                 ),
                 ("node_id".to_string(), Value::String(node_id.clone())),
             ]),
@@ -186,108 +210,111 @@ impl NodeHandler for ForkHandler {
             .cloned();
 
         let handlers = resolve_handlers(ctx);
-        let join_node_id = config
-            .get("target_join")
-            .and_then(|t| t.as_str())
-            .map(|s| s.to_string());
+        let path_ids: Vec<String> = paths
+            .iter()
+            .filter_map(|p| p.get("path_id").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        // The JOIN node is the one whose fork_path_ids match this fork's
+        // path ids.
+        let join_node_id = graph.as_ref().and_then(|g| find_join_node(g, &path_ids));
         let tool_registry = ctx.tool_registry.clone();
         let parent_variables = ctx.variables.clone();
 
-        let barrier = Arc::new(SyncBarrier::new(branches.len()));
-        let mut handles = Vec::new();
+        let barrier = Arc::new(SyncBarrier::new(paths.len()));
         let event_bus_clone = event_bus.clone();
         let execution_id_clone = execution_id.clone();
         let node_id_clone = node_id.clone();
+        let branch_input = ctx.input.clone();
 
-        for (idx, branch) in branches.iter().enumerate() {
-            let branch_id = branch
-                .get("id")
-                .and_then(|id| id.as_str())
-                .unwrap_or("branch")
-                .to_string();
-            let branch_input = branch.get("input").cloned().unwrap_or(ctx.input.clone());
-            let barrier_clone = barrier.clone();
-            let eb = event_bus_clone.clone();
-            let eid = execution_id_clone.clone();
-            let nid = node_id_clone.clone();
-            let handlers = handlers.clone();
-            let graph = graph.clone();
-            let join_node_id = join_node_id.clone();
-            let tool_registry = tool_registry.clone();
-            let parent_variables = parent_variables.clone();
-
-            emit_fork_event(
-                event_bus.as_ref(),
-                EventType::ForkBranchStarted,
-                &execution_id,
-                HashMap::from([
-                    ("branch_id".to_string(), Value::String(branch_id.clone())),
-                    (
-                        "branch_index".to_string(),
-                        Value::Number(serde_json::Number::from(idx as u64)),
-                    ),
-                    ("node_id".to_string(), Value::String(node_id.clone())),
-                ]),
-            );
-
-            let handle = tokio::spawn(async move {
-                let result = match &graph {
-                    Some(g) => {
-                        let outgoing: Vec<&WorkflowEdge> =
-                            g.edges.iter().filter(|e| e.source_node_id == nid).collect();
-
-                        let branch_edge = outgoing
-                            .iter()
-                            .find(|e| {
-                                e.label.as_deref() == Some(&branch_id)
-                                    || e.target_node_id == branch_id
-                            })
-                            .or_else(|| outgoing.get(idx))
-                            .or_else(|| outgoing.first());
-
-                        match branch_edge {
-                            Some(edge) => {
-                                let join_target = join_node_id.clone().unwrap_or_default();
-                                let subgraph = extract_branch_subgraph(g, &nid, edge, &join_target);
-
-                                if subgraph.nodes.is_empty() {
-                                    BranchResult::success(&branch_id, branch_input)
-                                } else {
-                                    match execute_branch(
-                                        &eid,
-                                        &branch_id,
-                                        branch_input,
-                                        subgraph,
-                                        BranchContext {
-                                            handlers,
-                                            event_bus: eb,
-                                            tool_registry,
-                                            parent_variables,
-                                        },
-                                    )
-                                    .await
-                                    {
-                                        Ok(output) => output,
-                                        Err(e) => BranchResult::failure(&branch_id, e.to_string()),
-                                    }
-                                }
-                            }
-                            None => BranchResult::success(&branch_id, branch_input),
-                        }
-                    }
-                    None => BranchResult::success(&branch_id, branch_input),
-                };
-                barrier_clone.notify_branch_completed(&branch_id).await;
-                result
-            });
-            handles.push(handle);
-        }
-
-        let results: Vec<BranchResult> = join_all(handles)
-            .await
-            .into_iter()
-            .filter_map(|r| r.ok())
-            .collect();
+        let results: Vec<BranchResult> = if fork_strategy == "serial" {
+            let mut results = Vec::new();
+            for (idx, path) in paths.iter().enumerate() {
+                emit_fork_event(
+                    event_bus.as_ref(),
+                    EventType::ForkBranchStarted,
+                    &execution_id,
+                    HashMap::from([
+                        (
+                            "branch_id".to_string(),
+                            Value::String(
+                                path.get("path_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("path")
+                                    .to_string(),
+                            ),
+                        ),
+                        (
+                            "branch_index".to_string(),
+                            Value::Number(serde_json::Number::from(idx as u64)),
+                        ),
+                        ("node_id".to_string(), Value::String(node_id.clone())),
+                    ]),
+                );
+                results.push(
+                    run_branch(
+                        idx,
+                        path.clone(),
+                        barrier.clone(),
+                        event_bus_clone.clone(),
+                        execution_id_clone.clone(),
+                        node_id_clone.clone(),
+                        handlers.clone(),
+                        graph.clone(),
+                        join_node_id.clone(),
+                        tool_registry.clone(),
+                        parent_variables.clone(),
+                        branch_input.clone(),
+                    )
+                    .await,
+                );
+            }
+            results
+        } else {
+            let mut handles = Vec::new();
+            for (idx, path) in paths.iter().enumerate() {
+                emit_fork_event(
+                    event_bus.as_ref(),
+                    EventType::ForkBranchStarted,
+                    &execution_id,
+                    HashMap::from([
+                        (
+                            "branch_id".to_string(),
+                            Value::String(
+                                path.get("path_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("path")
+                                    .to_string(),
+                            ),
+                        ),
+                        (
+                            "branch_index".to_string(),
+                            Value::Number(serde_json::Number::from(idx as u64)),
+                        ),
+                        ("node_id".to_string(), Value::String(node_id.clone())),
+                    ]),
+                );
+                let handle = tokio::spawn(run_branch(
+                    idx,
+                    path.clone(),
+                    barrier.clone(),
+                    event_bus_clone.clone(),
+                    execution_id_clone.clone(),
+                    node_id_clone.clone(),
+                    handlers.clone(),
+                    graph.clone(),
+                    join_node_id.clone(),
+                    tool_registry.clone(),
+                    parent_variables.clone(),
+                    branch_input.clone(),
+                ));
+                handles.push(handle);
+            }
+            join_all(handles)
+                .await
+                .into_iter()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
 
         let outcome = failure_strategy.evaluate(&results);
 
@@ -313,7 +340,7 @@ impl NodeHandler for ForkHandler {
             HashMap::from([
                 (
                     "branch_count".to_string(),
-                    Value::Number(serde_json::Number::from(branches.len() as u64)),
+                    Value::Number(serde_json::Number::from(paths.len() as u64)),
                 ),
                 (
                     "success_count".to_string(),
@@ -331,7 +358,7 @@ impl NodeHandler for ForkHandler {
         let mut metadata = HashMap::new();
         metadata.insert(
             "branch_count".to_string(),
-            Value::Number(serde_json::Number::from(branches.len() as u64)),
+            Value::Number(serde_json::Number::from(paths.len() as u64)),
         );
         metadata.insert(
             "success_count".to_string(),
@@ -346,9 +373,8 @@ impl NodeHandler for ForkHandler {
 
         let mut next_nodes: Vec<String> = Vec::new();
         if outcome != ForkOutcome::Failed {
-            let target = config.get("target_join").and_then(|t| t.as_str());
-            if let Some(target) = target {
-                next_nodes.push(target.to_string());
+            if let Some(target) = &join_node_id {
+                next_nodes.push(target.clone());
             }
         }
 
@@ -382,6 +408,84 @@ struct BranchContext {
     event_bus: Option<Arc<EventBus>>,
     tool_registry: Option<Arc<ToolRegistry>>,
     parent_variables: Arc<dashmap::DashMap<String, Value>>,
+}
+
+/// Execute one fork branch: extract the branch subgraph from the edge
+/// carrying the path label and run it up to the join node.
+#[allow(clippy::too_many_arguments)]
+async fn run_branch(
+    idx: usize,
+    path: Value,
+    barrier: Arc<SyncBarrier>,
+    event_bus: Option<Arc<EventBus>>,
+    execution_id: wf_types::Id,
+    node_id: String,
+    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    graph: Option<WorkflowGraphStructure>,
+    join_node_id: Option<String>,
+    tool_registry: Option<Arc<ToolRegistry>>,
+    parent_variables: Arc<dashmap::DashMap<String, Value>>,
+    branch_input: Value,
+) -> BranchResult {
+    let path_id = path
+        .get("path_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("path")
+        .to_string();
+    let child_node_id = path
+        .get("child_node_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let result = match &graph {
+        Some(g) => {
+            let outgoing: Vec<&WorkflowEdge> = g
+                .edges
+                .iter()
+                .filter(|e| e.source_node_id == node_id)
+                .collect();
+
+            let branch_edge = outgoing
+                .iter()
+                .find(|e| e.label.as_deref() == Some(&path_id) || e.target_node_id == child_node_id)
+                .or_else(|| outgoing.get(idx))
+                .or_else(|| outgoing.first());
+
+            match branch_edge {
+                Some(edge) => {
+                    let join_target = join_node_id.clone().unwrap_or_default();
+                    let subgraph = extract_branch_subgraph(g, &node_id, edge, &join_target);
+
+                    if subgraph.nodes.is_empty() {
+                        BranchResult::success(&path_id, branch_input)
+                    } else {
+                        match execute_branch(
+                            &execution_id,
+                            &path_id,
+                            branch_input,
+                            subgraph,
+                            BranchContext {
+                                handlers,
+                                event_bus,
+                                tool_registry,
+                                parent_variables,
+                            },
+                        )
+                        .await
+                        {
+                            Ok(output) => output,
+                            Err(e) => BranchResult::failure(&path_id, e.to_string()),
+                        }
+                    }
+                }
+                None => BranchResult::success(&path_id, branch_input),
+            }
+        }
+        None => BranchResult::success(&path_id, branch_input),
+    };
+    barrier.notify_branch_completed(&path_id).await;
+    result
 }
 
 async fn execute_branch(
@@ -490,66 +594,6 @@ fn merge_outputs(outputs: &[Value]) -> Value {
     Value::Object(merged)
 }
 
-/// Numeric aggregation over branch outputs (each output must be numeric or a
-/// single-number array/object is treated as scalar via `as_f64`).
-fn numeric_aggregate(outputs: &[Value], handler: &str) -> Option<Value> {
-    let numbers: Vec<f64> = outputs.iter().filter_map(|v| v.as_f64()).collect();
-    if numbers.is_empty() {
-        return None;
-    }
-    let result = match handler {
-        "sum" => numbers.iter().sum::<f64>(),
-        "average" | "avg" => numbers.iter().sum::<f64>() / numbers.len() as f64,
-        "max" => numbers.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-        "min" => numbers.iter().cloned().fold(f64::INFINITY, f64::min),
-        _ => return None,
-    };
-    serde_json::Number::from_f64(result).map(Value::Number)
-}
-
-/// Concatenation aggregation: joins all array outputs into one array.
-fn concat_outputs(outputs: &[Value]) -> Value {
-    let mut items: Vec<Value> = Vec::new();
-    for output in outputs {
-        match output {
-            Value::Array(arr) => items.extend(arr.clone()),
-            other => items.push(other.clone()),
-        }
-    }
-    Value::Array(items)
-}
-
-/// Run a user-supplied JS aggregation function against the branch outputs.
-/// `handler` is treated as an expression evaluating to a function that takes
-/// the results array and returns the aggregated value (sync or async).
-async fn run_custom_aggregator(handler: &str, outputs: &[Value]) -> WorkflowResult<Value> {
-    let sandbox = std::sync::Arc::new(wf_sandbox::SandboxRuntime::new());
-    let config = crate::handler::script::ScriptHandler::build_sandbox_config(None, "javascript");
-    let results_json = serde_json::to_string(outputs).map_err(|e| {
-        WorkflowError::ForkJoinError(format!("Failed to serialize branch outputs: {}", e))
-    })?;
-    let code = format!(
-        "const __results = {};\n(async () => {{\n  const __out = ({})(__results);\n  const __final = __out && typeof __out.then === 'function' ? await __out : __out;\n  console.log(JSON.stringify(__final));\n}})();",
-        results_json, handler
-    );
-
-    let result = sandbox.execute("javascript", &code, &config).await;
-    if !result.success {
-        return Err(WorkflowError::ForkJoinError(format!(
-            "Custom join aggregation failed: {}",
-            result.stderr.as_deref().unwrap_or("unknown error")
-        )));
-    }
-    let stdout = result.stdout.unwrap_or_default();
-    let parsed = serde_json::from_str::<Value>(&stdout).map_err(|_| {
-        WorkflowError::ForkJoinError(format!(
-            "Custom join aggregation returned non-JSON: {}",
-            stdout
-        ))
-    })?;
-    Ok(parsed)
-}
-
 #[async_trait]
 impl NodeHandler for JoinHandler {
     fn node_type(&self) -> StaticNodeType {
@@ -559,13 +603,16 @@ impl NodeHandler for JoinHandler {
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
         let strategy = config
-            .get("strategy")
+            .get("join_strategy")
             .and_then(|s| s.as_str())
-            .unwrap_or("merge");
+            .unwrap_or("wait_for_all");
 
         let event_bus = ctx.event_bus.clone();
         let join_meta = HashMap::from([
-            ("strategy".to_string(), Value::String(strategy.to_string())),
+            (
+                "join_strategy".to_string(),
+                Value::String(strategy.to_string()),
+            ),
             ("node_id".to_string(), Value::String(ctx.node_id.clone())),
         ]);
         if let Some(bus) = &event_bus {
@@ -585,22 +632,24 @@ impl NodeHandler for JoinHandler {
             ctx.input.clone()
         } else {
             match strategy {
-                "first" => branch_outputs[0].clone(),
-                "last" => branch_outputs.last().unwrap().clone(),
-                "merge" => merge_outputs(&branch_outputs),
-                "aggregate" => {
-                    let handler = config.get("handler").and_then(|h| h.as_str());
-                    match handler {
-                        Some(h) if matches!(h, "sum" | "average" | "avg" | "max" | "min") => {
-                            numeric_aggregate(&branch_outputs, h)
-                                .unwrap_or_else(|| merge_outputs(&branch_outputs))
-                        }
-                        Some("concat") => concat_outputs(&branch_outputs),
-                        Some(h) => run_custom_aggregator(h, &branch_outputs).await?,
-                        None => merge_outputs(&branch_outputs),
-                    }
+                // wait_for_any returns the first successful branch output.
+                "wait_for_any" => branch_outputs[0].clone(),
+                // wait_for_n merges the first `threshold` successful outputs.
+                "wait_for_n" => {
+                    let threshold = config
+                        .get("threshold")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(branch_outputs.len() as u64)
+                        as usize;
+                    let taken: Vec<Value> = branch_outputs
+                        .iter()
+                        .take(threshold.max(1))
+                        .cloned()
+                        .collect();
+                    merge_outputs(&taken)
                 }
-                _ => ctx.input.clone(),
+                // wait_for_all merges every successful branch output.
+                _ => merge_outputs(&branch_outputs),
             }
         };
 
@@ -613,7 +662,10 @@ impl NodeHandler for JoinHandler {
                 execution_id: Some(ctx.execution_id.clone()),
                 agent_loop_id: None,
                 metadata: Some(HashMap::from([
-                    ("strategy".to_string(), Value::String(strategy.to_string())),
+                    (
+                        "join_strategy".to_string(),
+                        Value::String(strategy.to_string()),
+                    ),
                     (
                         "branch_count".to_string(),
                         Value::Number(serde_json::Number::from(branch_outputs.len() as u64)),
@@ -758,54 +810,98 @@ mod tests {
         );
     }
 
-    #[test]
-    fn join_numeric_aggregates() {
-        let outputs = vec![
-            serde_json::json!(1),
-            serde_json::json!(2),
-            serde_json::json!(3),
-        ];
-        assert_eq!(
-            numeric_aggregate(&outputs, "sum"),
-            Some(serde_json::json!(6.0))
-        );
-        assert_eq!(
-            numeric_aggregate(&outputs, "average"),
-            Some(serde_json::json!(2.0))
-        );
-        assert_eq!(
-            numeric_aggregate(&outputs, "max"),
-            Some(serde_json::json!(3.0))
-        );
-        assert_eq!(
-            numeric_aggregate(&outputs, "min"),
-            Some(serde_json::json!(1.0))
-        );
-        assert_eq!(concat_outputs(&outputs), serde_json::json!([1, 2, 3]));
+    #[tokio::test]
+    async fn join_strategies_aggregate_branch_outputs() {
+        let vars = std::sync::Arc::new(dashmap::DashMap::new());
+        let input = serde_json::json!({
+            "outputs": [
+                {"branch_id": "b1", "output": {"x": 1}, "success": true},
+                {"branch_id": "b2", "output": {"y": 2}, "success": true}
+            ]
+        });
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join1".to_string(),
+            StaticNodeType::Join,
+            input,
+            vars,
+        )
+        .with_node_config(serde_json::json!({"join_strategy": "wait_for_all"}));
+        let result = JoinHandler
+            .execute(&mut ctx)
+            .await
+            .expect("wait_for_all should merge all outputs");
+        assert_eq!(result.output, serde_json::json!({"x": 1, "y": 2}));
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join1".to_string(),
+            StaticNodeType::Join,
+            serde_json::json!({
+                "outputs": [
+                    {"branch_id": "b1", "output": {"x": 1}, "success": true},
+                    {"branch_id": "b2", "output": {"y": 2}, "success": true}
+                ]
+            }),
+            std::sync::Arc::new(dashmap::DashMap::new()),
+        )
+        .with_node_config(serde_json::json!({"join_strategy": "wait_for_any"}));
+        let result = JoinHandler
+            .execute(&mut ctx)
+            .await
+            .expect("wait_for_any should return the first output");
+        assert_eq!(result.output, serde_json::json!({"x": 1}));
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "join1".to_string(),
+            StaticNodeType::Join,
+            serde_json::json!({
+                "outputs": [
+                    {"branch_id": "b1", "output": {"x": 1}, "success": true},
+                    {"branch_id": "b2", "output": {"y": 2}, "success": true}
+                ]
+            }),
+            std::sync::Arc::new(dashmap::DashMap::new()),
+        )
+        .with_node_config(serde_json::json!({
+            "join_strategy": "wait_for_n",
+            "threshold": 1
+        }));
+        let result = JoinHandler
+            .execute(&mut ctx)
+            .await
+            .expect("wait_for_n should merge up to the threshold");
+        assert_eq!(result.output, serde_json::json!({"x": 1}));
     }
 
-    #[tokio::test]
-    async fn custom_aggregator_runs_user_function() {
-        let outputs = vec![
-            serde_json::json!({"v": 1}),
-            serde_json::json!({"v": 2}),
-            serde_json::json!({"v": 3}),
+    #[test]
+    fn find_join_matches_by_path_ids() {
+        let nodes = vec![
+            WorkflowNode {
+                id: "join1".into(),
+                name: None,
+                node_type: "JOIN".into(),
+                inner: serde_json::json!({"fork_path_ids": ["p1", "p2"]}),
+            },
+            WorkflowNode {
+                id: "join2".into(),
+                name: None,
+                node_type: "JOIN".into(),
+                inner: serde_json::json!({"fork_path_ids": ["p3"]}),
+            },
         ];
-        let sum = run_custom_aggregator(
-            "(results) => results.reduce((acc, r) => acc + r.v, 0)",
-            &outputs,
-        )
-        .await
-        .expect("sync aggregator should run");
-        assert_eq!(sum.as_f64(), Some(6.0));
-
-        let async_avg = run_custom_aggregator(
-            "async (results) => results.reduce((acc, r) => acc + r.v, 0) / results.length",
-            &outputs,
-        )
-        .await
-        .expect("async aggregator should run");
-        assert_eq!(async_avg.as_f64(), Some(2.0));
+        let graph = build_graph(nodes, vec![]);
+        assert_eq!(
+            find_join_node(&graph, &["p1".to_string(), "p2".to_string()]),
+            Some("join1".to_string())
+        );
+        assert_eq!(
+            find_join_node(&graph, &["p3".to_string()]),
+            Some("join2".to_string())
+        );
+        assert_eq!(find_join_node(&graph, &["p9".to_string()]), None);
     }
 
     fn edge(source: &str, target: &str) -> WorkflowEdge {

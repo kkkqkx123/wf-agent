@@ -19,7 +19,7 @@ pub struct AgentLoopEntity {
     parent_execution_id: Option<Id>,
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
     hooks: Vec<BaseHookDefinition>,
-    model: Option<String>,
+    model: String,
     tool_call_format: Option<ToolCallFormatConfig>,
     available_tool_names: Vec<String>,
     timeout_manager: AgentTimeoutManager,
@@ -38,7 +38,7 @@ impl AgentLoopEntity {
             parent_execution_id: None,
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             hooks: Vec::new(),
-            model: None,
+            model: String::new(),
             tool_call_format: None,
             available_tool_names: Vec::new(),
             timeout_manager: AgentTimeoutManager::new(),
@@ -58,7 +58,7 @@ impl AgentLoopEntity {
     }
 
     pub fn with_model(mut self, model: String) -> Self {
-        self.model = Some(model);
+        self.model = model;
         self
     }
 
@@ -93,8 +93,8 @@ impl AgentLoopEntity {
         &self.hooks
     }
 
-    pub fn model(&self) -> Option<&str> {
-        self.model.as_deref()
+    pub fn model(&self) -> &str {
+        &self.model
     }
 
     pub fn tool_call_format(&self) -> Option<&ToolCallFormatConfig> {

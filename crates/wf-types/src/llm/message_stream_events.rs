@@ -13,6 +13,7 @@ pub enum MessageStreamEventType {
     Abort,
     End,
     ReasoningText,
+    Usage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,6 +29,7 @@ pub enum MessageStreamEvent {
     Abort(MessageStreamAbort),
     End(MessageStreamEnd),
     ReasoningText(MessageStreamReasoning),
+    Usage(MessageStreamUsage),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,4 +80,11 @@ pub struct MessageStreamEnd {}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MessageStreamReasoning {
     pub reasoning: String,
+}
+
+/// Token usage reported mid-stream (e.g. OpenAI's `include_usage` chunk or
+/// Anthropic's `message_delta` usage).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MessageStreamUsage {
+    pub usage: super::TokenUsageStats,
 }

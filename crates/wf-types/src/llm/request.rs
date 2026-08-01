@@ -25,8 +25,7 @@ pub enum ToolCallProtocolViolationPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub profile_id: Option<String>,
+    pub profile_id: String,
     pub messages: Vec<super::super::message::Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<serde_json::Value>,

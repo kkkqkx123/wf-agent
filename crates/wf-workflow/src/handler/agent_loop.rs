@@ -62,12 +62,12 @@ impl NodeHandler for AgentLoopHandler {
         if let Some(metrics) = &ctx.metrics {
             llm_wrapper = llm_wrapper.with_token_metrics(metrics.token().as_ref().clone());
         }
-        let tool_registry = ToolRegistry::new();
+        let tool_registry = ctx
+            .tool_registry
+            .clone()
+            .unwrap_or_else(|| std::sync::Arc::new(ToolRegistry::new()));
 
-        let coordinator = AgentLoopCoordinator::new(
-            std::sync::Arc::new(llm_wrapper),
-            std::sync::Arc::new(tool_registry),
-        );
+        let coordinator = AgentLoopCoordinator::new(std::sync::Arc::new(llm_wrapper), tool_registry);
 
         let loop_config = AgentLoopConfig {
             agent_id: ctx.node_id.clone(),

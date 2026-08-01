@@ -47,29 +47,3 @@ impl NodeHandler for EndHandler {
         Ok(NodeExecutionResult::simple(ctx.input.clone()))
     }
 }
-
-pub struct TriggerPassthroughHandler;
-
-#[async_trait]
-impl NodeHandler for TriggerPassthroughHandler {
-    fn node_type(&self) -> StaticNodeType {
-        StaticNodeType::StartFromTrigger
-    }
-
-    async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
-        Ok(NodeExecutionResult::simple(ctx.input.clone()))
-    }
-}
-
-pub struct ContinueFromTriggerHandler;
-
-#[async_trait]
-impl NodeHandler for ContinueFromTriggerHandler {
-    fn node_type(&self) -> StaticNodeType {
-        StaticNodeType::ContinueFromTrigger
-    }
-
-    async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
-        Ok(NodeExecutionResult::simple(ctx.input.clone()))
-    }
-}

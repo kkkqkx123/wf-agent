@@ -85,41 +85,55 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 metadata: None,
             }),
             CheckpointType::Delta => {
-                let delta = if let Some(ref prev_meta) = previous {
-                    if let Some(prev_cp) = self.state_manager.load(&prev_meta.id).await? {
-                        if let Some(ref prev_snapshot) = prev_cp.snapshot {
-                            self.diff_calculator
-                                .calculate_diff(prev_snapshot, &state)
-                                .await?
-                        } else {
-                            WorkflowCheckpointDelta {
-                                added_messages: state.messages.clone(),
-                                modified_messages: None,
-                                deleted_message_indices: None,
-                                added_variables: None,
-                                modified_variables: None,
-                                added_node_results: None,
-                                status_change: Some(serde_json::json!({"status": state.status})),
-                                current_node_change: state.current_node_id.clone(),
-                                other_changes: None,
-                            }
+                // Diff against the nearest checkpoint that still carries a
+                // full snapshot (the chain head); deltas in between have no
+                // snapshot of their own.
+                let mut base_id: Option<String> = None;
+                let mut base_snapshot: Option<WorkflowExecutionStateSnapshot> = None;
+                let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
+                while let Some(id) = cursor {
+                    let cp = self.state_manager.load(&id).await?;
+                    match cp {
+                        Some(cp) if cp.snapshot.is_some() => {
+                            base_id = Some(id);
+                            base_snapshot = cp.snapshot;
+                            break;
                         }
-                    } else {
-                        return Err(CheckpointError::NotFound {
-                            id: prev_meta.id.clone(),
-                        });
+                        Some(cp) => cursor = cp.previous_checkpoint_id,
+                        None => break,
                     }
-                } else {
-                    return Err(CheckpointError::DeltaChainBroken {
-                        checkpoint_id: ctx.entity_id.clone(),
-                        missing_id: "no previous checkpoint for delta".to_string(),
-                    });
+                }
+
+                let delta = match base_snapshot {
+                    Some(base_snapshot) => self
+                        .diff_calculator
+                        .calculate_diff(&base_snapshot, &state)
+                        .await?,
+                    None => WorkflowCheckpointDelta {
+                        added_messages: state.messages.clone(),
+                        modified_messages: None,
+                        deleted_message_indices: None,
+                        added_variables: Some(state.variable_state.variables.clone()),
+                        modified_variables: None,
+                        added_node_results: state
+                            .node_results
+                            .clone()
+                            .map(serde_json::to_value)
+                            .transpose()
+                            .map_err(|e| CheckpointError::Corrupted {
+                                id: ctx.entity_id.clone(),
+                                reason: format!("node_results serialization failed: {}", e),
+                            })?,
+                        status_change: Some(serde_json::json!({"status": state.status})),
+                        current_node_change: state.current_node_id.clone(),
+                        other_changes: None,
+                    },
                 };
 
                 Ok(BaseCheckpointCore {
                     id: wf_common::generate_id(),
                     r#type: Some(CheckpointType::Delta),
-                    base_checkpoint_id: previous.clone().map(|p| p.id),
+                    base_checkpoint_id: base_id,
                     previous_checkpoint_id: previous.map(|p| p.id),
                     delta: Some(delta),
                     snapshot: None,
@@ -194,11 +208,16 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                             reason: "base checkpoint missing snapshot".to_string(),
                         })?;
 
-                let mut current_id = checkpoint.previous_checkpoint_id.clone();
+                // Replay every delta from the chain head up to and including
+                // this checkpoint, oldest first.
                 let mut chain = Vec::new();
+                if let Some(ref delta) = checkpoint.delta {
+                    chain.push(delta.clone());
+                }
+                let mut current_id = checkpoint.previous_checkpoint_id.clone();
 
                 while let Some(id) = current_id {
-                    if id == *checkpoint_id {
+                    if id == base_id {
                         break;
                     }
                     let cp = self

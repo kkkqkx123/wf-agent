@@ -86,7 +86,10 @@ impl NodeHandler for EmbedHandler {
         let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
 
         let event_bus = ctx.event_bus.clone();
-        let tool_registry = Arc::new(ToolRegistry::new());
+        let tool_registry = ctx
+            .tool_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
         let exec_ctx = ExecutorContext::new(
             execution_id,
@@ -95,6 +98,13 @@ impl NodeHandler for EmbedHandler {
             tool_registry,
             options,
         );
+        let sub_variables = exec_ctx.variables.clone();
+
+        crate::handler::variable_mapping::apply_variable_inputs(
+            config,
+            &ctx.variables,
+            &sub_variables,
+        )?;
 
         emit_embed_event(
             event_bus.as_ref(),
@@ -107,6 +117,12 @@ impl NodeHandler for EmbedHandler {
             WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
 
         let output = coordinator.execute().await?;
+
+        crate::handler::variable_mapping::apply_variable_outputs(
+            config,
+            &sub_variables,
+            &ctx.variables,
+        );
 
         emit_embed_event(
             event_bus.as_ref(),

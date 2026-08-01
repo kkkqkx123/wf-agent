@@ -26,6 +26,9 @@ pub enum WorkflowError {
     #[error("Subgraph error: {0}")]
     SubgraphError(String),
 
+    #[error("Trigger error: {0}")]
+    TriggerError(String),
+
     #[error("Variable error: {0}")]
     VariableError(String),
 

@@ -131,6 +131,7 @@ impl ConditionEvaluator {
 
     pub fn evaluate(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let condition = Self::normalize_condition(condition);
+        let condition = Self::interpolate(&condition, context);
         let condition = condition.trim();
 
         if condition.starts_with("eq(") {
@@ -141,14 +142,77 @@ impl ConditionEvaluator {
             Self::eval_gt(condition, context)
         } else if condition.starts_with("lt(") {
             Self::eval_lt(condition, context)
+        } else if condition.starts_with("ge(") {
+            Self::eval_ge(condition, context)
+        } else if condition.starts_with("le(") {
+            Self::eval_le(condition, context)
         } else if condition.starts_with("and(") {
             Self::eval_and(condition, context)
         } else if condition.starts_with("or(") {
             Self::eval_or(condition, context)
         } else if condition.starts_with("not(") {
             Self::eval_not(condition, context)
+        } else if condition.starts_with("isNull(") {
+            Self::eval_is_null(condition, context)
+        } else if condition.starts_with("isEmpty(") {
+            Self::eval_is_empty(condition, context)
+        } else if condition.starts_with("isTrue(") {
+            Self::eval_is_true(condition, context)
+        } else if condition.starts_with("isFalse(") {
+            Self::eval_is_false(condition, context)
+        } else if condition.starts_with("hasValue(") {
+            Self::eval_has_value(condition, context)
+        } else if condition.starts_with("contains(") {
+            Self::eval_contains(condition, context)
+        } else if condition.starts_with("startsWith(") {
+            Self::eval_starts_with(condition, context)
+        } else if condition.starts_with("endsWith(") {
+            Self::eval_ends_with(condition, context)
+        } else if condition.starts_with("length(") {
+            Self::eval_length(condition, context)
         } else {
             Self::eval_exists(condition, context)
+        }
+    }
+
+    /// Replace `${path}` / `{{path}}` occurrences with the resolved values
+    /// from the context. Unresolved paths are left as-is.
+    fn interpolate(condition: &str, context: &HashMap<String, Value>) -> String {
+        let mut result = String::with_capacity(condition.len());
+        let bytes = condition.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+                if let Some(end) = condition[i + 2..].find('}') {
+                    let path = &condition[i + 2..i + 2 + end];
+                    if let Some(value) = Self::lookup_variable(path, context) {
+                        result.push_str(&Self::value_to_literal(&value));
+                        i += 2 + end + 1;
+                        continue;
+                    }
+                }
+            }
+            if bytes[i] == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+                if let Some(end) = condition[i + 2..].find("}}") {
+                    let path = &condition[i + 2..i + 2 + end];
+                    if let Some(value) = Self::lookup_variable(path, context) {
+                        result.push_str(&Self::value_to_literal(&value));
+                        i += 2 + end + 2;
+                        continue;
+                    }
+                }
+            }
+            result.push(condition[i..].chars().next().unwrap());
+            i += condition[i..].chars().next().unwrap().len_utf8();
+        }
+        result
+    }
+
+    fn value_to_literal(value: &Value) -> String {
+        match value {
+            Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
+            Value::Null => "null".to_string(),
+            other => other.to_string(),
         }
     }
 
@@ -313,6 +377,178 @@ impl ConditionEvaluator {
         }
     }
 
+    fn eval_ge(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[3..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "ge() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        let a = Self::resolve_value(args[0], context);
+        let b = Self::resolve_value(args[1], context);
+        match (a.as_f64(), b.as_f64()) {
+            (Some(a), Some(b)) => Ok(a >= b),
+            _ => Err(CoreError::ConditionError(
+                "ge() requires numeric arguments".to_string(),
+            )),
+        }
+    }
+
+    fn eval_le(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[3..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "le() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        let a = Self::resolve_value(args[0], context);
+        let b = Self::resolve_value(args[1], context);
+        match (a.as_f64(), b.as_f64()) {
+            (Some(a), Some(b)) => Ok(a <= b),
+            _ => Err(CoreError::ConditionError(
+                "le() requires numeric arguments".to_string(),
+            )),
+        }
+    }
+
+    fn eval_is_null(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[7..]);
+        if args.len() != 1 {
+            return Err(CoreError::ConditionError(format!(
+                "isNull() expects 1 arg, got {}",
+                args.len()
+            )));
+        }
+        Ok(matches!(Self::resolve_value(args[0], context), Value::Null))
+    }
+
+    fn eval_is_empty(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[8..]);
+        if args.len() != 1 {
+            return Err(CoreError::ConditionError(format!(
+                "isEmpty() expects 1 arg, got {}",
+                args.len()
+            )));
+        }
+        Ok(match Self::resolve_value(args[0], context) {
+            Value::Null => true,
+            Value::String(s) => s.is_empty(),
+            Value::Array(a) => a.is_empty(),
+            Value::Object(o) => o.is_empty(),
+            _ => false,
+        })
+    }
+
+    fn eval_is_true(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[7..]);
+        if args.len() != 1 {
+            return Err(CoreError::ConditionError(format!(
+                "isTrue() expects 1 arg, got {}",
+                args.len()
+            )));
+        }
+        Ok(matches!(Self::resolve_value(args[0], context), Value::Bool(true)))
+    }
+
+    fn eval_is_false(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[8..]);
+        if args.len() != 1 {
+            return Err(CoreError::ConditionError(format!(
+                "isFalse() expects 1 arg, got {}",
+                args.len()
+            )));
+        }
+        Ok(matches!(
+            Self::resolve_value(args[0], context),
+            Value::Bool(false)
+        ))
+    }
+
+    fn eval_has_value(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[9..]);
+        if args.len() != 1 {
+            return Err(CoreError::ConditionError(format!(
+                "hasValue() expects 1 arg, got {}",
+                args.len()
+            )));
+        }
+        Ok(!matches!(Self::resolve_value(args[0], context), Value::Null))
+    }
+
+    fn eval_contains(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[9..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "contains() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+            (Value::String(s), Value::String(sub)) => Ok(s.contains(&sub)),
+            (Value::Array(a), needle) => Ok(a.contains(&needle)),
+            _ => Err(CoreError::ConditionError(
+                "contains() requires a string or array first argument".to_string(),
+            )),
+        }
+    }
+
+    fn eval_starts_with(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[11..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "startsWith() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+            (Value::String(s), Value::String(prefix)) => Ok(s.starts_with(&prefix)),
+            _ => Err(CoreError::ConditionError(
+                "startsWith() requires string arguments".to_string(),
+            )),
+        }
+    }
+
+    fn eval_ends_with(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[9..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "endsWith() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+            (Value::String(s), Value::String(suffix)) => Ok(s.ends_with(&suffix)),
+            _ => Err(CoreError::ConditionError(
+                "endsWith() requires string arguments".to_string(),
+            )),
+        }
+    }
+
+    fn eval_length(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
+        let args = Self::parse_args(&condition[7..]);
+        if args.len() != 2 {
+            return Err(CoreError::ConditionError(format!(
+                "length() expects 2 args, got {}",
+                args.len()
+            )));
+        }
+        let len = match Self::resolve_value(args[0], context) {
+            Value::String(s) => Some(s.chars().count() as f64),
+            Value::Array(a) => Some(a.len() as f64),
+            Value::Object(o) => Some(o.len() as f64),
+            _ => None,
+        };
+        let expected = Self::resolve_value(args[1], context);
+        match (len, expected.as_f64()) {
+            (Some(len), Some(expected)) => Ok(len == expected),
+            _ => Err(CoreError::ConditionError(
+                "length() requires a string/array/object and a number".to_string(),
+            )),
+        }
+    }
+
     fn eval_and(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
         let args = Self::parse_args(&condition[4..]);
         for arg in &args {
@@ -362,9 +598,20 @@ impl ConditionEvaluator {
             || val.starts_with("ne(")
             || val.starts_with("gt(")
             || val.starts_with("lt(")
+            || val.starts_with("ge(")
+            || val.starts_with("le(")
             || val.starts_with("and(")
             || val.starts_with("or(")
             || val.starts_with("not(")
+            || val.starts_with("isNull(")
+            || val.starts_with("isEmpty(")
+            || val.starts_with("isTrue(")
+            || val.starts_with("isFalse(")
+            || val.starts_with("hasValue(")
+            || val.starts_with("contains(")
+            || val.starts_with("startsWith(")
+            || val.starts_with("endsWith(")
+            || val.starts_with("length(")
         {
             return Self::evaluate(val, context);
         }
@@ -437,6 +684,58 @@ mod tests {
         let ctx = ctx(&[("name", Value::String("test".to_string()))]);
         assert!(ConditionEvaluator::evaluate("name", &ctx).unwrap());
         assert!(!ConditionEvaluator::evaluate("missing", &ctx).unwrap());
+    }
+
+    #[test]
+    fn test_predicates() {
+        let ctx = ctx(&[
+            ("missing_var", Value::Null),
+            ("empty_str", Value::String("".to_string())),
+            ("flag", Value::Bool(true)),
+            ("off", Value::Bool(false)),
+            ("list", serde_json::json!([1, 2, 3])),
+            ("text", Value::String("hello world".to_string())),
+        ]);
+        assert!(ConditionEvaluator::evaluate("isNull(missing_var)", &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate("isNull(flag)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("isEmpty(empty_str)", &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate("isEmpty(text)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("isTrue(flag)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("isFalse(off)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("hasValue(flag)", &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate("hasValue(missing_var)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"contains("hello world", "world")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"contains(list, 2)"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"startsWith("hello world", "hello")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"endsWith("hello world", "world")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("length(list, 3)", &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("ge(list_none, 3)", &ctx).is_err());
+    }
+
+    #[test]
+    fn test_nested_predicates() {
+        let ctx = ctx(&[
+            ("a", Value::String("".to_string())),
+            ("b", Value::Bool(true)),
+            ("missing", Value::Null),
+        ]);
+        assert!(ConditionEvaluator::evaluate("and(isEmpty(a), isTrue(b))", &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate("or(hasValue(missing), isFalse(b))", &ctx).unwrap());
+    }
+
+    #[test]
+    fn test_interpolation() {
+        let ctx = ctx(&[
+            ("status", Value::String("active".to_string())),
+            ("count", Value::Number(5.into())),
+            ("nested", serde_json::json!({"level": "high"})),
+        ]);
+        assert!(ConditionEvaluator::evaluate(r#"eq(${status}, "active")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate("gt(${count}, 3)", &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate(r#"eq(${count}, "active")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"eq(${nested.level}, "high")"#, &ctx).unwrap());
+        assert!(ConditionEvaluator::evaluate(r#"eq({{status}}, "active")"#, &ctx).unwrap());
+        assert!(!ConditionEvaluator::evaluate(r#"eq(${unknown}, "active")"#, &ctx).unwrap());
     }
 
     #[test]

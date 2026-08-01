@@ -150,6 +150,25 @@ impl WorkflowCoordinator {
         &self.completed_nodes
     }
 
+    /// Resume from a restored checkpoint snapshot: seed completed node
+    /// outputs and restart at the checkpointed node. Completed nodes are
+    /// skipped by the main loop; their outputs feed the edges downstream.
+    pub fn resume_from(&mut self, snapshot: &wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot) {
+        if let Some(node_results) = &snapshot.node_results {
+            for (node_id, output) in node_results {
+                self.node_outputs.insert(node_id.clone(), output.clone());
+                if !self.completed_nodes.contains(node_id) {
+                    self.completed_nodes.push(node_id.clone());
+                }
+            }
+        }
+        if let Some(node_id) = &snapshot.current_node_id {
+            if !self.completed_nodes.contains(node_id) {
+                self.current_node_id = Some(node_id.clone());
+            }
+        }
+    }
+
     /// Snapshot of the owned entity's execution state.
     pub async fn state_snapshot(&self) -> WorkflowResult<WorkflowExecutionStateSnapshot> {
         let entity = self.entity.as_ref().ok_or_else(|| {
@@ -272,6 +291,12 @@ impl WorkflowCoordinator {
                 continue;
             }
 
+            entity
+                .state
+                .write()
+                .await
+                .set_current_node(Some(node_id.clone()));
+
             let node = self.traversal.get_node(node_id).ok_or_else(|| {
                 WorkflowError::GraphError(format!("Node {} not found in graph", node_id))
             })?;
@@ -339,6 +364,7 @@ impl WorkflowCoordinator {
                     self.node_outputs
                         .insert(node_id.clone(), output.output.clone());
                     self.completed_nodes.push(node_id.clone());
+                    entity.set_node_result(node_id.clone(), output.output.clone());
 
                     for (k, v) in &output.metadata {
                         self.ctx.variables.insert(k.clone(), v.clone());
@@ -439,6 +465,8 @@ impl WorkflowCoordinator {
                                             .insert(node_id.clone(), retry_output.output.clone());
                                         self.completed_nodes.push(node_id.clone());
                                         entity
+                                            .set_node_result(node_id.clone(), retry_output.output.clone());
+                                        entity
                                             .state
                                             .write()
                                             .await
@@ -518,6 +546,11 @@ impl WorkflowCoordinator {
                     }
                 }
             }
+
+            // Trigger actions (Stop/Pause/Resume) write marker variables;
+            // translate them into entity interruption so the next iteration
+            // of the loop handles them through the standard path.
+            self.process_trigger_effects(entity).await;
         }
 
         let result = self.compute_final_output();
@@ -541,6 +574,31 @@ impl WorkflowCoordinator {
         }
 
         Ok(result)
+    }
+
+    async fn process_trigger_effects(&self, entity: &WorkflowExecutionEntity) {
+        let stop = self
+            .ctx
+            .variables
+            .get("__trigger_stop")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if stop {
+            self.ctx.variables.remove("__trigger_stop");
+            let _ = entity.interruption().stop();
+            return;
+        }
+
+        let pause = self
+            .ctx
+            .variables
+            .get("__trigger_pause")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if pause {
+            self.ctx.variables.remove("__trigger_pause");
+            let _ = entity.interruption().pause();
+        }
     }
 
     async fn determine_next_node_without_output(&self) -> WorkflowResult<Option<String>> {
@@ -607,6 +665,7 @@ impl WorkflowCoordinator {
         ctx.event_bus = self.ctx.event_bus.clone();
         ctx.handler_registry = Some(self.handlers.clone());
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));
+        ctx.tool_registry = Some(self.ctx.tool_registry.clone());
         ctx.metrics = self.ctx.metrics.clone();
 
         Ok(ctx)

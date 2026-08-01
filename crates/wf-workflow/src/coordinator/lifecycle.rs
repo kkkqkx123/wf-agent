@@ -106,6 +106,9 @@ impl WorkflowLifecycleCoordinator {
             params.tool_registry,
             opts,
         );
+        // The coordinator and the entity share one variable map so that
+        // checkpoints (built from the entity) capture live variables.
+        ctx.variables = entity.variables().clone();
         if let Some(ref metrics) = self.metrics {
             metrics
                 .workflow()
@@ -174,5 +177,287 @@ impl WorkflowLifecycleCoordinator {
                 Err(e)
             }
         }
+    }
+
+    /// Resume a workflow execution from its latest checkpoint.
+    ///
+    /// Loads the newest snapshot for `execution_id`, rebuilds the entity,
+    /// variables and node outputs, then continues from the checkpointed
+    /// node. Completed nodes are skipped by the coordinator.
+    pub async fn resume_workflow(
+        &self,
+        execution_id: &str,
+        workflow_id: wf_types::Id,
+        graph: WorkflowGraphStructure,
+        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+    ) -> WorkflowResult<WorkflowOutput> {
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        use wf_checkpoint::state::CheckpointStateManager;
+        use wf_checkpoint::state::WorkflowCheckpointStateManager;
+        use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+
+        let state_manager = WorkflowCheckpointStateManager::new(self.store.clone());
+        let cp_coordinator = WorkflowCheckpointCoordinator::new(state_manager);
+
+        let metadata = cp_coordinator
+            .state_manager()
+            .get_latest(execution_id)
+            .await
+            .map_err(|e| WorkflowError::CoordinatorError(format!("checkpoint query failed: {}", e)))?
+            .ok_or_else(|| {
+                WorkflowError::CoordinatorError(format!(
+                    "no checkpoint found for execution {}",
+                    execution_id
+                ))
+            })?;
+
+        let restored = cp_coordinator
+            .restore(&metadata.id)
+            .await
+            .map_err(|e| WorkflowError::CoordinatorError(format!("checkpoint restore failed: {}", e)))?;
+        let snapshot = restored.snapshot;
+
+        let entity = WorkflowExecutionEntity::new(
+            wf_types::Id::from(snapshot.execution_id.clone()),
+            workflow_id.clone(),
+        );
+        {
+            let mut state = entity.state.write().await;
+            state.start();
+            for node_id in snapshot.node_results.as_ref().map(|m| m.keys()).into_iter().flatten() {
+                state.mark_node_completed(node_id.clone());
+            }
+        }
+
+        let mut ctx = ExecutorContext::new(
+            wf_types::Id::from(snapshot.execution_id.clone()),
+            workflow_id,
+            self.event_bus.clone(),
+            tool_registry,
+            WorkflowExecutionOptions {
+                input: None,
+                max_steps: None,
+                timeout: None,
+                max_execution_time: None,
+                enable_checkpoints: Some(false),
+                node_timeout: None,
+                max_pause_duration: None,
+                retry_budget: None,
+                on_failure: None,
+                max_retries: None,
+                retry_delay_ms: None,
+                exponential_backoff: None,
+                fallback_output: None,
+            },
+        );
+        ctx.variables = entity.variables().clone();
+        for (name, value) in &snapshot.variable_state.variables {
+            ctx.variables.insert(name.clone(), value.clone());
+        }
+        if let Some(ref metrics) = self.metrics {
+            ctx = ctx.with_metrics(metrics.clone());
+        }
+
+        let mut coordinator = WorkflowCoordinator::new(ctx, graph, handlers)?
+            .with_entity(entity);
+        coordinator.resume_from(&snapshot);
+
+        if let Some(ref executor) = self.hook_executor {
+            coordinator = coordinator.with_hook_executor(executor.clone());
+        }
+
+        if let Some(ref strategy) = self.checkpoint_strategy {
+            let mut cp = WorkflowCheckpointIntegration::new(self.store.clone(), strategy.clone());
+            if let Some(ref bus) = self.checkpoint_event_bus {
+                cp = cp.with_event_bus(bus.clone());
+            }
+            if let Some(ref core_bus) = self.event_bus {
+                cp = cp.with_core_event_bus(core_bus.clone());
+            }
+            coordinator = coordinator.with_checkpoint(cp);
+        }
+
+        let result = coordinator.execute().await;
+        match result {
+            Ok(output) => Ok(WorkflowOutput {
+                execution_id: wf_types::Id::from(snapshot.execution_id),
+                result: output,
+            }),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use wf_types::workflow::EdgeType;
+    use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
+
+    use crate::checkpoint::strategy::NodeCheckpointStrategy;
+    use crate::handler::HandlerRegistry;
+
+    fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
+        WorkflowNode {
+            id: id.to_string(),
+            name: Some(id.to_string()),
+            node_type: node_type.to_string(),
+            inner,
+        }
+    }
+
+    fn edge(source: &str, target: &str) -> WorkflowEdge {
+        WorkflowEdge {
+            id: format!("{}-{}", source, target),
+            source_node_id: source.to_string(),
+            target_node_id: target.to_string(),
+            r#type: EdgeType::Default,
+            condition: None,
+            label: None,
+            description: None,
+        }
+    }
+
+    fn make_graph() -> WorkflowGraphStructure {
+        WorkflowGraphStructure {
+            nodes: vec![
+                node("start", "START", serde_json::json!({})),
+                node(
+                    "v1",
+                    "VARIABLE",
+                    serde_json::json!({
+                        "assignments": { "mid": "${input.greeting}" }
+                    }),
+                ),
+                node(
+                    "v2",
+                    "VARIABLE",
+                    serde_json::json!({
+                        "assignments": { "final": "${mid}" }
+                    }),
+                ),
+                node("end", "END", serde_json::json!({})),
+            ],
+            edges: vec![
+                edge("start", "v1"),
+                edge("v1", "v2"),
+                edge("v2", "end"),
+            ],
+            adjacency_list: HashMap::new(),
+            reverse_adjacency_list: HashMap::new(),
+            start_node_id: Some("start".to_string()),
+            end_node_ids: vec!["end".to_string()],
+        }
+    }
+
+    fn make_handlers() -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+        let mut reg = HandlerRegistry::new();
+        reg.register_defaults();
+        reg.into_arc()
+    }
+
+    fn make_lifecycle(store: Arc<StorageBackend>) -> WorkflowLifecycleCoordinator {
+        WorkflowLifecycleCoordinator::with_store(None, store)
+            .with_checkpoint_strategy(NodeCheckpointStrategy::every_node())
+    }
+
+    #[tokio::test]
+    async fn test_execute_then_resume() {
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = make_lifecycle(store.clone());
+        let workflow_id = wf_types::Id::from("wf-resume-1".to_string());
+        let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+
+        let handlers = make_handlers();
+        let params = WorkflowExecutionParams {
+            execution_id: wf_types::Id::from("exec-resume-1".to_string()),
+            workflow_id: workflow_id.clone(),
+            graph: make_graph(),
+            options: WorkflowExecutionOptions {
+                input: Some(serde_json::json!({"greeting": "hello"})),
+                max_steps: Some(2),
+                timeout: None,
+                max_execution_time: None,
+                enable_checkpoints: Some(true),
+                node_timeout: None,
+                max_pause_duration: None,
+                retry_budget: None,
+                on_failure: None,
+                max_retries: None,
+                retry_delay_ms: None,
+                exponential_backoff: None,
+                fallback_output: None,
+            },
+            handlers: handlers.clone(),
+            tool_registry: tool_registry.clone(),
+            input: None,
+        };
+
+        let first = lifecycle
+            .execute_workflow(params)
+            .await
+            .expect("first run should complete");
+        assert_eq!(first.execution_id, "exec-resume-1");
+
+        // Snapshot must have captured variables written by v1
+        use wf_checkpoint::state::CheckpointStateManager;
+        let sm = wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone());
+        let latest = sm
+            .get_latest("exec-resume-1")
+            .await
+            .expect("checkpoint exists");
+        assert!(latest.is_some(), "checkpoint should be persisted");
+        assert!(latest.is_some(), "checkpoint should be persisted");
+
+        let resumed = lifecycle
+            .resume_workflow(
+                "exec-resume-1",
+                workflow_id,
+                make_graph(),
+                handlers,
+                tool_registry,
+            )
+            .await
+            .expect("resume should complete the workflow");
+        assert_eq!(resumed.execution_id, "exec-resume-1");
+
+        // Single end node -> final output is the end node's output directly.
+        assert_eq!(resumed.result, serde_json::json!({"greeting": "hello"}));
+
+        // The resumed run must have continued checkpointing; the new
+        // snapshot proves v2 ran with the restored "mid" variable.
+        let resumed_cp = sm
+            .get_latest("exec-resume-1")
+            .await
+            .expect("checkpoint exists")
+            .expect("checkpoint persisted");
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        let coord = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
+            wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone()),
+        );
+        let restored = coord.restore(&resumed_cp.id).await.expect("restore ok");
+        let vars = &restored.snapshot.variable_state.variables;
+        assert_eq!(vars.get("mid"), Some(&serde_json::json!("hello")));
+        assert_eq!(vars.get("final"), Some(&serde_json::json!("hello")));
+    }
+
+    #[tokio::test]
+    async fn test_resume_without_checkpoint_fails() {
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = make_lifecycle(store.clone());
+
+        let err = lifecycle
+            .resume_workflow(
+                "exec-missing",
+                wf_types::Id::from("wf-x".to_string()),
+                make_graph(),
+                make_handlers(),
+                Arc::new(wf_tools::registry::ToolRegistry::new()),
+            )
+            .await
+            .expect_err("resume without checkpoint must fail");
+        assert!(err.to_string().contains("no checkpoint"));
     }
 }

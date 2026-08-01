@@ -174,6 +174,8 @@ impl NodeHandler for ForkHandler {
             .get("target_join")
             .and_then(|t| t.as_str())
             .map(|s| s.to_string());
+        let tool_registry = ctx.tool_registry.clone();
+        let parent_variables = ctx.variables.clone();
 
         let barrier = Arc::new(SyncBarrier::new(branches.len()));
         let mut handles = Vec::new();
@@ -195,6 +197,8 @@ impl NodeHandler for ForkHandler {
             let handlers = handlers.clone();
             let graph = graph.clone();
             let join_node_id = join_node_id.clone();
+            let tool_registry = tool_registry.clone();
+            let parent_variables = parent_variables.clone();
 
             emit_fork_event(
                 event_bus.as_ref(),
@@ -233,15 +237,19 @@ impl NodeHandler for ForkHandler {
                                 if subgraph.nodes.is_empty() {
                                     BranchResult::success(&branch_id, branch_input)
                                 } else {
-                                    match execute_branch(
-                                        &eid,
-                                        &branch_id,
-                                        branch_input,
-                                        subgraph,
-                                        handlers,
-                                        eb,
-                                    )
-                                    .await
+                    match execute_branch(
+                        &eid,
+                        &branch_id,
+                        branch_input,
+                        subgraph,
+                        BranchContext {
+                            handlers,
+                            event_bus: eb,
+                            tool_registry,
+                            parent_variables,
+                        },
+                    )
+                    .await
                                     {
                                         Ok(output) => output,
                                         Err(e) => BranchResult::failure(&branch_id, e.to_string()),
@@ -353,13 +361,19 @@ impl NodeHandler for ForkHandler {
     }
 }
 
+struct BranchContext {
+    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    event_bus: Option<Arc<EventBus>>,
+    tool_registry: Option<Arc<ToolRegistry>>,
+    parent_variables: Arc<dashmap::DashMap<String, Value>>,
+}
+
 async fn execute_branch(
     parent_execution_id: &wf_types::Id,
     branch_id: &str,
     input: Value,
     subgraph: WorkflowGraphStructure,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
-    event_bus: Option<Arc<EventBus>>,
+    branch_ctx: BranchContext,
 ) -> WorkflowResult<BranchResult> {
     let execution_id = wf_types::Id::new();
     let workflow_id = wf_types::Id::new();
@@ -380,20 +394,27 @@ async fn execute_branch(
         fallback_output: None,
     };
 
-    let tool_registry = Arc::new(ToolRegistry::new());
+    let tool_registry = branch_ctx
+        .tool_registry
+        .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
     let exec_ctx = ExecutorContext::new(
         execution_id.clone(),
         workflow_id.clone(),
-        event_bus,
+        branch_ctx.event_bus,
         tool_registry,
         options,
     )
     .with_parent_execution(parent_execution_id.clone());
+    // Branches inherit a read-only snapshot of the parent variables.
+    crate::handler::variable_mapping::inherit_all_variables(
+        &branch_ctx.parent_variables,
+        &exec_ctx.variables,
+    );
 
     let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
 
     let mut coordinator: WorkflowCoordinator =
-        WorkflowCoordinator::new(exec_ctx, subgraph, handlers)?.with_entity(entity);
+        WorkflowCoordinator::new(exec_ctx, subgraph, branch_ctx.handlers)?.with_entity(entity);
 
     match coordinator.execute().await {
         Ok(output) => Ok(BranchResult::success(branch_id, output)),

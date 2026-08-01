@@ -82,7 +82,10 @@ impl NodeHandler for SubgraphHandler {
         let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
 
         let event_bus = ctx.event_bus.clone();
-        let tool_registry = Arc::new(ToolRegistry::new());
+        let tool_registry = ctx
+            .tool_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
 
         let subgraph_metrics = ctx.metrics.as_ref().map(|m| m.subgraph());
         let depth = ctx.depth + 1;
@@ -103,6 +106,13 @@ impl NodeHandler for SubgraphHandler {
             Some(metrics) => exec_ctx.with_metrics(metrics.clone()),
             None => exec_ctx,
         };
+
+        crate::handler::variable_mapping::apply_variable_inputs(
+            config,
+            &ctx.variables,
+            &exec_ctx.variables,
+        )?;
+        let sub_variables = exec_ctx.variables.clone();
 
         emit_subgraph_event(
             ctx.event_bus.as_ref(),
@@ -130,6 +140,11 @@ impl NodeHandler for SubgraphHandler {
 
         let output = match coordinator.execute().await {
             Ok(output) => {
+                crate::handler::variable_mapping::apply_variable_outputs(
+                    config,
+                    &sub_variables,
+                    &ctx.variables,
+                );
                 emit_subgraph_event(
                     ctx.event_bus.as_ref(),
                     EventType::SubgraphCompleted,

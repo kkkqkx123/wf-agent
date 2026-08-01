@@ -15,6 +15,7 @@ pub mod tool_visibility;
 pub mod trigger;
 pub mod user_interaction;
 pub mod variable;
+pub mod variable_mapping;
 
 pub use wf_execution_shared::context::NodeExecutionResult as NodeHandlerResult;
 
@@ -79,8 +80,8 @@ impl HandlerRegistry {
         self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
         self.register(Arc::new(embed::EmbedHandler));
         self.register(Arc::new(user_interaction::UserInteractionHandler));
-        self.register(Arc::new(start_end::TriggerPassthroughHandler));
-        self.register(Arc::new(start_end::ContinueFromTriggerHandler));
+        self.register(Arc::new(trigger::StartFromTriggerHandler));
+        self.register(Arc::new(trigger::ContinueFromTriggerHandler));
     }
 }
 

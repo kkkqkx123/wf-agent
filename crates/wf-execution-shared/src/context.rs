@@ -63,6 +63,10 @@ pub struct NodeExecutionContext {
     pub event_bus: Option<Arc<EventBus>>,
     pub handler_registry: Option<Arc<dyn std::any::Any + Send + Sync>>,
     pub graph_structure: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// Tool registry inherited from the parent execution; absent when no
+    /// registry was set up (branch/subgraph executors then fall back to a
+    /// fresh registry).
+    pub tool_registry: Option<Arc<ToolRegistry>>,
     /// Shared metrics registry; absent when metrics are disabled.
     pub metrics: Option<Arc<MetricsRegistry>>,
 }
@@ -88,6 +92,7 @@ impl NodeExecutionContext {
             event_bus: None,
             handler_registry: None,
             graph_structure: None,
+            tool_registry: None,
             metrics: None,
         }
     }

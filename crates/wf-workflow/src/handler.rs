@@ -72,11 +72,11 @@ impl HandlerRegistry {
         self.register(Arc::new(fork_join::JoinHandler));
         self.register(Arc::new(sync::SyncHandler::new()));
         self.register(Arc::new(subgraph::SubgraphHandler));
-        self.register(Arc::new(llm::LlmHandler));
+        self.register(Arc::new(llm::LlmHandler::new()));
         self.register(Arc::new(context_processor::ContextProcessorHandler));
         self.register(Arc::new(script::ScriptHandler::new()));
         self.register(Arc::new(interactive_script::InteractiveScriptHandler::new()));
-        self.register(Arc::new(agent_loop::AgentLoopHandler));
+        self.register(Arc::new(agent_loop::AgentLoopHandler::new()));
         self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
         self.register(Arc::new(embed::EmbedHandler));
         self.register(Arc::new(user_interaction::UserInteractionHandler));

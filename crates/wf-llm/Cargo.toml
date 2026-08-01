@@ -3,6 +3,9 @@ name = "wf-llm"
 version.workspace = true
 edition.workspace = true
 
+[features]
+mock = []
+
 [dependencies]
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }

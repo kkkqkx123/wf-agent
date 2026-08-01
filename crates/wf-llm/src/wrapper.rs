@@ -36,6 +36,15 @@ impl LlmWrapper {
     }
 
     pub async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+        #[cfg(feature = "mock")]
+        {
+            if let Some(id) = request.profile_id.as_deref() {
+                if let Some(client) = self.factory.mock_client(id) {
+                    return client.generate(request).await;
+                }
+            }
+        }
+
         let profile_id = request.profile_id.as_deref();
         let profile = self.factory.get_profile(profile_id).ok_or_else(|| {
             LlmError::ProfileNotFound(profile_id.unwrap_or("default").to_string())
@@ -51,6 +60,15 @@ impl LlmWrapper {
         &self,
         request: &LlmRequest,
     ) -> LlmResult<Box<dyn crate::message_stream::MessageStream>> {
+        #[cfg(feature = "mock")]
+        {
+            if let Some(id) = request.profile_id.as_deref() {
+                if let Some(client) = self.factory.mock_client(id) {
+                    return client.generate_stream(request).await;
+                }
+            }
+        }
+
         let profile_id = request.profile_id.as_deref();
         let profile = self.factory.get_profile(profile_id).ok_or_else(|| {
             LlmError::ProfileNotFound(profile_id.unwrap_or("default").to_string())
@@ -61,6 +79,15 @@ impl LlmWrapper {
     }
 
     pub async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {
+        #[cfg(feature = "mock")]
+        {
+            if let Some(id) = request.profile_id.as_deref() {
+                if let Some(client) = self.factory.mock_client(id) {
+                    return client.count_tokens(request).await;
+                }
+            }
+        }
+
         let profile_id = request.profile_id.as_deref();
         let profile = self.factory.get_profile(profile_id).ok_or_else(|| {
             LlmError::ProfileNotFound(profile_id.unwrap_or("default").to_string())

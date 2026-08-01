@@ -7,6 +7,8 @@ pub mod formatters;
 pub mod message_helper;
 pub mod message_stream;
 pub mod messaging;
+#[cfg(feature = "mock")]
+pub mod mock;
 pub mod partial_json_parser;
 pub mod profile_manager;
 pub mod tool_call_parser;
@@ -33,6 +35,8 @@ pub use messaging::message_context_registry::{MessageContextRegistry, NamedMessa
 pub use messaging::visible_range_calculator::{
     VisibilityScope, VisibleRange, VisibleRangeCalculator,
 };
+#[cfg(feature = "mock")]
+pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
 pub use partial_json_parser::{parse_partial_json, PartialParseResult};
 pub use profile_manager::ProfileManager;
 pub use tool_call_parser::{parse_anthropic_tool_use, parse_tool_calls_from_json};

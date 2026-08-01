@@ -14,7 +14,9 @@ use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_tools::registry::ToolRegistry;
 use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::message::Message;
+use wf_types::tool::approval::ToolApprovalOptions;
 
+use crate::approval::ToolApprovalHandler;
 use crate::checkpoint::{AgentCheckpointIntegration, AgentCheckpointStrategy};
 use crate::coordinator::execution::AgentExecutionCoordinator;
 use crate::coordinator::iteration::AgentIterationCoordinator;
@@ -22,6 +24,7 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
+use crate::stream::{AgentEventStream, AgentStreamEvent, StreamingIteration};
 
 pub struct AgentLoopCoordinator {
     llm_wrapper: Arc<LlmWrapper>,
@@ -32,6 +35,9 @@ pub struct AgentLoopCoordinator {
     checkpoint_strategy: Option<AgentCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
     metrics: Option<Arc<MetricsRegistry>>,
+    approval_options: Option<ToolApprovalOptions>,
+    approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
+    max_pause_duration: Option<u64>,
 }
 
 impl AgentLoopCoordinator {
@@ -58,6 +64,9 @@ impl AgentLoopCoordinator {
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
             metrics: None,
+            approval_options: None,
+            approval_handler: None,
+            max_pause_duration: None,
         }
     }
 
@@ -86,6 +95,26 @@ impl AgentLoopCoordinator {
         self
     }
 
+    /// Register an external tool approval handler. Tools that require
+    /// confirmation are routed through it; without a handler and without
+    /// explicit options every tool call is auto-approved.
+    pub fn with_approval_handler(mut self, handler: Arc<dyn ToolApprovalHandler>) -> Self {
+        self.approval_handler = Some(handler);
+        self
+    }
+
+    pub fn with_approval_options(mut self, options: ToolApprovalOptions) -> Self {
+        self.approval_options = Some(options);
+        self
+    }
+
+    /// Max duration the agent loop may stay paused before it is stopped
+    /// (mirrors TS maxPauseDuration).
+    pub fn with_max_pause_duration(mut self, duration_ms: u64) -> Self {
+        self.max_pause_duration = Some(duration_ms);
+        self
+    }
+
     pub async fn execute(
         &self,
         config: AgentLoopConfig,
@@ -105,12 +134,15 @@ impl AgentLoopCoordinator {
                 });
         }
 
-        let iteration_coordinator = Arc::new(AgentIterationCoordinator::new(
-            self.llm_wrapper.clone(),
-            self.tool_registry.clone(),
-            self.hook_executor.clone(),
-            self.metrics.clone(),
-        ));
+        let iteration_coordinator = Arc::new(
+            AgentIterationCoordinator::new(
+                self.llm_wrapper.clone(),
+                self.tool_registry.clone(),
+                self.hook_executor.clone(),
+                self.metrics.clone(),
+            )
+            .with_approval(self.approval_options.clone(), self.approval_handler.clone()),
+        );
         let execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator)
             .with_checkpoint(checkpoint)
             .with_metrics(self.metrics.clone());
@@ -168,9 +200,11 @@ impl AgentLoopCoordinator {
                 .await
                 .map_err(|e| AgentError::HookError(e.to_string()))?;
 
+                let conversation = entity.conversation().read().await.messages().to_vec();
                 Ok(AgentLoopOutput {
                     result: result.content,
                     iterations,
+                    conversation,
                 })
             }
             Err(e) => {
@@ -241,6 +275,22 @@ impl AgentLoopCoordinator {
             entity = entity.with_available_tool_names(config.available_tool_names.clone());
         }
 
+        if let Some(ref format) = config.tool_call_format {
+            entity = entity.with_tool_call_format(format.clone());
+        }
+
+        if let Some(duration) = self.max_pause_duration {
+            entity = entity.with_max_pause_duration(duration);
+        }
+
+        if let Some(ref bus) = self.event_bus {
+            entity.interruption().set_event_bus(bus.clone());
+        }
+
+        for msg in &input.conversation {
+            entity.conversation().write().await.add_message(msg.clone());
+        }
+
         if !input.message.is_empty() {
             let msg = Message {
                 id: wf_common::generate_id(),
@@ -257,5 +307,161 @@ impl AgentLoopCoordinator {
         }
 
         Ok(entity)
+    }
+
+    /// Stream execution of the agent loop. Events (message deltas, tool
+    /// lifecycle, iteration boundaries, final outcome) flow through the
+    /// returned stream; execution state is updated as with `execute`.
+    pub async fn execute_stream(
+        &self,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+    ) -> AgentEventStream {
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        let bus = self.event_bus.clone();
+        let llm_wrapper = self.llm_wrapper.clone();
+        let tool_registry = self.tool_registry.clone();
+        let hook_executor = self.hook_executor.clone();
+        let store = self.store.clone();
+        let checkpoint_strategy = self.checkpoint_strategy.clone();
+        let checkpoint_event_bus = self.checkpoint_event_bus.clone();
+        let metrics = self.metrics.clone();
+        let approval_options = self.approval_options.clone();
+        let approval_handler = self.approval_handler.clone();
+        let max_pause_duration = self.max_pause_duration;
+        let hooks: Vec<BaseHookDefinition> = config
+            .hooks
+            .iter()
+            .map(|h| BaseHookDefinition {
+                id: wf_common::generate_id(),
+                hook_type: h.hook_type.clone(),
+                weight: 0,
+                condition: h.condition.clone(),
+                enabled: h.enabled,
+                parallel: h.parallel.unwrap_or(true),
+                continue_on_error: h.continue_on_error.unwrap_or(true),
+            })
+            .collect();
+
+        tokio::spawn(async move {
+            let mut entity = AgentLoopEntity::new(config.agent_id.clone()).with_hooks(hooks);
+            if let Some(ref model) = config.model {
+                entity = entity.with_model(model.clone());
+            }
+            if !config.available_tool_names.is_empty() {
+                entity = entity.with_available_tool_names(config.available_tool_names.clone());
+            }
+            if let Some(ref format) = config.tool_call_format {
+                entity = entity.with_tool_call_format(format.clone());
+            }
+            if let Some(duration) = max_pause_duration {
+                entity = entity.with_max_pause_duration(duration);
+            }
+            if let Some(ref eb) = bus {
+                entity.interruption().set_event_bus(eb.clone());
+            }
+            for msg in &input.conversation {
+                entity.conversation().write().await.add_message(msg.clone());
+            }
+            if !input.message.is_empty() {
+                let msg = Message {
+                    id: wf_common::generate_id(),
+                    role: wf_types::message::MessageRole::User,
+                    content: wf_types::message::MessageContentValue::Text(input.message),
+                    timestamp: wf_common::now(),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: None,
+                    thinking: None,
+                    metadata: None,
+                };
+                entity.conversation().write().await.add_message(msg);
+            }
+
+            if let Err(e) = AgentLoopStateTransitor::start_agent_loop(&entity, bus.as_deref()).await
+            {
+                let _ = tx
+                    .send(AgentStreamEvent::Failed {
+                        error: e.to_string(),
+                    })
+                    .await;
+                return;
+            }
+
+            let checkpoint = {
+                let strategy = checkpoint_strategy.as_ref();
+                let mut cp = AgentCheckpointIntegration::new(store);
+                if let Some(ref ceb) = checkpoint_event_bus {
+                    cp = cp.with_event_bus(ceb.clone());
+                }
+                let _ = strategy;
+                Some(cp)
+            };
+
+            let provider: Arc<dyn crate::stream::StreamProvider> = llm_wrapper;
+            let iteration = Arc::new(
+                StreamingIteration::new(
+                    provider,
+                    tool_registry,
+                    hook_executor.clone(),
+                    tx.clone(),
+                    bus.clone(),
+                )
+                .with_approval(approval_options, approval_handler),
+            );
+            let execution_coordinator = AgentExecutionCoordinator::new(iteration)
+                .with_checkpoint(checkpoint)
+                .with_metrics(metrics.clone());
+
+            let max_iterations = config.max_iterations.unwrap_or(10);
+            match execution_coordinator
+                .execute(&entity, max_iterations, config.max_execution_time)
+                .await
+            {
+                Ok((result, iterations)) => {
+                    if result.completion_data.is_some() || !result.should_continue {
+                        let _ =
+                            AgentLoopStateTransitor::complete_agent_loop(&entity, bus.as_deref())
+                                .await;
+                    }
+                    let mut hook_data = HashMap::new();
+                    hook_data.insert(
+                        "total_iterations".to_string(),
+                        Value::Number(iterations.into()),
+                    );
+                    let _ = AgentHookHandler::execute_agent_hook(
+                        &hook_executor,
+                        &entity,
+                        "AFTER_AGENT",
+                        hook_data,
+                    )
+                    .await;
+                    let _ = tx
+                        .send(AgentStreamEvent::Completed {
+                            result: result.content,
+                            iterations,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    let _ = AgentLoopStateTransitor::fail_agent_loop(
+                        &entity,
+                        e.to_string(),
+                        bus.as_deref(),
+                    )
+                    .await;
+                    if let Some(ref metrics) = metrics {
+                        metrics.agent_loop().record_error(entity.id(), "agent_loop");
+                    }
+                    let _ = tx
+                        .send(AgentStreamEvent::Failed {
+                            error: e.to_string(),
+                        })
+                        .await;
+                }
+            }
+        });
+
+        AgentEventStream::new(rx)
     }
 }

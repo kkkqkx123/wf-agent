@@ -9,6 +9,8 @@ pub mod factory;
 pub mod graph;
 pub mod handler;
 pub mod hook;
+pub mod interaction;
+pub mod message_context;
 pub mod registry;
 pub mod state;
 pub mod types;
@@ -47,9 +49,16 @@ pub use handler::{
     HandlerRegistry, NodeHandler, NodeHandlerResult,
 };
 pub use hook::WorkflowHookHandler;
+pub use interaction::{
+    complete_interaction, interaction_registry, register_interaction, InteractionRegistry,
+};
+pub use message_context::{
+    append_context, get_context, has_context, register_context, DEFAULT_CONTEXT_ID,
+};
 pub use registry::{
-    create_execution_registry, create_graph_registry, WorkflowExecutionPool,
-    WorkflowExecutionRegistry, WorkflowGraphRegistry,
+    create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
+    register_script, ScriptDefinition, WorkflowExecutionPool, WorkflowExecutionRegistry,
+    WorkflowGraphRegistry,
 };
 pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;

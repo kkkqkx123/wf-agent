@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -5,22 +6,36 @@ use dashmap::DashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_metrics::MetricsRegistry;
+use wf_sandbox::SandboxRuntime;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::{TriggerAction, TriggerExecutionResult};
 use wf_types::Id;
 
+use crate::coordinator::WorkflowCoordinator;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
+use crate::handler::{variable_mapping, HandlerRegistry};
+use crate::registry::{lookup_graph, lookup_script};
+use crate::WorkflowExecutionEntity;
+use wf_execution_shared::context::ExecutorContext;
+use wf_tools::registry::ToolRegistry;
+use wf_types::script::sandbox::SandboxConfig;
+use wf_types::workflow_execution::WorkflowExecutionOptions;
 
 // EventType does not have NodeSkipped or NotificationSent variants,
 // so we use NodeCustomEvent / VariableChanged as closest alternatives.
 
+#[derive(Clone)]
 pub struct TriggerContext {
     pub execution_id: Id,
     pub workflow_id: Id,
     pub variables: Arc<DashMap<String, Value>>,
     pub event_bus: Option<Arc<EventBus>>,
+    pub handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+    pub tool_registry: Option<Arc<ToolRegistry>>,
+    pub metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl TriggerContext {
@@ -30,6 +45,9 @@ impl TriggerContext {
             workflow_id,
             variables: Arc::new(DashMap::new()),
             event_bus: None,
+            handlers: None,
+            tool_registry: None,
+            metrics: None,
         }
     }
 
@@ -42,9 +60,38 @@ impl TriggerContext {
         self.event_bus = Some(bus);
         self
     }
+
+    pub fn with_handlers(
+        mut self,
+        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    ) -> Self {
+        self.handlers = Some(handlers);
+        self
+    }
+
+    pub fn with_tool_registry(mut self, registry: Arc<ToolRegistry>) -> Self {
+        self.tool_registry = Some(registry);
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
 }
 
 pub struct TriggerCoordinator;
+
+/// Everything needed to run a triggered sub-workflow.
+struct TriggeredSubworkflowRun {
+    triggered_workflow_id: String,
+    graph: wf_types::workflow_execution::WorkflowGraphStructure,
+    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    tool_registry: Arc<ToolRegistry>,
+    input_mapping: HashMap<String, Value>,
+    output_mapping: HashMap<String, Value>,
+    timeout: u64,
+}
 
 impl TriggerCoordinator {
     pub async fn execute(
@@ -170,18 +217,30 @@ impl TriggerCoordinator {
         action: &TriggerAction,
         ctx: &TriggerContext,
     ) -> WorkflowResult<Value> {
-        let triggered_workflow_id = match action {
-            TriggerAction::ExecuteTriggeredSubworkflow {
-                triggered_workflow_id,
-                ..
-            } => triggered_workflow_id.clone(),
-            _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
-        };
+        let (triggered_workflow_id, wait_for_completion, input_mapping, output_mapping, timeout) =
+            match action {
+                TriggerAction::ExecuteTriggeredSubworkflow {
+                    triggered_workflow_id,
+                    wait_for_completion,
+                    input_mapping,
+                    output_mapping,
+                    timeout,
+                } => (
+                    triggered_workflow_id.clone(),
+                    wait_for_completion.unwrap_or(true),
+                    input_mapping.clone().unwrap_or_default(),
+                    output_mapping.clone().unwrap_or_default(),
+                    timeout.unwrap_or(0),
+                ),
+                _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
+            };
 
-        ctx.variables.insert(
-            "__trigger_subworkflow".to_string(),
-            serde_json::json!({"workflow_id": triggered_workflow_id}),
-        );
+        let graph = lookup_graph(&triggered_workflow_id).ok_or_else(|| {
+            WorkflowError::TriggerError(format!(
+                "Triggered workflow '{}' not found in graph registry",
+                triggered_workflow_id
+            ))
+        })?;
 
         Self::emit(
             ctx,
@@ -189,22 +248,191 @@ impl TriggerCoordinator {
             &format!("triggered_subworkflow:{}", triggered_workflow_id),
         )
         .await;
-        Ok(serde_json::json!({"submitted": true, "workflow_id": triggered_workflow_id}))
+
+        let handlers = ctx
+            .handlers
+            .clone()
+            .unwrap_or_else(|| HandlerRegistry::default().into_arc());
+        let tool_registry = ctx
+            .tool_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(ToolRegistry::new()));
+
+        if !wait_for_completion {
+            let tctx = ctx.clone();
+            let execution_id = Id::new();
+            let run = TriggeredSubworkflowRun {
+                triggered_workflow_id: triggered_workflow_id.clone(),
+                graph,
+                handlers,
+                tool_registry,
+                input_mapping: input_mapping.clone(),
+                output_mapping: output_mapping.clone(),
+                timeout,
+            };
+            let exec_id = execution_id.clone();
+            tokio::spawn(async move {
+                let _ = Self::run_triggered_subworkflow(&tctx, run).await;
+            });
+            return Ok(serde_json::json!({
+                "submitted": true,
+                "workflow_id": triggered_workflow_id,
+                "execution_id": exec_id,
+            }));
+        }
+
+        let execution_id = Id::new();
+        let run = TriggeredSubworkflowRun {
+            triggered_workflow_id: triggered_workflow_id.clone(),
+            graph,
+            handlers,
+            tool_registry,
+            input_mapping,
+            output_mapping,
+            timeout,
+        };
+        match Self::run_triggered_subworkflow(ctx, run).await {
+            Ok(result) => Ok(serde_json::json!({
+                "submitted": true,
+                "workflow_id": triggered_workflow_id,
+                "execution_id": execution_id,
+                "result": result,
+            })),
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn run_triggered_subworkflow(
+        ctx: &TriggerContext,
+        run: TriggeredSubworkflowRun,
+    ) -> WorkflowResult<Value> {
+        let triggered_workflow_id = run.triggered_workflow_id;
+        let variables = Arc::new(DashMap::new());
+        variable_mapping::inherit_all_variables(&ctx.variables, &variables);
+        for (key, value) in &run.input_mapping {
+            variables.insert(key.clone(), value.clone());
+        }
+
+        let options = WorkflowExecutionOptions {
+            input: Some(Value::Object(
+                run.input_mapping.clone().into_iter().collect(),
+            )),
+            max_steps: None,
+            timeout: None,
+            max_execution_time: (run.timeout > 0).then_some(run.timeout),
+            enable_checkpoints: Some(false),
+            node_timeout: None,
+            max_pause_duration: None,
+            retry_budget: None,
+            on_failure: None,
+            max_retries: None,
+            retry_delay_ms: None,
+            exponential_backoff: None,
+            fallback_output: None,
+        };
+
+        let execution_id = Id::new();
+        let sub_workflow_id = Id::new();
+        let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone());
+        let mut exec_ctx = ExecutorContext::new(
+            execution_id,
+            sub_workflow_id,
+            ctx.event_bus.clone(),
+            run.tool_registry,
+            options,
+        )
+        .with_parent_execution(ctx.execution_id.clone());
+        if let Some(metrics) = &ctx.metrics {
+            exec_ctx = exec_ctx.with_metrics(metrics.clone());
+        }
+        exec_ctx.variables = variables.clone();
+
+        let mut coordinator = match WorkflowCoordinator::new(exec_ctx, run.graph, run.handlers) {
+            Ok(coordinator) => coordinator.with_entity(entity),
+            Err(err) => {
+                Self::emit(
+                    ctx,
+                    EventType::TriggeredSubgraphFailed,
+                    &format!("triggered_subworkflow_failed:{}", triggered_workflow_id),
+                )
+                .await;
+                return Err(err);
+            }
+        };
+
+        match coordinator.execute().await {
+            Ok(output) => {
+                Self::apply_subworkflow_output_mapping(
+                    &run.output_mapping,
+                    &variables,
+                    &output,
+                    &ctx.variables,
+                );
+                ctx.variables
+                    .insert("__trigger_subworkflow_result".to_string(), output.clone());
+                Self::emit(
+                    ctx,
+                    EventType::TriggeredSubgraphCompleted,
+                    &format!("triggered_subworkflow_completed:{}", triggered_workflow_id),
+                )
+                .await;
+                Ok(output)
+            }
+            Err(err) => {
+                Self::emit(
+                    ctx,
+                    EventType::TriggeredSubgraphFailed,
+                    &format!("triggered_subworkflow_failed:{}", triggered_workflow_id),
+                )
+                .await;
+                Err(err)
+            }
+        }
+    }
+
+    fn apply_subworkflow_output_mapping(
+        output_mapping: &HashMap<String, Value>,
+        sub_variables: &DashMap<String, Value>,
+        result: &Value,
+        parent_variables: &DashMap<String, Value>,
+    ) {
+        for (target, source) in output_mapping {
+            let value = match source {
+                Value::String(name) => sub_variables
+                    .get(name)
+                    .map(|entry| entry.value().clone())
+                    .unwrap_or_else(|| result.clone()),
+                _ => source.clone(),
+            };
+            parent_variables.insert(target.clone(), value);
+        }
     }
 
     async fn handle_execute_script(
         action: &TriggerAction,
         ctx: &TriggerContext,
     ) -> WorkflowResult<Value> {
-        let script_name = match action {
-            TriggerAction::ExecuteScript { script_name, .. } => script_name.clone(),
+        let (script_name, parameters, timeout, ignore_error) = match action {
+            TriggerAction::ExecuteScript {
+                script_name,
+                parameters,
+                timeout,
+                ignore_error,
+            } => (
+                script_name.clone(),
+                parameters.clone(),
+                timeout.unwrap_or(0),
+                ignore_error.unwrap_or(false),
+            ),
             _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
         };
 
-        ctx.variables.insert(
-            "__trigger_script".to_string(),
-            serde_json::json!({"script_name": script_name}),
-        );
+        let script = lookup_script(&script_name).ok_or_else(|| {
+            WorkflowError::TriggerError(format!(
+                "Script '{}' not found in script registry",
+                script_name
+            ))
+        })?;
 
         Self::emit(
             ctx,
@@ -212,7 +440,113 @@ impl TriggerCoordinator {
             &format!("trigger_script:{}", script_name),
         )
         .await;
-        Ok(serde_json::json!({"submitted": true, "script_name": script_name}))
+
+        let mut code = String::new();
+        if let Some(params) = parameters {
+            let serialized = serde_json::to_string(&params).unwrap_or_else(|_| "null".to_string());
+            code.push_str(&format!("const parameters = {};\n", serialized));
+        }
+        code.push_str(&script.code);
+
+        let sandbox = SandboxRuntime::new();
+        let sandbox_config = SandboxConfig {
+            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            legacy_type: None,
+            image: None,
+            resource_limits: None,
+            network_enabled: None,
+            allowed_paths: None,
+        };
+        let execution = sandbox.execute(&script.language, &code, &sandbox_config);
+
+        let execution_result = if timeout > 0 {
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await {
+                Ok(result) => result,
+                Err(_) => {
+                    Self::emit(
+                        ctx,
+                        EventType::ScriptFailed,
+                        &format!("trigger_script_failed:{}", script_name),
+                    )
+                    .await;
+                    return Err(WorkflowError::TriggerError(format!(
+                        "Script '{}' timed out after {}ms",
+                        script_name, timeout
+                    )));
+                }
+            }
+        } else {
+            execution.await
+        };
+
+        if !execution_result.success {
+            let stderr = execution_result
+                .stderr
+                .as_deref()
+                .unwrap_or("unknown error")
+                .to_string();
+            if ignore_error {
+                let result = serde_json::json!({
+                    "success": false,
+                    "error": stderr,
+                    "script_name": script_name,
+                    "execution_time": execution_result.execution_time,
+                });
+                ctx.variables
+                    .insert("__trigger_script_result".to_string(), result.clone());
+                Self::emit(
+                    ctx,
+                    EventType::ScriptCompleted,
+                    &format!("trigger_script_completed:{}", script_name),
+                )
+                .await;
+                return Ok(result);
+            }
+            Self::emit(
+                ctx,
+                EventType::ScriptFailed,
+                &format!("trigger_script_failed:{}", script_name),
+            )
+            .await;
+            return Err(WorkflowError::TriggerError(format!(
+                "Script '{}' execution failed: {}",
+                script_name, stderr
+            )));
+        }
+
+        let output = execution_result
+            .stdout
+            .clone()
+            .map(Value::String)
+            .unwrap_or(Value::Null);
+        let parsed = execution_result
+            .stdout
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+            .unwrap_or(output);
+
+        ctx.variables
+            .insert("__trigger_script_result".to_string(), parsed.clone());
+
+        Self::emit(
+            ctx,
+            EventType::ScriptCompleted,
+            &format!("trigger_script_completed:{}", script_name),
+        )
+        .await;
+
+        Ok(serde_json::json!({
+            "success": true,
+            "result": parsed,
+            "script_name": script_name,
+            "execution_time": execution_result.execution_time,
+        }))
     }
 
     async fn emit(ctx: &TriggerContext, event_type: EventType, message: &str) {
@@ -257,6 +591,19 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> TriggerContext {
     .with_variables(ctx.variables.clone());
     if let Some(bus) = &ctx.event_bus {
         tctx = tctx.with_event_bus(bus.clone());
+    }
+    if let Some(handlers) = &ctx.handler_registry {
+        if let Some(handlers) =
+            handlers.downcast_ref::<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>()
+        {
+            tctx = tctx.with_handlers(handlers.clone());
+        }
+    }
+    if let Some(registry) = &ctx.tool_registry {
+        tctx = tctx.with_tool_registry(registry.clone());
+    }
+    if let Some(metrics) = &ctx.metrics {
+        tctx = tctx.with_metrics(metrics.clone());
     }
     tctx
 }
@@ -456,6 +803,8 @@ mod tests {
     use crate::coordinator::WorkflowCoordinator;
     use crate::entity::WorkflowExecutionEntity;
     use crate::handler::HandlerRegistry;
+    use crate::register_graph;
+    use crate::register_script;
 
     fn options_with_input(input: serde_json::Value) -> WorkflowExecutionOptions {
         WorkflowExecutionOptions {
@@ -621,5 +970,158 @@ mod tests {
         let stopped = run(stop_graph, options_with_input(Value::Null)).await;
         assert!(stopped.is_err());
         assert!(stopped.unwrap_err().to_string().contains("stopped"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_script() {
+        register_script(
+            "hello",
+            "javascript",
+            "console.log(JSON.stringify({greeting: 'Hello, ' + parameters.name}));",
+        );
+        let ctx = TriggerContext::new(Id::new(), Id::new());
+
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "hello".to_string(),
+                parameters: Some(serde_json::json!({"name": "world"})),
+                timeout: Some(5000),
+                ignore_error: Some(false),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+
+        assert!(result.success, "script should succeed: {:?}", result.error);
+        let value = result.result.unwrap();
+        assert_eq!(value["success"], serde_json::json!(true));
+        assert_eq!(
+            value["result"]["greeting"],
+            serde_json::json!("Hello, world")
+        );
+        let stored = ctx
+            .variables
+            .get("__trigger_script_result")
+            .expect("result should be stored")
+            .value()
+            .clone();
+        assert_eq!(stored["greeting"], serde_json::json!("Hello, world"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_script_missing() {
+        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "not_registered".to_string(),
+                parameters: None,
+                timeout: None,
+                ignore_error: None,
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_script_ignore_error() {
+        register_script("boom", "javascript", "throw new Error('kaboom');");
+        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "boom".to_string(),
+                parameters: None,
+                timeout: Some(5000),
+                ignore_error: Some(true),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(result.success, "ignore_error should swallow failures");
+        assert_eq!(result.result.unwrap()["success"], serde_json::json!(false));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_subworkflow() {
+        let child = build_graph(
+            vec![
+                node("start", "START", serde_json::json!({})),
+                node(
+                    "set",
+                    "VARIABLE",
+                    serde_json::json!({"assignments": {"sum": 7}}),
+                ),
+                node("end", "END", serde_json::json!({})),
+            ],
+            vec![edge("start", "set"), edge("set", "end")],
+        );
+        register_graph("child_flow", child);
+
+        let handlers = {
+            let mut reg = HandlerRegistry::new();
+            reg.register_defaults();
+            reg.into_arc()
+        };
+        let ctx = TriggerContext::new(Id::new(), Id::new()).with_handlers(handlers);
+
+        let mut output_mapping = HashMap::new();
+        output_mapping.insert("mapped_sum".to_string(), serde_json::json!("sum"));
+        let mut input_mapping = HashMap::new();
+        input_mapping.insert("a".to_string(), serde_json::json!(1));
+
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteTriggeredSubworkflow {
+                triggered_workflow_id: "child_flow".to_string(),
+                wait_for_completion: Some(true),
+                timeout: Some(5000),
+                input_mapping: Some(input_mapping),
+                output_mapping: Some(output_mapping),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+
+        assert!(result.success, "subworkflow should run: {:?}", result.error);
+        let value = result.result.unwrap();
+        assert_eq!(value["submitted"], serde_json::json!(true));
+        let stored = ctx
+            .variables
+            .get("__trigger_subworkflow_result")
+            .expect("result should be stored")
+            .value()
+            .clone();
+        assert_eq!(stored, value["result"]);
+        let mapped = ctx
+            .variables
+            .get("mapped_sum")
+            .expect("output mapping should write back")
+            .value()
+            .clone();
+        assert_eq!(mapped, serde_json::json!(7));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_subworkflow_missing() {
+        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteTriggeredSubworkflow {
+                triggered_workflow_id: "ghost_flow".to_string(),
+                wait_for_completion: Some(true),
+                timeout: None,
+                input_mapping: None,
+                output_mapping: None,
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("not found"));
     }
 }

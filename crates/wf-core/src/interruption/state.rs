@@ -21,7 +21,7 @@ pub struct InterruptionState {
     rx: watch::Receiver<InterruptionSignal>,
     parent: Option<Arc<InterruptionState>>,
     cancellation_token: CancellationToken,
-    event_bus: Option<Arc<EventBus>>,
+    event_bus: Arc<std::sync::RwLock<Option<Arc<EventBus>>>>,
     resume_notify: Arc<Notify>,
     disposed: Arc<AtomicBool>,
 }
@@ -34,14 +34,14 @@ impl InterruptionState {
             rx,
             parent: None,
             cancellation_token: CancellationToken::new(),
-            event_bus: None,
+            event_bus: Arc::new(std::sync::RwLock::new(None)),
             resume_notify: Arc::new(Notify::new()),
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn set_event_bus(&mut self, event_bus: Arc<EventBus>) {
-        self.event_bus = Some(event_bus);
+    pub fn set_event_bus(&self, event_bus: Arc<EventBus>) {
+        *self.event_bus.write().unwrap() = Some(event_bus);
     }
 
     pub fn pause(&self) -> CoreResult<()> {
@@ -140,7 +140,8 @@ impl InterruptionState {
     }
 
     fn emit_event(&self, event_type: EventType) {
-        if let Some(bus) = &self.event_bus {
+        let bus = self.event_bus.read().unwrap().clone();
+        if let Some(bus) = bus {
             let event = BaseEvent {
                 id: wf_types::Id::new(),
                 r#type: event_type,
@@ -305,7 +306,7 @@ mod tests {
     #[test]
     fn test_event_bus_emits_on_pause() {
         let bus = Arc::new(EventBus::new(16));
-        let mut state = InterruptionState::new();
+        let state = InterruptionState::new();
         state.set_event_bus(bus.clone());
 
         let mut sub = bus.subscribe();
@@ -319,7 +320,7 @@ mod tests {
     #[test]
     fn test_event_bus_emits_on_resume() {
         let bus = Arc::new(EventBus::new(16));
-        let mut state = InterruptionState::new();
+        let state = InterruptionState::new();
         state.set_event_bus(bus.clone());
 
         state.pause().unwrap();
@@ -335,7 +336,7 @@ mod tests {
     #[test]
     fn test_event_bus_emits_on_stop() {
         let bus = Arc::new(EventBus::new(16));
-        let mut state = InterruptionState::new();
+        let state = InterruptionState::new();
         state.set_event_bus(bus.clone());
 
         let mut sub = bus.subscribe();

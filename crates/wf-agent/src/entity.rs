@@ -8,6 +8,7 @@ use wf_types::llm::ToolCallFormatConfig;
 use wf_types::Id;
 
 use crate::state::AgentLoopState;
+use crate::timeout::{AgentTimeoutManager, TimeoutHandle};
 
 pub struct AgentLoopEntity {
     id: Id,
@@ -21,6 +22,9 @@ pub struct AgentLoopEntity {
     model: Option<String>,
     tool_call_format: Option<ToolCallFormatConfig>,
     available_tool_names: Vec<String>,
+    timeout_manager: AgentTimeoutManager,
+    max_pause_duration: Option<u64>,
+    pause_timeout_handle: std::sync::RwLock<Option<TimeoutHandle>>,
 }
 
 impl AgentLoopEntity {
@@ -37,6 +41,9 @@ impl AgentLoopEntity {
             model: None,
             tool_call_format: None,
             available_tool_names: Vec::new(),
+            timeout_manager: AgentTimeoutManager::new(),
+            max_pause_duration: None,
+            pause_timeout_handle: std::sync::RwLock::new(None),
         }
     }
 
@@ -62,6 +69,11 @@ impl AgentLoopEntity {
 
     pub fn with_available_tool_names(mut self, names: Vec<String>) -> Self {
         self.available_tool_names = names;
+        self
+    }
+
+    pub fn with_max_pause_duration(mut self, duration_ms: u64) -> Self {
+        self.max_pause_duration = Some(duration_ms);
         self
     }
 
@@ -91,6 +103,14 @@ impl AgentLoopEntity {
 
     pub fn available_tool_names(&self) -> &[String] {
         &self.available_tool_names
+    }
+
+    pub fn timeout_manager(&self) -> &AgentTimeoutManager {
+        &self.timeout_manager
+    }
+
+    pub fn max_pause_duration(&self) -> Option<u64> {
+        self.max_pause_duration
     }
 
     pub fn parent_execution_id(&self) -> Option<&Id> {
@@ -202,10 +222,12 @@ impl IExecutionEntity for AgentLoopEntity {
     async fn pause(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.interruption.pause()?;
         self.state.write().await.pause();
+        self.start_pause_timeout();
         Ok(())
     }
 
     async fn resume(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
+        self.cancel_pause_timeout();
         self.interruption.resume()?;
         self.state.write().await.resume();
         Ok(())
@@ -232,5 +254,41 @@ impl IExecutionEntity for AgentLoopEntity {
 
     fn get_root_execution_id(&self) -> Option<Id> {
         Some(self.id.clone())
+    }
+}
+
+impl AgentLoopEntity {
+    /// Register a pause timeout: if the loop stays paused beyond
+    /// `max_pause_duration` the interruption state is stopped.
+    fn start_pause_timeout(&self) {
+        let Some(max_pause) = self.max_pause_duration else {
+            return;
+        };
+        if max_pause == 0 {
+            return;
+        }
+        self.cancel_pause_timeout();
+        let interruption = self.interruption.clone();
+        let agent_loop_id = self.id.clone();
+        let handle = self.timeout_manager.register(
+            format!("pause-{}", self.id),
+            std::time::Duration::from_millis(max_pause),
+            move || {
+                tracing::warn!(
+                    agent_loop_id = %agent_loop_id,
+                    max_pause_duration = max_pause,
+                    "Agent loop pause timeout exceeded, stopping execution"
+                );
+                let _ = interruption.stop();
+            },
+        );
+        *self.pause_timeout_handle.write().unwrap() = Some(handle);
+    }
+
+    fn cancel_pause_timeout(&self) {
+        if let Some(handle) = self.pause_timeout_handle.write().unwrap().take() {
+            handle.cancel();
+        }
+        self.timeout_manager.cancel(&format!("pause-{}", self.id));
     }
 }

@@ -68,6 +68,100 @@ struct ExecutionAttempt<'a> {
     error: Option<String>,
 }
 
+/// Effective retry/timeout configuration for one node execution.
+/// Resolution order: node-level config > type-based default > global options.
+#[derive(Debug, Clone)]
+struct NodeRetryConfig {
+    on_failure: String,
+    max_retries: u32,
+    retry_delay_ms: u64,
+    exponential_backoff: bool,
+    fallback_output: Option<Value>,
+}
+
+impl NodeRetryConfig {
+    /// Resolve from global options only (nodes without specific config).
+    fn from_global(options: &wf_types::workflow_execution::WorkflowExecutionOptions) -> Self {
+        Self {
+            on_failure: options
+                .on_failure
+                .clone()
+                .unwrap_or_else(|| "fail".to_string()),
+            max_retries: options.max_retries.unwrap_or(0),
+            retry_delay_ms: options.retry_delay_ms.unwrap_or(1000),
+            exponential_backoff: options.exponential_backoff.unwrap_or(true),
+            fallback_output: options.fallback_output.clone(),
+        }
+    }
+
+    /// Merge a node's `inner` config over the global baseline. LLM and
+    /// AGENT_LOOP nodes default to retry(3) with exponential backoff when no
+    /// node-level or global setting is present (aligned with TS).
+    fn resolve(
+        node: &wf_types::workflow_execution::WorkflowNode,
+        options: &wf_types::workflow_execution::WorkflowExecutionOptions,
+    ) -> Self {
+        let base = Self::from_global(options);
+        let cfg = &node.inner;
+
+        let type_default = matches!(node.node_type.as_str(), "LLM" | "AGENT_LOOP");
+
+        let on_failure = cfg
+            .get("onFailure")
+            .and_then(|v| v.as_str())
+            .unwrap_or(if type_default {
+                "retry"
+            } else {
+                &base.on_failure
+            })
+            .to_string();
+
+        let max_retries = cfg
+            .get("maxRetries")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32)
+            .unwrap_or(if type_default { 3 } else { base.max_retries });
+
+        let retry_delay_ms =
+            cfg.get("retryDelayMs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(if type_default {
+                    1000
+                } else {
+                    base.retry_delay_ms
+                });
+
+        let exponential_backoff = cfg
+            .get("exponentialBackoff")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(if type_default {
+                true
+            } else {
+                base.exponential_backoff
+            });
+
+        let fallback_output = cfg.get("fallbackOutput").cloned().or(base.fallback_output);
+
+        Self {
+            on_failure,
+            max_retries,
+            retry_delay_ms,
+            exponential_backoff,
+            fallback_output,
+        }
+    }
+
+    fn retry_delay(&self, attempt: u32) -> std::time::Duration {
+        let base = self.retry_delay_ms;
+        let delay = if self.exponential_backoff && attempt > 0 {
+            base.saturating_mul(2_u64.pow(attempt.min(10)))
+        } else {
+            base
+        };
+        std::time::Duration::from_millis(delay)
+    }
+}
+
 pub struct WorkflowCoordinator {
     ctx: ExecutorContext,
     entity: Option<WorkflowExecutionEntity>,
@@ -394,10 +488,7 @@ impl WorkflowCoordinator {
             };
             let node_duration_ms = (wf_common::now() - node_start) as f64;
 
-            let on_failure = self.ctx.options.on_failure.as_deref().unwrap_or("fail");
-            let max_retries = self.ctx.options.max_retries.unwrap_or(0);
-            let retry_delay =
-                std::time::Duration::from_millis(self.ctx.options.retry_delay_ms.unwrap_or(1000));
+            let retry_config = NodeRetryConfig::resolve(node, &self.ctx.options);
 
             match result {
                 Ok(output) => {
@@ -479,22 +570,22 @@ impl WorkflowCoordinator {
                         });
                     }
 
-                    match on_failure {
+                    match retry_config.on_failure.as_str() {
                         "retry" | "continue" => {
                             let mut retried = false;
-                            for attempt in 0..max_retries {
+                            for attempt in 0..retry_config.max_retries {
                                 tracing::warn!(
                                     "Node '{}' failed (attempt {}/{}): {}. Retrying in {:?}...",
                                     node_id,
                                     attempt + 1,
-                                    max_retries,
+                                    retry_config.max_retries,
                                     e,
-                                    retry_delay
+                                    retry_config.retry_delay(attempt)
                                 );
                                 if let Some(node_metrics) = &node_metrics {
                                     node_metrics.record_retry(node_id, &node_type_str);
                                 }
-                                tokio::time::sleep(retry_delay).await;
+                                tokio::time::sleep(retry_config.retry_delay(attempt)).await;
                                 let attempt_start = wf_common::now();
                                 let mut retry_node_ctx =
                                     self.build_node_context(node_id, &node_type).await?;
@@ -559,12 +650,12 @@ impl WorkflowCoordinator {
                                 }
                             }
                             if !retried {
-                                if on_failure == "continue" {
-                                    if let Some(ref fallback) = self.ctx.options.fallback_output {
+                                if retry_config.on_failure == "continue" {
+                                    if let Some(ref fallback) = retry_config.fallback_output {
                                         tracing::warn!(
                                             "Node '{}' failed after {} retries, using fallback_output",
                                             node_id,
-                                            max_retries
+                                            retry_config.max_retries
                                         );
                                         self.node_outputs.insert(node_id.clone(), fallback.clone());
                                         self.completed_nodes.push(node_id.clone());
@@ -578,7 +669,7 @@ impl WorkflowCoordinator {
                                         tracing::warn!(
                                             "Node '{}' failed after {} retries, continuing",
                                             node_id,
-                                            max_retries
+                                            retry_config.max_retries
                                         );
                                     }
                                     self.current_node_id =
@@ -843,5 +934,287 @@ impl WorkflowCoordinator {
             metadata,
         };
         let _ = bus.publish(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use wf_tools::registry::ToolRegistry;
+    use wf_types::workflow::EdgeType;
+    use wf_types::workflow_execution::{WorkflowEdge, WorkflowExecutionOptions, WorkflowNode};
+
+    fn node(id: &str, node_type: &str, inner: Value) -> WorkflowNode {
+        WorkflowNode {
+            id: id.to_string(),
+            name: Some(id.to_string()),
+            node_type: node_type.to_string(),
+            inner,
+        }
+    }
+
+    fn edge(source: &str, target: &str) -> WorkflowEdge {
+        WorkflowEdge {
+            id: format!("{}-{}", source, target),
+            source_node_id: source.to_string(),
+            target_node_id: target.to_string(),
+            r#type: EdgeType::Default,
+            condition: None,
+            label: None,
+            description: None,
+        }
+    }
+
+    fn graph(nodes: Vec<WorkflowNode>) -> WorkflowGraphStructure {
+        WorkflowGraphStructure {
+            edges: nodes.windows(2).map(|w| edge(&w[0].id, &w[1].id)).collect(),
+            nodes,
+            adjacency_list: HashMap::new(),
+            reverse_adjacency_list: HashMap::new(),
+            start_node_id: Some("start".to_string()),
+            end_node_ids: vec!["end".to_string()],
+        }
+    }
+
+    fn options() -> WorkflowExecutionOptions {
+        WorkflowExecutionOptions {
+            input: None,
+            max_steps: None,
+            timeout: None,
+            max_execution_time: None,
+            enable_checkpoints: Some(false),
+            node_timeout: None,
+            max_pause_duration: None,
+            retry_budget: None,
+            on_failure: None,
+            max_retries: None,
+            retry_delay_ms: None,
+            exponential_backoff: None,
+            fallback_output: None,
+        }
+    }
+
+    async fn run(
+        g: WorkflowGraphStructure,
+        opts: WorkflowExecutionOptions,
+        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    ) -> WorkflowResult<Value> {
+        let exec_ctx = ExecutorContext::new(
+            wf_common::generate_id(),
+            wf_common::generate_id(),
+            None,
+            Arc::new(ToolRegistry::new()),
+            opts,
+        );
+        let entity = WorkflowExecutionEntity::new(
+            exec_ctx.execution_id.clone(),
+            exec_ctx.workflow_id.clone(),
+        );
+        let mut coordinator = WorkflowCoordinator::new(exec_ctx, g, handlers)?.with_entity(entity);
+        coordinator.execute().await
+    }
+
+    #[test]
+    fn llm_defaults_to_retry_three() {
+        let cfg = NodeRetryConfig::resolve(&node("llm1", "LLM", Value::Null), &options());
+        assert_eq!(cfg.max_retries, 3);
+        assert_eq!(cfg.on_failure, "retry");
+        assert!(cfg.exponential_backoff);
+
+        let agent = NodeRetryConfig::resolve(&node("ag1", "AGENT_LOOP", Value::Null), &options());
+        assert_eq!(agent.max_retries, 3);
+    }
+
+    #[test]
+    fn node_config_overrides_global_and_type_defaults() {
+        let mut opts = options();
+        opts.max_retries = Some(1);
+        opts.on_failure = Some("fail".to_string());
+        let n = node(
+            "llm1",
+            "LLM",
+            serde_json::json!({
+                "maxRetries": 5,
+                "retryDelayMs": 250,
+                "exponentialBackoff": false,
+                "onFailure": "continue"
+            }),
+        );
+        let cfg = NodeRetryConfig::resolve(&n, &opts);
+        assert_eq!(cfg.max_retries, 5);
+        assert_eq!(cfg.retry_delay_ms, 250);
+        assert!(!cfg.exponential_backoff);
+        assert_eq!(cfg.on_failure, "continue");
+    }
+
+    #[test]
+    fn global_options_baseline_for_other_types() {
+        let mut opts = options();
+        opts.max_retries = Some(2);
+        opts.on_failure = Some("continue".to_string());
+        let cfg = NodeRetryConfig::resolve(&node("v1", "VARIABLE", Value::Null), &opts);
+        assert_eq!(cfg.max_retries, 2);
+        assert_eq!(cfg.on_failure, "continue");
+    }
+
+    #[test]
+    fn fallback_output_prefers_node_level() {
+        let mut opts = options();
+        opts.fallback_output = Some(Value::String("global".to_string()));
+        let n = node(
+            "s1",
+            "SCRIPT",
+            serde_json::json!({"fallbackOutput": {"safe": true}}),
+        );
+        let cfg = NodeRetryConfig::resolve(&n, &opts);
+        assert_eq!(cfg.fallback_output, Some(serde_json::json!({"safe": true})));
+    }
+
+    #[test]
+    fn retry_delay_uses_exponential_backoff() {
+        let cfg = NodeRetryConfig {
+            on_failure: "retry".to_string(),
+            max_retries: 3,
+            retry_delay_ms: 100,
+            exponential_backoff: true,
+            fallback_output: None,
+        };
+        assert_eq!(cfg.retry_delay(0), std::time::Duration::from_millis(100));
+        assert_eq!(cfg.retry_delay(1), std::time::Duration::from_millis(200));
+        assert_eq!(cfg.retry_delay(2), std::time::Duration::from_millis(400));
+    }
+
+    struct FlakyHandler {
+        failures: Arc<AtomicUsize>,
+        fail_count: usize,
+        label: &'static str,
+    }
+
+    #[async_trait]
+    impl NodeHandler for FlakyHandler {
+        fn node_type(&self) -> StaticNodeType {
+            StaticNodeType::Variable
+        }
+
+        async fn execute(
+            &self,
+            _ctx: &mut NodeExecutionContext,
+        ) -> WorkflowResult<NodeExecutionResult> {
+            if self.failures.load(Ordering::SeqCst) < self.fail_count {
+                self.failures.fetch_add(1, Ordering::SeqCst);
+                return Err(WorkflowError::OperationError(format!(
+                    "{} failure",
+                    self.label
+                )));
+            }
+            Ok(NodeExecutionResult::simple(Value::String(
+                self.label.to_string(),
+            )))
+        }
+    }
+
+    fn base_handlers(
+        extra: Vec<(StaticNodeType, Arc<dyn NodeHandler>)>,
+    ) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+        let mut map: HashMap<StaticNodeType, Arc<dyn NodeHandler>> = HashMap::new();
+        map.insert(
+            StaticNodeType::Start,
+            Arc::new(crate::handler::start_end::StartHandler),
+        );
+        map.insert(
+            StaticNodeType::End,
+            Arc::new(crate::handler::start_end::EndHandler),
+        );
+        for (ty, handler) in extra {
+            map.insert(ty, handler);
+        }
+        Arc::new(map)
+    }
+
+    #[tokio::test]
+    async fn retry_recovers_after_transient_failures() {
+        let handlers = base_handlers(vec![(
+            StaticNodeType::Variable,
+            Arc::new(FlakyHandler {
+                failures: Arc::new(AtomicUsize::new(0)),
+                fail_count: 2,
+                label: "recovered",
+            }) as Arc<dyn NodeHandler>,
+        )]);
+        let g = graph(vec![
+            node("start", "START", Value::Null),
+            node(
+                "flaky",
+                "VARIABLE",
+                serde_json::json!({"onFailure": "retry", "maxRetries": 3, "retryDelayMs": 1}),
+            ),
+            node("end", "END", Value::Null),
+        ]);
+        let result = run(g, options(), handlers).await;
+        assert!(result.is_ok(), "retry should recover: {:?}", result.err());
+        assert_eq!(result.unwrap(), Value::String("recovered".to_string()));
+    }
+
+    struct AlwaysFailingHandler;
+
+    #[async_trait]
+    impl NodeHandler for AlwaysFailingHandler {
+        fn node_type(&self) -> StaticNodeType {
+            StaticNodeType::Variable
+        }
+
+        async fn execute(
+            &self,
+            _ctx: &mut NodeExecutionContext,
+        ) -> WorkflowResult<NodeExecutionResult> {
+            Err(WorkflowError::OperationError("always fails".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_output_used_when_retries_exhausted() {
+        let handlers = base_handlers(vec![(
+            StaticNodeType::Variable,
+            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+        )]);
+        let g = graph(vec![
+            node("start", "START", Value::Null),
+            node(
+                "flaky",
+                "VARIABLE",
+                serde_json::json!({
+                    "onFailure": "continue",
+                    "maxRetries": 2,
+                    "retryDelayMs": 1,
+                    "fallbackOutput": {"fallback": true}
+                }),
+            ),
+            node("end", "END", Value::Null),
+        ]);
+        let result = run(g, options(), handlers).await;
+        assert!(
+            result.is_ok(),
+            "fallback should let the workflow continue: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap(), serde_json::json!({"fallback": true}));
+    }
+
+    #[tokio::test]
+    async fn failure_without_fallback_propagates() {
+        let handlers = base_handlers(vec![(
+            StaticNodeType::Variable,
+            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+        )]);
+        let g = graph(vec![
+            node("start", "START", Value::Null),
+            node("flaky", "VARIABLE", Value::Null),
+            node("end", "END", Value::Null),
+        ]);
+        let result = run(g, options(), handlers).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("always fails"));
     }
 }

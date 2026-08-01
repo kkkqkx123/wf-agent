@@ -1,0 +1,448 @@
+//! End-to-end tests for LLM nodes driven by the scriptable mock provider
+//! (wf-llm `mock` feature). Covers C4 (tool_calls multi-round loop, stream,
+//! outputContext) and C7 (node retry / fallback) acceptance items.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use wf_execution_shared::context::NodeExecutionContext;
+use wf_llm::{ClientFactory, LlmError, LlmResponseSpec, MockLlmClient};
+use wf_tools::registry::ToolRegistry;
+use wf_types::message::{LlmFunctionCall, LlmToolCall, Message, MessageContentValue, MessageRole};
+use wf_types::node::StaticNodeType;
+use wf_types::workflow::EdgeType;
+use wf_types::workflow_execution::{
+    WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
+};
+use wf_workflow::handler::NodeHandler;
+use wf_workflow::{get_context, message_context, LlmHandler, WorkflowExecutor};
+
+fn llm_ctx(node_id: &str, config: serde_json::Value) -> NodeExecutionContext {
+    let vars = Arc::new(dashmap::DashMap::new());
+    NodeExecutionContext::new(
+        wf_types::Id::new(),
+        node_id.to_string(),
+        StaticNodeType::Llm,
+        serde_json::json!("hello"),
+        vars,
+    )
+    .with_node_config(config)
+}
+
+fn tool_call(id: &str, name: &str, args: &str) -> LlmToolCall {
+    LlmToolCall {
+        id: id.to_string(),
+        r#type: "function".to_string(),
+        function: LlmFunctionCall {
+            name: name.to_string(),
+            arguments: args.to_string(),
+        },
+    }
+}
+
+fn registered_echo_tool() -> Arc<ToolRegistry> {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_stateless_handler(
+        "echo",
+        Arc::new(|params, _ctx| {
+            Ok(serde_json::json!({
+                "echoed": params.get("text").cloned().unwrap_or(serde_json::Value::Null)
+            }))
+        }),
+    );
+    registry.register_tool(wf_types::tool::Tool {
+        id: "echo".to_string(),
+        name: "echo".to_string(),
+        description: "Echo the given text back".to_string(),
+        tool_type: wf_types::tool::ToolType::Stateless,
+        parameters: None,
+        metadata: None,
+        config: None,
+        enabled: Some(true),
+        strict: None,
+        default_timeout_ms: None,
+    });
+    registry
+}
+
+#[tokio::test]
+async fn tool_calls_multi_round_loop_feeds_results_back() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "call_1",
+        "echo",
+        r#"{"text":"ping"}"#,
+    )]));
+    mock.script(LlmResponseSpec::text("done after tool"));
+
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let handler = LlmHandler::with_factory(factory);
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "tools": ["echo"],
+        }),
+    );
+    ctx.tool_registry = Some(registered_echo_tool());
+
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(result.output, serde_json::json!("done after tool"));
+    let metadata = result.metadata;
+    assert_eq!(
+        metadata.get("tool_calls").unwrap(),
+        &serde_json::json!([{"id": "call_1", "name": "echo", "success": true}])
+    );
+
+    // Two LLM calls: the second must carry the tool result message back.
+    let requests = mock.recorded_requests();
+    assert_eq!(requests.len(), 2);
+    let second = &requests[1];
+    let tool_msgs: Vec<&Message> = second
+        .messages
+        .iter()
+        .filter(|m| m.role == MessageRole::Tool)
+        .collect();
+    assert_eq!(tool_msgs.len(), 1);
+    assert_eq!(tool_msgs[0].tool_call_id.as_deref(), Some("call_1"));
+    assert_eq!(
+        tool_msgs[0].content,
+        MessageContentValue::Text(serde_json::json!({"echoed":"ping"}).to_string())
+    );
+    // The assistant message with the tool call must be present too.
+    assert!(second
+        .messages
+        .iter()
+        .any(|m| m.role == MessageRole::Assistant
+            && m.tool_calls.as_ref().is_some_and(|c| !c.is_empty())));
+}
+
+#[tokio::test]
+async fn stream_emits_chunks_and_aggregates_output() {
+    let mock = Arc::new(MockLlmClient::new());
+    let assistant = Message {
+        id: wf_types::Id::new(),
+        role: MessageRole::Assistant,
+        content: MessageContentValue::Text("streamed answer".to_string()),
+        timestamp: wf_common::now(),
+        tool_call_id: None,
+        tool_name: None,
+        tool_calls: None,
+        thinking: None,
+        metadata: None,
+    };
+    mock.script_stream(vec![
+        wf_types::llm::MessageStreamEvent::Stream(wf_types::llm::MessageStreamChunk {
+            content: "streamed ".to_string(),
+        }),
+        wf_types::llm::MessageStreamEvent::Stream(wf_types::llm::MessageStreamChunk {
+            content: "answer".to_string(),
+        }),
+        wf_types::llm::MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
+            message: assistant,
+            usage: Some(wf_types::llm::TokenUsageStats {
+                prompt_tokens: 5,
+                completion_tokens: 2,
+                total_tokens: 7,
+                reasoning_tokens: None,
+                prompt_tokens_cost: None,
+                completion_tokens_cost: None,
+                total_cost: None,
+            }),
+        }),
+        wf_types::llm::MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}),
+    ]);
+
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let handler = LlmHandler::with_factory(factory);
+    let bus = Arc::new(wf_core::EventBus::new(64));
+    let mut sub = bus.subscribe();
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "stream": true,
+        }),
+    );
+    ctx.event_bus = Some(bus);
+
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(result.output, serde_json::json!("streamed answer"));
+    assert_eq!(
+        result.metadata.get("stream").unwrap(),
+        &serde_json::json!(true)
+    );
+
+    // Collect LlmStreamChunk events published to the bus.
+    let mut deltas = Vec::new();
+    while let Ok(event) = sub.try_recv() {
+        if event.r#type == wf_types::events::EventType::LlmStreamChunk {
+            let delta = event
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("delta"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            deltas.push(delta);
+        }
+    }
+    assert_eq!(deltas, vec!["streamed ".to_string(), "answer".to_string()]);
+}
+
+#[tokio::test]
+async fn output_context_contains_assistant_reply() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("context reply"));
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let handler = LlmHandler::with_factory(factory);
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "output_context": "out",
+        }),
+    );
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(result.output, serde_json::json!("context reply"));
+
+    let out = get_context(&ctx.variables, "out");
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].role, MessageRole::Assistant);
+    assert_eq!(
+        out[0].content,
+        MessageContentValue::Text("context reply".to_string())
+    );
+}
+
+#[tokio::test]
+async fn system_prompt_and_context_are_forwarded_to_mock() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("ok"));
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let handler = LlmHandler::with_factory(factory);
+
+    let vars = Arc::new(dashmap::DashMap::new());
+    message_context::append_context(
+        &vars,
+        "chat",
+        vec![Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text("prior turn".to_string()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }],
+    );
+    let mut ctx = NodeExecutionContext::new(
+        wf_types::Id::new(),
+        "llm1".to_string(),
+        StaticNodeType::Llm,
+        serde_json::json!("hello"),
+        vars,
+    )
+    .with_node_config(serde_json::json!({
+        "profile_id": "mock",
+        "system_prompt": "be terse",
+        "context_id": "chat",
+    }));
+    handler.execute(&mut ctx).await.unwrap();
+
+    let request = mock.last_request().unwrap();
+    // Node input is only appended when no other messages exist, so the
+    // request carries system prompt + context (no input fallback).
+    let roles: Vec<MessageRole> = request.messages.iter().map(|m| m.role.clone()).collect();
+    assert_eq!(roles, vec![MessageRole::System, MessageRole::User]);
+    assert_eq!(
+        request.messages[1].content,
+        MessageContentValue::Text("prior turn".to_string())
+    );
+}
+
+fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
+    WorkflowNode {
+        id: id.to_string(),
+        name: Some(id.to_string()),
+        node_type: node_type.to_string(),
+        inner,
+    }
+}
+
+fn graph(nodes: Vec<WorkflowNode>) -> WorkflowGraphStructure {
+    WorkflowGraphStructure {
+        edges: nodes
+            .windows(2)
+            .map(|w| WorkflowEdge {
+                id: format!("{}-{}", w[0].id, w[1].id),
+                source_node_id: w[0].id.clone(),
+                target_node_id: w[1].id.clone(),
+                r#type: EdgeType::Default,
+                condition: None,
+                label: None,
+                description: None,
+            })
+            .collect(),
+        nodes,
+        adjacency_list: HashMap::new(),
+        reverse_adjacency_list: HashMap::new(),
+        start_node_id: Some("start".to_string()),
+        end_node_ids: vec!["end".to_string()],
+    }
+}
+
+fn options() -> WorkflowExecutionOptions {
+    WorkflowExecutionOptions {
+        input: None,
+        max_steps: None,
+        timeout: None,
+        max_execution_time: None,
+        enable_checkpoints: Some(false),
+        node_timeout: None,
+        max_pause_duration: None,
+        retry_budget: None,
+        on_failure: None,
+        max_retries: None,
+        retry_delay_ms: None,
+        exponential_backoff: None,
+        fallback_output: None,
+    }
+}
+
+fn llm_handlers(mock: Arc<MockLlmClient>) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let mut map: HashMap<StaticNodeType, Arc<dyn NodeHandler>> = HashMap::new();
+    map.insert(
+        StaticNodeType::Start,
+        Arc::new(wf_workflow::handler::start_end::StartHandler),
+    );
+    map.insert(
+        StaticNodeType::End,
+        Arc::new(wf_workflow::handler::start_end::EndHandler),
+    );
+    map.insert(
+        StaticNodeType::Llm,
+        Arc::new(LlmHandler::with_factory(factory)),
+    );
+    Arc::new(map)
+}
+
+async fn run_workflow(
+    graph: WorkflowGraphStructure,
+    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+) -> wf_workflow::WorkflowResult<wf_tools::callback::WorkflowOutput> {
+    WorkflowExecutor::new()
+        .execute_workflow(
+            wf_types::Id::new(),
+            graph,
+            options(),
+            Arc::new(ToolRegistry::new()),
+            Some(handlers),
+            Vec::new(),
+        )
+        .await
+}
+
+#[tokio::test]
+async fn retry_recovers_after_transient_llm_errors() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    mock.script(LlmResponseSpec::text("recovered reply"));
+    let handlers = llm_handlers(mock.clone());
+
+    let g = graph(vec![
+        node("start", "START", serde_json::json!({})),
+        node(
+            "llm1",
+            "LLM",
+            serde_json::json!({
+                "profile_id": "mock",
+                "onFailure": "retry",
+                "maxRetries": 3,
+                "retryDelayMs": 1,
+            }),
+        ),
+        node("end", "END", serde_json::json!({})),
+    ]);
+    let output = run_workflow(g, handlers).await.unwrap();
+    assert_eq!(output.result, serde_json::json!("recovered reply"));
+    assert_eq!(mock.recorded_count(), 3);
+}
+
+#[tokio::test]
+async fn fallback_output_used_when_retries_exhausted() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
+    let handlers = llm_handlers(mock.clone());
+
+    let g = graph(vec![
+        node("start", "START", serde_json::json!({})),
+        node(
+            "llm1",
+            "LLM",
+            serde_json::json!({
+                "profile_id": "mock",
+                "onFailure": "continue",
+                "maxRetries": 1,
+                "retryDelayMs": 1,
+                "fallbackOutput": {"fallback": true},
+            }),
+        ),
+        node("end", "END", serde_json::json!({})),
+    ]);
+    let output = run_workflow(g, handlers).await.unwrap();
+    assert_eq!(output.result, serde_json::json!({"fallback": true}));
+}
+
+#[tokio::test]
+async fn agent_loop_runs_mock_driven_iterations() {
+    let mock = Arc::new(MockLlmClient::new());
+    // Round 1: tool call; round 2: final answer.
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "call_1",
+        "echo",
+        r#"{"text":"agent ping"}"#,
+    )]));
+    mock.script(LlmResponseSpec::text("agent final answer"));
+
+    let factory = ClientFactory::new();
+    factory.register_mock("mock", mock.clone());
+    let handler = wf_workflow::AgentLoopHandler::with_factory(factory);
+
+    let vars = Arc::new(dashmap::DashMap::new());
+    let mut ctx = NodeExecutionContext::new(
+        wf_types::Id::new(),
+        "agent1".to_string(),
+        StaticNodeType::AgentLoop,
+        serde_json::json!("do it"),
+        vars,
+    )
+    .with_node_config(serde_json::json!({
+        "model": "mock",
+        "available_tools": ["echo"],
+        "max_iterations": 5,
+    }));
+    ctx.tool_registry = Some(registered_echo_tool());
+
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(result.output, serde_json::json!("agent final answer"));
+    // user message + assistant(tool call) + tool result + assistant(final)
+    assert_eq!(
+        result.metadata.get("message_count").unwrap(),
+        &serde_json::json!(4)
+    );
+    assert_eq!(mock.recorded_count(), 2);
+}

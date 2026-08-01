@@ -216,32 +216,36 @@ impl LlmClient for LlmClientImpl {
     }
 
     async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<u32> {
-        let mut total = 0u32;
+        Ok(estimate_request_tokens(request))
+    }
+}
 
-        for msg in &request.messages {
-            match &msg.content {
-                MessageContentValue::Text(text) => {
-                    total += estimate_tokens(text);
-                }
-                MessageContentValue::Rich(contents) => {
-                    for content in contents {
-                        if let wf_types::message::MessageContent::Text { text } = content {
-                            total += estimate_tokens(text);
-                        }
+pub(crate) fn estimate_request_tokens(request: &LlmRequest) -> u32 {
+    let mut total = 0u32;
+
+    for msg in &request.messages {
+        match &msg.content {
+            MessageContentValue::Text(text) => {
+                total += estimate_tokens(text);
+            }
+            MessageContentValue::Rich(contents) => {
+                for content in contents {
+                    if let wf_types::message::MessageContent::Text { text } = content {
+                        total += estimate_tokens(text);
                     }
                 }
             }
         }
-
-        if let Some(tools) = &request.tools {
-            for tool in tools {
-                total += estimate_tokens(&tool.name);
-                total += estimate_tokens(&tool.description);
-            }
-        }
-
-        Ok(total)
     }
+
+    if let Some(tools) = &request.tools {
+        for tool in tools {
+            total += estimate_tokens(&tool.name);
+            total += estimate_tokens(&tool.description);
+        }
+    }
+
+    total
 }
 
 fn estimate_tokens(text: &str) -> u32 {

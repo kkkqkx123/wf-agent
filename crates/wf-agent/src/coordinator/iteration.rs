@@ -9,7 +9,9 @@ use wf_llm::LlmWrapper;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::LlmRequest;
+use wf_types::tool::approval::ToolApprovalOptions;
 
+use crate::approval::ToolApprovalHandler;
 use crate::coordinator::tool::ToolExecutionCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
@@ -39,7 +41,7 @@ impl IterationExecutor for AgentIterationCoordinator {
 
 pub struct AgentIterationCoordinator {
     llm_wrapper: Arc<LlmWrapper>,
-    tool_coordinator: Arc<ToolExecutionCoordinator>,
+    tool_coordinator: ToolExecutionCoordinator,
     hook_executor: Arc<HookExecutor>,
     metrics: Option<Arc<MetricsRegistry>>,
 }
@@ -51,16 +53,28 @@ impl AgentIterationCoordinator {
         hook_executor: Arc<HookExecutor>,
         metrics: Option<Arc<MetricsRegistry>>,
     ) -> Self {
-        let tool_coordinator = Arc::new(
-            ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())
-                .with_metrics(metrics.clone()),
-        );
+        let tool_coordinator = ToolExecutionCoordinator::new(tool_registry, hook_executor.clone())
+            .with_metrics(metrics.clone());
         Self {
             llm_wrapper,
             tool_coordinator,
             hook_executor,
             metrics,
         }
+    }
+
+    /// Register the tool approval configuration passed down to the tool
+    /// execution coordinator.
+    pub fn with_approval(
+        mut self,
+        options: Option<ToolApprovalOptions>,
+        handler: Option<Arc<dyn ToolApprovalHandler>>,
+    ) -> Self {
+        let registry = self.tool_coordinator.tool_registry().clone();
+        self.tool_coordinator = ToolExecutionCoordinator::new(registry, self.hook_executor.clone())
+            .with_metrics(self.metrics.clone())
+            .with_approval(options, handler);
+        self
     }
 
     pub async fn execute_iteration(

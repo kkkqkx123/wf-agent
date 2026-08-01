@@ -9,6 +9,8 @@ use wf_types::llm::LlmProfile;
 pub struct ClientFactory {
     clients: Arc<DashMap<String, Arc<LlmClientImpl>>>,
     profile_manager: crate::profile_manager::ProfileManager,
+    #[cfg(feature = "mock")]
+    mock_clients: Arc<DashMap<String, Arc<crate::mock::MockLlmClient>>>,
 }
 
 impl ClientFactory {
@@ -16,7 +18,21 @@ impl ClientFactory {
         Self {
             clients: Arc::new(DashMap::new()),
             profile_manager: crate::profile_manager::ProfileManager::new(),
+            #[cfg(feature = "mock")]
+            mock_clients: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Register a mock client under an arbitrary id (a real profile id can be
+    /// reused, or a plain "mock" id). Mock hits take priority over profiles.
+    #[cfg(feature = "mock")]
+    pub fn register_mock(&self, id: impl Into<String>, client: Arc<crate::mock::MockLlmClient>) {
+        self.mock_clients.insert(id.into(), client);
+    }
+
+    #[cfg(feature = "mock")]
+    pub fn mock_client(&self, id: &str) -> Option<Arc<crate::mock::MockLlmClient>> {
+        self.mock_clients.get(id).map(|c| c.clone())
     }
 
     pub fn with_profiles(profiles: Vec<LlmProfile>) -> Self {

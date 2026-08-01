@@ -23,18 +23,24 @@ pub struct AgentLoopConfig {
     pub max_execution_time: Option<u64>,
     pub hooks: Vec<HookConfig>,
     pub available_tool_names: Vec<String>,
+    /// Protocol lock for tool calls (e.g. XML wrapping).
+    pub tool_call_format: Option<wf_types::llm::tool_call_format::ToolCallFormatConfig>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentLoopInput {
     pub message: String,
     pub context: HashMap<String, Value>,
+    /// Initial conversation imported into the agent session.
+    pub conversation: Vec<wf_types::message::Message>,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentLoopOutput {
     pub result: Value,
     pub iterations: u32,
+    /// Final conversation exported from the agent session.
+    pub conversation: Vec<wf_types::message::Message>,
 }
 
 #[derive(Debug, Clone)]

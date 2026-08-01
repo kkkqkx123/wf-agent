@@ -53,6 +53,8 @@ impl WorkflowExecutor {
             registry.into_arc()
         });
 
+        crate::registry::register_graph(&workflow_id.to_string(), graph.clone());
+
         let params = WorkflowExecutionParams {
             execution_id: wf_types::Id::new(),
             workflow_id,

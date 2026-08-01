@@ -95,6 +95,9 @@ impl BuiltinExecutor {
                 .get("available_tool_names")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_default(),
+            tool_call_format: parameters
+                .get("tool_call_format")
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
         };
 
         let input = AgentLoopInput {
@@ -107,6 +110,10 @@ impl BuiltinExecutor {
                 );
                 m
             },
+            conversation: parameters
+                .get("conversation")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
         };
 
         let output = callback.execute_agent_loop(config, input).await?;

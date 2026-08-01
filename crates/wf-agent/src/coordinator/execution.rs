@@ -11,7 +11,7 @@ use wf_types::errors::ErrorKind;
 use wf_types::execution::FailurePolicyConfig;
 
 use crate::checkpoint::AgentCheckpointIntegration;
-use crate::coordinator::iteration::{AgentIterationCoordinator, IterationResult};
+use crate::coordinator::iteration::{IterationExecutor, IterationResult};
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 
@@ -63,13 +63,13 @@ fn extract_error_kind(e: &AgentError) -> ErrorKind {
 }
 
 pub struct AgentExecutionCoordinator {
-    iteration_coordinator: Arc<AgentIterationCoordinator>,
+    iteration_coordinator: Arc<dyn IterationExecutor>,
     checkpoint: Option<AgentCheckpointIntegration>,
     metrics: Option<Arc<MetricsRegistry>>,
 }
 
 impl AgentExecutionCoordinator {
-    pub fn new(iteration_coordinator: Arc<AgentIterationCoordinator>) -> Self {
+    pub fn new(iteration_coordinator: Arc<dyn IterationExecutor>) -> Self {
         Self {
             iteration_coordinator,
             checkpoint: None,
@@ -91,6 +91,7 @@ impl AgentExecutionCoordinator {
         &self,
         entity: &AgentLoopEntity,
         max_iterations: u32,
+        max_execution_time: Option<u64>,
     ) -> AgentResult<(IterationResult, u32)> {
         let failure_policy = FailurePolicyManager::new(FailurePolicyConfig {
             retry_policy: Some(default_retry_policy()),
@@ -100,7 +101,53 @@ impl AgentExecutionCoordinator {
             metrics_enabled: Some(false),
         });
 
+        // Wall-clock timeout: a background stop signal mirrors TS
+        // TimeoutManager so a slow iteration is interrupted as well.
+        let timeout_task = match max_execution_time {
+            Some(max) if max > 0 => {
+                let interruption = entity.interruption().clone();
+                Some(tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(max)).await;
+                    tracing::warn!(
+                        max_execution_time = max,
+                        "Agent loop wall-clock timeout exceeded, stopping execution"
+                    );
+                    let _ = interruption.stop();
+                }))
+            }
+            _ => None,
+        };
+
+        let outcome = self
+            .run_iterations(entity, max_iterations, max_execution_time, &failure_policy)
+            .await;
+
+        if let Some(task) = timeout_task {
+            task.abort();
+        }
+        outcome
+    }
+
+    async fn run_iterations(
+        &self,
+        entity: &AgentLoopEntity,
+        max_iterations: u32,
+        max_execution_time: Option<u64>,
+        failure_policy: &FailurePolicyManager,
+    ) -> AgentResult<(IterationResult, u32)> {
+        let start_time = wf_common::now();
+
         for iteration in 0..max_iterations {
+            if Self::wall_clock_expired(max_execution_time, start_time) {
+                tracing::warn!(
+                    agent_loop_id = %entity.id(),
+                    max_execution_time = max_execution_time.unwrap_or(0),
+                    "Agent loop wall-clock timeout exceeded, stopping execution"
+                );
+                let _ = entity.interruption().stop();
+                return Err(Self::timeout_error(max_execution_time));
+            }
+
             let running = entity.state.read().await.is_running();
             if !running {
                 break;
@@ -108,7 +155,7 @@ impl AgentExecutionCoordinator {
 
             let iteration_start = wf_common::now();
             let iteration_result = self
-                .execute_iteration_with_retry(entity, &failure_policy)
+                .execute_iteration_with_retry(entity, failure_policy)
                 .await?;
             let iteration_duration_ms = (wf_common::now() - iteration_start) as f64;
 
@@ -134,6 +181,10 @@ impl AgentExecutionCoordinator {
                     }
 
                     if !result.should_continue {
+                        if Self::wall_clock_expired(max_execution_time, start_time) {
+                            let _ = entity.interruption().stop();
+                            return Err(Self::timeout_error(max_execution_time));
+                        }
                         return Ok((result, iteration + 1));
                     }
                 }
@@ -166,6 +217,17 @@ impl AgentExecutionCoordinator {
         }
 
         Ok((result, max_iterations))
+    }
+
+    fn wall_clock_expired(max_execution_time: Option<u64>, start_time: i64) -> bool {
+        matches!(max_execution_time, Some(max) if max > 0 && (wf_common::now() - start_time) as u64 >= max)
+    }
+
+    fn timeout_error(max_execution_time: Option<u64>) -> AgentError {
+        AgentError::ExecutionError(format!(
+            "Agent loop exceeded max_execution_time ({}ms)",
+            max_execution_time.unwrap_or(0)
+        ))
     }
 
     async fn execute_iteration_with_retry(
@@ -209,5 +271,74 @@ impl AgentExecutionCoordinator {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use wf_types::Id;
+
+    use crate::coordinator::iteration::IterationExecutor;
+
+    struct SlowIteration {
+        delay: Duration,
+    }
+
+    #[async_trait::async_trait]
+    impl IterationExecutor for SlowIteration {
+        async fn execute_iteration(
+            &self,
+            _entity: &AgentLoopEntity,
+        ) -> AgentResult<IterationResult> {
+            tokio::time::sleep(self.delay).await;
+            Ok(IterationResult {
+                should_continue: false,
+                content: serde_json::Value::String("done".to_string()),
+                completion_data: None,
+                tool_call_count: 0,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_agent_wall_clock_timeout() {
+        let entity = AgentLoopEntity::new(Id::from("agent-timeout-1".to_string()));
+        entity.state.write().await.start();
+
+        let coordinator = AgentExecutionCoordinator::new(Arc::new(SlowIteration {
+            delay: Duration::from_millis(100),
+        }));
+
+        let err = coordinator
+            .execute(&entity, 10, Some(20))
+            .await
+            .expect_err("wall-clock timeout must fail the agent loop");
+        assert!(err.to_string().contains("max_execution_time"));
+        assert!(entity.interruption().is_interrupted());
+    }
+
+    #[tokio::test]
+    async fn test_agent_no_timeout_when_under_budget() {
+        let entity = AgentLoopEntity::new(Id::from("agent-no-timeout-1".to_string()));
+        entity.state.write().await.start();
+
+        let coordinator = AgentExecutionCoordinator::new(Arc::new(SlowIteration {
+            delay: Duration::from_millis(10),
+        }));
+
+        let (result, iterations) = coordinator
+            .execute(&entity, 10, Some(5000))
+            .await
+            .expect("under budget must complete normally");
+        assert_eq!(iterations, 1);
+        assert!(!result.should_continue);
+        assert_eq!(
+            result.content,
+            serde_json::Value::String("done".to_string())
+        );
     }
 }

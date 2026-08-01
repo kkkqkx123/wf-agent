@@ -6,7 +6,7 @@ use wf_types::checkpoint::{
 };
 
 /// Node-level checkpoint timing variants.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CheckpointTiming {
     BeforeNode,
     AfterNode,
@@ -98,13 +98,17 @@ impl NodeCheckpointStrategy {
             inner: CadencedCheckpointStrategy::from_policy(
                 &UnifiedCheckpointPolicy {
                     enabled: true,
-                    triggers: vec![CheckpointTrigger::AfterExecute],
+                    triggers: vec![
+                        CheckpointTrigger::BeforeExecute,
+                        CheckpointTrigger::AfterExecute,
+                    ],
                     content: None,
                     retention: None,
                     error_handling: None,
                 },
                 map_trigger,
             )
+            .with_cadence(CheckpointTiming::BeforeNode, n)
             .with_cadence(CheckpointTiming::AfterNode, n),
         }
     }
@@ -156,6 +160,24 @@ mod tests {
         assert!(s.should_checkpoint(&CheckpointTiming::AfterNode, 3));
         assert!(!s.should_checkpoint(&CheckpointTiming::AfterNode, 4));
         assert!(s.should_checkpoint(&CheckpointTiming::AfterNode, 6));
+    }
+
+    #[test]
+    fn every_n_nodes_before_node_cadence() {
+        let s = NodeCheckpointStrategy::every_n_nodes(3);
+        // BeforeNode follows the same cadence as AfterNode.
+        assert!(!s.should_checkpoint(&CheckpointTiming::BeforeNode, 1));
+        assert!(!s.should_checkpoint(&CheckpointTiming::BeforeNode, 2));
+        assert!(s.should_checkpoint(&CheckpointTiming::BeforeNode, 3));
+        assert!(!s.should_checkpoint(&CheckpointTiming::BeforeNode, 4));
+    }
+
+    #[test]
+    fn always_strategy_includes_before_node() {
+        let s = NodeCheckpointStrategy::always();
+        assert!(s.should_checkpoint(&CheckpointTiming::BeforeNode, 0));
+        assert!(s.should_checkpoint(&CheckpointTiming::BeforeNode, 3));
+        assert!(s.should_checkpoint(&CheckpointTiming::AfterNode, 1));
     }
 
     #[test]

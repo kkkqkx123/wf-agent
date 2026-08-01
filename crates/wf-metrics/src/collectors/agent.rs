@@ -66,13 +66,17 @@ impl AgentMetricsCollector {
     }
 
     pub fn record_iteration(&self, profile_id: &str) {
-        self.inner
-            .increment_counter(agent_metrics::ITERATION_COUNT, labels(&[("profile_id", profile_id)]));
+        self.inner.increment_counter(
+            agent_metrics::ITERATION_COUNT,
+            labels(&[("profile_id", profile_id)]),
+        );
     }
 
     pub fn record_tool_call(&self, profile_id: &str) {
-        self.inner
-            .increment_counter(agent_metrics::TOOL_CALL_COUNT, labels(&[("profile_id", profile_id)]));
+        self.inner.increment_counter(
+            agent_metrics::TOOL_CALL_COUNT,
+            labels(&[("profile_id", profile_id)]),
+        );
     }
 
     pub fn usage_stats(&self) -> AgentUsageStats {
@@ -88,14 +92,36 @@ impl AgentMetricsCollector {
         &self,
         filter: &std::collections::HashMap<String, String>,
     ) -> AgentUsageStats {
-        let total = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::EXECUTION_COUNT, filter);
-        let success = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::SUCCESS_COUNT, filter);
-        let failure = crate::collectors::counter_total_labeled(&self.inner, agent_metrics::FAILURE_COUNT, filter);
-        let duration = crate::collectors::latest_labeled(&self.inner, agent_metrics::EXECUTION_DURATION, filter);
-        let total_iterations =
-            crate::collectors::counter_total_labeled(&self.inner, agent_metrics::ITERATION_COUNT, filter);
-        let total_tool_calls =
-            crate::collectors::counter_total_labeled(&self.inner, agent_metrics::TOOL_CALL_COUNT, filter);
+        let total = crate::collectors::counter_total_labeled(
+            &self.inner,
+            agent_metrics::EXECUTION_COUNT,
+            filter,
+        );
+        let success = crate::collectors::counter_total_labeled(
+            &self.inner,
+            agent_metrics::SUCCESS_COUNT,
+            filter,
+        );
+        let failure = crate::collectors::counter_total_labeled(
+            &self.inner,
+            agent_metrics::FAILURE_COUNT,
+            filter,
+        );
+        let duration = crate::collectors::latest_labeled(
+            &self.inner,
+            agent_metrics::EXECUTION_DURATION,
+            filter,
+        );
+        let total_iterations = crate::collectors::counter_total_labeled(
+            &self.inner,
+            agent_metrics::ITERATION_COUNT,
+            filter,
+        );
+        let total_tool_calls = crate::collectors::counter_total_labeled(
+            &self.inner,
+            agent_metrics::TOOL_CALL_COUNT,
+            filter,
+        );
 
         AgentUsageStats {
             total: total as u64,

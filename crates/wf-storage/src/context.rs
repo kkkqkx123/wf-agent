@@ -73,7 +73,9 @@ impl StorageContext {
     pub async fn new_sqlite(path: &str) -> Result<Self, StorageError> {
         macro_rules! sqlite_backend {
             ($table:expr) => {
-                StorageBackend::Sqlite(InstrumentedStore::new(SqliteStorage::new(path, $table).await?))
+                StorageBackend::Sqlite(InstrumentedStore::new(
+                    SqliteStorage::new(path, $table).await?,
+                ))
             };
         }
         Ok(Self {

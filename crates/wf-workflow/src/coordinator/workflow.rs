@@ -153,7 +153,10 @@ impl WorkflowCoordinator {
     /// Resume from a restored checkpoint snapshot: seed completed node
     /// outputs and restart at the checkpointed node. Completed nodes are
     /// skipped by the main loop; their outputs feed the edges downstream.
-    pub fn resume_from(&mut self, snapshot: &wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot) {
+    pub fn resume_from(
+        &mut self,
+        snapshot: &wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
+    ) {
         if let Some(node_results) = &snapshot.node_results {
             for (node_id, output) in node_results {
                 self.node_outputs.insert(node_id.clone(), output.clone());
@@ -265,6 +268,39 @@ impl WorkflowCoordinator {
                 _ => {}
             }
 
+            if let Some(max_execution_time) = self.ctx.options.max_execution_time {
+                if max_execution_time > 0 && (now() - self.start_time) as u64 >= max_execution_time
+                {
+                    tracing::warn!(
+                        execution_id = %entity.id(),
+                        max_execution_time,
+                        "Workflow execution wall-clock timeout exceeded, stopping execution"
+                    );
+                    self.emit_event(
+                        event_bus,
+                        EventType::WorkflowExecutionCancelled,
+                        entity,
+                        &serde_json::json!({
+                            "reason": "max_execution_time",
+                            "max_execution_time": max_execution_time,
+                        }),
+                    )
+                    .await;
+                    entity
+                        .state
+                        .write()
+                        .await
+                        .fail("Workflow execution exceeded max_execution_time".to_string());
+                    if let Some(ref mut cp) = self.checkpoint {
+                        cp.on_interruption(entity).await;
+                    }
+                    return Err(WorkflowError::CoordinatorError(format!(
+                        "Workflow execution exceeded max_execution_time ({}ms)",
+                        max_execution_time
+                    )));
+                }
+            }
+
             if self
                 .ctx
                 .options
@@ -303,6 +339,10 @@ impl WorkflowCoordinator {
 
             let node_type = parse_node_type(&node.node_type)?;
             let node_type_str = node.node_type.clone();
+
+            if let Some(ref mut cp) = self.checkpoint {
+                cp.on_node_before(entity).await;
+            }
 
             let mut node_ctx = self.build_node_context(node_id, &node_type).await?;
 
@@ -464,8 +504,10 @@ impl WorkflowCoordinator {
                                         self.node_outputs
                                             .insert(node_id.clone(), retry_output.output.clone());
                                         self.completed_nodes.push(node_id.clone());
-                                        entity
-                                            .set_node_result(node_id.clone(), retry_output.output.clone());
+                                        entity.set_node_result(
+                                            node_id.clone(),
+                                            retry_output.output.clone(),
+                                        );
                                         entity
                                             .state
                                             .write()
@@ -518,11 +560,27 @@ impl WorkflowCoordinator {
                             }
                             if !retried {
                                 if on_failure == "continue" {
-                                    tracing::warn!(
-                                        "Node '{}' failed after {} retries, continuing",
-                                        node_id,
-                                        max_retries
-                                    );
+                                    if let Some(ref fallback) = self.ctx.options.fallback_output {
+                                        tracing::warn!(
+                                            "Node '{}' failed after {} retries, using fallback_output",
+                                            node_id,
+                                            max_retries
+                                        );
+                                        self.node_outputs.insert(node_id.clone(), fallback.clone());
+                                        self.completed_nodes.push(node_id.clone());
+                                        entity.set_node_result(node_id.clone(), fallback.clone());
+                                        entity
+                                            .state
+                                            .write()
+                                            .await
+                                            .mark_node_completed(node_id.clone());
+                                    } else {
+                                        tracing::warn!(
+                                            "Node '{}' failed after {} retries, continuing",
+                                            node_id,
+                                            max_retries
+                                        );
+                                    }
                                     self.current_node_id =
                                         self.determine_next_node_without_output().await?;
                                 } else {
@@ -787,4 +845,3 @@ impl WorkflowCoordinator {
         let _ = bus.publish(event);
     }
 }
-

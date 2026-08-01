@@ -237,19 +237,19 @@ impl NodeHandler for ForkHandler {
                                 if subgraph.nodes.is_empty() {
                                     BranchResult::success(&branch_id, branch_input)
                                 } else {
-                    match execute_branch(
-                        &eid,
-                        &branch_id,
-                        branch_input,
-                        subgraph,
-                        BranchContext {
-                            handlers,
-                            event_bus: eb,
-                            tool_registry,
-                            parent_variables,
-                        },
-                    )
-                    .await
+                                    match execute_branch(
+                                        &eid,
+                                        &branch_id,
+                                        branch_input,
+                                        subgraph,
+                                        BranchContext {
+                                            handlers,
+                                            event_bus: eb,
+                                            tool_registry,
+                                            parent_variables,
+                                        },
+                                    )
+                                    .await
                                     {
                                         Ok(output) => output,
                                         Err(e) => BranchResult::failure(&branch_id, e.to_string()),

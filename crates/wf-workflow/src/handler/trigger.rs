@@ -507,7 +507,10 @@ mod tests {
         }
     }
 
-    async fn run(graph: WorkflowGraphStructure, options: WorkflowExecutionOptions) -> WorkflowResult<Value> {
+    async fn run(
+        graph: WorkflowGraphStructure,
+        options: WorkflowExecutionOptions,
+    ) -> WorkflowResult<Value> {
         let handlers = {
             let mut reg = HandlerRegistry::new();
             reg.register_defaults();
@@ -565,10 +568,7 @@ mod tests {
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
-            vec![
-                edge("start", "trigger"),
-                edge("trigger", "end"),
-            ],
+            vec![edge("start", "trigger"), edge("trigger", "end")],
         );
 
         let result = run(
@@ -578,11 +578,7 @@ mod tests {
         .await;
         assert!(result.is_ok(), "workflow should run: {:?}", result.err());
 
-        let missing = run(
-            graph,
-            options_with_input(serde_json::json!({})),
-        )
-        .await;
+        let missing = run(graph, options_with_input(serde_json::json!({}))).await;
         assert!(missing.is_err(), "missing required input must fail");
     }
 
@@ -600,10 +596,7 @@ mod tests {
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
-            vec![
-                edge("start", "trigger"),
-                edge("trigger", "end"),
-            ],
+            vec![edge("start", "trigger"), edge("trigger", "end")],
         );
 
         let paused = run(graph, options_with_input(Value::Null)).await;
@@ -622,10 +615,7 @@ mod tests {
                 ),
                 node("end", "END", serde_json::json!({})),
             ],
-            vec![
-                edge("start", "trigger"),
-                edge("trigger", "end"),
-            ],
+            vec![edge("start", "trigger"), edge("trigger", "end")],
         );
 
         let stopped = run(stop_graph, options_with_input(Value::Null)).await;

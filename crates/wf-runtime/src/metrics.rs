@@ -4,8 +4,8 @@ use std::time::Duration;
 use wf_core::event::EventBus;
 use wf_core::EventMetricsBridge;
 use wf_metrics::{
-    generate_report, labels, ConfigMetricsCollector, MetricPoint, MetricsError, MetricsRegistry,
-    MetricsSink, ReportOptions, ResourceSample, storage_metrics,
+    generate_report, labels, storage_metrics, ConfigMetricsCollector, MetricPoint, MetricsError,
+    MetricsRegistry, MetricsSink, ReportOptions, ResourceSample,
 };
 use wf_storage::adapter::metrics::{MetricsDataPoint, MetricsStorageAdapter};
 use wf_storage::context::StorageContext;

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_core::EventBus;
+use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::types::execution_entity::IExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
@@ -23,7 +24,9 @@ use crate::coordinator::{WorkflowExecutionParams, WorkflowLifecycleCoordinator};
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::{HandlerRegistry, NodeHandler};
-use crate::registry::{create_execution_registry, create_graph_registry, WorkflowExecutionRegistry};
+use crate::registry::{
+    create_execution_registry, create_graph_registry, WorkflowExecutionRegistry,
+};
 
 /// ExecutionCallback implementation backed by the workflow engine.
 ///
@@ -39,6 +42,7 @@ pub struct WorkflowExecutionCallback {
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
     store: Arc<StorageBackend>,
     metrics: Option<Arc<MetricsRegistry>>,
+    hooks: Vec<BaseHookDefinition>,
 }
 
 impl WorkflowExecutionCallback {
@@ -52,10 +56,14 @@ impl WorkflowExecutionCallback {
             checkpoint_strategy: None,
             store: Arc::new(StorageBackend::new_memory()),
             metrics: None,
+            hooks: Vec::new(),
         }
     }
 
-    pub fn with_handlers(mut self, handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>) -> Self {
+    pub fn with_handlers(
+        mut self,
+        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    ) -> Self {
         self.handlers = Some(handlers);
         self
     }
@@ -77,6 +85,11 @@ impl WorkflowExecutionCallback {
 
     pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
+        self.hooks = hooks;
         self
     }
 
@@ -140,12 +153,11 @@ impl WorkflowExecutionCallback {
             handlers: self.handlers(),
             tool_registry: self.tool_registry.clone(),
             input: None,
+            hooks: self.hooks.clone(),
         };
 
-        let mut lifecycle = WorkflowLifecycleCoordinator::with_store(
-            self.event_bus.clone(),
-            self.store.clone(),
-        );
+        let mut lifecycle =
+            WorkflowLifecycleCoordinator::with_store(self.event_bus.clone(), self.store.clone());
         if let Some(ref strategy) = self.checkpoint_strategy {
             lifecycle = lifecycle.with_checkpoint_strategy(strategy.clone());
         }
@@ -257,12 +269,10 @@ impl ExecutionCallback for WorkflowExecutionCallback {
 
     async fn cancel_execution(&self, execution_id: &str) -> ToolResult<()> {
         match self.executions.get(execution_id) {
-            Some(entity) => {
-                entity
-                    .stop()
-                    .await
-                    .map_err(|e| ToolError::ExecutionError(e.to_string()))
-            }
+            Some(entity) => entity
+                .stop()
+                .await
+                .map_err(|e| ToolError::ExecutionError(e.to_string())),
             None => Err(ToolError::NotFound(format!(
                 "execution {} not found",
                 execution_id
@@ -317,10 +327,7 @@ mod tests {
                 make_node("var", "VARIABLE"),
                 make_node("end", "END"),
             ],
-            vec![
-                make_edge("start", "var"),
-                make_edge("var", "end"),
-            ],
+            vec![make_edge("start", "var"), make_edge("var", "end")],
         )
     }
 
@@ -352,7 +359,12 @@ mod tests {
         assert_eq!(status.status, "completed");
 
         let result = callback
-            .execute_workflow(&workflow_id.to_string(), WorkflowInput { variables: HashMap::new() })
+            .execute_workflow(
+                &workflow_id.to_string(),
+                WorkflowInput {
+                    variables: HashMap::new(),
+                },
+            )
             .await
             .expect("second execution should succeed");
         let _ = result;
@@ -363,7 +375,12 @@ mod tests {
             .expect("cancel on completed execution should be idempotent");
 
         let err = callback
-            .execute_workflow("missing-id", WorkflowInput { variables: HashMap::new() })
+            .execute_workflow(
+                "missing-id",
+                WorkflowInput {
+                    variables: HashMap::new(),
+                },
+            )
             .await
             .expect_err("unknown workflow must fail");
         assert!(matches!(err, ToolError::NotFound(_)));

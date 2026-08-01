@@ -26,6 +26,8 @@ impl NodeHandler for AgentLoopHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(10) as u32;
 
+        let max_execution_time = config.get("max_execution_time").and_then(|v| v.as_u64());
+
         let model = config
             .get("model")
             .and_then(|v| v.as_str())
@@ -67,7 +69,8 @@ impl NodeHandler for AgentLoopHandler {
             .clone()
             .unwrap_or_else(|| std::sync::Arc::new(ToolRegistry::new()));
 
-        let coordinator = AgentLoopCoordinator::new(std::sync::Arc::new(llm_wrapper), tool_registry);
+        let coordinator =
+            AgentLoopCoordinator::new(std::sync::Arc::new(llm_wrapper), tool_registry);
 
         let loop_config = AgentLoopConfig {
             agent_id: ctx.node_id.clone(),
@@ -75,6 +78,7 @@ impl NodeHandler for AgentLoopHandler {
             available_tool_names: tool_names,
             hooks: vec![],
             max_iterations: Some(max_iterations),
+            max_execution_time,
         };
 
         let loop_input = AgentLoopInput {

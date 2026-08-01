@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use wf_types::checkpoint::{
     CheckpointContentConfig, CheckpointContext, CheckpointRetentionConfig, CheckpointTrigger,
     UnifiedCheckpointPolicy,
@@ -6,12 +8,12 @@ use wf_types::checkpoint::{
 use super::inner::{CheckpointStrategy, StandardStrategy};
 
 /// A timing variant that maps to a canonical `CheckpointTrigger`.
-pub trait CheckpointTiming: PartialEq + Clone + std::fmt::Debug {
+pub trait CheckpointTiming: PartialEq + Eq + Clone + std::hash::Hash + std::fmt::Debug {
     fn to_trigger(&self) -> CheckpointTrigger;
 }
 
 /// Cadenced wrapper around `StandardStrategy` that adds timing filtering
-/// and an optional cadence (every N count) for the matching timing.
+/// and an optional cadence (every N count) per timing variant.
 ///
 /// The `should_checkpoint` decision is a three-stage pipeline:
 /// 1. Delegate to `StandardStrategy` (enabled + trigger check)
@@ -21,10 +23,8 @@ pub trait CheckpointTiming: PartialEq + Clone + std::fmt::Debug {
 pub struct CadencedCheckpointStrategy<T: CheckpointTiming> {
     inner: StandardStrategy,
     timings: Vec<T>,
-    /// Which timing variant triggers the cadence check. `None` means never
-    /// apply modulo (every occurrence passes step 3).
-    cadenced_timing: Option<T>,
-    cadence: u32,
+    /// Per-timing cadence. Timings absent from the map pass step 3 always.
+    cadences: HashMap<T, u32>,
 }
 
 impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
@@ -33,8 +33,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
         Self {
             inner: StandardStrategy::disabled(),
             timings: vec![],
-            cadenced_timing: None,
-            cadence: 1,
+            cadences: HashMap::new(),
         }
     }
 
@@ -48,17 +47,15 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
         Self {
             inner: StandardStrategy::from_policy(policy),
             timings,
-            cadenced_timing: None,
-            cadence: 1,
+            cadences: HashMap::new(),
         }
     }
 
     /// Set a cadence for a specific timing variant.
     /// When set, `should_checkpoint` for that timing only returns true
-    /// every `n` counts.
+    /// every `n` counts. May be called multiple times for different timings.
     pub fn with_cadence(mut self, timing: T, n: u32) -> Self {
-        self.cadenced_timing = Some(timing);
-        self.cadence = n.max(1);
+        self.cadences.insert(timing, n.max(1));
         self
     }
 
@@ -87,9 +84,9 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
         if !self.timings.contains(timing) {
             return false;
         }
-        if let Some(ref ct) = self.cadenced_timing {
-            if timing == ct && self.cadence > 1 {
-                return count.is_multiple_of(self.cadence);
+        if let Some(cadence) = self.cadences.get(timing) {
+            if *cadence > 1 {
+                return count.is_multiple_of(*cadence);
             }
         }
         true
@@ -108,7 +105,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     enum TestTiming {
         Before,
         After,
@@ -205,5 +202,46 @@ mod tests {
         assert!(s.should_checkpoint(&TestTiming::Start, "test", "", 0));
         assert!(s.should_checkpoint(&TestTiming::End, "test", "", 0));
         assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 1));
+    }
+
+    #[test]
+    fn multiple_cadences_per_timing() {
+        let s = CadencedCheckpointStrategy::from_policy(
+            &make_policy(vec![
+                CheckpointTrigger::BeforeExecute,
+                CheckpointTrigger::AfterExecute,
+            ]),
+            map_trigger,
+        )
+        .with_cadence(TestTiming::Before, 2)
+        .with_cadence(TestTiming::After, 2);
+
+        assert!(!s.should_checkpoint(&TestTiming::Before, "test", "", 1));
+        assert!(s.should_checkpoint(&TestTiming::Before, "test", "", 2));
+        assert!(!s.should_checkpoint(&TestTiming::Before, "test", "", 3));
+        assert!(s.should_checkpoint(&TestTiming::Before, "test", "", 4));
+
+        assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 1));
+        assert!(s.should_checkpoint(&TestTiming::After, "test", "", 2));
+        assert!(!s.should_checkpoint(&TestTiming::After, "test", "", 3));
+    }
+
+    #[test]
+    fn mixed_cadence_and_uncadenced_timings() {
+        let s = CadencedCheckpointStrategy::from_policy(
+            &make_policy(vec![
+                CheckpointTrigger::BeforeExecute,
+                CheckpointTrigger::OnError,
+            ]),
+            map_trigger,
+        )
+        .with_cadence(TestTiming::Before, 3);
+
+        // Cadenced timing fires every 3 counts.
+        assert!(!s.should_checkpoint(&TestTiming::Before, "test", "", 1));
+        assert!(s.should_checkpoint(&TestTiming::Before, "test", "", 3));
+        // Uncadenced timing fires every occurrence.
+        assert!(s.should_checkpoint(&TestTiming::OnError, "test", "", 1));
+        assert!(s.should_checkpoint(&TestTiming::OnError, "test", "", 7));
     }
 }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_core::EventBus;
+use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
@@ -44,6 +45,7 @@ impl WorkflowExecutor {
         options: WorkflowExecutionOptions,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+        hooks: Vec<BaseHookDefinition>,
     ) -> WorkflowResult<WorkflowOutput> {
         let handlers = handlers.unwrap_or_else(|| {
             let mut registry = HandlerRegistry::new();
@@ -59,6 +61,7 @@ impl WorkflowExecutor {
             handlers,
             tool_registry,
             input: None,
+            hooks,
         };
 
         let lifecycle = WorkflowLifecycleCoordinator::new(self.event_bus.clone());

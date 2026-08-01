@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 use wf_core::registry::ConcurrentRegistry;
+use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
@@ -36,6 +37,7 @@ impl WorkflowExecutionPool {
         self.semaphore.available_permits()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute(
         &self,
         executor: &WorkflowExecutor,
@@ -44,10 +46,11 @@ impl WorkflowExecutionPool {
         options: WorkflowExecutionOptions,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+        hooks: Vec<BaseHookDefinition>,
     ) -> WorkflowResult<WorkflowOutput> {
         let _permit = self.semaphore.acquire().await.expect("semaphore closed");
         executor
-            .execute_workflow(workflow_id, graph, options, tool_registry, handlers)
+            .execute_workflow(workflow_id, graph, options, tool_registry, handlers, hooks)
             .await
     }
 }

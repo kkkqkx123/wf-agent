@@ -6,7 +6,7 @@ use wf_types::checkpoint::{
 };
 
 /// Agent-level checkpoint timing variants.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AgentCheckpointTiming {
     BeforeIteration,
     AfterIteration,

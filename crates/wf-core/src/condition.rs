@@ -449,7 +449,10 @@ impl ConditionEvaluator {
                 args.len()
             )));
         }
-        Ok(matches!(Self::resolve_value(args[0], context), Value::Bool(true)))
+        Ok(matches!(
+            Self::resolve_value(args[0], context),
+            Value::Bool(true)
+        ))
     }
 
     fn eval_is_false(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
@@ -474,7 +477,10 @@ impl ConditionEvaluator {
                 args.len()
             )));
         }
-        Ok(!matches!(Self::resolve_value(args[0], context), Value::Null))
+        Ok(!matches!(
+            Self::resolve_value(args[0], context),
+            Value::Null
+        ))
     }
 
     fn eval_contains(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
@@ -485,7 +491,10 @@ impl ConditionEvaluator {
                 args.len()
             )));
         }
-        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+        match (
+            Self::resolve_value(args[0], context),
+            Self::resolve_value(args[1], context),
+        ) {
             (Value::String(s), Value::String(sub)) => Ok(s.contains(&sub)),
             (Value::Array(a), needle) => Ok(a.contains(&needle)),
             _ => Err(CoreError::ConditionError(
@@ -502,7 +511,10 @@ impl ConditionEvaluator {
                 args.len()
             )));
         }
-        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+        match (
+            Self::resolve_value(args[0], context),
+            Self::resolve_value(args[1], context),
+        ) {
             (Value::String(s), Value::String(prefix)) => Ok(s.starts_with(&prefix)),
             _ => Err(CoreError::ConditionError(
                 "startsWith() requires string arguments".to_string(),
@@ -518,7 +530,10 @@ impl ConditionEvaluator {
                 args.len()
             )));
         }
-        match (Self::resolve_value(args[0], context), Self::resolve_value(args[1], context)) {
+        match (
+            Self::resolve_value(args[0], context),
+            Self::resolve_value(args[1], context),
+        ) {
             (Value::String(s), Value::String(suffix)) => Ok(s.ends_with(&suffix)),
             _ => Err(CoreError::ConditionError(
                 "endsWith() requires string arguments".to_string(),
@@ -706,7 +721,9 @@ mod tests {
         assert!(!ConditionEvaluator::evaluate("hasValue(missing_var)", &ctx).unwrap());
         assert!(ConditionEvaluator::evaluate(r#"contains("hello world", "world")"#, &ctx).unwrap());
         assert!(ConditionEvaluator::evaluate(r#"contains(list, 2)"#, &ctx).unwrap());
-        assert!(ConditionEvaluator::evaluate(r#"startsWith("hello world", "hello")"#, &ctx).unwrap());
+        assert!(
+            ConditionEvaluator::evaluate(r#"startsWith("hello world", "hello")"#, &ctx).unwrap()
+        );
         assert!(ConditionEvaluator::evaluate(r#"endsWith("hello world", "world")"#, &ctx).unwrap());
         assert!(ConditionEvaluator::evaluate("length(list, 3)", &ctx).unwrap());
         assert!(ConditionEvaluator::evaluate("ge(list_none, 3)", &ctx).is_err());

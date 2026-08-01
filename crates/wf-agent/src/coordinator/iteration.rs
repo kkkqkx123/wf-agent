@@ -23,6 +23,20 @@ pub struct IterationResult {
     pub tool_call_count: u32,
 }
 
+/// Abstraction over a single agent iteration so the execution coordinator
+/// can be driven by alternative iteration implementations (tests, streaming).
+#[async_trait::async_trait]
+pub trait IterationExecutor: Send + Sync {
+    async fn execute_iteration(&self, entity: &AgentLoopEntity) -> AgentResult<IterationResult>;
+}
+
+#[async_trait::async_trait]
+impl IterationExecutor for AgentIterationCoordinator {
+    async fn execute_iteration(&self, entity: &AgentLoopEntity) -> AgentResult<IterationResult> {
+        AgentIterationCoordinator::execute_iteration(self, entity).await
+    }
+}
+
 pub struct AgentIterationCoordinator {
     llm_wrapper: Arc<LlmWrapper>,
     tool_coordinator: Arc<ToolExecutionCoordinator>,

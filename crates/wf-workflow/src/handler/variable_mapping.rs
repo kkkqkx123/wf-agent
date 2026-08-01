@@ -44,7 +44,9 @@ pub fn apply_variable_inputs(
             .get("required")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let default_value = entry.get("default_value").or_else(|| entry.get("defaultValue"));
+        let default_value = entry
+            .get("default_value")
+            .or_else(|| entry.get("defaultValue"));
 
         let (Some(source_path), Some(internal_name)) = (source_path, internal_name) else {
             continue;

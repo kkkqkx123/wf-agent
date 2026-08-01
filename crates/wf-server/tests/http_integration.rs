@@ -60,7 +60,9 @@ async fn serve_binds_and_responds() {
 #[tokio::test]
 async fn serve_reports_bind_failure() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("probe listener should bind");
-    let occupied = listener.local_addr().expect("probe listener should report addr");
+    let occupied = listener
+        .local_addr()
+        .expect("probe listener should report addr");
 
     let registry = Arc::new(MetricsRegistry::new());
     let result = serve(registry, occupied).await;

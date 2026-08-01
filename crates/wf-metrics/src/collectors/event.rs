@@ -6,7 +6,6 @@ use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::constants::event_metrics;
 use crate::labels;
 
-
 /// Event statistics aggregated by event type.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct EventStats {
@@ -44,7 +43,8 @@ impl EventMetricsCollector {
         if let Some(wf_id) = workflow_id {
             pairs.push(("workflow_id", wf_id));
         }
-        self.inner.increment_counter(event_metrics::EVENT_COUNT, labels(&pairs));
+        self.inner
+            .increment_counter(event_metrics::EVENT_COUNT, labels(&pairs));
     }
 
     /// Event counts grouped by event type.

@@ -84,6 +84,9 @@ impl BuiltinExecutor {
                 .get("max_iterations")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as u32),
+            max_execution_time: parameters
+                .get("max_execution_time")
+                .and_then(|v| v.as_u64()),
             hooks: parameters
                 .get("hooks")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())

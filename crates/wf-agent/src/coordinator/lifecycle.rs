@@ -128,7 +128,10 @@ impl AgentLoopCoordinator {
 
         let max_iterations = config.max_iterations.unwrap_or(10);
         let start = wf_common::now();
-        match execution_coordinator.execute(&entity, max_iterations).await {
+        match execution_coordinator
+            .execute(&entity, max_iterations, config.max_execution_time)
+            .await
+        {
             Ok((result, iterations)) => {
                 let duration_ms = (wf_common::now() - start) as f64;
                 if result.completion_data.is_some() || !result.should_continue {

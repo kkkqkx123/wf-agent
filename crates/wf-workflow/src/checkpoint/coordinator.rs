@@ -145,6 +145,22 @@ impl WorkflowCheckpointIntegration {
         }
     }
 
+    /// Create an interruption checkpoint (wall-clock timeout, cancel).
+    /// Unlike the strategy-gated methods, interruption checkpoints are
+    /// always persisted so a stopped execution can be resumed.
+    pub async fn on_interruption(&mut self, entity: &WorkflowExecutionEntity) {
+        if let Err(e) = self
+            .create_checkpoint(entity, CheckpointTrigger::OnCancel)
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create interruption checkpoint"
+            );
+        }
+    }
+
     async fn create_checkpoint(
         &self,
         entity: &WorkflowExecutionEntity,

@@ -105,10 +105,11 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 }
 
                 let delta = match base_snapshot {
-                    Some(base_snapshot) => self
-                        .diff_calculator
-                        .calculate_diff(&base_snapshot, &state)
-                        .await?,
+                    Some(base_snapshot) => {
+                        self.diff_calculator
+                            .calculate_diff(&base_snapshot, &state)
+                            .await?
+                    }
                     None => WorkflowCheckpointDelta {
                         added_messages: state.messages.clone(),
                         modified_messages: None,

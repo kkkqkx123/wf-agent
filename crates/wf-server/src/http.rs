@@ -3,6 +3,10 @@
 //!
 //! Kept independent of `wf-api` (pure service layer) and `wf-runtime`
 //! (bootstrap); `serve` only needs a registry.
+//!
+//! Note: `/metrics` and `/export` render the in-memory snapshot of the
+//! most recent `max_age` window (default 1h), not process-cumulative
+//! values. Scrapers must interpret the output as a window snapshot.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,6 +18,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 use wf_metrics::collectors::{AgentUsageStats, NodeUsageStats, WorkflowUsageStats};
 use wf_metrics::{
@@ -127,14 +133,60 @@ pub fn router(registry: Arc<MetricsRegistry>) -> Router {
         .with_state(AppState { registry })
 }
 
-/// Serve the metrics API on `addr` until the process stops.
-pub async fn serve(registry: Arc<MetricsRegistry>, addr: SocketAddr) -> Result<(), ServeError> {
+/// Handle to a running metrics HTTP server: the actually bound address and
+/// a graceful shutdown signal. Dropping the handle without `shutdown` lets
+/// the server task keep running until the runtime stops.
+pub struct ServerHandle {
+    addr: SocketAddr,
+    shutdown: oneshot::Sender<()>,
+    task: JoinHandle<()>,
+}
+
+impl ServerHandle {
+    /// The address the server is actually bound to (differs from the
+    /// requested one when the port was `0`).
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    /// Signal graceful shutdown and await the server task, draining
+    /// in-flight requests before returning.
+    pub async fn shutdown(self) {
+        let _ = self.shutdown.send(());
+        let _ = self.task.await;
+    }
+}
+
+/// Serve the metrics API on `addr` without blocking. Binds immediately and
+/// returns a `ServerHandle`; a bind failure surfaces as
+/// `Err(ServeError::Bind)` for the caller to decide (e.g. degrade when
+/// metrics are an optional service).
+pub async fn serve(
+    registry: Arc<MetricsRegistry>,
+    addr: SocketAddr,
+) -> Result<ServerHandle, ServeError> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| ServeError::Bind(e.to_string()))?;
-    axum::serve(listener, router(registry))
-        .await
-        .map_err(|e| ServeError::Server(e.to_string()))
+    let bound_addr = listener
+        .local_addr()
+        .map_err(|e| ServeError::Bind(e.to_string()))?;
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let task = tokio::spawn(async move {
+        if let Err(err) = axum::serve(listener, router(registry))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+        {
+            tracing::error!(target: "wf_server", error = %err, "metrics HTTP server failed");
+        }
+    });
+    Ok(ServerHandle {
+        addr: bound_addr,
+        shutdown: shutdown_tx,
+        task,
+    })
 }
 
 /// `GET /metrics`: Prometheus text export, `text/plain` (TS exported JSON

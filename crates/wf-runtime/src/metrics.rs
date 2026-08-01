@@ -101,6 +101,9 @@ pub struct MetricsContext {
     registry: Arc<MetricsRegistry>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     event_bridge_task: Option<tokio::task::JoinHandle<()>>,
+    /// Guarded so `shutdown(&self)` can consume it; the HTTP task itself is
+    /// not part of `tasks`.
+    http: std::sync::Mutex<Option<wf_server::ServerHandle>>,
 }
 
 impl MetricsContext {
@@ -209,21 +212,27 @@ impl MetricsContext {
         let event_bridge_task =
             event_bus.map(|bus| EventMetricsBridge::new(registry.clone()).spawn(bus));
 
-        if let Some(ref addr) = config.http_addr {
+        let http = if let Some(ref addr) = config.http_addr {
             match addr.parse::<std::net::SocketAddr>() {
-                Ok(socket_addr) => {
-                    let server_registry = registry.clone();
-                    tasks.push(tokio::spawn(async move {
-                        tracing::info!(target: "wf_metrics", %socket_addr, "metrics HTTP server listening");
-                        if let Err(err) = wf_server::serve(server_registry, socket_addr).await {
-                            tracing::error!(
-                                target: "wf_metrics",
-                                error = %err,
-                                "metrics HTTP server failed"
-                            );
-                        }
-                    }));
-                }
+                Ok(socket_addr) => match wf_server::serve(registry.clone(), socket_addr).await {
+                    Ok(handle) => {
+                        tracing::info!(
+                            target: "wf_metrics",
+                            addr = %handle.addr(),
+                            "metrics HTTP server listening"
+                        );
+                        Some(handle)
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            target: "wf_metrics",
+                            error = %err,
+                            addr = %addr,
+                            "metrics HTTP server failed to start"
+                        );
+                        None
+                    }
+                },
                 Err(err) => {
                     tracing::warn!(
                         target: "wf_metrics",
@@ -231,14 +240,18 @@ impl MetricsContext {
                         addr = %addr,
                         "invalid metrics http_addr, server not started"
                     );
+                    None
                 }
             }
-        }
+        } else {
+            None
+        };
 
         Ok(Some(Arc::new(Self {
             registry,
             tasks,
             event_bridge_task,
+            http: std::sync::Mutex::new(http),
         })))
     }
 
@@ -246,13 +259,18 @@ impl MetricsContext {
         &self.registry
     }
 
-    /// Abort background tasks and stop the event bridge and HTTP server.
+    /// Abort background tasks, stop the event bridge and gracefully shut
+    /// down the HTTP server (draining in-flight requests).
     pub async fn shutdown(&self) {
         if let Some(task) = self.event_bridge_task.as_ref() {
             task.abort();
         }
         for task in &self.tasks {
             task.abort();
+        }
+        let handle = self.http.lock().expect("metrics http lock").take();
+        if let Some(handle) = handle {
+            handle.shutdown().await;
         }
     }
 }

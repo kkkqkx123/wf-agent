@@ -7,13 +7,15 @@ use crate::metric::{Metric, MetricFilter, MetricType};
 /// output: HELP/TYPE lines, label sets, histogram buckets and summary
 /// quantiles. Zero external dependencies.
 pub fn format_collector_prometheus(collector: &BaseMetricCollector) -> String {
-    let snapshots = collector.latest_snapshots(&MetricFilter::default());
+    let mut snapshots = collector.latest_snapshots(&MetricFilter::default());
+    sort_snapshots(&mut snapshots);
     format_snapshots_prometheus(&snapshots)
 }
 
 /// JSON export: latest snapshot per metric name, grouped by collector.
 pub fn format_collector_json(collector: &BaseMetricCollector) -> Value {
-    let snapshots = collector.latest_snapshots(&MetricFilter::default());
+    let mut snapshots = collector.latest_snapshots(&MetricFilter::default());
+    sort_snapshots(&mut snapshots);
     serde_json::to_value(&snapshots).unwrap_or(Value::Null)
 }
 
@@ -33,6 +35,17 @@ pub fn format_registry_json(registry: &crate::MetricsRegistry) -> Value {
             .map(|c| format_collector_json(c))
             .collect(),
     )
+}
+
+/// Deterministic snapshot ordering: metric name ascending, then rendered
+/// label set ascending. `latest_snapshots` yields hash-map order, so
+/// without this repeated scrapes of identical state would differ byte-wise.
+fn sort_snapshots(snapshots: &mut [Metric]) {
+    snapshots.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| format_labels(&a.labels).cmp(&format_labels(&b.labels)))
+    });
 }
 
 fn format_snapshots_prometheus(snapshots: &[Metric]) -> String {
@@ -223,5 +236,31 @@ mod tests {
         let array = json.as_array().unwrap();
         assert_eq!(array.len(), 1);
         assert_eq!(array[0]["name"], "test.count");
+    }
+
+    #[test]
+    fn prometheus_output_is_deterministic() {
+        let c = collector();
+        c.increment_counter_by("zeta.count", 3.0, labels(&[("env", "prod")]));
+        c.set_gauge("alpha.gauge", 1.5, labels(&[("region", "us")]));
+        c.increment_counter_by("beta.count", 1.0, labels(&[("env", "dev")]));
+
+        let first = format_collector_prometheus(&c);
+        let second = format_collector_prometheus(&c);
+        assert_eq!(first, second, "same state must render byte-identically");
+
+        let alpha = first.find("# HELP alpha.gauge").unwrap();
+        let beta = first.find("# HELP beta.count").unwrap();
+        let zeta = first.find("# HELP zeta.count").unwrap();
+        assert!(alpha < beta && beta < zeta, "snapshots sorted by name");
+
+        let json = format_collector_json(&c);
+        let names: Vec<&str> = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["alpha.gauge", "beta.count", "zeta.count"]);
     }
 }

@@ -1,3 +1,3 @@
 pub mod http;
 
-pub use http::{router, serve, ServeError};
+pub use http::{router, serve, ServerHandle, ServeError};

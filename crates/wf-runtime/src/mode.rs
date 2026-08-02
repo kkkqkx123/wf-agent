@@ -57,7 +57,9 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     // A panicked test thread poisons the mutex; recovering keeps the
     // remaining tests runnable instead of deadlocking on the next acquire.
-    ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub fn detect_mode(config_fallback: Option<ExecutionMode>) -> ExecutionMode {

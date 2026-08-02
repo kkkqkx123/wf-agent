@@ -123,10 +123,10 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     let conversation = Arc::new(tokio::sync::RwLock::new(
         wf_llm::messaging::conversation_session::ConversationSession::with_token_limit(100),
     ));
-    conversation
-        .write()
-        .await
-        .add_message(text_message(MessageRole::User, "long message ".repeat(20).trim()));
+    conversation.write().await.add_message(text_message(
+        MessageRole::User,
+        "long message ".repeat(20).trim(),
+    ));
     let version = conversation.read().await.conversation_version();
     assert!(version > 0);
     let consumer = wf_agent::spawn_conversation_compression_consumer(

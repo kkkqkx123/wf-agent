@@ -100,8 +100,7 @@ mod tests {
         let back: LlmProvider = serde_json::from_str(&json).unwrap();
         assert_eq!(back, provider);
 
-        let parsed: LlmProvider =
-            serde_json::from_str("\"MY_GATEWAY_PROVIDER\"").unwrap();
+        let parsed: LlmProvider = serde_json::from_str("\"MY_GATEWAY_PROVIDER\"").unwrap();
         assert_eq!(
             parsed,
             LlmProvider::Custom("MY_GATEWAY_PROVIDER".to_string())

@@ -244,7 +244,10 @@ pub fn is_stream_abort(error: &LlmError) -> bool {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum TokenEventMetaError {
     #[error("event type mismatch: expected {expected}, got {actual}")]
-    TypeMismatch { expected: &'static str, actual: &'static str },
+    TypeMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
     #[error("event carries no metadata")]
     NoMetadata,
     #[error("event metadata missing required key: {0}")]
@@ -442,15 +445,7 @@ mod tests {
     #[test]
     fn test_compression_requested_event() {
         let event = build_context_compression_requested_event(
-            "exec-1",
-            None,
-            "chat",
-            1200,
-            1000,
-            42,
-            7,
-            false,
-            None,
+            "exec-1", None, "chat", 1200, 1000, 42, 7, false, None,
         );
         assert_eq!(event.r#type, EventType::ContextCompressionRequested);
         let meta = event.metadata.unwrap();
@@ -462,15 +457,7 @@ mod tests {
 
         // Forced emission is marked.
         let forced = build_context_compression_requested_event(
-            "exec-1",
-            None,
-            "chat",
-            1200,
-            1000,
-            42,
-            7,
-            true,
-            None,
+            "exec-1", None, "chat", 1200, 1000, 42, 7, true, None,
         );
         let forced_meta = forced.metadata.unwrap();
         assert_eq!(forced_meta[KEY_FORCED], serde_json::json!(true));
@@ -559,7 +546,10 @@ mod tests {
         let event = build_llm_stream_aborted_event("exec-1", None, "cancelled", "p1");
         assert_eq!(event.r#type, EventType::LlmStreamAborted);
         let meta = event.metadata.unwrap();
-        assert_eq!(meta[KEY_STREAM_ABORT_REASON], serde_json::json!("cancelled"));
+        assert_eq!(
+            meta[KEY_STREAM_ABORT_REASON],
+            serde_json::json!("cancelled")
+        );
         assert_eq!(meta[KEY_PROFILE_ID], serde_json::json!("p1"));
     }
 
@@ -572,8 +562,7 @@ mod tests {
 
     #[test]
     fn test_parse_warning_meta_roundtrip() {
-        let event =
-            build_token_usage_warning_event("exec-1", Some("loop-1"), 900, 1000, 87.5);
+        let event = build_token_usage_warning_event("exec-1", Some("loop-1"), 900, 1000, 87.5);
         let meta = TokenUsageWarningMeta::try_from(&event).unwrap();
         assert_eq!(meta.tokens_used, 900);
         assert_eq!(meta.token_limit, 1000);
@@ -623,15 +612,7 @@ mod tests {
 
         // Absent snapshot/version/forced degrade gracefully, not an error.
         let bare = build_context_compression_requested_event(
-            "exec-1",
-            None,
-            "chat",
-            1200,
-            1000,
-            0,
-            0,
-            false,
-            None,
+            "exec-1", None, "chat", 1200, 1000, 0, 0, false, None,
         );
         let meta = ContextCompressionRequestedMeta::try_from(&bare).unwrap();
         assert!(meta.messages.is_empty());
@@ -684,8 +665,7 @@ mod tests {
 
     #[test]
     fn test_parse_reports_missing_key() {
-        let mut event =
-            build_token_limit_exceeded_event("exec-1", None, 1200, 1000);
+        let mut event = build_token_limit_exceeded_event("exec-1", None, 1200, 1000);
         let metadata = event.metadata.as_mut().unwrap();
         metadata.remove(KEY_TOKEN_LIMIT);
         let err = TokenLimitExceededMeta::try_from(&event).unwrap_err();

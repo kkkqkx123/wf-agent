@@ -84,9 +84,7 @@ impl ConversationSession {
                 .ledger
                 .recompute(CONVERSATION_CONTEXT_ID, estimated, count);
         }
-        self.state
-            .ledger
-            .estimated_tokens(CONVERSATION_CONTEXT_ID)
+        self.state.ledger.estimated_tokens(CONVERSATION_CONTEXT_ID)
     }
 
     /// Current version of the conversation array (ledger).
@@ -97,7 +95,9 @@ impl ConversationSession {
     /// Whether a compression request may be emitted for the current
     /// conversation version (single-shot guard, checkpointed with the ledger).
     pub fn should_emit_compression(&self, version: u64) -> bool {
-        self.state.ledger.should_emit(CONVERSATION_CONTEXT_ID, version)
+        self.state
+            .ledger
+            .should_emit(CONVERSATION_CONTEXT_ID, version)
     }
 
     /// Record that a compression request was emitted for this version.

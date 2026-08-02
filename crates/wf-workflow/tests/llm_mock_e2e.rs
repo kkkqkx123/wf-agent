@@ -242,7 +242,10 @@ async fn stream_error_publishes_bus_event_and_fails() {
     let meta = event.metadata.unwrap();
     assert_eq!(meta["error"], serde_json::json!("HTTP 502 mid-stream"));
     assert_eq!(meta["profile_id"], serde_json::json!("mock"));
-    assert_eq!(event.execution_id.as_deref(), Some(ctx.execution_id.as_str()));
+    assert_eq!(
+        event.execution_id.as_deref(),
+        Some(ctx.execution_id.as_str())
+    );
     assert!(
         event.agent_loop_id.is_none(),
         "a plain workflow LLM node is not an agent loop"
@@ -252,11 +255,11 @@ async fn stream_error_publishes_bus_event_and_fails() {
 #[tokio::test]
 async fn stream_abort_publishes_bus_event_and_fails() {
     let mock = Arc::new(MockLlmClient::new());
-    mock.script_stream(vec![
-        wf_types::llm::MessageStreamEvent::Abort(wf_types::llm::MessageStreamAbort {
+    mock.script_stream(vec![wf_types::llm::MessageStreamEvent::Abort(
+        wf_types::llm::MessageStreamAbort {
             reason: "dead loop detected".to_string(),
-        }),
-    ]);
+        },
+    )]);
 
     let gateway = Arc::new(LlmGateway::new());
     gateway.register_mock("mock", mock.clone());
@@ -290,10 +293,7 @@ async fn stream_abort_publishes_bus_event_and_fails() {
         }
     };
     let meta = event.metadata.unwrap();
-    assert_eq!(
-        meta["reason"],
-        serde_json::json!("dead loop detected")
-    );
+    assert_eq!(meta["reason"], serde_json::json!("dead loop detected"));
     assert_eq!(meta["profile_id"], serde_json::json!("mock"));
 }
 

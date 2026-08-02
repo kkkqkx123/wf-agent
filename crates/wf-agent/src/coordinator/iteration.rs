@@ -311,9 +311,7 @@ impl AgentIterationCoordinator {
                     }
                     let estimated = conversation.estimated_conversation_tokens();
                     let version = conversation.conversation_version();
-                    if estimated > token_limit
-                        && conversation.should_emit_compression(version)
-                    {
+                    if estimated > token_limit && conversation.should_emit_compression(version) {
                         let message_count = conversation.messages().len();
                         let messages = conversation.messages().to_vec();
                         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
@@ -599,9 +597,7 @@ impl AgentIterationCoordinator {
                         false,
                         &e.error,
                     );
-                    if wf_llm::LlmError::StreamError(e.error.clone())
-                        .is_context_length_exceeded()
-                    {
+                    if wf_llm::LlmError::StreamError(e.error.clone()).is_context_length_exceeded() {
                         self.publish_forced_compression(entity, request).await;
                     }
                     return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(

@@ -148,7 +148,8 @@ impl AgentLoopCoordinator {
         // The conversation applies compression results itself (it subscribes
         // to COMPLETED events on the bus); the consumer is aborted once the
         // loop finishes.
-        let consumer = self.spawn_compression_consumer(&execution_id, entity.conversation().clone());
+        let consumer =
+            self.spawn_compression_consumer(&execution_id, entity.conversation().clone());
         let outcome = self.execute_inner(config, entity).await;
         if let Some(handle) = consumer {
             handle.abort();

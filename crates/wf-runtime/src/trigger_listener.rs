@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -26,7 +25,6 @@ use wf_core::EventBus;
 use wf_execution_shared::context::ExecutorContext;
 use wf_llm::LlmGateway;
 use wf_resource::registrar::Registries;
-use wf_types::message::Message;
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow::WorkflowTemplate;
@@ -269,11 +267,12 @@ pub async fn shutdown_trigger_listener(handle: Option<TriggerListenerHandle>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dashmap::DashMap;
     use std::time::Duration;
     use wf_llm::mock::{LlmResponseSpec, MockLlmClient};
     use wf_resource::registrar::Options;
     use wf_types::events::EventType;
-    use wf_types::message::{MessageContentValue, MessageRole};
+    use wf_types::message::{Message, MessageContentValue, MessageRole};
     use wf_types::workflow::EdgeType;
 
     fn text_message(role: MessageRole, text: &str) -> Message {
@@ -733,7 +732,9 @@ mod tests {
         };
         // An array the execution never created is not writable.
         assert!(matches!(
-            registry.write_context("exec-1", "chat", vec![msg.clone()], 0).await,
+            registry
+                .write_context("exec-1", "chat", vec![msg.clone()], 0)
+                .await,
             Err(WriteBackError::ContextNotFound)
         ));
         // Versioned write-back of a tracked array succeeds.
@@ -805,7 +806,9 @@ mod tests {
                     vec![Message {
                         id: wf_common::generate_id(),
                         role: wf_types::message::MessageRole::Assistant,
-                        content: wf_types::message::MessageContentValue::Text("summary".to_string()),
+                        content: wf_types::message::MessageContentValue::Text(
+                            "summary".to_string()
+                        ),
                         timestamp: wf_common::now(),
                         tool_call_id: None,
                         tool_name: None,

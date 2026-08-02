@@ -137,9 +137,7 @@ mod tests {
             assert!(registry.contains(name));
         }
         assert!(registry.get_by_provider(&LlmProvider::OpenaiChat).is_ok());
-        assert!(registry
-            .get_by_provider(&LlmProvider::GeminiOpenai)
-            .is_ok());
+        assert!(registry.get_by_provider(&LlmProvider::GeminiOpenai).is_ok());
     }
 
     #[test]
@@ -190,9 +188,7 @@ mod tests {
     #[test]
     fn unregister_custom() {
         let registry = FormatterRegistry::new();
-        registry
-            .register("tmp", make_custom_formatter())
-            .unwrap();
+        registry.register("tmp", make_custom_formatter()).unwrap();
         assert!(registry.unregister("TMP"));
         assert!(!registry.contains("tmp"));
         assert!(!registry.unregister("TMP"));

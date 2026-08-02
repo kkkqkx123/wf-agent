@@ -136,7 +136,10 @@ fn injected_messages(config: &Value) -> Vec<Message> {
 /// Restore the execution-scoped tracker from the variable map once (checkpoint
 /// symmetry, S6): a fresh execution tracker (no accumulated state) picks up
 /// the checkpointed guards and accumulations together with the variables.
-fn restore_tracker_from_variables(ctx: &NodeExecutionContext, tracker: &mut wf_llm::TokenUsageTracker) {
+fn restore_tracker_from_variables(
+    ctx: &NodeExecutionContext,
+    tracker: &mut wf_llm::TokenUsageTracker,
+) {
     if tracker.cumulative_usage().total_tokens > 0 || tracker.estimated_total() > 0 {
         return;
     }
@@ -602,10 +605,7 @@ impl NodeHandler for LlmHandler {
                         if e.is_context_length_exceeded() {
                             publish_forced_compression(ctx, &request);
                         }
-                        return Err(WorkflowError::Internal(format!(
-                            "LLM stream failed: {}",
-                            e
-                        )));
+                        return Err(WorkflowError::Internal(format!("LLM stream failed: {}", e)));
                     }
                 };
                 let mut content_parts: Vec<String> = Vec::new();
@@ -717,7 +717,10 @@ impl NodeHandler for LlmHandler {
                             if e.is_context_length_exceeded() {
                                 publish_forced_compression(ctx, &request);
                             }
-                            return Err(WorkflowError::Internal(format!("LLM stream error: {}", e)))
+                            return Err(WorkflowError::Internal(format!(
+                                "LLM stream error: {}",
+                                e
+                            )));
                         }
                         None => break,
                     }

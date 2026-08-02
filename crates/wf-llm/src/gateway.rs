@@ -453,11 +453,15 @@ mod tests {
             _request: &LlmRequest,
             _profile: &LlmProfile,
         ) -> LlmResult<reqwest::Request> {
-            Err(LlmError::ConfigError("custom formatter engaged".to_string()))
+            Err(LlmError::ConfigError(
+                "custom formatter engaged".to_string(),
+            ))
         }
 
         fn parse_response(&self, _body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
-            Err(LlmError::ConfigError("custom formatter engaged".to_string()))
+            Err(LlmError::ConfigError(
+                "custom formatter engaged".to_string(),
+            ))
         }
 
         fn parse_stream_chunk(&self, _data: &str) -> LlmResult<Option<MessageStreamEvent>> {
@@ -468,7 +472,10 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn parse_tool_calls(&self, _result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+        fn parse_tool_calls(
+            &self,
+            _result: &LlmResponseType,
+        ) -> Vec<wf_types::message::LlmToolCall> {
             Vec::new()
         }
     }

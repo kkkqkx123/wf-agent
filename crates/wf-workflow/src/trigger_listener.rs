@@ -194,7 +194,11 @@ impl TriggerEventListener {
         if event.r#type.as_str() == "CONTEXT_COMPRESSION_REQUESTED" {
             if let Ok(meta) = wf_llm::ContextCompressionRequestedMeta::try_from(&event) {
                 let key = format!("{}:{}", execution_id, meta.target_context_id);
-                if self.handled.get(&key).is_some_and(|v| *v == meta.array_version) {
+                if self
+                    .handled
+                    .get(&key)
+                    .is_some_and(|v| *v == meta.array_version)
+                {
                     debug!(
                         "Compression request for {} at version {} already handled, skipping",
                         key, meta.array_version
@@ -242,11 +246,11 @@ impl TriggerEventListener {
         let Some((_, template)) = best else {
             // Debug-log only events that have templates configured for their
             // type, to avoid noise on unrelated event types.
-            let type_configured = self
-                .registry
-                .templates()
-                .iter()
-                .any(|t| t.condition.as_ref().is_some_and(|c| c.event_type == event.r#type.as_str()));
+            let type_configured = self.registry.templates().iter().any(|t| {
+                t.condition
+                    .as_ref()
+                    .is_some_and(|c| c.event_type == event.r#type.as_str())
+            });
             if type_configured {
                 debug!(
                     "No trigger template matched event {} for execution {}",
@@ -325,21 +329,18 @@ impl TriggerEventListener {
         };
 
         if let Some(required) = &condition.metadata_exists {
-            if !required
-                .iter()
-                .all(|key| event_metadata.contains_key(key))
-            {
+            if !required.iter().all(|key| event_metadata.contains_key(key)) {
                 return false;
             }
         }
 
         if let Some(condition_metadata) = &condition.metadata {
-            return condition_metadata
-                .iter()
-                .all(|(key, expected)| match event_metadata.get(key) {
+            return condition_metadata.iter().all(|(key, expected)| {
+                match event_metadata.get(key) {
                     Some(actual) => value_matches(actual, expected),
                     None => false,
-                });
+                }
+            });
         }
         true
     }
@@ -494,7 +495,12 @@ async fn handle_subworkflow_output(
     if event.agent_loop_id.is_none() {
         if let Some(execution_id) = &event.execution_id {
             if let Err(error) = contexts
-                .write_context(execution_id, target_context_id, messages.clone(), expected_version)
+                .write_context(
+                    execution_id,
+                    target_context_id,
+                    messages.clone(),
+                    expected_version,
+                )
                 .await
             {
                 warn!(
@@ -504,12 +510,8 @@ async fn handle_subworkflow_output(
             }
         }
     }
-    let completed = build_compression_completed_event(
-        event,
-        target_context_id,
-        expected_version,
-        &messages,
-    );
+    let completed =
+        build_compression_completed_event(event, target_context_id, expected_version, &messages);
     let _ = bus.publish(completed);
     Ok(())
 }
@@ -644,11 +646,10 @@ mod tests {
             messages: Vec<Message>,
             expected_version: u64,
         ) -> Result<(), WriteBackError> {
-            self.writes.lock().unwrap().push((
-                context_id.to_string(),
-                messages,
-                expected_version,
-            ));
+            self.writes
+                .lock()
+                .unwrap()
+                .push((context_id.to_string(), messages, expected_version));
             Ok(())
         }
 
@@ -696,6 +697,7 @@ mod tests {
 
     /// Registry with a recording writer registered for `execution_id`;
     /// returns the registry and the shared write record.
+    #[allow(clippy::type_complexity)]
     fn recording_contexts(
         execution_id: &str,
     ) -> (
@@ -750,11 +752,16 @@ mod tests {
         };
         assert_eq!(completed.execution_id.as_deref(), Some("exec-1"));
         assert!(completed.agent_loop_id.is_none());
-        let completed_meta =
-            wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        let completed_meta = wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
         assert_eq!(completed_meta.target_context_id, "chat");
-        assert_eq!(completed_meta.array_version, 3, "completed carries the requested version");
-        assert_eq!(completed_meta.summary.as_deref(), Some("compressed summary"));
+        assert_eq!(
+            completed_meta.array_version, 3,
+            "completed carries the requested version"
+        );
+        assert_eq!(
+            completed_meta.summary.as_deref(),
+            Some("compressed summary")
+        );
         assert!(
             completed_meta.tokens_after > 0,
             "compressed messages must be tokenizable"

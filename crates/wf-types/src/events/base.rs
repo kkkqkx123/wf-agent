@@ -139,9 +139,7 @@ impl EventType {
             EventType::WorkflowExecutionForkStarted => "WORKFLOW_EXECUTION_FORK_STARTED",
             EventType::WorkflowExecutionForkCompleted => "WORKFLOW_EXECUTION_FORK_COMPLETED",
             EventType::WorkflowExecutionJoinStarted => "WORKFLOW_EXECUTION_JOIN_STARTED",
-            EventType::WorkflowExecutionJoinConditionMet => {
-                "WORKFLOW_EXECUTION_JOIN_CONDITION_MET"
-            }
+            EventType::WorkflowExecutionJoinConditionMet => "WORKFLOW_EXECUTION_JOIN_CONDITION_MET",
             EventType::WorkflowExecutionJoinCompleted => "WORKFLOW_EXECUTION_JOIN_COMPLETED",
             EventType::WorkflowExecutionJoinFailed => "WORKFLOW_EXECUTION_JOIN_FAILED",
             EventType::WorkflowExecutionCopyStarted => "WORKFLOW_EXECUTION_COPY_STARTED",

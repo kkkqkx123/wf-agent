@@ -131,12 +131,6 @@ cargo check -p graphdb --features server,fulltext-search,c_api,grpc,qdrant  # ch
 
 ## Testing
 
-```shell
-cargo test --lib -- --nocapture               # lib tests
-cargo test --test '*' -- --nocapture           # integration tests
-cargo test <test_name>                         # specific test(s)
-```
-
 Test organization: unit tests in same file (`#[cfg(test)]`), separate `test.rs` for large files, integration tests in `tests/`, benchmarks in `benches/`.
 
 ## Coding Standards

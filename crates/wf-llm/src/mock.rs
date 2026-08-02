@@ -127,7 +127,7 @@ impl LlmResponseSpec {
             duration: 0,
             reasoning_content: self.reasoning.clone(),
             reasoning_tokens: None,
-                        metadata: None,
+            metadata: None,
             stream_stats: None,
             warnings: None,
         }

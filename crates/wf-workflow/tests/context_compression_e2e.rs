@@ -231,7 +231,10 @@ impl ContextWriter for RecordingWriter {
             });
         }
         message_context::register_context(&self.vars, context_id, messages.clone());
-        self.writes.lock().unwrap().push((context_id.to_string(), messages));
+        self.writes
+            .lock()
+            .unwrap()
+            .push((context_id.to_string(), messages));
         Ok(())
     }
 

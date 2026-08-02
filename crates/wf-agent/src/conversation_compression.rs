@@ -31,26 +31,21 @@ pub fn spawn_conversation_compression_consumer(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut subscription = bus.subscribe();
-        loop {
-            match subscription.recv().await {
-                Ok(event) => {
-                    if event.r#type != EventType::ContextCompressionCompleted {
-                        continue;
-                    }
-                    if event.execution_id.as_deref() != Some(agent_loop_id.as_str()) {
-                        continue;
-                    }
-                    let meta = match ContextCompressionCompletedMeta::try_from(&event) {
-                        Ok(meta) => meta,
-                        Err(_) => continue,
-                    };
-                    if meta.target_context_id != CONVERSATION_CONTEXT_ID {
-                        continue;
-                    }
-                    apply_compression(&conversation, meta).await;
-                }
-                Err(_) => break,
+        while let Ok(event) = subscription.recv().await {
+            if event.r#type != EventType::ContextCompressionCompleted {
+                continue;
             }
+            if event.execution_id.as_deref() != Some(agent_loop_id.as_str()) {
+                continue;
+            }
+            let meta = match ContextCompressionCompletedMeta::try_from(&event) {
+                Ok(meta) => meta,
+                Err(_) => continue,
+            };
+            if meta.target_context_id != CONVERSATION_CONTEXT_ID {
+                continue;
+            }
+            apply_compression(&conversation, meta).await;
         }
     })
 }
@@ -116,9 +111,12 @@ mod tests {
             .add_message(text_message(MessageRole::User, "hello"));
         let version = conversation.read().await.conversation_version();
 
-        let handle =
-            spawn_conversation_compression_consumer(bus.clone(), "loop-1".to_string(), conversation.clone());
-        let mut sub = bus.subscribe();
+        let handle = spawn_conversation_compression_consumer(
+            bus.clone(),
+            "loop-1".to_string(),
+            conversation.clone(),
+        );
+        let sub = bus.subscribe();
         // Wait for the consumer subscription to be live.
         while bus.receiver_count() < 2 {
             tokio::task::yield_now().await;
@@ -154,9 +152,12 @@ mod tests {
             .add_message(text_message(MessageRole::User, "hello"));
         let stale_version = conversation.read().await.conversation_version();
 
-        let handle =
-            spawn_conversation_compression_consumer(bus.clone(), "loop-1".to_string(), conversation.clone());
-        let mut sub = bus.subscribe();
+        let handle = spawn_conversation_compression_consumer(
+            bus.clone(),
+            "loop-1".to_string(),
+            conversation.clone(),
+        );
+        let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
             tokio::task::yield_now().await;
         }
@@ -189,9 +190,12 @@ mod tests {
             .add_message(text_message(MessageRole::User, "hello"));
         let version = conversation.read().await.conversation_version();
 
-        let handle =
-            spawn_conversation_compression_consumer(bus.clone(), "loop-1".to_string(), conversation.clone());
-        let mut sub = bus.subscribe();
+        let handle = spawn_conversation_compression_consumer(
+            bus.clone(),
+            "loop-1".to_string(),
+            conversation.clone(),
+        );
+        let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
             tokio::task::yield_now().await;
         }

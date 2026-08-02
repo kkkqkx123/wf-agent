@@ -184,10 +184,7 @@ async fn token_events_emitted_when_limit_crossed() {
     // estimate cross the limit regardless of the provider-reported usage.
     let long_input = input(&"x".repeat(4000));
 
-    let output = coordinator
-        .execute(config, long_input)
-        .await
-        .unwrap();
+    let output = coordinator.execute(config, long_input).await.unwrap();
     assert_eq!(output.result, serde_json::json!("final answer"));
     // The pre-flight check must not block over-budget requests.
     assert_eq!(mock.recorded_count(), 2, "requests must still be executed");

@@ -550,7 +550,10 @@ mod tests {
         assert_eq!(tracker.history().len(), 1);
         let entry = &tracker.history()[0];
         assert_eq!(entry.total_tokens, 120);
-        assert_eq!(entry.estimated, None, "real usage must not be marked estimated");
+        assert_eq!(
+            entry.estimated, None,
+            "real usage must not be marked estimated"
+        );
         assert_eq!(entry.cache_read_tokens, None);
 
         // Decision track: the estimate accumulated regardless.

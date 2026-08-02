@@ -179,6 +179,8 @@ impl NodeHandler for AgentLoopHandler {
             }
         }
 
+        let exec_config: wf_types::llm::LlmExecutionConfig =
+            serde_json::from_value(config.clone()).unwrap_or_default();
         let loop_config = AgentLoopConfig {
             agent_id: ctx.node_id.clone(),
             model,
@@ -189,11 +191,9 @@ impl NodeHandler for AgentLoopHandler {
             tool_call_format: agent_config
                 .and_then(|c| c.tool_call_format.as_ref())
                 .and_then(|format| wf_types::llm::ToolCallFormatConfig::from_format_str(format)),
-            token_limit: config.get("token_limit").and_then(|v| v.as_u64()),
-            token_warning_threshold: config
-                .get("token_warning_threshold")
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32),
+            token_limit: exec_config.token_limit.map(u64::from),
+            token_warning_threshold: exec_config.token_warning_threshold,
+            enable_token_tracking: exec_config.enable_token_tracking,
         };
 
         let loop_input = AgentLoopInput {

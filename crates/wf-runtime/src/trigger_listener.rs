@@ -465,10 +465,13 @@ mod tests {
             requested.execution_id.as_deref(),
             Some(execution_id.as_str())
         );
-        let meta = requested.metadata.as_ref().unwrap();
-        assert_eq!(meta["target_context_id"], serde_json::json!("chat"));
-        let snapshot: Vec<Message> = serde_json::from_value(meta["messages"].clone()).unwrap();
-        assert_eq!(snapshot.len(), 40, "event must carry the array snapshot");
+        let requested_meta = wf_llm::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
+        assert_eq!(requested_meta.target_context_id, "chat");
+        assert_eq!(
+            requested_meta.messages.len(),
+            40,
+            "event must carry the array snapshot"
+        );
 
         // 5b. The summary workflow ran over the conversation payload.
         wait_until(|| summary_mock.recorded_count() >= 1).await;
@@ -499,17 +502,15 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let meta = completed.metadata.as_ref().unwrap();
-        assert_eq!(meta["target_context_id"], serde_json::json!("chat"));
-        let compressed: Vec<Message> = serde_json::from_value(meta["messages"].clone()).unwrap();
-        assert_eq!(compressed.len(), 1);
+        let completed_meta = wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        assert_eq!(completed_meta.target_context_id, "chat");
+        assert_eq!(completed_meta.messages.len(), 1);
         assert_eq!(
-            compressed[0].content,
+            completed_meta.messages[0].content,
             MessageContentValue::Text("compressed summary".to_string())
         );
-        let tokens_after = meta["tokens_after"].as_u64().unwrap();
         assert!(
-            tokens_after < 1000,
+            completed_meta.tokens_after < 1000,
             "compressed array must be far below the limit"
         );
 

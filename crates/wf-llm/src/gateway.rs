@@ -11,9 +11,9 @@ use wf_types::llm::{
 use crate::client::LlmClient;
 use crate::client::LlmClientImpl;
 use crate::error::{LlmError, LlmResult};
-use crate::formatters::create_formatter;
 use crate::message_stream::MessageStream;
 use crate::profile_manager::ProfileManager;
+use crate::registry::FormatterRegistry;
 
 /// Single facade for all LLM calls.
 ///
@@ -21,11 +21,13 @@ use crate::profile_manager::ProfileManager;
 /// - resolve the profile for a mandatory `profile_id` (no fallback branch)
 /// - merge profile defaults with request overrides in one place
 /// - route to mock clients (test injection) or real clients
+/// - resolve formatters through the registry (built-ins + runtime custom)
 /// - record token usage metrics for both generate and stream paths
 #[derive(Clone)]
 pub struct LlmGateway {
     clients: Arc<DashMap<String, Arc<LlmClientImpl>>>,
     profiles: ProfileManager,
+    formatters: FormatterRegistry,
     #[cfg(feature = "mock")]
     mock_clients: Arc<DashMap<String, Arc<crate::mock::MockLlmClient>>>,
     token_metrics: Option<TokenMetricsCollector>,
@@ -33,9 +35,16 @@ pub struct LlmGateway {
 
 impl LlmGateway {
     pub fn new() -> Self {
+        Self::new_with_formatter_registry(FormatterRegistry::new())
+    }
+
+    /// Create a gateway with a caller-provided formatter registry (custom
+    /// providers must be registered on the registry before first use).
+    pub fn new_with_formatter_registry(formatters: FormatterRegistry) -> Self {
         Self {
             clients: Arc::new(DashMap::new()),
             profiles: ProfileManager::new(),
+            formatters,
             #[cfg(feature = "mock")]
             mock_clients: Arc::new(DashMap::new()),
             token_metrics: None,
@@ -69,6 +78,12 @@ impl LlmGateway {
         &self.profiles
     }
 
+    /// The formatter registry: register custom providers here before the
+    /// first request that uses them.
+    pub fn formatter_registry(&self) -> &FormatterRegistry {
+        &self.formatters
+    }
+
     pub fn has_profile(&self, id: &str) -> bool {
         self.profiles.get(id).is_some()
     }
@@ -81,7 +96,7 @@ impl LlmGateway {
 
         let profile = self.resolve_profile(&request.profile_id)?;
         let effective = self.merge_request(request, &profile)?;
-        let client = self.get_or_create_client(&profile);
+        let client = self.get_or_create_client(&profile)?;
         let result = client.generate(&effective).await?;
         self.record_token_usage(&result, &profile);
         Ok(result)
@@ -95,7 +110,7 @@ impl LlmGateway {
 
         let profile = self.resolve_profile(&request.profile_id)?;
         let effective = self.merge_request(request, &profile)?;
-        let client = self.get_or_create_client(&profile);
+        let client = self.get_or_create_client(&profile)?;
         let stream = client.generate_stream(&effective).await?;
         Ok(Box::new(TokenRecordingStream::new(
             stream,
@@ -115,7 +130,7 @@ impl LlmGateway {
 
         let profile = self.resolve_profile(&request.profile_id)?;
         let effective = self.merge_request(request, &profile)?;
-        let client = self.get_or_create_client(&profile);
+        let client = self.get_or_create_client(&profile)?;
         client.count_tokens(&effective).await
     }
 
@@ -125,14 +140,14 @@ impl LlmGateway {
             .ok_or_else(|| LlmError::ProfileNotFound(profile_id.to_string()))
     }
 
-    fn get_or_create_client(&self, profile: &LlmProfile) -> Arc<LlmClientImpl> {
+    fn get_or_create_client(&self, profile: &LlmProfile) -> LlmResult<Arc<LlmClientImpl>> {
         let key = format!("{}::{}", profile.id, profile.model);
 
         if let Some(client) = self.clients.get(key.as_str()) {
-            return client.clone();
+            return Ok(client.clone());
         }
 
-        let formatter = create_formatter(&profile.provider);
+        let formatter = self.formatters.get_by_provider(&profile.provider)?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(
                 profile.timeout.unwrap_or(60),
@@ -142,7 +157,7 @@ impl LlmGateway {
 
         let client_impl = Arc::new(LlmClientImpl::new(client, formatter, profile.clone()));
         self.clients.insert(key, client_impl.clone());
-        client_impl
+        Ok(client_impl)
     }
 
     /// Single-point merge of profile defaults with request overrides:
@@ -359,6 +374,10 @@ impl MessageStream for TokenRecordingStream {
 mod tests {
     use super::*;
     use crate::error::LlmError;
+    use crate::formatters::LlmFormatter;
+    use crate::registry::FormatterRegistry;
+    use wf_types::llm::{LlmProfile, LlmProvider, LlmRequest};
+    use wf_types::tool::Tool;
 
     struct FakeStream {
         events: Vec<MessageStreamEvent>,
@@ -422,5 +441,108 @@ mod tests {
             stats.time_to_first_chunk
         );
         assert!(stats.total_duration >= 0);
+    }
+
+    /// A formatter whose `build_request` fails with a distinctive error, used
+    /// to prove the gateway resolved the *custom* formatter from the registry.
+    struct ProbeFormatter;
+
+    impl LlmFormatter for ProbeFormatter {
+        fn build_request(
+            &self,
+            _request: &LlmRequest,
+            _profile: &LlmProfile,
+        ) -> LlmResult<reqwest::Request> {
+            Err(LlmError::ConfigError("custom formatter engaged".to_string()))
+        }
+
+        fn parse_response(&self, _body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
+            Err(LlmError::ConfigError("custom formatter engaged".to_string()))
+        }
+
+        fn parse_stream_chunk(&self, _data: &str) -> LlmResult<Option<MessageStreamEvent>> {
+            Ok(None)
+        }
+
+        fn convert_tools(&self, _tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
+            Ok(Vec::new())
+        }
+
+        fn parse_tool_calls(&self, _result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+            Vec::new()
+        }
+    }
+
+    fn profile(id: &str, provider: LlmProvider) -> LlmProfile {
+        LlmProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider,
+            model: "custom-model".to_string(),
+            api_key: None,
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    fn request(profile_id: &str) -> LlmRequest {
+        LlmRequest {
+            profile_id: profile_id.to_string(),
+            messages: Vec::new(),
+            parameters: None,
+            tools: None,
+            tool_call_format: None,
+            locked_tool_call_format: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_formatter_resolved_via_registry() {
+        let registry = FormatterRegistry::new();
+        registry
+            .register("my_custom_provider", Arc::new(ProbeFormatter))
+            .expect("custom registration must succeed");
+        let gateway = LlmGateway::new_with_formatter_registry(registry);
+        gateway
+            .register_profile(profile(
+                "p1",
+                LlmProvider::Custom("my_custom_provider".to_string()),
+            ))
+            .unwrap();
+
+        let err = gateway.generate(&request("p1")).await.unwrap_err();
+        assert!(
+            err.to_string().contains("custom formatter engaged"),
+            "custom formatter must have been selected: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn unregistered_custom_provider_errors_before_http() {
+        let gateway = LlmGateway::new();
+        gateway
+            .register_profile(profile("p1", LlmProvider::Custom("nope".to_string())))
+            .unwrap();
+
+        let err = gateway.generate(&request("p1")).await.unwrap_err();
+        assert!(matches!(err, LlmError::FormatterNotFound(_)));
     }
 }

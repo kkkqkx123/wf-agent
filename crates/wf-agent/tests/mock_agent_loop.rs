@@ -64,6 +64,7 @@ fn config(max_iterations: u32) -> AgentLoopConfig {
         tool_call_format: None,
         token_limit: None,
         token_warning_threshold: None,
+        enable_token_tracking: None,
     }
 }
 
@@ -283,4 +284,41 @@ async fn estimated_usage_recorded_when_provider_reports_none() {
         }
     }
     assert!(saw_warning, "TokenUsageWarning must be emitted");
+}
+
+#[tokio::test]
+async fn token_tracking_disabled_suppresses_usage_and_events() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.default(LlmResponseSpec::text("final answer").with_usage(100, 20));
+
+    let bus = Arc::new(wf_core::EventBus::new(64));
+    let mut sub = bus.subscribe();
+
+    let coordinator = AgentLoopCoordinator::new(gateway_with(mock.clone()), registry_with_echo())
+        .with_event_bus(bus);
+    let mut config = config(2);
+    config.token_limit = Some(10);
+    config.token_warning_threshold = Some(50);
+    config.enable_token_tracking = Some(false);
+
+    let output = coordinator.execute(config, input("do it")).await.unwrap();
+    assert_eq!(output.result, serde_json::json!("final answer"));
+
+    // Explicit disable: token events must not be emitted even though the
+    // usage (100+20 per call) far exceeds the configured limit of 10.
+    let mut saw_token_event = false;
+    while let Ok(event) = sub.try_recv() {
+        if matches!(
+            event.r#type,
+            wf_types::events::EventType::TokenUsageWarning
+                | wf_types::events::EventType::TokenLimitExceeded
+                | wf_types::events::EventType::ContextCompressionRequested
+        ) {
+            saw_token_event = true;
+        }
+    }
+    assert!(
+        !saw_token_event,
+        "no token events when enable_token_tracking = false"
+    );
 }

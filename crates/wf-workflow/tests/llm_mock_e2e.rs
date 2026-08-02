@@ -196,6 +196,103 @@ async fn stream_emits_chunks_and_aggregates_output() {
 }
 
 #[tokio::test]
+async fn stream_error_publishes_bus_event_and_fails() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script_stream(vec![
+        wf_types::llm::MessageStreamEvent::Stream(wf_types::llm::MessageStreamChunk {
+            content: "partial".to_string(),
+        }),
+        wf_types::llm::MessageStreamEvent::Error(wf_types::llm::MessageStreamError {
+            error: "HTTP 502 mid-stream".to_string(),
+        }),
+    ]);
+
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
+    let bus = Arc::new(wf_core::EventBus::new(64));
+    let mut sub = bus.subscribe();
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "stream": true,
+        }),
+    );
+    ctx.event_bus = Some(bus);
+
+    let err = match handler.execute(&mut ctx).await {
+        Err(e) => e,
+        Ok(_) => panic!("stream error must fail the node"),
+    };
+    assert!(err.to_string().contains("HTTP 502"));
+
+    let event = loop {
+        match sub.try_recv() {
+            Ok(event) if event.r#type == wf_types::events::EventType::LlmStreamError => {
+                break event;
+            }
+            Ok(_) => {}
+            Err(_) => panic!("LlmStreamError must be published"),
+        }
+    };
+    let meta = event.metadata.unwrap();
+    assert_eq!(meta["error"], serde_json::json!("HTTP 502 mid-stream"));
+    assert_eq!(meta["profile_id"], serde_json::json!("mock"));
+    assert_eq!(event.execution_id.as_deref(), Some(ctx.execution_id.as_str()));
+    assert_eq!(event.agent_loop_id.as_deref(), Some("llm1"));
+}
+
+#[tokio::test]
+async fn stream_abort_publishes_bus_event_and_fails() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script_stream(vec![
+        wf_types::llm::MessageStreamEvent::Abort(wf_types::llm::MessageStreamAbort {
+            reason: "dead loop detected".to_string(),
+        }),
+    ]);
+
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
+    let bus = Arc::new(wf_core::EventBus::new(64));
+    let mut sub = bus.subscribe();
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "stream": true,
+        }),
+    );
+    ctx.event_bus = Some(bus);
+
+    // Abort must surface as an execution error (previously swallowed).
+    let err = match handler.execute(&mut ctx).await {
+        Err(e) => e,
+        Ok(_) => panic!("stream abort must fail the node"),
+    };
+    assert!(err.to_string().contains("dead loop"));
+
+    let event = loop {
+        match sub.try_recv() {
+            Ok(event) if event.r#type == wf_types::events::EventType::LlmStreamAborted => {
+                break event;
+            }
+            Ok(_) => {}
+            Err(_) => panic!("LlmStreamAborted must be published"),
+        }
+    };
+    let meta = event.metadata.unwrap();
+    assert_eq!(
+        meta["reason"],
+        serde_json::json!("dead loop detected")
+    );
+    assert_eq!(meta["profile_id"], serde_json::json!("mock"));
+}
+
+#[tokio::test]
 async fn output_context_contains_assistant_reply() {
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::text("context reply"));

@@ -21,6 +21,34 @@ use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
 use crate::stream::{AgentEventSink, AgentStreamEvent};
 
+/// Publish the stream termination event (error vs abort) for the agent loop's
+/// streaming LLM path. Consumer-layer publishing keeps wf-llm free of the
+/// event bus dependency; the builders live in wf-llm.
+fn publish_stream_termination(
+    event_bus: Option<&wf_core::EventBus>,
+    agent_loop_id: &str,
+    profile_id: &str,
+    aborted: bool,
+    message: &str,
+) {
+    let Some(bus) = event_bus else { return };
+    if aborted {
+        let _ = bus.publish(wf_llm::build_llm_stream_aborted_event(
+            agent_loop_id,
+            Some(agent_loop_id),
+            message,
+            profile_id,
+        ));
+    } else {
+        let _ = bus.publish(wf_llm::build_llm_stream_error_event(
+            agent_loop_id,
+            Some(agent_loop_id),
+            message,
+            profile_id,
+        ));
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct IterationResult {
     pub should_continue: bool,
@@ -65,6 +93,8 @@ pub struct AgentIterationCoordinator {
     event_sink: Option<AgentEventSink>,
     event_bus: Option<Arc<wf_core::EventBus>>,
     token_warning_threshold: u32,
+    /// Token usage tracking; disabled only by an explicit config switch.
+    token_tracking_enabled: bool,
 }
 
 impl AgentIterationCoordinator {
@@ -85,6 +115,7 @@ impl AgentIterationCoordinator {
             event_sink: None,
             event_bus: None,
             token_warning_threshold: DEFAULT_TOKEN_WARNING_THRESHOLD,
+            token_tracking_enabled: true,
         }
     }
 
@@ -119,6 +150,14 @@ impl AgentIterationCoordinator {
     /// Token warning threshold percentage of the configured limit.
     pub fn with_token_warning_threshold(mut self, threshold_percentage: u32) -> Self {
         self.token_warning_threshold = threshold_percentage;
+        self
+    }
+
+    /// Switch token usage tracking off (usage recording and token events).
+    /// Defaults to enabled; callers pass the resolved config value
+    /// (`enable_token_tracking.unwrap_or(true)`).
+    pub fn with_token_tracking_enabled(mut self, enabled: bool) -> Self {
+        self.token_tracking_enabled = enabled;
         self
     }
 
@@ -174,19 +213,21 @@ impl AgentIterationCoordinator {
         // Pre-request token budget check: the estimate is approximate, so this
         // is a warning only (never blocks the request); the provider's real
         // count takes precedence. Fires at most once per session.
-        if let Some(ref bus) = self.event_bus {
-            let mut conversation = entity.conversation().write().await;
-            let token_limit = conversation.token_limit();
-            if token_limit > 0 {
-                let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
-                if estimated > token_limit && conversation.consume_preflight_warning() {
-                    let _ = bus.publish(wf_llm::build_token_usage_warning_event(
-                        &execution_id,
-                        Some(entity.id()),
-                        estimated,
-                        token_limit,
-                        estimated as f64 / token_limit as f64 * 100.0,
-                    ));
+        if self.token_tracking_enabled {
+            if let Some(ref bus) = self.event_bus {
+                let mut conversation = entity.conversation().write().await;
+                let token_limit = conversation.token_limit();
+                if token_limit > 0 {
+                    let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                    if estimated > token_limit && conversation.consume_preflight_warning() {
+                        let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                            &execution_id,
+                            Some(entity.id()),
+                            estimated,
+                            token_limit,
+                            estimated as f64 / token_limit as f64 * 100.0,
+                        ));
+                    }
                 }
             }
         }
@@ -214,8 +255,9 @@ impl AgentIterationCoordinator {
         };
 
         // Record token usage into the conversation session (streaming usage
-        // deltas are already folded into `request_usage`).
-        {
+        // deltas are already folded into `request_usage`). Skipped entirely
+        // when token tracking is disabled by config.
+        if self.token_tracking_enabled {
             let mut conversation = entity.conversation().write().await;
             if let Some(usage) = &request_usage {
                 conversation.accumulate_stream_usage(usage);
@@ -499,11 +541,25 @@ impl AgentIterationCoordinator {
                     }
                 }
                 Ok(MessageStreamEvent::Error(e)) => {
+                    publish_stream_termination(
+                        self.event_bus.as_deref(),
+                        entity.id(),
+                        &request.profile_id,
+                        false,
+                        &e.error,
+                    );
                     return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
                         e.error,
                     )));
                 }
                 Ok(MessageStreamEvent::Abort(a)) => {
+                    publish_stream_termination(
+                        self.event_bus.as_deref(),
+                        entity.id(),
+                        &request.profile_id,
+                        true,
+                        &a.reason,
+                    );
                     return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
                         a.reason,
                     )));
@@ -512,7 +568,16 @@ impl AgentIterationCoordinator {
                 | Ok(MessageStreamEvent::Connect(_))
                 | Ok(MessageStreamEvent::InputJson(_))
                 | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
-                Err(e) => return Err(e.into()),
+                Err(e) => {
+                    publish_stream_termination(
+                        self.event_bus.as_deref(),
+                        entity.id(),
+                        &request.profile_id,
+                        wf_llm::is_stream_abort(&e),
+                        &e.to_string(),
+                    );
+                    return Err(e.into());
+                }
             }
         }
 
@@ -790,5 +855,89 @@ mod tests {
         let (result, _rx) = run_streaming(stream_gateway(mock), registry, &entity).await;
         let err = result.expect_err("stream error must fail the iteration");
         assert!(err.to_string().contains("upstream exploded"));
+    }
+
+    async fn run_streaming_with_bus(
+        gateway: Arc<LlmGateway>,
+        registry: Arc<wf_tools::registry::ToolRegistry>,
+        entity: &AgentLoopEntity,
+        bus: Arc<wf_core::EventBus>,
+    ) -> AgentResult<IterationResult> {
+        let (tx, _rx) = mpsc::channel(32);
+        let coordinator =
+            AgentIterationCoordinator::new(gateway, registry, Arc::new(HookExecutor::new()), None)
+                .with_streaming(AgentEventSink::new(tx, None))
+                .with_event_bus(bus);
+        coordinator.execute_iteration(entity).await
+    }
+
+    fn drain_until_type(
+        sub: &mut wf_core::event::Subscription,
+        event_type: wf_types::events::EventType,
+    ) -> Option<wf_types::events::BaseEvent> {
+        for _ in 0..16 {
+            match sub.try_recv() {
+                Ok(event) if event.r#type == event_type => return Some(event),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        None
+    }
+
+    #[tokio::test]
+    async fn test_stream_error_event_published_to_bus() {
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script_stream(vec![MessageStreamEvent::Error(
+            wf_types::llm::MessageStreamError {
+                error: "HTTP 500 boom".to_string(),
+            },
+        )]);
+        let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+        let entity = AgentLoopEntity::new(Id::from("agent-stream-err".to_string()))
+            .with_model("mock".to_string());
+        entity.state.write().await.start();
+
+        let bus = Arc::new(wf_core::EventBus::new(64));
+        let mut sub = bus.subscribe();
+
+        let result =
+            run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
+        assert!(result.is_err(), "stream error must fail the iteration");
+
+        let event = drain_until_type(&mut sub, wf_types::events::EventType::LlmStreamError)
+            .expect("LlmStreamError must be published");
+        assert_eq!(event.execution_id.as_deref(), Some("agent-stream-err"));
+        assert_eq!(event.agent_loop_id.as_deref(), Some("agent-stream-err"));
+        let meta = event.metadata.unwrap();
+        assert_eq!(meta["error"], serde_json::json!("HTTP 500 boom"));
+        assert_eq!(meta["profile_id"], serde_json::json!("mock"));
+    }
+
+    #[tokio::test]
+    async fn test_stream_abort_event_published_to_bus() {
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script_stream(vec![MessageStreamEvent::Abort(
+            wf_types::llm::MessageStreamAbort {
+                reason: "dead loop detected".to_string(),
+            },
+        )]);
+        let registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+        let entity = AgentLoopEntity::new(Id::from("agent-stream-abort".to_string()))
+            .with_model("mock".to_string());
+        entity.state.write().await.start();
+
+        let bus = Arc::new(wf_core::EventBus::new(64));
+        let mut sub = bus.subscribe();
+
+        let result =
+            run_streaming_with_bus(stream_gateway(mock), registry, &entity, bus.clone()).await;
+        assert!(result.is_err(), "stream abort must fail the iteration");
+
+        let event = drain_until_type(&mut sub, wf_types::events::EventType::LlmStreamAborted)
+            .expect("LlmStreamAborted must be published");
+        let meta = event.metadata.unwrap();
+        assert_eq!(meta["reason"], serde_json::json!("dead loop detected"));
+        assert_eq!(meta["profile_id"], serde_json::json!("mock"));
     }
 }

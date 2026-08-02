@@ -31,6 +31,10 @@ pub struct AgentLoopConfig {
     pub token_limit: Option<u64>,
     /// Warning threshold percentage of the token limit (default 80).
     pub token_warning_threshold: Option<u32>,
+    /// Token usage tracking switch; enabled by default and only disabled
+    /// by an explicit `false` (Option semantics mirror TS). When disabled,
+    /// usage is not recorded and no token events are emitted.
+    pub enable_token_tracking: Option<bool>,
 }
 
 #[derive(Debug, Clone)]

@@ -145,7 +145,8 @@ impl AgentLoopCoordinator {
             config
                 .token_warning_threshold
                 .unwrap_or(DEFAULT_TOKEN_WARNING_THRESHOLD),
-        );
+        )
+        .with_token_tracking_enabled(config.enable_token_tracking.unwrap_or(true));
         if let Some(ref bus) = self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());
         }
@@ -293,12 +294,14 @@ impl AgentLoopCoordinator {
             entity.conversation().write().await.add_message(msg.clone());
         }
 
-        if let Some(token_limit) = config.token_limit.filter(|&l| l > 0) {
-            entity
-                .conversation()
-                .write()
-                .await
-                .set_token_limit(token_limit);
+        if config.enable_token_tracking.unwrap_or(true) {
+            if let Some(token_limit) = config.token_limit.filter(|&l| l > 0) {
+                entity
+                    .conversation()
+                    .write()
+                    .await
+                    .set_token_limit(token_limit);
+            }
         }
 
         if !input.message.is_empty() {

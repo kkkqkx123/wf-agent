@@ -43,12 +43,18 @@ pub trait LlmFormatter: Send + Sync {
     }
 }
 
-pub fn create_formatter(provider: &LlmProvider) -> Arc<dyn LlmFormatter> {
+/// Create the formatter for a built-in provider. Custom providers are not
+/// handled here: they are resolved through `FormatterRegistry` and yield
+/// `UnsupportedProvider` when passed to this factory.
+pub fn create_formatter(provider: &LlmProvider) -> LlmResult<Arc<dyn LlmFormatter>> {
     match provider {
-        LlmProvider::OpenaiChat => Arc::new(OpenaiChatFormatter::new()),
-        LlmProvider::OpenaiResponse => Arc::new(OpenaiResponseFormatter::new()),
-        LlmProvider::Anthropic => Arc::new(AnthropicFormatter::new()),
-        LlmProvider::GeminiNative => Arc::new(GeminiNativeFormatter::new()),
-        LlmProvider::GeminiOpenai => Arc::new(GeminiOpenaiFormatter::new()),
+        LlmProvider::OpenaiChat => Ok(Arc::new(OpenaiChatFormatter::new())),
+        LlmProvider::OpenaiResponse => Ok(Arc::new(OpenaiResponseFormatter::new())),
+        LlmProvider::Anthropic => Ok(Arc::new(AnthropicFormatter::new())),
+        LlmProvider::GeminiNative => Ok(Arc::new(GeminiNativeFormatter::new())),
+        LlmProvider::GeminiOpenai => Ok(Arc::new(GeminiOpenaiFormatter::new())),
+        LlmProvider::Custom(_) => Err(crate::error::LlmError::UnsupportedProvider(
+            provider.clone(),
+        )),
     }
 }

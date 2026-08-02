@@ -34,6 +34,34 @@ fn emit_llm_event(
     });
 }
 
+/// Publish the stream termination event (error vs abort) for the LLM node's
+/// streaming path. Consumer-layer publishing keeps wf-llm free of the event
+/// bus dependency; the builders live in wf-llm.
+fn publish_stream_termination(
+    event_bus: Option<&EventBus>,
+    ctx: &NodeExecutionContext,
+    profile_id: &str,
+    aborted: bool,
+    message: &str,
+) {
+    let Some(bus) = event_bus else { return };
+    if aborted {
+        let _ = bus.publish(wf_llm::build_llm_stream_aborted_event(
+            &ctx.execution_id,
+            Some(&ctx.node_id),
+            message,
+            profile_id,
+        ));
+    } else {
+        let _ = bus.publish(wf_llm::build_llm_stream_error_event(
+            &ctx.execution_id,
+            Some(&ctx.node_id),
+            message,
+            profile_id,
+        ));
+    }
+}
+
 /// Emit token usage events: single-shot warning and limit exceeded are driven
 /// by the execution-scoped tracker (P2 semantics); the compression requested
 /// event is driven by the *named message array* read by this node — it fires
@@ -330,17 +358,25 @@ impl NodeHandler for LlmHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(5);
 
-        // Token tracking: apply the node-level limit (0 disables checks);
-        // the shared execution tracker is updated after every LLM call.
-        let token_warning_threshold = config
-            .get("token_warning_threshold")
-            .and_then(|v| v.as_u64())
+        // Token tracking: the node-level settings consolidate through
+        // `LlmExecutionConfig` (typed extraction from the node config JSON);
+        // a parse failure degrades to defaults (tracking on, default
+        // threshold, no limit). The shared execution tracker is updated
+        // after every LLM call unless tracking is explicitly disabled.
+        let exec_config: wf_types::llm::LlmExecutionConfig =
+            serde_json::from_value(config.clone()).unwrap_or_default();
+        let token_tracking_enabled = exec_config.enable_token_tracking.unwrap_or(true);
+        let token_warning_threshold = exec_config
+            .token_warning_threshold
+            .map(u64::from)
             .unwrap_or(wf_llm::DEFAULT_TOKEN_WARNING_THRESHOLD as u64);
-        if let Some(ref tracker) = ctx.token_tracker {
-            if let Some(token_limit) = config.get("token_limit").and_then(|v| v.as_u64()) {
-                let mut tracker = tracker.lock().await;
-                if tracker.token_limit() == 0 && token_limit > 0 {
-                    tracker.set_token_limit(token_limit);
+        if token_tracking_enabled {
+            if let Some(ref tracker) = ctx.token_tracker {
+                if let Some(token_limit) = exec_config.token_limit.map(u64::from) {
+                    let mut tracker = tracker.lock().await;
+                    if tracker.token_limit() == 0 && token_limit > 0 {
+                        tracker.set_token_limit(token_limit);
+                    }
                 }
             }
         }
@@ -378,20 +414,22 @@ impl NodeHandler for LlmHandler {
             // Pre-request token budget check: estimation is approximate, so
             // this is a warning only (never blocks the request); the provider's
             // real count takes precedence. Fires at most once per execution.
-            if let Some(ref tracker) = ctx.token_tracker {
-                let mut tracker = tracker.lock().await;
-                let token_limit = tracker.token_limit();
-                if token_limit > 0 {
-                    let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
-                    if estimated > token_limit && tracker.consume_preflight_warning() {
-                        if let Some(ref bus) = ctx.event_bus {
-                            let _ = bus.publish(wf_llm::build_token_usage_warning_event(
-                                &ctx.execution_id,
-                                Some(&ctx.node_id),
-                                estimated,
-                                token_limit,
-                                estimated as f64 / token_limit as f64 * 100.0,
-                            ));
+            if token_tracking_enabled {
+                if let Some(ref tracker) = ctx.token_tracker {
+                    let mut tracker = tracker.lock().await;
+                    let token_limit = tracker.token_limit();
+                    if token_limit > 0 {
+                        let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                        if estimated > token_limit && tracker.consume_preflight_warning() {
+                            if let Some(ref bus) = ctx.event_bus {
+                                let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                                    &ctx.execution_id,
+                                    Some(&ctx.node_id),
+                                    estimated,
+                                    token_limit,
+                                    estimated as f64 / token_limit as f64 * 100.0,
+                                ));
+                            }
                         }
                     }
                 }
@@ -432,21 +470,24 @@ impl NodeHandler for LlmHandler {
                         }
                         Some(Ok(MessageStreamEvent::Usage(u))) => {
                             stream_usage_seen = true;
-                            if let Some(ref tracker) = ctx.token_tracker {
-                                tracker
-                                    .lock()
-                                    .await
-                                    .accumulate_stream_usage(&wf_llm::RequestUsage::from(&u.usage));
+                            if token_tracking_enabled {
+                                if let Some(ref tracker) = ctx.token_tracker {
+                                    tracker.lock().await.accumulate_stream_usage(
+                                        &wf_llm::RequestUsage::from(&u.usage),
+                                    );
+                                }
                             }
                         }
                         Some(Ok(MessageStreamEvent::FinalMessage(final_msg))) => {
                             let tool_calls = final_msg.message.tool_calls.clone();
                             if let Some(usage) = &final_msg.usage {
                                 stream_usage_seen = true;
-                                if let Some(ref tracker) = ctx.token_tracker {
-                                    tracker.lock().await.accumulate_stream_usage(
-                                        &wf_llm::RequestUsage::from(usage),
-                                    );
+                                if token_tracking_enabled {
+                                    if let Some(ref tracker) = ctx.token_tracker {
+                                        tracker.lock().await.accumulate_stream_usage(
+                                            &wf_llm::RequestUsage::from(usage),
+                                        );
+                                    }
                                 }
                             }
                             final_response = Some(wf_types::llm::LlmResult {
@@ -465,47 +506,88 @@ impl NodeHandler for LlmHandler {
                                 warnings: None,
                             });
                         }
+                        Some(Ok(MessageStreamEvent::Error(err))) => {
+                            publish_stream_termination(
+                                ctx.event_bus.as_deref(),
+                                ctx,
+                                &request.profile_id,
+                                false,
+                                &err.error,
+                            );
+                            return Err(WorkflowError::Internal(format!(
+                                "LLM stream error: {}",
+                                err.error
+                            )));
+                        }
+                        Some(Ok(MessageStreamEvent::Abort(abort))) => {
+                            publish_stream_termination(
+                                ctx.event_bus.as_deref(),
+                                ctx,
+                                &request.profile_id,
+                                true,
+                                &abort.reason,
+                            );
+                            return Err(WorkflowError::Internal(format!(
+                                "LLM stream aborted: {}",
+                                abort.reason
+                            )));
+                        }
                         Some(Ok(_)) => {}
                         Some(Err(e)) => {
+                            publish_stream_termination(
+                                ctx.event_bus.as_deref(),
+                                ctx,
+                                &request.profile_id,
+                                wf_llm::is_stream_abort(&e),
+                                &e.to_string(),
+                            );
                             return Err(WorkflowError::Internal(format!("LLM stream error: {}", e)))
                         }
                         None => break,
                     }
                 }
-                if let Some(ref tracker) = ctx.token_tracker {
-                    let mut tracker = tracker.lock().await;
-                    if !stream_usage_seen {
-                        // Provider streamed no usage: estimate as fallback.
-                        let completion = content_parts.concat();
-                        tracker.update_estimated_usage(
-                            wf_llm::estimate_request_tokens(&request),
-                            wf_llm::estimate_tokens(&completion) as u32,
-                        );
+                if token_tracking_enabled {
+                    if let Some(ref tracker) = ctx.token_tracker {
+                        let mut tracker = tracker.lock().await;
+                        if !stream_usage_seen {
+                            // Provider streamed no usage: estimate as fallback.
+                            let completion = content_parts.concat();
+                            tracker.update_estimated_usage(
+                                wf_llm::estimate_request_tokens(&request),
+                                wf_llm::estimate_tokens(&completion) as u32,
+                            );
+                        }
+                        tracker.finalize_current_request();
                     }
-                    tracker.finalize_current_request();
                 }
-                emit_token_usage_events(ctx, token_warning_threshold).await;
+                if token_tracking_enabled {
+                    emit_token_usage_events(ctx, token_warning_threshold).await;
+                }
                 aggregated_content = Some(content_parts.concat());
                 break;
             }
 
             let response = call_llm(&self.gateway, &request).await?;
-            if let Some(ref tracker) = ctx.token_tracker {
-                let mut tracker = tracker.lock().await;
-                if let Some(usage) = &response.usage {
-                    tracker.update_api_usage(usage);
-                } else {
-                    // Provider reported no usage: estimate as fallback so
-                    // limit checks and history stay populated.
-                    let completion = response.content.as_deref().unwrap_or_default();
-                    tracker.update_estimated_usage(
-                        wf_llm::estimate_request_tokens(&request),
-                        wf_llm::estimate_tokens(completion) as u32,
-                    );
+            if token_tracking_enabled {
+                if let Some(ref tracker) = ctx.token_tracker {
+                    let mut tracker = tracker.lock().await;
+                    if let Some(usage) = &response.usage {
+                        tracker.update_api_usage(usage);
+                    } else {
+                        // Provider reported no usage: estimate as fallback so
+                        // limit checks and history stay populated.
+                        let completion = response.content.as_deref().unwrap_or_default();
+                        tracker.update_estimated_usage(
+                            wf_llm::estimate_request_tokens(&request),
+                            wf_llm::estimate_tokens(completion) as u32,
+                        );
+                    }
+                    tracker.finalize_current_request();
                 }
-                tracker.finalize_current_request();
             }
-            emit_token_usage_events(ctx, token_warning_threshold).await;
+            if token_tracking_enabled {
+                emit_token_usage_events(ctx, token_warning_threshold).await;
+            }
             let has_tool_calls = response
                 .tool_calls
                 .as_ref()

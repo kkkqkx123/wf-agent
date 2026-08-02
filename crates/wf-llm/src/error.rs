@@ -23,6 +23,9 @@ pub enum LlmError {
     #[error("Unsupported provider: {0:?}")]
     UnsupportedProvider(wf_types::llm::LlmProvider),
 
+    #[error("Formatter not registered for provider: {0}")]
+    FormatterNotFound(String),
+
     #[error("Request timed out after {0}ms")]
     Timeout(u64),
 
@@ -53,6 +56,7 @@ impl LlmError {
             | LlmError::ConfigError(_)
             | LlmError::ProfileNotFound(_)
             | LlmError::UnsupportedProvider(_)
+            | LlmError::FormatterNotFound(_)
             | LlmError::AuthError(_)
             | LlmError::ToolNotFound(_)
             | LlmError::InvalidResponse(_) => false,

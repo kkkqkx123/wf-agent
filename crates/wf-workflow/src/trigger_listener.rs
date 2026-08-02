@@ -36,13 +36,6 @@ use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 
 use crate::error::{WorkflowError, WorkflowResult};
 
-/// Metadata key carrying the serialized message array on the compression
-/// events (see `wf_llm::KEY_MESSAGES`).
-const KEY_MESSAGES: &str = "messages";
-/// Metadata key naming the message array targeted by compression (see
-/// `wf_llm::KEY_TARGET_CONTEXT_ID`).
-const KEY_TARGET_CONTEXT_ID: &str = "target_context_id";
-
 /// Default timeout applied to a triggered sub-workflow when the action does
 /// not configure one.
 const DEFAULT_TRIGGER_TIMEOUT_MS: u64 = 60000;
@@ -198,15 +191,12 @@ impl TriggerEventListener {
         }
     }
 
-    /// Match an event against a trigger condition: the serialized event type
-    /// (SCREAMING_SNAKE_CASE, e.g. `CONTEXT_COMPRESSION_REQUESTED`) must
-    /// equal `condition.event_type`, and every configured metadata pair must
-    /// be present in the event metadata.
+    /// Match an event against a trigger condition: the event type (canonical
+    /// SCREAMING_SNAKE_CASE name, see [`wf_types::events::EventType::as_str`])
+    /// must equal `condition.event_type`, and every configured metadata pair
+    /// must be present in the event metadata.
     fn matches(&self, event: &BaseEvent, condition: &TriggerCondition) -> bool {
-        let serialized_type = serde_json::to_string(&event.r#type)
-            .map(|s| s.trim_matches('"').to_string())
-            .unwrap_or_default();
-        if serialized_type != condition.event_type {
+        if event.r#type.as_str() != condition.event_type {
             return false;
         }
 
@@ -242,27 +232,29 @@ impl TriggerEventListener {
         };
 
         // The event must name the message array to compress and carry its
-        // snapshot; anything else is skipped (best-effort compression).
-        let target_context_id = event
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.get(KEY_TARGET_CONTEXT_ID))
-            .and_then(|value| value.as_str())
-            .map(|s| s.to_string());
-        let messages: Vec<Message> = event
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.get(KEY_MESSAGES))
-            .and_then(|value| serde_json::from_value(value.clone()).ok())
-            .unwrap_or_default();
-        if target_context_id.is_none() || messages.is_empty() {
+        // snapshot; anything else is skipped (best-effort compression). The
+        // typed parse validates both the event type and the required keys,
+        // so a schema drift surfaces as a logged skip instead of a silent
+        // empty-array degradation.
+        let meta = match wf_llm::ContextCompressionRequestedMeta::try_from(event) {
+            Ok(meta) => meta,
+            Err(e) => {
+                debug!(
+                    "Trigger '{}' matched but the event is not a valid compression request: {}",
+                    name, e
+                );
+                return Ok(());
+            }
+        };
+        let target_context_id = meta.target_context_id;
+        if meta.messages.is_empty() {
             debug!(
                 "Trigger '{}' matched but the event carries no named message array, skipping",
                 name
             );
             return Ok(());
         }
-        let target_context_id = target_context_id.unwrap_or_default();
+        let messages = meta.messages;
 
         let input = serde_json::json!({ "conversationHistory": messages });
         let wait = wait_for_completion.unwrap_or(true);
@@ -487,29 +479,18 @@ mod tests {
     }
 
     fn requested_event(execution_id: &str, target: Option<&str>) -> BaseEvent {
-        let metadata = Some(std::collections::HashMap::from([
-            (
-                KEY_MESSAGES.to_string(),
-                serde_json::to_value(vec![text_message(
-                    wf_types::message::MessageRole::User,
-                    "long conversation",
-                )])
-                .unwrap(),
-            ),
-            (
-                KEY_TARGET_CONTEXT_ID.to_string(),
-                serde_json::json!(target.unwrap_or("chat")),
-            ),
-        ]));
-        BaseEvent {
-            id: wf_types::Id::new(),
-            r#type: EventType::ContextCompressionRequested,
-            timestamp: wf_common::now(),
-            workflow_id: None,
-            execution_id: Some(execution_id.to_string()),
-            agent_loop_id: Some("loop-1".to_string()),
-            metadata,
-        }
+        wf_llm::build_context_compression_requested_event(
+            execution_id,
+            Some("loop-1"),
+            target.unwrap_or("chat"),
+            1200,
+            1000,
+            1,
+            Some(&[text_message(
+                wf_types::message::MessageRole::User,
+                "long conversation",
+            )]),
+        )
     }
 
     /// The listener's subscription is created when its spawned task first
@@ -575,15 +556,20 @@ mod tests {
         };
         assert_eq!(completed.execution_id.as_deref(), Some("exec-1"));
         assert_eq!(completed.agent_loop_id.as_deref(), Some("loop-1"));
-        let meta = completed.metadata.unwrap();
-        assert_eq!(meta[KEY_TARGET_CONTEXT_ID], serde_json::json!("chat"));
-        assert_eq!(meta["summary"], serde_json::json!("compressed summary"));
-        let tokens_after = meta["tokens_after"].as_u64().unwrap();
-        assert!(tokens_after > 0, "compressed messages must be tokenizable");
-        assert!(tokens_after < 100, "compressed summary must be small");
-        let compressed: Vec<Message> = serde_json::from_value(meta[KEY_MESSAGES].clone()).unwrap();
+        let completed_meta =
+            wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        assert_eq!(completed_meta.target_context_id, "chat");
+        assert_eq!(completed_meta.summary.as_deref(), Some("compressed summary"));
+        assert!(
+            completed_meta.tokens_after > 0,
+            "compressed messages must be tokenizable"
+        );
+        assert!(
+            completed_meta.tokens_after < 100,
+            "compressed summary must be small"
+        );
         assert_eq!(
-            compressed.len(),
+            completed_meta.messages.len(),
             1,
             "completed event carries the compressed array"
         );

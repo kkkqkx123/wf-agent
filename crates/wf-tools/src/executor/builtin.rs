@@ -111,6 +111,9 @@ impl BuiltinExecutor {
                 .get("token_warning_threshold")
                 .and_then(|v| v.as_u64())
                 .map(|v| v as u32),
+            enable_token_tracking: parameters
+                .get("enable_token_tracking")
+                .and_then(|v| v.as_bool()),
         };
 
         let input = AgentLoopInput {

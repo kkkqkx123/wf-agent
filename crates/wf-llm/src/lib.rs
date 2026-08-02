@@ -11,6 +11,7 @@ pub mod messaging;
 pub mod mock;
 pub mod partial_json_parser;
 pub mod profile_manager;
+pub mod registry;
 pub mod token_count;
 pub mod token_estimation;
 pub mod token_events;
@@ -43,14 +44,17 @@ pub use messaging::visible_range_calculator::{
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
 pub use partial_json_parser::{parse_partial_json, PartialParseResult};
 pub use profile_manager::ProfileManager;
+pub use registry::FormatterRegistry;
 pub use token_count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,
 };
 pub use token_estimation::{estimate_tokens, TokenEstimator};
 pub use token_events::{
     build_context_compression_completed_event, build_context_compression_requested_event,
-    build_token_limit_exceeded_event, build_token_usage_warning_event,
-    DEFAULT_TOKEN_WARNING_THRESHOLD,
+    build_llm_stream_aborted_event, build_llm_stream_error_event,
+    build_token_limit_exceeded_event, build_token_usage_warning_event, is_stream_abort,
+    ContextCompressionCompletedMeta, ContextCompressionRequestedMeta, TokenEventMetaError,
+    TokenLimitExceededMeta, TokenUsageWarningMeta, DEFAULT_TOKEN_WARNING_THRESHOLD,
 };
 pub use token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 pub use tool_call_parser::{

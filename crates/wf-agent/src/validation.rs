@@ -229,6 +229,7 @@ mod tests {
             tool_call_format: None,
             token_limit: None,
             token_warning_threshold: None,
+            enable_token_tracking: None,
         }
     }
 

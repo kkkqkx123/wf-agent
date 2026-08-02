@@ -390,6 +390,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runtime_goal_review_starter_activation() {
+        clear_env_vars();
+
+        use wf_resource::registrar::{Options as ResourceOptions, StarterActivation};
+        use wf_workflow::validation::GraphValidator;
+
+        let config = RuntimeConfig {
+            log_config: LogConfig::default().with_level("off"),
+            resource: ResourceConfig {
+                options: ResourceOptions {
+                    starter_activation: vec![StarterActivation {
+                        id: "@standard/goal-review-agent".into(),
+                        config: serde_json::json!({
+                            "root_requirement": "fix the failing test",
+                            "max_iterations": 3,
+                        }),
+                    }],
+                    ..Default::default()
+                },
+            },
+            metrics: None,
+            ..Default::default()
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+
+        // Built-in starter registered and activated: workflow + planner prompt.
+        let bundles = runtime.bundles();
+        assert!(bundles
+            .list()
+            .contains(&"@standard/goal-review-agent".to_string()));
+        assert!(bundles.is_active("@standard/goal-review-agent"));
+
+        assert!(runtime
+            .registries()
+            .workflows
+            .has("@standard/goal-review-agent-workflow"));
+        assert!(runtime
+            .registries()
+            .prompt_templates
+            .has("@standard/goal-review-planner"));
+
+        // The assembled workflow is structurally valid (loop pairs, edges,
+        // reachability) so it can be executed by the workflow engine.
+        let wf = runtime
+            .registries()
+            .workflows
+            .get("@standard/goal-review-agent-workflow")
+            .expect("goal review workflow registered");
+        let graph = crate::trigger_listener::template_to_graph(&wf);
+        GraphValidator::validate(&graph).unwrap_or_else(|errors| {
+            panic!(
+                "goal review workflow failed validation: {:?}",
+                errors
+                    .iter()
+                    .map(|e| format!("{}: {}", e.field, e.message))
+                    .collect::<Vec<_>>()
+            )
+        });
+
+        // Deactivation removes the workflow and prompt from the registries.
+        bundles
+            .deactivate("@standard/goal-review-agent", runtime.registries())
+            .unwrap();
+        assert!(!bundles.is_active("@standard/goal-review-agent"));
+        assert!(!runtime
+            .registries()
+            .workflows
+            .has("@standard/goal-review-agent-workflow"));
+        assert!(!runtime
+            .registries()
+            .prompt_templates
+            .has("@standard/goal-review-planner"));
+
+        runtime.shutdown().await.unwrap();
+
+        clear_env_vars();
+    }
+
+    #[tokio::test]
     async fn test_runtime_trigger_shutdown() {
         clear_env_vars();
 

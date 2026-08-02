@@ -77,7 +77,7 @@ pub struct Options {
     pub block_list: Option<Vec<String>>,
     pub custom_resources: Option<crate::custom::types::CustomResourcesPresetConfig>,
     pub custom_base_dir: Option<String>,
-    pub starter_activation: Option<StarterActivation>,
+    pub starter_activation: Vec<StarterActivation>,
 }
 
 impl Default for Options {
@@ -88,7 +88,7 @@ impl Default for Options {
             block_list: None,
             custom_resources: None,
             custom_base_dir: None,
-            starter_activation: None,
+            starter_activation: Vec::new(),
         }
     }
 }
@@ -168,8 +168,13 @@ pub fn register_all(regs: &Registries, bundle_reg: &BundleRegistry, opts: &Optio
         ));
     }
 
-    // Pipeline 3: Starter activation
-    if let Some(ref sa) = opts.starter_activation {
+    // Pipeline 3: Register built-in starters, then activate the configured ones
+    for starter in predefined::starters::builtin_starters() {
+        if let Err(e) = bundle_reg.register(starter) {
+            total.merge(Summary::err("builtin-starter", e));
+        }
+    }
+    for sa in &opts.starter_activation {
         match bundle_reg.activate(&sa.id, &sa.config, regs, opts.skip_if_exists) {
             Ok(s) => total.merge(s),
             Err(e) => total.merge(Summary::err(&sa.id, e)),

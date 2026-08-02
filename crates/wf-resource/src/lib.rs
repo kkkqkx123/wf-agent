@@ -17,10 +17,13 @@ pub use predefined::builder::{
     build_minimal_system_prompt, build_system_prompt, BuildOptions, PromptType,
 };
 pub use predefined::render::{render_tool_descriptions, ToolFormat};
+pub use predefined::starters::{GoalReviewConfig, GoalReviewStarter};
 pub use registrar::{
     are_fragments_registered, are_predefined_tool_descriptions_registered,
     are_prompt_templates_registered, is_resource_disabled, register_all, register_item,
     unregister_predefined_content, Options, Registries, StarterActivation,
 };
 pub use result::Summary;
-pub use starter::{Bundle, BundleRegistry, Starter};
+pub use starter::{
+    Bundle, BundleRegistry, Starter, StarterConfigField, StarterConfigFieldType, StarterMetadata,
+};

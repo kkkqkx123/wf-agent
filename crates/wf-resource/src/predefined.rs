@@ -3,6 +3,7 @@ pub mod builder;
 pub mod fragments;
 pub mod prompts;
 pub mod render;
+pub mod starters;
 pub mod tool_descriptions;
 pub mod tools;
 pub mod triggers;

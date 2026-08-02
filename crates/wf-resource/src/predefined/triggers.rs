@@ -20,13 +20,15 @@ pub fn create_context_compression_trigger(
     TriggerTemplate {
         name: CONTEXT_COMPRESSION_TRIGGER_NAME.into(),
         description: Some(
-            "Automatically triggers a context compression sub-workflow when Token usage exceeds the limit".into(),
+            "Default fallback context compression trigger: runs the summary workflow for any CONTEXT_COMPRESSION_REQUESTED not claimed by an explicit template (explicit templates win by priority).".into(),
         ),
         condition: Some(TriggerCondition {
             event_type: "CONTEXT_COMPRESSION_REQUESTED".into(),
             event_name: None,
             condition: None,
             metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
         }),
         action: Some(TriggerAction::ExecuteTriggeredSubworkflow {
             triggered_workflow_id: triggered_workflow_id.unwrap_or_else(|| "llm_summary_workflow".into()),
@@ -37,6 +39,8 @@ pub fn create_context_compression_trigger(
         }),
         enabled: Some(true),
         max_triggers: Some(0),
+        // Default fallback: explicit (metadata-conditioned) templates win.
+        priority: Some(-1),
         metadata: Some(Metadata::from_iter([
             ("category".to_string(), serde_json::Value::String("system".into())),
             ("tags".to_string(), serde_json::Value::Array(vec![

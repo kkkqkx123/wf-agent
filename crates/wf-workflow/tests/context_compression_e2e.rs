@@ -27,9 +27,10 @@ use wf_types::workflow::EdgeType;
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
+use wf_workflow::execution_context::{ContextWriter, ExecutionContextRegistry, WriteBackError};
 use wf_workflow::message_context;
 use wf_workflow::trigger_listener::{
-    ContextWriter, SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
+    SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
 };
 use wf_workflow::{get_context, WorkflowExecutor, WorkflowResult};
 use wf_workflow::{HandlerRegistry, LlmHandler, NodeHandler};
@@ -57,6 +58,8 @@ fn compression_template(triggered_workflow_id: &str) -> TriggerTemplate {
             event_name: None,
             condition: None,
             metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
         }),
         action: Some(TriggerAction::ExecuteTriggeredSubworkflow {
             triggered_workflow_id: triggered_workflow_id.to_string(),
@@ -67,6 +70,7 @@ fn compression_template(triggered_workflow_id: &str) -> TriggerTemplate {
         }),
         enabled: Some(true),
         max_triggers: Some(0),
+        priority: None,
         metadata: None,
         created_at: 0,
         updated_at: 0,
@@ -200,25 +204,39 @@ impl SubworkflowRunner for SummaryRunner {
     }
 }
 
-type WriteRecord = (String, String, Vec<Message>);
+type WriteRecord = (String, Vec<Message>);
 
 /// Writes the compressed array back into the main execution variables (the
-/// production `ContextWriter` is the runtime's `ExecutionContextRegistry`;
-/// here the shared variables map plays that role) and records the write.
+/// production write-back target is the workflow's own
+/// `ExecutionContextRegistry`; here a recording writer plays that role) and
+/// records the write.
 struct RecordingWriter {
     writes: Arc<std::sync::Mutex<Vec<WriteRecord>>>,
     vars: Arc<dashmap::DashMap<String, serde_json::Value>>,
 }
 
+#[async_trait::async_trait]
 impl ContextWriter for RecordingWriter {
-    fn write_context(&self, execution_id: &str, context_id: &str, messages: Vec<Message>) -> bool {
+    async fn write_context(
+        &self,
+        context_id: &str,
+        messages: Vec<Message>,
+        expected_version: u64,
+    ) -> Result<(), WriteBackError> {
+        let current = message_context::array_version(&self.vars, context_id);
+        if current != expected_version {
+            return Err(WriteBackError::VersionMismatch {
+                expected: expected_version,
+                current,
+            });
+        }
         message_context::register_context(&self.vars, context_id, messages.clone());
-        self.writes.lock().unwrap().push((
-            execution_id.to_string(),
-            context_id.to_string(),
-            messages,
-        ));
-        true
+        self.writes.lock().unwrap().push((context_id.to_string(), messages));
+        Ok(())
+    }
+
+    async fn current_version(&self, _context_id: &str) -> Option<u64> {
+        None
     }
 }
 
@@ -283,6 +301,8 @@ async fn over_limit_named_array_flows_through_compression_chain() {
         writes: Arc::new(std::sync::Mutex::new(Vec::new())),
         vars: vars.clone(),
     });
+    let contexts = Arc::new(ExecutionContextRegistry::new());
+    contexts.register("exec-1", writer.clone());
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(StaticRegistry(vec![compression_template("llm_summary")]));
 
@@ -290,7 +310,7 @@ async fn over_limit_named_array_flows_through_compression_chain() {
         bus.clone(),
         registry,
         runner,
-        writer.clone(),
+        contexts,
         tokio_util::sync::CancellationToken::new(),
     );
     let listener_task = tokio::spawn(async move { listener.run().await });
@@ -302,7 +322,7 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     let handler = LlmHandler::new(gateway);
 
     let mut ctx = wf_execution_shared::context::NodeExecutionContext::new(
-        wf_types::Id::new(),
+        "exec-1".to_string(),
         "llm1".to_string(),
         StaticNodeType::Llm,
         serde_json::json!("hello"),
@@ -356,13 +376,13 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     let writes = writer.writes.lock().unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(
-        writes[0].1, "chat",
+        writes[0].0, "chat",
         "write-back must target the named array"
     );
-    assert_eq!(writes[0].2.len(), 1);
-    assert_eq!(writes[0].2[0].role, MessageRole::Assistant);
+    assert_eq!(writes[0].1.len(), 1);
+    assert_eq!(writes[0].1[0].role, MessageRole::Assistant);
     assert_eq!(
-        writes[0].2[0].content,
+        writes[0].1[0].content,
         MessageContentValue::Text("compressed summary".to_string())
     );
 

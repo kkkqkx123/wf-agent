@@ -24,6 +24,17 @@ pub const KEY_TOKENS_AFTER: &str = "tokens_after";
 /// Metadata key: name of the message array targeted by compression
 /// (the workflow named context or the agent conversation identifier).
 pub const KEY_TARGET_CONTEXT_ID: &str = "target_context_id";
+/// Metadata key: version of the target message array at emission time
+/// (decision-track ledger version; emitters and listeners use it for
+/// idempotency and versioned write-back).
+pub const KEY_ARRAY_VERSION: &str = "array_version";
+/// Metadata key: true when the compression request was forced by an API
+/// context-length-exceeded error (safety-net path), false/absent when it
+/// was emitted because the estimated array budget was exceeded.
+pub const KEY_FORCED: &str = "forced";
+/// Metadata key: number of transform_context-injected messages included in
+/// the array budget check (informational; only present when > 0).
+pub const KEY_INJECTED_MESSAGE_COUNT: &str = "injected_message_count";
 /// Metadata key: serialized conversation messages carried by the compression
 /// requested event (input side of the event-driven compression chain) and by
 /// the compression completed event (the compressed array).
@@ -94,12 +105,20 @@ pub fn build_token_limit_exceeded_event(
 
 /// Build a CONTEXT_COMPRESSION_REQUESTED event.
 ///
-/// Emitted when a named message array exceeds the configured token limit; a
+/// Emitted when a named message array exceeds the configured token limit (or
+/// when an API context-length-exceeded error forces it, see `forced`); a
 /// context-compression trigger (predefined `context_compression_trigger`)
 /// reacts by running an LLM summary workflow over that array. The event
-/// always carries the target array name (`target_context_id`) and its message
-/// snapshot (`messages`) so the trigger executor can reproduce the
+/// always carries the target array name (`target_context_id`), its version
+/// at emission time (`array_version`, decision-track idempotency), and its
+/// message snapshot (`messages`) so the trigger executor can reproduce the
 /// conversation and write the compressed result back to the same array.
+///
+/// `forced` distinguishes the two emission reasons: false (default) means
+/// the estimated array budget was exceeded (decision track); true means the
+/// provider rejected the actual request with a context-length error and the
+/// event is a safety-net re-emission over the real request messages.
+#[allow(clippy::too_many_arguments)]
 pub fn build_context_compression_requested_event(
     execution_id: &str,
     agent_loop_id: Option<&str>,
@@ -107,6 +126,8 @@ pub fn build_context_compression_requested_event(
     tokens_used: u64,
     token_limit: u64,
     message_count: usize,
+    array_version: u64,
+    forced: bool,
     messages: Option<&[wf_types::message::Message]>,
 ) -> BaseEvent {
     let mut event = base_event(
@@ -119,7 +140,11 @@ pub fn build_context_compression_requested_event(
         (KEY_TOKENS_USED, serde_json::json!(tokens_used)),
         (KEY_TOKEN_LIMIT, serde_json::json!(token_limit)),
         (KEY_MESSAGE_COUNT, serde_json::json!(message_count)),
+        (KEY_ARRAY_VERSION, serde_json::json!(array_version)),
     ];
+    if forced {
+        pairs.push((KEY_FORCED, serde_json::json!(true)));
+    }
     if let Some(messages) = messages {
         if let Ok(value) = serde_json::to_value(messages) {
             pairs.push((KEY_MESSAGES, value));
@@ -131,13 +156,17 @@ pub fn build_context_compression_requested_event(
 
 /// Build a CONTEXT_COMPRESSION_COMPLETED event.
 ///
-/// Carries the target array name and the compressed message array so any
-/// consumer (the main workflow execution, an agent loop) can reproduce the
-/// write-back without extra lookups.
+/// Carries the target array name, the compressed message array and the array
+/// version the compression was produced from (the version of the matching
+/// REQUESTED event), so any consumer (the main workflow execution, an agent
+/// loop) can reproduce the write-back and version-check it without extra
+/// lookups: an array that moved past `array_version` must discard the
+/// compressed result.
 pub fn build_context_compression_completed_event(
     execution_id: &str,
     agent_loop_id: Option<&str>,
     target_context_id: &str,
+    array_version: u64,
     summary: Option<&str>,
     tokens_after: u64,
     messages: Option<&[wf_types::message::Message]>,
@@ -149,6 +178,7 @@ pub fn build_context_compression_completed_event(
     );
     let mut pairs = vec![
         (KEY_TARGET_CONTEXT_ID, serde_json::json!(target_context_id)),
+        (KEY_ARRAY_VERSION, serde_json::json!(array_version)),
         (KEY_TOKENS_AFTER, serde_json::json!(tokens_after)),
     ];
     if let Some(summary) = summary {
@@ -242,22 +272,28 @@ pub struct TokenLimitExceededMeta {
 ///
 /// `messages` is the snapshot of the target message array carried by the
 /// event; it is empty when the emitting execution did not attach one.
+/// `forced` marks the safety-net path (API context-length error).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextCompressionRequestedMeta {
     pub target_context_id: String,
     pub tokens_used: u64,
     pub token_limit: u64,
     pub message_count: usize,
+    pub array_version: u64,
+    pub forced: bool,
     pub messages: Vec<Message>,
 }
 
 /// Typed metadata of a [`EventType::ContextCompressionCompleted`] event.
 ///
 /// `messages` is the compressed message array; `summary` is the optional
-/// summary text extracted from it.
+/// summary text extracted from it. `array_version` is the version of the
+/// target array the compression was produced from: a consumer applies the
+/// compressed array only when its own array is still at that version.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContextCompressionCompletedMeta {
     pub target_context_id: String,
+    pub array_version: u64,
     pub summary: Option<String>,
     pub tokens_after: u64,
     pub messages: Vec<Message>,
@@ -350,6 +386,14 @@ impl TryFrom<&BaseEvent> for ContextCompressionRequestedMeta {
             tokens_used: get_u64(meta, KEY_TOKENS_USED)?,
             token_limit: get_u64(meta, KEY_TOKEN_LIMIT)?,
             message_count: get_u64(meta, KEY_MESSAGE_COUNT)? as usize,
+            array_version: meta
+                .get(KEY_ARRAY_VERSION)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            forced: meta
+                .get(KEY_FORCED)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
             messages: get_messages(meta),
         })
     }
@@ -363,6 +407,7 @@ impl TryFrom<&BaseEvent> for ContextCompressionCompletedMeta {
         let meta = event_metadata(event)?;
         Ok(Self {
             target_context_id: get_string(meta, KEY_TARGET_CONTEXT_ID)?,
+            array_version: get_u64(meta, KEY_ARRAY_VERSION)?,
             summary: meta
                 .get(KEY_SUMMARY)
                 .and_then(|value| value.as_str().map(String::from)),
@@ -396,13 +441,39 @@ mod tests {
 
     #[test]
     fn test_compression_requested_event() {
-        let event =
-            build_context_compression_requested_event("exec-1", None, "chat", 1200, 1000, 42, None);
+        let event = build_context_compression_requested_event(
+            "exec-1",
+            None,
+            "chat",
+            1200,
+            1000,
+            42,
+            7,
+            false,
+            None,
+        );
         assert_eq!(event.r#type, EventType::ContextCompressionRequested);
         let meta = event.metadata.unwrap();
         assert_eq!(meta[KEY_TARGET_CONTEXT_ID], serde_json::json!("chat"));
         assert_eq!(meta[KEY_MESSAGE_COUNT], serde_json::json!(42));
+        assert_eq!(meta[KEY_ARRAY_VERSION], serde_json::json!(7));
+        assert!(!meta.contains_key(KEY_FORCED));
         assert!(!meta.contains_key(KEY_MESSAGES));
+
+        // Forced emission is marked.
+        let forced = build_context_compression_requested_event(
+            "exec-1",
+            None,
+            "chat",
+            1200,
+            1000,
+            42,
+            7,
+            true,
+            None,
+        );
+        let forced_meta = forced.metadata.unwrap();
+        assert_eq!(forced_meta[KEY_FORCED], serde_json::json!(true));
 
         // Messages payload is embedded when provided.
         let msg = wf_types::message::Message {
@@ -423,6 +494,8 @@ mod tests {
             1200,
             1000,
             1,
+            1,
+            false,
             Some(std::slice::from_ref(&msg)),
         );
         let meta = event.metadata.unwrap();
@@ -448,6 +521,7 @@ mod tests {
             "exec-1",
             None,
             "chat",
+            42,
             Some("summary"),
             300,
             Some(std::slice::from_ref(&msg)),
@@ -455,6 +529,7 @@ mod tests {
         assert_eq!(event.r#type, EventType::ContextCompressionCompleted);
         let meta = event.metadata.unwrap();
         assert_eq!(meta[KEY_TARGET_CONTEXT_ID], serde_json::json!("chat"));
+        assert_eq!(meta[KEY_ARRAY_VERSION], serde_json::json!(42));
         assert_eq!(meta[KEY_SUMMARY], serde_json::json!("summary"));
         assert_eq!(meta[KEY_TOKENS_AFTER], serde_json::json!(300));
         let messages: Vec<wf_types::message::Message> =
@@ -462,7 +537,7 @@ mod tests {
         assert_eq!(messages, vec![msg]);
 
         let no_summary =
-            build_context_compression_completed_event("exec-1", None, "chat", None, 0, None);
+            build_context_compression_completed_event("exec-1", None, "chat", 0, None, 0, None);
         let meta = no_summary.metadata.unwrap();
         assert!(!meta.contains_key(KEY_SUMMARY));
         assert!(!meta.contains_key(KEY_MESSAGES));
@@ -533,6 +608,8 @@ mod tests {
             1200,
             1000,
             3,
+            5,
+            true,
             Some(std::slice::from_ref(&msg)),
         );
         let meta = ContextCompressionRequestedMeta::try_from(&event).unwrap();
@@ -540,12 +617,26 @@ mod tests {
         assert_eq!(meta.tokens_used, 1200);
         assert_eq!(meta.token_limit, 1000);
         assert_eq!(meta.message_count, 3);
+        assert_eq!(meta.array_version, 5);
+        assert!(meta.forced);
         assert_eq!(meta.messages, vec![msg]);
 
-        // Absent snapshot degrades to an empty array, not an error.
-        let bare = build_context_compression_requested_event("exec-1", None, "chat", 1200, 1000, 0, None);
+        // Absent snapshot/version/forced degrade gracefully, not an error.
+        let bare = build_context_compression_requested_event(
+            "exec-1",
+            None,
+            "chat",
+            1200,
+            1000,
+            0,
+            0,
+            false,
+            None,
+        );
         let meta = ContextCompressionRequestedMeta::try_from(&bare).unwrap();
         assert!(meta.messages.is_empty());
+        assert_eq!(meta.array_version, 0);
+        assert!(!meta.forced);
     }
 
     #[test]
@@ -565,12 +656,14 @@ mod tests {
             "exec-1",
             None,
             "chat",
+            7,
             Some("summarized"),
             12,
             Some(&[msg]),
         );
         let meta = ContextCompressionCompletedMeta::try_from(&event).unwrap();
         assert_eq!(meta.target_context_id, "chat");
+        assert_eq!(meta.array_version, 7);
         assert_eq!(meta.summary.as_deref(), Some("summarized"));
         assert_eq!(meta.tokens_after, 12);
         assert_eq!(meta.messages.len(), 1);

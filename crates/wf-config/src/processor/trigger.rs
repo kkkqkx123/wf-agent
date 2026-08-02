@@ -36,6 +36,7 @@ mod tests {
             action: None,
             enabled: None,
             max_triggers: None,
+            priority: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,

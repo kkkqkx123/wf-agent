@@ -147,6 +147,8 @@ async fn stream_emits_chunks_and_aggregates_output() {
                 completion_tokens: 2,
                 total_tokens: 7,
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,
@@ -241,7 +243,10 @@ async fn stream_error_publishes_bus_event_and_fails() {
     assert_eq!(meta["error"], serde_json::json!("HTTP 502 mid-stream"));
     assert_eq!(meta["profile_id"], serde_json::json!("mock"));
     assert_eq!(event.execution_id.as_deref(), Some(ctx.execution_id.as_str()));
-    assert_eq!(event.agent_loop_id.as_deref(), Some("llm1"));
+    assert!(
+        event.agent_loop_id.is_none(),
+        "a plain workflow LLM node is not an agent loop"
+    );
 }
 
 #[tokio::test]

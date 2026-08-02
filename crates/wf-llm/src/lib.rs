@@ -31,7 +31,9 @@ pub use message_helper::{
     count_total_chars, extract_text_content, merge_consecutive_messages, truncate_message,
 };
 pub use message_stream::MessageStream;
-pub use messaging::conversation_session::{ConversationSession, ConversationState};
+pub use messaging::conversation_session::{
+    ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID,
+};
 pub use messaging::cross_boundary_converter::{BoundaryType, CrossBoundaryConverter};
 pub use messaging::dynamic_injection::DynamicInjection;
 pub use messaging::history_converter::{HistoryConverter, HistoryFormat};
@@ -54,7 +56,10 @@ pub use token_events::{
     build_llm_stream_aborted_event, build_llm_stream_error_event,
     build_token_limit_exceeded_event, build_token_usage_warning_event, is_stream_abort,
     ContextCompressionCompletedMeta, ContextCompressionRequestedMeta, TokenEventMetaError,
-    TokenLimitExceededMeta, TokenUsageWarningMeta, DEFAULT_TOKEN_WARNING_THRESHOLD,
+    TokenLimitExceededMeta, TokenUsageWarningMeta, KEY_ARRAY_VERSION, KEY_FORCED,
+    KEY_INJECTED_MESSAGE_COUNT, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_SUMMARY, KEY_TARGET_CONTEXT_ID,
+    KEY_TOKENS_AFTER, KEY_TOKENS_USED, KEY_TOKEN_LIMIT, KEY_USAGE_PERCENTAGE,
+    DEFAULT_TOKEN_WARNING_THRESHOLD,
 };
 pub use token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 pub use tool_call_parser::{

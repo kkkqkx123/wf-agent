@@ -9,16 +9,19 @@
 //! 1. a `CONTEXT_COMPRESSION_REQUESTED` event carries `target_context_id`
 //!    (the name of the message array to compress) and its `messages` snapshot;
 //! 2. the listener runs the summary sub-workflow over that snapshot;
-//! 3. the compressed result is written back to the same named array through
-//!    the [`ContextWriter`] trait (the workflow scenario registers its
-//!    execution variable map; the agent scenario its conversation session);
+//! 3. the compressed result is written back to the same named array — for
+//!    workflow variable-map targets through the
+//!    [`ExecutionContextRegistry`]; agent conversation targets are consumed
+//!    by the agent engine itself (it subscribes to the completed event);
 //! 4. a `CONTEXT_COMPRESSION_COMPLETED` event carries the compressed array
-//!    so external consumers can reproduce the write-back.
+//!    (plus the array version it was produced from) so external consumers can
+//!    reproduce the write-back.
 //!
 //! wf-workflow stays decoupled from wf-resource: templates are provided
-//! through the [`TriggerTemplateRegistry`] trait, sub-workflow execution
-//! through the [`SubworkflowRunner`] trait and write-back through the
-//! [`ContextWriter`] trait, all implemented by wf-runtime during assembly.
+//! through the [`TriggerTemplateRegistry`] trait and sub-workflow execution
+//! through the [`SubworkflowRunner`] trait, both implemented by wf-runtime
+//! during assembly. The write-back registry is wf-workflow's own (the
+//! workflow engine owns its variable maps).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,6 +43,46 @@ use crate::error::{WorkflowError, WorkflowResult};
 /// not configure one.
 const DEFAULT_TRIGGER_TIMEOUT_MS: u64 = 60000;
 
+/// Whether a condition carries metadata routing constraints (used to order
+/// equally-prioritized matches: the more specific template wins).
+fn condition_has_metadata(condition: &TriggerCondition) -> bool {
+    condition.metadata.is_some() || condition.metadata_exists.is_some()
+}
+
+/// Compare an actual metadata value against an expected one.
+///
+/// Exact equality for non-string expected values. String expected values
+/// support three conventions (S4, backward compatible):
+/// - `">=N"`, `"<=N"`, `">N"`, `"<N"`: numeric comparison against the event
+///   value (JSON numbers);
+/// - `"^prefix"`: the event string value starts with `prefix`;
+/// - anything else: exact string equality.
+fn value_matches(actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
+    let Some(s) = expected.as_str() else {
+        return actual == expected;
+    };
+    if let Some(rest) = s.strip_prefix(">=") {
+        return parse_number(rest).is_some_and(|n| actual.as_f64().is_some_and(|a| a >= n));
+    }
+    if let Some(rest) = s.strip_prefix("<=") {
+        return parse_number(rest).is_some_and(|n| actual.as_f64().is_some_and(|a| a <= n));
+    }
+    if let Some(rest) = s.strip_prefix('>') {
+        return parse_number(rest).is_some_and(|n| actual.as_f64().is_some_and(|a| a > n));
+    }
+    if let Some(rest) = s.strip_prefix('<') {
+        return parse_number(rest).is_some_and(|n| actual.as_f64().is_some_and(|a| a < n));
+    }
+    if let Some(prefix) = s.strip_prefix('^') {
+        return actual.as_str().is_some_and(|a| a.starts_with(prefix));
+    }
+    actual == expected
+}
+
+fn parse_number(s: &str) -> Option<f64> {
+    s.parse::<f64>().ok()
+}
+
 /// Lookup source for trigger templates. Implemented by wf-runtime over the
 /// wf-resource registrar, where the predefined templates are registered.
 pub trait TriggerTemplateRegistry: Send + Sync {
@@ -58,14 +101,12 @@ pub trait SubworkflowRunner: Send + Sync {
     ) -> WorkflowResult<serde_json::Value>;
 }
 
-/// Writes a compressed message array back into the named context of the
-/// emitting execution. Implemented by wf-runtime: the workflow scenario
-/// resolves the execution variable map, the agent scenario its conversation
-/// session. Returns whether the write-back succeeded (false when the target
-/// execution no longer exists).
-pub trait ContextWriter: Send + Sync {
-    fn write_context(&self, execution_id: &str, context_id: &str, messages: Vec<Message>) -> bool;
-}
+/// Write-back target of compressed message arrays: the workflow engine's
+/// [`ExecutionContextRegistry`], mapping a workflow execution id to the
+/// versioned write-back handle over its variable map. Agent conversations
+/// are not registered here: the agent engine consumes the completed event
+/// itself (session self-consumption).
+pub use crate::execution_context::{ExecutionContextRegistry, WriteBackError};
 
 /// Listens for events and executes matching trigger templates.
 ///
@@ -74,14 +115,23 @@ pub trait ContextWriter: Send + Sync {
 /// (execution, template) pair runs in its own task, so the in-flight guard
 /// and `max_triggers` budget are meaningful even for events that arrive
 /// back-to-back.
+///
+/// Matching (S4): when several templates match one event, exactly one action
+/// runs — the highest priority, most specific (metadata-conditioned) one,
+/// registration order breaking ties. Compression requests are additionally
+/// deduplicated by (execution, target, array version): an event with the
+/// same version as one already handled is idempotently skipped.
 #[derive(Clone)]
 pub struct TriggerEventListener {
     bus: Arc<EventBus>,
     registry: Arc<dyn TriggerTemplateRegistry>,
     runner: Arc<dyn SubworkflowRunner>,
-    writer: Arc<dyn ContextWriter>,
+    contexts: Arc<ExecutionContextRegistry>,
     /// `execution_id:trigger_name` pairs with a run in flight.
     in_flight: DashMap<String, ()>,
+    /// `execution_id:target_context_id` -> array version of the last handled
+    /// compression request (idempotent skip for repeated same-version events).
+    handled: DashMap<String, u64>,
     /// Per-template fire counts (only consulted when `max_triggers > 0`).
     trigger_counts: Arc<std::sync::Mutex<HashMap<String, u32>>>,
     shutdown: CancellationToken,
@@ -92,15 +142,16 @@ impl TriggerEventListener {
         bus: Arc<EventBus>,
         registry: Arc<dyn TriggerTemplateRegistry>,
         runner: Arc<dyn SubworkflowRunner>,
-        writer: Arc<dyn ContextWriter>,
+        contexts: Arc<ExecutionContextRegistry>,
         shutdown: CancellationToken,
     ) -> Self {
         Self {
             bus,
             registry,
             runner,
-            writer,
+            contexts,
             in_flight: DashMap::new(),
+            handled: DashMap::new(),
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
             shutdown,
         }
@@ -128,89 +179,169 @@ impl TriggerEventListener {
     }
 
     /// Dispatch an event: match it against all templates and launch one task
-    /// per matching (execution, template) pair. This runs synchronously in
-    /// the listener loop, so the in-flight claim and `max_triggers` budget
-    /// are race-free even for events that arrive back-to-back; only the
-    /// sub-workflow execution happens in the spawned tasks.
+    /// for the single best-matching (execution, template) pair. This runs
+    /// synchronously in the listener loop, so the in-flight claim and
+    /// `max_triggers` budget are race-free even for events that arrive
+    /// back-to-back; only the sub-workflow execution happens in the spawned
+    /// tasks.
     fn dispatch(&self, event: BaseEvent) {
         let Some(execution_id) = event.execution_id.clone() else {
             return;
         };
 
-        for template in self.registry.templates() {
+        // Version-idempotent skip (S3): a compression request already
+        // handled for the same (execution, target, array version) is dropped.
+        if event.r#type.as_str() == "CONTEXT_COMPRESSION_REQUESTED" {
+            if let Ok(meta) = wf_llm::ContextCompressionRequestedMeta::try_from(&event) {
+                let key = format!("{}:{}", execution_id, meta.target_context_id);
+                if self.handled.get(&key).is_some_and(|v| *v == meta.array_version) {
+                    debug!(
+                        "Compression request for {} at version {} already handled, skipping",
+                        key, meta.array_version
+                    );
+                    return;
+                }
+                self.handled.insert(key, meta.array_version);
+            }
+        }
+
+        // Collect every matching template; pick exactly one by priority
+        // (desc), then specificity (metadata-conditioned first), then
+        // registration order (S4).
+        let mut best: Option<(usize, TriggerTemplate)> = None;
+        for (index, template) in self.registry.templates().iter().enumerate() {
             if !template.enabled.unwrap_or(true) {
                 continue;
             }
             let Some(condition) = &template.condition else {
                 continue;
             };
-            let Some(action) = &template.action else {
-                continue;
-            };
             if !self.matches(&event, condition) {
                 continue;
             }
-
-            let key = format!("{}:{}", execution_id, template.name);
-            // Atomic re-entrancy guard: a present entry means a run for this
-            // (execution, trigger) pair is already in flight.
-            if self.in_flight.insert(key.clone(), ()).is_some() {
-                debug!(
-                    "Trigger '{}' already running for execution {}, skipping",
-                    template.name, execution_id
-                );
-                continue;
-            }
-            if let Some(max) = template.max_triggers {
-                if max > 0 {
-                    let mut counts = self.trigger_counts.lock().unwrap();
-                    let count = counts.entry(template.name.clone()).or_insert(0);
-                    if *count >= max {
-                        debug!(
-                            "Trigger '{}' reached max_triggers ({}), skipping",
-                            template.name, max
-                        );
-                        self.in_flight.remove(&key);
-                        continue;
-                    }
-                    *count += 1;
+            let priority = template.priority.unwrap_or(0);
+            let specific = condition_has_metadata(condition);
+            let replace = match &best {
+                None => true,
+                Some((_, current)) => {
+                    let current_priority = current.priority.unwrap_or(0);
+                    let current_specific = current
+                        .condition
+                        .as_ref()
+                        .map(condition_has_metadata)
+                        .unwrap_or(false);
+                    priority > current_priority
+                        || (priority == current_priority && specific && !current_specific)
                 }
+            };
+            if replace {
+                best = Some((index, template.clone()));
             }
-
-            let listener = self.clone();
-            let action = action.clone();
-            let name = template.name.clone();
-            let event = event.clone();
-            tokio::spawn(async move {
-                let outcome = listener.execute_trigger(&name, &action, &event).await;
-                listener.in_flight.remove(&key);
-                if let Err(e) = outcome {
-                    warn!("Trigger '{}' failed: {}", name, e);
-                }
-            });
         }
+
+        let Some((_, template)) = best else {
+            // Debug-log only events that have templates configured for their
+            // type, to avoid noise on unrelated event types.
+            let type_configured = self
+                .registry
+                .templates()
+                .iter()
+                .any(|t| t.condition.as_ref().is_some_and(|c| c.event_type == event.r#type.as_str()));
+            if type_configured {
+                debug!(
+                    "No trigger template matched event {} for execution {}",
+                    event.r#type.as_str(),
+                    execution_id
+                );
+            }
+            return;
+        };
+        let Some(action) = &template.action else {
+            return;
+        };
+
+        let key = format!("{}:{}", execution_id, template.name);
+        // Atomic re-entrancy guard: a present entry means a run for this
+        // (execution, trigger) pair is already in flight.
+        if self.in_flight.insert(key.clone(), ()).is_some() {
+            debug!(
+                "Trigger '{}' already running for execution {}, skipping",
+                template.name, execution_id
+            );
+            return;
+        }
+        if let Some(max) = template.max_triggers {
+            if max > 0 {
+                let mut counts = self.trigger_counts.lock().unwrap();
+                let count = counts.entry(template.name.clone()).or_insert(0);
+                if *count >= max {
+                    debug!(
+                        "Trigger '{}' reached max_triggers ({}), skipping",
+                        template.name, max
+                    );
+                    self.in_flight.remove(&key);
+                    return;
+                }
+                *count += 1;
+            }
+        }
+
+        let listener = self.clone();
+        let action = action.clone();
+        let name = template.name.clone();
+        let event = event.clone();
+        tokio::spawn(async move {
+            let outcome = listener.execute_trigger(&name, &action, &event).await;
+            listener.in_flight.remove(&key);
+            if let Err(e) = outcome {
+                warn!("Trigger '{}' failed: {}", name, e);
+            }
+        });
     }
 
-    /// Match an event against a trigger condition: the event type (canonical
-    /// SCREAMING_SNAKE_CASE name, see [`wf_types::events::EventType::as_str`])
-    /// must equal `condition.event_type`, and every configured metadata pair
-    /// must be present in the event metadata.
+    /// Whether a condition carries metadata routing (metadata map, existence
+    /// list, or execution prefix). More specific templates win ties.
     fn matches(&self, event: &BaseEvent, condition: &TriggerCondition) -> bool {
         if event.r#type.as_str() != condition.event_type {
             return false;
         }
 
-        let Some(condition_metadata) = &condition.metadata else {
-            return true;
-        };
+        if let Some(prefix) = &condition.execution_prefix {
+            let hit = event
+                .execution_id
+                .as_deref()
+                .is_some_and(|id| id.starts_with(prefix))
+                || event
+                    .agent_loop_id
+                    .as_deref()
+                    .is_some_and(|id| id.starts_with(prefix));
+            if !hit {
+                return false;
+            }
+        }
+
         let Some(event_metadata) = &event.metadata else {
-            return false;
+            return condition.metadata.is_none() && condition.metadata_exists.is_none();
         };
-        condition_metadata.iter().all(|(key, expected)| {
-            event_metadata
-                .get(key)
-                .is_some_and(|value| value == expected)
-        })
+
+        if let Some(required) = &condition.metadata_exists {
+            if !required
+                .iter()
+                .all(|key| event_metadata.contains_key(key))
+            {
+                return false;
+            }
+        }
+
+        if let Some(condition_metadata) = &condition.metadata {
+            return condition_metadata
+                .iter()
+                .all(|(key, expected)| match event_metadata.get(key) {
+                    Some(actual) => value_matches(actual, expected),
+                    None => false,
+                });
+        }
+        true
     }
 
     async fn execute_trigger(
@@ -255,6 +386,10 @@ impl TriggerEventListener {
             return Ok(());
         }
         let messages = meta.messages;
+        // Versioned write-back: the compressed array is written back only if
+        // the target array is still at the version the event snapshot was
+        // taken from; concurrent appends discard stale results.
+        let expected_version = meta.array_version;
 
         let input = serde_json::json!({ "conversationHistory": messages });
         let wait = wait_for_completion.unwrap_or(true);
@@ -263,7 +398,13 @@ impl TriggerEventListener {
         if wait {
             let outcome = tokio::time::timeout(
                 Duration::from_millis(timeout_ms),
-                self.run_subworkflow(triggered_workflow_id, input, event, &target_context_id),
+                self.run_subworkflow(
+                    triggered_workflow_id,
+                    input,
+                    event,
+                    &target_context_id,
+                    expected_version,
+                ),
             )
             .await;
             match outcome {
@@ -276,7 +417,7 @@ impl TriggerEventListener {
         } else {
             // Fire-and-forget: the emitting execution must not wait.
             let runner = self.runner.clone();
-            let writer = self.writer.clone();
+            let contexts = self.contexts.clone();
             let bus = self.bus.clone();
             let workflow_id = triggered_workflow_id.clone();
             let event = event.clone();
@@ -285,12 +426,15 @@ impl TriggerEventListener {
                 match runner.run(&workflow_id, input).await {
                     Ok(output) => {
                         if let Err(e) = handle_subworkflow_output(
-                            &writer,
+                            &contexts,
                             &bus,
                             &event,
                             &target_context_id,
+                            expected_version,
                             &output,
-                        ) {
+                        )
+                        .await
+                        {
                             warn!(
                                 "Triggered subworkflow '{}' completed but write-back failed: {}",
                                 workflow_id, e
@@ -312,19 +456,29 @@ impl TriggerEventListener {
         input: serde_json::Value,
         event: &BaseEvent,
         target_context_id: &str,
+        expected_version: u64,
     ) -> WorkflowResult<()> {
         let output = self.runner.run(workflow_id, input).await?;
-        handle_subworkflow_output(&self.writer, &self.bus, event, target_context_id, &output)
+        handle_subworkflow_output(
+            &self.contexts,
+            &self.bus,
+            event,
+            target_context_id,
+            expected_version,
+            &output,
+        )
+        .await
     }
 }
 
 /// Write the compressed output back to the emitting execution and publish
 /// the CONTEXT_COMPRESSION_COMPLETED event.
-fn handle_subworkflow_output(
-    writer: &Arc<dyn ContextWriter>,
+async fn handle_subworkflow_output(
+    contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,
     event: &BaseEvent,
     target_context_id: &str,
+    expected_version: u64,
     output: &serde_json::Value,
 ) -> WorkflowResult<()> {
     let messages: Vec<Message> = serde_json::from_value(output.clone()).unwrap_or_default();
@@ -333,25 +487,41 @@ fn handle_subworkflow_output(
             "Compression sub-workflow returned no messages".to_string(),
         ));
     }
-    if let Some(execution_id) = &event.execution_id {
-        if !writer.write_context(execution_id, target_context_id, messages.clone()) {
-            warn!(
-                "Context write-back failed for execution {} context {}",
-                execution_id, target_context_id
-            );
+    // Agent conversations are consumed by the agent engine itself (it
+    // subscribes to the completed event and version-checks its session), so
+    // only workflow variable-map targets are written back through the
+    // registry.
+    if event.agent_loop_id.is_none() {
+        if let Some(execution_id) = &event.execution_id {
+            if let Err(error) = contexts
+                .write_context(execution_id, target_context_id, messages.clone(), expected_version)
+                .await
+            {
+                warn!(
+                    "Context write-back failed for execution {} context {}: {}",
+                    execution_id, target_context_id, error
+                );
+            }
         }
     }
-    let completed = build_compression_completed_event(event, target_context_id, &messages);
+    let completed = build_compression_completed_event(
+        event,
+        target_context_id,
+        expected_version,
+        &messages,
+    );
     let _ = bus.publish(completed);
     Ok(())
 }
 
 /// Build the CONTEXT_COMPRESSION_COMPLETED event from the compressed message
 /// array (messageOutputs of the summary workflow): the array itself, the
-/// summary text and the estimated token count.
+/// summary text, the estimated token count and the array version the
+/// compression was produced from (the REQUESTED event's version).
 fn build_compression_completed_event(
     event: &BaseEvent,
     target_context_id: &str,
+    array_version: u64,
     messages: &[Message],
 ) -> BaseEvent {
     let summary = messages.last().and_then(|message| match &message.content {
@@ -366,6 +536,7 @@ fn build_compression_completed_event(
         event.execution_id.as_deref().unwrap_or_default(),
         event.agent_loop_id.as_deref(),
         target_context_id,
+        array_version,
         summary.as_deref(),
         tokens_after,
         Some(messages),
@@ -402,6 +573,8 @@ mod tests {
                 event_name: None,
                 condition: None,
                 metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
             }),
             action: Some(TriggerAction::ExecuteTriggeredSubworkflow {
                 triggered_workflow_id: "summary_flow".to_string(),
@@ -412,6 +585,7 @@ mod tests {
             }),
             enabled: Some(true),
             max_triggers: Some(max_triggers),
+            priority: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,
@@ -459,33 +633,40 @@ mod tests {
     #[derive(Default)]
     #[allow(clippy::type_complexity)]
     struct RecordingWriter {
-        writes: Arc<std::sync::Mutex<Vec<(String, String, Vec<Message>)>>>,
+        writes: Arc<std::sync::Mutex<Vec<(String, Vec<Message>, u64)>>>,
     }
 
-    impl ContextWriter for RecordingWriter {
-        fn write_context(
+    #[async_trait]
+    impl crate::execution_context::ContextWriter for RecordingWriter {
+        async fn write_context(
             &self,
-            execution_id: &str,
             context_id: &str,
             messages: Vec<Message>,
-        ) -> bool {
+            expected_version: u64,
+        ) -> Result<(), WriteBackError> {
             self.writes.lock().unwrap().push((
-                execution_id.to_string(),
                 context_id.to_string(),
                 messages,
+                expected_version,
             ));
-            true
+            Ok(())
+        }
+
+        async fn current_version(&self, _context_id: &str) -> Option<u64> {
+            None
         }
     }
 
     fn requested_event(execution_id: &str, target: Option<&str>) -> BaseEvent {
         wf_llm::build_context_compression_requested_event(
             execution_id,
-            Some("loop-1"),
+            None,
             target.unwrap_or("chat"),
             1200,
             1000,
             1,
+            3,
+            false,
             Some(&[text_message(
                 wf_types::message::MessageRole::User,
                 "long conversation",
@@ -513,6 +694,21 @@ mod tests {
         }
     }
 
+    /// Registry with a recording writer registered for `execution_id`;
+    /// returns the registry and the shared write record.
+    fn recording_contexts(
+        execution_id: &str,
+    ) -> (
+        Arc<ExecutionContextRegistry>,
+        Arc<std::sync::Mutex<Vec<(String, Vec<Message>, u64)>>>,
+    ) {
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let writer = RecordingWriter::default();
+        let writes = writer.writes.clone();
+        contexts.register(execution_id, Arc::new(writer));
+        (contexts, writes)
+    }
+
     #[tokio::test]
     async fn matching_trigger_runs_subworkflow_writes_back_and_emits_completed() {
         let bus = Arc::new(EventBus::new(64));
@@ -526,14 +722,12 @@ mod tests {
             latest_input: latest_input.clone(),
             delay_ms: 0,
         });
-        let writer = RecordingWriter::default();
-        let writes = writer.writes.clone();
-        let writer: Arc<dyn ContextWriter> = Arc::new(writer);
+        let (contexts, writes) = recording_contexts("exec-1");
         let listener = Arc::new(TriggerEventListener::new(
             bus.clone(),
             registry,
             runner,
-            writer,
+            contexts,
             CancellationToken::new(),
         ));
         let handle = tokio::spawn({
@@ -555,10 +749,11 @@ mod tests {
             }
         };
         assert_eq!(completed.execution_id.as_deref(), Some("exec-1"));
-        assert_eq!(completed.agent_loop_id.as_deref(), Some("loop-1"));
+        assert!(completed.agent_loop_id.is_none());
         let completed_meta =
             wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
         assert_eq!(completed_meta.target_context_id, "chat");
+        assert_eq!(completed_meta.array_version, 3, "completed carries the requested version");
         assert_eq!(completed_meta.summary.as_deref(), Some("compressed summary"));
         assert!(
             completed_meta.tokens_after > 0,
@@ -590,9 +785,9 @@ mod tests {
         {
             let writes = writes.lock().unwrap();
             assert_eq!(writes.len(), 1);
-            assert_eq!(writes[0].0, "exec-1");
-            assert_eq!(writes[0].1, "chat");
-            assert_eq!(writes[0].2.len(), 1);
+            assert_eq!(writes[0].0, "chat");
+            assert_eq!(writes[0].1.len(), 1);
+            assert_eq!(writes[0].2, 3, "write-back carries the event version");
         }
 
         listener.shutdown.cancel();
@@ -610,12 +805,12 @@ mod tests {
             latest_input: Arc::new(std::sync::Mutex::new(None)),
             delay_ms: 0,
         });
-        let writer: Arc<dyn ContextWriter> = Arc::new(RecordingWriter::default());
+        let (contexts, _) = recording_contexts("exec-2");
         let listener = Arc::new(TriggerEventListener::new(
             bus.clone(),
             registry,
             runner,
-            writer,
+            contexts,
             CancellationToken::new(),
         ));
         let handle = tokio::spawn({
@@ -647,12 +842,12 @@ mod tests {
             latest_input: Arc::new(std::sync::Mutex::new(None)),
             delay_ms: 200,
         });
-        let writer: Arc<dyn ContextWriter> = Arc::new(RecordingWriter::default());
+        let (contexts, _) = recording_contexts("exec-3");
         let listener = Arc::new(TriggerEventListener::new(
             bus.clone(),
             registry,
             runner,
-            writer,
+            contexts,
             CancellationToken::new(),
         ));
         let handle = tokio::spawn({
@@ -693,12 +888,12 @@ mod tests {
             latest_input: Arc::new(std::sync::Mutex::new(None)),
             delay_ms: 0,
         });
-        let writer: Arc<dyn ContextWriter> = Arc::new(RecordingWriter::default());
+        let (contexts, _) = recording_contexts("exec-4");
         let listener = Arc::new(TriggerEventListener::new(
             bus.clone(),
             registry,
             runner,
-            writer,
+            contexts,
             CancellationToken::new(),
         ));
         let handle = tokio::spawn({
@@ -742,6 +937,8 @@ mod tests {
             event_name: None,
             condition: None,
             metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
         };
         let listener = TriggerEventListener::new(
             Arc::new(EventBus::new(4)),
@@ -751,7 +948,7 @@ mod tests {
                 latest_input: Arc::new(std::sync::Mutex::new(None)),
                 delay_ms: 0,
             }),
-            Arc::new(RecordingWriter::default()),
+            Arc::new(ExecutionContextRegistry::new()),
             CancellationToken::new(),
         );
         assert!(listener.matches(&event, &condition));

@@ -66,6 +66,8 @@ impl LlmResponseSpec {
             completion_tokens,
             total_tokens: prompt_tokens + completion_tokens,
             reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
             prompt_tokens_cost: None,
             completion_tokens_cost: None,
             total_cost: None,
@@ -125,7 +127,7 @@ impl LlmResponseSpec {
             duration: 0,
             reasoning_content: self.reasoning.clone(),
             reasoning_tokens: None,
-            metadata: None,
+                        metadata: None,
             stream_stats: None,
             warnings: None,
         }

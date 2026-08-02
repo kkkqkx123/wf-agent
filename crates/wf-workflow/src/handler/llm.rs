@@ -29,7 +29,10 @@ fn emit_llm_event(
         timestamp: wf_common::now(),
         workflow_id: Some(ctx.execution_id.clone()),
         execution_id: Some(ctx.execution_id.clone()),
-        agent_loop_id: Some(ctx.node_id.clone()),
+        // A plain workflow LLM node is not an agent loop; the id stays None
+        // so listeners can tell agent-owned targets (agent_loop_id present)
+        // from workflow variable-map targets.
+        agent_loop_id: None,
         metadata: Some(metadata),
     });
 }
@@ -48,26 +51,121 @@ fn publish_stream_termination(
     if aborted {
         let _ = bus.publish(wf_llm::build_llm_stream_aborted_event(
             &ctx.execution_id,
-            Some(&ctx.node_id),
+            None,
             message,
             profile_id,
         ));
     } else {
         let _ = bus.publish(wf_llm::build_llm_stream_error_event(
             &ctx.execution_id,
-            Some(&ctx.node_id),
+            None,
             message,
             profile_id,
         ));
     }
 }
 
-/// Emit token usage events: single-shot warning and limit exceeded are driven
-/// by the execution-scoped tracker (P2 semantics); the compression requested
-/// event is driven by the *named message array* read by this node — it fires
-/// only when that array's estimated token count exceeds the node-level limit,
-/// carrying the array name and its message snapshot so the trigger can
-/// compress exactly that array.
+/// Safety-net path (S2): the provider rejected the *actual* request with a
+/// context-length-exceeded error. Emit a forced CONTEXT_COMPRESSION_REQUESTED
+/// over the real request messages so the compression chain fires even though
+/// the (undercounting) estimate never crossed the threshold.
+fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmRequest) {
+    let Some(ref bus) = ctx.event_bus else {
+        return;
+    };
+    let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
+    let target = declared_contexts(config)
+        .first()
+        .cloned()
+        .unwrap_or_else(|| message_context::DEFAULT_CONTEXT_ID.to_string());
+    let _ = bus.publish(wf_llm::build_context_compression_requested_event(
+        &ctx.execution_id,
+        None,
+        &target,
+        u64::from(wf_llm::estimate_request_tokens(request)),
+        u64::MAX,
+        request.messages.len(),
+        message_context::array_version(&ctx.variables, &target),
+        true,
+        Some(&request.messages),
+    ));
+}
+
+/// Variable-map key carrying the execution-scoped token tracker state so
+/// checkpoints restore the guards and accumulations with the execution state.
+const TRACKER_STATE_KEY: &str = "__token_tracker__";
+
+/// Metadata key of the preflight warning carrying per-array budget details.
+const KEY_ARRAY_DETAILS: &str = "array_details";
+
+/// Declared message arrays of this LLM node (2.1.2): the `contexts` check
+/// list when configured, otherwise the single `context_id` array.
+fn declared_contexts(config: &Value) -> Vec<String> {
+    if let Some(contexts) = config.get("contexts").and_then(|v| v.as_array()) {
+        let ids: Vec<String> = contexts
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+        if !ids.is_empty() {
+            return ids;
+        }
+    }
+    let context_id = config
+        .get("context_id")
+        .or_else(|| config.get("contextId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
+    vec![context_id.to_string()]
+}
+
+/// Messages injected by `transform_context` (part of every request; their
+/// estimate participates in the per-array budget of the declared arrays).
+fn injected_messages(config: &Value) -> Vec<Message> {
+    config
+        .get("transform_context")
+        .and_then(|t| t.get("messages"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| serde_json::from_value::<Message>(m.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Restore the execution-scoped tracker from the variable map once (checkpoint
+/// symmetry, S6): a fresh execution tracker (no accumulated state) picks up
+/// the checkpointed guards and accumulations together with the variables.
+fn restore_tracker_from_variables(ctx: &NodeExecutionContext, tracker: &mut wf_llm::TokenUsageTracker) {
+    if tracker.cumulative_usage().total_tokens > 0 || tracker.estimated_total() > 0 {
+        return;
+    }
+    let Some(value) = ctx.variables.get(TRACKER_STATE_KEY) else {
+        return;
+    };
+    if let Ok(state) = serde_json::from_value(value.clone()) {
+        tracker.restore(state);
+    }
+}
+
+/// Persist the execution-scoped tracker state into the variable map so
+/// checkpoints (which snapshot the variables) restore the guards too.
+fn persist_tracker_state(ctx: &NodeExecutionContext, tracker: &wf_llm::TokenUsageTracker) {
+    if let Ok(value) = serde_json::to_value(tracker.state()) {
+        ctx.variables.insert(TRACKER_STATE_KEY.to_string(), value);
+    }
+}
+
+/// Emit token usage events (v2 dual-track semantics, S1/S3/S5):
+///
+/// - warning: decision track (estimated cumulative), single-shot guard;
+/// - limit exceeded: decision track, one emission per 50% tier band
+///   (100%, 150%, 200%, ...);
+/// - compression requested: per declared named array (2.1.2), driven by the
+///   incremental ledger estimate + transform-context injections, guarded by
+///   the array version (single-shot per version, checkpointed in the ledger).
+///
+/// No provider usage participates in any of these decisions.
 async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: u64) {
     let (Some(ref tracker), Some(ref bus)) = (&ctx.token_tracker, &ctx.event_bus) else {
         return;
@@ -77,9 +175,9 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
     if token_limit == 0 {
         return;
     }
-    let tokens_used = tracker.cumulative_usage().total_tokens as u64;
+    let tokens_used = tracker.estimated_total();
     if tracker.consume_warning(warning_threshold as f64) {
-        let percentage = tracker.usage_percentage().unwrap_or(0.0);
+        let percentage = tracker.estimated_usage_percentage().unwrap_or(0.0);
         let _ = bus.publish(wf_llm::build_token_usage_warning_event(
             &ctx.execution_id,
             Some(&ctx.node_id),
@@ -88,7 +186,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
             percentage,
         ));
     }
-    if tracker.is_token_limit_exceeded() {
+    if tracker.consume_limit_exceeded_tier().is_some() {
         let _ = bus.publish(wf_llm::build_token_limit_exceeded_event(
             &ctx.execution_id,
             Some(&ctx.node_id),
@@ -98,27 +196,45 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
     }
 
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-    let context_id = config
-        .get("context_id")
-        .or_else(|| config.get("contextId"))
-        .and_then(|v| v.as_str())
-        .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
-    let context_messages = message_context::get_context(&ctx.variables, context_id);
-    if context_messages.is_empty() {
-        // No named array to compress: nothing to write back to.
-        return;
-    }
-    let estimated = wf_llm::estimate_messages(&context_messages) as u64;
-    if estimated > token_limit {
-        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
-            &ctx.execution_id,
-            Some(&ctx.node_id),
-            context_id,
-            estimated,
-            token_limit,
-            context_messages.len(),
-            Some(&context_messages),
-        ));
+    let injected = injected_messages(config);
+    let injected_estimate = u64::from(wf_llm::estimate_messages(&injected));
+    let injected_count = injected.len();
+    for context_id in declared_contexts(config) {
+        let context_messages = message_context::get_context(&ctx.variables, &context_id);
+        if context_messages.is_empty() {
+            // No named array to compress: nothing to write back to.
+            continue;
+        }
+        // Array budget = ledger estimate (recomputed lazily after
+        // replacements) + this request's injected messages.
+        let estimated = message_context::ledger_estimated_tokens(&ctx.variables, &context_id)
+            + injected_estimate;
+        let version = message_context::array_version(&ctx.variables, &context_id);
+        if estimated > token_limit
+            && message_context::should_emit_compression(&ctx.variables, &context_id, version)
+        {
+            let mut event = wf_llm::build_context_compression_requested_event(
+                &ctx.execution_id,
+                None,
+                &context_id,
+                estimated,
+                token_limit,
+                context_messages.len(),
+                version,
+                false,
+                Some(&context_messages),
+            );
+            if injected_count > 0 {
+                if let Some(meta) = event.metadata.as_mut() {
+                    meta.insert(
+                        wf_llm::KEY_INJECTED_MESSAGE_COUNT.to_string(),
+                        Value::Number(serde_json::Number::from(injected_count as u64)),
+                    );
+                }
+            }
+            let _ = bus.publish(event);
+            message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
+        }
     }
 }
 
@@ -263,14 +379,24 @@ fn resolve_tools(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<wf_types::too
 
 /// Single LLM call. Returns the model response and the messages that must be
 /// appended to the conversation (assistant message + any tool results).
+///
+/// Safety-net path (S2): when the provider rejects the *actual* request with
+/// a context-length-exceeded error (the local estimate undercounted), a
+/// forced CONTEXT_COMPRESSION_REQUESTED is published over the real request
+/// messages so the compression chain still fires.
 async fn call_llm(
+    ctx: &NodeExecutionContext,
     gateway: &LlmGateway,
     request: &LlmRequest,
 ) -> WorkflowResult<wf_types::llm::LlmResult> {
-    gateway
-        .generate(request)
-        .await
-        .map_err(|e| WorkflowError::Internal(format!("LLM call failed: {}", e)))
+    match gateway.generate(request).await {
+        Ok(result) => Ok(result),
+        Err(e) if e.is_context_length_exceeded() => {
+            publish_forced_compression(ctx, request);
+            Err(WorkflowError::Internal(format!("LLM call failed: {}", e)))
+        }
+        Err(e) => Err(WorkflowError::Internal(format!("LLM call failed: {}", e))),
+    }
 }
 
 /// Execute one tool call through the registry, returning a Tool message.
@@ -378,6 +504,10 @@ impl NodeHandler for LlmHandler {
                         tracker.set_token_limit(token_limit);
                     }
                 }
+                // Checkpoint symmetry: a restored execution picks up the
+                // checkpointed guards and accumulations from the variables.
+                let mut tracker = tracker.lock().await;
+                restore_tracker_from_variables(ctx, &mut tracker);
             }
         }
 
@@ -411,24 +541,54 @@ impl NodeHandler for LlmHandler {
                 protocol_auto_converted: None,
             };
 
-            // Pre-request token budget check: estimation is approximate, so
-            // this is a warning only (never blocks the request); the provider's
-            // real count takes precedence. Fires at most once per execution.
+            // Pre-request token budget check (2.1.3): the whole-request
+            // estimate (and, near the threshold, the provider count-tokens
+            // API as a higher-precision estimate, S7) is compared against the
+            // limit. Estimation is approximate, so this is a warning only
+            // (never blocks the request); the warning carries per-array
+            // budget details so listeners can route per-array strategies.
             if token_tracking_enabled {
                 if let Some(ref tracker) = ctx.token_tracker {
-                    let mut tracker = tracker.lock().await;
-                    let token_limit = tracker.token_limit();
+                    let token_limit = {
+                        let tracker = tracker.lock().await;
+                        tracker.token_limit()
+                    };
                     if token_limit > 0 {
-                        let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                        let mut estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                        if estimated as f64 > token_limit as f64 * 0.8 {
+                            if let Ok(count) = self.gateway.count_tokens(&request).await {
+                                estimated = u64::from(count.input_tokens);
+                            }
+                        }
+                        let mut tracker = tracker.lock().await;
                         if estimated > token_limit && tracker.consume_preflight_warning() {
                             if let Some(ref bus) = ctx.event_bus {
-                                let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                                let mut event = wf_llm::build_token_usage_warning_event(
                                     &ctx.execution_id,
                                     Some(&ctx.node_id),
                                     estimated,
                                     token_limit,
                                     estimated as f64 / token_limit as f64 * 100.0,
-                                ));
+                                );
+                                let array_details: Vec<Value> = declared_contexts(config)
+                                    .iter()
+                                    .map(|id| {
+                                        let msgs =
+                                            message_context::get_context(&ctx.variables, id);
+                                        serde_json::json!({
+                                            "context_id": id,
+                                            "tokens": message_context::ledger_estimated_tokens(&ctx.variables, id),
+                                            "message_count": msgs.len(),
+                                        })
+                                    })
+                                    .collect();
+                                if let Some(meta) = event.metadata.as_mut() {
+                                    meta.insert(
+                                        KEY_ARRAY_DETAILS.to_string(),
+                                        Value::Array(array_details),
+                                    );
+                                }
+                                let _ = bus.publish(event);
                             }
                         }
                     }
@@ -436,10 +596,18 @@ impl NodeHandler for LlmHandler {
             }
 
             if stream_enabled {
-                let mut stream =
-                    self.gateway.generate_stream(&request).await.map_err(|e| {
-                        WorkflowError::Internal(format!("LLM stream failed: {}", e))
-                    })?;
+                let mut stream = match self.gateway.generate_stream(&request).await {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        if e.is_context_length_exceeded() {
+                            publish_forced_compression(ctx, &request);
+                        }
+                        return Err(WorkflowError::Internal(format!(
+                            "LLM stream failed: {}",
+                            e
+                        )));
+                    }
+                };
                 let mut content_parts: Vec<String> = Vec::new();
                 let mut stream_usage_seen = false;
                 loop {
@@ -514,6 +682,11 @@ impl NodeHandler for LlmHandler {
                                 false,
                                 &err.error,
                             );
+                            if wf_llm::LlmError::StreamError(err.error.clone())
+                                .is_context_length_exceeded()
+                            {
+                                publish_forced_compression(ctx, &request);
+                            }
                             return Err(WorkflowError::Internal(format!(
                                 "LLM stream error: {}",
                                 err.error
@@ -541,6 +714,9 @@ impl NodeHandler for LlmHandler {
                                 wf_llm::is_stream_abort(&e),
                                 &e.to_string(),
                             );
+                            if e.is_context_length_exceeded() {
+                                publish_forced_compression(ctx, &request);
+                            }
                             return Err(WorkflowError::Internal(format!("LLM stream error: {}", e)))
                         }
                         None => break,
@@ -549,15 +725,21 @@ impl NodeHandler for LlmHandler {
                 if token_tracking_enabled {
                     if let Some(ref tracker) = ctx.token_tracker {
                         let mut tracker = tracker.lock().await;
+                        // Decision track: every request is estimated locally,
+                        // regardless of provider usage reporting.
+                        let completion = content_parts.concat();
+                        let prompt_est = wf_llm::estimate_request_tokens(&request);
+                        let completion_est = wf_llm::estimate_tokens(&completion) as u32;
                         if !stream_usage_seen {
-                            // Provider streamed no usage: estimate as fallback.
-                            let completion = content_parts.concat();
-                            tracker.update_estimated_usage(
-                                wf_llm::estimate_request_tokens(&request),
-                                wf_llm::estimate_tokens(&completion) as u32,
-                            );
+                            // Cost track fallback: the provider streamed no
+                            // usage; the history entry carries the estimated
+                            // marker (cost track, never drives decisions).
+                            tracker.update_estimated_usage(prompt_est, completion_est);
+                        } else {
+                            tracker.accumulate_estimated_usage(prompt_est, completion_est);
                         }
                         tracker.finalize_current_request();
+                        persist_tracker_state(ctx, &tracker);
                     }
                 }
                 if token_tracking_enabled {
@@ -567,22 +749,24 @@ impl NodeHandler for LlmHandler {
                 break;
             }
 
-            let response = call_llm(&self.gateway, &request).await?;
+            let response = call_llm(ctx, &self.gateway, &request).await?;
             if token_tracking_enabled {
                 if let Some(ref tracker) = ctx.token_tracker {
                     let mut tracker = tracker.lock().await;
+                    // Dual-track: the decision track always sees the local
+                    // estimate of this request; the cost track records the
+                    // provider usage (or an estimated marker when absent).
+                    let completion = response.content.as_deref().unwrap_or_default();
+                    let prompt_est = wf_llm::estimate_request_tokens(&request);
+                    let completion_est = wf_llm::estimate_tokens(completion) as u32;
                     if let Some(usage) = &response.usage {
                         tracker.update_api_usage(usage);
+                        tracker.accumulate_estimated_usage(prompt_est, completion_est);
                     } else {
-                        // Provider reported no usage: estimate as fallback so
-                        // limit checks and history stay populated.
-                        let completion = response.content.as_deref().unwrap_or_default();
-                        tracker.update_estimated_usage(
-                            wf_llm::estimate_request_tokens(&request),
-                            wf_llm::estimate_tokens(completion) as u32,
-                        );
+                        tracker.update_estimated_usage(prompt_est, completion_est);
                     }
                     tracker.finalize_current_request();
+                    persist_tracker_state(ctx, &tracker);
                 }
             }
             if token_tracking_enabled {

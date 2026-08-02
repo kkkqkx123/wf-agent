@@ -47,7 +47,25 @@ const ENV_TEST_MODE: &str = "TEST_MODE";
 const ENV_OUTPUT_FORMAT: &str = "CLI_OUTPUT_FORMAT";
 const ENV_NO_COLOR: &str = "NO_COLOR";
 
+/// Serializes access to the mode-related environment variables. Detection
+/// reads process-global env state; concurrent test setups mutate the same
+/// vars from other threads, so a reader could observe a torn state. Every
+/// public detection function takes the lock, and tests hold it across their
+/// set/assert/clear sequences while calling the `*_inner` variants.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    // A panicked test thread poisons the mutex; recovering keeps the
+    // remaining tests runnable instead of deadlocking on the next acquire.
+    ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub fn detect_mode(config_fallback: Option<ExecutionMode>) -> ExecutionMode {
+    let _guard = env_lock();
+    detect_mode_inner(config_fallback)
+}
+
+fn detect_mode_inner(config_fallback: Option<ExecutionMode>) -> ExecutionMode {
     let cli_mode = std::env::var(ENV_CLI_MODE).ok();
 
     if let Some(ref mode) = cli_mode {
@@ -73,6 +91,11 @@ pub fn detect_mode(config_fallback: Option<ExecutionMode>) -> ExecutionMode {
 }
 
 pub fn detect_output_format(mode: ExecutionMode) -> OutputFormat {
+    let _guard = env_lock();
+    detect_output_format_inner(mode)
+}
+
+fn detect_output_format_inner(mode: ExecutionMode) -> OutputFormat {
     if let Ok(format) = std::env::var(ENV_OUTPUT_FORMAT) {
         match format.as_str() {
             "json" => return OutputFormat::Json,
@@ -90,6 +113,11 @@ pub fn detect_output_format(mode: ExecutionMode) -> OutputFormat {
 }
 
 pub fn detect_color_enabled() -> bool {
+    let _guard = env_lock();
+    detect_color_enabled_inner()
+}
+
+fn detect_color_enabled_inner() -> bool {
     if std::env::var_os(ENV_NO_COLOR).is_some() {
         return false;
     }
@@ -97,9 +125,14 @@ pub fn detect_color_enabled() -> bool {
 }
 
 pub fn detect_all(config_fallback: Option<ExecutionMode>) -> ModeInfo {
-    let mode = detect_mode(config_fallback);
-    let output_format = detect_output_format(mode);
-    let color_enabled = detect_color_enabled();
+    let _guard = env_lock();
+    detect_all_inner(config_fallback)
+}
+
+fn detect_all_inner(config_fallback: Option<ExecutionMode>) -> ModeInfo {
+    let mode = detect_mode_inner(config_fallback);
+    let output_format = detect_output_format_inner(mode);
+    let color_enabled = detect_color_enabled_inner();
 
     ModeInfo {
         mode,
@@ -136,6 +169,17 @@ pub fn is_color_enabled() -> bool {
 mod tests {
     use super::*;
 
+    /// Locks the env mutex and clears every mode-related variable. Tests run
+    /// in parallel threads within one process, so they must not mutate the
+    /// process-global env without holding the lock (see `ENV_LOCK`).
+    fn with_clean_env<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = env_lock();
+        clear_env_vars();
+        let result = f();
+        clear_env_vars();
+        result
+    }
+
     fn clear_env_vars() {
         std::env::remove_var(ENV_CLI_MODE);
         std::env::remove_var(ENV_HEADLESS);
@@ -146,135 +190,138 @@ mod tests {
 
     #[test]
     fn test_detect_mode_cli_mode_test() {
-        clear_env_vars();
-        std::env::set_var(ENV_CLI_MODE, "test");
-        assert_eq!(detect_mode(None), ExecutionMode::Test);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_CLI_MODE, "test");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Test);
+        });
     }
 
     #[test]
     fn test_detect_mode_cli_mode_headless() {
-        clear_env_vars();
-        std::env::set_var(ENV_CLI_MODE, "headless");
-        assert_eq!(detect_mode(None), ExecutionMode::Headless);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_CLI_MODE, "headless");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Headless);
+        });
     }
 
     #[test]
     fn test_detect_mode_cli_mode_programmatic() {
-        clear_env_vars();
-        std::env::set_var(ENV_CLI_MODE, "programmatic");
-        assert_eq!(detect_mode(None), ExecutionMode::Headless);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_CLI_MODE, "programmatic");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Headless);
+        });
     }
 
     #[test]
     fn test_detect_mode_test_env() {
-        clear_env_vars();
-        std::env::set_var(ENV_TEST_MODE, "true");
-        assert_eq!(detect_mode(None), ExecutionMode::Test);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_TEST_MODE, "true");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Test);
+        });
     }
 
     #[test]
     fn test_detect_mode_headless_env() {
-        clear_env_vars();
-        std::env::set_var(ENV_HEADLESS, "true");
-        assert_eq!(detect_mode(None), ExecutionMode::Headless);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_HEADLESS, "true");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Headless);
+        });
     }
 
     #[test]
     fn test_detect_mode_config_fallback() {
-        clear_env_vars();
-        assert_eq!(
-            detect_mode(Some(ExecutionMode::Headless)),
-            ExecutionMode::Headless
-        );
-        assert_eq!(detect_mode(Some(ExecutionMode::Test)), ExecutionMode::Test);
-        assert_eq!(
-            detect_mode(Some(ExecutionMode::Interactive)),
-            ExecutionMode::Interactive
-        );
-        clear_env_vars();
+        with_clean_env(|| {
+            assert_eq!(
+                detect_mode_inner(Some(ExecutionMode::Headless)),
+                ExecutionMode::Headless
+            );
+            assert_eq!(
+                detect_mode_inner(Some(ExecutionMode::Test)),
+                ExecutionMode::Test
+            );
+            assert_eq!(
+                detect_mode_inner(Some(ExecutionMode::Interactive)),
+                ExecutionMode::Interactive
+            );
+        });
     }
 
     #[test]
     fn test_detect_mode_default_interactive() {
-        clear_env_vars();
-        assert_eq!(detect_mode(None), ExecutionMode::Interactive);
-        clear_env_vars();
+        with_clean_env(|| {
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Interactive);
+        });
     }
 
     #[test]
     fn test_cli_mode_overrides_test_env() {
-        clear_env_vars();
-        std::env::set_var(ENV_TEST_MODE, "true");
-        std::env::set_var(ENV_CLI_MODE, "headless");
-        assert_eq!(detect_mode(None), ExecutionMode::Headless);
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_TEST_MODE, "true");
+            std::env::set_var(ENV_CLI_MODE, "headless");
+            assert_eq!(detect_mode_inner(None), ExecutionMode::Headless);
+        });
     }
 
     #[test]
     fn test_detect_output_format_env() {
-        clear_env_vars();
-        std::env::set_var(ENV_OUTPUT_FORMAT, "json");
-        assert_eq!(
-            detect_output_format(ExecutionMode::Interactive),
-            OutputFormat::Json
-        );
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_OUTPUT_FORMAT, "json");
+            assert_eq!(
+                detect_output_format_inner(ExecutionMode::Interactive),
+                OutputFormat::Json
+            );
+        });
     }
 
     #[test]
     fn test_detect_output_format_headless_default() {
-        clear_env_vars();
-        assert_eq!(
-            detect_output_format(ExecutionMode::Headless),
-            OutputFormat::Json
-        );
-        clear_env_vars();
+        with_clean_env(|| {
+            assert_eq!(
+                detect_output_format_inner(ExecutionMode::Headless),
+                OutputFormat::Json
+            );
+        });
     }
 
     #[test]
     fn test_detect_output_format_test_default() {
-        clear_env_vars();
-        assert_eq!(
-            detect_output_format(ExecutionMode::Test),
-            OutputFormat::Text
-        );
-        clear_env_vars();
+        with_clean_env(|| {
+            assert_eq!(
+                detect_output_format_inner(ExecutionMode::Test),
+                OutputFormat::Text
+            );
+        });
     }
 
     #[test]
     fn test_detect_output_format_interactive_default() {
-        clear_env_vars();
-        assert_eq!(
-            detect_output_format(ExecutionMode::Interactive),
-            OutputFormat::Text
-        );
-        clear_env_vars();
+        with_clean_env(|| {
+            assert_eq!(
+                detect_output_format_inner(ExecutionMode::Interactive),
+                OutputFormat::Text
+            );
+        });
     }
 
     #[test]
     fn test_detect_all() {
-        clear_env_vars();
-        std::env::set_var(ENV_CLI_MODE, "headless");
-        let info = detect_all(None);
-        assert_eq!(info.mode, ExecutionMode::Headless);
-        assert_eq!(info.output_format, OutputFormat::Json);
-        assert!(info.is_headless());
-        assert!(!info.is_interactive());
-        assert!(info.is_json_mode());
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_CLI_MODE, "headless");
+            let info = detect_all_inner(None);
+            assert_eq!(info.mode, ExecutionMode::Headless);
+            assert_eq!(info.output_format, OutputFormat::Json);
+            assert!(info.is_headless());
+            assert!(!info.is_interactive());
+            assert!(info.is_json_mode());
+        });
     }
 
     #[test]
     fn test_no_color_disables_color() {
-        clear_env_vars();
-        std::env::set_var(ENV_NO_COLOR, "");
-        assert!(!detect_color_enabled());
-        clear_env_vars();
+        with_clean_env(|| {
+            std::env::set_var(ENV_NO_COLOR, "");
+            assert!(!detect_color_enabled_inner());
+        });
     }
 
     #[test]

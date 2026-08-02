@@ -319,7 +319,17 @@ impl LlmFormatter for OpenaiResponseFormatter {
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(0)
                                     as u32,
-                                reasoning_tokens: None,
+                                reasoning_tokens: usage
+                                    .get("output_tokens_details")
+                                    .and_then(|d| d.get("reasoning_tokens"))
+                                    .and_then(|v| v.as_u64())
+                                    .map(|r| r as u32),
+                                cache_read_tokens: usage
+                                    .get("input_tokens_details")
+                                    .and_then(|d| d.get("cached_tokens"))
+                                    .and_then(|v| v.as_u64())
+                                    .map(|r| r as u32),
+                                cache_write_tokens: None,
                                 prompt_tokens_cost: None,
                                 completion_tokens_cost: None,
                                 total_cost: None,
@@ -400,7 +410,17 @@ impl OpenaiResponseFormatter {
                 prompt_tokens: input_tokens,
                 completion_tokens: output_tokens,
                 total_tokens: input_tokens + output_tokens,
-                reasoning_tokens: None,
+                reasoning_tokens: u
+                    .get("output_tokens_details")
+                    .and_then(|d| d.get("reasoning_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
+                cache_read_tokens: u
+                    .get("input_tokens_details")
+                    .and_then(|d| d.get("cached_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
+                cache_write_tokens: None,
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,

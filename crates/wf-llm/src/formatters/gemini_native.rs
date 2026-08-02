@@ -347,6 +347,11 @@ impl GeminiNativeFormatter {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32,
                 reasoning_tokens: None,
+                cache_read_tokens: u
+                    .get("cachedContentTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
+                cache_write_tokens: None,
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,

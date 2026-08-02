@@ -179,9 +179,15 @@ async fn token_events_emitted_when_limit_crossed() {
         .with_event_bus(bus);
     let mut config = config(5);
     config.token_limit = Some(150);
-    config.token_warning_threshold = Some(70); // 120/150 = 80% > 70
+    config.token_warning_threshold = Some(70);
+    // The decision track is estimation-only: a long request makes the local
+    // estimate cross the limit regardless of the provider-reported usage.
+    let long_input = input(&"x".repeat(4000));
 
-    let output = coordinator.execute(config, input("do it")).await.unwrap();
+    let output = coordinator
+        .execute(config, long_input)
+        .await
+        .unwrap();
     assert_eq!(output.result, serde_json::json!("final answer"));
     // The pre-flight check must not block over-budget requests.
     assert_eq!(mock.recorded_count(), 2, "requests must still be executed");

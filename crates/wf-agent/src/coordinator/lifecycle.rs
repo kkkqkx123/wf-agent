@@ -7,6 +7,7 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_core::event::EventBus;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
@@ -18,6 +19,7 @@ use wf_types::tool::approval::ToolApprovalOptions;
 
 use crate::approval::ToolApprovalHandler;
 use crate::checkpoint::{AgentCheckpointIntegration, AgentCheckpointStrategy};
+use crate::conversation_compression::spawn_conversation_compression_consumer;
 use crate::coordinator::execution::AgentExecutionCoordinator;
 use crate::coordinator::iteration::{AgentIterationCoordinator, DEFAULT_TOKEN_WARNING_THRESHOLD};
 use crate::coordinator::state_transitor::AgentLoopStateTransitor;
@@ -25,6 +27,7 @@ use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
 use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
+use tokio::sync::RwLock;
 
 pub struct AgentLoopCoordinator {
     gateway: Arc<LlmGateway>,
@@ -115,12 +118,49 @@ impl AgentLoopCoordinator {
         self
     }
 
+    /// Spawn the conversation compression consumer for the live session
+    /// (self-consumption, compression chain closure): completed compression
+    /// events matching `agent_loop_id` are applied to the conversation with
+    /// a version check. Returns the task handle, aborted on every exit path
+    /// of the execution.
+    fn spawn_compression_consumer(
+        &self,
+        agent_loop_id: &str,
+        conversation: Arc<RwLock<ConversationSession>>,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        self.event_bus.as_ref().map(|bus| {
+            spawn_conversation_compression_consumer(
+                bus.clone(),
+                agent_loop_id.to_string(),
+                conversation,
+            )
+        })
+    }
+
     pub async fn execute(
         &self,
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
         let entity = self.build_entity(&config, input).await?;
+        let execution_id = entity.id().clone();
+
+        // The conversation applies compression results itself (it subscribes
+        // to COMPLETED events on the bus); the consumer is aborted once the
+        // loop finishes.
+        let consumer = self.spawn_compression_consumer(&execution_id, entity.conversation().clone());
+        let outcome = self.execute_inner(config, entity).await;
+        if let Some(handle) = consumer {
+            handle.abort();
+        }
+        outcome
+    }
+
+    async fn execute_inner(
+        &self,
+        config: AgentLoopConfig,
+        entity: AgentLoopEntity,
+    ) -> AgentResult<AgentLoopOutput> {
         let execution_id = entity.id().clone();
 
         AgentLoopStateTransitor::start_agent_loop(&entity, self.event_bus.as_deref()).await?;
@@ -390,8 +430,23 @@ impl AgentLoopCoordinator {
                 entity.conversation().write().await.add_message(msg);
             }
 
+            // The conversation applies compression results itself (it
+            // subscribes to COMPLETED events on the bus); the consumer is
+            // aborted on every exit path of the spawned task.
+            let execution_id = entity.id().clone();
+            let consumer = bus.as_ref().map(|eb| {
+                spawn_conversation_compression_consumer(
+                    eb.clone(),
+                    execution_id.clone(),
+                    entity.conversation().clone(),
+                )
+            });
+
             if let Err(e) = AgentLoopStateTransitor::start_agent_loop(&entity, bus.as_deref()).await
             {
+                if let Some(handle) = consumer {
+                    handle.abort();
+                }
                 let _ = tx
                     .send(AgentStreamEvent::Failed {
                         error: e.to_string(),
@@ -448,6 +503,9 @@ impl AgentLoopCoordinator {
                         hook_data,
                     )
                     .await;
+                    if let Some(handle) = consumer {
+                        handle.abort();
+                    }
                     let _ = tx
                         .send(AgentStreamEvent::Completed {
                             result: result.content,
@@ -462,6 +520,9 @@ impl AgentLoopCoordinator {
                         bus.as_deref(),
                     )
                     .await;
+                    if let Some(handle) = consumer {
+                        handle.abort();
+                    }
                     if let Some(ref metrics) = metrics {
                         metrics.agent_loop().record_error(entity.id(), "agent_loop");
                     }

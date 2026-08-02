@@ -117,18 +117,24 @@ pub fn register_custom_triggers(
                 event_name: Some(value.clone()),
                 condition: None,
                 metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
             },
             CustomTriggerCondition::Schedule { value } => TriggerCondition {
                 event_type: "schedule".into(),
                 event_name: None,
                 condition: Some(value.clone()),
                 metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
             },
             CustomTriggerCondition::Webhook { value } => TriggerCondition {
                 event_type: "webhook".into(),
                 event_name: Some(value.clone()),
                 condition: None,
                 metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
             },
         };
 
@@ -139,6 +145,7 @@ pub fn register_custom_triggers(
             action: None,
             enabled: Some(true),
             max_triggers: None,
+            priority: None,
             metadata: t.metadata.and_then(|m| match m {
                 serde_json::Value::Object(obj) => {
                     let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();

@@ -162,6 +162,11 @@ pub fn parse_openai_usage(u: &serde_json::Value) -> wf_types::llm::TokenUsageSta
         .and_then(|d| d.get("reasoning_tokens"))
         .and_then(|r| r.as_u64())
         .map(|r| r as u32);
+    let cache_read_tokens = u
+        .get("prompt_tokens_details")
+        .and_then(|d| d.get("cached_tokens"))
+        .and_then(|r| r.as_u64())
+        .map(|r| r as u32);
     wf_types::llm::TokenUsageStats {
         prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         completion_tokens: u
@@ -170,6 +175,8 @@ pub fn parse_openai_usage(u: &serde_json::Value) -> wf_types::llm::TokenUsageSta
             .unwrap_or(0) as u32,
         total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         reasoning_tokens,
+        cache_read_tokens,
+        cache_write_tokens: None,
         prompt_tokens_cost: None,
         completion_tokens_cost: None,
         total_cost: None,

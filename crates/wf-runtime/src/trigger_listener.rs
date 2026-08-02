@@ -1,14 +1,14 @@
 //! Runtime assembly for the event-driven trigger listener.
 //!
-//! Implements the three wf-workflow listener traits over the runtime's own
-//! pieces:
+//! Implements the wf-workflow listener traits over the runtime's own pieces:
 //!
 //! - [`ResourceTriggerRegistry`]: trigger templates from the wf-resource
 //!   registrar (predefined `context_compression_trigger` et al.);
 //! - [`WorkflowRunner`]: triggered sub-workflows executed through the
 //!   `WorkflowCoordinator` (predefined `llm_summary_workflow`);
-//! - [`ExecutionContextRegistry`]: write-back of compressed message arrays
-//!   into the named context of live workflow executions.
+//! - write-back registry: wf-workflow's [`ExecutionContextRegistry`], into
+//!   which every started workflow execution registers its variable map
+//!   (register at start, unregister at end — see [`WorkflowRunner::run`]).
 //!
 //! `start_trigger_listener` wires them together and spawns the listener
 //! background task; the returned handle's shutdown token stops the loop.
@@ -36,7 +36,7 @@ use wf_types::workflow_execution::{
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::trigger_listener::{
-    ContextWriter, SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
+    SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
 };
 use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
@@ -118,6 +118,9 @@ pub struct WorkflowRunner {
     registries: Arc<Registries>,
     event_bus: Arc<EventBus>,
     handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    /// Write-back registry of live workflow executions: every execution
+    /// registers its variable map at start and unregisters at end.
+    contexts: Arc<ExecutionContextRegistry>,
 }
 
 impl WorkflowRunner {
@@ -125,11 +128,13 @@ impl WorkflowRunner {
         registries: Arc<Registries>,
         event_bus: Arc<EventBus>,
         gateway: Arc<LlmGateway>,
+        contexts: Arc<ExecutionContextRegistry>,
     ) -> Self {
         Self {
             registries,
             event_bus,
             handlers: wf_workflow::create_default_handlers(gateway),
+            contexts,
         }
     }
 }
@@ -179,58 +184,31 @@ impl SubworkflowRunner for WorkflowRunner {
             Arc::new(wf_tools::registry::ToolRegistry::new()),
             options,
         );
+        // Lifecycle wiring (compression chain closure): the execution's
+        // variable map is the write-back target of its named message arrays;
+        // registered at start and unregistered at end, so the trigger
+        // listener can write compressed arrays back even while the execution
+        // continues (or after it finished, harmlessly).
+        let execution_id = exec_ctx.execution_id.clone();
+        self.contexts
+            .register_workflow(execution_id.clone(), exec_ctx.variables.clone());
         let entity = WorkflowExecutionEntity::new(
             exec_ctx.execution_id.clone(),
             exec_ctx.workflow_id.clone(),
         );
         let mut coordinator =
             WorkflowCoordinator::new(exec_ctx, graph, self.handlers.clone())?.with_entity(entity);
-        coordinator.execute().await
+        let outcome = coordinator.execute().await;
+        self.contexts.unregister(&execution_id);
+        outcome
     }
 }
 
-/// Registry of live workflow execution variable maps, keyed by execution id.
-///
-/// Workflow executions register their variable map on start and unregister
-/// on end; the trigger listener writes compressed message arrays back into
-/// the named context of the emitting execution through the [`ContextWriter`]
-/// implementation.
-#[derive(Default)]
-pub struct ExecutionContextRegistry {
-    executions: DashMap<String, Arc<DashMap<String, Value>>>,
-}
-
-impl ExecutionContextRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn register(
-        &self,
-        execution_id: impl Into<String>,
-        variables: Arc<DashMap<String, Value>>,
-    ) {
-        self.executions.insert(execution_id.into(), variables);
-    }
-
-    pub fn unregister(&self, execution_id: &str) {
-        self.executions.remove(execution_id);
-    }
-
-    pub fn registered(&self, execution_id: &str) -> bool {
-        self.executions.contains_key(execution_id)
-    }
-}
-
-impl ContextWriter for ExecutionContextRegistry {
-    fn write_context(&self, execution_id: &str, context_id: &str, messages: Vec<Message>) -> bool {
-        let Some(variables) = self.executions.get(execution_id) else {
-            return false;
-        };
-        wf_workflow::register_context(variables.value(), context_id, messages);
-        true
-    }
-}
+/// Registry of live workflow execution write-back targets, keyed by
+/// execution id. Lives in wf-workflow next to the trigger listener and the
+/// message contexts it writes back into; wf-runtime only wires executions
+/// into it during assembly (see [`WorkflowRunner`]).
+pub use wf_workflow::execution_context::ExecutionContextRegistry;
 
 /// Running trigger listener plus its shutdown token and task handle.
 pub struct TriggerListenerHandle {
@@ -248,15 +226,18 @@ pub fn start_trigger_listener(
 ) -> TriggerListenerHandle {
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries.clone()));
-    let runner: Arc<dyn SubworkflowRunner> =
-        Arc::new(WorkflowRunner::new(registries, event_bus.clone(), gateway));
-    let writer: Arc<dyn ContextWriter> = contexts;
+    let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::new(
+        registries,
+        event_bus.clone(),
+        gateway,
+        contexts.clone(),
+    ));
     let shutdown = CancellationToken::new();
     let listener = Arc::new(TriggerEventListener::new(
         event_bus,
         registry,
         runner,
-        writer,
+        contexts,
         shutdown.clone(),
     ));
     let handle = tokio::spawn({
@@ -410,7 +391,7 @@ mod tests {
             ));
         }
         wf_workflow::append_context(&variables, "chat", chat_messages);
-        contexts.register(execution_id.clone(), variables.clone());
+        contexts.register_workflow(execution_id.clone(), variables.clone());
 
         let graph = WorkflowGraphStructure {
             nodes: vec![
@@ -553,7 +534,7 @@ mod tests {
             "chat",
             vec![text_message(MessageRole::User, "short")],
         );
-        contexts.register(execution_id.clone(), variables.clone());
+        contexts.register_workflow(execution_id.clone(), variables.clone());
 
         let graph = WorkflowGraphStructure {
             nodes: vec![
@@ -724,14 +705,19 @@ mod tests {
         assert_eq!(graph.edges[1].target_node_id, "end");
     }
 
-    #[test]
-    fn execution_context_registry_writes_back_to_registered_execution() {
+    #[tokio::test]
+    async fn execution_context_registry_writes_back_to_registered_execution() {
+        use wf_workflow::execution_context::WriteBackError;
+
         let registry = ExecutionContextRegistry::new();
         assert!(!registry.registered("exec-1"));
-        assert!(!registry.write_context("exec-1", "chat", vec![]));
+        assert!(matches!(
+            registry.write_context("exec-1", "chat", vec![], 0).await,
+            Err(WriteBackError::NotRegistered)
+        ));
 
         let variables = Arc::new(DashMap::new());
-        registry.register("exec-1", variables.clone());
+        registry.register_workflow("exec-1", variables.clone());
         assert!(registry.registered("exec-1"));
 
         let msg = Message {
@@ -745,13 +731,116 @@ mod tests {
             thinking: None,
             metadata: None,
         };
-        assert!(registry.write_context("exec-1", "chat", vec![msg.clone()]));
+        // An array the execution never created is not writable.
+        assert!(matches!(
+            registry.write_context("exec-1", "chat", vec![msg.clone()], 0).await,
+            Err(WriteBackError::ContextNotFound)
+        ));
+        // Versioned write-back of a tracked array succeeds.
+        wf_workflow::append_context(&variables, "chat", vec![msg.clone()]);
+        let version = wf_workflow::message_context::array_version(&variables, "chat");
+        assert!(registry
+            .write_context("exec-1", "chat", vec![msg.clone()], version)
+            .await
+            .is_ok());
         let written = wf_workflow::get_context(&variables, "chat");
         assert_eq!(written.len(), 1);
         assert_eq!(written[0].content, msg.content);
 
         registry.unregister("exec-1");
         assert!(!registry.registered("exec-1"));
-        assert!(!registry.write_context("exec-1", "chat", vec![]));
+        assert!(matches!(
+            registry.write_context("exec-1", "chat", vec![], 0).await,
+            Err(WriteBackError::NotRegistered)
+        ));
+    }
+
+    #[tokio::test]
+    async fn versioned_write_back_discards_stale_compression() {
+        use wf_workflow::execution_context::WriteBackError;
+
+        let registry = ExecutionContextRegistry::new();
+        let variables = Arc::new(DashMap::new());
+        wf_workflow::append_context(
+            &variables,
+            "chat",
+            vec![Message {
+                id: wf_common::generate_id(),
+                role: wf_types::message::MessageRole::User,
+                content: wf_types::message::MessageContentValue::Text("old".to_string()),
+                timestamp: wf_common::now(),
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            }],
+        );
+        registry.register_workflow("exec-2", variables.clone());
+        let emitted_version = wf_workflow::message_context::array_version(&variables, "chat");
+        assert!(emitted_version > 0);
+
+        // New messages appended after the event was emitted: the array moved
+        // past the event version, the compressed result must be discarded.
+        wf_workflow::append_context(
+            &variables,
+            "chat",
+            vec![Message {
+                id: wf_common::generate_id(),
+                role: wf_types::message::MessageRole::User,
+                content: wf_types::message::MessageContentValue::Text("newer".to_string()),
+                timestamp: wf_common::now(),
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            }],
+        );
+        assert!(matches!(
+            registry
+                .write_context(
+                    "exec-2",
+                    "chat",
+                    vec![Message {
+                        id: wf_common::generate_id(),
+                        role: wf_types::message::MessageRole::Assistant,
+                        content: wf_types::message::MessageContentValue::Text("summary".to_string()),
+                        timestamp: wf_common::now(),
+                        tool_call_id: None,
+                        tool_name: None,
+                        tool_calls: None,
+                        thinking: None,
+                        metadata: None,
+                    }],
+                    emitted_version,
+                )
+                .await,
+            Err(WriteBackError::VersionMismatch { .. })
+        ));
+        assert_eq!(wf_workflow::get_context(&variables, "chat").len(), 2);
+
+        // At the current version the write-back succeeds.
+        let current = wf_workflow::message_context::array_version(&variables, "chat");
+        assert!(registry
+            .write_context(
+                "exec-2",
+                "chat",
+                vec![Message {
+                    id: wf_common::generate_id(),
+                    role: wf_types::message::MessageRole::Assistant,
+                    content: wf_types::message::MessageContentValue::Text("summary".to_string()),
+                    timestamp: wf_common::now(),
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: None,
+                    thinking: None,
+                    metadata: None,
+                }],
+                current,
+            )
+            .await
+            .is_ok());
+        assert_eq!(wf_workflow::get_context(&variables, "chat").len(), 1);
     }
 }

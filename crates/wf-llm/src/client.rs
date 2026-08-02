@@ -72,11 +72,18 @@ impl LlmClientImpl {
             ));
         }
         let msg = format!("HTTP {}: {}", status.as_u16(), body);
-        match status.as_u16() {
+        // Safety-net classification: a context-window rejection of the actual
+        // request is surfaced as ContextLengthExceeded so callers can force a
+        // compression event when the local estimate undercounted.
+        let provisional = match status.as_u16() {
             401 | 403 => LlmError::AuthError(msg),
             408 | 504 => LlmError::Timeout(timeout_ms),
             _ => LlmError::ProviderError(msg),
+        };
+        if provisional.is_context_length_exceeded() {
+            return LlmError::ContextLengthExceeded(body.to_string());
         }
+        provisional
     }
 }
 

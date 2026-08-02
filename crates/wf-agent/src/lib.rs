@@ -2,6 +2,7 @@ pub mod agent_request;
 pub mod approval;
 pub mod callback;
 pub mod checkpoint;
+pub mod conversation_compression;
 pub mod coordinator;
 pub mod entity;
 pub mod error;
@@ -21,6 +22,7 @@ pub use approval::{
 };
 pub use callback::register_builtin_tools;
 pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
+pub use conversation_compression::spawn_conversation_compression_consumer;
 pub use error::{AgentError, AgentResult};
 pub use error_analysis::{
     analyze_error, llm_error_analysis, shared_error_analysis, tool_error_analysis, ErrorAnalysis,

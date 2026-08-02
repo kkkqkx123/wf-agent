@@ -30,17 +30,22 @@ impl LlmProvider {
             LlmProvider::Custom(name) => name,
         }
     }
+}
 
-    /// Parse a provider from its canonical string form.
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for LlmProvider {
+    type Err = core::convert::Infallible;
+
+    /// Parse a provider from its canonical string form. Every string is
+    /// valid: built-ins map to their variant, anything else is `Custom`.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
             "OPENAI_CHAT" => LlmProvider::OpenaiChat,
             "OPENAI_RESPONSE" => LlmProvider::OpenaiResponse,
             "ANTHROPIC" => LlmProvider::Anthropic,
             "GEMINI_NATIVE" => LlmProvider::GeminiNative,
             "GEMINI_OPENAI" => LlmProvider::GeminiOpenai,
             other => LlmProvider::Custom(other.to_string()),
-        }
+        })
     }
 }
 
@@ -53,7 +58,10 @@ impl Serialize for LlmProvider {
 impl<'de> Deserialize<'de> for LlmProvider {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
-        Ok(LlmProvider::from_str(&s))
+        match s.parse::<LlmProvider>() {
+            Ok(provider) => Ok(provider),
+            Err(infallible) => match infallible {},
+        }
     }
 }
 
@@ -109,7 +117,7 @@ mod tests {
             LlmProvider::GeminiNative,
             LlmProvider::GeminiOpenai,
         ] {
-            let from_name = LlmProvider::from_str(provider.as_str());
+            let from_name = provider.as_str().parse::<LlmProvider>().unwrap();
             assert_eq!(from_name, provider);
         }
     }

@@ -424,6 +424,8 @@ mod tests {
                 completion_tokens: 5,
                 total_tokens: 15,
                 reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,

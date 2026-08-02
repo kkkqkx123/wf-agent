@@ -242,7 +242,18 @@ impl AgentIterationCoordinator {
 
         let (assistant_msg, llm_content, finish_reason, request_usage) = match self.mode {
             IterationMode::Blocking => {
-                let llm_result = self.gateway.generate(&request).await?;
+                let llm_result = match self.gateway.generate(&request).await {
+                    Ok(result) => result,
+                    Err(e) if e.is_context_length_exceeded() => {
+                        // Safety-net path (S2): the provider rejected the
+                        // actual request; force a compression event over the
+                        // real messages so the chain fires even though the
+                        // estimate undercounted.
+                        self.publish_forced_compression(entity, &request).await;
+                        return Err(e.into());
+                    }
+                    Err(e) => return Err(e.into()),
+                };
                 let usage = llm_result.usage.as_ref().map(wf_llm::RequestUsage::from);
                 (
                     llm_result.message.clone(),
@@ -254,29 +265,30 @@ impl AgentIterationCoordinator {
             IterationMode::Streaming => self.stream_llm_call(entity, &request).await?,
         };
 
-        // Record token usage into the conversation session (streaming usage
-        // deltas are already folded into `request_usage`). Skipped entirely
-        // when token tracking is disabled by config.
+        // Record token usage into the conversation session (v2 dual-track
+        // semantics): the decision track always accumulates the local request
+        // estimate (warnings / limit / compression never depend on provider
+        // usage); the cost track records the real usage — or an estimated
+        // marker when the provider reported none — for accounting only.
+        // Skipped entirely when token tracking is disabled by config.
         if self.token_tracking_enabled {
             let mut conversation = entity.conversation().write().await;
+            let prompt_est = wf_llm::estimate_request_tokens(&request);
+            let completion_est = wf_llm::estimate_tokens(&text_of(&assistant_msg.content)) as u32;
             if let Some(usage) = &request_usage {
                 conversation.accumulate_stream_usage(usage);
+                conversation.accumulate_estimated_usage(prompt_est, completion_est);
             } else {
-                // The provider reported no usage (some models/error paths):
-                // fall back to estimation so limit checks and history stay
-                // populated. Estimated values never touch metrics.
-                conversation.update_estimated_usage(
-                    wf_llm::estimate_request_tokens(&request),
-                    wf_llm::estimate_tokens(&text_of(&assistant_msg.content)) as u32,
-                );
+                conversation.update_estimated_usage(prompt_est, completion_est);
             }
             conversation.finalize_current_request();
 
-            // Emit token usage events: a single-shot warning at the
-            // threshold crossing, then limit exceeded + compression
-            // requested when the configured limit is exceeded.
+            // Emit token usage events (decision track only): a single-shot
+            // warning at the threshold crossing, then limit exceeded once per
+            // 50% tier band, then compression requested when the conversation
+            // array's ledger estimate exceeds the limit.
             if let Some(ref bus) = self.event_bus {
-                let tokens_used = conversation.token_usage();
+                let tokens_used = conversation.estimated_total();
                 let token_limit = conversation.token_limit();
                 if token_limit > 0 {
                     if conversation.consume_token_warning(self.token_warning_threshold as f64) {
@@ -289,24 +301,33 @@ impl AgentIterationCoordinator {
                             percentage,
                         ));
                     }
-                    if conversation.is_token_limit_exceeded() {
-                        let message_count = conversation.messages().len();
-                        let messages = conversation.messages().to_vec();
+                    if conversation.consume_limit_exceeded_tier().is_some() {
                         let _ = bus.publish(wf_llm::build_token_limit_exceeded_event(
                             &execution_id,
                             Some(entity.id()),
                             tokens_used,
                             token_limit,
                         ));
+                    }
+                    let estimated = conversation.estimated_conversation_tokens();
+                    let version = conversation.conversation_version();
+                    if estimated > token_limit
+                        && conversation.should_emit_compression(version)
+                    {
+                        let message_count = conversation.messages().len();
+                        let messages = conversation.messages().to_vec();
                         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
                             &execution_id,
                             Some(entity.id()),
-                            "conversation",
-                            tokens_used,
+                            wf_llm::CONVERSATION_CONTEXT_ID,
+                            estimated,
                             token_limit,
                             message_count,
+                            version,
+                            false,
                             Some(&messages),
                         ));
+                        conversation.mark_compression_emitted(version);
                     }
                 }
             }
@@ -469,6 +490,30 @@ impl AgentIterationCoordinator {
         })
     }
 
+    /// Safety-net path (S2): emit a forced CONTEXT_COMPRESSION_REQUESTED over
+    /// the actual request messages when the provider rejected them with a
+    /// context-length-exceeded error.
+    async fn publish_forced_compression(&self, entity: &AgentLoopEntity, request: &LlmRequest) {
+        let Some(ref bus) = self.event_bus else {
+            return;
+        };
+        let mut conversation = entity.conversation().write().await;
+        let version = conversation.conversation_version();
+        let token_limit = conversation.token_limit();
+        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
+            &entity.id().clone(),
+            Some(entity.id()),
+            wf_llm::CONVERSATION_CONTEXT_ID,
+            u64::from(wf_llm::estimate_request_tokens(request)),
+            token_limit,
+            request.messages.len(),
+            version,
+            true,
+            Some(&request.messages),
+        ));
+        conversation.mark_compression_emitted(version);
+    }
+
     /// Streaming LLM call: forward deltas to the event sink while
     /// aggregating the final message for tool call extraction.
     async fn stream_llm_call(
@@ -484,6 +529,7 @@ impl AgentIterationCoordinator {
         let mut stream = self.gateway.generate_stream(request).await?;
         let mut final_message: Option<Message> = None;
         let mut request_usage: Option<wf_llm::RequestUsage> = None;
+        let mut content_parts: Vec<String> = Vec::new();
 
         loop {
             let Some(event) = stream.next().await else {
@@ -491,6 +537,7 @@ impl AgentIterationCoordinator {
             };
             match event {
                 Ok(MessageStreamEvent::Text(t)) => {
+                    content_parts.push(t.text.clone());
                     if let Some(ref sink) = self.event_sink {
                         sink.emit_quiet(
                             entity.id(),
@@ -500,6 +547,7 @@ impl AgentIterationCoordinator {
                     }
                 }
                 Ok(MessageStreamEvent::Stream(chunk)) => {
+                    content_parts.push(chunk.content.clone());
                     if let Some(ref sink) = self.event_sink {
                         sink.emit_quiet(
                             entity.id(),
@@ -511,6 +559,7 @@ impl AgentIterationCoordinator {
                     }
                 }
                 Ok(MessageStreamEvent::ReasoningText(reasoning)) => {
+                    content_parts.push(reasoning.reasoning.clone());
                     if let Some(ref sink) = self.event_sink {
                         sink.emit_quiet(
                             entity.id(),
@@ -525,7 +574,9 @@ impl AgentIterationCoordinator {
                     final_message = Some(msg.message);
                 }
                 Ok(MessageStreamEvent::FinalMessage(msg)) => {
+                    let content = text_of(&msg.message.content);
                     final_message = Some(msg.message);
+                    content_parts.push(content);
                     if let Some(usage) = msg.usage {
                         request_usage = Some(wf_llm::RequestUsage::from(&usage));
                     }
@@ -548,6 +599,11 @@ impl AgentIterationCoordinator {
                         false,
                         &e.error,
                     );
+                    if wf_llm::LlmError::StreamError(e.error.clone())
+                        .is_context_length_exceeded()
+                    {
+                        self.publish_forced_compression(entity, request).await;
+                    }
                     return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
                         e.error,
                     )));
@@ -576,6 +632,9 @@ impl AgentIterationCoordinator {
                         wf_llm::is_stream_abort(&e),
                         &e.to_string(),
                     );
+                    if e.is_context_length_exceeded() {
+                        self.publish_forced_compression(entity, request).await;
+                    }
                     return Err(e.into());
                 }
             }

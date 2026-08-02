@@ -423,6 +423,14 @@ impl LlmFormatter for AnthropicFormatter {
                                     .get("thinking_tokens")
                                     .and_then(|v| v.as_u64())
                                     .map(|r| r as u32),
+                                cache_read_tokens: usage
+                                    .get("cache_read_input_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|r| r as u32),
+                                cache_write_tokens: usage
+                                    .get("cache_creation_input_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|r| r as u32),
                                 prompt_tokens_cost: None,
                                 completion_tokens_cost: None,
                                 total_cost: None,
@@ -535,6 +543,14 @@ impl AnthropicFormatter {
                 completion_tokens: output,
                 total_tokens: input + output,
                 reasoning_tokens: None,
+                cache_read_tokens: u
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
+                cache_write_tokens: u
+                    .get("cache_creation_input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
                 prompt_tokens_cost: None,
                 completion_tokens_cost: None,
                 total_cost: None,

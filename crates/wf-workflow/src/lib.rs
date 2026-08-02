@@ -6,6 +6,7 @@ pub mod entity;
 pub mod error;
 pub mod error_analysis;
 pub mod execution_callback;
+pub mod execution_context;
 pub mod executor;
 pub mod factory;
 pub mod graph;
@@ -38,6 +39,7 @@ pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
 pub use error_analysis::{analyze_workflow_error, workflow_error_record};
 pub use execution_callback::WorkflowExecutionCallback;
+pub use execution_context::{ExecutionContextRegistry, WriteBackError};
 pub use executor::WorkflowExecutor;
 pub use factory::WorkflowExecutionBuilder;
 pub use handler::{
@@ -73,9 +75,7 @@ pub use registry::{
     WorkflowGraphRegistry,
 };
 pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};
-pub use trigger_listener::{
-    ContextWriter, SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
-};
+pub use trigger_listener::{SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
 pub use validation::{GraphValidator, ValidationError, ValidationResult};
 pub use variable::{create_variable_store, VariableResolver, VariableStore};

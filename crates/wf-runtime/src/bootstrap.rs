@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use tracing::info;
+use wf_workflow::trigger_listener::TriggerEventListener;
 
 use wf_config::processor::infrastructure::merge_metrics_with_defaults;
 use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
@@ -17,6 +18,7 @@ use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::{StorageConfig, StorageManager};
+use crate::trigger_listener::{start_trigger_listener, ExecutionContextRegistry};
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
@@ -71,6 +73,13 @@ pub struct Runtime {
     pub event_bus: Arc<EventBus>,
     pub metrics: Option<Arc<MetricsContext>>,
     pub llm_gateway: Arc<LlmGateway>,
+    /// Variable maps of live workflow executions (write-back target of the
+    /// event-driven context compression chain).
+    pub execution_contexts: Arc<ExecutionContextRegistry>,
+    /// Background event-driven trigger listener (context compression).
+    pub trigger_listener: Option<Arc<TriggerEventListener>>,
+    trigger_listener_shutdown: Option<tokio_util::sync::CancellationToken>,
+    trigger_listener_handle: Option<tokio::task::JoinHandle<()>>,
     #[cfg(feature = "plugins")]
     pub plugin_engine: Option<wf_plugin::PluginEngine>,
 }
@@ -132,6 +141,16 @@ impl Runtime {
         let llm_gateway =
             init_llm_gateway(&config.llm, metrics.as_ref().map(|m| m.registry().as_ref()))?;
 
+        // Event-driven trigger listener: powers the context-compression chain
+        // (CONTEXT_COMPRESSION_REQUESTED -> llm_summary_workflow -> write-back).
+        let execution_contexts = Arc::new(ExecutionContextRegistry::new());
+        let listener = start_trigger_listener(
+            event_bus.clone(),
+            registries.clone(),
+            llm_gateway.clone(),
+            execution_contexts.clone(),
+        );
+
         info!("Runtime bootstrap complete");
 
         Ok(Self {
@@ -144,6 +163,10 @@ impl Runtime {
             event_bus,
             metrics,
             llm_gateway,
+            execution_contexts,
+            trigger_listener: Some(listener.listener),
+            trigger_listener_shutdown: Some(listener.shutdown),
+            trigger_listener_handle: Some(listener.handle),
             #[cfg(feature = "plugins")]
             plugin_engine,
         })
@@ -160,6 +183,14 @@ impl Runtime {
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
         if let Some(metrics) = self.metrics.take() {
             metrics.shutdown().await;
+        }
+
+        if let Some(handle) = self.trigger_listener_handle.take() {
+            if let Some(token) = self.trigger_listener_shutdown.take() {
+                token.cancel();
+            }
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+            info!("Trigger listener stopped");
         }
 
         #[cfg(feature = "plugins")]

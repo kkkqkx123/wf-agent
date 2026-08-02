@@ -42,13 +42,13 @@ pub fn parse_xml_tool_calls(xml_text: &str) -> Vec<LlmToolCall> {
     let mut remaining = xml_text;
 
     while let Some(start_pos) = find_tag_start(remaining, "tool_use") {
-        let after_start = &remaining[start_pos + 11..]; // "<tool_use>".len() = 11
+        let after_start = &remaining[start_pos + "<tool_use>".len()..];
         if let Some(end_pos) = find_tag_end(after_start, "tool_use") {
             let content = &after_start[..end_pos];
             if let Some(call) = parse_xml_tool_call_block(content) {
                 results.push(call);
             }
-            remaining = &after_start[end_pos + 12..]; // "</tool_use>".len() = 12
+            remaining = &after_start[end_pos + "</tool_use>".len()..];
         } else {
             break;
         }
@@ -68,7 +68,9 @@ fn find_tag_end(text: &str, tag_name: &str) -> Option<usize> {
 }
 
 fn parse_xml_tool_call_block(content: &str) -> Option<LlmToolCall> {
-    let tool_name = extract_xml_element(content, "tool_name")?.trim().to_string();
+    let tool_name = extract_xml_element(content, "tool_name")?
+        .trim()
+        .to_string();
     let params_content = extract_xml_element(content, "parameters")?;
     let args = parse_xml_parameters(&params_content);
 
@@ -309,7 +311,10 @@ pub fn parse_from_text(text: &str, options: &ToolCallParseOptions) -> Vec<LlmToo
         let calls = match format {
             ParseFormat::Xml => parse_xml_tool_calls(text),
             ParseFormat::Json => {
-                let markers = options.markers.clone().unwrap_or_else(ToolCallMarkers::default_json);
+                let markers = options
+                    .markers
+                    .clone()
+                    .unwrap_or_else(ToolCallMarkers::default_json);
                 parse_json_tool_calls(text, &markers)
             }
             ParseFormat::Raw => parse_raw_json_tool_calls(text),
@@ -340,7 +345,10 @@ pub fn parse_partial(text: &str, options: &ToolCallParseOptions) -> Vec<LlmToolC
     }
 
     // Try wrapped JSON
-    let markers = options.markers.clone().unwrap_or_else(ToolCallMarkers::default_json);
+    let markers = options
+        .markers
+        .clone()
+        .unwrap_or_else(ToolCallMarkers::default_json);
     let start_marker = markers.start.as_deref().unwrap_or("<<<TOOL_CALL>>>");
     if text.contains(start_marker) {
         return parse_json_tool_calls(text, &markers);

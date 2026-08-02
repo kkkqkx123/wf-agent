@@ -3,6 +3,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use serde_json::Value;
 use wf_core::EventBus;
+use wf_llm::token_tracker::TokenUsageTracker;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
@@ -17,6 +18,8 @@ pub struct ExecutorContext {
     pub options: WorkflowExecutionOptions,
     pub parent_execution_id: Option<Id>,
     pub metrics: Option<Arc<MetricsRegistry>>,
+    /// Execution-scoped token usage tracker shared by LLM nodes.
+    pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
 }
 
 impl ExecutorContext {
@@ -36,7 +39,19 @@ impl ExecutorContext {
             options,
             parent_execution_id: None,
             metrics: None,
+            token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
         }
+    }
+
+    /// Configure the execution-scoped token limit (0 disables limit checks).
+    pub fn with_token_limit(self, token_limit: u64) -> Self {
+        if let Some(ref tracker) = self.token_tracker {
+            match tracker.try_lock() {
+                Ok(mut guard) => guard.set_token_limit(token_limit),
+                Err(_) => tracing::warn!("token tracker busy when setting limit; ignored"),
+            }
+        }
+        self
     }
 
     pub fn with_parent_execution(mut self, parent_id: Id) -> Self {
@@ -69,6 +84,8 @@ pub struct NodeExecutionContext {
     pub tool_registry: Option<Arc<ToolRegistry>>,
     /// Shared metrics registry; absent when metrics are disabled.
     pub metrics: Option<Arc<MetricsRegistry>>,
+    /// Execution-scoped token usage tracker (LLM nodes record into it).
+    pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
 }
 
 impl NodeExecutionContext {
@@ -94,6 +111,7 @@ impl NodeExecutionContext {
             graph_structure: None,
             tool_registry: None,
             metrics: None,
+            token_tracker: None,
         }
     }
 

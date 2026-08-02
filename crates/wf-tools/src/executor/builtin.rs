@@ -106,6 +106,11 @@ impl BuiltinExecutor {
                 .get("tool_call_format")
                 .and_then(|v| v.as_str())
                 .and_then(wf_types::llm::ToolCallFormatConfig::from_format_str),
+            token_limit: parameters.get("token_limit").and_then(|v| v.as_u64()),
+            token_warning_threshold: parameters
+                .get("token_warning_threshold")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32),
         };
 
         let input = AgentLoopInput {

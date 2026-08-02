@@ -48,7 +48,7 @@ impl ErrorAnalysis {
     }
 }
 
-fn http_status_to_kind(status: u16) -> ErrorKind {
+pub fn http_status_to_kind(status: u16) -> ErrorKind {
     match status {
         400 => ErrorKind::Validation,
         401 | 403 => ErrorKind::AuthError,
@@ -59,7 +59,7 @@ fn http_status_to_kind(status: u16) -> ErrorKind {
     }
 }
 
-fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
+pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
     let (kind, error_type, retryable, recovery_action) = match e {
         ToolError::NotFound(_) => (
             ErrorKind::NotFound,
@@ -146,7 +146,7 @@ fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
     }
 }
 
-fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
+pub fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
     let (kind, error_type, retryable, recovery_action) = match e {
         LlmError::Timeout(_) => (
             ErrorKind::Timeout,
@@ -215,7 +215,7 @@ fn llm_error_analysis(e: &LlmError) -> ErrorAnalysis {
     }
 }
 
-fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
+pub fn shared_error_analysis(e: &ExecutionSharedError) -> ErrorAnalysis {
     match e {
         ExecutionSharedError::StateError(_) => ErrorAnalysis {
             kind: ErrorKind::StateManagement,

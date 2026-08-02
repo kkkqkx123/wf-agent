@@ -52,6 +52,9 @@ pub enum IterationMode {
     Streaming,
 }
 
+/// Default token warning threshold percentage of the configured limit.
+pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = wf_llm::DEFAULT_TOKEN_WARNING_THRESHOLD;
+
 /// Single iteration implementation shared by blocking and streaming runs.
 pub struct AgentIterationCoordinator {
     gateway: Arc<LlmGateway>,
@@ -60,6 +63,8 @@ pub struct AgentIterationCoordinator {
     metrics: Option<Arc<MetricsRegistry>>,
     mode: IterationMode,
     event_sink: Option<AgentEventSink>,
+    event_bus: Option<Arc<wf_core::EventBus>>,
+    token_warning_threshold: u32,
 }
 
 impl AgentIterationCoordinator {
@@ -78,6 +83,8 @@ impl AgentIterationCoordinator {
             metrics,
             mode: IterationMode::Blocking,
             event_sink: None,
+            event_bus: None,
+            token_warning_threshold: DEFAULT_TOKEN_WARNING_THRESHOLD,
         }
     }
 
@@ -100,6 +107,18 @@ impl AgentIterationCoordinator {
     pub fn with_streaming(mut self, sink: AgentEventSink) -> Self {
         self.mode = IterationMode::Streaming;
         self.event_sink = Some(sink);
+        self
+    }
+
+    /// Attach the event bus token usage events are published to.
+    pub fn with_event_bus(mut self, event_bus: Arc<wf_core::EventBus>) -> Self {
+        self.event_bus = Some(event_bus);
+        self
+    }
+
+    /// Token warning threshold percentage of the configured limit.
+    pub fn with_token_warning_threshold(mut self, threshold_percentage: u32) -> Self {
+        self.token_warning_threshold = threshold_percentage;
         self
     }
 
@@ -152,6 +171,26 @@ impl AgentIterationCoordinator {
         )
         .await?;
 
+        // Pre-request token budget check: the estimate is approximate, so this
+        // is a warning only (never blocks the request); the provider's real
+        // count takes precedence. Fires at most once per session.
+        if let Some(ref bus) = self.event_bus {
+            let mut conversation = entity.conversation().write().await;
+            let token_limit = conversation.token_limit();
+            if token_limit > 0 {
+                let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                if estimated > token_limit && conversation.consume_preflight_warning() {
+                    let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                        &execution_id,
+                        Some(entity.id()),
+                        estimated,
+                        token_limit,
+                        estimated as f64 / token_limit as f64 * 100.0,
+                    ));
+                }
+            }
+        }
+
         if let Some(ref metrics) = self.metrics {
             if let Some(format) = entity.tool_call_format() {
                 metrics
@@ -160,17 +199,76 @@ impl AgentIterationCoordinator {
             }
         }
 
-        let (assistant_msg, llm_content, finish_reason) = match self.mode {
+        let (assistant_msg, llm_content, finish_reason, request_usage) = match self.mode {
             IterationMode::Blocking => {
                 let llm_result = self.gateway.generate(&request).await?;
+                let usage = llm_result.usage.as_ref().map(wf_llm::RequestUsage::from);
                 (
                     llm_result.message.clone(),
                     llm_result.content.clone(),
                     llm_result.finish_reason.clone(),
+                    usage,
                 )
             }
             IterationMode::Streaming => self.stream_llm_call(entity, &request).await?,
         };
+
+        // Record token usage into the conversation session (streaming usage
+        // deltas are already folded into `request_usage`).
+        {
+            let mut conversation = entity.conversation().write().await;
+            if let Some(usage) = &request_usage {
+                conversation.accumulate_stream_usage(usage);
+            } else {
+                // The provider reported no usage (some models/error paths):
+                // fall back to estimation so limit checks and history stay
+                // populated. Estimated values never touch metrics.
+                conversation.update_estimated_usage(
+                    wf_llm::estimate_request_tokens(&request),
+                    wf_llm::estimate_tokens(&text_of(&assistant_msg.content)) as u32,
+                );
+            }
+            conversation.finalize_current_request();
+
+            // Emit token usage events: a single-shot warning at the
+            // threshold crossing, then limit exceeded + compression
+            // requested when the configured limit is exceeded.
+            if let Some(ref bus) = self.event_bus {
+                let tokens_used = conversation.token_usage();
+                let token_limit = conversation.token_limit();
+                if token_limit > 0 {
+                    if conversation.consume_token_warning(self.token_warning_threshold as f64) {
+                        let percentage = conversation.usage_percentage().unwrap_or(0.0);
+                        let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                            &execution_id,
+                            Some(entity.id()),
+                            tokens_used,
+                            token_limit,
+                            percentage,
+                        ));
+                    }
+                    if conversation.is_token_limit_exceeded() {
+                        let message_count = conversation.messages().len();
+                        let messages = conversation.messages().to_vec();
+                        let _ = bus.publish(wf_llm::build_token_limit_exceeded_event(
+                            &execution_id,
+                            Some(entity.id()),
+                            tokens_used,
+                            token_limit,
+                        ));
+                        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
+                            &execution_id,
+                            Some(entity.id()),
+                            "conversation",
+                            tokens_used,
+                            token_limit,
+                            message_count,
+                            Some(&messages),
+                        ));
+                    }
+                }
+            }
+        }
 
         if let Some(result) = self.interrupted(entity, 0).await {
             return Ok(result);
@@ -335,9 +433,15 @@ impl AgentIterationCoordinator {
         &self,
         entity: &AgentLoopEntity,
         request: &LlmRequest,
-    ) -> AgentResult<(Message, Option<String>, Option<String>)> {
+    ) -> AgentResult<(
+        Message,
+        Option<String>,
+        Option<String>,
+        Option<wf_llm::RequestUsage>,
+    )> {
         let mut stream = self.gateway.generate_stream(request).await?;
         let mut final_message: Option<Message> = None;
+        let mut request_usage: Option<wf_llm::RequestUsage> = None;
 
         loop {
             let Some(event) = stream.next().await else {
@@ -380,6 +484,19 @@ impl AgentIterationCoordinator {
                 }
                 Ok(MessageStreamEvent::FinalMessage(msg)) => {
                     final_message = Some(msg.message);
+                    if let Some(usage) = msg.usage {
+                        request_usage = Some(wf_llm::RequestUsage::from(&usage));
+                    }
+                }
+                Ok(MessageStreamEvent::Usage(u)) => {
+                    // Merge mid-stream usage deltas into the current request
+                    let usage = wf_llm::RequestUsage::from(&u.usage);
+                    match &mut request_usage {
+                        Some(acc) => {
+                            acc.merge_non_zero(&usage);
+                        }
+                        None => request_usage = Some(usage),
+                    }
                 }
                 Ok(MessageStreamEvent::Error(e)) => {
                     return Err(AgentError::LlmError(wf_llm::error::LlmError::StreamError(
@@ -394,7 +511,6 @@ impl AgentIterationCoordinator {
                 Ok(MessageStreamEvent::End(_))
                 | Ok(MessageStreamEvent::Connect(_))
                 | Ok(MessageStreamEvent::InputJson(_))
-                | Ok(MessageStreamEvent::Usage(_))
                 | Ok(MessageStreamEvent::ToolCallDelta(_)) => {}
                 Err(e) => return Err(e.into()),
             }
@@ -406,7 +522,7 @@ impl AgentIterationCoordinator {
             ))
         })?;
         let content = text_of(&assistant_msg.content);
-        Ok((assistant_msg, Some(content), None))
+        Ok((assistant_msg, Some(content), None, request_usage))
     }
 
     /// Streaming tool execution: run each call sequentially and forward

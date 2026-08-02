@@ -9,6 +9,7 @@ use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_metrics::MetricsRegistry;
 use wf_sandbox::SandboxRuntime;
 use wf_types::events::{BaseEvent, EventType};
+use wf_types::message::Message;
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::{TriggerAction, TriggerExecutionResult};
 use wf_types::Id;
@@ -17,15 +18,13 @@ use crate::coordinator::WorkflowCoordinator;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 use crate::handler::{variable_mapping, HandlerRegistry};
+use crate::message_context;
 use crate::registry::{lookup_graph, lookup_script};
 use crate::WorkflowExecutionEntity;
 use wf_execution_shared::context::ExecutorContext;
 use wf_tools::registry::ToolRegistry;
 use wf_types::script::sandbox::SandboxConfig;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
-
-// EventType does not have NodeSkipped or NotificationSent variants,
-// so we use NodeCustomEvent / VariableChanged as closest alternatives.
 
 #[derive(Clone)]
 pub struct TriggerContext {
@@ -175,10 +174,11 @@ impl TriggerCoordinator {
     async fn handle_skip_node(node_id: &str, ctx: &TriggerContext) -> WorkflowResult<Value> {
         ctx.variables
             .insert(format!("__skipped_{}", node_id), Value::Bool(true));
-        Self::emit(
+        Self::emit_with_metadata(
             ctx,
-            EventType::NodeCustomEvent,
+            EventType::NodeSkipped,
             &format!("node_skipped:{}", node_id),
+            &[("node_id", Value::String(node_id.to_string()))],
         )
         .await;
         Ok(serde_json::json!({"skipped_node": node_id}))
@@ -204,10 +204,11 @@ impl TriggerCoordinator {
         message: &str,
         ctx: &TriggerContext,
     ) -> WorkflowResult<Value> {
-        Self::emit(
+        Self::emit_with_metadata(
             ctx,
-            EventType::NodeCustomEvent,
+            EventType::NotificationSent,
             &format!("notification:{}", message),
+            &[("message", Value::String(message.to_string()))],
         )
         .await;
         Ok(serde_json::json!({"sent": true, "message": message}))
@@ -551,7 +552,23 @@ impl TriggerCoordinator {
     }
 
     async fn emit(ctx: &TriggerContext, event_type: EventType, message: &str) {
+        Self::emit_with_metadata(ctx, event_type, message, &[]).await;
+    }
+
+    async fn emit_with_metadata(
+        ctx: &TriggerContext,
+        event_type: EventType,
+        message: &str,
+        extra: &[(&str, Value)],
+    ) {
         if let Some(ref bus) = ctx.event_bus {
+            let mut metadata = std::collections::HashMap::from([(
+                "trigger_message".to_string(),
+                Value::String(message.to_string()),
+            )]);
+            for (key, value) in extra {
+                metadata.insert(key.to_string(), value.clone());
+            }
             let event = BaseEvent {
                 id: wf_common::generate_id(),
                 r#type: event_type,
@@ -559,10 +576,7 @@ impl TriggerCoordinator {
                 workflow_id: Some(ctx.workflow_id.clone()),
                 execution_id: Some(ctx.execution_id.clone()),
                 agent_loop_id: None,
-                metadata: Some(std::collections::HashMap::from([(
-                    "trigger_message".to_string(),
-                    Value::String(message.to_string()),
-                )])),
+                metadata: Some(metadata),
             };
             let _ = bus.publish(event);
         }
@@ -676,7 +690,14 @@ fn map_message_inputs(ctx: &mut NodeExecutionContext) -> WorkflowResult<()> {
 
         match input_obj.get(source) {
             Some(value) => {
-                ctx.set_variable(internal, value.clone());
+                // Message inputs are registered as named message contexts
+                // (not plain variables): LLM / downstream nodes read them via
+                // `context_id`, mirroring the TS message-array semantics.
+                if let Ok(messages) = serde_json::from_value::<Vec<Message>>(value.clone()) {
+                    message_context::register_context(&ctx.variables, internal, messages);
+                } else {
+                    ctx.set_variable(internal, value.clone());
+                }
             }
             None if required => {
                 return Err(WorkflowError::TriggerError(format!(
@@ -720,6 +741,32 @@ fn export_variable_outputs(ctx: &mut NodeExecutionContext) {
             }
         }
     }
+}
+
+/// Export `message_outputs` (or camelCase) entries: expose the named message
+/// context as the node output (serialized `Vec<Message>`), so a triggered
+/// sub-workflow's final output is the message array (e.g. the compressed
+/// summary) that the event-driven trigger listener writes back. The first
+/// entry with a non-empty context wins.
+fn export_message_outputs(ctx: &mut NodeExecutionContext) -> Option<Value> {
+    let config = ctx.node_config.as_ref()?;
+    let outputs = config
+        .get("message_outputs")
+        .or_else(|| config.get("messageOutputs"))
+        .and_then(|v| v.as_array())?;
+
+    for entry in outputs {
+        let internal = entry
+            .get("internal_name")
+            .or_else(|| entry.get("internalName"))
+            .and_then(|v| v.as_str())?;
+        let messages = message_context::get_context(&ctx.variables, internal);
+        if messages.is_empty() {
+            continue;
+        }
+        return serde_json::to_value(&messages).ok();
+    }
+    None
 }
 
 /// START_FROM_TRIGGER: initializes workflow state from trigger input and
@@ -777,16 +824,17 @@ impl NodeHandler for ContinueFromTriggerHandler {
         ctx.set_variable(format!("__completed_{}", ctx.node_id), Value::from(true));
 
         export_variable_outputs(ctx);
+        let message_output = export_message_outputs(ctx);
 
         let next_node_ids = match ctx.node_config.as_ref().and_then(parse_trigger_action) {
             Some(action) => execute_action(&action, ctx).await?,
             None => Vec::new(),
         };
 
-        Ok(NodeExecutionResult::with_next_nodes(
-            ctx.input.clone(),
-            next_node_ids,
-        ))
+        // The node output is the exported message array when present (the
+        // compression sub-workflow's final output), the node input otherwise.
+        let output = message_output.unwrap_or_else(|| ctx.input.clone());
+        Ok(NodeExecutionResult::with_next_nodes(output, next_node_ids))
     }
 }
 
@@ -898,6 +946,71 @@ mod tests {
         ));
 
         assert!(parse_trigger_action(&serde_json::json!({"id": "n1"})).is_none());
+    }
+
+    fn msg(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
+        wf_types::message::Message {
+            id: wf_types::Id::new(),
+            role,
+            content: wf_types::message::MessageContentValue::Text(text.to_string()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn continue_from_trigger_exports_message_outputs() {
+        let vars = std::sync::Arc::new(DashMap::new());
+        crate::message_context::append_context(
+            &vars,
+            "compressed",
+            vec![msg(wf_types::message::MessageRole::Assistant, "summary")],
+        );
+
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "llm-summary-end".to_string(),
+            StaticNodeType::ContinueFromTrigger,
+            Value::Null,
+            vars,
+        )
+        .with_node_config(serde_json::json!({
+            "messageOutputs": [{
+                "internalName": "compressed",
+                "targetContextId": "current"
+            }]
+        }));
+
+        let handler = ContinueFromTriggerHandler;
+        let result = handler.execute(&mut ctx).await.unwrap();
+        let messages: Vec<wf_types::message::Message> =
+            serde_json::from_value(result.output).unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].content,
+            wf_types::message::MessageContentValue::Text("summary".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn continue_from_trigger_falls_back_to_input_without_message_outputs() {
+        let vars = std::sync::Arc::new(DashMap::new());
+        let mut ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "end-node".to_string(),
+            StaticNodeType::ContinueFromTrigger,
+            Value::String("plain".to_string()),
+            vars,
+        )
+        .with_node_config(serde_json::json!({}));
+
+        let handler = ContinueFromTriggerHandler;
+        let result = handler.execute(&mut ctx).await.unwrap();
+        assert_eq!(result.output, Value::String("plain".to_string()));
     }
 
     #[tokio::test]
@@ -1045,6 +1158,47 @@ mod tests {
         .await;
         assert!(result.success, "ignore_error should swallow failures");
         assert_eq!(result.result.unwrap()["success"], serde_json::json!(false));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_events_use_dedicated_types() {
+        let bus = Arc::new(wf_core::EventBus::new(16));
+        let mut sub = bus.subscribe();
+        let ctx = TriggerContext::new(Id::new(), Id::new()).with_event_bus(bus);
+
+        let skip = TriggerCoordinator::execute(
+            &TriggerAction::SkipNode {
+                node_id: Some("n-42".to_string()),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(skip.success);
+
+        let notify = TriggerCoordinator::execute(
+            &TriggerAction::SendNotification {
+                message: "hello".to_string(),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(notify.success);
+
+        let first = sub.recv().await.unwrap();
+        assert_eq!(first.r#type, EventType::NodeSkipped);
+        assert_eq!(
+            first.metadata.as_ref().unwrap().get("node_id"),
+            Some(&serde_json::json!("n-42"))
+        );
+
+        let second = sub.recv().await.unwrap();
+        assert_eq!(second.r#type, EventType::NotificationSent);
+        assert_eq!(
+            second.metadata.as_ref().unwrap().get("message"),
+            Some(&serde_json::json!("hello"))
+        );
     }
 
     #[tokio::test]

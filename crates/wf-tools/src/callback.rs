@@ -26,6 +26,11 @@ pub struct AgentLoopConfig {
     pub available_tool_names: Vec<String>,
     /// Protocol lock for tool calls (e.g. XML wrapping).
     pub tool_call_format: Option<wf_types::llm::tool_call_format::ToolCallFormatConfig>,
+    /// Cumulative token limit for the agent conversation; 0 disables
+    /// limit checks and warning events.
+    pub token_limit: Option<u64>,
+    /// Warning threshold percentage of the token limit (default 80).
+    pub token_warning_threshold: Option<u32>,
 }
 
 #[derive(Debug, Clone)]

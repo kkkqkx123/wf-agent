@@ -1,6 +1,56 @@
 use crate::error::LlmResult;
-use wf_types::llm::{LlmProfile, LlmResult as LlmResponseType, MessageStreamEvent};
+use wf_types::llm::{
+    LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, ToolCallFormat,
+};
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
+
+/// Whether the request runs in text-based tool mode (non-native tool format).
+pub fn is_text_mode(request: &LlmRequest) -> bool {
+    matches!(
+        request.tool_call_format,
+        Some(ref f) if *f != ToolCallFormat::Native
+    )
+}
+
+/// Effective tool call format: the locked format wins, otherwise the request
+/// format, otherwise native.
+pub fn effective_tool_call_format(request: &LlmRequest) -> ToolCallFormat {
+    request
+        .locked_tool_call_format
+        .as_ref()
+        .map(|c| c.format.clone())
+        .or_else(|| request.tool_call_format.clone())
+        .unwrap_or(ToolCallFormat::Native)
+}
+
+/// Build the system prompt content for text-based tool mode: existing system
+/// message + tool usage instructions + tool declarations.
+pub fn text_mode_system_content(request: &LlmRequest) -> String {
+    use crate::tool_format::{build_text_mode_system_content, extract_system_message};
+    let format = effective_tool_call_format(request);
+    let (system, _) = extract_system_message(&request.messages);
+    let tools = request.tools.as_deref().unwrap_or(&[]);
+    build_text_mode_system_content(system.as_deref().unwrap_or(""), tools, format, false)
+}
+
+/// Parse tool calls from text content in text-based tool mode.
+pub fn parse_text_tool_calls(
+    request: &LlmRequest,
+    content: &str,
+) -> Vec<wf_types::message::LlmToolCall> {
+    use crate::tool_call_parser::parse_from_text;
+    use crate::tool_format::get_tool_call_parser_options;
+    let format = effective_tool_call_format(request);
+    if format == ToolCallFormat::Native {
+        return Vec::new();
+    }
+    let markers = request
+        .locked_tool_call_format
+        .as_ref()
+        .and_then(|c| c.markers.clone());
+    let options = get_tool_call_parser_options(format, markers.as_ref());
+    parse_from_text(content, &options)
+}
 
 pub fn convert_openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
     messages
@@ -255,17 +305,43 @@ pub fn parse_openai_stream_chunk(data: &str) -> LlmResult<Option<MessageStreamEv
         if let Some(delta) = choice.get("delta") {
             if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                 return Ok(Some(MessageStreamEvent::Text(
-                    wf_types::llm::MessageStreamText { snapshot: String::new(),
+                    wf_types::llm::MessageStreamText {
+                        snapshot: String::new(),
                         text: content.to_string(),
                     },
                 )));
             }
             if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
                 return Ok(Some(MessageStreamEvent::ReasoningText(
-                    wf_types::llm::MessageStreamReasoning { snapshot: String::new(),
+                    wf_types::llm::MessageStreamReasoning {
+                        snapshot: String::new(),
                         reasoning: reasoning.to_string(),
                     },
                 )));
+            }
+            if let Some(tool_calls) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+                if let Some(call) = tool_calls.first() {
+                    let index = call.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let id = call.get("id").and_then(|v| v.as_str()).map(String::from);
+                    let function = call.get("function");
+                    let name = function
+                        .and_then(|f| f.get("name"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let arguments = function
+                        .and_then(|f| f.get("arguments"))
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    return Ok(Some(MessageStreamEvent::ToolCallDelta(
+                        wf_types::llm::MessageStreamToolCallDelta {
+                            index,
+                            id,
+                            name,
+                            arguments,
+                            is_snapshot: false,
+                        },
+                    )));
+                }
             }
         }
         if let Some(finish_reason) = choice.get("finish_reason").and_then(|r| r.as_str()) {
@@ -301,14 +377,34 @@ pub fn convert_openai_tools(tools: &[wf_types::tool::Tool]) -> LlmResult<Vec<ser
     Ok(tool_defs)
 }
 
-pub fn add_auth_and_headers(
+/// Apply authentication, custom headers and query parameters to the request.
+///
+/// Auth type resolution: `profile.auth_type` wins when set ("native" /
+/// "bearer" / "x-api-key"), otherwise `default_auth` is used. "native" maps
+/// to the provider-specific header (x-api-key for Anthropic, x-goog-api-key
+/// for Gemini, Bearer for OpenAI).
+pub fn apply_auth_and_headers(
     req_builder: reqwest::RequestBuilder,
     profile: &LlmProfile,
-    auth_type: &str,
+    default_auth: &str,
 ) -> reqwest::RequestBuilder {
     let mut builder = req_builder;
+
     if let Some(api_key) = &profile.api_key {
+        let auth_type = profile.auth_type.as_deref().unwrap_or(default_auth);
         match auth_type {
+            "native" => match profile.provider {
+                wf_types::llm::LlmProvider::Anthropic => {
+                    builder = builder.header("x-api-key", api_key);
+                }
+                wf_types::llm::LlmProvider::GeminiNative
+                | wf_types::llm::LlmProvider::GeminiOpenai => {
+                    builder = builder.header("x-goog-api-key", api_key);
+                }
+                _ => {
+                    builder = builder.header("Authorization", format!("Bearer {}", api_key));
+                }
+            },
             "x-api-key" => {
                 builder = builder.header("x-api-key", api_key);
             }
@@ -317,12 +413,44 @@ pub fn add_auth_and_headers(
             }
         }
     }
+
     if let Some(headers) = &profile.headers {
         for (key, value) in headers.iter() {
             builder = builder.header(key, value.as_str().unwrap_or(""));
         }
     }
+    if let Some(custom_headers) = &profile.custom_headers {
+        for (key, value) in custom_headers.iter() {
+            builder = builder.header(key, value.as_str().unwrap_or(""));
+        }
+    }
+    if let Some(params) = &profile.query_params {
+        let pairs: Vec<(&str, &str)> = params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str().unwrap_or("")))
+            .collect();
+        builder = builder.query(&pairs);
+    }
+
     builder
+}
+
+/// Deep-merge `profile.custom_body` into the request body (custom body wins),
+/// governed by `custom_body_enabled`.
+pub fn apply_custom_body(body: &mut serde_json::Value, profile: &LlmProfile) {
+    if profile.custom_body_enabled.unwrap_or(true) {
+        if let Some(custom) = &profile.custom_body {
+            *body = crate::formatter_helpers::deep_merge(body, custom);
+        }
+    }
+}
+
+pub fn add_auth_and_headers(
+    req_builder: reqwest::RequestBuilder,
+    profile: &LlmProfile,
+    auth_type: &str,
+) -> reqwest::RequestBuilder {
+    apply_auth_and_headers(req_builder, profile, auth_type)
 }
 
 #[cfg(test)]
@@ -350,5 +478,98 @@ mod tests {
         assert!(parse_openai_stream_chunk(chunk)
             .expect("chunk must parse")
             .is_none());
+    }
+
+    #[test]
+    fn stream_tool_call_delta_is_extracted() {
+        let chunk = r#"{"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Bei"}}]}}]}"#;
+        match parse_openai_stream_chunk(chunk).expect("chunk must parse") {
+            Some(MessageStreamEvent::ToolCallDelta(delta)) => {
+                assert_eq!(delta.index, 0);
+                assert_eq!(delta.id.as_deref(), Some("call_1"));
+                assert_eq!(delta.name.as_deref(), Some("get_weather"));
+                assert_eq!(delta.arguments.as_deref(), Some(r#"{"city":"Bei"#));
+                assert!(!delta.is_snapshot);
+            }
+            other => panic!("expected ToolCallDelta, got {:?}", other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod enhancement_tests {
+    use super::*;
+    use wf_types::llm::LlmProvider;
+
+    fn profile_with(auth_type: Option<&str>) -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: LlmProvider::Anthropic,
+            model: "claude-3-5-sonnet".to_string(),
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: auth_type.map(String::from),
+            custom_headers: Some(
+                [("x-custom".to_string(), serde_json::json!("v1"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: Some(
+                [("api-version".to_string(), serde_json::json!("2024-01"))]
+                    .into_iter()
+                    .collect(),
+            ),
+            stream_options: None,
+        }
+    }
+
+    #[test]
+    fn native_auth_uses_provider_header() {
+        let req =
+            reqwest::Client::new().request(reqwest::Method::POST, "https://example.com/messages");
+        let req = apply_auth_and_headers(req, &profile_with(Some("native")), "bearer")
+            .build()
+            .unwrap();
+        assert_eq!(
+            req.headers().get("x-api-key").unwrap(),
+            "sk-test",
+            "anthropic native auth must use x-api-key"
+        );
+        assert!(req.headers().get("Authorization").is_none());
+    }
+
+    #[test]
+    fn bearer_auth_overrides_default() {
+        let req =
+            reqwest::Client::new().request(reqwest::Method::POST, "https://example.com/messages");
+        let req = apply_auth_and_headers(req, &profile_with(Some("bearer")), "x-api-key")
+            .build()
+            .unwrap();
+        assert!(req.headers().get("x-api-key").is_none());
+        assert_eq!(
+            req.headers().get("Authorization").unwrap(),
+            "Bearer sk-test"
+        );
+    }
+
+    #[test]
+    fn custom_headers_and_query_params_are_applied() {
+        let req =
+            reqwest::Client::new().request(reqwest::Method::POST, "https://example.com/messages");
+        let req = apply_auth_and_headers(req, &profile_with(None), "bearer")
+            .build()
+            .unwrap();
+        assert_eq!(req.headers().get("x-custom").unwrap(), "v1");
+        assert_eq!(req.url().query().unwrap(), "api-version=2024-01");
     }
 }

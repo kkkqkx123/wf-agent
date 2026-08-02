@@ -10,6 +10,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+dashmap.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }
@@ -21,7 +24,12 @@ wf-llm = { path = "../wf-llm" }
 wf-checkpoint = { path = "../wf-checkpoint", optional = true }
 wf-plugin = { path = "../wf-plugin", optional = true }
 wf-server = { path = "../wf-server" }
-async-trait.workspace = true
+wf-workflow = { path = "../wf-workflow" }
+wf-execution-shared = { path = "../wf-execution-shared" }
+wf-tools = { path = "../wf-tools" }
+
+[dev-dependencies]
+wf-llm = { path = "../wf-llm", features = ["mock"] }
 
 [features]
 default = ["sqlite", "postgres"]

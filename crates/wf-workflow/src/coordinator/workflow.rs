@@ -19,6 +19,7 @@ use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::coordinator::NodeCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
+use crate::error_analysis::workflow_error_record;
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
 use crate::state::{NodeExecutionRecord, WorkflowExecutionStateSnapshot};
@@ -310,6 +311,33 @@ impl WorkflowCoordinator {
             });
     }
 
+    /// Persist a structured error record for a failed node attempt, linking
+    /// it to the previous record so the full execution forms an error chain.
+    async fn record_workflow_error(
+        entity: &WorkflowExecutionEntity,
+        error: &WorkflowError,
+        node_id: &str,
+        retry_attempt: u32,
+    ) {
+        let mut state = entity.state.write().await;
+        let previous = state.error_records().last().cloned();
+        let mut record = workflow_error_record(error, entity.id(), node_id, retry_attempt);
+        match previous {
+            Some(prev) => {
+                record.parent_error_id = Some(prev.id.clone());
+                let mut chain = prev.error_chain.clone();
+                chain.push(record.id.clone());
+                record.error_chain = chain;
+                record.root_cause_id = prev.root_cause_id.clone();
+            }
+            None => {
+                record.error_chain = vec![record.id.clone()];
+                record.root_cause_id = record.id.clone();
+            }
+        }
+        state.add_error_record(record);
+    }
+
     pub async fn execute(&mut self) -> WorkflowResult<Value> {
         let entity = self.entity.as_ref().ok_or_else(|| {
             WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
@@ -426,6 +454,16 @@ impl WorkflowCoordinator {
             }
 
             if self.completed_nodes.contains(node_id) {
+                self.emit_event(
+                    event_bus,
+                    EventType::NodeSkipped,
+                    entity,
+                    &serde_json::json!({
+                        "node_id": node_id,
+                        "reason": "already_completed",
+                    }),
+                )
+                .await;
                 self.current_node_id = self.determine_next_node_without_output().await?;
                 continue;
             }
@@ -550,6 +588,8 @@ impl WorkflowCoordinator {
                 Err(e) => {
                     self.node_errors.push(format!("Node {}: {}", node_id, e));
 
+                    Self::record_workflow_error(entity, &e, node_id, 0).await;
+
                     self.record_node_execution(
                         entity,
                         ExecutionAttempt {
@@ -644,6 +684,13 @@ impl WorkflowCoordinator {
                                         break;
                                     }
                                     Err(retry_err) => {
+                                        Self::record_workflow_error(
+                                            entity,
+                                            &retry_err,
+                                            node_id,
+                                            attempt + 1,
+                                        )
+                                        .await;
                                         self.record_node_execution(
                                             entity,
                                             ExecutionAttempt {
@@ -817,6 +864,7 @@ impl WorkflowCoordinator {
         ctx.graph_structure = Some(Arc::new(self.traversal.graph().clone()));
         ctx.tool_registry = Some(self.ctx.tool_registry.clone());
         ctx.metrics = self.ctx.metrics.clone();
+        ctx.token_tracker = self.ctx.token_tracker.clone();
 
         Ok(ctx)
     }
@@ -1230,5 +1278,66 @@ mod tests {
         let result = run(g, options(), handlers).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("always fails"));
+    }
+
+    #[tokio::test]
+    async fn failed_node_writes_structured_error_records() {
+        let handlers = base_handlers(vec![(
+            StaticNodeType::Variable,
+            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+        )]);
+        let g = graph(vec![
+            node("start", "START", Value::Null),
+            node(
+                "flaky",
+                "VARIABLE",
+                serde_json::json!({
+                    "on_failure": "retry",
+                    "retry_policy": {
+                        "enabled": true,
+                        "max_retries": 1,
+                        "base_delay_ms": 1
+                    }
+                }),
+            ),
+            node("end", "END", Value::Null),
+        ]);
+        let exec_ctx = ExecutorContext::new(
+            wf_common::generate_id(),
+            wf_common::generate_id(),
+            None,
+            Arc::new(ToolRegistry::new()),
+            options(),
+        );
+        let entity = WorkflowExecutionEntity::new(
+            exec_ctx.execution_id.clone(),
+            exec_ctx.workflow_id.clone(),
+        );
+        let mut coordinator = WorkflowCoordinator::new(exec_ctx, g, handlers)
+            .unwrap()
+            .with_entity(entity);
+        assert!(coordinator.execute().await.is_err());
+
+        let entity = coordinator.entity.as_ref().unwrap();
+        let state = entity.state.read().await;
+        let records = state.error_records();
+        assert_eq!(records.len(), 2, "initial failure + retry failure");
+        assert_eq!(records[0].node_id.as_deref(), Some("flaky"));
+        assert_eq!(records[1].node_id.as_deref(), Some("flaky"));
+        assert!(records[1].error.contains("retry attempt 1"));
+        assert!(records[0].error_type.is_some());
+        assert!(matches!(
+            records[0].caused_by,
+            Some(ref cause) if cause.handling_attempt.as_deref() == Some("retry_0")
+        ));
+        assert_eq!(
+            records[1].parent_error_id.as_deref(),
+            Some(records[0].id.as_str())
+        );
+        assert_eq!(records[1].root_cause_id, records[0].root_cause_id);
+        assert_eq!(
+            records[1].error_chain,
+            vec![records[0].id.clone(), records[1].id.clone()]
+        );
     }
 }

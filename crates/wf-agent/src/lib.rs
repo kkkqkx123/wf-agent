@@ -22,7 +22,9 @@ pub use approval::{
 pub use callback::register_builtin_tools;
 pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
 pub use error::{AgentError, AgentResult};
-pub use error_analysis::{analyze_error, ErrorAnalysis};
+pub use error_analysis::{
+    analyze_error, llm_error_analysis, shared_error_analysis, tool_error_analysis, ErrorAnalysis,
+};
 pub use executor::AgentLoopExecutor;
 pub use registry::AgentLoopRegistry;
 pub use stream::{AgentEventStream, AgentStreamEvent};

@@ -11,7 +11,9 @@ use wf_types::llm::{
     MessageStreamEvent, MessageStreamFinal, MessageStreamInputJson, MessageStreamReasoning,
     MessageStreamText, TokenUsageStats,
 };
-use wf_types::message::{LlmFunctionCall, LlmToolCall, Message, MessageContent, MessageContentValue, MessageRole};
+use wf_types::message::{
+    LlmFunctionCall, LlmToolCall, Message, MessageContent, MessageContentValue, MessageRole,
+};
 
 #[async_trait]
 pub trait MessageStream: Send {
@@ -72,31 +74,29 @@ where
                     }
 
                     match self.formatter.parse_stream_chunk(&data) {
-                        Ok(Some(raw_event)) => {
-                            match raw_event {
-                                MessageStreamEvent::End(_) => {
-                                    self.done = true;
-                                    return Some(Ok(MessageStreamEvent::End(
-                                        wf_types::llm::MessageStreamEnd {},
-                                    )));
-                                }
-                                _ => {
-                                    if let Some(emitted) = self.accumulator.push(raw_event) {
-                                        match emitted {
-                                            MessageStreamEvent::Abort(_) => {
-                                                self.done = true;
-                                            }
-                                            MessageStreamEvent::End(_) => {
-                                                self.done = true;
-                                            }
-                                            _ => {}
-                                        }
-                                        return Some(Ok(emitted));
-                                    }
-                                    continue;
-                                }
+                        Ok(Some(raw_event)) => match raw_event {
+                            MessageStreamEvent::End(_) => {
+                                self.done = true;
+                                return Some(Ok(MessageStreamEvent::End(
+                                    wf_types::llm::MessageStreamEnd {},
+                                )));
                             }
-                        }
+                            _ => {
+                                if let Some(emitted) = self.accumulator.push(raw_event) {
+                                    match emitted {
+                                        MessageStreamEvent::Abort(_) => {
+                                            self.done = true;
+                                        }
+                                        MessageStreamEvent::End(_) => {
+                                            self.done = true;
+                                        }
+                                        _ => {}
+                                    }
+                                    return Some(Ok(emitted));
+                                }
+                                continue;
+                            }
+                        },
                         Ok(None) => continue,
                         Err(e) => return Some(Err(e)),
                     }
@@ -166,7 +166,9 @@ impl MessageAccumulator {
                     if result.detected {
                         return Some(MessageStreamEvent::Abort(
                             wf_types::llm::MessageStreamAbort {
-                                reason: result.details.unwrap_or_else(|| "Dead loop detected".to_string()),
+                                reason: result
+                                    .details
+                                    .unwrap_or_else(|| "Dead loop detected".to_string()),
                             },
                         ));
                     }
@@ -180,18 +182,24 @@ impl MessageAccumulator {
             MessageStreamEvent::InputJson(input_json) => {
                 // For Anthropic-style input_json_delta, accumulate by index
                 let index = input_json.index.unwrap_or(0);
-                let partial_tool_call = self.tool_calls.entry(index).or_insert_with(|| PartialToolCall {
-                    id: None,
-                    name: None,
-                    arguments: String::new(),
-                    index,
-                });
-                partial_tool_call.arguments.push_str(&input_json.partial_json);
+                let partial_tool_call =
+                    self.tool_calls
+                        .entry(index)
+                        .or_insert_with(|| PartialToolCall {
+                            id: None,
+                            name: None,
+                            arguments: String::new(),
+                            index,
+                        });
+                partial_tool_call
+                    .arguments
+                    .push_str(&input_json.partial_json);
 
                 // Try to parse the accumulated JSON
-                let parsed_snapshot = crate::partial_json_parser::parse_partial_json(&partial_tool_call.arguments)
-                    .as_complete()
-                    .cloned();
+                let parsed_snapshot =
+                    crate::partial_json_parser::parse_partial_json(&partial_tool_call.arguments)
+                        .as_complete()
+                        .cloned();
 
                 Some(MessageStreamEvent::InputJson(MessageStreamInputJson {
                     partial_json: input_json.partial_json,
@@ -201,21 +209,38 @@ impl MessageAccumulator {
             }
             MessageStreamEvent::ToolCallDelta(delta) => {
                 // Accumulate tool call fragments
-                let partial = self.tool_calls.entry(delta.index).or_insert_with(|| PartialToolCall {
-                    id: None,
-                    name: None,
-                    arguments: String::new(),
-                    index: delta.index,
-                });
+                let partial =
+                    self.tool_calls
+                        .entry(delta.index)
+                        .or_insert_with(|| PartialToolCall {
+                            id: None,
+                            name: None,
+                            arguments: String::new(),
+                            index: delta.index,
+                        });
 
-                if let Some(id) = delta.id.clone() {
-                    partial.id = Some(id);
-                }
-                if let Some(name) = delta.name.clone() {
-                    partial.name = Some(name);
-                }
-                if let Some(ref args) = delta.arguments {
-                    partial.arguments.push_str(args);
+                if delta.is_snapshot {
+                    // Complete snapshot (Gemini functionCall, OpenAI response
+                    // function_call.done): replace accumulated fragments.
+                    if let Some(id) = delta.id.clone() {
+                        partial.id = Some(id);
+                    }
+                    if let Some(name) = delta.name.clone() {
+                        partial.name = Some(name);
+                    }
+                    if let Some(ref args) = delta.arguments {
+                        partial.arguments = args.clone();
+                    }
+                } else {
+                    if let Some(id) = delta.id.clone() {
+                        partial.id = Some(id);
+                    }
+                    if let Some(name) = delta.name.clone() {
+                        partial.name = Some(name);
+                    }
+                    if let Some(ref args) = delta.arguments {
+                        partial.arguments.push_str(args);
+                    }
                 }
 
                 // Return the delta for consumers that want incremental updates
@@ -250,7 +275,11 @@ impl MessageAccumulator {
                     timestamp: wf_common::time::now(),
                     tool_call_id: None,
                     tool_name: None,
-                    tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                    tool_calls: if tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(tool_calls)
+                    },
                     thinking: if self.reasoning_snapshot.is_empty() {
                         None
                     } else {
@@ -262,7 +291,7 @@ impl MessageAccumulator {
                 Some(MessageStreamEvent::FinalMessage(MessageStreamFinal {
                     message,
                     usage: self.usage.clone(),
-                    stream_stats: None, // Will be filled by StreamStatsRecordingStream
+                    stream_stats: None, // Filled by the gateway stream wrapper
                 }))
             }
             // Pass through other events unchanged
@@ -294,3 +323,122 @@ impl MessageAccumulator {
 }
 
 impl PartialToolCall {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::{MessageStreamToolCallDelta, MessageStreamUsage};
+
+    #[test]
+    fn openai_style_deltas_accumulate_into_full_tool_call() {
+        let mut acc = MessageAccumulator::new(None);
+
+        acc.push(MessageStreamEvent::ToolCallDelta(
+            MessageStreamToolCallDelta {
+                index: 0,
+                id: Some("call_1".to_string()),
+                name: Some("get_weather".to_string()),
+                arguments: Some(r#"{"city":"Bei"#.to_string()),
+                is_snapshot: false,
+            },
+        ));
+        acc.push(MessageStreamEvent::ToolCallDelta(
+            MessageStreamToolCallDelta {
+                index: 0,
+                id: None,
+                name: None,
+                arguments: Some(r#"jing"}"#.to_string()),
+                is_snapshot: false,
+            },
+        ));
+        acc.push(MessageStreamEvent::ToolCallDelta(
+            MessageStreamToolCallDelta {
+                index: 1,
+                id: Some("call_2".to_string()),
+                name: Some("get_time".to_string()),
+                arguments: Some("{}".to_string()),
+                is_snapshot: false,
+            },
+        ));
+
+        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
+            panic!("expected FinalMessage");
+        };
+        let calls = final_msg.message.tool_calls.unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].function.name, "get_weather");
+        assert_eq!(calls[0].function.arguments, r#"{"city":"Beijing"}"#);
+        assert_eq!(calls[1].function.name, "get_time");
+    }
+
+    #[test]
+    fn snapshot_delta_replaces_fragments() {
+        let mut acc = MessageAccumulator::new(None);
+
+        acc.push(MessageStreamEvent::ToolCallDelta(
+            MessageStreamToolCallDelta {
+                index: 0,
+                id: Some("fc_1".to_string()),
+                name: None,
+                arguments: Some(r#"{"a":"#.to_string()),
+                is_snapshot: false,
+            },
+        ));
+        acc.push(MessageStreamEvent::ToolCallDelta(
+            MessageStreamToolCallDelta {
+                index: 0,
+                id: Some("fc_1".to_string()),
+                name: Some("get_weather".to_string()),
+                arguments: Some(r#"{"city":"Beijing"}"#.to_string()),
+                is_snapshot: true,
+            },
+        ));
+
+        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
+            panic!("expected FinalMessage");
+        };
+        let calls = final_msg.message.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "get_weather");
+        assert_eq!(calls[0].function.arguments, r#"{"city":"Beijing"}"#);
+    }
+
+    #[test]
+    fn text_snapshot_and_usage_merge_on_final_message() {
+        let mut acc = MessageAccumulator::new(None);
+
+        acc.push(MessageStreamEvent::Text(MessageStreamText {
+            text: "hello".to_string(),
+            snapshot: String::new(),
+        }));
+        acc.push(MessageStreamEvent::Text(MessageStreamText {
+            text: " world".to_string(),
+            snapshot: String::new(),
+        }));
+        acc.push(MessageStreamEvent::Usage(MessageStreamUsage {
+            usage: TokenUsageStats {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+                reasoning_tokens: None,
+                prompt_tokens_cost: None,
+                completion_tokens_cost: None,
+                total_cost: None,
+            },
+        }));
+
+        let final_event = acc.push(MessageStreamEvent::End(wf_types::llm::MessageStreamEnd {}));
+        let MessageStreamEvent::FinalMessage(final_msg) = final_event.unwrap() else {
+            panic!("expected FinalMessage");
+        };
+        assert_eq!(
+            final_msg.message.content,
+            MessageContentValue::Text("hello world".to_string())
+        );
+        let usage = final_msg.usage.unwrap();
+        assert_eq!(usage.total_tokens, 15);
+    }
+}

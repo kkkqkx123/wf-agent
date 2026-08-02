@@ -98,7 +98,8 @@ impl NodeHandler for ContextProcessorHandler {
     }
 
     async fn execute(&self, ctx: &mut NodeExecutionContext) -> WorkflowResult<NodeExecutionResult> {
-        let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
+        let config = ctx.node_config.as_ref().cloned().unwrap_or(Value::Null);
+
         let Some(operation_value) = config.get("variable_operation") else {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         };

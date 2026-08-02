@@ -189,6 +189,11 @@ impl NodeHandler for AgentLoopHandler {
             tool_call_format: agent_config
                 .and_then(|c| c.tool_call_format.as_ref())
                 .and_then(|format| wf_types::llm::ToolCallFormatConfig::from_format_str(format)),
+            token_limit: config.get("token_limit").and_then(|v| v.as_u64()),
+            token_warning_threshold: config
+                .get("token_warning_threshold")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32),
         };
 
         let loop_input = AgentLoopInput {

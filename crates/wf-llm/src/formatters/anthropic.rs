@@ -177,6 +177,8 @@ impl LlmFormatter for AnthropicFormatter {
             profile.base_url.as_deref().unwrap_or(&self.base_url)
         );
 
+        let use_text_mode = super::shared::is_text_mode(request);
+
         let messages = self.convert_messages(&request.messages);
 
         let mut body = serde_json::json!({
@@ -184,6 +186,13 @@ impl LlmFormatter for AnthropicFormatter {
             "messages": messages,
             "max_tokens": 4096,
         });
+
+        if use_text_mode {
+            let system = super::shared::text_mode_system_content(request);
+            if !system.is_empty() {
+                body["system"] = serde_json::json!(system);
+            }
+        }
 
         let merged_params =
             crate::formatter_helpers::merge_parameters(profile, &request.parameters);
@@ -200,6 +209,73 @@ impl LlmFormatter for AnthropicFormatter {
             body["stop_sequences"] = stop.clone();
         }
 
+        if !use_text_mode {
+            if let Some(tools) = &request.tools {
+                let tool_defs: Vec<serde_json::Value> = tools
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "name": t.name,
+                            "description": t.description,
+                            "input_schema": t.parameters,
+                        })
+                    })
+                    .collect();
+                body["tools"] = serde_json::json!(tool_defs);
+            }
+        }
+
+        if request.stream == Some(true) {
+            body["stream"] = serde_json::json!(true);
+        }
+
+        super::shared::apply_custom_body(&mut body, profile);
+
+        let mut req_builder = reqwest::Client::new()
+            .request(Method::POST, &url)
+            .header("Content-Type", "application/json")
+            .header("anthropic-version", "2023-06-01")
+            .json(&body);
+
+        req_builder = super::shared::apply_auth_and_headers(req_builder, profile, "x-api-key");
+
+        req_builder
+            .build()
+            .map_err(crate::error::LlmError::HttpError)
+    }
+
+    fn build_count_tokens_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        let url = format!(
+            "{}/messages/count_tokens",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
+
+        let messages = self.convert_messages(&request.messages);
+
+        let mut body = serde_json::json!({
+            "model": profile.model,
+            "messages": messages,
+        });
+
+        // `convert_messages` skips system messages; extract them into the
+        // `system` field so the count matches what `build_request` sends.
+        let system_parts: Vec<String> = request
+            .messages
+            .iter()
+            .filter(|m| m.role == wf_types::message::MessageRole::System)
+            .filter_map(|m| match &m.content {
+                wf_types::message::MessageContentValue::Text(t) if !t.is_empty() => Some(t.clone()),
+                _ => None,
+            })
+            .collect();
+        if !system_parts.is_empty() {
+            body["system"] = serde_json::json!(system_parts);
+        }
+
         if let Some(tools) = &request.tools {
             let tool_defs: Vec<serde_json::Value> = tools
                 .iter()
@@ -212,10 +288,6 @@ impl LlmFormatter for AnthropicFormatter {
                 })
                 .collect();
             body["tools"] = serde_json::json!(tool_defs);
-        }
-
-        if request.stream == Some(true) {
-            body["stream"] = serde_json::json!(true);
         }
 
         let mut req_builder = reqwest::Client::new()
@@ -236,10 +308,172 @@ impl LlmFormatter for AnthropicFormatter {
 
         req_builder
             .build()
+            .map(Some)
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+        let mut result = self.parse_anthropic_response(body)?;
+        if super::shared::is_text_mode(request) {
+            if let Some(content) = result.content.clone() {
+                let calls = super::shared::parse_text_tool_calls(request, &content);
+                if !calls.is_empty() {
+                    result.tool_calls = Some(calls.clone());
+                    result.message.tool_calls = Some(calls);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {
+        if data.is_empty() {
+            return Ok(None);
+        }
+
+        let json: serde_json::Value = serde_json::from_str(data)?;
+        let event_type = json.get("type").and_then(|v| v.as_str());
+
+        match event_type {
+            Some("message_start") => Ok(None),
+            Some("content_block_start") => {
+                let block = json.get("content_block");
+                if let Some(b) = block {
+                    if b.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                        let index =
+                            json.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                        let id = b.get("id").and_then(|v| v.as_str()).map(String::from);
+                        let name = b.get("name").and_then(|v| v.as_str()).map(String::from);
+                        return Ok(Some(MessageStreamEvent::ToolCallDelta(
+                            wf_types::llm::MessageStreamToolCallDelta {
+                                index,
+                                id,
+                                name,
+                                arguments: None,
+                                is_snapshot: false,
+                            },
+                        )));
+                    }
+                }
+                Ok(None)
+            }
+            Some("content_block_delta") => {
+                let delta = json.get("delta");
+                if let Some(d) = delta {
+                    match d.get("type").and_then(|v| v.as_str()) {
+                        Some("text_delta") => {
+                            if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::Text(
+                                    wf_types::llm::MessageStreamText {
+                                        text: text.to_string(),
+                                        snapshot: text.to_string(),
+                                    },
+                                )));
+                            }
+                        }
+                        Some("thinking_delta") => {
+                            if let Some(reasoning) = d.get("thinking").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::ReasoningText(
+                                    wf_types::llm::MessageStreamReasoning {
+                                        reasoning: reasoning.to_string(),
+                                        snapshot: reasoning.to_string(),
+                                    },
+                                )));
+                            }
+                        }
+                        Some("input_json_delta") => {
+                            if let Some(partial) = d.get("partial_json").and_then(|v| v.as_str()) {
+                                let index = json.get("index").and_then(|v| v.as_u64()).unwrap_or(0)
+                                    as usize;
+                                return Ok(Some(MessageStreamEvent::ToolCallDelta(
+                                    wf_types::llm::MessageStreamToolCallDelta {
+                                        index,
+                                        id: None,
+                                        name: None,
+                                        arguments: Some(partial.to_string()),
+                                        is_snapshot: false,
+                                    },
+                                )));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(None)
+            }
+            Some("message_delta") => {
+                // Usage is reported as a cumulative counter on every delta;
+                // surface it as a stream event so the gateway records it.
+                if let Some(usage) = json.get("usage") {
+                    return Ok(Some(MessageStreamEvent::Usage(
+                        wf_types::llm::MessageStreamUsage {
+                            usage: wf_types::llm::TokenUsageStats {
+                                prompt_tokens: usage
+                                    .get("input_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                completion_tokens: usage
+                                    .get("output_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0)
+                                    as u32,
+                                total_tokens: 0,
+                                reasoning_tokens: usage
+                                    .get("thinking_tokens")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|r| r as u32),
+                                prompt_tokens_cost: None,
+                                completion_tokens_cost: None,
+                                total_cost: None,
+                            },
+                        },
+                    )));
+                }
+                let delta = json.get("delta");
+                if let Some(d) = delta {
+                    if let Some(stop_reason) = d.get("stop_reason").and_then(|v| v.as_str()) {
+                        let is_done = matches!(
+                            stop_reason,
+                            "end_turn" | "max_tokens" | "stop_sequence" | "tool_use"
+                        );
+                        if is_done {
+                            return Ok(Some(MessageStreamEvent::End(
+                                wf_types::llm::MessageStreamEnd {},
+                            )));
+                        }
+                    }
+                }
+                Ok(None)
+            }
+            Some("message_stop") => Ok(Some(MessageStreamEvent::End(
+                wf_types::llm::MessageStreamEnd {},
+            ))),
+            _ => Ok(None),
+        }
+    }
+
+    fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
+        let tool_defs: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.parameters,
+                })
+            })
+            .collect();
+        Ok(tool_defs)
+    }
+
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+        result.tool_calls.clone().unwrap_or_default()
+    }
+}
+
+impl AnthropicFormatter {
+    fn parse_anthropic_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let id = json.get("id").and_then(|v| v.as_str()).map(String::from);
@@ -366,122 +600,42 @@ impl LlmFormatter for AnthropicFormatter {
             warnings: None,
         })
     }
+}
 
-    fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {
-        if data.is_empty() {
-            return Ok(None);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let json: serde_json::Value = serde_json::from_str(data)?;
-        let event_type = json.get("type").and_then(|v| v.as_str());
-
-        match event_type {
-            Some("message_start") => Ok(None),
-            Some("content_block_start") => {
-                let block = json.get("content_block");
-                if let Some(b) = block {
-                    if b.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
-                        return Ok(None);
-                    }
-                }
-                Ok(None)
+    #[test]
+    fn content_block_start_tool_use_emits_name_and_id() {
+        let chunk = r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}"#;
+        match AnthropicFormatter::new()
+            .parse_stream_chunk(chunk)
+            .expect("chunk must parse")
+        {
+            Some(MessageStreamEvent::ToolCallDelta(delta)) => {
+                assert_eq!(delta.index, 1);
+                assert_eq!(delta.id.as_deref(), Some("toolu_1"));
+                assert_eq!(delta.name.as_deref(), Some("get_weather"));
+                assert_eq!(delta.arguments, None);
             }
-            Some("content_block_delta") => {
-                let delta = json.get("delta");
-                if let Some(d) = delta {
-                    match d.get("type").and_then(|v| v.as_str()) {
-                        Some("text_delta") => {
-                            if let Some(text) = d.get("text").and_then(|v| v.as_str()) {
-                                return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText {
-                                        text: text.to_string(),
-                                        snapshot: text.to_string(),
-                                    },
-                                )));
-                            }
-                        }
-                        Some("thinking_delta") => {
-                            if let Some(reasoning) = d.get("thinking").and_then(|v| v.as_str()) {
-                                return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning {
-                                        reasoning: reasoning.to_string(),
-                                        snapshot: reasoning.to_string(),
-                                    },
-                                )));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(None)
-            }
-            Some("message_delta") => {
-                // Usage is reported as a cumulative counter on every delta;
-                // surface it as a stream event so the gateway records it.
-                if let Some(usage) = json.get("usage") {
-                    return Ok(Some(MessageStreamEvent::Usage(
-                        wf_types::llm::MessageStreamUsage {
-                            usage: wf_types::llm::TokenUsageStats {
-                                prompt_tokens: usage
-                                    .get("input_tokens")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0)
-                                    as u32,
-                                completion_tokens: usage
-                                    .get("output_tokens")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0)
-                                    as u32,
-                                total_tokens: 0,
-                                reasoning_tokens: usage
-                                    .get("thinking_tokens")
-                                    .and_then(|v| v.as_u64())
-                                    .map(|r| r as u32),
-                                prompt_tokens_cost: None,
-                                completion_tokens_cost: None,
-                                total_cost: None,
-                            },
-                        },
-                    )));
-                }
-                let delta = json.get("delta");
-                if let Some(d) = delta {
-                    if let Some(stop_reason) = d.get("stop_reason").and_then(|v| v.as_str()) {
-                        let is_done = matches!(
-                            stop_reason,
-                            "end_turn" | "max_tokens" | "stop_sequence" | "tool_use"
-                        );
-                        if is_done {
-                            return Ok(Some(MessageStreamEvent::End(
-                                wf_types::llm::MessageStreamEnd {},
-                            )));
-                        }
-                    }
-                }
-                Ok(None)
-            }
-            Some("message_stop") => Ok(Some(MessageStreamEvent::End(
-                wf_types::llm::MessageStreamEnd {},
-            ))),
-            _ => Ok(None),
+            other => panic!("expected ToolCallDelta, got {:?}", other),
         }
     }
 
-    fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let tool_defs: Vec<serde_json::Value> = tools
-            .iter()
-            .map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "input_schema": t.parameters,
-                })
-            })
-            .collect();
-        Ok(tool_defs)
-    }
-
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
-        result.tool_calls.clone().unwrap_or_default()
+    #[test]
+    fn input_json_delta_emits_arguments_fragment() {
+        let chunk = r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Beijing\"}"}}"#;
+        match AnthropicFormatter::new()
+            .parse_stream_chunk(chunk)
+            .expect("chunk must parse")
+        {
+            Some(MessageStreamEvent::ToolCallDelta(delta)) => {
+                assert_eq!(delta.index, 1);
+                assert_eq!(delta.arguments.as_deref(), Some(r#"{"city":"Beijing"}"#));
+                assert!(delta.name.is_none());
+            }
+            other => panic!("expected ToolCallDelta, got {:?}", other),
+        }
     }
 }

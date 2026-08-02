@@ -4,20 +4,19 @@ use wf_llm::messaging::conversation_session::{ConversationSession, ConversationS
 
 impl StateManager<ConversationState> for ConversationSession {
     async fn cleanup(&mut self) -> Result<(), ExecutionSharedError> {
-        self.state.messages.clear();
-        self.state.token_usage = 0;
+        self.reset();
         Ok(())
     }
 
     async fn create_snapshot(&self) -> Result<ConversationState, ExecutionSharedError> {
-        Ok(self.state.clone())
+        Ok(self.snapshot_state())
     }
 
     async fn restore_from_snapshot(
         &mut self,
         snapshot: ConversationState,
     ) -> Result<(), ExecutionSharedError> {
-        self.state = snapshot;
+        self.restore_state(snapshot);
         Ok(())
     }
 

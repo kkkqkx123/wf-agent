@@ -148,7 +148,12 @@ pub fn requires_prompt_tool_descriptions(format: ToolCallFormat) -> bool {
 
 /// Check if the given format is text-based (non-native).
 pub fn is_text_based_tool_mode(format: Option<ToolCallFormat>) -> bool {
-    matches!(format, Some(ToolCallFormat::Xml) | Some(ToolCallFormat::JsonWrapped) | Some(ToolCallFormat::JsonRaw))
+    matches!(
+        format,
+        Some(ToolCallFormat::Xml)
+            | Some(ToolCallFormat::JsonWrapped)
+            | Some(ToolCallFormat::JsonRaw)
+    )
 }
 
 /// Get tool usage instructions for a text format.
@@ -226,7 +231,11 @@ fn render_parameters(
         for (name, schema) in properties {
             let param_type = schema.r#type.as_deref().unwrap_or("any");
             let desc = schema.description.as_deref().unwrap_or("");
-            let req = if required.contains(name) { " [required]" } else { "" };
+            let req = if required.contains(name) {
+                " [required]"
+            } else {
+                ""
+            };
             lines.push(
                 parameter_template
                     .replace("{name}", name)
@@ -242,7 +251,11 @@ fn render_parameters(
 }
 
 /// Build the full tool list description to inject into system prompt.
-pub fn render_tool_list_description(tools: &[Tool], format: ToolCallFormat, compact: bool) -> String {
+pub fn render_tool_list_description(
+    tools: &[Tool],
+    format: ToolCallFormat,
+    compact: bool,
+) -> String {
     let templates = get_tool_format_templates(format.clone(), compact);
     let tool_str = tools
         .iter()

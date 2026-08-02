@@ -4,6 +4,7 @@ pub mod checkpoint;
 pub mod coordinator;
 pub mod entity;
 pub mod error;
+pub mod error_analysis;
 pub mod execution_callback;
 pub mod executor;
 pub mod factory;
@@ -17,6 +18,7 @@ pub mod preprocess;
 pub mod protocol_consistency;
 pub mod registry;
 pub mod state;
+pub mod trigger_listener;
 pub mod types;
 pub mod validation;
 pub mod variable;
@@ -34,6 +36,7 @@ pub use coordinator::{
 };
 pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};
+pub use error_analysis::{analyze_workflow_error, workflow_error_record};
 pub use execution_callback::WorkflowExecutionCallback;
 pub use executor::WorkflowExecutor;
 pub use factory::WorkflowExecutionBuilder;
@@ -70,6 +73,9 @@ pub use registry::{
     WorkflowGraphRegistry,
 };
 pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};
+pub use trigger_listener::{
+    ContextWriter, SubworkflowRunner, TriggerEventListener, TriggerTemplateRegistry,
+};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
 pub use validation::{GraphValidator, ValidationError, ValidationResult};
 pub use variable::{create_variable_store, VariableResolver, VariableStore};

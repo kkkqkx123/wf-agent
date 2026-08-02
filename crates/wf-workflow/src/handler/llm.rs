@@ -34,6 +34,66 @@ fn emit_llm_event(
     });
 }
 
+/// Emit token usage events: single-shot warning and limit exceeded are driven
+/// by the execution-scoped tracker (P2 semantics); the compression requested
+/// event is driven by the *named message array* read by this node — it fires
+/// only when that array's estimated token count exceeds the node-level limit,
+/// carrying the array name and its message snapshot so the trigger can
+/// compress exactly that array.
+async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: u64) {
+    let (Some(ref tracker), Some(ref bus)) = (&ctx.token_tracker, &ctx.event_bus) else {
+        return;
+    };
+    let mut tracker = tracker.lock().await;
+    let token_limit = tracker.token_limit();
+    if token_limit == 0 {
+        return;
+    }
+    let tokens_used = tracker.cumulative_usage().total_tokens as u64;
+    if tracker.consume_warning(warning_threshold as f64) {
+        let percentage = tracker.usage_percentage().unwrap_or(0.0);
+        let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+            &ctx.execution_id,
+            Some(&ctx.node_id),
+            tokens_used,
+            token_limit,
+            percentage,
+        ));
+    }
+    if tracker.is_token_limit_exceeded() {
+        let _ = bus.publish(wf_llm::build_token_limit_exceeded_event(
+            &ctx.execution_id,
+            Some(&ctx.node_id),
+            tokens_used,
+            token_limit,
+        ));
+    }
+
+    let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
+    let context_id = config
+        .get("context_id")
+        .or_else(|| config.get("contextId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
+    let context_messages = message_context::get_context(&ctx.variables, context_id);
+    if context_messages.is_empty() {
+        // No named array to compress: nothing to write back to.
+        return;
+    }
+    let estimated = wf_llm::estimate_messages(&context_messages) as u64;
+    if estimated > token_limit {
+        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
+            &ctx.execution_id,
+            Some(&ctx.node_id),
+            context_id,
+            estimated,
+            token_limit,
+            context_messages.len(),
+            Some(&context_messages),
+        ));
+    }
+}
+
 fn text_message(role: MessageRole, content: String) -> Message {
     Message {
         id: wf_types::Id::new(),
@@ -270,6 +330,21 @@ impl NodeHandler for LlmHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(5);
 
+        // Token tracking: apply the node-level limit (0 disables checks);
+        // the shared execution tracker is updated after every LLM call.
+        let token_warning_threshold = config
+            .get("token_warning_threshold")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(wf_llm::DEFAULT_TOKEN_WARNING_THRESHOLD as u64);
+        if let Some(ref tracker) = ctx.token_tracker {
+            if let Some(token_limit) = config.get("token_limit").and_then(|v| v.as_u64()) {
+                let mut tracker = tracker.lock().await;
+                if tracker.token_limit() == 0 && token_limit > 0 {
+                    tracker.set_token_limit(token_limit);
+                }
+            }
+        }
+
         let mut messages = build_messages(ctx)?;
         let tools = resolve_tools(ctx)?;
 
@@ -300,12 +375,35 @@ impl NodeHandler for LlmHandler {
                 protocol_auto_converted: None,
             };
 
+            // Pre-request token budget check: estimation is approximate, so
+            // this is a warning only (never blocks the request); the provider's
+            // real count takes precedence. Fires at most once per execution.
+            if let Some(ref tracker) = ctx.token_tracker {
+                let mut tracker = tracker.lock().await;
+                let token_limit = tracker.token_limit();
+                if token_limit > 0 {
+                    let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                    if estimated > token_limit && tracker.consume_preflight_warning() {
+                        if let Some(ref bus) = ctx.event_bus {
+                            let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                                &ctx.execution_id,
+                                Some(&ctx.node_id),
+                                estimated,
+                                token_limit,
+                                estimated as f64 / token_limit as f64 * 100.0,
+                            ));
+                        }
+                    }
+                }
+            }
+
             if stream_enabled {
                 let mut stream =
                     self.gateway.generate_stream(&request).await.map_err(|e| {
                         WorkflowError::Internal(format!("LLM stream failed: {}", e))
                     })?;
                 let mut content_parts: Vec<String> = Vec::new();
+                let mut stream_usage_seen = false;
                 loop {
                     match stream.next().await {
                         Some(Ok(MessageStreamEvent::Stream(chunk))) => {
@@ -332,8 +430,25 @@ impl NodeHandler for LlmHandler {
                                 )]),
                             );
                         }
+                        Some(Ok(MessageStreamEvent::Usage(u))) => {
+                            stream_usage_seen = true;
+                            if let Some(ref tracker) = ctx.token_tracker {
+                                tracker
+                                    .lock()
+                                    .await
+                                    .accumulate_stream_usage(&wf_llm::RequestUsage::from(&u.usage));
+                            }
+                        }
                         Some(Ok(MessageStreamEvent::FinalMessage(final_msg))) => {
                             let tool_calls = final_msg.message.tool_calls.clone();
+                            if let Some(usage) = &final_msg.usage {
+                                stream_usage_seen = true;
+                                if let Some(ref tracker) = ctx.token_tracker {
+                                    tracker.lock().await.accumulate_stream_usage(
+                                        &wf_llm::RequestUsage::from(usage),
+                                    );
+                                }
+                            }
                             final_response = Some(wf_types::llm::LlmResult {
                                 id: None,
                                 model: profile_id.clone(),
@@ -357,11 +472,40 @@ impl NodeHandler for LlmHandler {
                         None => break,
                     }
                 }
+                if let Some(ref tracker) = ctx.token_tracker {
+                    let mut tracker = tracker.lock().await;
+                    if !stream_usage_seen {
+                        // Provider streamed no usage: estimate as fallback.
+                        let completion = content_parts.concat();
+                        tracker.update_estimated_usage(
+                            wf_llm::estimate_request_tokens(&request),
+                            wf_llm::estimate_tokens(&completion) as u32,
+                        );
+                    }
+                    tracker.finalize_current_request();
+                }
+                emit_token_usage_events(ctx, token_warning_threshold).await;
                 aggregated_content = Some(content_parts.concat());
                 break;
             }
 
             let response = call_llm(&self.gateway, &request).await?;
+            if let Some(ref tracker) = ctx.token_tracker {
+                let mut tracker = tracker.lock().await;
+                if let Some(usage) = &response.usage {
+                    tracker.update_api_usage(usage);
+                } else {
+                    // Provider reported no usage: estimate as fallback so
+                    // limit checks and history stay populated.
+                    let completion = response.content.as_deref().unwrap_or_default();
+                    tracker.update_estimated_usage(
+                        wf_llm::estimate_request_tokens(&request),
+                        wf_llm::estimate_tokens(completion) as u32,
+                    );
+                }
+                tracker.finalize_current_request();
+            }
+            emit_token_usage_events(ctx, token_warning_threshold).await;
             let has_tool_calls = response
                 .tool_calls
                 .as_ref()
@@ -432,18 +576,21 @@ impl NodeHandler for LlmHandler {
         }
         metadata.insert("stream".to_string(), Value::Bool(stream_enabled));
 
-        // Append the assistant response to the output context if configured.
+        // Write the assistant response to the configured output context
+        // (mirrors the TS outputContext semantics; the read context is left
+        // untouched so the compression chain can replace it as a unit).
         if let (Some(response), Some(content)) = (&final_response, &aggregated_content) {
             if !content.is_empty() {
+                let mut out_msg = response.message.clone();
+                if out_msg.content == MessageContentValue::Text(String::new()) {
+                    out_msg.content = MessageContentValue::Text(content.clone());
+                }
                 let output_context_id = config
                     .get("output_context")
+                    .or_else(|| config.get("outputContext"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 if let Some(id) = output_context_id {
-                    let mut out_msg = response.message.clone();
-                    if out_msg.content == MessageContentValue::Text(String::new()) {
-                        out_msg.content = MessageContentValue::Text(content.clone());
-                    }
                     message_context::append_context(&ctx.variables, &id, vec![out_msg]);
                 }
             }

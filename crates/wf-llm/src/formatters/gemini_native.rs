@@ -1,8 +1,14 @@
 use super::LlmFormatter;
 use crate::error::LlmResult;
 use reqwest::Method;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::tool::Tool;
+
+/// Globally unique tool call indices for Gemini streams (each `functionCall`
+/// part is a complete snapshot; unique indices keep separate calls apart in
+/// the accumulator).
+static GEMINI_CALL_INDEX: AtomicUsize = AtomicUsize::new(0);
 
 pub struct GeminiNativeFormatter {
     base_url: String,
@@ -142,12 +148,19 @@ impl LlmFormatter for GeminiNativeFormatter {
         let messages = self.convert_messages(&request.messages);
         let generation_config = self.convert_generation_config(request, profile);
 
+        let use_text_mode = super::shared::is_text_mode(request);
+
         let mut body = serde_json::json!({
             "contents": messages,
             "generationConfig": generation_config,
         });
 
-        if let Some(tools) = &request.tools {
+        if use_text_mode {
+            let system = super::shared::text_mode_system_content(request);
+            if !system.is_empty() {
+                body["systemInstruction"] = serde_json::json!({"parts": [{"text": system}]});
+            }
+        } else if let Some(tools) = &request.tools {
             let function_declarations: Vec<serde_json::Value> = tools
                 .iter()
                 .map(|t| {
@@ -161,23 +174,118 @@ impl LlmFormatter for GeminiNativeFormatter {
             body["tools"] = serde_json::json!([{"functionDeclarations": function_declarations}]);
         }
 
+        super::shared::apply_custom_body(&mut body, profile);
+
         let mut req_builder = reqwest::Client::new()
             .request(Method::POST, &url)
             .header("Content-Type", "application/json")
             .json(&body);
 
-        if let Some(headers) = &profile.headers {
-            for (key, value) in headers.iter() {
-                req_builder = req_builder.header(key, value.as_str().unwrap_or(""));
-            }
-        }
+        req_builder = super::shared::apply_auth_and_headers(req_builder, profile, "native");
 
         req_builder
             .build()
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
+    fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+        let mut result = self.parse_gemini_response(body)?;
+        if super::shared::is_text_mode(request) {
+            if let Some(content) = result.content.clone() {
+                let calls = super::shared::parse_text_tool_calls(request, &content);
+                if !calls.is_empty() {
+                    result.tool_calls = Some(calls.clone());
+                    result.message.tool_calls = Some(calls);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {
+        if data.is_empty() {
+            return Ok(None);
+        }
+
+        let json: serde_json::Value = serde_json::from_str(data)?;
+
+        if let Some(candidates) = json.get("candidates").and_then(|v| v.as_array()) {
+            if let Some(candidate) = candidates.first() {
+                if let Some(content) = candidate.get("content") {
+                    if let Some(parts) = content.get("parts").and_then(|v| v.as_array()) {
+                        for part in parts {
+                            if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::Text(
+                                    wf_types::llm::MessageStreamText {
+                                        snapshot: String::new(),
+                                        text: text.to_string(),
+                                    },
+                                )));
+                            }
+                            if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
+                                return Ok(Some(MessageStreamEvent::ReasoningText(
+                                    wf_types::llm::MessageStreamReasoning {
+                                        snapshot: String::new(),
+                                        reasoning: thought.to_string(),
+                                    },
+                                )));
+                            }
+                            if let Some(func_call) = part.get("functionCall") {
+                                let name = func_call
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let args = func_call
+                                    .get("args")
+                                    .cloned()
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                                let arguments = serde_json::to_string(&args).unwrap_or_default();
+                                return Ok(Some(MessageStreamEvent::ToolCallDelta(
+                                    wf_types::llm::MessageStreamToolCallDelta {
+                                        index: GEMINI_CALL_INDEX.fetch_add(1, Ordering::Relaxed),
+                                        id: None,
+                                        name: Some(name),
+                                        arguments: Some(arguments),
+                                        is_snapshot: true,
+                                    },
+                                )));
+                            }
+                        }
+                    }
+                }
+                if candidate.get("finishReason").is_some() {
+                    return Ok(Some(MessageStreamEvent::End(
+                        wf_types::llm::MessageStreamEnd {},
+                    )));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
+        let function_declarations: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+            })
+            .collect();
+        Ok(function_declarations)
+    }
+
+    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
+        result.tool_calls.clone().unwrap_or_default()
+    }
+}
+
+impl GeminiNativeFormatter {
+    fn parse_gemini_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
         let candidates = json.get("candidates").and_then(|v| v.as_array());
@@ -303,62 +411,27 @@ impl LlmFormatter for GeminiNativeFormatter {
             warnings: None,
         })
     }
+}
 
-    fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {
-        if data.is_empty() {
-            return Ok(None);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let json: serde_json::Value = serde_json::from_str(data)?;
-
-        if let Some(candidates) = json.get("candidates").and_then(|v| v.as_array()) {
-            if let Some(candidate) = candidates.first() {
-                if let Some(content) = candidate.get("content") {
-                    if let Some(parts) = content.get("parts").and_then(|v| v.as_array()) {
-                        for part in parts {
-                            if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
-                                return Ok(Some(MessageStreamEvent::Text(
-                                    wf_types::llm::MessageStreamText { snapshot: String::new(),
-                                        text: text.to_string(),
-                                    },
-                                )));
-                            }
-                            if let Some(thought) = part.get("thought").and_then(|v| v.as_str()) {
-                                return Ok(Some(MessageStreamEvent::ReasoningText(
-                                    wf_types::llm::MessageStreamReasoning { snapshot: String::new(),
-                                        reasoning: thought.to_string(),
-                                    },
-                                )));
-                            }
-                        }
-                    }
-                }
-                if candidate.get("finishReason").is_some() {
-                    return Ok(Some(MessageStreamEvent::End(
-                        wf_types::llm::MessageStreamEnd {},
-                    )));
-                }
+    #[test]
+    fn function_call_part_emits_snapshot_delta() {
+        let chunk = r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Beijing"}}}]},"finishReason":"STOP"}]}"#;
+        match GeminiNativeFormatter::new()
+            .parse_stream_chunk(chunk)
+            .expect("chunk must parse")
+        {
+            Some(MessageStreamEvent::ToolCallDelta(delta)) => {
+                assert_eq!(delta.name.as_deref(), Some("get_weather"));
+                let args: serde_json::Value =
+                    serde_json::from_str(delta.arguments.as_deref().unwrap()).unwrap();
+                assert_eq!(args["city"], "Beijing");
+                assert!(delta.is_snapshot);
             }
+            other => panic!("expected ToolCallDelta, got {:?}", other),
         }
-
-        Ok(None)
-    }
-
-    fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let function_declarations: Vec<serde_json::Value> = tools
-            .iter()
-            .map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                })
-            })
-            .collect();
-        Ok(function_declarations)
-    }
-
-    fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
-        result.tool_calls.clone().unwrap_or_default()
     }
 }

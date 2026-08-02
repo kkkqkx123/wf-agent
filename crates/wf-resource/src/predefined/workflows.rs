@@ -49,34 +49,10 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
                 "Use LLM to generate a compressed summary of the conversation history".into(),
             ),
             config: Some(json!({
-                "profileId": "DEFAULT",
-                "contextId": "current",
-                "outputContext": "compressed",
-                "parameters": {
-                    "systemPrompt": compression_prompt.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROMPT.into())
-                }
-            })),
-            execution_config: None,
-        },
-        BaseStaticNode {
-            id: "llm-summary-truncate".into(),
-            node_type: StaticNodeType::ContextProcessor,
-            name: Some("Replace with Summary".into()),
-            description: Some(
-                "Replace the original conversation context with the compressed summary only".into(),
-            ),
-            config: Some(json!({
-                "sourceContext": "current",
-                "targetContext": "current",
-                "operationConfig": {
-                    "operation": "TRUNCATE",
-                    "strategy": { "type": "KEEP_LAST", "count": 1 },
-                    "createNewBatch": true
-                },
-                "operationOptions": {
-                    "visibleOnly": true,
-                    "target": "self"
-                }
+                "profile_id": "DEFAULT",
+                "context_id": "current",
+                "output_context": "compressed",
+                "system_prompt": compression_prompt.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROMPT.into())
             })),
             execution_config: None,
         },
@@ -90,9 +66,9 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             ),
             config: Some(json!({
                 "messageOutputs": [{
-                    "internalName": "current",
+                    "internalName": "compressed",
                     "targetContextId": "current",
-                    "description": "Compressed conversation summary (original context replaced)"
+                    "description": "Compressed conversation summary"
                 }]
             })),
             execution_config: None,
@@ -112,19 +88,8 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             metadata: None,
         },
         Edge {
-            id: "e-llm-summary-llm-to-truncate".into(),
+            id: "e-llm-summary-llm-to-end".into(),
             source_node_id: "llm-summary-llm".into(),
-            target_node_id: "llm-summary-truncate".into(),
-            r#type: EdgeType::Default,
-            condition: None,
-            label: None,
-            description: None,
-            weight: None,
-            metadata: None,
-        },
-        Edge {
-            id: "e-llm-summary-truncate-to-end".into(),
-            source_node_id: "llm-summary-truncate".into(),
             target_node_id: "llm-summary-end".into(),
             r#type: EdgeType::Default,
             condition: None,

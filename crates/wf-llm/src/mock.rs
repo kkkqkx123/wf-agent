@@ -144,7 +144,7 @@ impl LlmResponseSpec {
                 }));
             }
         }
-events.push(MessageStreamEvent::FinalMessage(MessageStreamFinal {
+        events.push(MessageStreamEvent::FinalMessage(MessageStreamFinal {
             message: result.message.clone(),
             usage: result.usage.clone(),
             stream_stats: None,
@@ -345,9 +345,12 @@ impl LlmClient for MockLlmClient {
         )))
     }
 
-    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<wf_types::llm::TokenCountResult> {
+    async fn count_tokens(
+        &self,
+        request: &LlmRequest,
+    ) -> LlmResult<wf_types::llm::TokenCountResult> {
         // Mock returns a simple estimation wrapped in TokenCountResult
-        let estimated = crate::client::estimate_request_tokens(request);
+        let estimated = crate::token_count::estimate_request_tokens(request);
         Ok(wf_types::llm::TokenCountResult {
             input_tokens: estimated,
             raw: None,
@@ -560,8 +563,10 @@ mod tests {
     #[tokio::test]
     async fn count_tokens_matches_production_estimation() {
         let client = MockLlmClient::new();
-        let req = request("mock", "a b c d e f g h"); // 15 chars -> 4 tokens
+        // "a b c d e f g h": 8 letters * 0.25 + 7 spaces * 0.5 = 5.5 -> 6,
+        // plus 4 tokens message overhead -> 10
+        let req = request("mock", "a b c d e f g h");
         let result = client.count_tokens(&req).await.unwrap();
-        assert_eq!(result.input_tokens, 4);
+        assert_eq!(result.input_tokens, 10);
     }
 }

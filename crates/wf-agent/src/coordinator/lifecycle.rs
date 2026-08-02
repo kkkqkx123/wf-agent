@@ -19,7 +19,7 @@ use wf_types::tool::approval::ToolApprovalOptions;
 use crate::approval::ToolApprovalHandler;
 use crate::checkpoint::{AgentCheckpointIntegration, AgentCheckpointStrategy};
 use crate::coordinator::execution::AgentExecutionCoordinator;
-use crate::coordinator::iteration::AgentIterationCoordinator;
+use crate::coordinator::iteration::{AgentIterationCoordinator, DEFAULT_TOKEN_WARNING_THRESHOLD};
 use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
@@ -134,15 +134,22 @@ impl AgentLoopCoordinator {
                 });
         }
 
-        let iteration_coordinator = Arc::new(
-            AgentIterationCoordinator::new(
-                self.gateway.clone(),
-                self.tool_registry.clone(),
-                self.hook_executor.clone(),
-                self.metrics.clone(),
-            )
-            .with_approval(self.approval_options.clone(), self.approval_handler.clone()),
+        let mut coordinator = AgentIterationCoordinator::new(
+            self.gateway.clone(),
+            self.tool_registry.clone(),
+            self.hook_executor.clone(),
+            self.metrics.clone(),
+        )
+        .with_approval(self.approval_options.clone(), self.approval_handler.clone())
+        .with_token_warning_threshold(
+            config
+                .token_warning_threshold
+                .unwrap_or(DEFAULT_TOKEN_WARNING_THRESHOLD),
         );
+        if let Some(ref bus) = self.event_bus {
+            coordinator = coordinator.with_event_bus(bus.clone());
+        }
+        let iteration_coordinator = Arc::new(coordinator);
         let execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator)
             .with_checkpoint(checkpoint)
             .with_metrics(self.metrics.clone());
@@ -284,6 +291,14 @@ impl AgentLoopCoordinator {
 
         for msg in &input.conversation {
             entity.conversation().write().await.add_message(msg.clone());
+        }
+
+        if let Some(token_limit) = config.token_limit.filter(|&l| l > 0) {
+            entity
+                .conversation()
+                .write()
+                .await
+                .set_token_limit(token_limit);
         }
 
         if !input.message.is_empty() {

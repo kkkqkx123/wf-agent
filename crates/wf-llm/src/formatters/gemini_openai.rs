@@ -38,7 +38,19 @@ impl LlmFormatter for GeminiOpenaiFormatter {
             profile.base_url.as_deref().unwrap_or(&self.base_url)
         );
 
-        let messages = shared::convert_openai_messages(&request.messages);
+        let use_text_mode = shared::is_text_mode(request);
+
+        let messages = if use_text_mode {
+            let (_, filtered) = crate::tool_format::extract_system_message(&request.messages);
+            let content = shared::text_mode_system_content(request);
+            let mut converted = shared::convert_openai_messages(&filtered);
+            if !content.is_empty() {
+                converted.insert(0, serde_json::json!({"role": "system", "content": content}));
+            }
+            converted
+        } else {
+            shared::convert_openai_messages(&request.messages)
+        };
 
         let mut body = serde_json::json!({
             "model": profile.model,
@@ -47,28 +59,42 @@ impl LlmFormatter for GeminiOpenaiFormatter {
 
         shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
-        if let Some(tools) = &request.tools {
-            body["tools"] = serde_json::json!(shared::convert_openai_tools(tools)?);
+        if !use_text_mode {
+            if let Some(tools) = &request.tools {
+                body["tools"] = serde_json::json!(shared::convert_openai_tools(tools)?);
+            }
         }
 
         if request.stream == Some(true) {
             body["stream"] = serde_json::json!(true);
         }
 
+        shared::apply_custom_body(&mut body, profile);
+
         let mut req_builder = reqwest::Client::new()
             .request(Method::POST, &url)
             .header("Content-Type", "application/json")
             .json(&body);
 
-        req_builder = shared::add_auth_and_headers(req_builder, profile, "bearer");
+        req_builder = shared::apply_auth_and_headers(req_builder, profile, "bearer");
 
         req_builder
             .build()
             .map_err(crate::error::LlmError::HttpError)
     }
 
-    fn parse_response(&self, body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
-        shared::parse_openai_chat_response(body)
+    fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
+        let mut result = shared::parse_openai_chat_response(body)?;
+        if shared::is_text_mode(request) {
+            if let Some(content) = result.content.clone() {
+                let calls = shared::parse_text_tool_calls(request, &content);
+                if !calls.is_empty() {
+                    result.tool_calls = Some(calls.clone());
+                    result.message.tool_calls = Some(calls);
+                }
+            }
+        }
+        Ok(result)
     }
 
     fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>> {

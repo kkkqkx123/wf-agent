@@ -227,6 +227,8 @@ mod tests {
             hooks: Vec::new(),
             available_tool_names: Vec::new(),
             tool_call_format: None,
+            token_limit: None,
+            token_warning_threshold: None,
         }
     }
 

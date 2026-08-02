@@ -8,7 +8,6 @@ use crate::message_stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
-use wf_types::message::MessageContentValue;
 
 pub trait LlmClient: Send + Sync {
     fn generate(
@@ -19,13 +18,16 @@ pub trait LlmClient: Send + Sync {
         &self,
         request: &LlmRequest,
     ) -> impl Future<Output = LlmResult<Box<dyn MessageStream>>> + Send;
-    fn count_tokens(&self, request: &LlmRequest) -> impl Future<Output = LlmResult<wf_types::llm::TokenCountResult>> + Send;
+    fn count_tokens(
+        &self,
+        request: &LlmRequest,
+    ) -> impl Future<Output = LlmResult<wf_types::llm::TokenCountResult>> + Send;
 }
 
 pub struct LlmClientImpl {
-    client: ReqwestClient,
-    formatter: Arc<dyn LlmFormatter>,
-    profile: LlmProfile,
+    pub(crate) client: ReqwestClient,
+    pub(crate) formatter: Arc<dyn LlmFormatter>,
+    pub(crate) profile: LlmProfile,
 }
 
 impl LlmClientImpl {
@@ -45,7 +47,7 @@ impl LlmClientImpl {
         &self.profile
     }
 
-    fn build_timeout(&self) -> Duration {
+    pub(crate) fn build_timeout(&self) -> Duration {
         Duration::from_secs(self.profile.timeout.unwrap_or(60))
     }
 
@@ -58,7 +60,11 @@ impl LlmClientImpl {
         self.profile.max_retries.unwrap_or(3)
     }
 
-    fn map_http_error(status: reqwest::StatusCode, body: &str, timeout_ms: u64) -> LlmError {
+    pub(crate) fn map_http_error(
+        status: reqwest::StatusCode,
+        body: &str,
+        timeout_ms: u64,
+    ) -> LlmError {
         if status.is_success() {
             return LlmError::InvalidResponse(format!(
                 "Unexpected success status with body: {}",
@@ -216,74 +222,10 @@ impl LlmClient for LlmClientImpl {
             .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
     }
 
-    async fn count_tokens(&self, request: &LlmRequest) -> LlmResult<wf_types::llm::TokenCountResult> {
-        // Try provider's count_tokens API first
-        if let Some(http_request) = self.formatter.build_count_tokens_request(request, &self.profile)? {
-            let timeout_dur = self.build_timeout();
-            let response = tokio::time::timeout(timeout_dur, self.client.execute(http_request))
-                .await
-                .map_err(|_| LlmError::Timeout(timeout_dur.as_millis() as u64))?
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        LlmError::Timeout(timeout_dur.as_millis() as u64)
-                    } else {
-                        LlmError::HttpError(e)
-                    }
-                })?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                return Err(Self::map_http_error(status, &body, timeout_dur.as_millis() as u64));
-            }
-
-            let body = response.text().await?;
-            let json: serde_json::Value = serde_json::from_str(&body)?;
-            let input_tokens = json.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-            Ok(wf_types::llm::TokenCountResult {
-                input_tokens,
-                raw: Some(json),
-            })
-        } else {
-            // Fallback to estimation
-            let estimated = estimate_request_tokens(request);
-            Ok(wf_types::llm::TokenCountResult {
-                input_tokens: estimated,
-                raw: None,
-            })
-        }
+    async fn count_tokens(
+        &self,
+        request: &LlmRequest,
+    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+        crate::token_count::count_tokens_client(self, request).await
     }
-}
-
-pub(crate) fn estimate_request_tokens(request: &LlmRequest) -> u32 {
-    let mut total = 0u32;
-
-    for msg in &request.messages {
-        match &msg.content {
-            MessageContentValue::Text(text) => {
-                total += estimate_tokens(text);
-            }
-            MessageContentValue::Rich(contents) => {
-                for content in contents {
-                    if let wf_types::message::MessageContent::Text { text } = content {
-                        total += estimate_tokens(text);
-                    }
-                }
-            }
-        }
-    }
-
-    if let Some(tools) = &request.tools {
-        for tool in tools {
-            total += estimate_tokens(&tool.name);
-            total += estimate_tokens(&tool.description);
-        }
-    }
-
-    total
-}
-
-fn estimate_tokens(text: &str) -> u32 {
-    let chars = text.chars().count();
-    (chars as f64 / 4.0).ceil() as u32
 }

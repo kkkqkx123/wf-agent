@@ -36,7 +36,10 @@ pub use messaging::conversation_session::{
 };
 pub use messaging::cross_boundary_converter::{BoundaryType, CrossBoundaryConverter};
 pub use messaging::dynamic_injection::DynamicInjection;
-pub use messaging::history_converter::{HistoryConverter, HistoryFormat};
+pub use messaging::history_converter::{
+    convert_assistant_message, convert_to_text_mode, convert_tool_result_message, render_tool_calls,
+    render_tool_result, HistoryConverter, HistoryFormat,
+};
 pub use messaging::message_array_manager::MessageArrayManager;
 pub use messaging::message_context_registry::{MessageContextRegistry, NamedMessageContext};
 pub use messaging::visible_range_calculator::{
@@ -44,7 +47,7 @@ pub use messaging::visible_range_calculator::{
 };
 #[cfg(feature = "mock")]
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
-pub use partial_json_parser::{parse_partial_json, PartialParseResult};
+pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialParseResult};
 pub use profile_manager::ProfileManager;
 pub use registry::FormatterRegistry;
 pub use token_count::{

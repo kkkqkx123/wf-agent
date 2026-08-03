@@ -37,7 +37,8 @@ impl OpenaiChatFormatter {
         let messages = if use_text_mode {
             let (_, filtered) = crate::tool_format::extract_system_message(&request.messages);
             let content = shared::text_mode_system_content(request);
-            let mut converted = shared::convert_openai_messages(&filtered);
+            let history = shared::convert_history_for_text_mode(&filtered, request);
+            let mut converted = shared::convert_openai_messages(&history);
             if !content.is_empty() {
                 converted.insert(0, serde_json::json!({"role": "system", "content": content}));
             }
@@ -273,5 +274,53 @@ mod tests {
             .build_body(&request_with_format(ToolCallFormat::Native), &p)
             .unwrap();
         assert_eq!(body["custom_field"]["nested"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn text_mode_converts_tool_call_history_to_blocks() {
+        let mut req = request_with_format(ToolCallFormat::Xml);
+        let mut assistant = text_msg(MessageRole::Assistant, "checking weather");
+        assistant.tool_calls = Some(vec![wf_types::message::LlmToolCall {
+            id: "call_1".to_string(),
+            r#type: "function".to_string(),
+            function: wf_types::message::LlmFunctionCall {
+                name: "get_weather".to_string(),
+                arguments: r#"{"city":"Beijing"}"#.to_string(),
+            },
+        }]);
+        let mut tool_result = text_msg(MessageRole::Tool, "sunny");
+        tool_result.tool_call_id = Some("call_1".to_string());
+        req.messages.push(assistant);
+        req.messages.push(tool_result);
+
+        let formatter = OpenaiChatFormatter::new();
+        let body = formatter.build_body(&req, &profile()).unwrap();
+
+        let messages = body["messages"].as_array().unwrap();
+        let assistant_msg = messages
+            .iter()
+            .find(|m| m["role"] == serde_json::json!("assistant"))
+            .expect("assistant message present");
+        assert!(
+            assistant_msg.get("tool_calls").is_none(),
+            "native tool_calls must be dropped in text mode"
+        );
+        let content = assistant_msg["content"].as_str().unwrap();
+        assert!(content.contains("<tool_use>"), "{content}");
+        assert!(content.contains("get_weather"), "{content}");
+
+        let result_msg = messages
+            .iter()
+            .find(|m| {
+                m["role"] == serde_json::json!("user")
+                    && m["content"]
+                        .as_str()
+                        .is_some_and(|c| c.contains("<tool_result>"))
+            })
+            .expect("converted tool result present");
+        assert!(
+            result_msg.get("tool_call_id").is_none(),
+            "tool_call_id must be dropped after conversion"
+        );
     }
 }

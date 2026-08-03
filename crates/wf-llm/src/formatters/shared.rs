@@ -23,6 +23,24 @@ pub fn effective_tool_call_format(request: &LlmRequest) -> ToolCallFormat {
         .unwrap_or(ToolCallFormat::Native)
 }
 
+/// Convert message history to the text-based tool format when the request runs
+/// in text mode (native tool calls / results become XML or JSON blocks in the
+/// message content). Messages are returned unchanged in native mode.
+pub fn convert_history_for_text_mode(
+    messages: &[Message],
+    request: &LlmRequest,
+) -> Vec<Message> {
+    if !is_text_mode(request) {
+        return messages.to_vec();
+    }
+    let format = effective_tool_call_format(request);
+    let markers = request
+        .locked_tool_call_format
+        .as_ref()
+        .and_then(|c| c.markers.clone());
+    crate::messaging::history_converter::convert_to_text_mode(messages, &format, markers.as_ref())
+}
+
 /// Build the system prompt content for text-based tool mode: existing system
 /// message + tool usage instructions + tool declarations.
 pub fn text_mode_system_content(request: &LlmRequest) -> String {
@@ -135,23 +153,23 @@ pub fn convert_openai_messages(messages: &[Message]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Merge profile-level and request-level parameters into the body.
+///
+/// Everything is passed through as-is (matching the deprecated TS
+/// `Object.assign(body, otherParams)` behavior) except the `stream` key,
+/// which is controlled by the caller. This lets provider-specific options
+/// like `response_format`, `reasoning_effort`, `frequency_penalty`,
+/// `thinkingConfig` etc. flow to the API untouched.
 pub fn merge_and_apply_params(
     body: &mut serde_json::Value,
     profile: &LlmProfile,
     request_params: &Option<serde_json::Value>,
 ) {
     let merged_params = crate::formatter_helpers::merge_parameters(profile, request_params);
-    if let Some(temp) = merged_params.get("temperature") {
-        body["temperature"] = temp.clone();
-    }
-    if let Some(max_tokens) = merged_params.get("max_tokens") {
-        body["max_tokens"] = max_tokens.clone();
-    }
-    if let Some(top_p) = merged_params.get("top_p") {
-        body["top_p"] = top_p.clone();
-    }
-    if let Some(stop) = merged_params.get("stop") {
-        body["stop"] = stop.clone();
+    for (key, value) in merged_params {
+        if key != "stream" {
+            body[key] = value;
+        }
     }
 }
 
@@ -578,5 +596,33 @@ mod enhancement_tests {
             .unwrap();
         assert_eq!(req.headers().get("x-custom").unwrap(), "v1");
         assert_eq!(req.url().query().unwrap(), "api-version=2024-01");
+    }
+
+    #[test]
+    fn params_pass_through_untouched() {
+        let mut profile = profile_with(None);
+        profile.parameters = Some(serde_json::json!({
+            "response_format": {"type": "json_object"},
+            "frequency_penalty": 0.5,
+        }));
+        let mut body = serde_json::json!({"model": "m", "messages": []});
+        merge_and_apply_params(
+            &mut body,
+            &profile,
+            &Some(serde_json::json!({
+                "temperature": 0.2,
+                "reasoning_effort": "high",
+                "stream": true,
+            })),
+        );
+
+        assert_eq!(body["response_format"]["type"], serde_json::json!("json_object"));
+        assert_eq!(body["frequency_penalty"], serde_json::json!(0.5));
+        assert_eq!(body["temperature"], serde_json::json!(0.2));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(
+            body.get("stream").is_none(),
+            "stream must be controlled by the caller"
+        );
     }
 }

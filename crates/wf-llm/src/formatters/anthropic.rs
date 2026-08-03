@@ -25,6 +25,123 @@ impl AnthropicFormatter {
         Self { base_url }
     }
 
+    /// Build the request body (separated from the HTTP layer for testability).
+    fn build_body(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<serde_json::Value> {
+        let use_text_mode = super::shared::is_text_mode(request);
+
+        // `convert_messages` skips system messages; the system content is sent
+        // in the dedicated `system` field. Text mode injects the original
+        // system + tool usage instructions + declarations; native mode keeps
+        // the original system message.
+        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+
+        let history = if use_text_mode {
+            super::shared::convert_history_for_text_mode(&request.messages, request)
+        } else {
+            request.messages.clone()
+        };
+        let messages = self.convert_messages(&history);
+
+        let mut body = serde_json::json!({
+            "model": profile.model,
+            "messages": messages,
+            "max_tokens": 4096,
+        });
+
+        if use_text_mode {
+            let system = super::shared::text_mode_system_content(request);
+            if !system.is_empty() {
+                body["system"] = serde_json::json!(system);
+            }
+        } else if let Some(system) = system_content {
+            if !system.is_empty() {
+                body["system"] = serde_json::json!(system);
+            }
+        }
+
+        // Pass through all merged parameters except `stream` (controlled below)
+        // and `stop` (mapped to `stop_sequences`, which is what the API accepts).
+        let merged_params =
+            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+        for (key, value) in merged_params {
+            match key.as_str() {
+                "stream" => {}
+                "stop" => {
+                    body["stop_sequences"] = value;
+                }
+                _ => {
+                    body[key] = value;
+                }
+            }
+        }
+
+        if !use_text_mode {
+            if let Some(tools) = &request.tools {
+                let tool_defs: Vec<serde_json::Value> = tools
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "name": t.name,
+                            "description": t.description,
+                            "input_schema": t.parameters,
+                        })
+                    })
+                    .collect();
+                body["tools"] = serde_json::json!(tool_defs);
+            }
+        }
+
+        if request.stream == Some(true) {
+            body["stream"] = serde_json::json!(true);
+        }
+
+        super::shared::apply_custom_body(&mut body, profile);
+
+        Ok(body)
+    }
+
+    /// Build the count-tokens request body (system included so the count
+    /// matches what `build_request` sends).
+    fn build_count_tokens_body(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<serde_json::Value> {
+        let messages = self.convert_messages(&request.messages);
+
+        let mut body = serde_json::json!({
+            "model": profile.model,
+            "messages": messages,
+        });
+
+        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+        if let Some(system) = system_content {
+            if !system.is_empty() {
+                body["system"] = serde_json::json!(system);
+            }
+        }
+
+        if let Some(tools) = &request.tools {
+            let tool_defs: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.parameters,
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::json!(tool_defs);
+        }
+
+        Ok(body)
+    }
+
     fn convert_messages(&self, messages: &[wf_types::message::Message]) -> Vec<serde_json::Value> {
         let mut result = Vec::new();
         let mut current_text: Option<String> = None;
@@ -177,59 +294,7 @@ impl LlmFormatter for AnthropicFormatter {
             profile.base_url.as_deref().unwrap_or(&self.base_url)
         );
 
-        let use_text_mode = super::shared::is_text_mode(request);
-
-        let messages = self.convert_messages(&request.messages);
-
-        let mut body = serde_json::json!({
-            "model": profile.model,
-            "messages": messages,
-            "max_tokens": 4096,
-        });
-
-        if use_text_mode {
-            let system = super::shared::text_mode_system_content(request);
-            if !system.is_empty() {
-                body["system"] = serde_json::json!(system);
-            }
-        }
-
-        let merged_params =
-            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        if let Some(temp) = merged_params.get("temperature") {
-            body["temperature"] = temp.clone();
-        }
-        if let Some(max_tokens) = merged_params.get("max_tokens") {
-            body["max_tokens"] = max_tokens.clone();
-        }
-        if let Some(top_p) = merged_params.get("top_p") {
-            body["top_p"] = top_p.clone();
-        }
-        if let Some(stop) = merged_params.get("stop") {
-            body["stop_sequences"] = stop.clone();
-        }
-
-        if !use_text_mode {
-            if let Some(tools) = &request.tools {
-                let tool_defs: Vec<serde_json::Value> = tools
-                    .iter()
-                    .map(|t| {
-                        serde_json::json!({
-                            "name": t.name,
-                            "description": t.description,
-                            "input_schema": t.parameters,
-                        })
-                    })
-                    .collect();
-                body["tools"] = serde_json::json!(tool_defs);
-            }
-        }
-
-        if request.stream == Some(true) {
-            body["stream"] = serde_json::json!(true);
-        }
-
-        super::shared::apply_custom_body(&mut body, profile);
+        let body = self.build_body(request, profile)?;
 
         let mut req_builder = reqwest::Client::new()
             .request(Method::POST, &url)
@@ -254,41 +319,7 @@ impl LlmFormatter for AnthropicFormatter {
             profile.base_url.as_deref().unwrap_or(&self.base_url)
         );
 
-        let messages = self.convert_messages(&request.messages);
-
-        let mut body = serde_json::json!({
-            "model": profile.model,
-            "messages": messages,
-        });
-
-        // `convert_messages` skips system messages; extract them into the
-        // `system` field so the count matches what `build_request` sends.
-        let system_parts: Vec<String> = request
-            .messages
-            .iter()
-            .filter(|m| m.role == wf_types::message::MessageRole::System)
-            .filter_map(|m| match &m.content {
-                wf_types::message::MessageContentValue::Text(t) if !t.is_empty() => Some(t.clone()),
-                _ => None,
-            })
-            .collect();
-        if !system_parts.is_empty() {
-            body["system"] = serde_json::json!(system_parts);
-        }
-
-        if let Some(tools) = &request.tools {
-            let tool_defs: Vec<serde_json::Value> = tools
-                .iter()
-                .map(|t| {
-                    serde_json::json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "input_schema": t.parameters,
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::json!(tool_defs);
-        }
+        let body = self.build_count_tokens_body(request, profile)?;
 
         let mut req_builder = reqwest::Client::new()
             .request(Method::POST, &url)
@@ -653,5 +684,142 @@ mod tests {
             }
             other => panic!("expected ToolCallDelta, got {:?}", other),
         }
+    }
+
+    fn profile() -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: wf_types::llm::LlmProvider::Anthropic,
+            model: "claude-3-5-sonnet".to_string(),
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    fn msg(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
+        wf_types::message::Message {
+            id: wf_types::Id::new(),
+            role,
+            content: wf_types::message::MessageContentValue::Text(text.to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    fn request(
+        messages: Vec<wf_types::message::Message>,
+        params: Option<serde_json::Value>,
+    ) -> LlmRequest {
+        LlmRequest {
+            profile_id: "p1".to_string(),
+            messages,
+            parameters: params,
+            tools: None,
+            tool_call_format: None,
+            locked_tool_call_format: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    #[test]
+    fn native_mode_sends_system_field() {
+        let formatter = AnthropicFormatter::new();
+        let body = formatter
+            .build_body(
+                &request(
+                    vec![
+                        msg(wf_types::message::MessageRole::System, "You are a helper"),
+                        msg(wf_types::message::MessageRole::User, "Hello"),
+                    ],
+                    None,
+                ),
+                &profile(),
+            )
+            .expect("build must succeed");
+
+        assert_eq!(body["system"], serde_json::json!("You are a helper"));
+        let roles: Vec<&str> = body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["role"].as_str())
+            .collect();
+        assert_eq!(roles, vec!["user"], "system must not appear in messages");
+    }
+
+    #[test]
+    fn text_mode_system_field_includes_tool_instructions() {
+        let formatter = AnthropicFormatter::new();
+        let mut req = request(
+            vec![
+                msg(wf_types::message::MessageRole::System, "You are a helper"),
+                msg(wf_types::message::MessageRole::User, "Hello"),
+            ],
+            None,
+        );
+        req.tool_call_format = Some(wf_types::llm::ToolCallFormat::Xml);
+        let body = formatter.build_body(&req, &profile()).expect("must build");
+
+        let system = body["system"].as_str().unwrap();
+        assert!(system.contains("You are a helper"));
+        assert!(system.contains("<tool_use>"), "must carry instructions");
+    }
+
+    #[test]
+    fn params_pass_through_except_stream_and_stop() {
+        let formatter = AnthropicFormatter::new();
+        let req = request(
+            vec![msg(wf_types::message::MessageRole::User, "Hello")],
+            Some(serde_json::json!({
+                "temperature": 0.2,
+                "thinking": {"type": "enabled", "budget_tokens": 1024},
+                "tool_choice": {"type": "auto"},
+                "stop": ["END"],
+                "stream": true,
+            })),
+        );
+        let body = formatter.build_body(&req, &profile()).expect("must build");
+
+        assert_eq!(body["temperature"], serde_json::json!(0.2));
+        assert_eq!(body["thinking"]["budget_tokens"], serde_json::json!(1024));
+        assert_eq!(body["tool_choice"]["type"], serde_json::json!("auto"));
+        assert_eq!(body["stop_sequences"], serde_json::json!(["END"]));
+        assert!(body.get("stop").is_none(), "stop must be mapped");
+        assert!(body.get("stream").is_none(), "stream controlled by caller");
+    }
+
+    #[test]
+    fn count_tokens_includes_system() {
+        let formatter = AnthropicFormatter::new();
+        let req = request(
+            vec![msg(wf_types::message::MessageRole::System, "You are a helper")],
+            None,
+        );
+        let body = formatter
+            .build_count_tokens_body(&req, &profile())
+            .expect("must build");
+        assert_eq!(body["system"], serde_json::json!("You are a helper"));
     }
 }

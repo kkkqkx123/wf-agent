@@ -100,22 +100,17 @@ impl GeminiNativeFormatter {
         request: &LlmRequest,
         profile: &LlmProfile,
     ) -> serde_json::Value {
-        let mut config = serde_json::json!({});
-
         let merged_params =
             crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        if let Some(temp) = merged_params.get("temperature") {
-            config["temperature"] = temp.clone();
-        }
-        if let Some(max_tokens) = merged_params.get("max_tokens") {
-            config["maxOutputTokens"] = max_tokens.clone();
-        }
-        if let Some(top_p) = merged_params.get("top_p") {
-            config["topP"] = top_p.clone();
-        }
-        if let Some(top_k) = merged_params.get("top_k") {
-            config["topK"] = top_k.clone();
-        }
+
+        // Defaults match the deprecated TS formatter (gemini-native.ts).
+        let mut config = serde_json::json!({
+            "temperature": merged_params.get("temperature").cloned().unwrap_or_else(|| serde_json::json!(0.7)),
+            "maxOutputTokens": merged_params.get("max_tokens").cloned().unwrap_or_else(|| serde_json::json!(4096)),
+            "topP": merged_params.get("top_p").cloned().unwrap_or_else(|| serde_json::json!(1.0)),
+            "topK": merged_params.get("top_k").cloned().unwrap_or_else(|| serde_json::json!(40)),
+        });
+
         if let Some(stop) = merged_params.get("stop") {
             let stop_seqs: Vec<String> = stop
                 .as_array()
@@ -145,36 +140,7 @@ impl LlmFormatter for GeminiNativeFormatter {
             profile.api_key.as_deref().unwrap_or("")
         );
 
-        let messages = self.convert_messages(&request.messages);
-        let generation_config = self.convert_generation_config(request, profile);
-
-        let use_text_mode = super::shared::is_text_mode(request);
-
-        let mut body = serde_json::json!({
-            "contents": messages,
-            "generationConfig": generation_config,
-        });
-
-        if use_text_mode {
-            let system = super::shared::text_mode_system_content(request);
-            if !system.is_empty() {
-                body["systemInstruction"] = serde_json::json!({"parts": [{"text": system}]});
-            }
-        } else if let Some(tools) = &request.tools {
-            let function_declarations: Vec<serde_json::Value> = tools
-                .iter()
-                .map(|t| {
-                    serde_json::json!({
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    })
-                })
-                .collect();
-            body["tools"] = serde_json::json!([{"functionDeclarations": function_declarations}]);
-        }
-
-        super::shared::apply_custom_body(&mut body, profile);
+        let body = self.build_body(request, profile)?;
 
         let mut req_builder = reqwest::Client::new()
             .request(Method::POST, &url)
@@ -285,6 +251,65 @@ impl LlmFormatter for GeminiNativeFormatter {
 }
 
 impl GeminiNativeFormatter {
+    /// Build the request body (separated from the HTTP layer for testability).
+    fn build_body(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<serde_json::Value> {
+        let generation_config = self.convert_generation_config(request, profile);
+
+        let use_text_mode = super::shared::is_text_mode(request);
+
+        // System instructions are sent in the dedicated `systemInstruction`
+        // field in both modes. Text mode injects the original system + tool
+        // usage instructions + declarations; native mode keeps the original
+        // system message.
+        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+
+        let history = if use_text_mode {
+            super::shared::convert_history_for_text_mode(&request.messages, request)
+        } else {
+            request.messages.clone()
+        };
+        let messages = self.convert_messages(&history);
+
+        let mut body = serde_json::json!({
+            "contents": messages,
+            "generationConfig": generation_config,
+        });
+
+        if use_text_mode {
+            let system = super::shared::text_mode_system_content(request);
+            if !system.is_empty() {
+                body["systemInstruction"] = serde_json::json!({"parts": [{"text": system}]});
+            }
+        } else {
+            if let Some(system) = system_content {
+                if !system.is_empty() {
+                    body["systemInstruction"] = serde_json::json!({"parts": [{"text": system}]});
+                }
+            }
+            if let Some(tools) = &request.tools {
+                let function_declarations: Vec<serde_json::Value> = tools
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        })
+                    })
+                    .collect();
+                body["tools"] = serde_json::json!([{"functionDeclarations": function_declarations}]);
+            }
+        }
+
+        super::shared::apply_custom_body(&mut body, profile);
+
+        Ok(body)
+    }
+
     fn parse_gemini_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
@@ -438,5 +463,146 @@ mod tests {
             }
             other => panic!("expected ToolCallDelta, got {:?}", other),
         }
+    }
+
+    fn profile() -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: wf_types::llm::LlmProvider::GeminiNative,
+            model: "gemini-1.5-pro".to_string(),
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    fn msg(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
+        wf_types::message::Message {
+            id: wf_types::Id::new(),
+            role,
+            content: wf_types::message::MessageContentValue::Text(text.to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    fn request(
+        messages: Vec<wf_types::message::Message>,
+        params: Option<serde_json::Value>,
+    ) -> LlmRequest {
+        LlmRequest {
+            profile_id: "p1".to_string(),
+            messages,
+            parameters: params,
+            tools: None,
+            tool_call_format: None,
+            locked_tool_call_format: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    #[test]
+    fn native_mode_sends_system_instruction() {
+        let formatter = GeminiNativeFormatter::new();
+        let req = request(
+            vec![
+                msg(wf_types::message::MessageRole::System, "You are a helper"),
+                msg(wf_types::message::MessageRole::User, "Hello"),
+            ],
+            None,
+        );
+        let body = formatter.build_body(&req, &profile()).expect("must build");
+
+        assert_eq!(
+            body["systemInstruction"]["parts"][0]["text"],
+            serde_json::json!("You are a helper")
+        );
+        let roles: Vec<&str> = body["contents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["role"].as_str())
+            .collect();
+        assert_eq!(roles, vec!["user"], "system must not appear in contents");
+    }
+
+    #[test]
+    fn native_mode_sends_tools_alongside_system() {
+        let formatter = GeminiNativeFormatter::new();
+        let req = request(
+            vec![
+                msg(wf_types::message::MessageRole::System, "You are a helper"),
+                msg(wf_types::message::MessageRole::User, "Hello"),
+            ],
+            None,
+        );
+        let mut req = req;
+        req.tools = Some(vec![serde_json::from_value(serde_json::json!({
+            "id": wf_types::Id::new(),
+            "name": "get_weather",
+            "description": "Get weather",
+            "tool_type": "built_in",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+            "enabled": true
+        }))
+        .unwrap()]);
+        let body = formatter.build_body(&req, &profile()).expect("must build");
+
+        assert_eq!(
+            body["systemInstruction"]["parts"][0]["text"],
+            serde_json::json!("You are a helper")
+        );
+        assert_eq!(
+            body["tools"][0]["functionDeclarations"][0]["name"],
+            serde_json::json!("get_weather")
+        );
+    }
+
+    #[test]
+    fn generation_config_defaults_and_overrides() {
+        let formatter = GeminiNativeFormatter::new();
+        let body = formatter
+            .build_body(&request(vec![], None), &profile())
+            .expect("must build");
+
+        assert_eq!(body["generationConfig"]["temperature"], serde_json::json!(0.7));
+        assert_eq!(
+            body["generationConfig"]["maxOutputTokens"],
+            serde_json::json!(4096)
+        );
+        assert_eq!(body["generationConfig"]["topP"], serde_json::json!(1.0));
+        assert_eq!(body["generationConfig"]["topK"], serde_json::json!(40));
+
+        let req = request(
+            vec![],
+            Some(serde_json::json!({"temperature": 0.2, "max_tokens": 128})),
+        );
+        let body = formatter.build_body(&req, &profile()).expect("must build");
+        assert_eq!(body["generationConfig"]["temperature"], serde_json::json!(0.2));
+        assert_eq!(
+            body["generationConfig"]["maxOutputTokens"],
+            serde_json::json!(128)
+        );
     }
 }

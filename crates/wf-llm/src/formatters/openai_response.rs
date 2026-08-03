@@ -145,6 +145,8 @@ impl LlmFormatter for OpenaiResponseFormatter {
         });
 
         if use_text_mode {
+            let history = super::shared::convert_history_for_text_mode(&request.messages, request);
+            body["input"] = serde_json::json!(self.convert_messages(&history));
             let system = super::shared::text_mode_system_content(request);
             if !system.is_empty() {
                 let mut input = body["input"].take();
@@ -159,28 +161,15 @@ impl LlmFormatter for OpenaiResponseFormatter {
             body["stream"] = serde_json::json!(true);
         }
 
+        // Pass through all merged parameters untouched (matching the TS
+        // `Object.assign(body, otherParams)` behavior), except `stream` which
+        // is controlled by the caller above.
         let merged_params =
             crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        if let Some(temp) = merged_params.get("temperature") {
-            body["temperature"] = temp.clone();
-        }
-        if let Some(max_tokens) = merged_params.get("max_tokens") {
-            body["max_tokens"] = max_tokens.clone();
-        }
-        if let Some(top_p) = merged_params.get("top_p") {
-            body["top_p"] = top_p.clone();
-        }
-        if let Some(stop) = merged_params.get("stop") {
-            body["stop"] = stop.clone();
-        }
-        if let Some(reasoning_effort) = merged_params.get("reasoning_effort") {
-            body["reasoning_effort"] = reasoning_effort.clone();
-        }
-        if let Some(previous_response_id) = merged_params.get("previous_response_id") {
-            body["previous_response_id"] = previous_response_id.clone();
-        }
-        if let Some(instructions) = merged_params.get("instructions") {
-            body["instructions"] = instructions.clone();
+        for (key, value) in merged_params {
+            if key != "stream" {
+                body[key] = value;
+            }
         }
 
         if !use_text_mode {

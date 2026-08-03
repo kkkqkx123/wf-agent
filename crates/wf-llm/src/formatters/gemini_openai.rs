@@ -43,7 +43,8 @@ impl LlmFormatter for GeminiOpenaiFormatter {
         let messages = if use_text_mode {
             let (_, filtered) = crate::tool_format::extract_system_message(&request.messages);
             let content = shared::text_mode_system_content(request);
-            let mut converted = shared::convert_openai_messages(&filtered);
+            let history = shared::convert_history_for_text_mode(&filtered, request);
+            let mut converted = shared::convert_openai_messages(&history);
             if !content.is_empty() {
                 converted.insert(0, serde_json::json!({"role": "system", "content": content}));
             }

@@ -25,6 +25,9 @@ pub struct SseMessageStream<S> {
     formatter: Arc<dyn LlmFormatter>,
     cancel: Option<CancellationToken>,
     done: bool,
+    /// The formatter emitted `End`; the accumulator built the `FinalMessage`
+    /// and the `End` event itself is pending on the next `next()` call.
+    pending_end: bool,
     accumulator: MessageAccumulator,
 }
 
@@ -40,6 +43,7 @@ impl<S> SseMessageStream<S> {
             formatter,
             cancel,
             done: false,
+            pending_end: false,
             accumulator: MessageAccumulator::new(dead_loop_config),
         }
     }
@@ -55,6 +59,16 @@ where
     async fn next(&mut self) -> Option<Result<MessageStreamEvent, LlmError>> {
         if self.done {
             return None;
+        }
+
+        // The final message was already delivered; terminate with the
+        // pending `End` event before the stream is exhausted.
+        if self.pending_end {
+            self.pending_end = false;
+            self.done = true;
+            return Some(Ok(MessageStreamEvent::End(
+                wf_types::llm::MessageStreamEnd {},
+            )));
         }
 
         if let Some(ref cancel) = self.cancel {
@@ -74,29 +88,28 @@ where
                     }
 
                     match self.formatter.parse_stream_chunk(&data) {
-                        Ok(Some(raw_event)) => match raw_event {
-                            MessageStreamEvent::End(_) => {
-                                self.done = true;
-                                return Some(Ok(MessageStreamEvent::End(
-                                    wf_types::llm::MessageStreamEnd {},
-                                )));
-                            }
-                            _ => {
-                                if let Some(emitted) = self.accumulator.push(raw_event) {
-                                    match emitted {
-                                        MessageStreamEvent::Abort(_) => {
-                                            self.done = true;
-                                        }
-                                        MessageStreamEvent::End(_) => {
-                                            self.done = true;
-                                        }
-                                        _ => {}
+                        Ok(Some(raw_event)) => {
+                            // Always route `End` through the accumulator: it
+                            // assembles the `FinalMessage` (content, tool calls,
+                            // usage) before the stream terminates. The `End`
+                            // event itself is emitted on the next call.
+                            if let Some(emitted) = self.accumulator.push(raw_event) {
+                                match emitted {
+                                    MessageStreamEvent::Abort(_) => {
+                                        self.done = true;
                                     }
-                                    return Some(Ok(emitted));
+                                    MessageStreamEvent::End(_) => {
+                                        self.done = true;
+                                    }
+                                    MessageStreamEvent::FinalMessage(_) => {
+                                        self.pending_end = true;
+                                    }
+                                    _ => {}
                                 }
-                                continue;
+                                return Some(Ok(emitted));
                             }
-                        },
+                            continue;
+                        }
                         Ok(None) => continue,
                         Err(e) => return Some(Err(e)),
                     }
@@ -328,6 +341,77 @@ impl PartialToolCall {}
 mod tests {
     use super::*;
     use wf_types::llm::{MessageStreamToolCallDelta, MessageStreamUsage};
+
+    /// Feed a real OpenAI-style SSE byte stream through `SseMessageStream` with
+    /// the real `OpenaiChatFormatter`, proving that the `FinalMessage` is
+    /// assembled and delivered before the `End` event (regression test for the
+    /// `End` short-circuit that skipped the accumulator).
+    #[tokio::test]
+    async fn real_sse_path_emits_final_message_before_end() {
+        use futures::stream;
+        use wf_types::llm::MessageStreamEvent;
+
+        let sse = concat!(
+            "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+            "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"}}]}\n\n",
+            "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Bei\"}}]}}]}\n\n",
+            "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"jing\\\"}\"}}]}}]}\n\n",
+            "data: {\"id\":\"1\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n",
+            "data: [DONE]\n\n",
+        );
+
+        let inner = stream::iter(vec![Ok::<_, std::io::Error>(sse.as_bytes().to_vec())]);
+        let sse_stream = EventStream::new(inner);
+        let formatter: Arc<dyn LlmFormatter> = Arc::new(crate::formatters::OpenaiChatFormatter::new());
+        let mut stream = SseMessageStream::new(sse_stream, formatter, None, None);
+
+        let mut events: Vec<MessageStreamEvent> = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.expect("no stream error"));
+        }
+
+        let text: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                MessageStreamEvent::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, vec!["Hello", " world"]);
+
+        let final_msg = events
+            .iter()
+            .find_map(|e| match e {
+                MessageStreamEvent::FinalMessage(f) => Some(f),
+                _ => None,
+            })
+            .expect("FinalMessage must be emitted");
+        assert_eq!(
+            crate::message_helper::extract_text_content(&final_msg.message),
+            "Hello world"
+        );
+        let calls = final_msg
+            .message
+            .tool_calls
+            .as_ref()
+            .expect("tool calls must be assembled");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].function.name, "get_weather");
+        assert_eq!(calls[0].function.arguments, r#"{"city":"Beijing"}"#);
+        assert_eq!(final_msg.usage.as_ref().unwrap().total_tokens, 15);
+
+        let final_index = events
+            .iter()
+            .position(|e| matches!(e, MessageStreamEvent::FinalMessage(_)))
+            .unwrap();
+        let end_index = events
+            .iter()
+            .position(|e| matches!(e, MessageStreamEvent::End(_)))
+            .unwrap();
+        assert!(final_index < end_index, "FinalMessage must precede End");
+        assert!(matches!(events.last(), Some(MessageStreamEvent::End(_))));
+    }
 
     #[test]
     fn openai_style_deltas_accumulate_into_full_tool_call() {

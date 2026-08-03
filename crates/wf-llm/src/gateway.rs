@@ -85,7 +85,25 @@ impl LlmGateway {
     }
 
     pub fn has_profile(&self, id: &str) -> bool {
-        self.profiles.get(id).is_some()
+        self.profiles.has(id)
+    }
+
+    /// Remove a profile and evict all cached clients bound to it. Returns the
+    /// removed profile.
+    pub fn remove_profile(&self, id: &str) -> Option<LlmProfile> {
+        let removed = self.profiles.remove(id);
+        if removed.is_some() {
+            let prefix = format!("{id}::");
+            self.clients
+                .retain(|key, _| !key.starts_with(&prefix));
+        }
+        removed
+    }
+
+    /// Clear all profiles and the client cache.
+    pub fn clear_all(&self) {
+        self.profiles.clear();
+        self.clients.clear();
     }
 
     pub async fn generate(&self, request: &LlmRequest) -> LlmResult<LlmResponseType> {
@@ -135,6 +153,11 @@ impl LlmGateway {
     }
 
     fn resolve_profile(&self, profile_id: &str) -> LlmResult<LlmProfile> {
+        if profile_id.is_empty() {
+            return self.profiles.get_default().ok_or_else(|| {
+                LlmError::ProfileNotFound("(default profile not registered)".to_string())
+            });
+        }
         self.profiles
             .get(profile_id)
             .ok_or_else(|| LlmError::ProfileNotFound(profile_id.to_string()))
@@ -551,5 +574,82 @@ mod tests {
 
         let err = gateway.generate(&request("p1")).await.unwrap_err();
         assert!(matches!(err, LlmError::FormatterNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn empty_profile_id_resolves_to_default() {
+        let registry = FormatterRegistry::new();
+        registry
+            .register("probe", Arc::new(ProbeFormatter))
+            .expect("registration must succeed");
+        let gateway = LlmGateway::new_with_formatter_registry(registry);
+        gateway
+            .register_profile(profile(
+                "p1",
+                LlmProvider::Custom("probe".to_string()),
+            ))
+            .unwrap();
+
+        // The custom formatter fails inside `build_request` before any HTTP;
+        // reaching it proves the default profile was resolved.
+        let err = gateway.generate(&request("")).await.unwrap_err();
+        assert!(
+            err.to_string().contains("custom formatter engaged"),
+            "empty id must resolve the default profile: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_profile_id_errors_without_default() {
+        let gateway = LlmGateway::new();
+        let err = gateway.generate(&request("")).await.unwrap_err();
+        assert!(matches!(err, LlmError::ProfileNotFound(_)));
+    }
+
+    #[test]
+    fn remove_profile_evicts_cached_clients() {
+        let gateway = LlmGateway::new();
+        gateway
+            .register_profile(profile("p1", LlmProvider::OpenaiChat))
+            .unwrap();
+        gateway
+            .register_profile(profile("p2", LlmProvider::OpenaiChat))
+            .unwrap();
+
+        let client = gateway
+            .get_or_create_client(&gateway.profiles.get("p1").unwrap())
+            .unwrap();
+        let key = format!("{}::{}", client.profile().id, client.profile().model);
+        assert!(gateway.clients.contains_key(key.as_str()));
+
+        assert!(gateway.remove_profile("p1").is_some());
+        assert!(
+            !gateway.clients.contains_key(key.as_str()),
+            "clients of the removed profile must be evicted"
+        );
+        assert!(!gateway.has_profile("p1"));
+        assert!(gateway.has_profile("p2"));
+    }
+
+    #[test]
+    fn remove_profile_preserves_other_clients() {
+        let gateway = LlmGateway::new();
+        gateway
+            .register_profile(profile("p1", LlmProvider::OpenaiChat))
+            .unwrap();
+        gateway
+            .register_profile(profile("p2", LlmProvider::OpenaiChat))
+            .unwrap();
+
+        let client = gateway
+            .get_or_create_client(&gateway.profiles.get("p2").unwrap())
+            .unwrap();
+        let key = format!("{}::{}", client.profile().id, client.profile().model);
+
+        gateway.remove_profile("p1");
+        assert!(
+            gateway.clients.contains_key(key.as_str()),
+            "unrelated clients must survive"
+        );
     }
 }

@@ -76,6 +76,11 @@ pub struct BaseCheckpointCore<TDelta, TSnapshot> {
     pub timestamp: super::super::Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<super::super::Metadata>,
+    /// Checkpoint format version of this blob. Absent for blobs written
+    /// before version tracking was introduced (treated as the minimum
+    /// compatible version by the VersionManager).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

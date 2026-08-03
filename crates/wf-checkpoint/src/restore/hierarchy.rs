@@ -221,17 +221,81 @@ impl RestoreSummary {
 
 pub struct RecoveryTransaction {
     operations: Vec<RecoveryOperation>,
+    rollback_strategy: RollbackStrategy,
 }
 
 impl RecoveryTransaction {
     pub fn new() -> Self {
         Self {
             operations: Vec::new(),
+            rollback_strategy: RollbackStrategy::AllOrNothing,
+        }
+    }
+
+    pub fn with_rollback_strategy(strategy: RollbackStrategy) -> Self {
+        Self {
+            operations: Vec::new(),
+            rollback_strategy: strategy,
         }
     }
 
     pub fn register(&mut self, operation: RecoveryOperation) {
         self.operations.push(operation);
+    }
+
+    /// Execute all pending operations through the provided executor.
+    /// Successful operations are marked `Completed`; failed ones are marked
+    /// `Failed` and, under `AllOrNothing`, previously completed operations are
+    /// rolled back.
+    pub async fn execute<F, Fut>(&mut self, mut executor: F) -> Result<(), CheckpointError>
+    where
+        F: FnMut(&RecoveryOperation) -> Fut,
+        Fut: std::future::Future<Output = Result<(), CheckpointError>>,
+    {
+        for operation in self.operations.iter_mut() {
+            if operation.status != RecoveryOperationStatus::Pending {
+                continue;
+            }
+            match executor(operation).await {
+                Ok(()) => {
+                    operation.status = RecoveryOperationStatus::Completed;
+                }
+                Err(e) => {
+                    operation.status = RecoveryOperationStatus::Failed(e.to_string());
+                    if self.rollback_strategy == RollbackStrategy::AllOrNothing {
+                        self.rollback();
+                        return Err(CheckpointError::Coordinator(format!(
+                            "recovery transaction failed: {}",
+                            e
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Mark the operation at `index` as completed.
+    pub fn complete(&mut self, index: usize) {
+        if let Some(operation) = self.operations.get_mut(index) {
+            operation.status = RecoveryOperationStatus::Completed;
+        }
+    }
+
+    /// Mark the operation at `index` as failed with the given error message.
+    pub fn fail(&mut self, index: usize, error: impl Into<String>) {
+        if let Some(operation) = self.operations.get_mut(index) {
+            operation.status = RecoveryOperationStatus::Failed(error.into());
+        }
+    }
+
+    /// Rollback the transaction: every operation is marked `Failed("rolled
+    /// back")` — including previously completed ones, which the caller must
+    /// compensate. This gives the transaction an unambiguous end state.
+    pub fn rollback(&mut self) {
+        for operation in self.operations.iter_mut() {
+            operation.status = RecoveryOperationStatus::Failed("rolled back".to_string());
+        }
     }
 
     pub fn operations(&self) -> &[RecoveryOperation] {
@@ -244,6 +308,26 @@ impl RecoveryTransaction {
 
     pub fn is_empty(&self) -> bool {
         self.operations.is_empty()
+    }
+
+    /// Number of operations that completed successfully.
+    pub fn completed_count(&self) -> usize {
+        self.operations
+            .iter()
+            .filter(|op| op.status == RecoveryOperationStatus::Completed)
+            .count()
+    }
+
+    /// Number of operations that failed.
+    pub fn failed_count(&self) -> usize {
+        self.operations
+            .iter()
+            .filter(|op| matches!(op.status, RecoveryOperationStatus::Failed(_)))
+            .count()
+    }
+
+    pub fn rollback_strategy(&self) -> &RollbackStrategy {
+        &self.rollback_strategy
     }
 }
 
@@ -274,7 +358,7 @@ pub enum RecoveryOperationStatus {
     Failed(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RollbackStrategy {
     AllOrNothing,
     BestEffort,
@@ -438,6 +522,118 @@ mod tests {
         });
 
         assert_eq!(tx.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn recovery_transaction_executes_all_pending() {
+        let mut tx = RecoveryTransaction::new();
+        tx.register(RecoveryOperation {
+            checkpoint_id: "cp-1".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "cp-2".to_string(),
+            operation_type: RecoveryOperationType::Delete,
+            status: RecoveryOperationStatus::Pending,
+        });
+
+        let _ = tx.execute(|_op| Box::pin(async { Ok(()) })).await.unwrap();
+
+        assert_eq!(tx.completed_count(), 2);
+        assert_eq!(tx.failed_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn recovery_transaction_best_effort_marks_failures() {
+        let mut tx = RecoveryTransaction::with_rollback_strategy(RollbackStrategy::BestEffort);
+        tx.register(RecoveryOperation {
+            checkpoint_id: "ok".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "bad".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+
+        tx.execute(|op| {
+            let op = op.clone();
+            Box::pin(async move {
+                if op.checkpoint_id == "bad" {
+                    Err(CheckpointError::NotFound {
+                        id: op.checkpoint_id.clone(),
+                    })
+                } else {
+                    Ok(())
+                }
+            })
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(tx.completed_count(), 1);
+        assert_eq!(tx.failed_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_transaction_all_or_nothing_rolls_back_on_failure() {
+        let mut tx = RecoveryTransaction::with_rollback_strategy(RollbackStrategy::AllOrNothing);
+        tx.register(RecoveryOperation {
+            checkpoint_id: "ok".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "bad".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+
+        let err = tx
+            .execute(|op| {
+                let op = op.clone();
+                Box::pin(async move {
+                    if op.checkpoint_id == "bad" {
+                        Err(CheckpointError::NotFound {
+                            id: op.checkpoint_id.clone(),
+                        })
+                    } else {
+                        Ok(())
+                    }
+                })
+            })
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("recovery transaction failed"));
+        assert_eq!(tx.completed_count(), 0, "completed ops must be rolled back");
+        assert_eq!(tx.failed_count(), 2);
+    }
+
+    #[test]
+    fn recovery_transaction_manual_complete_fail_rollback() {
+        let mut tx = RecoveryTransaction::new();
+        tx.register(RecoveryOperation {
+            checkpoint_id: "cp-1".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.complete(0);
+        assert_eq!(tx.completed_count(), 1);
+
+        tx.register(RecoveryOperation {
+            checkpoint_id: "cp-2".to_string(),
+            operation_type: RecoveryOperationType::Reconstruct,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.fail(1, "boom");
+        assert_eq!(tx.failed_count(), 1);
+
+        tx.rollback();
+        assert_eq!(tx.completed_count(), 0, "completed ops are rolled back too");
+        assert_eq!(tx.failed_count(), 2);
     }
 
     #[test]

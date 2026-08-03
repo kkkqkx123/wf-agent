@@ -1,3 +1,4 @@
+use crate::cleanup::CleanupStrategy;
 use crate::error::CheckpointError;
 use wf_types::storage::CheckpointStorageMetadata;
 
@@ -36,4 +37,22 @@ pub trait CheckpointStateManager: Send + Sync {
         entity_id: &str,
         max_count: Option<u32>,
     ) -> impl std::future::Future<Output = Result<u64, CheckpointError>> + Send;
+
+    /// Clean up checkpoints of an entity with an explicit `CleanupStrategy`.
+    /// The default implementation maps count-based strategies onto `cleanup`
+    /// and keeps everything for other strategies.
+    fn cleanup_with_strategy(
+        &self,
+        entity_id: &str,
+        strategy: &CleanupStrategy,
+    ) -> impl std::future::Future<Output = Result<u64, CheckpointError>> + Send {
+        async move {
+            match strategy {
+                CleanupStrategy::CountBased { max_checkpoints } => {
+                    self.cleanup(entity_id, Some(*max_checkpoints as u32)).await
+                }
+                _ => self.cleanup(entity_id, None).await,
+            }
+        }
+    }
 }

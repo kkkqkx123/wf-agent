@@ -32,10 +32,8 @@ impl
         let (added_messages, modified_messages, deleted_message_indices) =
             Self::diff_messages(&previous.messages, &current.messages);
 
-        let (added_variables, modified_variables) = Self::diff_variables(
-            &previous.variable_state,
-            &current.variable_state,
-        );
+        let (added_variables, modified_variables) =
+            Self::diff_variables(&previous.variable_state, &current.variable_state);
 
         let added_node_results = if current.node_results != previous.node_results {
             Some(serde_json::json!({
@@ -101,8 +99,7 @@ impl
             }
 
             if let Some(ref deleted) = delta.deleted_message_indices {
-                let mut indices: Vec<usize> =
-                    deleted.iter().map(|idx| *idx as usize).collect();
+                let mut indices: Vec<usize> = deleted.iter().map(|idx| *idx as usize).collect();
                 indices.sort_unstable_by(|a, b| b.cmp(a));
                 for idx in indices {
                     if idx < messages.len() {
@@ -176,6 +173,63 @@ impl
                         serde_json::from_value(v.clone()).ok()
                     };
                 }
+            }
+            if other.contains_key("conversation_state") {
+                result.conversation_state = other
+                    .get("conversation_state")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()));
+            }
+            if other.contains_key("trigger_states") {
+                result.trigger_states = other
+                    .get("trigger_states")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()));
+            }
+            for key in [
+                "error_records",
+                "interruption_records",
+                "event_records",
+                "execution_config",
+                "fork_join_aggregation_state",
+                "hook_execution_context",
+            ] {
+                if other.contains_key(key) {
+                    let parsed: Option<serde_json::Value> = match other.get(key) {
+                        Some(v) if !v.is_null() => Some(v.clone()),
+                        _ => None,
+                    };
+                    let as_vec = parsed.as_ref().and_then(|v| {
+                        serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).ok()
+                    });
+                    match key {
+                        "error_records" => result.error_records = as_vec,
+                        "interruption_records" => result.interruption_records = as_vec,
+                        "event_records" => result.event_records = as_vec,
+                        "execution_config" => result.execution_config = parsed,
+                        "fork_join_aggregation_state" => {
+                            result.fork_join_aggregation_state = parsed
+                        }
+                        "hook_execution_context" => result.hook_execution_context = parsed,
+                        _ => {}
+                    }
+                }
+            }
+            if other.contains_key("hierarchy") {
+                result.hierarchy = other
+                    .get("hierarchy")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("message_base_checkpoint_id") {
+                result.message_base_checkpoint_id = other
+                    .get("message_base_checkpoint_id")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_str().map(String::from));
+            }
+            if other.contains_key("message_total_count") {
+                result.message_total_count = other
+                    .get("message_total_count")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_u64());
             }
         }
 
@@ -297,7 +351,93 @@ impl WorkflowDiffCalculator {
         if current.active_operations != previous.active_operations {
             other.insert(
                 "active_operations".to_string(),
-                serde_json::to_value(&current.active_operations)
+                serde_json::to_value(&current.active_operations).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.conversation_state != previous.conversation_state {
+            other.insert(
+                "conversation_state".to_string(),
+                current
+                    .conversation_state
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.trigger_states != previous.trigger_states {
+            other.insert(
+                "trigger_states".to_string(),
+                current
+                    .trigger_states
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.error_records != previous.error_records {
+            other.insert(
+                "error_records".to_string(),
+                serde_json::to_value(&current.error_records).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.interruption_records != previous.interruption_records {
+            other.insert(
+                "interruption_records".to_string(),
+                serde_json::to_value(&current.interruption_records)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.event_records != previous.event_records {
+            other.insert(
+                "event_records".to_string(),
+                serde_json::to_value(&current.event_records).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.hierarchy != previous.hierarchy {
+            other.insert(
+                "hierarchy".to_string(),
+                serde_json::to_value(&current.hierarchy).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.execution_config != previous.execution_config {
+            other.insert(
+                "execution_config".to_string(),
+                current
+                    .execution_config
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.fork_join_aggregation_state != previous.fork_join_aggregation_state {
+            other.insert(
+                "fork_join_aggregation_state".to_string(),
+                current
+                    .fork_join_aggregation_state
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.hook_execution_context != previous.hook_execution_context {
+            other.insert(
+                "hook_execution_context".to_string(),
+                current
+                    .hook_execution_context
+                    .clone()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.message_base_checkpoint_id != previous.message_base_checkpoint_id {
+            other.insert(
+                "message_base_checkpoint_id".to_string(),
+                current
+                    .message_base_checkpoint_id
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.message_total_count != previous.message_total_count {
+            other.insert(
+                "message_total_count".to_string(),
+                serde_json::to_value(current.message_total_count)
                     .unwrap_or(serde_json::Value::Null),
             );
         }
@@ -356,7 +496,7 @@ impl
             added_messages,
             added_iterations,
             status_change,
-            other_changes: None,
+            other_changes: Self::diff_other_changes(previous, current),
         })
     }
 
@@ -381,16 +521,224 @@ impl
             result.status = status.clone();
         }
 
+        if let Some(ref other) = delta.other_changes {
+            if other.contains_key("tool_call_count") {
+                if let Some(v) = other.get("tool_call_count").and_then(|v| v.as_u64()) {
+                    result.tool_call_count = v as u32;
+                }
+            }
+            if other.contains_key("tool_call_history") {
+                result.tool_call_history = other
+                    .get("tool_call_history")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("is_streaming") {
+                result.is_streaming = other.get("is_streaming").and_then(|v| v.as_bool());
+            }
+            if other.contains_key("variable_snapshots") {
+                result.variable_snapshots = other
+                    .get("variable_snapshots")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("error") {
+                result.error = other
+                    .get("error")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_str().map(String::from));
+            }
+            if other.contains_key("started_at") {
+                result.started_at = other
+                    .get("started_at")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_i64());
+            }
+            if other.contains_key("completed_at") {
+                result.completed_at = other
+                    .get("completed_at")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_i64());
+            }
+            for key in [
+                "error_records",
+                "interruption_records",
+                "event_records",
+                "iteration_history",
+                "current_iteration_record",
+                "trigger_state",
+            ] {
+                if other.contains_key(key) {
+                    let parsed: Option<serde_json::Value> = match other.get(key) {
+                        Some(v) if !v.is_null() => Some(v.clone()),
+                        _ => None,
+                    };
+                    let as_vec = parsed.as_ref().and_then(|v| {
+                        serde_json::from_value::<Vec<serde_json::Value>>(v.clone()).ok()
+                    });
+                    match key {
+                        "error_records" => result.error_records = as_vec,
+                        "interruption_records" => result.interruption_records = as_vec,
+                        "event_records" => result.event_records = as_vec,
+                        "iteration_history" => result.iteration_history = as_vec,
+                        "current_iteration_record" => result.current_iteration_record = parsed,
+                        "trigger_state" => result.trigger_state = parsed,
+                        _ => {}
+                    }
+                }
+            }
+            if other.contains_key("stream_message") {
+                result.stream_message = other
+                    .get("stream_message")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| v.as_str().map(String::from));
+            }
+            if other.contains_key("pending_tool_call_ids") {
+                result.pending_tool_call_ids = other
+                    .get("pending_tool_call_ids")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("hierarchy") {
+                result.hierarchy = other
+                    .get("hierarchy")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("messages") {
+                result.messages = other
+                    .get("messages")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+        }
+
         Ok(result)
+    }
+}
+
+impl AgentDiffCalculator {
+    fn diff_other_changes(
+        previous: &wf_types::checkpoint::agent::AgentStateSnapshot,
+        current: &wf_types::checkpoint::agent::AgentStateSnapshot,
+    ) -> Option<wf_types::Metadata> {
+        let mut other = wf_types::Metadata::new();
+
+        if current.tool_call_count != previous.tool_call_count {
+            other.insert(
+                "tool_call_count".to_string(),
+                serde_json::json!(current.tool_call_count),
+            );
+        }
+        if current.tool_call_history != previous.tool_call_history {
+            other.insert(
+                "tool_call_history".to_string(),
+                serde_json::to_value(&current.tool_call_history).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.is_streaming != previous.is_streaming {
+            other.insert(
+                "is_streaming".to_string(),
+                serde_json::to_value(current.is_streaming).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.variable_snapshots != previous.variable_snapshots {
+            other.insert(
+                "variable_snapshots".to_string(),
+                serde_json::to_value(&current.variable_snapshots)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.error != previous.error {
+            other.insert(
+                "error".to_string(),
+                serde_json::to_value(&current.error).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.started_at != previous.started_at {
+            other.insert(
+                "started_at".to_string(),
+                serde_json::to_value(current.started_at).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.completed_at != previous.completed_at {
+            other.insert(
+                "completed_at".to_string(),
+                serde_json::to_value(current.completed_at).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.error_records != previous.error_records {
+            other.insert(
+                "error_records".to_string(),
+                serde_json::to_value(&current.error_records).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.interruption_records != previous.interruption_records {
+            other.insert(
+                "interruption_records".to_string(),
+                serde_json::to_value(&current.interruption_records)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.event_records != previous.event_records {
+            other.insert(
+                "event_records".to_string(),
+                serde_json::to_value(&current.event_records).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.iteration_history != previous.iteration_history {
+            other.insert(
+                "iteration_history".to_string(),
+                serde_json::to_value(&current.iteration_history).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.current_iteration_record != previous.current_iteration_record {
+            other.insert(
+                "current_iteration_record".to_string(),
+                serde_json::to_value(&current.current_iteration_record)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.stream_message != previous.stream_message {
+            other.insert(
+                "stream_message".to_string(),
+                serde_json::to_value(&current.stream_message).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.pending_tool_call_ids != previous.pending_tool_call_ids {
+            other.insert(
+                "pending_tool_call_ids".to_string(),
+                serde_json::to_value(&current.pending_tool_call_ids)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.trigger_state != previous.trigger_state {
+            other.insert(
+                "trigger_state".to_string(),
+                serde_json::to_value(&current.trigger_state).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.hierarchy != previous.hierarchy {
+            other.insert(
+                "hierarchy".to_string(),
+                serde_json::to_value(&current.hierarchy).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if current.messages != previous.messages {
+            other.insert(
+                "messages".to_string(),
+                serde_json::to_value(&current.messages).unwrap_or(serde_json::Value::Null),
+            );
+        }
+
+        (!other.is_empty()).then_some(other)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::checkpoint::workflow::{
-        OperationState, WorkflowExecutionStateSnapshot,
-    };
+    use wf_types::checkpoint::workflow::{OperationState, WorkflowExecutionStateSnapshot};
     use wf_types::message::{Message, MessageContentValue, MessageRole};
 
     fn make_message(id: &str, text: &str) -> Message {
@@ -421,6 +769,17 @@ mod tests {
             messages: None,
             fork_join_context: None,
             active_operations: None,
+            conversation_state: None,
+            trigger_states: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            hierarchy: None,
+            execution_config: None,
+            fork_join_aggregation_state: None,
+            hook_execution_context: None,
+            message_base_checkpoint_id: None,
+            message_total_count: None,
         }
     }
 
@@ -488,10 +847,7 @@ mod tests {
         let calc = WorkflowDiffCalculator::new();
         let delta = calc.calculate_diff(&prev, &curr).await.unwrap();
 
-        assert_eq!(
-            delta.added_messages,
-            Some(vec![m3.clone()])
-        );
+        assert_eq!(delta.added_messages, Some(vec![m3.clone()]));
         assert_eq!(delta.modified_messages, Some(vec![m2_modified.clone()]));
         assert!(delta.deleted_message_indices.is_none());
 
@@ -611,7 +967,10 @@ mod tests {
         };
         let curr = WorkflowExecutionStateSnapshot {
             status: "completed".to_string(),
-            messages: Some(vec![make_message("m1", "hello"), make_message("m2", "world")]),
+            messages: Some(vec![
+                make_message("m1", "hello"),
+                make_message("m2", "world"),
+            ]),
             ..base.clone()
         };
 
@@ -626,26 +985,17 @@ mod tests {
         assert_eq!(restored_via_merge.status, "completed");
         assert_eq!(
             restored_via_merge.messages,
-            Some(vec![make_message("m1", "hello"), make_message("m2", "world")])
+            Some(vec![
+                make_message("m1", "hello"),
+                make_message("m2", "world")
+            ])
         );
     }
 
     #[tokio::test]
     async fn agent_diff_detects_iteration_change() {
         let calc = AgentDiffCalculator::new();
-        let prev = wf_types::checkpoint::agent::AgentStateSnapshot {
-            agent_loop_id: "a1".to_string(),
-            status: "running".to_string(),
-            current_iteration: 1,
-            tool_call_count: 0,
-            conversation_snapshot: None,
-            tool_call_history: None,
-            is_streaming: None,
-            variable_snapshots: None,
-            error: None,
-            started_at: None,
-            completed_at: None,
-        };
+        let prev = make_agent_snapshot(1);
         let curr = wf_types::checkpoint::agent::AgentStateSnapshot {
             current_iteration: 2,
             ..prev.clone()
@@ -658,19 +1008,7 @@ mod tests {
     #[tokio::test]
     async fn agent_apply_delta_updates_iteration() {
         let calc = AgentDiffCalculator::new();
-        let base = wf_types::checkpoint::agent::AgentStateSnapshot {
-            agent_loop_id: "a1".to_string(),
-            status: "running".to_string(),
-            current_iteration: 1,
-            tool_call_count: 0,
-            conversation_snapshot: None,
-            tool_call_history: None,
-            is_streaming: None,
-            variable_snapshots: None,
-            error: None,
-            started_at: None,
-            completed_at: None,
-        };
+        let base = make_agent_snapshot(1);
         let delta = wf_types::checkpoint::agent::AgentCheckpointDelta {
             added_messages: None,
             added_iterations: Some(vec![2, 3]),
@@ -681,5 +1019,57 @@ mod tests {
         let result = calc.apply_delta(&base, &delta).await.unwrap();
         assert_eq!(result.current_iteration, 3);
         assert_eq!(result.status, "completed");
+    }
+
+    #[tokio::test]
+    async fn agent_other_changes_round_trip() {
+        use wf_types::checkpoint::agent::AgentStateSnapshot;
+
+        let calc = AgentDiffCalculator::new();
+        let prev = make_agent_snapshot(1);
+        let curr = AgentStateSnapshot {
+            tool_call_count: 5,
+            error_records: Some(vec![serde_json::json!({"type": "tool_error"})]),
+            stream_message: Some("partial".to_string()),
+            pending_tool_call_ids: Some(vec!["tc-1".to_string()]),
+            messages: Some(vec![make_message("m1", "hi")]),
+            ..prev.clone()
+        };
+
+        let delta = calc.calculate_diff(&prev, &curr).await.unwrap();
+        assert!(delta.other_changes.is_some());
+
+        let restored = calc.apply_delta(&prev, &delta).await.unwrap();
+        assert_eq!(restored.tool_call_count, 5);
+        assert_eq!(restored.error_records, curr.error_records);
+        assert_eq!(restored.stream_message, curr.stream_message);
+        assert_eq!(restored.pending_tool_call_ids, curr.pending_tool_call_ids);
+        assert_eq!(restored.messages, curr.messages);
+    }
+
+    fn make_agent_snapshot(iteration: u32) -> wf_types::checkpoint::agent::AgentStateSnapshot {
+        wf_types::checkpoint::agent::AgentStateSnapshot {
+            agent_loop_id: "a1".to_string(),
+            status: "running".to_string(),
+            current_iteration: iteration,
+            tool_call_count: 0,
+            conversation_snapshot: None,
+            tool_call_history: None,
+            is_streaming: None,
+            variable_snapshots: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            iteration_history: None,
+            current_iteration_record: None,
+            stream_message: None,
+            pending_tool_call_ids: None,
+            trigger_state: None,
+            hierarchy: None,
+            messages: None,
+        }
     }
 }

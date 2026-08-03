@@ -6,16 +6,8 @@ where
     SS: Send + Sync,
     DS: Send + Sync,
 {
-    async fn calculate_diff(
-        &self,
-        previous: &SS,
-        current: &SS,
-    ) -> Result<DS, CheckpointError>;
-    async fn apply_delta(
-        &self,
-        base: &SS,
-        delta: &DS,
-    ) -> Result<SS, CheckpointError>;
+    async fn calculate_diff(&self, previous: &SS, current: &SS) -> Result<DS, CheckpointError>;
+    async fn apply_delta(&self, base: &SS, delta: &DS) -> Result<SS, CheckpointError>;
 
     /// Merge two consecutive deltas into a single one equivalent to applying
     /// `first` then `second` on top of `base`.

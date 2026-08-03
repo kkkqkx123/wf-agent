@@ -22,5 +22,9 @@ pub use cache::CheckpointCache;
 pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;
 pub use event::{CheckpointEvent, CheckpointEventBus};
+pub use file::{
+    FileCheckpoint, FileCheckpointDelta, FileCheckpointManager, FileCheckpointMetadata,
+    FileCheckpointStorageAdapter, FileState, InMemoryFileCheckpointStorage,
+};
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use serializer::{CheckpointCodec, CheckpointSerializer};

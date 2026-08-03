@@ -92,27 +92,20 @@ where
     }
 
     fn extract_tags(&self, checkpoint: &T) -> Option<Vec<String>> {
-        serde_json::to_value(checkpoint)
-            .ok()
-            .and_then(|json| {
-                json.get("metadata")
-                    .and_then(|m| m.get("tags"))
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-            })
+        serde_json::to_value(checkpoint).ok().and_then(|json| {
+            json.get("metadata")
+                .and_then(|m| m.get("tags"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        })
     }
 
-    fn extract_custom_fields(
-        &self,
-        checkpoint: &T,
-    ) -> Option<serde_json::Map<String, Value>> {
-        serde_json::to_value(checkpoint)
-            .ok()
-            .and_then(|json| {
-                json.get("metadata")
-                    .and_then(|m| m.get("custom_fields"))
-                    .and_then(|v| v.as_object())
-                    .cloned()
-            })
+    fn extract_custom_fields(&self, checkpoint: &T) -> Option<serde_json::Map<String, Value>> {
+        serde_json::to_value(checkpoint).ok().and_then(|json| {
+            json.get("metadata")
+                .and_then(|m| m.get("custom_fields"))
+                .and_then(|v| v.as_object())
+                .cloned()
+        })
     }
 
     fn extract_json_count(checkpoint: &T, field: &str) -> u32 {
@@ -185,59 +178,51 @@ where
         let mut merged_count = 0u64;
 
         while chain.len() > max_deltas as usize {
-            let anchor_id = anchor_id.as_deref().ok_or_else(|| {
-                CheckpointError::Validation {
+            let anchor_id = anchor_id
+                .as_deref()
+                .ok_or_else(|| CheckpointError::Validation {
                     reason: "no FULL anchor found for delta chain compaction".to_string(),
-                }
-            })?;
+                })?;
 
             let d1 = &chain[0];
             let d2 = &chain[1];
 
-            let anchor_value = serde_json::to_value(
-                self.load(anchor_id).await?.ok_or_else(|| {
+            let anchor_value =
+                serde_json::to_value(self.load(anchor_id).await?.ok_or_else(|| {
                     CheckpointError::NotFound {
                         id: anchor_id.to_string(),
                     }
-                })?,
-            )?;
-            let base: SS = serde_json::from_value(
-                anchor_value.get("snapshot").cloned().ok_or_else(|| {
-                    CheckpointError::Validation {
+                })?)?;
+            let base: SS =
+                serde_json::from_value(anchor_value.get("snapshot").cloned().ok_or_else(
+                    || CheckpointError::Validation {
                         reason: "anchor checkpoint has no snapshot".to_string(),
-                    }
-                })?,
-            )?;
+                    },
+                )?)?;
 
             let d1_value = serde_json::to_value(
-                self.load(&d1.id).await?.ok_or_else(|| {
-                    CheckpointError::NotFound {
-                        id: d1.id.clone(),
-                    }
-                })?,
+                self.load(&d1.id)
+                    .await?
+                    .ok_or_else(|| CheckpointError::NotFound { id: d1.id.clone() })?,
             )?;
             let d2_value = serde_json::to_value(
-                self.load(&d2.id).await?.ok_or_else(|| {
-                    CheckpointError::NotFound {
-                        id: d2.id.clone(),
-                    }
-                })?,
+                self.load(&d2.id)
+                    .await?
+                    .ok_or_else(|| CheckpointError::NotFound { id: d2.id.clone() })?,
             )?;
 
-            let first: DS = serde_json::from_value(
-                d1_value.get("delta").cloned().ok_or_else(|| {
+            let first: DS =
+                serde_json::from_value(d1_value.get("delta").cloned().ok_or_else(|| {
                     CheckpointError::Validation {
                         reason: format!("delta checkpoint {} has no delta", d1.id),
                     }
-                })?,
-            )?;
-            let second: DS = serde_json::from_value(
-                d2_value.get("delta").cloned().ok_or_else(|| {
+                })?)?;
+            let second: DS =
+                serde_json::from_value(d2_value.get("delta").cloned().ok_or_else(|| {
                     CheckpointError::Validation {
                         reason: format!("delta checkpoint {} has no delta", d2.id),
                     }
-                })?,
-            )?;
+                })?)?;
 
             let merged: DS = calculator.merge_deltas(&base, &first, &second).await?;
 
@@ -286,11 +271,7 @@ where
         let data = CheckpointSerializer::serialize(checkpoint, CheckpointCodec::Json)?;
 
         let (chain_root_id, chain_position) = self
-            .compute_chain_info(
-                &id,
-                &checkpoint_type,
-                previous_checkpoint_id.as_deref(),
-            )
+            .compute_chain_info(&id, &checkpoint_type, previous_checkpoint_id.as_deref())
             .await?;
         let tags = self.extract_tags(checkpoint);
         let custom_fields = self.extract_custom_fields(checkpoint);
@@ -369,10 +350,7 @@ where
         }
     }
 
-    async fn load_batch(
-        &self,
-        ids: &[String],
-    ) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
         let mut result = Vec::with_capacity(ids.len());
         for id in ids {
             if let Some(checkpoint) = self.load(id).await? {
@@ -439,18 +417,24 @@ where
             None => return Ok(0),
         };
 
-        let all = self.list_by_entity(entity_id).await?;
-        if all.len() as u64 <= max {
-            return Ok(0);
-        }
-
-        let executor = CleanupExecutor::new();
-        let to_remove = executor.evaluate_protected(
-            &all,
+        self.cleanup_with_strategy(
+            entity_id,
             &CleanupStrategy::CountBased {
                 max_checkpoints: max,
             },
-        );
+        )
+        .await
+    }
+
+    async fn cleanup_with_strategy(
+        &self,
+        entity_id: &str,
+        strategy: &CleanupStrategy,
+    ) -> Result<u64, CheckpointError> {
+        let all = self.list_by_entity(entity_id).await?;
+
+        let executor = CleanupExecutor::new();
+        let to_remove = executor.evaluate_protected(&all, strategy);
 
         let mut deleted = 0u64;
         for id in to_remove {
@@ -478,17 +462,10 @@ fn extract_optional_field_as_str<T: Serialize>(
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
     })?;
-    Ok(json
-        .get(field)
-        .and_then(|v| v.as_str())
-        .map(String::from))
+    Ok(json.get(field).and_then(|v| v.as_str()).map(String::from))
 }
 
-fn parse_storage_metadata(
-    id: &str,
-    entity_id: &str,
-    meta: &Value,
-) -> CheckpointStorageMetadata {
+fn parse_storage_metadata(id: &str, entity_id: &str, meta: &Value) -> CheckpointStorageMetadata {
     let entity_type = meta
         .get("entityType")
         .and_then(|v| v.as_str())
@@ -509,7 +486,8 @@ fn parse_storage_metadata(
         .get("status")
         .and_then(|v| v.as_str())
         .and_then(|s| {
-            serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(&format!("\"{}\"", s)).ok()
+            serde_json::from_str::<wf_types::checkpoint::CheckpointStatus>(&format!("\"{}\"", s))
+                .ok()
         })
         .unwrap_or(wf_types::checkpoint::CheckpointStatus::Active);
 
@@ -532,7 +510,10 @@ fn parse_storage_metadata(
             .get("chainRootId")
             .and_then(|v| v.as_str())
             .map(String::from),
-        chain_position: meta.get("chainPosition").and_then(|v| v.as_u64()).map(|v| v as u32),
+        chain_position: meta
+            .get("chainPosition")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32),
         blob_size: meta.get("blobSize").and_then(|v| v.as_u64()),
         tags: meta
             .get("tags")
@@ -545,10 +526,7 @@ fn parse_storage_metadata(
 
 #[async_trait::async_trait]
 impl<T: Send + Sync> CheckpointLoader for StorageBackedStateManager<T> {
-    async fn load_checkpoint_data(
-        &self,
-        id: &str,
-    ) -> Result<Option<Vec<u8>>, CheckpointError> {
+    async fn load_checkpoint_data(&self, id: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
         self.storage
             .load(id)
             .await
@@ -652,6 +630,7 @@ mod tests {
             snapshot,
             timestamp,
             metadata: None,
+            format_version: None,
         }
     }
 
@@ -780,7 +759,14 @@ mod tests {
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
 
         mgr.save(
-            &make_envelope("full-1", None, None, 1000, None, Some(json!({"state": "base"}))),
+            &make_envelope(
+                "full-1",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "base"})),
+            ),
             "test",
             "exec-1",
         )
@@ -837,12 +823,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_with_strategy_respects_cleanup_strategy() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+
+        for i in 0..5 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    i as i64 * 1000,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
+        let deleted = mgr
+            .cleanup_with_strategy(
+                "exec-1",
+                &CleanupStrategy::CountBased { max_checkpoints: 2 },
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted, 3);
+
+        let remaining = mgr.list_by_entity("exec-1").await.unwrap();
+        assert_eq!(remaining.len(), 2);
+
+        // Time-based strategy removes everything older than the window;
+        // the latest checkpoint is always protected from deletion.
+        let deleted = mgr
+            .cleanup_with_strategy(
+                "exec-1",
+                &CleanupStrategy::TimeBased {
+                    max_age_seconds: 86_400,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+        let remaining = mgr.list_by_entity("exec-1").await.unwrap();
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[tokio::test]
     async fn metadata_chain_info_round_trip() {
         let storage = make_storage();
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
 
         mgr.save(
-            &make_envelope("full-1", None, None, 1000, None, Some(json!({"state": "base"}))),
+            &make_envelope(
+                "full-1",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "base"})),
+            ),
             "test",
             "exec-1",
         )
@@ -902,8 +945,7 @@ mod tests {
     async fn metrics_recorded_on_save_and_load() {
         let storage = make_storage();
         let metrics = Arc::new(CheckpointMetricsCollector::new());
-        let mgr =
-            StorageBackedStateManager::<Envelope>::new(storage).with_metrics(metrics.clone());
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage).with_metrics(metrics.clone());
 
         mgr.save(
             &make_envelope("cp-1", None, None, 1000, None, Some(json!({"state": "a"}))),
@@ -930,7 +972,14 @@ mod tests {
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
 
         mgr.save(
-            &make_envelope("full-1", None, None, 1000, None, Some(json!({"state": "base"}))),
+            &make_envelope(
+                "full-1",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "base"})),
+            ),
             "test",
             "exec-1",
         )
@@ -974,17 +1023,11 @@ mod tests {
         assert!(mgr.load("delta-1").await.unwrap().is_none());
 
         let successor = mgr.load("delta-2").await.unwrap().unwrap();
-        assert_eq!(
-            successor.previous_checkpoint_id,
-            Some("full-1".to_string())
-        );
+        assert_eq!(successor.previous_checkpoint_id, Some("full-1".to_string()));
         assert_eq!(successor.delta, Some(json!({"state": "final"})));
 
         let successor_meta = mgr.load_metadata("delta-2").await.unwrap().unwrap();
-        assert_eq!(
-            successor_meta.chain_root_id,
-            Some("full-1".to_string())
-        );
+        assert_eq!(successor_meta.chain_root_id, Some("full-1".to_string()));
         assert_eq!(successor_meta.chain_position, Some(1));
 
         let restored = FullStateDiff
@@ -1000,7 +1043,14 @@ mod tests {
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
 
         mgr.save(
-            &make_envelope("full-1", None, None, 1000, None, Some(json!({"state": "0"}))),
+            &make_envelope(
+                "full-1",
+                None,
+                None,
+                1000,
+                None,
+                Some(json!({"state": "0"})),
+            ),
             "test",
             "exec-1",
         )
@@ -1040,10 +1090,7 @@ mod tests {
 
         let last = mgr.load("delta-4").await.unwrap().unwrap();
         assert_eq!(last.delta, Some(json!({"state": 4})));
-        assert_eq!(
-            last.previous_checkpoint_id,
-            Some("delta-3".to_string())
-        );
+        assert_eq!(last.previous_checkpoint_id, Some("delta-3".to_string()));
 
         let restored = FullStateDiff
             .apply_delta(&json!({"state": 0}), last.delta.as_ref().unwrap())

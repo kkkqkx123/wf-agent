@@ -39,10 +39,7 @@ impl CheckpointStateManager for AgentCheckpointStateManager {
         self.inner.load(id).await
     }
 
-    async fn load_batch(
-        &self,
-        ids: &[String],
-    ) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
         self.inner.load_batch(ids).await
     }
 
@@ -75,10 +72,7 @@ impl CheckpointStateManager for AgentCheckpointStateManager {
 
 #[async_trait::async_trait]
 impl CheckpointLoader for AgentCheckpointStateManager {
-    async fn load_checkpoint_data(
-        &self,
-        id: &str,
-    ) -> Result<Option<Vec<u8>>, CheckpointError> {
+    async fn load_checkpoint_data(&self, id: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
         self.inner.load_checkpoint_data(id).await
     }
 
@@ -108,6 +102,16 @@ mod tests {
             error: None,
             started_at: None,
             completed_at: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            iteration_history: None,
+            current_iteration_record: None,
+            stream_message: None,
+            pending_tool_call_ids: None,
+            trigger_state: None,
+            hierarchy: None,
+            messages: None,
         }
     }
 
@@ -121,6 +125,7 @@ mod tests {
             snapshot: Some(make_snapshot()),
             timestamp: chrono::Utc::now().timestamp_millis(),
             metadata: None,
+            format_version: None,
         }
     }
 

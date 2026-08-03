@@ -119,10 +119,10 @@ mod tests {
             make_checkpoint("delta-2", CheckpointType::Delta, Some("delta-1"), 3000),
         ];
         let graph = CheckpointDependencyGraph::build(&checkpoints);
-        let all: HashSet<String> =
-            checkpoints.iter().map(|c| c.id.clone()).collect();
-        let candidates: HashSet<String> =
-            ["full-1".to_string(), "delta-1".to_string()].into_iter().collect();
+        let all: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
+        let candidates: HashSet<String> = ["full-1".to_string(), "delta-1".to_string()]
+            .into_iter()
+            .collect();
 
         let protected = graph.compute_protected(&candidates, &all);
         assert!(protected.contains("full-1"));
@@ -137,8 +137,7 @@ mod tests {
             make_checkpoint("delta-1", CheckpointType::Delta, Some("full-2"), 3000),
         ];
         let graph = CheckpointDependencyGraph::build(&checkpoints);
-        let all: HashSet<String> =
-            checkpoints.iter().map(|c| c.id.clone()).collect();
+        let all: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
         let candidates: HashSet<String> = ["full-1".to_string()].into_iter().collect();
 
         let protected = graph.compute_protected(&candidates, &all);

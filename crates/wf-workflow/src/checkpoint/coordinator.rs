@@ -234,6 +234,17 @@ impl WorkflowCheckpointIntegration {
             messages: None,
             fork_join_context: None,
             active_operations: None,
+            conversation_state: None,
+            trigger_states: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            hierarchy: None,
+            execution_config: None,
+            fork_join_aggregation_state: None,
+            hook_execution_context: None,
+            message_base_checkpoint_id: None,
+            message_total_count: None,
         }
     }
 }

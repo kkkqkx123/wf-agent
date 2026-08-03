@@ -46,12 +46,12 @@ where
         let base_envelope: BaseCheckpointCore<DS, SS> =
             CheckpointSerializer::auto_deserialize(&base_data)?;
 
-        let mut full_state = base_envelope.snapshot.ok_or_else(|| {
-            CheckpointError::Corrupted {
+        let mut full_state = base_envelope
+            .snapshot
+            .ok_or_else(|| CheckpointError::Corrupted {
                 id: base.id.clone(),
                 reason: "base checkpoint missing snapshot".to_string(),
-            }
-        })?;
+            })?;
 
         for meta in chain.iter().skip(1) {
             let delta_data = loader
@@ -206,10 +206,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl CheckpointLoader for FakeLoader {
-        async fn load_checkpoint_data(
-            &self,
-            id: &str,
-        ) -> Result<Option<Vec<u8>>, CheckpointError> {
+        async fn load_checkpoint_data(&self, id: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
             Ok(self.entries.get(id).cloned())
         }
 
@@ -235,6 +232,7 @@ mod tests {
             snapshot: Some(state),
             timestamp: 0,
             metadata: None,
+            format_version: None,
         }
     }
 
@@ -253,6 +251,7 @@ mod tests {
             snapshot: None,
             timestamp: 0,
             metadata: None,
+            format_version: None,
         }
     }
 

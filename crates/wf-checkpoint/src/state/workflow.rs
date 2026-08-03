@@ -40,10 +40,7 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
         self.inner.load(id).await
     }
 
-    async fn load_batch(
-        &self,
-        ids: &[String],
-    ) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+    async fn load_batch(&self, ids: &[String]) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
         self.inner.load_batch(ids).await
     }
 
@@ -76,10 +73,7 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
 
 #[async_trait::async_trait]
 impl CheckpointLoader for WorkflowCheckpointStateManager {
-    async fn load_checkpoint_data(
-        &self,
-        id: &str,
-    ) -> Result<Option<Vec<u8>>, CheckpointError> {
+    async fn load_checkpoint_data(&self, id: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
         self.inner.load_checkpoint_data(id).await
     }
 
@@ -110,6 +104,17 @@ mod tests {
             messages: None,
             fork_join_context: None,
             active_operations: None,
+            conversation_state: None,
+            trigger_states: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            hierarchy: None,
+            execution_config: None,
+            fork_join_aggregation_state: None,
+            hook_execution_context: None,
+            message_base_checkpoint_id: None,
+            message_total_count: None,
         }
     }
 
@@ -123,6 +128,7 @@ mod tests {
             snapshot: Some(make_snapshot()),
             timestamp: chrono::Utc::now().timestamp_millis(),
             metadata: None,
+            format_version: None,
         }
     }
 

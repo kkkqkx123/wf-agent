@@ -103,6 +103,16 @@ impl AgentCheckpointIntegration {
             error: state.error().map(String::from),
             started_at: Some(state.start_time()),
             completed_at: state.end_time(),
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            iteration_history: None,
+            current_iteration_record: None,
+            stream_message: None,
+            pending_tool_call_ids: None,
+            trigger_state: None,
+            hierarchy: None,
+            messages: None,
         }
     }
 }

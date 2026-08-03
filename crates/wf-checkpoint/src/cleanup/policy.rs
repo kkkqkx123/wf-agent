@@ -85,8 +85,7 @@ impl CleanupExecutor {
         }
 
         let candidate_set: HashSet<String> = candidates.iter().cloned().collect();
-        let all_ids: HashSet<String> =
-            checkpoints.iter().map(|c| c.id.clone()).collect();
+        let all_ids: HashSet<String> = checkpoints.iter().map(|c| c.id.clone()).collect();
         let graph = CheckpointDependencyGraph::build(checkpoints);
         let protected = graph.compute_protected(&candidate_set, &all_ids);
 
@@ -276,9 +275,7 @@ mod tests {
         let executor = CleanupExecutor::new();
         let to_remove = executor.evaluate_protected(
             &checkpoints,
-            &CleanupStrategy::CountBased {
-                max_checkpoints: 2,
-            },
+            &CleanupStrategy::CountBased { max_checkpoints: 2 },
         );
 
         assert!(!to_remove.contains(&"full-1".to_string()));
@@ -299,9 +296,7 @@ mod tests {
         let executor = CleanupExecutor::new();
         let to_remove = executor.evaluate_protected(
             &checkpoints,
-            &CleanupStrategy::CountBased {
-                max_checkpoints: 2,
-            },
+            &CleanupStrategy::CountBased { max_checkpoints: 2 },
         );
 
         assert!(to_remove.contains(&"full-1".to_string()));

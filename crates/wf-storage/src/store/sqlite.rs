@@ -84,6 +84,21 @@ fn build_select_sql(
                     params.push(BindValue::I(*start));
                     params.push(BindValue::I(*end));
                 }
+                FilterOp::In(key, values) => {
+                    if values.is_empty() {
+                        conditions.push("0 = 1".into());
+                    } else {
+                        let placeholders: Vec<String> = (0..values.len())
+                            .map(|_| "?".into())
+                            .collect();
+                        conditions.push(format!(
+                            "json_extract(metadata, '$.{}') IN ({})",
+                            key,
+                            placeholders.join(", ")
+                        ));
+                        params.extend(values.iter().cloned().map(BindValue::S));
+                    }
+                }
                 FilterOp::OrderBy(key, descending) => {
                     order_by = Some((key.clone(), *descending));
                 }

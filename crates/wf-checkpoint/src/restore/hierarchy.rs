@@ -222,6 +222,10 @@ impl RestoreSummary {
 pub struct RecoveryTransaction {
     operations: Vec<RecoveryOperation>,
     rollback_strategy: RollbackStrategy,
+    /// Compensating actions executed LIFO on rollback (TS
+    /// `addCompensatingAction`).
+    compensating_actions: Vec<Box<dyn Fn() -> Result<(), String> + Send + Sync>>,
+    status: RecoveryTransactionStatus,
 }
 
 impl RecoveryTransaction {
@@ -229,6 +233,8 @@ impl RecoveryTransaction {
         Self {
             operations: Vec::new(),
             rollback_strategy: RollbackStrategy::AllOrNothing,
+            compensating_actions: Vec::new(),
+            status: RecoveryTransactionStatus::Pending,
         }
     }
 
@@ -236,11 +242,26 @@ impl RecoveryTransaction {
         Self {
             operations: Vec::new(),
             rollback_strategy: strategy,
+            compensating_actions: Vec::new(),
+            status: RecoveryTransactionStatus::Pending,
         }
+    }
+
+    /// Transition the transaction into the in-progress state.
+    pub fn begin(&mut self) {
+        self.status = RecoveryTransactionStatus::InProgress;
     }
 
     pub fn register(&mut self, operation: RecoveryOperation) {
         self.operations.push(operation);
+    }
+
+    /// Register a compensating action executed (LIFO) during rollback.
+    pub fn add_compensating_action(
+        &mut self,
+        action: Box<dyn Fn() -> Result<(), String> + Send + Sync>,
+    ) {
+        self.compensating_actions.push(action);
     }
 
     /// Execute all pending operations through the provided executor.
@@ -252,6 +273,7 @@ impl RecoveryTransaction {
         F: FnMut(&RecoveryOperation) -> Fut,
         Fut: std::future::Future<Output = Result<(), CheckpointError>>,
     {
+        self.begin();
         for operation in self.operations.iter_mut() {
             if operation.status != RecoveryOperationStatus::Pending {
                 continue;
@@ -272,6 +294,9 @@ impl RecoveryTransaction {
                 }
             }
         }
+        if self.status == RecoveryTransactionStatus::InProgress {
+            self.status = RecoveryTransactionStatus::Completed;
+        }
         Ok(())
     }
 
@@ -289,17 +314,57 @@ impl RecoveryTransaction {
         }
     }
 
+    /// Commit the transaction: with `AllOrNothing`, any failed operation
+    /// triggers a rollback; otherwise the transaction commits with partial
+    /// success (TS `commit` semantics).
+    pub fn commit(&mut self) -> RecoveryTransactionResult {
+        let has_failed = self
+            .operations
+            .iter()
+            .any(|op| matches!(op.status, RecoveryOperationStatus::Failed(_)));
+        match (self.rollback_strategy, has_failed) {
+            (RollbackStrategy::AllOrNothing, true) => self.rollback(),
+            _ => {
+                self.status = RecoveryTransactionStatus::Completed;
+                RecoveryTransactionResult {
+                    status: RecoveryTransactionStatus::Completed,
+                    errors: Vec::new(),
+                }
+            }
+        }
+    }
+
     /// Rollback the transaction: every operation is marked `Failed("rolled
-    /// back")` — including previously completed ones, which the caller must
-    /// compensate. This gives the transaction an unambiguous end state.
-    pub fn rollback(&mut self) {
+    /// back")` — including previously completed ones — and the registered
+    /// compensating actions run LIFO. Errors from the compensating actions
+    /// are collected and reported.
+    pub fn rollback(&mut self) -> RecoveryTransactionResult {
         for operation in self.operations.iter_mut() {
             operation.status = RecoveryOperationStatus::Failed("rolled back".to_string());
+        }
+        let mut errors = Vec::new();
+        for action in self.compensating_actions.drain(..).rev() {
+            if let Err(err) = action() {
+                errors.push(err);
+            }
+        }
+        self.status = if errors.is_empty() {
+            RecoveryTransactionStatus::RolledBack
+        } else {
+            RecoveryTransactionStatus::RolledBackWithErrors
+        };
+        RecoveryTransactionResult {
+            status: self.status.clone(),
+            errors,
         }
     }
 
     pub fn operations(&self) -> &[RecoveryOperation] {
         &self.operations
+    }
+
+    pub fn status(&self) -> &RecoveryTransactionStatus {
+        &self.status
     }
 
     pub fn len(&self) -> usize {
@@ -331,6 +396,24 @@ impl RecoveryTransaction {
     }
 }
 
+/// Result of a commit/rollback, aligned with the TS `RecoveryTransactionResult`.
+#[derive(Debug, Clone)]
+pub struct RecoveryTransactionResult {
+    pub status: RecoveryTransactionStatus,
+    pub errors: Vec<String>,
+}
+
+/// Transaction lifecycle aligned with the TS `RecoveryTransactionStatus`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecoveryTransactionStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+    RolledBack,
+    RolledBackWithErrors,
+}
+
 impl Default for RecoveryTransaction {
     fn default() -> Self {
         Self::new()
@@ -358,7 +441,7 @@ pub enum RecoveryOperationStatus {
     Failed(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RollbackStrategy {
     AllOrNothing,
     BestEffort,
@@ -640,5 +723,106 @@ mod tests {
     fn rollback_strategy_variants_exist() {
         let _all_or_nothing = RollbackStrategy::AllOrNothing;
         let _best_effort = RollbackStrategy::BestEffort;
+    }
+
+    #[test]
+    fn transaction_lifecycle_begin_commit() {
+        let mut tx = RecoveryTransaction::new();
+        assert_eq!(tx.status(), &RecoveryTransactionStatus::Pending);
+        tx.begin();
+        assert_eq!(tx.status(), &RecoveryTransactionStatus::InProgress);
+
+        tx.register(RecoveryOperation {
+            checkpoint_id: "cp-1".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Pending,
+        });
+        tx.complete(0);
+
+        let result = tx.commit();
+        assert_eq!(result.status, RecoveryTransactionStatus::Completed);
+        assert_eq!(tx.status(), &RecoveryTransactionStatus::Completed);
+    }
+
+    #[test]
+    fn all_or_nothing_commit_rolls_back_on_failure() {
+        let mut tx = RecoveryTransaction::with_rollback_strategy(RollbackStrategy::AllOrNothing);
+        tx.begin();
+        tx.register(RecoveryOperation {
+            checkpoint_id: "ok".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Completed,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "bad".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Failed("boom".to_string()),
+        });
+
+        let result = tx.commit();
+        assert_eq!(result.status, RecoveryTransactionStatus::RolledBack);
+        assert_eq!(tx.completed_count(), 0, "completed ops rolled back");
+    }
+
+    #[test]
+    fn best_effort_commit_keeps_partial_success() {
+        let mut tx = RecoveryTransaction::with_rollback_strategy(RollbackStrategy::BestEffort);
+        tx.begin();
+        tx.register(RecoveryOperation {
+            checkpoint_id: "ok".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Completed,
+        });
+        tx.register(RecoveryOperation {
+            checkpoint_id: "bad".to_string(),
+            operation_type: RecoveryOperationType::Restore,
+            status: RecoveryOperationStatus::Failed("boom".to_string()),
+        });
+
+        let result = tx.commit();
+        assert_eq!(result.status, RecoveryTransactionStatus::Completed);
+        assert_eq!(tx.completed_count(), 1);
+    }
+
+    #[test]
+    fn rollback_runs_compensating_actions_lifo() {
+        let mut tx = RecoveryTransaction::new();
+        tx.add_compensating_action(Box::new(|| {
+            order_push(1);
+            Ok(())
+        }));
+        tx.add_compensating_action(Box::new(|| {
+            order_push(2);
+            Ok(())
+        }));
+
+        let result = tx.rollback();
+        assert_eq!(result.status, RecoveryTransactionStatus::RolledBack);
+        assert!(result.errors.is_empty());
+        assert_eq!(order_take(), vec![2, 1], "compensating actions run LIFO");
+    }
+
+    #[test]
+    fn rollback_reports_compensating_errors() {
+        let mut tx = RecoveryTransaction::new();
+        tx.add_compensating_action(Box::new(|| Err("undo failed".to_string())));
+        let result = tx.rollback();
+        assert_eq!(
+            result.status,
+            RecoveryTransactionStatus::RolledBackWithErrors
+        );
+        assert_eq!(result.errors, vec!["undo failed".to_string()]);
+    }
+
+    thread_local! {
+        static ORDER: std::cell::RefCell<Vec<i32>> = std::cell::RefCell::new(Vec::new());
+    }
+
+    fn order_push(value: i32) {
+        ORDER.with(|o| o.borrow_mut().push(value));
+    }
+
+    fn order_take() -> Vec<i32> {
+        ORDER.with(|o| std::mem::take(&mut *o.borrow_mut()))
     }
 }

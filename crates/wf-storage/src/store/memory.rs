@@ -110,8 +110,17 @@ fn matches_record(metadata: &Value, id: &str, op: &FilterOp) -> bool {
             .and_then(|v| v.as_i64())
             .map(|ts| ts >= *start && ts <= *end)
             .unwrap_or(false),
+        FilterOp::In(key, values) => matches_meta_in(metadata, key, values),
         FilterOp::OrderBy(_, _) | FilterOp::Offset(_) | FilterOp::Limit(_) => true,
     }
+}
+
+fn matches_meta_in(metadata: &Value, key: &str, values: &[String]) -> bool {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| values.iter().any(|v| v == s))
+        .unwrap_or(false)
 }
 
 fn apply_filter(

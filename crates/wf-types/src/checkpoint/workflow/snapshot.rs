@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct OperationState {
     pub r#type: String,
     pub operation_id: String,
@@ -19,6 +20,7 @@ pub struct OperationState {
 /// All fields beyond the core execution identity are optional so that older
 /// blobs (and content-filtered snapshots) keep deserializing.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowExecutionStateSnapshot {
     pub execution_id: super::super::super::Id,
     pub status: String,

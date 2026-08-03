@@ -165,6 +165,21 @@ fn build_select_sql(
                     params.push(BindValue::I(*start));
                     params.push(BindValue::I(*end));
                 }
+                FilterOp::In(key, values) => {
+                    if values.is_empty() {
+                        conditions.push("false".into());
+                    } else {
+                        let placeholders: Vec<String> = (0..values.len())
+                            .map(|i| format!("${}", params.len() + i + 1))
+                            .collect();
+                        conditions.push(format!(
+                            "metadata->>'{}' IN ({})",
+                            key,
+                            placeholders.join(", ")
+                        ));
+                        params.extend(values.iter().cloned().map(BindValue::S));
+                    }
+                }
                 FilterOp::OrderBy(key, descending) => {
                     order_by = Some((key.clone(), *descending));
                 }

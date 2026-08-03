@@ -9,6 +9,9 @@ use layertwine::storage::repository::{MetadataStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 use layertwine::StorageResult;
 
+use crate::branch::BranchStorageAdapter;
+use crate::error::CheckpointError;
+
 pub trait GitCheckpointAdapter: Send + Sync {
     fn save_checkpoint(
         &self,
@@ -63,6 +66,8 @@ fn map_storage_result<T>(result: StorageResult<T>) -> Result<T, LayertwineError>
 
 const CP_KEY_PREFIX: &str = "wf-checkpoint:";
 const CP_PARENT_PREFIX: &str = "wf-checkpoint-parent:";
+const BRANCH_KEY_PREFIX: &str = "wf-checkpoint-branch:";
+const BRANCH_CPS_PREFIX: &str = "wf-checkpoint-branch-cps:";
 
 /// Real layertwine backend adapter: persists checkpoint blobs as structured
 /// snapshots inside layertwine's SQLite storage (via its `SnapshotStore` /
@@ -92,6 +97,14 @@ impl LayertwineGitAdapter {
         format!("{CP_PARENT_PREFIX}{}", parent_id)
     }
 
+    fn branch_key(branch: &str) -> String {
+        format!("{BRANCH_KEY_PREFIX}{}", branch)
+    }
+
+    fn branch_cps_key(branch: &str) -> String {
+        format!("{BRANCH_CPS_PREFIX}{}", branch)
+    }
+
     fn load_id_list(&self, key: &str) -> Result<Vec<String>, LayertwineError> {
         match map_storage_result(self.storage.load_metadata(key))? {
             Some(list) if !list.is_empty() => Ok(list.split(',').map(String::from).collect()),
@@ -101,6 +114,11 @@ impl LayertwineGitAdapter {
 
     fn store_id_list(&self, key: &str, ids: &[String]) -> Result<(), LayertwineError> {
         map_storage_result(self.storage.store_metadata(key, &ids.join(",")))
+    }
+
+    /// List checkpoint ids recorded on a branch (branch-scoped listing).
+    pub fn list_branch_checkpoints(&self, branch: &str) -> Result<Vec<String>, LayertwineError> {
+        self.load_id_list(&Self::branch_cps_key(branch))
     }
 }
 
@@ -134,6 +152,15 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
 
         if let Some(parent) = metadata.get("parentId") {
             let list_key = Self::parent_key(parent);
+            let mut ids = self.load_id_list(&list_key)?;
+            if !ids.iter().any(|id| id == checkpoint_id) {
+                ids.push(checkpoint_id.to_string());
+                self.store_id_list(&list_key, &ids)?;
+            }
+        }
+
+        if let Some(branch) = metadata.get("branchId") {
+            let list_key = Self::branch_cps_key(branch);
             let mut ids = self.load_id_list(&list_key)?;
             if !ids.iter().any(|id| id == checkpoint_id) {
                 ids.push(checkpoint_id.to_string());
@@ -190,10 +217,10 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
 
     async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<bool, LayertwineError> {
         let key = Self::snapshot_key(checkpoint_id);
-        let exists = match map_storage_result(self.storage.load_metadata(&key))? {
-            Some(hex) if !hex.is_empty() => true,
-            _ => false,
-        };
+        let exists = matches!(
+            map_storage_result(self.storage.load_metadata(&key))?,
+            Some(hex) if !hex.is_empty()
+        );
         if !exists {
             return Ok(false);
         }
@@ -221,6 +248,90 @@ impl LayertwineGitAdapter {
     /// Storage accessor for tests and diagnostics.
     pub fn storage(&self) -> &SqliteStorage {
         &self.storage
+    }
+
+    /// Clone this adapter sharing the underlying SQLite connection.
+    pub fn share(&self) -> Self {
+        Self {
+            storage: self.storage.share(),
+        }
+    }
+}
+
+/// Production `BranchStorageAdapter` over the layertwine backend: branches
+/// are registered in the metadata store under `wf-checkpoint-branch:{name}`
+/// (value `{base}|{created_at}`), and each branch keeps its own checkpoint
+/// id list (`wf-checkpoint-branch-cps:{name}`) for branch-scoped isolation.
+/// Merging unions the source branch's checkpoint list into the target's.
+impl BranchStorageAdapter for LayertwineGitAdapter {
+    async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
+        let key = Self::branch_key(name);
+        match map_storage_result(self.storage.load_metadata(&key))
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?
+        {
+            Some(value) if !value.is_empty() => Err(CheckpointError::Branch(format!(
+                "branch '{}' already exists",
+                name
+            ))),
+            _ => {
+                let value = format!(
+                    "{}|{}",
+                    base.unwrap_or_default(),
+                    chrono::Utc::now().timestamp_millis()
+                );
+                map_storage_result(self.storage.store_metadata(&key, &value))
+                    .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError> {
+        map_storage_result(self.storage.store_metadata(&Self::branch_key(name), ""))
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        map_storage_result(self.storage.store_metadata(&Self::branch_cps_key(name), ""))
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn list_branches(&self) -> Result<Vec<String>, CheckpointError> {
+        let entries = map_storage_result(self.storage.list_metadata_by_prefix(BRANCH_KEY_PREFIX))
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        Ok(entries
+            .into_iter()
+            .filter_map(|(key, value)| {
+                if value.is_empty() {
+                    return None;
+                }
+                key.strip_prefix(BRANCH_KEY_PREFIX)
+                    .map(|name| name.to_string())
+            })
+            .collect())
+    }
+
+    async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError> {
+        let value = map_storage_result(self.storage.load_metadata(&Self::branch_key(name)))
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        Ok(value.is_some_and(|v| !v.is_empty()))
+    }
+
+    async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError> {
+        // Storage-level merge: the target's checkpoint list becomes the
+        // union of both branches' lists (source history absorbed).
+        let source_ids = self
+            .list_branch_checkpoints(source)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        let mut target_ids = self
+            .list_branch_checkpoints(target)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        for id in source_ids {
+            if !target_ids.contains(&id) {
+                target_ids.push(id);
+            }
+        }
+        self.store_id_list(&Self::branch_cps_key(target), &target_ids)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -321,13 +432,7 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
         Self { adapter }
     }
 
-    pub async fn save(
-        &self,
-        checkpoint_id: &str,
-        data: &[u8],
-        entity_type: &str,
-        entity_id: &str,
-    ) -> Result<(), LayertwineError> {
+    fn build_metadata(&self, entity_type: &str, entity_id: &str) -> HashMap<String, String> {
         let mut meta = HashMap::new();
         meta.insert("entityType".to_string(), entity_type.to_string());
         meta.insert("entityId".to_string(), entity_id.to_string());
@@ -336,13 +441,84 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
             "timestamp".to_string(),
             chrono::Utc::now().timestamp_millis().to_string(),
         );
+        meta
+    }
+
+    /// Save a checkpoint, validating its structure first (TS save-time
+    /// `validateCheckpoint`, throws on invalid blobs).
+    pub async fn save(
+        &self,
+        checkpoint_id: &str,
+        data: &[u8],
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<(), LayertwineError> {
+        Self::validate_checkpoint_structure(data)?;
+        let meta = self.build_metadata(entity_type, entity_id);
         self.adapter
             .save_checkpoint(checkpoint_id, data, &meta)
             .await
     }
 
+    /// Load a checkpoint and validate its structure, warning (not failing)
+    /// on structural issues (TS load-time `validateCheckpointStructure`).
     pub async fn load(&self, checkpoint_id: &str) -> Result<Option<Vec<u8>>, LayertwineError> {
-        self.adapter.get_checkpoint(checkpoint_id).await
+        let data = self.adapter.get_checkpoint(checkpoint_id).await?;
+        if let Some(data) = &data {
+            for warning in Self::validate_checkpoint_structure_soft(data) {
+                tracing::warn!(
+                    checkpoint_id = %checkpoint_id,
+                    "checkpoint structure warning: {}",
+                    warning
+                );
+            }
+        }
+        Ok(data)
+    }
+
+    /// Batch save with per-item metadata; the adapter decides batching
+    /// strategy (the real backend writes sequentially, in-memory uses a
+    /// single lock).
+    pub async fn batch_save(
+        &self,
+        items: &[(String, Vec<u8>, String, String)],
+    ) -> Result<(), LayertwineError> {
+        for (id, data, entity_type, entity_id) in items {
+            self.save(id, data, entity_type, entity_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Batch load with bounded concurrency (aligned with the TS adapter's
+    /// batches of 10); per-item failures yield `None` instead of failing the
+    /// whole batch.
+    pub async fn batch_load(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Option<Vec<u8>>>, LayertwineError>
+    where
+        T: 'static,
+    {
+        const BATCH_CONCURRENCY: usize = 10;
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(BATCH_CONCURRENCY));
+        let mut handles = Vec::new();
+        for id in ids {
+            let adapter = self.adapter.clone();
+            let id = id.clone();
+            let semaphore = semaphore.clone();
+            handles.push(tokio::spawn(async move {
+                let _permit = semaphore.acquire().await;
+                adapter.get_checkpoint(&id).await
+            }));
+        }
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.await {
+                Ok(Ok(data)) => results.push(data),
+                _ => results.push(None),
+            }
+        }
+        Ok(results)
     }
 
     pub async fn list(&self) -> Result<Vec<String>, LayertwineError> {
@@ -358,11 +534,85 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
     pub async fn delete(&self, checkpoint_id: &str) -> Result<bool, LayertwineError> {
         self.adapter.delete_checkpoint(checkpoint_id).await
     }
+
+    /// Validate the checkpoint structure before saving: the blob must be
+    /// JSON carrying a non-empty `id` and a `type` of `FULL`/`DELTA` (TS
+    /// save-time validation, throws).
+    pub fn validate_checkpoint_structure(data: &[u8]) -> Result<(), LayertwineError> {
+        let value: serde_json::Value = serde_json::from_slice(data).map_err(|e| {
+            LayertwineError::Serialization(format!("checkpoint blob is not JSON: {}", e))
+        })?;
+        match value.get("id").and_then(|v| v.as_str()) {
+            Some(id) if !id.is_empty() => {}
+            _ => {
+                return Err(LayertwineError::Serialization(
+                    "checkpoint missing non-empty 'id'".to_string(),
+                ))
+            }
+        }
+        match value.get("type").and_then(|v| v.as_str()) {
+            Some(t) if t.eq_ignore_ascii_case("full") || t.eq_ignore_ascii_case("delta") => Ok(()),
+            _ => Err(LayertwineError::Serialization(format!(
+                "checkpoint has invalid 'type' (expected FULL/DELTA): {}",
+                value
+                    .get("type")
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "<missing>".to_string())
+            ))),
+        }
+    }
+
+    /// Load-time structural validation, returning warnings instead of
+    /// failing (TS `validateCheckpointStructure`).
+    pub fn validate_checkpoint_structure_soft(data: &[u8]) -> Vec<String> {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(data) else {
+            return vec!["checkpoint blob is not JSON".to_string()];
+        };
+        let mut warnings = Vec::new();
+        if value.get("id").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+            warnings.push("checkpoint missing 'id'".to_string());
+        }
+        if value.get("type").is_none() {
+            warnings.push("checkpoint missing 'type'".to_string());
+        }
+        match value.get("type").and_then(|v| v.as_str()) {
+            Some(t) if t.eq_ignore_ascii_case("delta") => {
+                if value.get("baseCheckpointId").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+                    warnings.push("delta checkpoint missing 'baseCheckpointId'".to_string());
+                }
+                if value.get("previousCheckpointId").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+                    warnings.push("delta checkpoint missing 'previousCheckpointId'".to_string());
+                }
+                if value.get("delta").is_none() {
+                    warnings.push("delta checkpoint missing 'delta'".to_string());
+                }
+            }
+            Some(t)
+                if t.eq_ignore_ascii_case("full")
+                    && value.get("snapshot").is_none() =>
+            {
+                warnings.push("full checkpoint missing 'snapshot'".to_string());
+            }
+            _ => {}
+        }
+        warnings
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Minimal valid checkpoint blob: JSON with id + type (FULL/DELTA).
+    fn make_blob(id: &str, cp_type: &str) -> Vec<u8> {
+        serde_json::json!({
+            "id": id,
+            "type": cp_type,
+            "snapshot": {"state": "ok"},
+        })
+        .to_string()
+        .into_bytes()
+    }
 
     #[tokio::test]
     async fn save_and_load_checkpoint() {
@@ -370,12 +620,30 @@ mod tests {
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
-            .save("cp-1", b"checkpoint data", "workflow", "exec-1")
+            .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
             .await
             .unwrap();
 
         let data = bridge.load("cp-1").await.unwrap();
-        assert_eq!(data, Some(b"checkpoint data".to_vec()));
+        assert_eq!(data, Some(make_blob("cp-1", "FULL")));
+    }
+
+    #[tokio::test]
+    async fn save_rejects_invalid_checkpoint_structure() {
+        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let bridge = LayertwineCheckpointBridge::new(adapter);
+
+        let err = bridge
+            .save("cp-1", b"not-json", "workflow", "exec-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, LayertwineError::Serialization(_)));
+
+        let err = bridge
+            .save("cp-2", b"{}", "workflow", "exec-1")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, LayertwineError::Serialization(_)));
     }
 
     #[tokio::test]
@@ -393,11 +661,11 @@ mod tests {
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
-            .save("cp-1", b"data-1", "workflow", "exec-1")
+            .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
             .await
             .unwrap();
         bridge
-            .save("cp-2", b"data-2", "workflow", "exec-2")
+            .save("cp-2", &make_blob("cp-2", "FULL"), "workflow", "exec-2")
             .await
             .unwrap();
 
@@ -411,11 +679,11 @@ mod tests {
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
-            .save("cp-1", b"data-1", "workflow", "exec-1")
+            .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
             .await
             .unwrap();
         bridge
-            .save("cp-2", b"data-2", "workflow", "exec-2")
+            .save("cp-2", &make_blob("cp-2", "FULL"), "workflow", "exec-2")
             .await
             .unwrap();
 
@@ -429,13 +697,60 @@ mod tests {
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
-            .save("cp-1", b"data-1", "workflow", "exec-1")
+            .save("cp-1", &make_blob("cp-1", "FULL"), "workflow", "exec-1")
             .await
             .unwrap();
 
         assert!(bridge.delete("cp-1").await.unwrap());
         assert!(!bridge.delete("cp-1").await.unwrap());
         assert!(bridge.load("cp-1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn bridge_batch_save_and_load() {
+        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let bridge = LayertwineCheckpointBridge::new(adapter);
+
+        let items = vec![
+            ("cp-1".to_string(), make_blob("cp-1", "FULL"), "workflow".to_string(), "exec-1".to_string()),
+            ("cp-2".to_string(), make_blob("cp-2", "DELTA"), "workflow".to_string(), "exec-1".to_string()),
+        ];
+        bridge.batch_save(&items).await.unwrap();
+
+        let loaded = bridge.batch_load(&["cp-1".to_string(), "cp-2".to_string()]).await.unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded[0].is_some());
+        assert!(loaded[1].is_some());
+
+        // Missing ids yield None, not a batch failure.
+        let loaded = bridge.batch_load(&["cp-1".to_string(), "nope".to_string()]).await.unwrap();
+        assert!(loaded[0].is_some());
+        assert!(loaded[1].is_none());
+    }
+
+    #[test]
+    fn structure_validation_soft_reports_warnings() {
+        let delta = serde_json::json!({
+            "id": "cp-1",
+            "type": "DELTA",
+            "snapshot": {"state": 1},
+        })
+        .to_string()
+        .into_bytes();
+        let warnings = LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(&delta);
+        assert!(
+            warnings.iter().any(|w| w.contains("baseCheckpointId")),
+            "delta without baseCheckpointId reported"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("previousCheckpointId")),
+            "delta without previousCheckpointId reported"
+        );
+
+        let full = make_blob("cp-2", "FULL");
+        let warnings =
+            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(&full);
+        assert!(warnings.is_empty());
     }
 
     #[tokio::test]
@@ -587,5 +902,91 @@ mod tests {
         let adapter = LayertwineGitAdapter::new(&path).unwrap();
         let data = adapter.get_checkpoint("cp-1").await.unwrap();
         assert_eq!(data, Some(b"persisted".to_vec()));
+    }
+
+    // ---- Real backend branch isolation (BranchStorageAdapter) ----
+
+    fn make_branch_meta(branch: &str) -> HashMap<String, String> {
+        let mut meta = HashMap::new();
+        meta.insert("branchId".to_string(), branch.to_string());
+        meta
+    }
+
+    #[tokio::test]
+    async fn real_backend_branch_lifecycle() {
+        use crate::branch::BranchManager;
+        use crate::branch::ExecutionBranchManager;
+
+        let adapter = make_real_adapter();
+        let manager = ExecutionBranchManager::new(adapter, "main");
+
+        // Create the default branch registry entry explicitly.
+        manager.create_branch("main", None).await.unwrap();
+        manager.create_branch("feature", Some("main")).await.unwrap();
+
+        let mut branches = manager.list_branches().await.unwrap();
+        branches.sort();
+        assert_eq!(branches, vec!["feature".to_string(), "main".to_string()]);
+
+        manager.switch_branch("feature").await.unwrap();
+        assert_eq!(manager.current_branch().await.unwrap(), "feature");
+
+        manager.delete_branch("feature").await.unwrap();
+        let branches = manager.list_branches().await.unwrap();
+        assert!(!branches.contains(&"feature".to_string()));
+    }
+
+    #[tokio::test]
+    async fn real_backend_duplicate_branch_rejected() {
+        use crate::branch::BranchStorageAdapter;
+
+        let adapter = make_real_adapter();
+        adapter.create_branch("main", None).await.unwrap();
+        let err = adapter.create_branch("main", None).await.unwrap_err();
+        assert!(matches!(err, crate::error::CheckpointError::Branch(_)));
+    }
+
+    #[tokio::test]
+    async fn real_backend_branch_scoped_checkpoints() {
+        use crate::branch::BranchManager;
+        use crate::branch::ExecutionBranchManager;
+
+        let adapter = make_real_adapter();
+        let probe = adapter.share();
+        let manager = ExecutionBranchManager::new(adapter, "main");
+        manager.create_branch("main", None).await.unwrap();
+        manager.create_branch("feature", Some("main")).await.unwrap();
+
+        // Checkpoints on two branches stay isolated.
+        probe
+            .save_checkpoint("cp-main-1", b"m1", &make_branch_meta("main"))
+            .await
+            .unwrap();
+        probe
+            .save_checkpoint("cp-main-2", b"m2", &make_branch_meta("main"))
+            .await
+            .unwrap();
+        probe
+            .save_checkpoint("cp-feat-1", b"f1", &make_branch_meta("feature"))
+            .await
+            .unwrap();
+
+        let mut main_cps = probe.list_branch_checkpoints("main").unwrap();
+        main_cps.sort();
+        assert_eq!(
+            main_cps,
+            vec!["cp-main-1".to_string(), "cp-main-2".to_string()]
+        );
+        assert_eq!(
+            probe.list_branch_checkpoints("feature").unwrap(),
+            vec!["cp-feat-1".to_string()]
+        );
+
+        // Merge absorbs the source branch's checkpoints into the target.
+        manager.merge_branch("feature", "main").await.unwrap();
+        let mut merged = probe.list_branch_checkpoints("main").unwrap();
+        merged.sort();
+        assert_eq!(merged.len(), 3);
+        assert!(merged.contains(&"cp-feat-1".to_string()));
     }
 }

@@ -18,6 +18,9 @@ pub struct SemanticVersion {
 }
 
 impl SemanticVersion {
+    /// Parse a version string. Accepts both 3-part ("1.1.0") and 2-part
+    /// ("1.0" -> patch 0) forms — the 2-part form matches the TS
+    /// `CheckpointFormatVersion` `{major, minor}` wire representation.
     pub fn parse(version: &str) -> Result<Self, CheckpointError> {
         let mut parts = version.split('.');
         let major = parts
@@ -30,11 +33,10 @@ impl SemanticVersion {
             .ok_or_else(|| invalid_version(version))?
             .parse::<u32>()
             .map_err(|_| invalid_version(version))?;
-        let patch = parts
-            .next()
-            .ok_or_else(|| invalid_version(version))?
-            .parse::<u32>()
-            .map_err(|_| invalid_version(version))?;
+        let patch = match parts.next() {
+            Some(patch) => patch.parse::<u32>().map_err(|_| invalid_version(version))?,
+            None => 0,
+        };
         if parts.next().is_some() {
             return Err(invalid_version(version));
         }
@@ -111,6 +113,7 @@ impl VersionManager {
     /// receives the raw serialized checkpoint and returns migrated bytes.
     fn register_default_migrations(&self) {
         self.register_migration("1.0.0", "1.1.0", Box::new(DefaultV1ToV1_1));
+        self.register_migration("1.1.0", "2.0.0", Box::new(DefaultV1_1ToV2));
     }
 
     pub fn register_migration(
@@ -218,6 +221,64 @@ impl VersionManager {
         &self.min_compatible
     }
 
+    /// Switch the current format version (and with it the migration target).
+    /// Registered default migrations remain available for the new target.
+    pub fn set_current_version(&mut self, version: impl Into<String>) -> Result<(), CheckpointError> {
+        let semver = SemanticVersion::parse(&version.into())?;
+        self.current_version = semver.to_string();
+        self.current_semver = semver;
+        Ok(())
+    }
+
+    /// Validate the format version embedded in checkpoint metadata
+    /// (`customFields.formatVersion`). Returns an error when the version is
+    /// missing or not readable by the current format.
+    pub fn validate_version_metadata(
+        &self,
+        metadata: Option<&serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<(), CheckpointError> {
+        let Some(version) = metadata
+            .and_then(|m| m.get("customFields"))
+            .and_then(|c| c.as_object())
+            .and_then(|c| c.get("formatVersion"))
+            .and_then(|v| v.as_str())
+        else {
+            return Err(CheckpointError::Validation {
+                reason: "checkpoint metadata missing customFields.formatVersion".to_string(),
+            });
+        };
+        self.ensure_compatible(version)
+    }
+
+    /// Write the current format version and creation timestamp into the
+    /// checkpoint metadata custom fields.
+    pub fn add_version_metadata(
+        &self,
+        metadata: &mut serde_json::Map<String, serde_json::Value>,
+    ) {
+        let custom = metadata
+            .entry("customFields".to_string())
+            .or_insert_with(|| serde_json::Value::Object(Default::default()));
+        if let Some(custom) = custom.as_object_mut() {
+            custom.insert(
+                "formatVersion".to_string(),
+                serde_json::json!(self.current_version()),
+            );
+            custom.insert(
+                "createdAt".to_string(),
+                serde_json::json!(chrono::Utc::now().timestamp_millis()),
+            );
+        }
+    }
+
+    /// Version distance between two versions: `major_diff * 100 + minor_diff`
+    /// (aligned with TS `getVersionDistance`).
+    pub fn get_version_distance(&self, a: &str, b: &str) -> Result<i64, CheckpointError> {
+        let a = SemanticVersion::parse(a)?;
+        let b = SemanticVersion::parse(b)?;
+        Ok((a.major as i64 - b.major as i64) * 100 + (a.minor as i64 - b.minor as i64))
+    }
+
     /// Compare two version strings numerically (semantic version ordering).
     pub fn compare(&self, a: &str, b: &str) -> Result<Ordering, CheckpointError> {
         Ok(SemanticVersion::parse(a)?.cmp(&SemanticVersion::parse(b)?))
@@ -275,6 +336,34 @@ impl MigrationHandler for DefaultV1ToV1_1 {
     }
 }
 
+/// Default migration v1.1.0 -> v2.0.0: mirrors the TS `"1.1->2.0"` handler
+/// by stamping the blob with the major-version upgrade marker.
+struct DefaultV1_1ToV2;
+
+#[async_trait]
+impl MigrationHandler for DefaultV1_1ToV2 {
+    async fn migrate(&self, data: &[u8], from: &str, to: &str) -> Result<Vec<u8>, CheckpointError> {
+        let mut value: serde_json::Value = serde_json::from_slice(data)?;
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "_majorVersionUpgrade".to_string(),
+                serde_json::json!(true),
+            );
+            if let Some(format) = obj
+                .get_mut("metadata")
+                .and_then(|m| m.as_object_mut())
+                .and_then(|m| m.get_mut("custom_fields"))
+                .and_then(|c| c.as_object_mut())
+            {
+                format.insert("formatVersion".to_string(), serde_json::json!(to));
+            }
+        }
+        serde_json::to_vec(&value).map_err(|e| {
+            CheckpointError::Serialization(format!("default migration v{from}->v{to} failed: {e}"))
+        })
+    }
+}
+
 impl Default for VersionManager {
     fn default() -> Self {
         Self::new()
@@ -310,8 +399,20 @@ mod tests {
     }
 
     #[test]
+    fn semantic_version_accepts_two_part_ts_form() {
+        // TS wire versions are `{major, minor}` ("1.0"); patch defaults to 0.
+        let v = SemanticVersion::parse("1.0").unwrap();
+        assert_eq!(v.major, 1);
+        assert_eq!(v.minor, 0);
+        assert_eq!(v.patch, 0);
+        assert_eq!(v.to_string(), "1.0.0");
+        assert!(
+            SemanticVersion::parse("1.0").unwrap() < SemanticVersion::parse("1.1").unwrap()
+        );
+    }
+
+    #[test]
     fn semantic_version_rejects_invalid_input() {
-        assert!(SemanticVersion::parse("1.0").is_err());
         assert!(SemanticVersion::parse("a.b.c").is_err());
         assert!(SemanticVersion::parse("").is_err());
         assert!(SemanticVersion::parse("1.0.0.0").is_err());
@@ -419,5 +520,97 @@ mod tests {
         let vm = VersionManager::new();
         let data = vec![1, 2, 3];
         assert!(vm.migrate_data(&data, "0.5.0").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn migration_chain_reaches_major_upgrade() {
+        let mut vm = VersionManager::new();
+        vm.set_current_version("2.0.0").unwrap();
+        let data = serde_json::json!({
+            "id": "cp-1",
+            "type": "full",
+            "metadata": {"custom_fields": {}}
+        });
+        let bytes = serde_json::to_vec(&data).unwrap();
+
+        // Walk the full chain 1.0.0 -> 1.1.0 -> 2.0.0.
+        let migrated = vm.migrate_data(&bytes, "1.0.0").await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&migrated).unwrap();
+
+        assert_eq!(value["_migrationApplied"], serde_json::json!(true));
+        assert_eq!(value["_majorVersionUpgrade"], serde_json::json!(true));
+        assert_eq!(
+            value["metadata"]["custom_fields"]["formatVersion"],
+            serde_json::json!("2.0.0")
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_to_major_version_applies_1_1_handler() {
+        let mut vm = VersionManager::new();
+        vm.set_current_version("2.0.0").unwrap();
+        let data = serde_json::json!({
+            "id": "cp-1",
+            "type": "full",
+            "metadata": {"custom_fields": {}}
+        });
+        let bytes = serde_json::to_vec(&data).unwrap();
+
+        let migrated = vm.migrate_data(&bytes, "1.1.0").await.unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&migrated).unwrap();
+        assert_eq!(value["_majorVersionUpgrade"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn validate_version_metadata_checks_custom_fields() {
+        let vm = VersionManager::new();
+
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "customFields".to_string(),
+            serde_json::json!({"formatVersion": "1.1.0"}),
+        );
+        assert!(vm.validate_version_metadata(Some(&metadata)).is_ok());
+
+        // Missing formatVersion fails.
+        let empty = serde_json::Map::new();
+        assert!(vm.validate_version_metadata(Some(&empty)).is_err());
+
+        // Future version fails.
+        let mut future = serde_json::Map::new();
+        future.insert(
+            "customFields".to_string(),
+            serde_json::json!({"formatVersion": "9.0.0"}),
+        );
+        assert!(vm.validate_version_metadata(Some(&future)).is_err());
+    }
+
+    #[test]
+    fn add_version_metadata_writes_format_and_created_at() {
+        let vm = VersionManager::new();
+        let mut metadata = serde_json::Map::new();
+        vm.add_version_metadata(&mut metadata);
+        let custom = metadata.get("customFields").unwrap().as_object().unwrap();
+        assert_eq!(
+            custom.get("formatVersion").and_then(|v| v.as_str()),
+            Some("1.1.0")
+        );
+        assert!(custom.get("createdAt").is_some());
+    }
+
+    #[test]
+    fn version_distance_uses_major_minor_scale() {
+        let vm = VersionManager::new();
+        assert_eq!(vm.get_version_distance("2.0.0", "1.0.0").unwrap(), 100);
+        assert_eq!(vm.get_version_distance("1.1.0", "1.0.0").unwrap(), 1);
+        assert_eq!(vm.get_version_distance("1.0.0", "1.0.0").unwrap(), 0);
+    }
+
+    #[test]
+    fn set_current_version_changes_target() {
+        let mut vm = VersionManager::new();
+        vm.set_current_version("2.0.0").unwrap();
+        assert_eq!(vm.current_version(), "2.0.0");
+        assert!(vm.check_compatibility("1.1.0").requires_migration);
     }
 }

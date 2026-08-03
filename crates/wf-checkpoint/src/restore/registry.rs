@@ -18,6 +18,7 @@ pub type RestoreFn = Arc<
         + Sync,
 >;
 
+#[derive(Clone)]
 pub struct RestoreStrategyRegistry {
     strategies: DashMap<String, RestoreFn>,
 }

@@ -5,6 +5,7 @@ use serde_json::Value;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_checkpoint::state::WorkflowCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_core::EventBus;
@@ -12,6 +13,7 @@ use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::{CheckpointTrigger, CheckpointVariableState};
 use wf_types::events::{BaseEvent, EventType};
+use wf_types::execution::ExecutionEvent;
 
 use crate::entity::WorkflowExecutionEntity;
 
@@ -23,6 +25,7 @@ pub struct WorkflowCheckpointIntegration {
     public_store: Arc<StorageBackend>,
     node_count: u32,
     event_bus: Option<Arc<EventBus>>,
+    execution_events: Option<ExecutionEventBus>,
 }
 
 impl WorkflowCheckpointIntegration {
@@ -35,6 +38,7 @@ impl WorkflowCheckpointIntegration {
             public_store: store,
             node_count: 0,
             event_bus: None,
+            execution_events: None,
         }
     }
 
@@ -45,6 +49,13 @@ impl WorkflowCheckpointIntegration {
 
     pub fn with_core_event_bus(mut self, bus: Arc<EventBus>) -> Self {
         self.event_bus = Some(bus);
+        self
+    }
+
+    /// Register the execution event bus; `state_changed` events are published
+    /// after every checkpoint creation (aligned with the TS coordinator).
+    pub fn with_execution_event_bus(mut self, bus: ExecutionEventBus) -> Self {
+        self.execution_events = Some(bus);
         self
     }
 
@@ -195,6 +206,27 @@ impl WorkflowCheckpointIntegration {
                     ),
                 ])),
             });
+        }
+
+        if let Some(ref bus) = self.execution_events {
+            let mut changes = serde_json::Map::new();
+            changes.insert(
+                "checkpointCreated".to_string(),
+                serde_json::json!(checkpoint.id),
+            );
+            changes.insert(
+                "trigger".to_string(),
+                serde_json::json!(format!("{:?}", trigger)),
+            );
+            bus.publish(&ExecutionEvent::StateChanged(
+                wf_types::execution::ExecutionStateChangedEvent {
+                    execution_id: entity.id().to_string(),
+                    timestamp: wf_common::now(),
+                    previous_status: None,
+                    new_status: format!("{:?}", entity.state.read().await.status()),
+                    changes: Some(changes),
+                },
+            ));
         }
 
         Ok(())

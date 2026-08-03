@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentCheckpointContentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_state: Option<bool>,
@@ -15,6 +16,7 @@ pub struct AgentCheckpointContentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentCheckpointConfig {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

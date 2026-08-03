@@ -7,7 +7,8 @@ pub use fork_join::{ForkJoinStateInference, ForkPathStatus, JoinStateInference};
 pub use hierarchy::{
     CachedChildResolver, CheckpointLoader, ChildCheckpointResolver, HierarchyRestorer,
     RecoveryOperation, RecoveryOperationStatus, RecoveryOperationType, RecoveryTransaction,
-    RestoreResult, RestoreSummary, RollbackStrategy, StorageChildResolver,
+    RecoveryTransactionResult, RecoveryTransactionStatus, RestoreResult, RestoreSummary,
+    RollbackStrategy, StorageChildResolver,
 };
 pub use integrity::{
     registry_from_restored_entities, ExecutionRegistry, HierarchyIntegrityService,

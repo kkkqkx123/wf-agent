@@ -3,17 +3,20 @@ use std::sync::Arc;
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_checkpoint::state::AgentCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_storage::backend::StorageBackend;
 use wf_types::checkpoint::agent::{AgentStateSnapshot, VariableSnapshot};
 use wf_types::checkpoint::CheckpointTrigger;
+use wf_types::execution::ExecutionEvent;
 
 use crate::entity::AgentLoopEntity;
 
 pub struct AgentCheckpointIntegration {
     inner: AgentCheckpointCoordinator,
     store: Arc<StorageBackend>,
+    execution_events: Option<ExecutionEventBus>,
 }
 
 impl AgentCheckpointIntegration {
@@ -23,11 +26,19 @@ impl AgentCheckpointIntegration {
         Self {
             inner: coordinator,
             store,
+            execution_events: None,
         }
     }
 
     pub fn with_event_bus(mut self, bus: CheckpointEventBus) -> Self {
         self.inner = self.inner.with_event_bus(bus);
+        self
+    }
+
+    /// Register the execution event bus; `state_changed` events are published
+    /// after every checkpoint creation (aligned with the TS coordinator).
+    pub fn with_execution_event_bus(mut self, bus: ExecutionEventBus) -> Self {
+        self.execution_events = Some(bus);
         self
     }
 
@@ -41,11 +52,33 @@ impl AgentCheckpointIntegration {
         trigger: CheckpointTrigger,
     ) -> Result<(), CheckpointError> {
         let snapshot = self.build_snapshot(entity).await;
-        let ctx = self.inner.prepare(entity.id().as_str(), trigger).await?;
+        let ctx = self.inner.prepare(entity.id().as_str(), trigger.clone()).await?;
         let checkpoint = self.inner.build(ctx, snapshot).await?;
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
+
+        if let Some(ref bus) = self.execution_events {
+            let mut changes = serde_json::Map::new();
+            changes.insert(
+                "checkpointCreated".to_string(),
+                serde_json::json!(checkpoint.id),
+            );
+            changes.insert(
+                "trigger".to_string(),
+                serde_json::json!(format!("{:?}", trigger)),
+            );
+            bus.publish(&ExecutionEvent::StateChanged(
+                wf_types::execution::ExecutionStateChangedEvent {
+                    execution_id: entity.id().to_string(),
+                    timestamp: wf_common::now(),
+                    previous_status: None,
+                    new_status: format!("{:?}", entity.state.read().await.status()),
+                    changes: Some(changes),
+                },
+            ));
+        }
+
         Ok(())
     }
 
@@ -81,7 +114,7 @@ impl AgentCheckpointIntegration {
                                     value: v.clone(),
                                     r#type: "string".to_string(),
                                     size: None,
-                                    updated: wf_common::now(),
+                                    updated: true,
                                     source: "agent_checkpoint".to_string(),
                                 },
                             )

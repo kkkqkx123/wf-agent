@@ -2,7 +2,7 @@ use crate::error::ConfigResult;
 use crate::validator::validate_min;
 use wf_types::checkpoint::base::{
     CheckpointContentConfig, CheckpointErrorHandlingConfig, CheckpointRetentionConfig,
-    CheckpointTrigger, UnifiedCheckpointPolicy,
+    CheckpointTrigger, CompressionStrategy, UnifiedCheckpointPolicy,
 };
 
 pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> UnifiedCheckpointPolicy {
@@ -22,7 +22,7 @@ pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> Unified
         retention: user.retention.clone().or(Some(CheckpointRetentionConfig {
             max_checkpoints: Some(10),
             max_age: None,
-            compression: Some(true),
+            compression: Some(CompressionStrategy::Auto),
         })),
         error_handling: user
             .error_handling

@@ -1,4 +1,4 @@
-use crate::cleanup::{CleanupExecutor, CleanupStrategy};
+use crate::cleanup::{CleanupExecutor, CleanupResult, CleanupStrategy};
 use crate::delta::{CheckpointLoader, DiffCalculator};
 use crate::error::CheckpointError;
 use crate::metrics::CheckpointMetricsCollector;
@@ -6,6 +6,7 @@ use crate::serializer::{CheckpointCodec, CheckpointSerializer};
 use crate::state::CheckpointStateManager;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use wf_storage::backend::StorageBackend;
@@ -13,9 +14,20 @@ use wf_storage::domain::store::{QueryFilter, Store};
 use wf_types::checkpoint::CheckpointType;
 use wf_types::storage::CheckpointStorageMetadata;
 
+/// Reserved record key prefix for per-entity cleanup metadata (watermark).
+/// The record's metadata carries no `entityId`, so it never matches
+/// `list_by_entity` filters.
+const ENTITY_CLEANUP_META_KEY_PREFIX: &str = "__checkpoint_cleanup_meta__:";
+
+/// Every Nth cleanup run is a full scan (aligned with TS `cleanupRunCount % 10`).
+const FULL_SCAN_INTERVAL: u64 = 10;
+
 pub struct StorageBackedStateManager<T> {
     storage: Arc<StorageBackend>,
     metrics: Option<Arc<CheckpointMetricsCollector>>,
+    /// Per-entity cleanup mutexes so concurrent cleanup runs for the same
+    /// entity are serialized (aligned with the TS `cleanupLocks`).
+    cleanup_locks: dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -24,6 +36,7 @@ impl<T> StorageBackedStateManager<T> {
         Self {
             storage,
             metrics: None,
+            cleanup_locks: dashmap::DashMap::new(),
             _marker: std::marker::PhantomData,
         }
     }
@@ -33,37 +46,88 @@ impl<T> StorageBackedStateManager<T> {
         self
     }
 
-    fn build_metadata(
+    /// The underlying storage backend (used to rebuild state managers in
+    /// spawned restore tasks).
+    pub fn storage(&self) -> &Arc<StorageBackend> {
+        &self.storage
+    }
+
+    fn entity_cleanup_meta_key(entity_id: &str) -> String {
+        format!("{ENTITY_CLEANUP_META_KEY_PREFIX}{entity_id}")
+    }
+
+    /// Load the persisted cleanup watermark for an entity.
+    /// Returns `(last_watermark, run_count)`.
+    async fn load_entity_cleanup_metadata(
         &self,
-        id: &str,
-        entity_type: &str,
         entity_id: &str,
-        checkpoint_type: CheckpointType,
-        timestamp: i64,
-        base_checkpoint_id: Option<&str>,
-        previous_checkpoint_id: Option<&str>,
-        chain_root_id: Option<&str>,
-        chain_position: Option<u32>,
-        blob_size: u64,
-        tags: Option<&Vec<String>>,
-        custom_fields: Option<&serde_json::Map<String, Value>>,
-    ) -> Value {
+    ) -> Result<(Option<i64>, u64), CheckpointError> {
+        let key = Self::entity_cleanup_meta_key(entity_id);
+        match self.storage.load(&key).await.map_err(CheckpointError::Storage)? {
+            Some((_, meta)) => {
+                let watermark = meta.get("cleanupWatermark").and_then(|v| v.as_i64());
+                let run_count = meta
+                    .get("cleanupRunCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                Ok((watermark, run_count))
+            }
+            None => Ok((None, 0)),
+        }
+    }
+
+    /// Persist the cleanup watermark for an entity (aligned with TS
+    /// `setEntityMetadata(entityId, { cleanupWatermark, cleanupRunCount })`).
+    async fn save_entity_cleanup_metadata(
+        &self,
+        entity_id: &str,
+        watermark: i64,
+        run_count: u64,
+    ) -> Result<(), CheckpointError> {
+        let key = Self::entity_cleanup_meta_key(entity_id);
+        let metadata = serde_json::json!({
+            "cleanupWatermark": watermark,
+            "cleanupRunCount": run_count,
+        });
+        self.storage
+            .save(&key, &[], &metadata)
+            .await
+            .map_err(CheckpointError::Storage)
+    }
+
+    fn build_metadata(&self, args: MetadataArgs<'_>) -> Value {
         serde_json::json!({
-            "id": id,
-            "entityType": entity_type,
-            "entityId": entity_id,
-            "checkpointType": checkpoint_type,
-            "timestamp": timestamp,
+            "id": args.id,
+            "entityType": args.entity_type,
+            "entityId": args.entity_id,
+            "checkpointType": args.checkpoint_type,
+            "timestamp": args.timestamp,
             "status": "completed",
-            "baseCheckpointId": base_checkpoint_id,
-            "previousCheckpointId": previous_checkpoint_id,
-            "chainRootId": chain_root_id,
-            "chainPosition": chain_position,
-            "blobSize": blob_size,
-            "tags": tags,
-            "customFields": custom_fields,
+            "baseCheckpointId": args.base_checkpoint_id,
+            "previousCheckpointId": args.previous_checkpoint_id,
+            "chainRootId": args.chain_root_id,
+            "chainPosition": args.chain_position,
+            "blobSize": args.blob_size,
+            "tags": args.tags,
+            "customFields": args.custom_fields,
         })
     }
+}
+
+/// Aggregated fields for building a checkpoint storage metadata document.
+struct MetadataArgs<'a> {
+    id: &'a str,
+    entity_type: &'a str,
+    entity_id: &'a str,
+    checkpoint_type: CheckpointType,
+    timestamp: i64,
+    base_checkpoint_id: Option<&'a str>,
+    previous_checkpoint_id: Option<&'a str>,
+    chain_root_id: Option<&'a str>,
+    chain_position: Option<u32>,
+    blob_size: u64,
+    tags: Option<&'a Vec<String>>,
+    custom_fields: Option<&'a serde_json::Map<String, Value>>,
 }
 
 impl<T> StorageBackedStateManager<T>
@@ -91,6 +155,42 @@ where
         }
     }
 
+    /// Resolve the latest checkpoint metadata for many entities in a single
+    /// storage query (IN filter), deduplicated per entity. This eliminates
+    /// the N+1 `get_latest` pattern in child hierarchy restore.
+    pub async fn list_latest_by_entities(
+        &self,
+        entity_ids: &[String],
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        if entity_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let filter = QueryFilter::new()
+            .with_field_in("entityId", entity_ids.to_vec())
+            .with_order_by("timestamp", true);
+
+        let entries = self
+            .storage
+            .list(Some(&filter))
+            .await
+            .map_err(CheckpointError::Storage)?;
+
+        // Keep only the newest record per entity (list is timestamp-descending).
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut latest: Vec<CheckpointStorageMetadata> = Vec::new();
+        for (id, meta) in entries {
+            let entity_id = meta
+                .get("entityId")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if seen.insert(entity_id.clone()) {
+                latest.push(parse_storage_metadata(&id, &entity_id, &meta));
+            }
+        }
+        Ok(latest)
+    }
+
     fn extract_tags(&self, checkpoint: &T) -> Option<Vec<String>> {
         serde_json::to_value(checkpoint).ok().and_then(|json| {
             json.get("metadata")
@@ -102,7 +202,9 @@ where
     fn extract_custom_fields(&self, checkpoint: &T) -> Option<serde_json::Map<String, Value>> {
         serde_json::to_value(checkpoint).ok().and_then(|json| {
             json.get("metadata")
-                .and_then(|m| m.get("custom_fields"))
+                .and_then(|m| {
+                    m.get("customFields").or_else(|| m.get("custom_fields"))
+                })
                 .and_then(|v| v.as_object())
                 .cloned()
         })
@@ -129,6 +231,101 @@ where
                     .map(|obj| obj.len() as u32)
             })
             .unwrap_or(0)
+    }
+
+    /// Execute a cleanup run for an entity with dependency protection,
+    /// aligned with the TS `BaseCheckpointStateManager.executeCleanupForEntity`:
+    /// per-entity cleanup serialization, optional excluded checkpoint id,
+    /// real `blob_size`-based freed byte accounting, and a `CleanupResult`.
+    ///
+    /// Incremental semantics (TS watermark): every 10th run is a full scan;
+    /// otherwise only checkpoints newer than the persisted watermark (plus
+    /// the excluded id) are considered candidates. After a run the watermark
+    /// advances to the newest remaining checkpoint timestamp.
+    pub async fn execute_cleanup_for_entity(
+        &self,
+        entity_id: &str,
+        _entity_type: &str,
+        exclude_checkpoint_id: Option<&str>,
+        strategy: &CleanupStrategy,
+    ) -> Result<CleanupResult, CheckpointError> {
+        // Serialize cleanup runs per entity.
+        let lock = self
+            .cleanup_locks
+            .entry(entity_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+
+        let all = self.list_by_entity(entity_id).await?;
+        let (last_watermark, run_count) = self.load_entity_cleanup_metadata(entity_id).await?;
+        let is_full_scan = run_count % FULL_SCAN_INTERVAL == 0;
+
+        // Incremental filtering: only consider checkpoints created after the
+        // watermark (plus the excluded id, which must stay visible).
+        let candidates: Vec<CheckpointStorageMetadata> =
+            match last_watermark {
+                Some(watermark) if !is_full_scan => all
+                    .iter()
+                    .filter(|c| {
+                        c.timestamp > watermark
+                            || Some(c.id.as_str()) == exclude_checkpoint_id
+                    })
+                    .cloned()
+                    .collect(),
+                _ => all.clone(),
+            };
+
+        let executor = CleanupExecutor::new();
+        let mut result = executor.evaluate_protected_with_result(&candidates, strategy);
+
+        if let Some(exclude) = exclude_checkpoint_id {
+            result
+                .deleted_checkpoint_ids
+                .retain(|id| id != exclude);
+            result.deleted_count = result.deleted_checkpoint_ids.len() as u64;
+            let size_by_id: HashMap<&str, u64> = candidates
+                .iter()
+                .map(|c| (c.id.as_str(), c.blob_size.unwrap_or(0)))
+                .collect();
+            result.freed_bytes = result
+                .deleted_checkpoint_ids
+                .iter()
+                .map(|id| size_by_id.get(id.as_str()).copied().unwrap_or(0))
+                .sum();
+            result.remaining_count = candidates.len() as u64 - result.deleted_count;
+        }
+
+        let start = Instant::now();
+        let mut deleted = 0u64;
+        for id in &result.deleted_checkpoint_ids {
+            if self.delete(id).await? {
+                deleted += 1;
+            }
+        }
+        result.deleted_count = deleted;
+        result.remaining_count = candidates.len().saturating_sub(deleted as usize) as u64;
+
+        if let Some(ref metrics) = self.metrics {
+            metrics.record_cleanup(&wf_types::checkpoint::CheckpointCleanupMetrics {
+                deleted_count: deleted as u32,
+                freed_bytes: result.freed_bytes,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+
+        // Advance the watermark to the newest surviving checkpoint so the next
+        // incremental run only looks at checkpoints created after this run.
+        let survivors: Vec<&CheckpointStorageMetadata> = candidates
+            .iter()
+            .filter(|c| !result.deleted_checkpoint_ids.contains(&c.id))
+            .collect();
+        if let Some(max_timestamp) = survivors.iter().map(|c| c.timestamp).max() {
+            self.save_entity_cleanup_metadata(entity_id, max_timestamp, run_count + 1)
+                .await?;
+        }
+
+        Ok(result)
     }
 
     /// Compact the current delta chain by merging the oldest consecutive delta
@@ -227,7 +424,7 @@ where
             let merged: DS = calculator.merge_deltas(&base, &first, &second).await?;
 
             let mut patched = d2_value;
-            patched["previous_checkpoint_id"] = serde_json::json!(anchor_id);
+            patched["previousCheckpointId"] = serde_json::json!(anchor_id);
             patched["delta"] = serde_json::to_value(&merged)?;
             let updated: T = serde_json::from_value(patched)?;
 
@@ -263,10 +460,15 @@ where
         let id = extract_field_as_str(checkpoint, "id")?;
         let checkpoint_type = extract_checkpoint_type(checkpoint)?;
         let is_full = checkpoint_type == CheckpointType::Full;
-        let timestamp = extract_field_as_i64(checkpoint, "timestamp")?;
-        let base_checkpoint_id = extract_optional_field_as_str(checkpoint, "base_checkpoint_id")?;
-        let previous_checkpoint_id =
-            extract_optional_field_as_str(checkpoint, "previous_checkpoint_id")?;
+        let timestamp = extract_optional_i64_field(checkpoint, "timestamp")?
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let base_checkpoint_id =
+            extract_optional_field_as_str(checkpoint, "baseCheckpointId", "base_checkpoint_id")?;
+        let previous_checkpoint_id = extract_optional_field_as_str(
+            checkpoint,
+            "previousCheckpointId",
+            "previous_checkpoint_id",
+        )?;
 
         let data = CheckpointSerializer::serialize(checkpoint, CheckpointCodec::Json)?;
 
@@ -276,20 +478,20 @@ where
         let tags = self.extract_tags(checkpoint);
         let custom_fields = self.extract_custom_fields(checkpoint);
 
-        let metadata = self.build_metadata(
-            &id,
+        let metadata = self.build_metadata(MetadataArgs {
+            id: &id,
             entity_type,
             entity_id,
             checkpoint_type,
             timestamp,
-            base_checkpoint_id.as_deref(),
-            previous_checkpoint_id.as_deref(),
-            chain_root_id.as_deref(),
+            base_checkpoint_id: base_checkpoint_id.as_deref(),
+            previous_checkpoint_id: previous_checkpoint_id.as_deref(),
+            chain_root_id: chain_root_id.as_deref(),
             chain_position,
-            data.len() as u64,
-            tags.as_ref(),
-            custom_fields.as_ref(),
-        );
+            blob_size: data.len() as u64,
+            tags: tags.as_ref(),
+            custom_fields: custom_fields.as_ref(),
+        });
 
         self.storage
             .save(&id, &data, &metadata)
@@ -297,7 +499,8 @@ where
             .map_err(CheckpointError::Storage)?;
 
         if let Some(ref metrics) = self.metrics {
-            metrics.record_creation(
+            metrics.record_creation_for_entity(
+                entity_id,
                 &wf_types::checkpoint::CheckpointCreationMetrics {
                     duration_ms: start.elapsed().as_millis() as u64,
                     size_bytes: data.len() as u64,
@@ -306,6 +509,11 @@ where
                 },
                 is_full,
             );
+            metrics.record_chain_length(&wf_types::checkpoint::CheckpointChainLengthMetric {
+                entity_id: entity_id.to_string(),
+                chain_length: chain_position.unwrap_or(0) + 1,
+                delta_count: if is_full { 0 } else { chain_position.unwrap_or(0) },
+            });
         }
 
         Ok(())
@@ -421,6 +629,7 @@ where
             entity_id,
             &CleanupStrategy::CountBased {
                 max_checkpoints: max,
+                min_retention: 1,
             },
         )
         .await
@@ -431,38 +640,41 @@ where
         entity_id: &str,
         strategy: &CleanupStrategy,
     ) -> Result<u64, CheckpointError> {
-        let all = self.list_by_entity(entity_id).await?;
-
-        let executor = CleanupExecutor::new();
-        let to_remove = executor.evaluate_protected(&all, strategy);
-
-        let mut deleted = 0u64;
-        for id in to_remove {
-            if self.delete(&id).await? {
-                deleted += 1;
-            }
-        }
-
-        if let Some(ref metrics) = self.metrics {
-            metrics.record_cleanup(&wf_types::checkpoint::CheckpointCleanupMetrics {
-                deleted_count: deleted as u32,
-                freed_bytes: 0,
-                duration_ms: 0,
-            });
-        }
-
-        Ok(deleted)
+        let result = self
+            .execute_cleanup_for_entity(entity_id, "unknown", None, strategy)
+            .await?;
+        Ok(result.deleted_count)
     }
 }
 
 fn extract_optional_field_as_str<T: Serialize>(
     value: &T,
-    field: &str,
+    field_camel: &str,
+    field_snake: &str,
 ) -> Result<Option<String>, CheckpointError> {
+    let json = serde_json::to_value(value).map_err(|e| {
+        CheckpointError::Serialization(format!(
+            "failed to serialize for field {}: {}",
+            field_camel, e
+        ))
+    })?;
+    Ok(json
+        .get(field_camel)
+        .or_else(|| json.get(field_snake))
+        .and_then(|v| v.as_str())
+        .map(String::from))
+}
+
+fn extract_optional_i64_field<T: Serialize>(
+    value: &T,
+    field: &str,
+) -> Result<Option<i64>, CheckpointError> {
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
     })?;
-    Ok(json.get(field).and_then(|v| v.as_str()).map(String::from))
+    Ok(json
+        .get(field)
+        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))))
 }
 
 fn parse_storage_metadata(id: &str, entity_id: &str, meta: &Value) -> CheckpointStorageMetadata {
@@ -475,7 +687,7 @@ fn parse_storage_metadata(id: &str, entity_id: &str, meta: &Value) -> Checkpoint
     let cp_type = meta
         .get("checkpointType")
         .and_then(|v| v.as_str())
-        .map(|s| match s {
+        .map(|s| match s.to_ascii_lowercase().as_str() {
             "delta" => CheckpointType::Delta,
             _ => CheckpointType::Full,
         })
@@ -569,23 +781,12 @@ fn extract_field_as_str<T: Serialize>(value: &T, field: &str) -> Result<String, 
         })
 }
 
-fn extract_field_as_i64<T: Serialize>(value: &T, field: &str) -> Result<i64, CheckpointError> {
-    let json = serde_json::to_value(value).map_err(|e| {
-        CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
-    })?;
-    json.get(field)
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| CheckpointError::Validation {
-            reason: format!("missing field: {}", field),
-        })
-}
-
 fn extract_checkpoint_type<T: Serialize>(value: &T) -> Result<CheckpointType, CheckpointError> {
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for type extraction: {}", e))
     })?;
     match json.get("type").and_then(|v| v.as_str()) {
-        Some("delta") => Ok(CheckpointType::Delta),
+        Some("delta") | Some("DELTA") => Ok(CheckpointType::Delta),
         _ => Ok(CheckpointType::Full),
     }
 }
@@ -628,7 +829,7 @@ mod tests {
             previous_checkpoint_id: previous.map(String::from),
             delta,
             snapshot,
-            timestamp,
+            timestamp: Some(timestamp),
             metadata: None,
             format_version: None,
         }
@@ -823,6 +1024,173 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execute_cleanup_for_entity_respects_exclude_and_reports_bytes() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+
+        for i in 0..4 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    1000 + i as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
+        let result = mgr
+            .execute_cleanup_for_entity(
+                "exec-1",
+                "workflow_execution",
+                Some("cp-0"),
+                &CleanupStrategy::CountBased {
+                    max_checkpoints: 1,
+                    min_retention: 0,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.deleted_count, 2);
+        assert!(
+            !result.deleted_checkpoint_ids.contains(&"cp-0".to_string()),
+            "excluded checkpoint survives cleanup"
+        );
+        assert!(result.deleted_checkpoint_ids.contains(&"cp-1".to_string()));
+        assert!(result.deleted_checkpoint_ids.contains(&"cp-2".to_string()));
+        assert_eq!(result.remaining_count, 2);
+        assert!(
+            result.freed_bytes > 0,
+            "freed bytes accounted from real blob sizes"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_uses_watermark_for_incremental_runs() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+        let strategy = CleanupStrategy::CountBased {
+            max_checkpoints: 1,
+            min_retention: 0,
+        };
+
+        for i in 0..5 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    1000 + i as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
+        // First run is a full scan: only the newest checkpoint survives.
+        let r1 = mgr
+            .execute_cleanup_for_entity("exec-1", "test", None, &strategy)
+            .await
+            .unwrap();
+        assert_eq!(r1.deleted_count, 4);
+        let remaining = mgr.list_by_entity("exec-1").await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "cp-4");
+
+        // Newer checkpoints arrive after the watermark was persisted.
+        for i in 5..7 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    5000 + (i - 5) as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
+        // Second run is incremental: only checkpoints newer than the
+        // watermark are considered, so the old survivor is untouched.
+        let r2 = mgr
+            .execute_cleanup_for_entity("exec-1", "test", None, &strategy)
+            .await
+            .unwrap();
+        assert_eq!(r2.deleted_count, 1);
+        let remaining = mgr.list_by_entity("exec-1").await.unwrap();
+        let ids: Vec<&str> = remaining.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["cp-4", "cp-6"]);
+
+        let (watermark, run_count) = mgr.load_entity_cleanup_metadata("exec-1").await.unwrap();
+        assert_eq!(watermark, Some(5001));
+        assert_eq!(run_count, 2);
+    }
+
+    #[tokio::test]
+    async fn concurrent_cleanup_serialized_per_entity() {
+        let storage = make_storage();
+        let mgr = Arc::new(StorageBackedStateManager::<Envelope>::new(storage));
+
+        for i in 0..8 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    1000 + i as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let mgr = mgr.clone();
+            handles.push(tokio::spawn(async move {
+                let _result = mgr
+                    .execute_cleanup_for_entity(
+                        "exec-1",
+                        "test",
+                        None,
+                        &CleanupStrategy::CountBased {
+                            max_checkpoints: 2,
+                            min_retention: 1,
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let remaining = mgr.list_by_entity("exec-1").await.unwrap();
+        assert_eq!(remaining.len(), 2, "cleanup converges to the limit");
+    }
+
+    #[tokio::test]
     async fn cleanup_with_strategy_respects_cleanup_strategy() {
         let storage = make_storage();
         let mgr = StorageBackedStateManager::<Envelope>::new(storage);
@@ -847,7 +1215,10 @@ mod tests {
         let deleted = mgr
             .cleanup_with_strategy(
                 "exec-1",
-                &CleanupStrategy::CountBased { max_checkpoints: 2 },
+                &CleanupStrategy::CountBased {
+                    max_checkpoints: 2,
+                    min_retention: 1,
+                },
             )
             .await
             .unwrap();
@@ -856,6 +1227,24 @@ mod tests {
         let remaining = mgr.list_by_entity("exec-1").await.unwrap();
         assert_eq!(remaining.len(), 2);
 
+        // New checkpoints created after the persisted watermark.
+        for i in 5..7 {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}", i),
+                    None,
+                    None,
+                    5000 + (i - 5) as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                "exec-1",
+            )
+            .await
+            .unwrap();
+        }
+
         // Time-based strategy removes everything older than the window;
         // the latest checkpoint is always protected from deletion.
         let deleted = mgr
@@ -863,13 +1252,66 @@ mod tests {
                 "exec-1",
                 &CleanupStrategy::TimeBased {
                     max_age_seconds: 86_400,
+                    min_retention: 1,
                 },
             )
             .await
             .unwrap();
         assert_eq!(deleted, 1);
         let remaining = mgr.list_by_entity("exec-1").await.unwrap();
-        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn list_latest_by_entities_returns_newest_per_entity() {
+        let storage = make_storage();
+        let mgr = StorageBackedStateManager::<Envelope>::new(storage);
+
+        // Multiple checkpoints per entity, interleaved timestamps.
+        for (i, entity) in [(0, "exec-1"), (0, "exec-2"), (1, "exec-1")] {
+            mgr.save(
+                &make_envelope(
+                    &format!("cp-{}-{}", entity, i),
+                    None,
+                    None,
+                    1000 + i as i64,
+                    None,
+                    Some(json!({"state": i})),
+                ),
+                "test",
+                entity,
+            )
+            .await
+            .unwrap();
+        }
+        // Unrelated entity must not leak into the IN query.
+        mgr.save(
+            &make_envelope(
+                "cp-other-0",
+                None,
+                None,
+                9000,
+                None,
+                Some(json!({"state": "x"})),
+            ),
+            "test",
+            "exec-3",
+        )
+        .await
+        .unwrap();
+
+        let latest = mgr
+            .list_latest_by_entities(&["exec-1".to_string(), "exec-2".to_string()])
+            .await
+            .unwrap();
+
+        assert_eq!(latest.len(), 2);
+        let by_entity: std::collections::HashMap<_, _> = latest
+            .into_iter()
+            .map(|m| (m.entity_id.clone(), m.id.clone()))
+            .collect();
+        assert_eq!(by_entity.get("exec-1").map(String::as_str), Some("cp-exec-1-1"));
+        assert_eq!(by_entity.get("exec-2").map(String::as_str), Some("cp-exec-2-0"));
     }
 
     #[tokio::test]

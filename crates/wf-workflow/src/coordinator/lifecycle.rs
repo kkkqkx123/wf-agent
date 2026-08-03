@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;
 use wf_execution_shared::context::ExecutorContext;
@@ -37,6 +38,7 @@ pub struct WorkflowLifecycleCoordinator {
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
+    checkpoint_execution_events: Option<ExecutionEventBus>,
     metrics: Option<Arc<MetricsRegistry>>,
 }
 
@@ -52,6 +54,7 @@ impl WorkflowLifecycleCoordinator {
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
+            checkpoint_execution_events: None,
             metrics: None,
         }
     }
@@ -68,6 +71,13 @@ impl WorkflowLifecycleCoordinator {
 
     pub fn with_checkpoint_event_bus(mut self, bus: CheckpointEventBus) -> Self {
         self.checkpoint_event_bus = Some(bus);
+        self
+    }
+
+    /// Register the execution event bus; `state_changed` events are published
+    /// after every checkpoint creation.
+    pub fn with_checkpoint_execution_events(mut self, bus: ExecutionEventBus) -> Self {
+        self.checkpoint_execution_events = Some(bus);
         self
     }
 
@@ -122,6 +132,11 @@ impl WorkflowLifecycleCoordinator {
             entity.set_variable("input", input.clone());
         }
 
+        // Checkpoints are skipped unless explicitly enabled: sub-workflows
+        // (SUBGRAPH/EMBED/trigger) pass `enable_checkpoints: Some(false)`,
+        // matching the TS sub-workflow skip semantics.
+        let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
+
         let mut ctx = ExecutorContext::new(
             execution_id.clone(),
             workflow_id,
@@ -147,15 +162,24 @@ impl WorkflowLifecycleCoordinator {
             coordinator = coordinator.with_hook_executor(executor.clone());
         }
 
-        if let Some(ref strategy) = self.checkpoint_strategy {
-            let mut cp = WorkflowCheckpointIntegration::new(self.store.clone(), strategy.clone());
-            if let Some(ref bus) = self.checkpoint_event_bus {
-                cp = cp.with_event_bus(bus.clone());
+        // Checkpoints are skipped unless explicitly enabled: sub-workflows
+        // (SUBGRAPH/EMBED/trigger) pass `enable_checkpoints: Some(false)`,
+        // matching the TS sub-workflow skip semantics.
+        if checkpoints_enabled {
+            if let Some(ref strategy) = self.checkpoint_strategy {
+                let mut cp =
+                    WorkflowCheckpointIntegration::new(self.store.clone(), strategy.clone());
+                if let Some(ref bus) = self.checkpoint_event_bus {
+                    cp = cp.with_event_bus(bus.clone());
+                }
+                if let Some(ref core_bus) = self.event_bus {
+                    cp = cp.with_core_event_bus(core_bus.clone());
+                }
+                if let Some(ref bus) = self.checkpoint_execution_events {
+                    cp = cp.with_execution_event_bus(bus.clone());
+                }
+                coordinator = coordinator.with_checkpoint(cp);
             }
-            if let Some(ref core_bus) = self.event_bus {
-                cp = cp.with_core_event_bus(core_bus.clone());
-            }
-            coordinator = coordinator.with_checkpoint(cp);
         }
 
         let start = wf_common::now();
@@ -273,7 +297,9 @@ impl WorkflowLifecycleCoordinator {
                 max_steps: None,
                 timeout: None,
                 max_execution_time: None,
-                enable_checkpoints: Some(false),
+                // A resumed execution continues checkpointing (TS resume
+                // semantics); sub-workflow resumes opt out explicitly.
+                enable_checkpoints: Some(true),
                 node_timeout: None,
                 max_pause_duration: None,
                 retry_budget: None,
@@ -292,6 +318,10 @@ impl WorkflowLifecycleCoordinator {
             ctx = ctx.with_metrics(metrics.clone());
         }
 
+        // A resumed execution continues checkpointing unless the options
+        // explicitly disable it (sub-workflow resume semantics).
+        let checkpoints_enabled = ctx.options.enable_checkpoints.unwrap_or(true);
+
         let mut coordinator = WorkflowCoordinator::new(ctx, graph, handlers)?
             .with_entity(entity)
             .with_hooks(hooks);
@@ -301,15 +331,23 @@ impl WorkflowLifecycleCoordinator {
             coordinator = coordinator.with_hook_executor(executor.clone());
         }
 
-        if let Some(ref strategy) = self.checkpoint_strategy {
-            let mut cp = WorkflowCheckpointIntegration::new(self.store.clone(), strategy.clone());
-            if let Some(ref bus) = self.checkpoint_event_bus {
-                cp = cp.with_event_bus(bus.clone());
+        // Same sub-workflow skip semantics as `execute`: checkpoints are
+        // wired only when the (resumed) execution enables them.
+        if checkpoints_enabled {
+            if let Some(ref strategy) = self.checkpoint_strategy {
+                let mut cp =
+                    WorkflowCheckpointIntegration::new(self.store.clone(), strategy.clone());
+                if let Some(ref bus) = self.checkpoint_event_bus {
+                    cp = cp.with_event_bus(bus.clone());
+                }
+                if let Some(ref core_bus) = self.event_bus {
+                    cp = cp.with_core_event_bus(core_bus.clone());
+                }
+                if let Some(ref bus) = self.checkpoint_execution_events {
+                    cp = cp.with_execution_event_bus(bus.clone());
+                }
+                coordinator = coordinator.with_checkpoint(cp);
             }
-            if let Some(ref core_bus) = self.event_bus {
-                cp = cp.with_core_event_bus(core_bus.clone());
-            }
-            coordinator = coordinator.with_checkpoint(cp);
         }
 
         let result = coordinator.execute().await;
@@ -494,6 +532,54 @@ mod tests {
             .await
             .expect_err("resume without checkpoint must fail");
         assert!(err.to_string().contains("no checkpoint"));
+    }
+
+    #[tokio::test]
+    async fn test_checkpoints_disabled_execution_skips_checkpointing() {
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = make_lifecycle(store.clone());
+        let handlers = make_handlers();
+
+        let params = WorkflowExecutionParams {
+            execution_id: wf_types::Id::from("exec-no-cp".to_string()),
+            workflow_id: wf_types::Id::from("wf-no-cp".to_string()),
+            graph: make_graph(),
+            options: WorkflowExecutionOptions {
+                input: Some(serde_json::json!({"greeting": "hello"})),
+                max_steps: Some(2),
+                timeout: None,
+                max_execution_time: None,
+                // Sub-workflows pass enable_checkpoints=false; the strategy is
+                // configured but must be skipped.
+                enable_checkpoints: Some(false),
+                node_timeout: None,
+                max_pause_duration: None,
+                retry_budget: None,
+                on_failure: None,
+                max_retries: None,
+                retry_delay_ms: None,
+                exponential_backoff: None,
+                fallback_output: None,
+            },
+            handlers,
+            tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+            input: None,
+            hooks: Vec::new(),
+        };
+
+        let output = lifecycle
+            .execute_workflow(params)
+            .await
+            .expect("execution should complete without checkpoints");
+        assert_eq!(output.execution_id, "exec-no-cp");
+
+        use wf_checkpoint::state::CheckpointStateManager;
+        let sm = wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone());
+        let latest = sm
+            .get_latest("exec-no-cp")
+            .await
+            .expect("query ok");
+        assert!(latest.is_none(), "no checkpoint created when disabled");
     }
 
     fn options_with(input: Option<Value>) -> WorkflowExecutionOptions {

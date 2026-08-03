@@ -75,8 +75,9 @@ impl ForkJoinStateInference {
                     inference.pending_paths.insert(path_id.clone());
                 }
                 None => {
-                    // Not restored into the registry yet; pending if the
-                    // snapshot hierarchy still references this path.
+                    // Not restored into the registry yet: pending when the
+                    // snapshot hierarchy still references this path, otherwise
+                    // the path is no longer part of the execution.
                     let in_snapshot = hierarchy
                         .and_then(|h| h.children.as_ref())
                         .map(|children| {
@@ -85,8 +86,9 @@ impl ForkJoinStateInference {
                                 .any(|c| c.fork_path_id.as_deref() == Some(path_id.as_str()))
                         })
                         .unwrap_or(false);
-                    inference.pending_paths.insert(path_id.clone());
-                    let _ = in_snapshot;
+                    if in_snapshot {
+                        inference.pending_paths.insert(path_id.clone());
+                    }
                 }
             }
         }
@@ -173,8 +175,14 @@ mod tests {
         let inference =
             ForkJoinStateInference::infer(&paths, "exec-1", Some(&hierarchy), &registry);
 
-        assert!(inference.pending_paths.contains("path-1"));
-        assert!(inference.pending_paths.contains("path-2"));
+        assert!(
+            inference.pending_paths.contains("path-1"),
+            "path referenced by the snapshot hierarchy is pending"
+        );
+        assert!(
+            !inference.pending_paths.contains("path-2"),
+            "path absent from both registry and hierarchy is not reported"
+        );
         assert!(inference.completed_paths.is_empty());
     }
 

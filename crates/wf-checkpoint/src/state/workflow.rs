@@ -22,6 +22,21 @@ impl WorkflowCheckpointStateManager {
             inner: StorageBackedStateManager::new(storage),
         }
     }
+
+    /// The underlying storage backend (used to rebuild state managers in
+    /// spawned restore tasks).
+    pub fn storage(&self) -> &Arc<StorageBackend> {
+        self.inner.storage()
+    }
+
+    /// Resolve the latest checkpoint metadata for many entities in a single
+    /// storage query (eliminates the N+1 pattern in hierarchy restore).
+    pub async fn list_latest_by_entities(
+        &self,
+        entity_ids: &[String],
+    ) -> Result<Vec<CheckpointStorageMetadata>, CheckpointError> {
+        self.inner.list_latest_by_entities(entity_ids).await
+    }
 }
 
 impl CheckpointStateManager for WorkflowCheckpointStateManager {
@@ -126,7 +141,7 @@ mod tests {
             previous_checkpoint_id: None,
             delta: None,
             snapshot: Some(make_snapshot()),
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: Some(chrono::Utc::now().timestamp_millis()),
             metadata: None,
             format_version: None,
         }
@@ -155,7 +170,7 @@ mod tests {
         for i in 0..3 {
             let mut cp = make_checkpoint();
             cp.id = format!("cp-{}", i);
-            cp.timestamp = i as i64 * 1000;
+            cp.timestamp = Some(i as i64 * 1000);
             mgr.save(&cp, "workflow_execution", "exec-1").await.unwrap();
         }
 

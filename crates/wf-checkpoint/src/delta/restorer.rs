@@ -230,7 +230,7 @@ mod tests {
             previous_checkpoint_id: previous.map(String::from),
             delta: None,
             snapshot: Some(state),
-            timestamp: 0,
+            timestamp: Some(0),
             metadata: None,
             format_version: None,
         }
@@ -249,7 +249,7 @@ mod tests {
             previous_checkpoint_id: previous.map(String::from),
             delta: Some(delta),
             snapshot: None,
-            timestamp: 0,
+            timestamp: Some(0),
             metadata: None,
             format_version: None,
         }

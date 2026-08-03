@@ -83,14 +83,23 @@ impl CheckpointEventBus {
     }
 
     pub fn created(checkpoint_id: impl Into<String>) -> CheckpointEvent {
+        Self::created_with(checkpoint_id, None, None)
+    }
+
+    /// Create a `Created` event with execution id and description filled in.
+    pub fn created_with(
+        checkpoint_id: impl Into<String>,
+        execution_id: Option<String>,
+        description: Option<String>,
+    ) -> CheckpointEvent {
         CheckpointEvent::Created {
             base: Self::make_base(EventType::CheckpointCreated),
             data: CheckpointData {
                 checkpoint_id: Some(checkpoint_id.into()),
-                execution_id: None,
+                execution_id,
                 operation: None,
                 error: None,
-                description: None,
+                description,
                 reason: None,
             },
         }
@@ -116,6 +125,15 @@ impl CheckpointEventBus {
     }
 
     pub fn deleted(checkpoint_id: impl Into<String>) -> CheckpointEvent {
+        Self::deleted_with(checkpoint_id, None)
+    }
+
+    /// Create a `Deleted` event carrying the deletion reason
+    /// (`"manual" | "cleanup" | "policy"`, aligned with TS).
+    pub fn deleted_with(
+        checkpoint_id: impl Into<String>,
+        reason: Option<String>,
+    ) -> CheckpointEvent {
         CheckpointEvent::Deleted {
             base: Self::make_base(EventType::CheckpointDeleted),
             data: CheckpointData {
@@ -124,17 +142,28 @@ impl CheckpointEventBus {
                 operation: None,
                 error: None,
                 description: None,
-                reason: None,
+                reason,
             },
         }
     }
 
     pub fn failed(operation: impl Into<String>, error: impl Into<String>) -> CheckpointEvent {
+        Self::failed_with(None, operation, error, None)
+    }
+
+    /// Create a `Failed` event with the checkpoint id and execution id filled
+    /// in, so consumers can correlate the failure with the checkpoint.
+    pub fn failed_with(
+        checkpoint_id: Option<String>,
+        operation: impl Into<String>,
+        error: impl Into<String>,
+        execution_id: Option<String>,
+    ) -> CheckpointEvent {
         CheckpointEvent::Failed {
             base: Self::make_base(EventType::CheckpointFailed),
             data: CheckpointData {
-                checkpoint_id: None,
-                execution_id: None,
+                checkpoint_id,
+                execution_id,
                 operation: Some(operation.into()),
                 error: Some(error.into()),
                 description: None,

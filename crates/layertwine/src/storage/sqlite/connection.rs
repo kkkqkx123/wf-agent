@@ -77,6 +77,26 @@ impl SqliteStorage {
         SqliteStorage { conn: conn.clone() }
     }
 
+    /// List metadata entries whose key starts with `prefix` (ordered by key).
+    /// Used by higher layers that namespace metadata keys (e.g. branch
+    /// registries) and need enumeration.
+    pub fn list_metadata_by_prefix(&self, prefix: &str) -> StorageResult<Vec<(String, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT key, value FROM dag_store WHERE key LIKE ?1 ORDER BY key")?;
+            let rows = stmt
+                .query_map([format!("{}%", prefix)], |row| {
+                    let key: String = row.get(0)?;
+                    let value: Vec<u8> = row.get(1)?;
+                    let value = String::from_utf8(value)
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    Ok((key, value))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
     pub fn share(&self) -> Self {
         SqliteStorage {
             conn: self.conn.clone(),

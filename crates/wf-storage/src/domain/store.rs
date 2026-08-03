@@ -20,6 +20,8 @@ pub enum FilterOp {
     Gt(String, i64),
     /// Metadata field is within an inclusive range.
     Between(String, i64, i64),
+    /// Metadata field equals any of the given values (IN query).
+    In(String, Vec<String>),
     /// Order results by metadata field; second value true = descending.
     OrderBy(String, bool),
     /// Skip N results.
@@ -81,6 +83,11 @@ impl QueryFilter {
     pub fn with_timestamp_range(mut self, start: i64, end: i64) -> Self {
         self.ops
             .push(FilterOp::Between("timestamp".into(), start, end));
+        self
+    }
+
+    pub fn with_field_in(mut self, key: &str, values: Vec<String>) -> Self {
+        self.ops.push(FilterOp::In(key.into(), values));
         self
     }
 

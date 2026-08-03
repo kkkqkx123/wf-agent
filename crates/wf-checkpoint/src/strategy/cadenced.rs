@@ -12,6 +12,15 @@ pub trait CheckpointTiming: PartialEq + Eq + Clone + std::hash::Hash + std::fmt:
     fn to_trigger(&self) -> CheckpointTrigger;
 }
 
+/// `CheckpointTrigger` is itself a timing variant: cadenced strategies can be
+/// driven directly by triggers (identity mapping), which is how the agent
+/// coordinator's interval semantics plug into the cadenced strategy.
+impl CheckpointTiming for CheckpointTrigger {
+    fn to_trigger(&self) -> CheckpointTrigger {
+        self.clone()
+    }
+}
+
 /// Cadenced wrapper around `StandardStrategy` that adds timing filtering
 /// and an optional cadence (every N count) per timing variant.
 ///
@@ -72,6 +81,7 @@ impl<T: CheckpointTiming> CadencedCheckpointStrategy<T> {
             &CheckpointContext {
                 entity_type: entity_type.to_string(),
                 entity_id: entity_id.to_string(),
+                trigger: Some(timing.to_trigger()),
                 attempt: None,
                 retry_count: None,
                 error: None,

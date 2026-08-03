@@ -1,6 +1,13 @@
 use crate::delta::DiffCalculator;
 use crate::error::CheckpointError;
 
+/// Result of a message diff: (added, modified, deleted indices).
+type MessageDiff = (
+    Option<Vec<wf_types::message::Message>>,
+    Option<Vec<wf_types::message::Message>>,
+    Option<Vec<u32>>,
+);
+
 pub struct WorkflowDiffCalculator;
 
 impl WorkflowDiffCalculator {
@@ -36,23 +43,28 @@ impl
             Self::diff_variables(&previous.variable_state, &current.variable_state);
 
         let added_node_results = if current.node_results != previous.node_results {
-            Some(serde_json::json!({
-                "node_results": current.node_results,
-            }))
+            current
+                .node_results
+                .clone()
+                .map(|map| serde_json::Value::Object(map.into_iter().collect()))
         } else {
             None
         };
 
         let status_change = if current.status != previous.status {
-            Some(serde_json::json!({
-                "status": current.status,
-            }))
+            Some(wf_types::checkpoint::FieldChange {
+                from: Some(previous.status.clone()),
+                to: Some(current.status.clone()),
+            })
         } else {
             None
         };
 
         let current_node_change = if current.current_node_id != previous.current_node_id {
-            current.current_node_id.clone()
+            Some(wf_types::checkpoint::FieldChange {
+                from: previous.current_node_id.clone(),
+                to: current.current_node_id.clone(),
+            })
         } else {
             None
         };
@@ -112,19 +124,19 @@ impl
         }
 
         if let Some(ref status) = delta.status_change {
-            if let Some(s) = status.get("status").and_then(|v| v.as_str()) {
-                result.status = s.to_string();
+            if let Some(s) = status.to.as_ref() {
+                result.status = s.clone();
             }
         }
 
-        if let Some(ref node_id) = delta.current_node_change {
-            result.current_node_id = Some(node_id.clone());
+        if let Some(ref node_change) = delta.current_node_change {
+            if let Some(node_id) = node_change.to.as_ref() {
+                result.current_node_id = Some(node_id.clone());
+            }
         }
 
         if let Some(ref node_results) = delta.added_node_results {
-            if let Some(map) = node_results.get("node_results") {
-                result.node_results = serde_json::from_value(map.clone()).ok();
-            }
+            result.node_results = serde_json::from_value(node_results.clone()).ok();
         }
 
         if let Some(ref vars) = delta.added_variables {
@@ -241,11 +253,7 @@ impl WorkflowDiffCalculator {
     fn diff_messages(
         previous: &Option<Vec<wf_types::message::Message>>,
         current: &Option<Vec<wf_types::message::Message>>,
-    ) -> (
-        Option<Vec<wf_types::message::Message>>,
-        Option<Vec<wf_types::message::Message>>,
-        Option<Vec<u32>>,
-    ) {
+    ) -> MessageDiff {
         use wf_types::message::Message;
 
         match (previous, current) {
@@ -487,7 +495,10 @@ impl
         };
 
         let status_change = if current.status != previous.status {
-            Some(current.status.clone())
+            Some(wf_types::checkpoint::FieldChange {
+                from: Some(previous.status.clone()),
+                to: Some(current.status.clone()),
+            })
         } else {
             None
         };
@@ -518,7 +529,9 @@ impl
         }
 
         if let Some(ref status) = delta.status_change {
-            result.status = status.clone();
+            if let Some(s) = status.to.as_ref() {
+                result.status = s.clone();
+            }
         }
 
         if let Some(ref other) = delta.other_changes {
@@ -817,8 +830,14 @@ mod tests {
             added_variables: None,
             modified_variables: None,
             added_node_results: None,
-            status_change: Some(serde_json::json!({"status": "completed"})),
-            current_node_change: Some("node-5".to_string()),
+            status_change: Some(wf_types::checkpoint::FieldChange {
+                from: Some("running".to_string()),
+                to: Some("completed".to_string()),
+            }),
+            current_node_change: Some(wf_types::checkpoint::FieldChange {
+                from: Some("node-4".to_string()),
+                to: Some("node-5".to_string()),
+            }),
             other_changes: None,
         };
 
@@ -1012,7 +1031,10 @@ mod tests {
         let delta = wf_types::checkpoint::agent::AgentCheckpointDelta {
             added_messages: None,
             added_iterations: Some(vec![2, 3]),
-            status_change: Some("completed".to_string()),
+            status_change: Some(wf_types::checkpoint::FieldChange {
+                from: Some("running".to_string()),
+                to: Some("completed".to_string()),
+            }),
             other_changes: None,
         };
 

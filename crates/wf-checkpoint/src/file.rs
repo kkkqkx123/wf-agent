@@ -184,6 +184,7 @@ impl FileCheckpointStorageAdapter for InMemoryFileCheckpointStorage {
     }
 }
 
+#[derive(Clone)]
 pub struct FileCheckpointManager {
     storage: Option<Arc<dyn FileCheckpointStorageAdapter>>,
 }
@@ -298,8 +299,7 @@ impl FileCheckpointManager {
         &self,
         entity_id: &str,
         files: &[FileState],
-    ) -> Result<FileCheckpoint, CheckpointError> {
-        let storage = self.storage.as_ref().ok_or_else(|| {
+    ) -> Result<FileCheckpoint, CheckpointError> {        let storage = self.storage.as_ref().ok_or_else(|| {
             CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
         })?;
         let full_hash = {
@@ -322,6 +322,29 @@ impl FileCheckpointManager {
         };
         storage.save(entity_id, &checkpoint)?;
         Ok(checkpoint)
+    }
+
+    /// Create a file checkpoint for an entity from the file states recorded
+    /// in the entity's latest file checkpoint (the deferred snapshot path
+    /// used by async persistence). Returns `None` when the entity has no
+    /// previous file checkpoint yet.
+    pub fn create_latest_file_checkpoint(
+        &self,
+        entity_id: &str,
+    ) -> Result<Option<FileCheckpoint>, CheckpointError> {
+        let storage = self.storage.as_ref().ok_or_else(|| {
+            CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
+        })?;
+        match storage.get_latest_by_entity(entity_id)? {
+            Some(meta) => {
+                let files = storage
+                    .load(&meta.id)?
+                    .map(|c| c.files)
+                    .unwrap_or_default();
+                Ok(Some(self.create_checkpoint(entity_id, &files)?))
+            }
+            None => Ok(None),
+        }
     }
 
     /// Restore the file checkpoint with `checkpoint_id` for `entity_id`,

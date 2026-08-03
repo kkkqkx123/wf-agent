@@ -40,7 +40,8 @@ pub trait CheckpointStateManager: Send + Sync {
 
     /// Clean up checkpoints of an entity with an explicit `CleanupStrategy`.
     /// The default implementation maps count-based strategies onto `cleanup`
-    /// and keeps everything for other strategies.
+    /// and keeps everything for other strategies; storage-backed managers
+    /// override this with the full `CleanupExecutor` routing.
     fn cleanup_with_strategy(
         &self,
         entity_id: &str,
@@ -48,9 +49,10 @@ pub trait CheckpointStateManager: Send + Sync {
     ) -> impl std::future::Future<Output = Result<u64, CheckpointError>> + Send {
         async move {
             match strategy {
-                CleanupStrategy::CountBased { max_checkpoints } => {
-                    self.cleanup(entity_id, Some(*max_checkpoints as u32)).await
-                }
+                CleanupStrategy::CountBased {
+                    max_checkpoints,
+                    min_retention: _,
+                } => self.cleanup(entity_id, Some(*max_checkpoints as u32)).await,
                 _ => self.cleanup(entity_id, None).await,
             }
         }

@@ -21,6 +21,12 @@ impl AgentCheckpointStateManager {
             inner: StorageBackedStateManager::new(storage),
         }
     }
+
+    /// The underlying storage backend (used to rebuild state managers in
+    /// spawned restore tasks).
+    pub fn storage(&self) -> &Arc<StorageBackend> {
+        self.inner.storage()
+    }
 }
 
 impl CheckpointStateManager for AgentCheckpointStateManager {
@@ -123,7 +129,7 @@ mod tests {
             previous_checkpoint_id: None,
             delta: None,
             snapshot: Some(make_snapshot()),
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: Some(chrono::Utc::now().timestamp_millis()),
             metadata: None,
             format_version: None,
         }
@@ -150,7 +156,7 @@ mod tests {
         for i in 0..4 {
             let mut cp = make_checkpoint();
             cp.id = format!("cp-{}", i);
-            cp.timestamp = i as i64 * 1000;
+            cp.timestamp = Some(i as i64 * 1000);
             mgr.save(&cp, "agent_loop", "loop-1").await.unwrap();
         }
 

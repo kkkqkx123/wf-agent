@@ -7,7 +7,9 @@ pub mod content;
 pub mod coordinator;
 pub mod delta;
 pub mod error;
+pub mod error_handling;
 pub mod event;
+pub mod execution_events;
 pub mod file;
 pub mod layertwine;
 pub mod metadata_builder;
@@ -21,6 +23,7 @@ pub mod version;
 pub use cache::CheckpointCache;
 pub use config_resolver::CheckpointConfigResolver;
 pub use error::CheckpointError;
+pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
     FileCheckpoint, FileCheckpointDelta, FileCheckpointManager, FileCheckpointMetadata,

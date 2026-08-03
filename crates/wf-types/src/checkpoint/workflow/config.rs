@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowCheckpointContentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_node_results: Option<bool>,
@@ -15,6 +16,7 @@ pub struct WorkflowCheckpointContentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkflowCheckpointConfig {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_checkpoint::event::CheckpointEventBus;
+use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
@@ -37,6 +38,7 @@ pub struct AgentLoopCoordinator {
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<AgentCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
+    checkpoint_execution_events: Option<ExecutionEventBus>,
     metrics: Option<Arc<MetricsRegistry>>,
     approval_options: Option<ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
@@ -66,6 +68,7 @@ impl AgentLoopCoordinator {
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
+            checkpoint_execution_events: None,
             metrics: None,
             approval_options: None,
             approval_handler: None,
@@ -90,6 +93,13 @@ impl AgentLoopCoordinator {
 
     pub fn with_checkpoint_event_bus(mut self, bus: CheckpointEventBus) -> Self {
         self.checkpoint_event_bus = Some(bus);
+        self
+    }
+
+    /// Register the execution event bus; `state_changed` events are published
+    /// after every checkpoint creation.
+    pub fn with_checkpoint_execution_events(mut self, bus: ExecutionEventBus) -> Self {
+        self.checkpoint_execution_events = Some(bus);
         self
     }
 
@@ -287,6 +297,9 @@ impl AgentLoopCoordinator {
         let mut cp = AgentCheckpointIntegration::new(self.store.clone());
         if let Some(ref bus) = self.checkpoint_event_bus {
             cp = cp.with_event_bus(bus.clone());
+        }
+        if let Some(ref bus) = self.checkpoint_execution_events {
+            cp = cp.with_execution_event_bus(bus.clone());
         }
         let _ = strategy;
         Some(cp)

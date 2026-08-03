@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionErrorRecord {
     pub id: super::super::Id,
     pub timestamp: super::super::Timestamp,
@@ -24,6 +25,7 @@ pub struct ExecutionErrorRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionInterruptionRecord {
     pub id: super::super::Id,
     pub timestamp: super::super::Timestamp,
@@ -45,6 +47,7 @@ pub struct ExecutionInterruptionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionEventRecord {
     pub id: super::super::Id,
     pub timestamp: super::super::Timestamp,

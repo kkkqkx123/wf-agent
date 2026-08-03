@@ -10,6 +10,7 @@ pub enum CheckpointErrorStrategy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CheckpointErrorContext {
     pub operation: String,
     pub checkpoint_id: Option<String>,
@@ -18,6 +19,7 @@ pub struct CheckpointErrorContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CheckpointError {
     pub message: String,
     pub operation: String,
@@ -25,6 +27,7 @@ pub struct CheckpointError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct CheckpointErrorHandlingResult {
     pub recovered: bool,
     pub retry_count: u32,

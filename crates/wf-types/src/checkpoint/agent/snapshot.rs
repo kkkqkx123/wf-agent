@@ -11,6 +11,7 @@ use crate::Timestamp;
 /// Optional fields mirror the TS snapshot: absent fields are simply skipped
 /// during capture or restore.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentStateSnapshot {
     pub agent_loop_id: Id,
     pub status: String,
@@ -61,11 +62,14 @@ pub struct AgentStateSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct VariableSnapshot {
     pub value: serde_json::Value,
     pub r#type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
-    pub updated: i64,
+    /// Whether the variable was updated since the previous checkpoint
+    /// (aligned with the TS `VariableSnapshot.updated: boolean`).
+    pub updated: bool,
     pub source: String,
 }

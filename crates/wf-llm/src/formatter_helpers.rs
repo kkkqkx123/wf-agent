@@ -81,3 +81,134 @@ pub fn build_bearer_header(api_key: &Option<String>) -> Option<(String, String)>
         .as_ref()
         .map(|key| ("Authorization".to_string(), format!("Bearer {}", key)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::{LlmProfile, LlmProvider};
+
+    fn profile_with_params(params: Option<serde_json::Value>) -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: LlmProvider::OpenaiChat,
+            model: "gpt-4o".to_string(),
+            api_key: None,
+            base_url: None,
+            parameters: params,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    #[test]
+    fn deep_merge_merges_objects_recursively() {
+        let target = serde_json::json!({
+            "a": 1,
+            "nested": {"x": 1, "keep": "me"},
+            "list": [1, 2],
+        });
+        let source = serde_json::json!({
+            "b": 2,
+            "nested": {"x": 99},
+            "list": [3],
+        });
+        let merged = deep_merge(&target, &source);
+        assert_eq!(merged["a"], serde_json::json!(1));
+        assert_eq!(merged["b"], serde_json::json!(2));
+        assert_eq!(merged["nested"]["x"], serde_json::json!(99), "source wins");
+        assert_eq!(merged["nested"]["keep"], serde_json::json!("me"));
+        assert_eq!(
+            merged["list"],
+            serde_json::json!([1, 2, 3]),
+            "arrays concat"
+        );
+    }
+
+    #[test]
+    fn deep_merge_scalars_are_replaced_by_source() {
+        assert_eq!(
+            deep_merge(&serde_json::json!(1), &serde_json::json!(2)),
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            deep_merge(&serde_json::json!({"a": 1}), &serde_json::json!("flat")),
+            serde_json::json!("flat")
+        );
+        assert_eq!(
+            deep_merge(&serde_json::json!([1]), &serde_json::json!({"o": 1})),
+            serde_json::json!({"o": 1})
+        );
+    }
+
+    #[test]
+    fn merge_parameters_request_wins_on_conflicts() {
+        let profile = profile_with_params(Some(serde_json::json!({
+            "temperature": 0.7,
+            "max_tokens": 100,
+        })));
+        let merged = merge_parameters(
+            &profile,
+            &Some(serde_json::json!({
+                "temperature": 0.2,
+                "extra": true,
+            })),
+        );
+        assert_eq!(merged["temperature"], serde_json::json!(0.2));
+        assert_eq!(merged["max_tokens"], serde_json::json!(100));
+        assert_eq!(merged["extra"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn merge_parameters_handles_missing_and_non_object() {
+        let profile = profile_with_params(None);
+        assert!(merge_parameters(&profile, &None).is_empty());
+        assert!(merge_parameters(&profile, &Some(serde_json::json!("nope"))).is_empty());
+
+        let profile = profile_with_params(Some(serde_json::json!({"a": 1})));
+        let merged = merge_parameters(&profile, &Some(serde_json::json!("nope")));
+        assert_eq!(merged["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn deep_merge_parameters_combines_profile_and_request() {
+        let profile = profile_with_params(Some(serde_json::json!({
+            "temperature": 0.7,
+            "nested": {"from_profile": true},
+        })));
+        let merged = deep_merge_parameters(
+            &profile,
+            &Some(serde_json::json!({
+                "temperature": 0.1,
+                "nested": {"from_request": true},
+            })),
+        );
+        assert_eq!(merged["temperature"], serde_json::json!(0.1));
+        assert_eq!(merged["nested"]["from_profile"], serde_json::json!(true));
+        assert_eq!(merged["nested"]["from_request"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn auth_headers_are_built_correctly() {
+        assert_eq!(
+            build_auth_header(&Some("sk-1".to_string()), "x-api-key"),
+            Some(("x-api-key".to_string(), "sk-1".to_string()))
+        );
+        assert_eq!(build_auth_header(&None, "x-api-key"), None);
+        assert_eq!(
+            build_bearer_header(&Some("sk-1".to_string())),
+            Some(("Authorization".to_string(), "Bearer sk-1".to_string()))
+        );
+        assert_eq!(build_bearer_header(&None), None);
+    }
+}

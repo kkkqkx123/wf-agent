@@ -42,7 +42,10 @@ pub fn convert_to_text_mode(
         .iter()
         .map(|msg| {
             if msg.role == MessageRole::Assistant
-                && msg.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
+                && msg
+                    .tool_calls
+                    .as_ref()
+                    .is_some_and(|calls| !calls.is_empty())
             {
                 convert_assistant_message(msg, format, markers)
             } else if msg.role == MessageRole::Tool && msg.tool_call_id.is_some() {
@@ -372,7 +375,10 @@ mod tests {
             panic!("expected text");
         };
         assert!(text.contains("<tool_use>"), "{text}");
-        assert!(text.contains("<tool_name>get_weather</tool_name>"), "{text}");
+        assert!(
+            text.contains("<tool_name>get_weather</tool_name>"),
+            "{text}"
+        );
         assert!(text.contains(r#"{"city":"Beijing"}"#), "{text}");
 
         let result = &converted[1];
@@ -381,7 +387,10 @@ mod tests {
             panic!("expected text");
         };
         assert!(result_text.contains("<tool_result>"), "{result_text}");
-        assert!(result_text.contains("<tool_call_id>c1</tool_call_id>"), "{result_text}");
+        assert!(
+            result_text.contains("<tool_call_id>c1</tool_call_id>"),
+            "{result_text}"
+        );
         assert!(result_text.contains("sunny"), "{result_text}");
     }
 
@@ -413,8 +422,14 @@ mod tests {
         let MessageContentValue::Text(result_text) = &converted[1].content else {
             panic!("expected text");
         };
-        assert!(result_text.contains("\"tool_call_id\":\"c1\""), "{result_text}");
-        assert!(result_text.contains("\"output\":\"sunny\""), "{result_text}");
+        assert!(
+            result_text.contains("\"tool_call_id\":\"c1\""),
+            "{result_text}"
+        );
+        assert!(
+            result_text.contains("\"output\":\"sunny\""),
+            "{result_text}"
+        );
     }
 
     #[test]

@@ -362,7 +362,8 @@ mod tests {
 
         let inner = stream::iter(vec![Ok::<_, std::io::Error>(sse.as_bytes().to_vec())]);
         let sse_stream = EventStream::new(inner);
-        let formatter: Arc<dyn LlmFormatter> = Arc::new(crate::formatters::OpenaiChatFormatter::new());
+        let formatter: Arc<dyn LlmFormatter> =
+            Arc::new(crate::formatters::OpenaiChatFormatter::new());
         let mut stream = SseMessageStream::new(sse_stream, formatter, None, None);
 
         let mut events: Vec<MessageStreamEvent> = Vec::new();

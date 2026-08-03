@@ -301,7 +301,8 @@ impl GeminiNativeFormatter {
                         })
                     })
                     .collect();
-                body["tools"] = serde_json::json!([{"functionDeclarations": function_declarations}]);
+                body["tools"] =
+                    serde_json::json!([{"functionDeclarations": function_declarations}]);
             }
         }
 
@@ -586,7 +587,10 @@ mod tests {
             .build_body(&request(vec![], None), &profile())
             .expect("must build");
 
-        assert_eq!(body["generationConfig"]["temperature"], serde_json::json!(0.7));
+        assert_eq!(
+            body["generationConfig"]["temperature"],
+            serde_json::json!(0.7)
+        );
         assert_eq!(
             body["generationConfig"]["maxOutputTokens"],
             serde_json::json!(4096)
@@ -599,7 +603,10 @@ mod tests {
             Some(serde_json::json!({"temperature": 0.2, "max_tokens": 128})),
         );
         let body = formatter.build_body(&req, &profile()).expect("must build");
-        assert_eq!(body["generationConfig"]["temperature"], serde_json::json!(0.2));
+        assert_eq!(
+            body["generationConfig"]["temperature"],
+            serde_json::json!(0.2)
+        );
         assert_eq!(
             body["generationConfig"]["maxOutputTokens"],
             serde_json::json!(128)

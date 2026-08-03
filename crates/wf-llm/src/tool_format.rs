@@ -311,3 +311,250 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
 
     (system_content, filtered)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::ToolCallMarkers;
+    use wf_types::message::{Message, MessageContentValue, MessageRole};
+    use wf_types::tool::{Tool, ToolParameterSchema, ToolProperty};
+    fn tool(name: &str, desc: &str) -> Tool {
+        Tool {
+            id: wf_types::Id::new(),
+            name: name.to_string(),
+            description: desc.to_string(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: Some(ToolParameterSchema {
+                r#type: "object".to_string(),
+                properties: [
+                    (
+                        "query".to_string(),
+                        ToolProperty {
+                            name: "query".to_string(),
+                            value: serde_json::Value::Null,
+                            r#type: Some("string".to_string()),
+                            required: Some(true),
+                            description: Some("search query".to_string()),
+                        },
+                    ),
+                    (
+                        "limit".to_string(),
+                        ToolProperty {
+                            name: "limit".to_string(),
+                            value: serde_json::Value::Null,
+                            r#type: Some("integer".to_string()),
+                            required: None,
+                            description: Some("max results".to_string()),
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                required: vec!["query".to_string()],
+                additional_properties: None,
+            }),
+            metadata: None,
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        }
+    }
+
+    #[test]
+    fn template_sets_per_format() {
+        for (format, expected_list) in [
+            (ToolCallFormat::Native, "Available Tools:"),
+            (ToolCallFormat::Xml, "## Available Tools"),
+            (ToolCallFormat::JsonWrapped, "## Available Tools"),
+            (ToolCallFormat::JsonRaw, "Available Tools:"),
+        ] {
+            let templates = get_tool_format_templates(format.clone(), false);
+            assert!(
+                templates.list_template.contains(expected_list),
+                "format {format:?}"
+            );
+        }
+        let compact = get_tool_format_templates(ToolCallFormat::JsonRaw, true);
+        assert!(compact.list_template.starts_with("Available tools:"));
+        assert!(compact.single_template.starts_with("{name}:"));
+        // Compact only affects JsonRaw; the others keep the full templates.
+        assert!(get_tool_format_templates(ToolCallFormat::Xml, true)
+            .list_template
+            .contains("## Available Tools"));
+    }
+
+    #[test]
+    fn parser_options_match_format() {
+        let markers = ToolCallMarkers {
+            start: Some("<<<START>>>".to_string()),
+            end: Some("<<<END>>>".to_string()),
+        };
+        let opts = get_tool_call_parser_options(ToolCallFormat::JsonWrapped, Some(&markers));
+        assert!(matches!(opts.preferred_formats[0], ParseFormat::Json));
+        assert_eq!(opts.markers.unwrap().start.as_deref(), Some("<<<START>>>"));
+        assert!(matches!(
+            get_tool_call_parser_options(ToolCallFormat::Native, None).preferred_formats[0],
+            ParseFormat::Raw
+        ));
+        assert!(matches!(
+            get_tool_call_parser_options(ToolCallFormat::Xml, None).preferred_formats[0],
+            ParseFormat::Xml
+        ));
+        assert!(matches!(
+            get_tool_call_parser_options(ToolCallFormat::JsonRaw, None).preferred_formats[0],
+            ParseFormat::Raw
+        ));
+        // Native format keeps default (no custom markers).
+        assert!(
+            get_tool_call_parser_options(ToolCallFormat::Native, Some(&markers))
+                .markers
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn format_classification_helpers() {
+        assert!(requires_prompt_tool_descriptions(ToolCallFormat::Xml));
+        assert!(requires_prompt_tool_descriptions(
+            ToolCallFormat::JsonWrapped
+        ));
+        assert!(requires_prompt_tool_descriptions(ToolCallFormat::JsonRaw));
+        assert!(!requires_prompt_tool_descriptions(ToolCallFormat::Native));
+
+        assert!(!is_text_based_tool_mode(None));
+        assert!(!is_text_based_tool_mode(Some(ToolCallFormat::Native)));
+        for f in [
+            ToolCallFormat::Xml,
+            ToolCallFormat::JsonWrapped,
+            ToolCallFormat::JsonRaw,
+        ] {
+            assert!(is_text_based_tool_mode(Some(f)));
+        }
+    }
+
+    #[test]
+    fn usage_instructions_only_for_text_formats() {
+        assert!(get_tool_usage_instructions(ToolCallFormat::Xml).contains("<tool_use>"));
+        assert!(get_tool_usage_instructions(ToolCallFormat::JsonWrapped).contains("TOOL_CALL"));
+        assert_eq!(get_tool_usage_instructions(ToolCallFormat::Native), "");
+        assert_eq!(get_tool_usage_instructions(ToolCallFormat::JsonRaw), "");
+    }
+
+    #[test]
+    fn renders_declaration_and_list() {
+        let t = tool("search", "Search the web");
+        let decl = render_tool_declaration(&t, ToolCallFormat::Xml, false);
+        assert!(decl.contains("<tool name=\"search\">"));
+        assert!(decl.contains("Search the web"));
+        assert!(decl.contains("query (string) [required]: search query"));
+        assert!(decl.contains("limit (integer): max results"));
+
+        let list = render_tool_list_description(&[t], ToolCallFormat::Xml, false);
+        assert!(list.contains("## Available Tools"));
+        assert!(list.contains("<tool name=\"search\">"));
+    }
+
+    #[test]
+    fn renders_compact_json_raw_with_json_schema() {
+        let t = tool("search", "Search the web");
+        let decl = render_tool_declaration(&t, ToolCallFormat::JsonRaw, true);
+        assert!(decl.contains("search: Search the web"));
+        let list = render_tool_list_description(&[t], ToolCallFormat::JsonRaw, true);
+        assert!(list.contains("Available tools:"));
+    }
+
+    #[test]
+    fn renders_tool_without_parameters() {
+        let t = Tool {
+            id: wf_types::Id::new(),
+            name: "noop".to_string(),
+            description: "does nothing".to_string(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        };
+        let decl = render_tool_declaration(&t, ToolCallFormat::Xml, false);
+        assert!(decl.contains("<tool name=\"noop\">"));
+        assert!(!decl.contains("[required]"));
+    }
+
+    #[test]
+    fn build_text_mode_system_content_composes_parts() {
+        let tools = vec![tool("search", "Search the web")];
+        let content =
+            build_text_mode_system_content("You are helpful", &tools, ToolCallFormat::Xml, false);
+        assert!(content.contains("You are helpful"));
+        assert!(content.contains("## Tool Usage Instructions"));
+        assert!(content.contains("<tool name=\"search\">"));
+        assert!(
+            content.starts_with("You are helpful"),
+            "existing system content must come first"
+        );
+
+        // Empty system message: no leading empty part.
+        let no_system = build_text_mode_system_content("", &tools, ToolCallFormat::Xml, false);
+        assert!(!no_system.contains("You are helpful"));
+
+        // Native format: no usage instructions; the tools section header is
+        // still appended even for an empty tool list.
+        let native = build_text_mode_system_content("hello", &[], ToolCallFormat::Native, false);
+        assert!(native.contains("hello"));
+        assert!(native.contains("Available Tools:"));
+        assert!(!native.contains("## Tool Usage Instructions"));
+    }
+
+    #[test]
+    fn extract_system_message_filters_and_returns_last_system() {
+        let sys1 = Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::System,
+            content: MessageContentValue::Text("sys one".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        };
+        let user = Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text("hi".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        };
+        let sys2 = Message {
+            id: wf_types::Id::new(),
+            role: MessageRole::System,
+            content: MessageContentValue::Text("sys two".to_string()),
+            timestamp: 0,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        };
+        let (system, filtered) = extract_system_message(&[sys1.clone(), user.clone(), sys2]);
+        assert_eq!(system.as_deref(), Some("sys two"));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].role, MessageRole::User);
+
+        // No system message at all: None, and the user message is kept.
+        let (system, filtered) = extract_system_message(std::slice::from_ref(&user));
+        assert_eq!(system, None);
+        assert_eq!(filtered.len(), 1);
+
+        let (system, filtered) = extract_system_message(&[]);
+        assert_eq!(system, None);
+        assert!(filtered.is_empty());
+    }
+}

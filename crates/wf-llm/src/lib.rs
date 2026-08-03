@@ -37,8 +37,8 @@ pub use messaging::conversation_session::{
 pub use messaging::cross_boundary_converter::{BoundaryType, CrossBoundaryConverter};
 pub use messaging::dynamic_injection::DynamicInjection;
 pub use messaging::history_converter::{
-    convert_assistant_message, convert_to_text_mode, convert_tool_result_message, render_tool_calls,
-    render_tool_result, HistoryConverter, HistoryFormat,
+    convert_assistant_message, convert_to_text_mode, convert_tool_result_message,
+    render_tool_calls, render_tool_result, HistoryConverter, HistoryFormat,
 };
 pub use messaging::message_array_manager::MessageArrayManager;
 pub use messaging::message_context_registry::{MessageContextRegistry, NamedMessageContext};

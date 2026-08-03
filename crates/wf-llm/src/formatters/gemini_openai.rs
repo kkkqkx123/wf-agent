@@ -110,3 +110,292 @@ impl LlmFormatter for GeminiOpenaiFormatter {
         result.tool_calls.clone().unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::{
+        LlmProvider, MessageStreamEvent, ToolCallFormat, ToolCallFormatConfig, ToolCallMarkers,
+    };
+    use wf_types::message::{Message, MessageContentValue, MessageRole};
+    use wf_types::tool::Tool;
+
+    fn profile(base_url: Option<&str>) -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: LlmProvider::GeminiOpenai,
+            model: "gemini-2.0-flash".to_string(),
+            api_key: Some("gsk-test".to_string()),
+            base_url: base_url.map(String::from),
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    fn request(text: &str, format: Option<ToolCallFormat>) -> LlmRequest {
+        LlmRequest {
+            profile_id: "p1".to_string(),
+            messages: vec![Message {
+                id: wf_types::Id::new(),
+                role: MessageRole::User,
+                content: MessageContentValue::Text(text.to_string()),
+                timestamp: 0,
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            }],
+            parameters: None,
+            tools: None,
+            tool_call_format: format,
+            locked_tool_call_format: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    #[test]
+    fn build_request_uses_default_base_url() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let req = formatter
+            .build_request(&request("hi", None), &profile(None))
+            .unwrap();
+        assert_eq!(
+            req.url().as_str(),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+        assert_eq!(req.method(), reqwest::Method::POST);
+        assert_eq!(
+            req.headers().get("Authorization").unwrap(),
+            "Bearer gsk-test",
+            "default auth is bearer for the OpenAI-compatible endpoint"
+        );
+    }
+
+    #[test]
+    fn build_request_profile_base_url_wins() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let req = formatter
+            .build_request(
+                &request("hi", None),
+                &profile(Some("https://proxy.example.com")),
+            )
+            .unwrap();
+        assert_eq!(
+            req.url().as_str(),
+            "https://proxy.example.com/chat/completions"
+        );
+    }
+
+    #[test]
+    fn build_request_carries_messages_and_tools() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let mut req = request("hi", Some(ToolCallFormat::Native));
+        req.tools = Some(vec![Tool {
+            id: wf_types::Id::new(),
+            name: "search".to_string(),
+            description: "Search the web".to_string(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        }]);
+        req.stream = Some(true);
+        let http_req = formatter.build_request(&req, &profile(None)).unwrap();
+        let body: serde_json::Value = http_req
+            .body()
+            .unwrap()
+            .as_bytes()
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .unwrap();
+        assert_eq!(body["model"], serde_json::json!("gemini-2.0-flash"));
+        assert_eq!(body["messages"][0]["content"], serde_json::json!("hi"));
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert_eq!(
+            body["tools"][0]["function"]["name"],
+            serde_json::json!("search")
+        );
+    }
+
+    #[test]
+    fn text_mode_injects_system_content_and_skips_native_tools() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let mut req = request("hi", Some(ToolCallFormat::JsonWrapped));
+        req.messages.insert(
+            0,
+            Message {
+                id: wf_types::Id::new(),
+                role: MessageRole::System,
+                content: MessageContentValue::Text("you are a bot".to_string()),
+                timestamp: 0,
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            },
+        );
+        req.tools = Some(vec![Tool {
+            id: wf_types::Id::new(),
+            name: "search".to_string(),
+            description: "Search the web".to_string(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        }]);
+        let http_req = formatter.build_request(&req, &profile(None)).unwrap();
+        let body: serde_json::Value = http_req
+            .body()
+            .unwrap()
+            .as_bytes()
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .unwrap();
+        let system = body["messages"][0].clone();
+        assert_eq!(system["role"], serde_json::json!("system"));
+        let content = system["content"].as_str().unwrap();
+        assert!(content.contains("you are a bot"));
+        assert!(content.contains("Available Tools"));
+        assert!(
+            body.get("tools").is_none(),
+            "text mode must not attach native tool schemas"
+        );
+    }
+
+    #[test]
+    fn parse_response_extracts_text_tool_calls_in_text_mode() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let body = r#"{
+            "id": "chatcmpl-1",
+            "model": "gemini-2.0-flash",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "<<<TOOL_CALL>>>\n{\"tool\": \"search\", \"parameters\": {\"q\": \"rust\"}}\n<<<END_TOOL_CALL>>>"
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        }"#;
+        let req = request("hi", Some(ToolCallFormat::JsonWrapped));
+        let result = formatter.parse_response(body, &req).unwrap();
+        assert!(result.content.as_deref().unwrap().contains("TOOL_CALL"));
+        let calls = result.tool_calls.as_ref().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "search");
+        assert_eq!(result.usage.as_ref().unwrap().total_tokens, 15);
+        assert_eq!(result.message.tool_calls.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn parse_response_keeps_native_tool_calls_in_native_mode() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let body = r#"{
+            "id": "chatcmpl-1",
+            "model": "gemini-2.0-flash",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "plain answer",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "search", "arguments": "{\"q\":\"x\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }"#;
+        let req = request("hi", Some(ToolCallFormat::Native));
+        let result = formatter.parse_response(body, &req).unwrap();
+        assert_eq!(result.content.as_deref(), Some("plain answer"));
+        assert_eq!(result.tool_calls.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stream_chunk_passthrough_matches_openai() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let chunk = r#"{"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"hi there"},"finish_reason":null}]}"#;
+        match formatter.parse_stream_chunk(chunk).unwrap() {
+            Some(MessageStreamEvent::Text(t)) => assert_eq!(t.text, "hi there"),
+            other => panic!("expected Text event, got {other:?}"),
+        }
+        let done = formatter
+            .parse_stream_chunk("[DONE]")
+            .expect("end marker parses");
+        assert!(matches!(done, Some(MessageStreamEvent::End(_))));
+        assert!(formatter.parse_stream_chunk("not json").is_err());
+    }
+
+    #[test]
+    fn locked_format_with_custom_markers_drives_parsing() {
+        let formatter = GeminiOpenaiFormatter::new();
+        let req = LlmRequest {
+            profile_id: "p1".to_string(),
+            messages: Vec::new(),
+            parameters: None,
+            tools: None,
+            // The gateway always mirrors the locked format into
+            // `tool_call_format`; the custom markers come from the lock.
+            tool_call_format: Some(ToolCallFormat::JsonWrapped),
+            locked_tool_call_format: Some(ToolCallFormatConfig {
+                format: ToolCallFormat::JsonWrapped,
+                markers: Some(ToolCallMarkers {
+                    start: Some("<<<TOOL>>>".to_string()),
+                    end: Some("<<<END>>>".to_string()),
+                }),
+                xml_tags: None,
+                include_description: None,
+                description_style: None,
+                include_examples: None,
+                include_rules: None,
+                additional_config: None,
+            }),
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        };
+        let body = r#"{
+            "id": "1",
+            "model": "gemini-2.0-flash",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "<<<TOOL>>> {\"tool\": \"lookup\"} <<<END>>>"
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }"#;
+        let result = formatter.parse_response(body, &req).unwrap();
+        let calls = result.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "lookup");
+    }
+}

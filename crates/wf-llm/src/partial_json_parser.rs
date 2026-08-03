@@ -224,7 +224,11 @@ fn strip(tokens: &[Token]) -> Vec<Token> {
         }
         Token::String(_) => {
             let len = result.len();
-            let before = if len >= 2 { Some(&result[len - 2]) } else { None };
+            let before = if len >= 2 {
+                Some(&result[len - 2])
+            } else {
+                None
+            };
             match before {
                 Some(Token::Delimiter(_)) | Some(Token::Brace('{')) => {
                     result.pop();

@@ -236,3 +236,149 @@ impl LlmClient for LlmClientImpl {
         crate::token_count::count_tokens_client(self, request).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::{LlmProfile, LlmProvider};
+
+    fn profile(id: &str) -> LlmProfile {
+        LlmProfile {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider: LlmProvider::OpenaiChat,
+            model: "gpt-4o".to_string(),
+            api_key: None,
+            base_url: None,
+            parameters: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+        }
+    }
+
+    #[test]
+    fn map_http_error_classifies_auth_and_timeout() {
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::UNAUTHORIZED, "denied", 5000),
+            LlmError::AuthError(_)
+        ));
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::FORBIDDEN, "denied", 5000),
+            LlmError::AuthError(_)
+        ));
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::REQUEST_TIMEOUT, "", 5000),
+            LlmError::Timeout(5000)
+        ));
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::GATEWAY_TIMEOUT, "", 5000),
+            LlmError::Timeout(5000)
+        ));
+    }
+
+    #[test]
+    fn map_http_error_classifies_provider_errors() {
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::BAD_REQUEST, "bad", 5000),
+            LlmError::ProviderError(_)
+        ));
+        assert!(matches!(
+            LlmClientImpl::map_http_error(
+                reqwest::StatusCode::TOO_MANY_REQUESTS,
+                "slow down",
+                5000
+            ),
+            LlmError::ProviderError(_)
+        ));
+        assert!(matches!(
+            LlmClientImpl::map_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "boom", 5000),
+            LlmError::ProviderError(_)
+        ));
+    }
+
+    #[test]
+    fn map_http_error_upgrades_context_length_messages() {
+        let err = LlmClientImpl::map_http_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            "This model's maximum context length is 200000 tokens",
+            5000,
+        );
+        assert!(
+            matches!(err, LlmError::ContextLengthExceeded(_)),
+            "provider context-length rejection must be surfaced: {err:?}"
+        );
+    }
+
+    #[test]
+    fn map_http_error_flags_success_status() {
+        let err = LlmClientImpl::map_http_error(reqwest::StatusCode::OK, "unexpected", 5000);
+        assert!(matches!(err, LlmError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn timeout_defaults_to_60_seconds() {
+        let client = LlmClientImpl::new(
+            reqwest::Client::new(),
+            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            profile("p1"),
+        );
+        assert_eq!(client.build_timeout(), Duration::from_secs(60));
+
+        let mut p = profile("p1");
+        p.timeout = Some(5);
+        let client = LlmClientImpl::new(
+            reqwest::Client::new(),
+            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            p,
+        );
+        assert_eq!(client.build_timeout(), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn retry_parameters_use_defaults_and_overrides() {
+        let client = LlmClientImpl::new(
+            reqwest::Client::new(),
+            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            profile("p1"),
+        );
+        assert_eq!(client.max_retries(), 3);
+        assert_eq!(client.retry_delay(0), Duration::from_millis(1000));
+        assert_eq!(
+            client.retry_delay(2),
+            Duration::from_millis(4000),
+            "exponential backoff"
+        );
+
+        let mut p = profile("p1");
+        p.max_retries = Some(5);
+        p.retry_delay = Some(250);
+        let client = LlmClientImpl::new(
+            reqwest::Client::new(),
+            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            p,
+        );
+        assert_eq!(client.max_retries(), 5);
+        assert_eq!(client.retry_delay(1), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn profile_accessor_returns_configured_profile() {
+        let client = LlmClientImpl::new(
+            reqwest::Client::new(),
+            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            profile("p1"),
+        );
+        assert_eq!(client.profile().id, "p1");
+        assert_eq!(client.profile().model, "gpt-4o");
+    }
+}

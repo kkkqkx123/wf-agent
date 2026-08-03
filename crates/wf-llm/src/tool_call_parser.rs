@@ -421,4 +421,185 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].function.name, "search");
     }
+
+    #[test]
+    fn parse_raw_json_handles_fenced_and_single_objects() {
+        let fenced = r#"```json
+{"name": "search", "arguments": "{}"}
+```"#;
+        let calls = parse_raw_json_tool_calls(fenced);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "search");
+
+        let single = parse_raw_json_tool_calls(r#"{"tool": "lookup", "parameters": {"id": 1}}"#);
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].function.name, "lookup");
+
+        let invalid = parse_raw_json_tool_calls("this is not json");
+        assert!(invalid.is_empty());
+    }
+
+    #[test]
+    fn convert_supports_all_three_formats() {
+        // Format 1: { tool, parameters }
+        let f1 = parse_raw_json_tool_calls(r#"{"tool": "a", "parameters": {"x": 1}}"#);
+        assert_eq!(f1[0].function.name, "a");
+
+        // Format 2: { name, arguments: object }
+        let f2 = parse_raw_json_tool_calls(r#"{"name": "b", "arguments": {"y": 2}}"#);
+        assert_eq!(f2[0].function.name, "b");
+        assert!(
+            f2[0].function.arguments.contains("\"y\": 2")
+                || f2[0].function.arguments.contains("\"y\":2")
+        );
+
+        // Format 3: OpenAI native with id + function
+        let f3 = parse_raw_json_tool_calls(
+            r#"[{"id": "call_9", "type": "function", "function": {"name": "c", "arguments": "{\"z\":3}"}}]"#,
+        );
+        assert_eq!(f3[0].function.name, "c");
+        assert_eq!(f3[0].id, "call_9");
+
+        // Unsupported shape -> filtered out
+        let none = parse_raw_json_tool_calls(r#"{"foo": "bar"}"#);
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn parse_from_text_tries_formats_in_order() {
+        let opts = ToolCallParseOptions {
+            preferred_formats: vec![ParseFormat::Xml],
+            markers: None,
+            allow_partial: false,
+        };
+        let xml = parse_from_text(
+            "<tool_use><tool_name>t1</tool_name><parameters><q>1</q></parameters></tool_use>",
+            &opts,
+        );
+        assert_eq!(xml.len(), 1);
+
+        // Json preferred: xml in the text is ignored, json is parsed.
+        let json_opts = ToolCallParseOptions {
+            preferred_formats: vec![ParseFormat::Json],
+            markers: None,
+            allow_partial: false,
+        };
+        let calls = parse_from_text(
+            "<<<TOOL_CALL>>>{\"tool\": \"t2\"}<<<END_TOOL_CALL>>>",
+            &json_opts,
+        );
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "t2");
+
+        // No match and no partial: empty.
+        assert!(parse_from_text("plain text", &json_opts).is_empty());
+        assert!(parse_from_text("", &json_opts).is_empty());
+    }
+
+    #[test]
+    fn parse_partial_handles_incomplete_content() {
+        let opts = ToolCallParseOptions {
+            preferred_formats: vec![ParseFormat::Xml],
+            markers: None,
+            allow_partial: false,
+        };
+        // A complete XML block embedded in still-streaming text is parsed.
+        let xml = parse_partial(
+            "<tool_use><tool_name>t1</tool_name><parameters><q>1</q></parameters></tool_use>more",
+            &opts,
+        );
+        assert_eq!(xml.len(), 1);
+        assert_eq!(xml[0].function.name, "t1");
+
+        // A genuinely truncated XML block (no closing tag) yields nothing.
+        let truncated = parse_partial(
+            "<tool_use><tool_name>t1</tool_name><parameters><q>1</q></parameters>",
+            &opts,
+        );
+        assert!(truncated.is_empty());
+
+        // Wrapped json parses when the end marker is present.
+        let calls = parse_partial(
+            "<<<TOOL_CALL>>>{\"tool\": \"t2\"}<<<END_TOOL_CALL>>>",
+            &opts,
+        );
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "t2");
+
+        // Missing end marker: no call can be extracted.
+        let truncated = parse_partial("<<<TOOL_CALL>>>{\"tool\": \"t2\"}", &opts);
+        assert!(truncated.is_empty());
+
+        // Raw json best effort.
+        let raw = parse_partial(r#"{"name": "t3", "arguments"#, &opts);
+        assert!(raw.is_empty());
+
+        assert!(parse_partial("", &opts).is_empty());
+    }
+
+    #[test]
+    fn has_helpers_detect_format() {
+        assert!(has_xml_tool_calls("<tool_use>..."));
+        assert!(!has_xml_tool_calls("no tags"));
+        assert!(has_json_tool_calls(
+            "<<<TOOL_CALL>>>{}",
+            &ToolCallMarkers::default_json()
+        ));
+        assert!(!has_json_tool_calls(
+            "plain",
+            &ToolCallMarkers::default_json()
+        ));
+        assert!(has_raw_json_tool_calls(r#"{"tool": "x"}"#));
+        assert!(has_raw_json_tool_calls("[1,2]"));
+        assert!(!has_raw_json_tool_calls("text"));
+        assert!(!has_raw_json_tool_calls("  text  "));
+    }
+
+    #[test]
+    fn custom_json_markers_are_respected() {
+        let markers = ToolCallMarkers {
+            start: Some("<<<CALL>>>".to_string()),
+            end: Some("<<<DONE>>>".to_string()),
+        };
+        let calls = parse_json_tool_calls("<<<CALL>>>{\"tool\": \"custom\"}<<<DONE>>>", &markers);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "custom");
+
+        // Default markers do not match custom text.
+        let calls = parse_json_tool_calls(
+            "<<<CALL>>>{\"tool\": \"custom\"}<<<DONE>>>",
+            &ToolCallMarkers::default_json(),
+        );
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn xml_values_are_typed() {
+        let xml = r#"
+<tool_use>
+  <tool_name>search</tool_name>
+  <parameters>
+    <count>3</count>
+    <ratio>0.5</ratio>
+    <flag>true</flag>
+    <nothing>null</nothing>
+    <list><item>a</item><item>2</item></list>
+  </parameters>
+</tool_use>"#;
+        let calls = parse_xml_tool_calls(xml);
+        assert_eq!(calls.len(), 1);
+        let args: serde_json::Value = serde_json::from_str(&calls[0].function.arguments).unwrap();
+        assert_eq!(args["count"], serde_json::json!(3));
+        assert_eq!(args["ratio"], serde_json::json!(0.5));
+        assert_eq!(args["flag"], serde_json::json!(true));
+        assert_eq!(args["nothing"], serde_json::Value::Null);
+        assert_eq!(args["list"], serde_json::json!(["a", 2]));
+    }
+
+    #[test]
+    fn xml_without_parameters_is_skipped() {
+        let calls = parse_xml_tool_calls("<tool_use><tool_name>only</tool_name></tool_use>");
+        assert!(calls.is_empty(), "missing <parameters> block is skipped");
+        assert!(parse_xml_tool_calls("no tool use here").is_empty());
+    }
 }

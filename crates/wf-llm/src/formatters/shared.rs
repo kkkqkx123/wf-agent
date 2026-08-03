@@ -26,10 +26,7 @@ pub fn effective_tool_call_format(request: &LlmRequest) -> ToolCallFormat {
 /// Convert message history to the text-based tool format when the request runs
 /// in text mode (native tool calls / results become XML or JSON blocks in the
 /// message content). Messages are returned unchanged in native mode.
-pub fn convert_history_for_text_mode(
-    messages: &[Message],
-    request: &LlmRequest,
-) -> Vec<Message> {
+pub fn convert_history_for_text_mode(messages: &[Message], request: &LlmRequest) -> Vec<Message> {
     if !is_text_mode(request) {
         return messages.to_vec();
     }
@@ -616,7 +613,10 @@ mod enhancement_tests {
             })),
         );
 
-        assert_eq!(body["response_format"]["type"], serde_json::json!("json_object"));
+        assert_eq!(
+            body["response_format"]["type"],
+            serde_json::json!("json_object")
+        );
         assert_eq!(body["frequency_penalty"], serde_json::json!(0.5));
         assert_eq!(body["temperature"], serde_json::json!(0.2));
         assert_eq!(body["reasoning_effort"], serde_json::json!("high"));

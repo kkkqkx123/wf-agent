@@ -489,4 +489,192 @@ mod tests {
             other => panic!("expected ToolCallDelta, got {:?}", other),
         }
     }
+
+    #[test]
+    fn stream_chunks_cover_text_completion_and_usage() {
+        let formatter = OpenaiResponseFormatter::new();
+
+        match formatter
+            .parse_stream_chunk(r#"{"type":"response.output_text.delta","delta":"Hello "}"#)
+            .expect("text chunk parses")
+        {
+            Some(MessageStreamEvent::Text(t)) => assert_eq!(t.text, "Hello "),
+            other => panic!("expected Text, got {other:?}"),
+        }
+
+        match formatter
+            .parse_stream_chunk(
+                r#"{"type":"response.completed","response":{"status":"completed"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":2},"input_tokens_details":{"cached_tokens":3}}}"#,
+            )
+            .expect("completed chunk parses")
+        {
+            Some(MessageStreamEvent::Usage(u)) => {
+                assert_eq!(u.usage.prompt_tokens, 10);
+                assert_eq!(u.usage.completion_tokens, 5);
+                assert_eq!(u.usage.total_tokens, 15);
+                assert_eq!(u.usage.reasoning_tokens, Some(2));
+                assert_eq!(u.usage.cache_read_tokens, Some(3));
+            }
+            other => panic!("expected Usage, got {other:?}"),
+        }
+
+        match formatter
+            .parse_stream_chunk(r#"{"type":"response.completed"}"#)
+            .expect("completed without usage parses")
+        {
+            Some(MessageStreamEvent::End(_)) => {}
+            other => panic!("expected End, got {other:?}"),
+        }
+
+        assert!(formatter.parse_stream_chunk("").unwrap().is_none());
+        assert!(formatter
+            .parse_stream_chunk(r#"{"type":"unknown"}"#)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn multiple_call_deltas_get_distinct_indices() {
+        let formatter = OpenaiResponseFormatter::new();
+        let chunk = |id: &str| {
+            format!(
+                r#"{{"type":"response.function_call_arguments.delta","item_id":"{id}","delta":"x"}}"#
+            )
+        };
+        let i1 = match formatter
+            .parse_stream_chunk(&chunk("fc_a"))
+            .unwrap()
+            .unwrap()
+        {
+            MessageStreamEvent::ToolCallDelta(d) => d.index,
+            other => panic!("expected ToolCallDelta, got {other:?}"),
+        };
+        let i2 = match formatter
+            .parse_stream_chunk(&chunk("fc_b"))
+            .unwrap()
+            .unwrap()
+        {
+            MessageStreamEvent::ToolCallDelta(d) => d.index,
+            other => panic!("expected ToolCallDelta, got {other:?}"),
+        };
+        assert_ne!(i1, i2);
+        // Repeating the same item_id keeps its index.
+        let again = match formatter
+            .parse_stream_chunk(&chunk("fc_a"))
+            .unwrap()
+            .unwrap()
+        {
+            MessageStreamEvent::ToolCallDelta(d) => d.index,
+            other => panic!("expected ToolCallDelta, got {other:?}"),
+        };
+        assert_eq!(again, i1);
+    }
+
+    #[test]
+    fn parse_response_extracts_text_output_and_usage() {
+        let formatter = OpenaiResponseFormatter::new();
+        let body = r#"{
+            "id": "resp_1",
+            "object": "response",
+            "model": "gpt-4o",
+            "status": "completed",
+            "output": [{
+                "type": "message",
+                "content": [{"type": "output_text", "text": "the answer"}]
+            }],
+            "usage": {
+                "input_tokens": 12,
+                "output_tokens": 8,
+                "total_tokens": 20,
+                "input_tokens_details": {"cached_tokens": 5}
+            }
+        }"#;
+        let result = formatter
+            .parse_response(
+                body,
+                &LlmRequest {
+                    profile_id: "p".to_string(),
+                    messages: Vec::new(),
+                    parameters: None,
+                    tools: None,
+                    tool_call_format: None,
+                    locked_tool_call_format: None,
+                    violation_policy: None,
+                    execution_id: None,
+                    stream: None,
+                    dead_loop_detection: None,
+                    protocol_auto_converted: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(result.content.as_deref(), Some("the answer"));
+        assert_eq!(result.finish_reason.as_deref(), Some("completed"));
+        assert_eq!(result.usage.as_ref().unwrap().total_tokens, 20);
+        assert_eq!(result.usage.as_ref().unwrap().cache_read_tokens, Some(5));
+        assert_eq!(result.model, "gpt-4o");
+    }
+
+    #[test]
+    fn parse_response_extracts_function_calls() {
+        let formatter = OpenaiResponseFormatter::new();
+        let body = r#"{
+            "id": "resp_2",
+            "object": "response",
+            "model": "gpt-4o",
+            "status": "completed",
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": ""}]},
+                {"type": "function_call", "id": "fc_7", "call_id": "call_7", "name": "get_weather", "arguments": "{\"city\":\"Beijing\"}"}
+            ]
+        }"#;
+        let result = formatter
+            .parse_response(
+                body,
+                &LlmRequest {
+                    profile_id: "p".to_string(),
+                    messages: Vec::new(),
+                    parameters: None,
+                    tools: None,
+                    tool_call_format: None,
+                    locked_tool_call_format: None,
+                    violation_policy: None,
+                    execution_id: None,
+                    stream: None,
+                    dead_loop_detection: None,
+                    protocol_auto_converted: None,
+                },
+            )
+            .unwrap();
+        let calls = result.tool_calls.as_ref().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "fc_7");
+        assert_eq!(calls[0].function.arguments, r#"{"city":"Beijing"}"#);
+    }
+
+    #[test]
+    fn parse_response_tolerates_empty_output() {
+        let formatter = OpenaiResponseFormatter::new();
+        let body = r#"{"id":"resp_3","object":"response","model":"gpt-4o","status":"incomplete"}"#;
+        let result = formatter
+            .parse_response(
+                body,
+                &LlmRequest {
+                    profile_id: "p".to_string(),
+                    messages: Vec::new(),
+                    parameters: None,
+                    tools: None,
+                    tool_call_format: None,
+                    locked_tool_call_format: None,
+                    violation_policy: None,
+                    execution_id: None,
+                    stream: None,
+                    dead_loop_detection: None,
+                    protocol_auto_converted: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(result.content, None);
+        assert_eq!(result.tool_calls, None);
+        assert_eq!(result.usage, None);
+    }
 }

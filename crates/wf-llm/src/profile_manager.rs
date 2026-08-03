@@ -29,12 +29,13 @@ impl ProfileManager {
         let is_first = self.profiles.is_empty();
         self.profiles.insert(profile.id.clone(), profile);
         if is_first {
-            *self.default_id.lock().unwrap() = Some(self
-                .profiles
-                .iter()
-                .next()
-                .map(|r| r.key().clone())
-                .unwrap_or_default());
+            *self.default_id.lock().unwrap() = Some(
+                self.profiles
+                    .iter()
+                    .next()
+                    .map(|r| r.key().clone())
+                    .unwrap_or_default(),
+            );
         }
         Ok(())
     }

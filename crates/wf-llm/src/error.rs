@@ -92,3 +92,100 @@ impl LlmError {
 }
 
 pub type LlmResult<T> = Result<T, LlmError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::llm::LlmProvider;
+
+    async fn http_err() -> reqwest::Error {
+        // A real reqwest error from an impossible request (port 1, no HTTP).
+        let client = reqwest::Client::new();
+        let request = client
+            .request(reqwest::Method::GET, "http://127.0.0.1:1")
+            .build()
+            .expect("request must build");
+        client
+            .execute(request)
+            .await
+            .expect_err("connection must be refused")
+    }
+
+    #[test]
+    fn provider_5xx_is_retryable() {
+        assert!(LlmError::ProviderError("HTTP 500 internal".to_string()).is_retryable());
+        assert!(LlmError::ProviderError("HTTP 503 unavailable".to_string()).is_retryable());
+        assert!(LlmError::ProviderError("HTTP 429 too many".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn provider_4xx_is_not_retryable() {
+        assert!(!LlmError::ProviderError("HTTP 400 bad request".to_string()).is_retryable());
+        assert!(!LlmError::ProviderError("HTTP 401 unauthorized".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn provider_error_must_carry_http_prefix() {
+        assert!(!LlmError::ProviderError("500 internal".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn timeout_and_stream_errors_are_retryable() {
+        assert!(LlmError::Timeout(5000).is_retryable());
+        assert!(LlmError::StreamError("stream reset".to_string()).is_retryable());
+    }
+
+    #[test]
+    fn non_retryable_variants() {
+        for err in [
+            LlmError::SerializationError(
+                serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
+            ),
+            LlmError::ConfigError("bad".to_string()),
+            LlmError::ProfileNotFound("p".to_string()),
+            LlmError::UnsupportedProvider(LlmProvider::Custom("x".to_string())),
+            LlmError::FormatterNotFound("x".to_string()),
+            LlmError::AuthError("denied".to_string()),
+            LlmError::ToolNotFound("t".to_string()),
+            LlmError::InvalidResponse("bad body".to_string()),
+            LlmError::ContextLengthExceeded("too long".to_string()),
+            LlmError::Cancelled,
+        ] {
+            assert!(!err.is_retryable(), "must not retry: {err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn http_connect_errors_are_retryable() {
+        let err = LlmError::HttpError(http_err().await);
+        assert!(err.is_retryable(), "connect errors must be retryable");
+    }
+
+    #[test]
+    fn explicit_context_length_exceeded_is_detected() {
+        assert!(LlmError::ContextLengthExceeded("nope".to_string()).is_context_length_exceeded());
+    }
+
+    #[test]
+    fn provider_messages_classify_as_context_length() {
+        for msg in [
+            "Error: context_length_exceeded",
+            "This model's maximum context length is 200000",
+            "context length exceeded while processing the request",
+            "Context length exceeded: the request exceeds the limit",
+        ] {
+            let err = LlmError::ProviderError(msg.to_string());
+            assert!(err.is_context_length_exceeded(), "must classify: {msg}");
+        }
+        let err = LlmError::StreamError("stream failed with context_length_exceeded".to_string());
+        assert!(err.is_context_length_exceeded());
+    }
+
+    #[test]
+    fn unrelated_messages_are_not_context_length() {
+        let err = LlmError::ProviderError("HTTP 429 rate limit".to_string());
+        assert!(!err.is_context_length_exceeded());
+        assert!(!LlmError::Timeout(100).is_context_length_exceeded());
+        assert!(!LlmError::AuthError("denied".to_string()).is_context_length_exceeded());
+    }
+}

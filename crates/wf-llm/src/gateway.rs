@@ -94,8 +94,7 @@ impl LlmGateway {
         let removed = self.profiles.remove(id);
         if removed.is_some() {
             let prefix = format!("{id}::");
-            self.clients
-                .retain(|key, _| !key.starts_with(&prefix));
+            self.clients.retain(|key, _| !key.starts_with(&prefix));
         }
         removed
     }
@@ -584,10 +583,7 @@ mod tests {
             .expect("registration must succeed");
         let gateway = LlmGateway::new_with_formatter_registry(registry);
         gateway
-            .register_profile(profile(
-                "p1",
-                LlmProvider::Custom("probe".to_string()),
-            ))
+            .register_profile(profile("p1", LlmProvider::Custom("probe".to_string())))
             .unwrap();
 
         // The custom formatter fails inside `build_request` before any HTTP;

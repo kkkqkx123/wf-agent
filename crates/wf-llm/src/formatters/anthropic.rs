@@ -814,7 +814,10 @@ mod tests {
     fn count_tokens_includes_system() {
         let formatter = AnthropicFormatter::new();
         let req = request(
-            vec![msg(wf_types::message::MessageRole::System, "You are a helper")],
+            vec![msg(
+                wf_types::message::MessageRole::System,
+                "You are a helper",
+            )],
             None,
         );
         let body = formatter

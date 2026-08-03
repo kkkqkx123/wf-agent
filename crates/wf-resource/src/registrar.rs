@@ -34,35 +34,11 @@ pub static PREDEFINED_FRAGMENT_IDS: &[&str] = &[
 
 pub static PREDEFINED_PROMPT_IDS: &[&str] = &["system.default", "system.code", "system.agent"];
 
-pub static PREDEFINED_TOOL_DESCRIPTION_IDS: &[&str] = &[
-    "read_file",
-    "write_file",
-    "edit_file",
-    "list_dir",
-    "grep_search",
-    "glob_search",
-    "execute_command",
-    "web_search",
-    "web_fetch",
-    "memory_remember",
-    "memory_forget",
-    "memory_list",
-    "apply_patch",
-    "apply_diff",
-    "skill",
-    "use_mcp",
-    "record_note",
-    "recall_notes",
-    "backend_shell",
-    "shell_output",
-    "shell_kill",
-    "ask_followup_question",
-    "attempt_completion",
-    "execute_workflow",
-    "query_workflow_status",
-    "cancel_workflow",
-    "call_agent",
-];
+/// Ids of all predefined tool descriptions, derived from the single-source
+/// tool definitions in wf-tools.
+pub fn predefined_tool_description_ids() -> Vec<&'static str> {
+    wf_tools::predefined::all_tool_ids()
+}
 
 #[derive(Debug, Clone)]
 pub struct StarterActivation {
@@ -211,7 +187,7 @@ pub fn are_prompt_templates_registered(regs: &Registries) -> bool {
 }
 
 pub fn are_predefined_tool_descriptions_registered(regs: &Registries) -> bool {
-    PREDEFINED_TOOL_DESCRIPTION_IDS
+    predefined_tool_description_ids()
         .iter()
         .all(|id| regs.tool_descriptions.has(id))
 }
@@ -229,9 +205,9 @@ pub fn unregister_predefined_content(regs: &Registries) -> Summary {
             total.merge(Summary::ok(*id));
         }
     }
-    for id in PREDEFINED_TOOL_DESCRIPTION_IDS {
+    for id in predefined_tool_description_ids() {
         if regs.tool_descriptions.unregister(id).is_some() {
-            total.merge(Summary::ok(*id));
+            total.merge(Summary::ok(id));
         }
     }
 

@@ -65,8 +65,8 @@ impl BuiltinExecutor {
         match tool_name {
             "call_agent" => self.handle_call_agent(parameters, context).await,
             "execute_workflow" => self.handle_execute_workflow(parameters, context).await,
-            "query_execution_status" => self.handle_query_status(parameters, context).await,
-            "cancel_execution" => self.handle_cancel_execution(parameters, context).await,
+            "query_workflow_status" => self.handle_query_status(parameters, context).await,
+            "cancel_workflow" => self.handle_cancel_execution(parameters, context).await,
             "skill" => self.handle_skill(parameters),
             _ => Err(ToolError::NotFound(format!(
                 "Unknown builtin tool: {}",
@@ -133,18 +133,20 @@ impl BuiltinExecutor {
             .to_string();
 
         let message = parameters
-            .get("message")
+            .get("prompt")
+            .or_else(|| parameters.get("message"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
 
         let profile_id = parameters
-            .get("profile_id")
+            .get("agent_profile_id")
+            .or_else(|| parameters.get("profile_id"))
             .or_else(|| parameters.get("model"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .ok_or_else(|| {
-                ToolError::ExecutionError("call_agent requires a profile_id parameter".to_string())
+                ToolError::ExecutionError("call_agent requires a agent_profile_id parameter".into())
             })?
             .to_string();
 
@@ -218,7 +220,8 @@ impl BuiltinExecutor {
             .to_string();
 
         let variables = parameters
-            .get("variables")
+            .get("input")
+            .or_else(|| parameters.get("variables"))
             .and_then(|v| v.as_object())
             .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
@@ -238,10 +241,11 @@ impl BuiltinExecutor {
         parameters: &Value,
         _context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = self.get_callback("query_execution_status")?;
+        let callback = self.get_callback("query_workflow_status")?;
 
         let execution_id = parameters
             .get("execution_id")
+            .or_else(|| parameters.get("workflow_id"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
@@ -260,10 +264,11 @@ impl BuiltinExecutor {
         parameters: &Value,
         _context: &ToolExecutionContext,
     ) -> ToolResult<Value> {
-        let callback = self.get_callback("cancel_execution")?;
+        let callback = self.get_callback("cancel_workflow")?;
 
         let execution_id = parameters
             .get("execution_id")
+            .or_else(|| parameters.get("workflow_id"))
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();

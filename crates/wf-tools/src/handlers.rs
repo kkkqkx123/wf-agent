@@ -1,30 +1,34 @@
 use crate::error::ToolResult;
 use crate::filesystem::{FsToolConfig, FsToolHandlers};
+use crate::predefined;
 use crate::protect::ProtectController;
 use crate::registry::ToolRegistry;
-use crate::shell::{execute_command_handler, ShellToolConfig};
+use crate::shell::ShellToolConfig;
 
 /// Configuration for registering builtin tool handlers.
 #[derive(Debug, Clone, Default)]
 pub struct BuiltinHandlersConfig {
     pub fs: FsToolConfig,
     pub shell: ShellToolConfig,
+    pub web: predefined::web::WebToolConfig,
     pub protect: Option<ProtectController>,
 }
 
-/// Create a ToolRegistry pre-wired with the builtin filesystem and shell
-/// handlers (read_file/write_file/edit_file/list_files/grep_search/
-/// glob_search/execute_command).
+/// Create a ToolRegistry pre-wired with all builtin tool handlers
+/// (filesystem, shell, memory, web, utility and background shell tools).
 pub fn create_default_tool_registry() -> ToolRegistry {
     let registry = ToolRegistry::new();
     let _ = register_builtin_handlers(&registry, BuiltinHandlersConfig::default());
     registry
 }
 
-/// Register execution handlers for the builtin filesystem and shell tools:
-/// read_file, write_file, edit_file, list_files, grep_search, glob_search,
-/// execute_command. The tool definitions are registered by wf-resource;
-/// this wires the actual execution logic into the tool registry.
+/// Register execution handlers for all builtin tools: filesystem
+/// (read_file/write_file/edit_file/apply_patch/apply_diff/list_files/
+/// grep_search/glob_search), shell (execute_command + background shell
+/// sessions), memory (session notes + long-term memory), utility
+/// (update_todo_list) and web (web_search/web_fetch). The tool definitions
+/// are registered by wf-resource; this wires the actual execution logic into
+/// the tool registry.
 pub fn register_builtin_handlers(
     registry: &ToolRegistry,
     config: BuiltinHandlersConfig,
@@ -34,21 +38,12 @@ pub fn register_builtin_handlers(
         Some(protect) => handlers.with_protect(protect),
         None => handlers,
     };
+    predefined::filesystem::register_handlers(registry, &handlers)?;
 
-    for tool_name in [
-        "read_file",
-        "write_file",
-        "edit_file",
-        "list_files",
-        "grep_search",
-        "glob_search",
-    ] {
-        let handler = handlers.handler(tool_name)?;
-        registry.register_stateless_handler(tool_name, handler);
-    }
-
-    let shell_handler = execute_command_handler(config.shell);
-    registry.register_stateless_async_handler("execute_command", shell_handler);
+    predefined::shell::register(registry, &config.shell)?;
+    predefined::memory::register(registry)?;
+    predefined::utility::register(registry)?;
+    predefined::web::register(registry, &config.web)?;
 
     Ok(())
 }
@@ -150,5 +145,45 @@ mod tests {
             .await
             .unwrap();
         assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn test_register_and_execute_apply_patch() {
+        let root = std::env::temp_dir().join(format!("wf-handlers-patch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let registry = ToolRegistry::new();
+        let config = BuiltinHandlersConfig {
+            fs: FsToolConfig {
+                workspace_dir: Some(root.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        register_builtin_handlers(&registry, config).unwrap();
+        registry.register_tool(predefined::filesystem::APPLY_PATCH.tool_def());
+
+        let ctx = crate::executor::trait_def::ToolExecutionContext::new("exec-1".into());
+        let options = wf_types::tool::ToolExecutionOptions {
+            timeout: None,
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+
+        let patch = "*** Begin Patch\n*** Add File: new.txt\n+hello patch\n*** Update File: new.txt\n@@\n+more\n*** End Patch";
+        let result = registry
+            .execute_tool("apply_patch", &serde_json::json!({ "patch": patch }), &options, &ctx)
+            .await
+            .unwrap();
+        assert!(result.success, "patch failed: {:?}", result.error);
+        assert!(root.join("new.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join("new.txt")).unwrap(),
+            "hello patch\nmore\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -121,6 +121,9 @@ pub struct WorkflowRunner {
     contexts: Arc<ExecutionContextRegistry>,
     /// Optional skill loader injected into builtin tool executors.
     skill_loader: Option<Arc<wf_tools::SkillLoader>>,
+    /// Shared tool registry (builtin handlers + skills + MCP tools). When
+    /// absent, a fresh registry is created per run.
+    tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
 }
 
 impl WorkflowRunner {
@@ -146,6 +149,26 @@ impl WorkflowRunner {
             handlers: wf_workflow::create_default_handlers(gateway),
             contexts,
             skill_loader,
+            tool_registry: None,
+        }
+    }
+
+    /// Like [`WorkflowRunner::with_skill_loader`], but uses a caller-provided
+    /// shared tool registry (skills and MCP tools pre-wired) for every run.
+    pub fn with_tool_registry(
+        registries: Arc<Registries>,
+        event_bus: Arc<EventBus>,
+        gateway: Arc<LlmGateway>,
+        contexts: Arc<ExecutionContextRegistry>,
+        tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+    ) -> Self {
+        Self {
+            registries,
+            event_bus,
+            handlers: wf_workflow::create_default_handlers(gateway),
+            contexts,
+            skill_loader: None,
+            tool_registry,
         }
     }
 }
@@ -188,10 +211,16 @@ impl SubworkflowRunner for WorkflowRunner {
             fallback_output: None,
         };
 
-        let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
-        if let Some(loader) = &self.skill_loader {
-            tool_registry.set_skill_loader(loader.clone());
-        }
+        let tool_registry = match &self.tool_registry {
+            Some(shared) => shared.clone(),
+            None => {
+                let fresh = Arc::new(wf_tools::create_default_tool_registry());
+                if let Some(loader) = &self.skill_loader {
+                    fresh.set_skill_loader(loader.clone());
+                }
+                fresh
+            }
+        };
 
         let exec_ctx = ExecutorContext::new(
             wf_common::generate_id(),
@@ -252,15 +281,44 @@ pub fn start_trigger_listener_with_skills(
     contexts: Arc<ExecutionContextRegistry>,
     skill_loader: Option<Arc<wf_tools::SkillLoader>>,
 ) -> TriggerListenerHandle {
-    let registry: Arc<dyn TriggerTemplateRegistry> =
-        Arc::new(ResourceTriggerRegistry::new(registries.clone()));
     let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_skill_loader(
-        registries,
+        registries.clone(),
         event_bus.clone(),
         gateway,
         contexts.clone(),
         skill_loader,
     ));
+    spawn_listener(event_bus, registries, contexts, runner)
+}
+
+/// Like `start_trigger_listener`, but uses a caller-provided shared tool
+/// registry (builtin handlers + skills + MCP tools) for every triggered
+/// sub-workflow run.
+pub fn start_trigger_listener_with_registry(
+    event_bus: Arc<EventBus>,
+    registries: Arc<Registries>,
+    gateway: Arc<LlmGateway>,
+    contexts: Arc<ExecutionContextRegistry>,
+    tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+) -> TriggerListenerHandle {
+    let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
+        registries.clone(),
+        event_bus.clone(),
+        gateway,
+        contexts.clone(),
+        tool_registry,
+    ));
+    spawn_listener(event_bus, registries, contexts, runner)
+}
+
+fn spawn_listener(
+    event_bus: Arc<EventBus>,
+    registries: Arc<Registries>,
+    contexts: Arc<ExecutionContextRegistry>,
+    runner: Arc<dyn SubworkflowRunner>,
+) -> TriggerListenerHandle {
+    let registry: Arc<dyn TriggerTemplateRegistry> =
+        Arc::new(ResourceTriggerRegistry::new(registries));
     let shutdown = CancellationToken::new();
     let listener = Arc::new(TriggerEventListener::new(
         event_bus,

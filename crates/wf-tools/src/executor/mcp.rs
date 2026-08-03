@@ -30,16 +30,14 @@ impl McpExecutor {
     }
 
     pub fn from_tool_config(tool: &wf_types::tool::Tool) -> ToolResult<Self> {
-        let config = tool.config.as_ref().ok_or_else(|| {
-            ToolError::ValidationFailed("MCP tool requires config with server_name".into())
-        })?;
-
-        let server_name = config
-            .get("server_name")
+        // The server_name may be absent for the generic `use_mcp` tool: it
+        // is then resolved from the call parameters at execution time.
+        let server_name = tool
+            .config
+            .as_ref()
+            .and_then(|config| config.get("server_name"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ToolError::ValidationFailed("MCP tool config missing 'server_name'".into())
-            })?;
+            .unwrap_or_default();
 
         Ok(Self::new(server_name))
     }

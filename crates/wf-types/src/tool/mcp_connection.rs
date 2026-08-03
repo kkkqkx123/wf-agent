@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -16,11 +17,22 @@ pub enum McpTransportType {
     StreamableHttp,
 }
 
+/// Connection lifecycle mode, mirroring the TS manager's lazy/eager/keep-alive.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum McpServerLifecycle {
+    #[default]
+    Lazy,
+    Eager,
+    KeepAlive,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum McpServerConfig {
     Stdio(McpStdioConfig),
     Sse(McpSseConfig),
+    #[serde(rename = "streamable-http")]
     StreamableHttp(McpStreamableHttpConfig),
 }
 
@@ -28,12 +40,22 @@ pub enum McpServerConfig {
 pub struct McpServerConfigBase {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
+    /// Per-call timeout in seconds (TS schema default: 60).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_allow: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_tools: Option<Vec<String>>,
+    /// Connection lifecycle mode; absent means manager default (lazy).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<McpServerLifecycle>,
+    /// Idle disconnect timeout in seconds (0 = never).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idle_timeout: Option<u64>,
+    /// Health check interval in seconds (keep-alive servers only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_check_interval: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -101,4 +123,11 @@ pub struct McpResourceContent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct McpResourceReadResult {
     pub contents: Vec<McpResourceContent>,
+}
+
+/// Top-level MCP settings object, matching the TS `mcp-settings.json` format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct McpSettings {
+    #[serde(rename = "mcpServers", alias = "mcp_servers", default)]
+    pub mcp_servers: HashMap<String, McpServerConfig>,
 }

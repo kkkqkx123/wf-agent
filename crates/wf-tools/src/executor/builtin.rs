@@ -115,7 +115,17 @@ impl BuiltinExecutor {
             )));
         }
 
-        let content = loader.load_content(skill_name)?;
+        // Optional template variables from the `args` parameter.
+        let variables: Option<std::collections::HashMap<String, Value>> = parameters
+            .get("args")
+            .and_then(|v| v.as_object())
+            .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+
+        let context = crate::skill::SkillLoadContext {
+            variables,
+            tools: None,
+        };
+        let content = loader.load_skill_content(skill_name, Some(&context))?;
         Ok(Value::String(content))
     }
 

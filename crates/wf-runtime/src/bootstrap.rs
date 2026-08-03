@@ -18,11 +18,24 @@ use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::{StorageConfig, StorageManager};
-use crate::trigger_listener::{start_trigger_listener_with_skills, ExecutionContextRegistry};
+use crate::trigger_listener::{
+    start_trigger_listener_with_registry, ExecutionContextRegistry,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
     pub options: ResourceOptions,
+}
+
+/// MCP settings sources used at bootstrap. When both are provided, settings
+/// are merged with the TS-compatible priority chain:
+/// `.wf/mcp.json` > `.agent/mcp.json` > global `mcp-settings.json`.
+#[derive(Debug, Clone, Default)]
+pub struct McpRuntimeConfig {
+    /// Global settings directory (contains `mcp-settings.json`).
+    pub settings_dir: Option<std::path::PathBuf>,
+    /// Project root (contains `.wf/mcp.json` / `.agent/mcp.json`).
+    pub project_root: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -37,6 +50,7 @@ pub struct RuntimeConfig {
     pub mode_override: Option<super::mode::ExecutionMode>,
     pub resource: ResourceConfig,
     pub skills: wf_types::skill::SkillConfig,
+    pub mcp: McpRuntimeConfig,
     pub metrics: Option<MetricsConfig>,
     pub llm: LlmConfig,
     #[cfg(feature = "plugins")]
@@ -72,6 +86,11 @@ pub struct Runtime {
     pub registries: Arc<Registries>,
     pub bundles: Arc<BundleRegistry>,
     pub skill_loader: Arc<wf_tools::SkillLoader>,
+    /// Shared tool registry (builtin handlers + skill loader + MCP tools);
+    /// injected into every execution through the trigger listener.
+    pub tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+    /// Shared MCP connection manager; `None` when MCP is not configured.
+    pub mcp_manager: Option<Arc<wf_tools::mcp::connection::McpConnectionManager>>,
     pub event_bus: Arc<EventBus>,
     pub metrics: Option<Arc<MetricsContext>>,
     pub llm_gateway: Arc<LlmGateway>,
@@ -105,6 +124,35 @@ impl Runtime {
         let skill_count = skill_loader.list_skills().len();
         if skill_count > 0 {
             info!("Skill registry initialized: {} skills", skill_count);
+        }
+
+        // MCP: load merged settings (global + project), register servers and
+        // connect eager/keep-alive ones. Lazy servers connect on first use.
+        let mcp_manager = init_mcp(&config.mcp).await;
+        if let Some(manager) = &mcp_manager {
+            info!(
+                "MCP manager initialized: {} servers registered",
+                manager.registry().list().len()
+            );
+        }
+
+        // Shared tool registry: builtin handlers + skill loader + MCP tools.
+        let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
+        tool_registry.set_skill_loader(skill_loader.clone());
+        if let Some(manager) = &mcp_manager {
+            tool_registry.set_mcp_manager(manager.clone());
+            let registry = tool_registry.clone();
+            let manager_clone = manager.clone();
+            manager.set_on_connected(Arc::new(move |_server| {
+                wf_tools::mcp::registration::register_connected_tools(
+                    &registry,
+                    &manager_clone,
+                );
+            }));
+            wf_tools::mcp::registration::register_use_mcp(&tool_registry).map_err(|e| {
+                crate::error::RuntimeError::Config(format!("Failed to register use_mcp: {}", e))
+            })?;
+            wf_tools::mcp::registration::register_connected_tools(&tool_registry, manager);
         }
 
         let resource_result =
@@ -152,12 +200,12 @@ impl Runtime {
         // Event-driven trigger listener: powers the context-compression chain
         // (CONTEXT_COMPRESSION_REQUESTED -> llm_summary_workflow -> write-back).
         let execution_contexts = Arc::new(ExecutionContextRegistry::new());
-        let listener = start_trigger_listener_with_skills(
+        let listener = start_trigger_listener_with_registry(
             event_bus.clone(),
             registries.clone(),
             llm_gateway.clone(),
             execution_contexts.clone(),
-            Some(skill_loader.clone()),
+            Some(tool_registry.clone()),
         );
 
         info!("Runtime bootstrap complete");
@@ -170,6 +218,8 @@ impl Runtime {
             registries,
             bundles,
             skill_loader,
+            tool_registry,
+            mcp_manager,
             event_bus,
             metrics,
             llm_gateway,
@@ -195,6 +245,16 @@ impl Runtime {
         &self.skill_loader
     }
 
+    /// Shared tool registry; injected into executions started by this runtime.
+    pub fn tool_registry(&self) -> &Arc<wf_tools::registry::ToolRegistry> {
+        &self.tool_registry
+    }
+
+    /// Shared MCP connection manager, when MCP settings were configured.
+    pub fn mcp_manager(&self) -> Option<&Arc<wf_tools::mcp::connection::McpConnectionManager>> {
+        self.mcp_manager.as_ref()
+    }
+
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
         if let Some(metrics) = self.metrics.take() {
             metrics.shutdown().await;
@@ -206,6 +266,14 @@ impl Runtime {
             }
             let _ = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
             info!("Trigger listener stopped");
+        }
+
+        if let Some(manager) = self.mcp_manager.take() {
+            let servers = manager.connected_servers();
+            for server in servers {
+                let _ = manager.disconnect(&server).await;
+            }
+            info!("MCP connections closed");
         }
 
         #[cfg(feature = "plugins")]
@@ -257,8 +325,7 @@ impl Runtime {
 fn init_llm_gateway(
     config: &LlmConfig,
     metrics: Option<&wf_metrics::MetricsRegistry>,
-) -> RuntimeResult<Arc<LlmGateway>> {
-    let mut gateway = LlmGateway::new();
+) -> RuntimeResult<Arc<LlmGateway>> {    let mut gateway = LlmGateway::new();
 
     for profile in &config.profiles {
         validate_llm_profile(profile).map_err(|e| {
@@ -278,6 +345,34 @@ fn init_llm_gateway(
     }
 
     Ok(Arc::new(gateway))
+}
+
+/// Build the MCP connection manager from merged settings. Returns `None`
+/// when MCP is not configured (no settings sources or no servers). Servers
+/// are registered with their configured lifecycle; eager/keep-alive servers
+/// are connected immediately (failure is logged, not fatal).
+async fn init_mcp(config: &McpRuntimeConfig) -> Option<Arc<wf_tools::mcp::connection::McpConnectionManager>> {
+    use wf_tools::mcp::connection::{McpConnectionManager, McpServerRegistry};
+
+    let (Some(settings_dir), Some(project_root)) = (&config.settings_dir, &config.project_root)
+    else {
+        return None;
+    };
+
+    let settings = wf_config::mcp::load_and_merge_mcp_settings(settings_dir, project_root)
+        .unwrap_or_default();
+    if settings.mcp_servers.is_empty() {
+        return None;
+    }
+
+    let registry = Arc::new(McpServerRegistry::new());
+    let manager = Arc::new(McpConnectionManager::new(registry));
+    for (name, server_config) in &settings.mcp_servers {
+        if let Err(e) = manager.connect_server(name, server_config.clone()).await {
+            tracing::warn!("MCP server '{}' failed to connect: {}", name, e);
+        }
+    }
+    Some(manager)
 }
 
 #[cfg(feature = "plugins")]
@@ -360,6 +455,7 @@ mod tests {
             metrics: None,
             llm: LlmConfig::default(),
             skills: Default::default(),
+            mcp: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -500,6 +596,7 @@ mod tests {
             metrics: None,
             llm: LlmConfig::default(),
             skills: Default::default(),
+            mcp: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -542,6 +639,7 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             skills: Default::default(),
+            mcp: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
                     flush_interval: Some(100),
@@ -599,6 +697,7 @@ mod tests {
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
             skills: Default::default(),
+            mcp: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 enabled: Some(false),
                 ..Default::default()
@@ -647,6 +746,56 @@ mod tests {
         let adjusted = adjust_log_config(config, &mode);
 
         assert_eq!(adjusted.level, "off");
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_registers_mcp_manager_and_use_mcp() {
+        clear_env_vars();
+
+        let root = std::env::temp_dir().join(format!("wf-runtime-mcp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        // A lazy server: registered but not connected, so no process spawn.
+        std::fs::write(
+            root.join("mcp-settings.json"),
+            r#"{"mcpServers": {"echo-srv": {"type": "stdio", "command": "echo", "timeout": 5}}}"#,
+        )
+        .unwrap();
+
+        let config = RuntimeConfig {
+            storage: StorageConfig {
+                backend_type: StorageBackendType::Memory,
+                ..Default::default()
+            },
+            log_config: LogConfig::default().with_level("off"),
+            mode_override: Some(ExecutionMode::Test),
+            resource: ResourceConfig::default(),
+            skills: Default::default(),
+            mcp: McpRuntimeConfig {
+                settings_dir: Some(root.clone()),
+                project_root: Some(root.clone()),
+            },
+            metrics: None,
+            llm: LlmConfig::default(),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+
+        let manager = runtime.mcp_manager().expect("MCP manager initialized");
+        assert_eq!(manager.registry().list().len(), 1);
+        assert!(manager.connected_servers().is_empty(), "lazy server not connected");
+
+        // use_mcp is registered into the shared tool registry.
+        assert!(runtime.tool_registry().get_tool("use_mcp").is_some());
+
+        runtime.shutdown().await.unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        clear_env_vars();
     }
 
     #[test]

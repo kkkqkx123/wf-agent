@@ -2,6 +2,7 @@ pub mod env;
 pub mod error;
 pub mod index;
 pub mod loader;
+pub mod mcp;
 pub mod parser;
 pub mod processor;
 pub mod validator;

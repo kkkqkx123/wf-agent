@@ -156,6 +156,32 @@ impl NodeHandler for AgentLoopHandler {
             ctx.input.to_string()
         };
 
+        // Progressive disclosure: when the agent has the `skill` tool and
+        // the runtime skill loader is available, inject enabled-skill
+        // metadata into the system prompt so the model knows what skills
+        // exist without loading any content (mirrors the TS behavior).
+        let system_prompt = system_prompt.as_ref().map(|sp| {
+            let has_skill_tool = tool_names.iter().any(|name| name == "skill");
+            if !has_skill_tool {
+                return sp.clone();
+            }
+            match ctx
+                .tool_registry
+                .as_ref()
+                .and_then(|registry| registry.skill_loader())
+            {
+                Some(loader) => {
+                    let enabled = loader.get_enabled_skills();
+                    if enabled.is_empty() {
+                        sp.clone()
+                    } else {
+                        wf_tools::skill::inject_skill_metadata(sp, &enabled)
+                    }
+                }
+                None => sp.clone(),
+            }
+        });
+
         let message = if let Some(ref sp) = system_prompt {
             format!("{}\n\n{}", sp, text)
         } else {

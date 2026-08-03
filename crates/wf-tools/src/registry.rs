@@ -8,6 +8,7 @@ use crate::executor::{
     BuiltinExecutor, InstanceFactory, McpExecutor, RestExecutor, StatefulExecutor,
     StatelessAsyncHandler, StatelessExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
 };
+use crate::mcp::connection::McpConnectionManager;
 use wf_types::tool::ToolType;
 use wf_types::Id;
 
@@ -29,6 +30,7 @@ pub struct ToolRegistry {
     stateful_factories: Arc<DashMap<String, InstanceFactory>>,
     builtin_callback: Arc<std::sync::Mutex<Option<Arc<dyn ExecutionCallback>>>>,
     skill_loader: Arc<std::sync::Mutex<Option<Arc<crate::skill::SkillLoader>>>>,
+    mcp_manager: Arc<std::sync::Mutex<Option<Arc<McpConnectionManager>>>>,
 }
 
 impl ToolRegistry {
@@ -44,6 +46,8 @@ impl ToolRegistry {
             Arc::new(std::sync::Mutex::new(None));
         let skill_loader: Arc<std::sync::Mutex<Option<Arc<crate::skill::SkillLoader>>>> =
             Arc::new(std::sync::Mutex::new(None));
+        let mcp_manager: Arc<std::sync::Mutex<Option<Arc<McpConnectionManager>>>> =
+            Arc::new(std::sync::Mutex::new(None));
         let registry = Self {
             executors: DashMap::new(),
             tools: DashMap::new(),
@@ -52,6 +56,7 @@ impl ToolRegistry {
             stateful_factories,
             builtin_callback,
             skill_loader,
+            mcp_manager,
         };
         registry.register_defaults_shared(sl_handlers, sl_async_handlers, sf_factories);
         registry
@@ -99,6 +104,17 @@ impl ToolRegistry {
         self.skill_loader.lock().unwrap().clone()
     }
 
+    /// Inject the shared MCP connection manager into the Mcp executor
+    /// factory. All MCP tools executed through this registry then share the
+    /// manager's server connections.
+    pub fn set_mcp_manager(&self, manager: Arc<McpConnectionManager>) {
+        *self.mcp_manager.lock().unwrap() = Some(manager);
+    }
+
+    pub fn mcp_manager(&self) -> Option<Arc<McpConnectionManager>> {
+        self.mcp_manager.lock().unwrap().clone()
+    }
+
     fn register_defaults_shared(
         &self,
         sl_handlers: Arc<DashMap<String, StatelessHandler>>,
@@ -137,10 +153,14 @@ impl ToolRegistry {
                 ))
             }),
         );
+        let mcp_manager = self.mcp_manager.clone();
         self.register_executor(
             ToolType::Mcp,
-            Arc::new(|tool| {
-                let executor = McpExecutor::from_tool_config(tool)?;
+            Arc::new(move |tool| {
+                let mut executor = McpExecutor::from_tool_config(tool)?;
+                if let Some(manager) = mcp_manager.lock().unwrap().clone() {
+                    executor = executor.with_connection_manager((*manager).clone());
+                }
                 Ok(Arc::new(executor))
             }),
         );

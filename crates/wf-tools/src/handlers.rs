@@ -45,6 +45,10 @@ pub fn register_builtin_handlers(
     predefined::utility::register(registry)?;
     predefined::web::register(registry, &config.web)?;
 
+    // The `skill` builtin tool is always available; content loading is
+    // served by the skill loader injected via ToolRegistry::set_skill_loader.
+    registry.register_tool(predefined::knowledge::SKILL.tool_def());
+
     Ok(())
 }
 

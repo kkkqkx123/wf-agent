@@ -1,34 +1,52 @@
-use std::future::Future;
-
 use crate::error::CheckpointError;
 
+#[async_trait::async_trait]
 pub trait DiffCalculator<SS, DS>: Send + Sync
 where
     SS: Send + Sync,
     DS: Send + Sync,
 {
-    fn calculate_diff(
+    async fn calculate_diff(
         &self,
         previous: &SS,
         current: &SS,
-    ) -> impl Future<Output = Result<DS, CheckpointError>> + Send;
-    fn apply_delta(
+    ) -> Result<DS, CheckpointError>;
+    async fn apply_delta(
         &self,
         base: &SS,
         delta: &DS,
-    ) -> impl Future<Output = Result<SS, CheckpointError>> + Send;
+    ) -> Result<SS, CheckpointError>;
+
+    /// Merge two consecutive deltas into a single one equivalent to applying
+    /// `first` then `second` on top of `base`.
+    ///
+    /// The default implementation is correct by construction: it applies both
+    /// deltas in sequence and re-diffs against the base. Implementors may
+    /// override with a cheaper field-level merge if their delta format allows
+    /// it.
+    async fn merge_deltas(
+        &self,
+        base: &SS,
+        first: &DS,
+        second: &DS,
+    ) -> Result<DS, CheckpointError> {
+        let intermediate = self.apply_delta(base, first).await?;
+        let current = self.apply_delta(&intermediate, second).await?;
+        self.calculate_diff(base, &current).await
+    }
 }
 
+#[async_trait::async_trait]
 pub trait DeltaRestorer<SS, DS>: Send + Sync
 where
     SS: Send + Sync,
     DS: Send + Sync,
 {
-    fn restore_full_state(
+    async fn restore_full_state(
         &self,
         target_checkpoint_id: &str,
         loader: &dyn CheckpointLoader,
-    ) -> impl Future<Output = Result<SS, CheckpointError>> + Send;
+    ) -> Result<SS, CheckpointError>;
 }
 
 #[async_trait::async_trait]

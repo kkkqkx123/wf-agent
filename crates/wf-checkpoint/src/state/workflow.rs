@@ -1,3 +1,4 @@
+use crate::delta::CheckpointLoader;
 use crate::error::CheckpointError;
 use crate::state::storage::StorageBackedStateManager;
 use crate::state::CheckpointStateManager;
@@ -39,6 +40,13 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
         self.inner.load(id).await
     }
 
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<Self::Checkpoint>, CheckpointError> {
+        self.inner.load_batch(ids).await
+    }
+
     async fn delete(&self, id: &str) -> Result<bool, CheckpointError> {
         self.inner.delete(id).await
     }
@@ -63,6 +71,23 @@ impl CheckpointStateManager for WorkflowCheckpointStateManager {
         max_count: Option<u32>,
     ) -> Result<u64, CheckpointError> {
         self.inner.cleanup(entity_id, max_count).await
+    }
+}
+
+#[async_trait::async_trait]
+impl CheckpointLoader for WorkflowCheckpointStateManager {
+    async fn load_checkpoint_data(
+        &self,
+        id: &str,
+    ) -> Result<Option<Vec<u8>>, CheckpointError> {
+        self.inner.load_checkpoint_data(id).await
+    }
+
+    async fn load_metadata(
+        &self,
+        id: &str,
+    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+        self.inner.load_metadata(id).await
     }
 }
 

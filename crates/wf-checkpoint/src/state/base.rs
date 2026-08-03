@@ -14,6 +14,10 @@ pub trait CheckpointStateManager: Send + Sync {
         &self,
         id: &str,
     ) -> impl std::future::Future<Output = Result<Option<Self::Checkpoint>, CheckpointError>> + Send;
+    fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> impl std::future::Future<Output = Result<Vec<Self::Checkpoint>, CheckpointError>> + Send;
     fn delete(
         &self,
         id: &str,

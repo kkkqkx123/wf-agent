@@ -103,6 +103,16 @@ pub struct DeltaStorageConfig {
     pub max_delta_chain_length: u32,
 }
 
+impl Default for DeltaStorageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            baseline_interval: 10,
+            max_delta_chain_length: 20,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CheckpointTrigger {

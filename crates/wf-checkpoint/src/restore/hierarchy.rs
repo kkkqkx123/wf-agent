@@ -339,6 +339,13 @@ mod tests {
                     checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
                     timestamp: 0,
                     status: wf_types::checkpoint::CheckpointStatus::Completed,
+                    previous_checkpoint_id: None,
+                    base_checkpoint_id: None,
+                    chain_root_id: None,
+                    chain_position: None,
+                    blob_size: None,
+                    tags: None,
+                    custom_fields: None,
                 }))
             }
         }
@@ -389,6 +396,13 @@ mod tests {
                     checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
                     timestamp: 0,
                     status: wf_types::checkpoint::CheckpointStatus::Completed,
+                    previous_checkpoint_id: None,
+                    base_checkpoint_id: None,
+                    chain_root_id: None,
+                    chain_position: None,
+                    blob_size: None,
+                    tags: None,
+                    custom_fields: None,
                 }))
             }
         }

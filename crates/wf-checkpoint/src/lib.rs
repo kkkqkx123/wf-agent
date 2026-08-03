@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod cache;
+pub mod checkpoint_graph;
 pub mod cleanup;
 pub mod config_resolver;
 pub mod content;

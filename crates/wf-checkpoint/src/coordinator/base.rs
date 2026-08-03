@@ -29,6 +29,11 @@ pub trait CheckpointCoordinator: Send + Sync {
         checkpoint_id: &str,
     ) -> impl std::future::Future<Output = Result<Self::Entity, CheckpointError>> + Send;
 
+    fn delete(
+        &self,
+        checkpoint_id: &str,
+    ) -> impl std::future::Future<Output = Result<bool, CheckpointError>> + Send;
+
     fn determine_type(
         &self,
         entity_id: &str,

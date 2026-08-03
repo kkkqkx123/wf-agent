@@ -1,11 +1,15 @@
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::AgentDiffCalculator;
+use crate::delta::DeltaRestorer;
 use crate::delta::DiffCalculator;
+use crate::delta::GenericDeltaRestorer;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::state::AgentCheckpoint;
 use crate::state::AgentCheckpointStateManager;
 use crate::state::CheckpointStateManager;
+use std::collections::HashSet;
+use std::sync::Arc;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -13,24 +17,32 @@ use wf_types::checkpoint::CheckpointContext;
 use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
+use wf_types::storage::CheckpointStorageMetadata;
 
 pub struct AgentCheckpointCoordinator {
     state_manager: AgentCheckpointStateManager,
-    diff_calculator: AgentDiffCalculator,
+    diff_calculator: Arc<dyn DiffCalculator<AgentStateSnapshot, AgentCheckpointDelta>>,
     event_bus: Option<CheckpointEventBus>,
+    delta_config: DeltaStorageConfig,
 }
 
 impl AgentCheckpointCoordinator {
     pub fn new(state_manager: AgentCheckpointStateManager) -> Self {
         Self {
             state_manager,
-            diff_calculator: AgentDiffCalculator::new(),
+            diff_calculator: Arc::new(AgentDiffCalculator::new()),
             event_bus: None,
+            delta_config: DeltaStorageConfig::default(),
         }
     }
 
     pub fn with_event_bus(mut self, bus: CheckpointEventBus) -> Self {
         self.event_bus = Some(bus);
+        self
+    }
+
+    pub fn with_delta_config(mut self, config: DeltaStorageConfig) -> Self {
+        self.delta_config = config;
         self
     }
 
@@ -65,11 +77,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         ctx: CheckpointContext,
         state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError> {
-        let checkpoint_type = if self.should_build_delta(&ctx.entity_id).await? {
-            CheckpointType::Delta
-        } else {
-            CheckpointType::Full
-        };
+        let checkpoint_type = self.determine_type(&ctx.entity_id, &self.delta_config).await?;
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
@@ -85,42 +93,42 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 metadata: None,
             }),
             CheckpointType::Delta => {
-                let delta = if let Some(ref prev_meta) = previous {
-                    if let Some(prev_cp) = self.state_manager.load(&prev_meta.id).await? {
-                        if let Some(ref prev_snapshot) = prev_cp.snapshot {
-                            self.diff_calculator
-                                .calculate_diff(prev_snapshot, &state)
-                                .await?
-                        } else {
-                            AgentCheckpointDelta {
-                                added_messages: state.conversation_snapshot.clone(),
-                                added_iterations: Some(vec![state.current_iteration]),
-                                status_change: Some(state.status.clone()),
-                                other_changes: None,
-                            }
-                        }
-                    } else {
-                        return Err(CheckpointError::NotFound {
-                            id: prev_meta.id.clone(),
-                        });
-                    }
-                } else {
-                    return Err(CheckpointError::DeltaChainBroken {
-                        checkpoint_id: ctx.entity_id.clone(),
-                        missing_id: "no previous checkpoint for delta".to_string(),
-                    });
-                };
+                // Diff against the nearest checkpoint that still carries a
+                // full snapshot (the chain base); deltas in between have no
+                // snapshot of their own. If no base can be established the
+                // delta would be unrestorable, so fall back to a FULL
+                // checkpoint instead.
+                let (base_id, base_snapshot) = self.find_base(&previous).await?;
 
-                Ok(BaseCheckpointCore {
-                    id: wf_common::generate_id(),
-                    r#type: Some(CheckpointType::Delta),
-                    base_checkpoint_id: previous.clone().map(|p| p.id),
-                    previous_checkpoint_id: previous.map(|p| p.id),
-                    delta: Some(delta),
-                    snapshot: None,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                    metadata: None,
-                })
+                match base_snapshot {
+                    Some(base_snapshot) => {
+                        let delta = self
+                            .diff_calculator
+                            .calculate_diff(&base_snapshot, &state)
+                            .await?;
+
+                        Ok(BaseCheckpointCore {
+                            id: wf_common::generate_id(),
+                            r#type: Some(CheckpointType::Delta),
+                            base_checkpoint_id: base_id,
+                            previous_checkpoint_id: previous.map(|p| p.id),
+                            delta: Some(delta),
+                            snapshot: None,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                            metadata: None,
+                        })
+                    }
+                    None => Ok(BaseCheckpointCore {
+                        id: wf_common::generate_id(),
+                        r#type: Some(CheckpointType::Full),
+                        base_checkpoint_id: None,
+                        previous_checkpoint_id: previous.map(|p| p.id),
+                        delta: None,
+                        snapshot: Some(state),
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        metadata: None,
+                    }),
+                }
             }
         }
     }
@@ -150,7 +158,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 id: checkpoint_id.to_string(),
             })?;
 
-        match checkpoint.r#type {
+        let entity = match checkpoint.r#type {
             Some(CheckpointType::Full) => {
                 let snapshot = checkpoint
                     .snapshot
@@ -167,51 +175,10 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 })
             }
             Some(CheckpointType::Delta) => {
-                let base_id = checkpoint.base_checkpoint_id.as_ref().ok_or_else(|| {
-                    CheckpointError::Corrupted {
-                        id: checkpoint_id.to_string(),
-                        reason: "delta checkpoint missing base_checkpoint_id".to_string(),
-                    }
-                })?;
-                let base_id = base_id.clone();
-
-                let base_checkpoint =
-                    self.state_manager.load(&base_id).await?.ok_or_else(|| {
-                        CheckpointError::NotFound {
-                            id: base_id.clone(),
-                        }
-                    })?;
-
-                let mut state =
-                    base_checkpoint
-                        .snapshot
-                        .ok_or_else(|| CheckpointError::Corrupted {
-                            id: base_id.clone(),
-                            reason: "base checkpoint missing snapshot".to_string(),
-                        })?;
-
-                let mut current_id = checkpoint.previous_checkpoint_id.clone();
-                let mut chain = Vec::new();
-
-                while let Some(id) = current_id {
-                    if id == *checkpoint_id {
-                        break;
-                    }
-                    let cp = self
-                        .state_manager
-                        .load(&id)
-                        .await?
-                        .ok_or_else(|| CheckpointError::NotFound { id: id.clone() })?;
-
-                    if let Some(ref delta) = cp.delta {
-                        chain.push(delta.clone());
-                    }
-                    current_id = cp.previous_checkpoint_id.clone();
-                }
-
-                for delta in chain.iter().rev() {
-                    state = self.diff_calculator.apply_delta(&state, delta).await?;
-                }
+                let restorer = GenericDeltaRestorer::new(self.diff_calculator.clone());
+                let state = restorer
+                    .restore_full_state(checkpoint_id, &self.state_manager)
+                    .await?;
 
                 Ok(AgentLoopEntity {
                     agent_loop_id: state.agent_loop_id.clone(),
@@ -224,27 +191,77 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 id: checkpoint_id.to_string(),
                 reason: "checkpoint has no type".to_string(),
             }),
+        };
+
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::restored(
+                checkpoint_id.to_string(),
+                entity
+                    .as_ref()
+                    .map(|e| e.agent_loop_id.clone())
+                    .unwrap_or_default(),
+            ));
         }
+
+        entity
+    }
+
+    async fn delete(&self, checkpoint_id: &str) -> Result<bool, CheckpointError> {
+        let deleted = self.state_manager.delete(checkpoint_id).await?;
+        if deleted {
+            if let Some(ref bus) = self.event_bus {
+                bus.publish(CheckpointEventBus::deleted(checkpoint_id.to_string()));
+            }
+        }
+        Ok(deleted)
     }
 
     async fn determine_type(
         &self,
-        _entity_id: &str,
+        entity_id: &str,
         config: &DeltaStorageConfig,
     ) -> Result<CheckpointType, CheckpointError> {
         if !config.enabled {
             return Ok(CheckpointType::Full);
         }
+
+        let count = self.state_manager.list_by_entity(entity_id).await?.len() as u32;
+        let effective_interval = config.baseline_interval.min(config.max_delta_chain_length);
+
+        if count == 0 || effective_interval == 0 || count % effective_interval == 0 {
+            return Ok(CheckpointType::Full);
+        }
+
         Ok(CheckpointType::Delta)
     }
 }
 
 impl AgentCheckpointCoordinator {
-    async fn should_build_delta(&self, entity_id: &str) -> Result<bool, CheckpointError> {
-        match self.state_manager.get_latest(entity_id).await? {
-            Some(_) => Ok(true),
-            None => Ok(false),
+    async fn find_base(
+        &self,
+        previous: &Option<CheckpointStorageMetadata>,
+    ) -> Result<(Option<String>, Option<AgentStateSnapshot>), CheckpointError> {
+        let mut base_id: Option<String> = None;
+        let mut base_snapshot: Option<AgentStateSnapshot> = None;
+        let mut cursor: Option<String> = previous.as_ref().map(|p| p.id.clone());
+        let mut visited: HashSet<String> = HashSet::new();
+
+        while let Some(id) = cursor {
+            if !visited.insert(id.clone()) {
+                break;
+            }
+            match self.state_manager.load(&id).await? {
+                Some(cp) if cp.snapshot.is_some() => {
+                    base_id = Some(id);
+                    base_snapshot = cp.snapshot;
+                    break;
+                }
+                Some(cp) => cursor = cp.previous_checkpoint_id,
+                None => break,
+            }
         }
+
+        Ok((base_id, base_snapshot))
     }
 }
 
@@ -362,5 +379,85 @@ mod tests {
         let cp2 = coord.build(ctx2, snapshot2).await.unwrap();
         assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
         assert!(cp2.delta.is_some());
+    }
+
+    async fn build_and_persist(
+        coord: &AgentCheckpointCoordinator,
+        status: &str,
+        iteration: u32,
+    ) -> AgentCheckpoint {
+        let mut snapshot = make_snapshot();
+        snapshot.status = status.to_string();
+        snapshot.current_iteration = iteration;
+        let ctx = coord
+            .prepare("loop-1", CheckpointTrigger::AfterExecute)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, snapshot).await.unwrap();
+        coord.persist(&cp, "loop-1").await.unwrap();
+        cp
+    }
+
+    #[tokio::test]
+    async fn delta_chain_restore_after_multiple_deltas() {
+        let coord = make_coordinator();
+        build_and_persist(&coord, "running", 1).await;
+        build_and_persist(&coord, "running", 2).await;
+        let cp3 = build_and_persist(&coord, "completed", 3).await;
+
+        assert_eq!(cp3.r#type, Some(CheckpointType::Delta));
+
+        let entity = coord.restore(&cp3.id).await.unwrap();
+        assert_eq!(entity.status, "completed");
+        assert_eq!(entity.current_iteration, 3);
+    }
+
+    #[tokio::test]
+    async fn delta_chain_base_points_to_snapshot_checkpoint() {
+        let coord = make_coordinator();
+        let cp1 = build_and_persist(&coord, "running", 1).await;
+        build_and_persist(&coord, "running", 2).await;
+        let cp3 = build_and_persist(&coord, "completed", 3).await;
+
+        assert_eq!(cp1.r#type, Some(CheckpointType::Full));
+        assert_eq!(cp3.r#type, Some(CheckpointType::Delta));
+        assert_eq!(cp3.base_checkpoint_id.as_deref(), Some(cp1.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn fallback_to_full_when_chain_base_missing() {
+        let coord = make_coordinator();
+        let cp1 = build_and_persist(&coord, "running", 1).await;
+        let cp2 = build_and_persist(&coord, "running", 2).await;
+        assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
+
+        coord.state_manager().delete(&cp1.id).await.unwrap();
+
+        let cp3 = build_and_persist(&coord, "running", 3).await;
+        assert_eq!(cp3.r#type, Some(CheckpointType::Full));
+        assert!(cp3.snapshot.is_some());
+
+        let entity = coord.restore(&cp3.id).await.unwrap();
+        assert_eq!(entity.current_iteration, 3);
+    }
+
+    #[tokio::test]
+    async fn baseline_interval_forces_periodic_full() {
+        let storage = Arc::new(StorageBackend::new_memory());
+        let sm = AgentCheckpointStateManager::new(storage);
+        let config = DeltaStorageConfig {
+            enabled: true,
+            baseline_interval: 2,
+            max_delta_chain_length: 5,
+        };
+        let coord = AgentCheckpointCoordinator::new(sm).with_delta_config(config);
+
+        let cp1 = build_and_persist(&coord, "running", 1).await;
+        let cp2 = build_and_persist(&coord, "running", 2).await;
+        let cp3 = build_and_persist(&coord, "running", 3).await;
+
+        assert_eq!(cp1.r#type, Some(CheckpointType::Full));
+        assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
+        assert_eq!(cp3.r#type, Some(CheckpointType::Full));
     }
 }

@@ -119,6 +119,8 @@ pub struct WorkflowRunner {
     /// Write-back registry of live workflow executions: every execution
     /// registers its variable map at start and unregisters at end.
     contexts: Arc<ExecutionContextRegistry>,
+    /// Optional skill loader injected into builtin tool executors.
+    skill_loader: Option<Arc<wf_tools::SkillLoader>>,
 }
 
 impl WorkflowRunner {
@@ -128,11 +130,22 @@ impl WorkflowRunner {
         gateway: Arc<LlmGateway>,
         contexts: Arc<ExecutionContextRegistry>,
     ) -> Self {
+        Self::with_skill_loader(registries, event_bus, gateway, contexts, None)
+    }
+
+    pub fn with_skill_loader(
+        registries: Arc<Registries>,
+        event_bus: Arc<EventBus>,
+        gateway: Arc<LlmGateway>,
+        contexts: Arc<ExecutionContextRegistry>,
+        skill_loader: Option<Arc<wf_tools::SkillLoader>>,
+    ) -> Self {
         Self {
             registries,
             event_bus,
             handlers: wf_workflow::create_default_handlers(gateway),
             contexts,
+            skill_loader,
         }
     }
 }
@@ -175,11 +188,16 @@ impl SubworkflowRunner for WorkflowRunner {
             fallback_output: None,
         };
 
+        let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
+        if let Some(loader) = &self.skill_loader {
+            tool_registry.set_skill_loader(loader.clone());
+        }
+
         let exec_ctx = ExecutorContext::new(
             wf_common::generate_id(),
             wf_common::generate_id(),
             Some(self.event_bus.clone()),
-            Arc::new(wf_tools::registry::ToolRegistry::new()),
+            tool_registry,
             options,
         );
         // Lifecycle wiring (compression chain closure): the execution's
@@ -222,13 +240,26 @@ pub fn start_trigger_listener(
     gateway: Arc<LlmGateway>,
     contexts: Arc<ExecutionContextRegistry>,
 ) -> TriggerListenerHandle {
+    start_trigger_listener_with_skills(event_bus, registries, gateway, contexts, None)
+}
+
+/// Like `start_trigger_listener`, but injects the runtime skill loader into
+/// the builtin tool executor of triggered sub-workflows.
+pub fn start_trigger_listener_with_skills(
+    event_bus: Arc<EventBus>,
+    registries: Arc<Registries>,
+    gateway: Arc<LlmGateway>,
+    contexts: Arc<ExecutionContextRegistry>,
+    skill_loader: Option<Arc<wf_tools::SkillLoader>>,
+) -> TriggerListenerHandle {
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries.clone()));
-    let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::new(
+    let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_skill_loader(
         registries,
         event_bus.clone(),
         gateway,
         contexts.clone(),
+        skill_loader,
     ));
     let shutdown = CancellationToken::new();
     let listener = Arc::new(TriggerEventListener::new(
@@ -418,7 +449,7 @@ mod tests {
             execution_id.clone(),
             wf_common::generate_id(),
             Some(bus.clone()),
-            Arc::new(wf_tools::registry::ToolRegistry::new()),
+            Arc::new(wf_tools::create_default_tool_registry()),
             workflow_options(),
         );
         let mut exec_ctx = exec_ctx;
@@ -561,7 +592,7 @@ mod tests {
             execution_id.clone(),
             wf_common::generate_id(),
             Some(bus.clone()),
-            Arc::new(wf_tools::registry::ToolRegistry::new()),
+            Arc::new(wf_tools::create_default_tool_registry()),
             workflow_options(),
         );
         let mut exec_ctx = exec_ctx;

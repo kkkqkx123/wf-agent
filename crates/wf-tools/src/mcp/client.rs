@@ -42,54 +42,22 @@ impl McpClient {
         arguments: &Value,
         timeout_ms: u64,
     ) -> ToolResult<Value> {
-        let request = self.build_request(
+        self.call_method(
             "tools/call",
             serde_json::json!({
                 "name": tool_name,
                 "arguments": arguments,
             }),
-        );
-
-        let request_id = request.id.clone();
-        let response = self.send_request(request, timeout_ms).await?;
-
-        if response.id.as_ref() != Some(&request_id) {
-            return Err(ToolError::McpError(format!(
-                "Response ID mismatch: expected {}, got {:?}",
-                request_id, response.id
-            )));
-        }
-
-        if let Some(error) = response.error {
-            return Err(ToolError::McpError(format!(
-                "JSON-RPC error {}: {}",
-                error.code, error.message
-            )));
-        }
-
-        response
-            .result
-            .ok_or_else(|| ToolError::McpError("Empty response result".into()))
+            timeout_ms,
+        )
+        .await
     }
 
     pub async fn list_tools(&self, timeout_ms: u64) -> ToolResult<Vec<McpToolInfo>> {
-        let request = self.build_request("tools/list", Value::Null);
-        let request_id = request.id.clone();
+        let result = self
+            .call_method("tools/list", Value::Null, timeout_ms)
+            .await?;
 
-        let response = self.send_request(request, timeout_ms).await?;
-
-        if response.id.as_ref() != Some(&request_id) {
-            return Err(ToolError::McpError("Response ID mismatch".into()));
-        }
-
-        if let Some(error) = response.error {
-            return Err(ToolError::McpError(format!(
-                "JSON-RPC error {}: {}",
-                error.code, error.message
-            )));
-        }
-
-        let result = response.result.unwrap_or(Value::Null);
         let tools = result
             .get("tools")
             .and_then(|v| v.as_array())
@@ -112,8 +80,103 @@ impl McpClient {
         Ok(tools)
     }
 
+    pub async fn list_resources(
+        &self,
+        timeout_ms: u64,
+    ) -> ToolResult<Vec<wf_types::tool::McpResource>> {
+        let result = self
+            .call_method("resources/list", Value::Null, timeout_ms)
+            .await?;
+
+        let resources = result
+            .get("resources")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| {
+                        Some(wf_types::tool::McpResource {
+                            uri: r.get("uri")?.as_str()?.to_string(),
+                            name: r.get("name")?.as_str()?.to_string(),
+                            description: r
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .map(String::from),
+                            mime_type: r.get("mimeType").and_then(|m| m.as_str()).map(String::from),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(resources)
+    }
+
+    pub async fn list_resource_templates(
+        &self,
+        timeout_ms: u64,
+    ) -> ToolResult<Vec<wf_types::tool::McpResourceTemplate>> {
+        let result = self
+            .call_method("resources/templates/list", Value::Null, timeout_ms)
+            .await?;
+
+        let templates = result
+            .get("resourceTemplates")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| {
+                        Some(wf_types::tool::McpResourceTemplate {
+                            uri_template: t.get("uriTemplate")?.as_str()?.to_string(),
+                            name: t.get("name")?.as_str()?.to_string(),
+                            description: t
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .map(String::from),
+                            mime_type: t.get("mimeType").and_then(|m| m.as_str()).map(String::from),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(templates)
+    }
+
+    pub async fn read_resource(
+        &self,
+        uri: &str,
+        timeout_ms: u64,
+    ) -> ToolResult<wf_types::tool::McpResourceReadResult> {
+        let result = self
+            .call_method(
+                "resources/read",
+                serde_json::json!({ "uri": uri }),
+                timeout_ms,
+            )
+            .await?;
+
+        let contents = result
+            .get("contents")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|c| {
+                        Some(wf_types::tool::McpResourceContent {
+                            uri: c.get("uri")?.as_str()?.to_string(),
+                            mime_type: c.get("mimeType").and_then(|m| m.as_str()).map(String::from),
+                            text: c.get("text").and_then(|t| t.as_str()).map(String::from),
+                            blob: c.get("blob").and_then(|b| b.as_str()).map(String::from),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(wf_types::tool::McpResourceReadResult { contents })
+    }
+
     pub async fn initialize(&self, timeout_ms: u64) -> ToolResult<Value> {
-        let request = self.build_request(
+        self.call_method(
             "initialize",
             serde_json::json!({
                 "protocolVersion": "2024-11-05",
@@ -123,25 +186,33 @@ impl McpClient {
                     "version": "0.1.0",
                 },
             }),
-        );
+            timeout_ms,
+        )
+        .await
+    }
 
+    async fn call_method(&self, method: &str, params: Value, timeout_ms: u64) -> ToolResult<Value> {
+        let request = self.build_request(method, params);
         let request_id = request.id.clone();
         let response = self.send_request(request, timeout_ms).await?;
 
         if response.id.as_ref() != Some(&request_id) {
-            return Err(ToolError::McpError("Response ID mismatch".into()));
+            return Err(ToolError::McpError(format!(
+                "Response ID mismatch: expected {}, got {:?}",
+                request_id, response.id
+            )));
         }
 
         if let Some(error) = response.error {
             return Err(ToolError::McpError(format!(
-                "Initialize error {}: {}",
+                "JSON-RPC error {}: {}",
                 error.code, error.message
             )));
         }
 
         response
             .result
-            .ok_or_else(|| ToolError::McpError("Empty initialize response".into()))
+            .ok_or_else(|| ToolError::McpError("Empty response result".into()))
     }
 
     fn build_request(&self, method: &str, params: Value) -> JsonRpcRequest {
@@ -291,5 +362,93 @@ mod tests {
             .call_tool("greet", &serde_json::json!({"name": "world"}), 5000)
             .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_list_resources() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: Some("test-3".into()),
+            result: Some(serde_json::json!({
+                "resources": [
+                    {
+                        "uri": "file:///etc/hosts",
+                        "name": "hosts",
+                        "description": "Hosts file",
+                        "mimeType": "text/plain",
+                    },
+                    {"uri": "db://users/1", "name": "user 1"},
+                ]
+            })),
+            error: None,
+        };
+
+        let transport = Box::new(MockTransport::new(vec![response]));
+        let client = McpClient::new("test_server", transport);
+
+        let resources = client.list_resources(5000).await.unwrap();
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].uri, "file:///etc/hosts");
+        assert_eq!(resources[0].name, "hosts");
+        assert_eq!(resources[0].mime_type.as_deref(), Some("text/plain"));
+        assert_eq!(resources[1].description, None);
+    }
+
+    #[tokio::test]
+    async fn test_list_resource_templates() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: Some("test-4".into()),
+            result: Some(serde_json::json!({
+                "resourceTemplates": [
+                    {
+                        "uriTemplate": "db://users/{id}",
+                        "name": "User by id",
+                        "description": "Fetch a user",
+                    }
+                ]
+            })),
+            error: None,
+        };
+
+        let transport = Box::new(MockTransport::new(vec![response]));
+        let client = McpClient::new("test_server", transport);
+
+        let templates = client.list_resource_templates(5000).await.unwrap();
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0].uri_template, "db://users/{id}");
+        assert_eq!(templates[0].name, "User by id");
+    }
+
+    #[tokio::test]
+    async fn test_read_resource() {
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: Some("test-5".into()),
+            result: Some(serde_json::json!({
+                "contents": [
+                    {
+                        "uri": "file:///etc/hosts",
+                        "mimeType": "text/plain",
+                        "text": "127.0.0.1 localhost",
+                    }
+                ]
+            })),
+            error: None,
+        };
+
+        let transport = Box::new(MockTransport::new(vec![response]));
+        let client = McpClient::new("test_server", transport);
+
+        let result = client
+            .read_resource("file:///etc/hosts", 5000)
+            .await
+            .unwrap();
+        assert_eq!(result.contents.len(), 1);
+        assert_eq!(result.contents[0].uri, "file:///etc/hosts");
+        assert_eq!(
+            result.contents[0].text.as_deref(),
+            Some("127.0.0.1 localhost")
+        );
     }
 }

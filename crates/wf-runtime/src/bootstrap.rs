@@ -18,7 +18,7 @@ use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::{StorageConfig, StorageManager};
-use crate::trigger_listener::{start_trigger_listener, ExecutionContextRegistry};
+use crate::trigger_listener::{start_trigger_listener_with_skills, ExecutionContextRegistry};
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
@@ -36,6 +36,7 @@ pub struct RuntimeConfig {
     pub log_config: LogConfig,
     pub mode_override: Option<super::mode::ExecutionMode>,
     pub resource: ResourceConfig,
+    pub skills: wf_types::skill::SkillConfig,
     pub metrics: Option<MetricsConfig>,
     pub llm: LlmConfig,
     #[cfg(feature = "plugins")]
@@ -70,6 +71,7 @@ pub struct Runtime {
     pub _shutdown_waiter: ShutdownWaiter,
     pub registries: Arc<Registries>,
     pub bundles: Arc<BundleRegistry>,
+    pub skill_loader: Arc<wf_tools::SkillLoader>,
     pub event_bus: Arc<EventBus>,
     pub metrics: Option<Arc<MetricsContext>>,
     pub llm_gateway: Arc<LlmGateway>,
@@ -98,6 +100,12 @@ impl Runtime {
 
         let registries = Arc::new(Registries::new());
         let bundles = Arc::new(BundleRegistry::new());
+
+        let skill_loader = Arc::new(wf_tools::SkillLoader::new(config.skills));
+        let skill_count = skill_loader.list_skills().len();
+        if skill_count > 0 {
+            info!("Skill registry initialized: {} skills", skill_count);
+        }
 
         let resource_result =
             wf_resource::register_all(&registries, &bundles, &config.resource.options);
@@ -144,11 +152,12 @@ impl Runtime {
         // Event-driven trigger listener: powers the context-compression chain
         // (CONTEXT_COMPRESSION_REQUESTED -> llm_summary_workflow -> write-back).
         let execution_contexts = Arc::new(ExecutionContextRegistry::new());
-        let listener = start_trigger_listener(
+        let listener = start_trigger_listener_with_skills(
             event_bus.clone(),
             registries.clone(),
             llm_gateway.clone(),
             execution_contexts.clone(),
+            Some(skill_loader.clone()),
         );
 
         info!("Runtime bootstrap complete");
@@ -160,6 +169,7 @@ impl Runtime {
             _shutdown_waiter,
             registries,
             bundles,
+            skill_loader,
             event_bus,
             metrics,
             llm_gateway,
@@ -178,6 +188,11 @@ impl Runtime {
 
     pub fn bundles(&self) -> &BundleRegistry {
         &self.bundles
+    }
+
+    /// Shared skill loader; skills are scanned from configured paths at bootstrap.
+    pub fn skill_loader(&self) -> &Arc<wf_tools::SkillLoader> {
+        &self.skill_loader
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
@@ -344,6 +359,7 @@ mod tests {
             resource: ResourceConfig::default(),
             metrics: None,
             llm: LlmConfig::default(),
+            skills: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -483,6 +499,7 @@ mod tests {
             resource: ResourceConfig::default(),
             metrics: None,
             llm: LlmConfig::default(),
+            skills: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -524,6 +541,7 @@ mod tests {
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
+            skills: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
                     flush_interval: Some(100),
@@ -580,6 +598,7 @@ mod tests {
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
             resource: ResourceConfig::default(),
+            skills: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 enabled: Some(false),
                 ..Default::default()

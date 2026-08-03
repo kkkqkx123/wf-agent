@@ -6,7 +6,7 @@ use crate::callback::ExecutionCallback;
 use crate::error::{ToolError, ToolResult};
 use crate::executor::{
     BuiltinExecutor, InstanceFactory, McpExecutor, RestExecutor, StatefulExecutor,
-    StatelessExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
+    StatelessAsyncHandler, StatelessExecutor, StatelessHandler, ToolExecutor, ToolExecutorExt,
 };
 use wf_types::tool::ToolType;
 use wf_types::Id;
@@ -25,24 +25,35 @@ pub struct ToolRegistry {
     executors: DashMap<ToolType, ExecutorFactory>,
     tools: DashMap<Id, wf_types::tool::Tool>,
     stateless_handlers: Arc<DashMap<String, StatelessHandler>>,
+    stateless_async_handlers: Arc<DashMap<String, StatelessAsyncHandler>>,
     stateful_factories: Arc<DashMap<String, InstanceFactory>>,
     builtin_callback: Arc<std::sync::Mutex<Option<Arc<dyn ExecutionCallback>>>>,
+    skill_loader: Arc<std::sync::Mutex<Option<Arc<crate::skill::SkillLoader>>>>,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
         let stateless_handlers = Arc::new(DashMap::new());
+        let stateless_async_handlers: Arc<DashMap<String, StatelessAsyncHandler>> =
+            Arc::new(DashMap::new());
         let stateful_factories = Arc::new(DashMap::new());
         let sl_handlers = stateless_handlers.clone();
+        let sl_async_handlers = stateless_async_handlers.clone();
         let sf_factories = stateful_factories.clone();
+        let builtin_callback: Arc<std::sync::Mutex<Option<Arc<dyn ExecutionCallback>>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let skill_loader: Arc<std::sync::Mutex<Option<Arc<crate::skill::SkillLoader>>>> =
+            Arc::new(std::sync::Mutex::new(None));
         let registry = Self {
             executors: DashMap::new(),
             tools: DashMap::new(),
             stateless_handlers,
+            stateless_async_handlers,
             stateful_factories,
-            builtin_callback: Arc::new(std::sync::Mutex::new(None)),
+            builtin_callback,
+            skill_loader,
         };
-        registry.register_defaults_shared(sl_handlers, sf_factories);
+        registry.register_defaults_shared(sl_handlers, sl_async_handlers, sf_factories);
         registry
     }
 
@@ -54,8 +65,14 @@ impl ToolRegistry {
         self.stateless_handlers.insert(tool_id.to_string(), handler);
     }
 
+    pub fn register_stateless_async_handler(&self, tool_id: &str, handler: StatelessAsyncHandler) {
+        self.stateless_async_handlers
+            .insert(tool_id.to_string(), handler);
+    }
+
     pub fn unregister_stateless_handler(&self, tool_id: &str) {
         self.stateless_handlers.remove(tool_id);
+        self.stateless_async_handlers.remove(tool_id);
     }
 
     pub fn stateful_factories(&self) -> &Arc<DashMap<String, InstanceFactory>> {
@@ -74,19 +91,29 @@ impl ToolRegistry {
         *self.builtin_callback.lock().unwrap() = Some(callback);
     }
 
+    pub fn set_skill_loader(&self, loader: Arc<crate::skill::SkillLoader>) {
+        *self.skill_loader.lock().unwrap() = Some(loader);
+    }
+
+    pub fn skill_loader(&self) -> Option<Arc<crate::skill::SkillLoader>> {
+        self.skill_loader.lock().unwrap().clone()
+    }
+
     fn register_defaults_shared(
         &self,
         sl_handlers: Arc<DashMap<String, StatelessHandler>>,
+        sl_async_handlers: Arc<DashMap<String, StatelessAsyncHandler>>,
         sf_factories: Arc<DashMap<String, InstanceFactory>>,
     ) {
         let h = sl_handlers.clone();
+        let ah = sl_async_handlers.clone();
         self.register_executor(
             ToolType::Stateless,
             Arc::new(move |tool| {
-                Ok(Arc::new(StatelessExecutor::from_tool_config_shared(
-                    tool,
-                    h.clone(),
-                )))
+                Ok(Arc::new(
+                    StatelessExecutor::from_tool_config_shared(tool, h.clone())
+                        .with_async_handlers(ah.clone()),
+                ))
             }),
         );
         let f = sf_factories.clone();
@@ -99,11 +126,15 @@ impl ToolRegistry {
             Arc::new(|_tool| Ok(Arc::new(RestExecutor::new()))),
         );
         let builtin_cb = self.builtin_callback.clone();
+        let skill_loader = self.skill_loader.clone();
         self.register_executor(
             ToolType::BuiltIn,
             Arc::new(move |_tool| {
                 let cb = builtin_cb.lock().unwrap().clone();
-                Ok(Arc::new(BuiltinExecutor::with_callback_opt(cb)))
+                let loader = skill_loader.lock().unwrap().clone();
+                Ok(Arc::new(
+                    BuiltinExecutor::with_callback_opt(cb).set_skill_loader(loader),
+                ))
             }),
         );
         self.register_executor(

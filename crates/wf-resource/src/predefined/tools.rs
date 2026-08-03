@@ -249,6 +249,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
                 ("server_name".into(), prop("server_name", "string", true, "The MCP server name")),
                 ("tool_name".into(), prop("tool_name", "string", false, "The tool to call on the server")),
                 ("arguments".into(), prop("arguments", "object", false, "Arguments for the tool")),
+                ("uri".into(), prop("uri", "string", false, "The resource URI to read on the server")),
             ], vec!["server_name".into()]),
             metadata("integration", vec!["mcp"])),
 

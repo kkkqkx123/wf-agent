@@ -22,6 +22,8 @@ pub struct McpServerEntry {
     pub config: McpServerConfig,
     pub status: McpServerStatus,
     pub tools: Vec<McpToolInfo>,
+    pub resources: Vec<wf_types::tool::McpResource>,
+    pub resource_templates: Vec<wf_types::tool::McpResourceTemplate>,
 }
 
 pub struct McpServerRegistry {
@@ -44,6 +46,8 @@ impl McpServerRegistry {
                 config,
                 status: McpServerStatus::Disconnected,
                 tools: Vec::new(),
+                resources: Vec::new(),
+                resource_templates: Vec::new(),
             },
         );
     }
@@ -69,6 +73,22 @@ impl McpServerRegistry {
     pub fn update_tools(&self, name: &str, tools: Vec<McpToolInfo>) {
         if let Some(mut entry) = self.servers.get_mut(name) {
             entry.tools = tools;
+        }
+    }
+
+    pub fn update_resources(&self, name: &str, resources: Vec<wf_types::tool::McpResource>) {
+        if let Some(mut entry) = self.servers.get_mut(name) {
+            entry.resources = resources;
+        }
+    }
+
+    pub fn update_resource_templates(
+        &self,
+        name: &str,
+        templates: Vec<wf_types::tool::McpResourceTemplate>,
+    ) {
+        if let Some(mut entry) = self.servers.get_mut(name) {
+            entry.resource_templates = templates;
         }
     }
 
@@ -201,24 +221,90 @@ impl McpConnectionManager {
         client.call_tool(tool_name, arguments, timeout_ms).await
     }
 
+    pub async fn call_tool_on_server(
+        &self,
+        server_name: &str,
+        tool_name: &str,
+        arguments: &Value,
+        timeout_ms: u64,
+    ) -> ToolResult<Value> {
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
+        })?;
+
+        if !self.registry.is_tool_allowed(server_name, tool_name) {
+            return Err(crate::error::ToolError::McpError(format!(
+                "Tool '{}' is not allowed on server '{}'",
+                tool_name, server_name
+            )));
+        }
+
+        client.call_tool(tool_name, arguments, timeout_ms).await
+    }
+
+    pub async fn read_resource(
+        &self,
+        server_name: &str,
+        uri: &str,
+        timeout_ms: u64,
+    ) -> ToolResult<wf_types::tool::McpResourceReadResult> {
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
+        })?;
+
+        client.read_resource(uri, timeout_ms).await
+    }
+
+    pub async fn discover_resources(
+        &self,
+        server_name: &str,
+    ) -> ToolResult<Vec<wf_types::tool::McpResource>> {
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
+        })?;
+
+        let timeout_ms = self.server_timeout_ms(server_name);
+        let resources = client.list_resources(timeout_ms).await?;
+        self.registry
+            .update_resources(server_name, resources.clone());
+        Ok(resources)
+    }
+
+    pub async fn discover_resource_templates(
+        &self,
+        server_name: &str,
+    ) -> ToolResult<Vec<wf_types::tool::McpResourceTemplate>> {
+        let client = self.clients.get(server_name).ok_or_else(|| {
+            crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
+        })?;
+
+        let timeout_ms = self.server_timeout_ms(server_name);
+        let templates = client.list_resource_templates(timeout_ms).await?;
+        self.registry
+            .update_resource_templates(server_name, templates.clone());
+        Ok(templates)
+    }
+
     pub async fn discover_tools(&self, server_name: &str) -> ToolResult<Vec<McpToolInfo>> {
         let client = self.clients.get(server_name).ok_or_else(|| {
             crate::error::ToolError::McpError(format!("Server '{}' not connected", server_name))
         })?;
 
-        let timeout_ms = self
-            .registry
+        let timeout_ms = self.server_timeout_ms(server_name);
+        let tools = client.list_tools(timeout_ms).await?;
+        self.registry.update_tools(server_name, tools.clone());
+        Ok(tools)
+    }
+
+    fn server_timeout_ms(&self, server_name: &str) -> u64 {
+        self.registry
             .get(server_name)
             .and_then(|e| match &e.config {
                 McpServerConfig::Stdio(c) => c.base.timeout,
                 McpServerConfig::Sse(c) => c.base.timeout,
                 McpServerConfig::StreamableHttp(c) => c.base.timeout,
             })
-            .unwrap_or(30000);
-
-        let tools = client.list_tools(timeout_ms).await?;
-        self.registry.update_tools(server_name, tools.clone());
-        Ok(tools)
+            .unwrap_or(30000)
     }
 
     pub fn get_client(&self, server_name: &str) -> Option<Arc<McpClient>> {

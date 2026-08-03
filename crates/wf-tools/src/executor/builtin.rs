@@ -7,26 +7,45 @@ use crate::callback::{AgentLoopConfig, AgentLoopInput, ExecutionCallback, Workfl
 use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
+use crate::skill::SkillLoader;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
 pub struct BuiltinExecutor {
     callback: Option<Arc<dyn ExecutionCallback>>,
+    skill_loader: Option<Arc<SkillLoader>>,
 }
 
 impl BuiltinExecutor {
     pub fn new() -> Self {
-        Self { callback: None }
+        Self {
+            callback: None,
+            skill_loader: None,
+        }
     }
 
     pub fn with_callback(callback: Arc<dyn ExecutionCallback>) -> Self {
         Self {
             callback: Some(callback),
+            skill_loader: None,
         }
     }
 
     pub fn with_callback_opt(callback: Option<Arc<dyn ExecutionCallback>>) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            skill_loader: None,
+        }
+    }
+
+    pub fn with_skill_loader(mut self, loader: Arc<SkillLoader>) -> Self {
+        self.skill_loader = Some(loader);
+        self
+    }
+
+    pub fn set_skill_loader(mut self, loader: Option<Arc<SkillLoader>>) -> Self {
+        self.skill_loader = loader;
+        self
     }
 
     fn get_callback(&self, tool_name: &str) -> ToolResult<Arc<dyn ExecutionCallback>> {
@@ -48,11 +67,56 @@ impl BuiltinExecutor {
             "execute_workflow" => self.handle_execute_workflow(parameters, context).await,
             "query_execution_status" => self.handle_query_status(parameters, context).await,
             "cancel_execution" => self.handle_cancel_execution(parameters, context).await,
+            "skill" => self.handle_skill(parameters),
             _ => Err(ToolError::NotFound(format!(
                 "Unknown builtin tool: {}",
                 tool_name
             ))),
         }
+    }
+
+    fn format_available_skills(skills: &[wf_types::skill::SkillMetadata]) -> String {
+        if skills.is_empty() {
+            return "(no skills available)".into();
+        }
+        skills
+            .iter()
+            .map(|s| format!("  - {}: {}", s.name, s.description))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn handle_skill(&self, parameters: &Value) -> ToolResult<Value> {
+        let skill_name = parameters
+            .get("skill")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                ToolError::ValidationFailed(
+                    "Missing or invalid 'skill' parameter. Please provide a valid skill name."
+                        .to_string(),
+                )
+            })?;
+
+        let loader = self.skill_loader.as_ref().ok_or_else(|| {
+            ToolError::ExecutionError(
+                "Skill system is not available. Please configure skill paths before using skills."
+                    .to_string(),
+            )
+        })?;
+
+        if !loader.has_skill(skill_name) {
+            let available = Self::format_available_skills(&loader.list_skills());
+            return Err(ToolError::NotFound(format!(
+                "Skill '{}' not found.\n\nAvailable skills:\n{}\n\n\
+                 Use the 'skill' tool with one of the available skill names listed above. \
+                 Each skill provides specialized instructions for specific tasks.",
+                skill_name, available
+            )));
+        }
+
+        let content = loader.load_content(skill_name)?;
+        Ok(Value::String(content))
     }
 
     async fn handle_call_agent(
@@ -251,5 +315,93 @@ impl ToolExecutor for BuiltinExecutor {
 
     fn executor_type(&self) -> &str {
         "builtin"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::skill::SkillConfig;
+    use wf_types::tool::ToolExecutionOptions;
+
+    fn make_skill_dir(root: &std::path::Path) -> std::path::PathBuf {
+        let dir = root.join("my-skill");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: Test skill\n---\n\n# Skill body",
+        )
+        .unwrap();
+        dir
+    }
+
+    fn make_tool() -> wf_types::tool::Tool {
+        wf_types::tool::Tool {
+            id: "skill".into(),
+            name: "skill".into(),
+            description: "Load a skill".into(),
+            tool_type: wf_types::tool::ToolType::BuiltIn,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_skill_handler_returns_content() {
+        let root = std::env::temp_dir().join(format!("wf-builtin-skill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        make_skill_dir(&root);
+
+        let loader = Arc::new(SkillLoader::new(SkillConfig {
+            paths: vec![root.to_string_lossy().to_string()],
+            auto_scan: Some(true),
+        }));
+        let executor = BuiltinExecutor::new().with_skill_loader(loader);
+
+        let ctx = ToolExecutionContext::new("exec-1".into());
+        let options = ToolExecutionOptions {
+            timeout: None,
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+
+        let result = executor
+            .execute(
+                &make_tool(),
+                &serde_json::json!({ "skill": "my-skill" }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result
+            .result
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default()
+            .contains("Skill body"));
+
+        let missing = executor
+            .execute(
+                &make_tool(),
+                &serde_json::json!({ "skill": "nope" }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(!missing.success);
+        assert!(missing
+            .error
+            .unwrap_or_default()
+            .contains("Skill 'nope' not found"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod metrics;
+pub mod search;
 pub mod stats;
 pub mod task;
 pub mod trigger_execution;

@@ -9,7 +9,7 @@ use wf_types::PromptTemplate;
 
 use crate::custom::types::{
     CustomPromptDefinition, CustomPromptType, CustomResources, CustomToolDefinition,
-    CustomToolType, CustomTriggerCondition, CustomTriggerDefinition,
+    CustomToolType, CustomTriggerCondition, CustomTriggerDefinition, CustomValidationLevel,
 };
 use crate::registrar::{register_item, Registries};
 use crate::result::Summary;
@@ -209,10 +209,19 @@ pub fn register_custom_resources(
     regs: &Registries,
     resources: CustomResources,
     skip_if_exists: bool,
+    validation_level: CustomValidationLevel,
 ) -> Summary {
     let mut total = Summary::new();
 
     if !resources.errors.is_empty() {
+        if validation_level == CustomValidationLevel::Strict {
+            // Strict mode: any load/parse failure aborts the whole custom
+            // resource pipeline; nothing is registered partially.
+            for err in &resources.errors {
+                total.merge(Summary::err("custom_load.strict", err));
+            }
+            return total;
+        }
         for err in &resources.errors {
             total.merge(Summary::err("custom_load", err));
         }
@@ -228,4 +237,53 @@ pub fn register_custom_resources(
     total.merge(r);
 
     total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::custom::types::{CustomHandlerConfig, CustomParamSchema};
+    use wf_core::registry::Registry;
+
+    fn make_resources_with_error() -> CustomResources {
+        CustomResources {
+            tools: vec![CustomToolDefinition {
+                id: "custom-tool".into(),
+                tool_type: CustomToolType::Stateless,
+                description: "A custom tool".into(),
+                schema: CustomParamSchema { parameters: vec![] },
+                handler: CustomHandlerConfig::Inline { code: "x".into() },
+                metadata: None,
+            }],
+            triggers: vec![],
+            prompts: vec![],
+            errors: vec!["cannot read tools.json: parse error".into()],
+        }
+    }
+
+    #[test]
+    fn test_lenient_registers_partial() {
+        let regs = Registries::new();
+        let summary = register_custom_resources(
+            &regs,
+            make_resources_with_error(),
+            false,
+            CustomValidationLevel::Lenient,
+        );
+        assert!(summary.failed.iter().any(|f| f.id == "custom_load"));
+        assert!(regs.tools.has("custom-tool"));
+    }
+
+    #[test]
+    fn test_strict_aborts_pipeline() {
+        let regs = Registries::new();
+        let summary = register_custom_resources(
+            &regs,
+            make_resources_with_error(),
+            false,
+            CustomValidationLevel::Strict,
+        );
+        assert!(summary.failed.iter().any(|f| f.id == "custom_load.strict"));
+        assert!(!regs.tools.has("custom-tool"));
+    }
 }

@@ -103,11 +103,22 @@ pub struct CustomResources {
     pub errors: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CustomValidationLevel {
+    /// Fail the whole custom-resource pipeline if any file fails to load or
+    /// any definition fails validation (no partial registration).
+    Strict,
+    /// Register whatever loaded successfully; collect errors without aborting.
+    #[default]
+    Lenient,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CustomResourcesPresetConfig {
     pub enabled: Option<bool>,
     pub tools_path: Option<String>,
     pub triggers_path: Option<String>,
     pub prompts_path: Option<String>,
-    pub validation_level: Option<String>,
+    pub validation_level: Option<CustomValidationLevel>,
 }

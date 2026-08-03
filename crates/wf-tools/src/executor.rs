@@ -16,5 +16,5 @@ pub use cli::{
 pub use mcp::McpExecutor;
 pub use rest::{RequestInterceptor, ResponseInterceptor, RestExecutor};
 pub use stateful::{InstanceFactory, StatefulExecutor, StatefulInstance};
-pub use stateless::{StatelessExecutor, StatelessHandler};
+pub use stateless::{StatelessAsyncHandler, StatelessExecutor, StatelessHandler};
 pub use trait_def::{ToolExecutor, ToolExecutorExt};

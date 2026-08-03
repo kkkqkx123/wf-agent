@@ -53,6 +53,7 @@ fn glob_match(pattern: &str, path: &str) -> bool {
     matcher.is_match(path)
 }
 
+#[derive(Debug, Clone)]
 pub struct ProtectController {
     patterns: Vec<String>,
 }

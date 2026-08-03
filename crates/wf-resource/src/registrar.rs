@@ -161,10 +161,12 @@ pub fn register_all(regs: &Registries, bundle_reg: &BundleRegistry, opts: &Optio
         let base_dir_str = opts.custom_base_dir.as_deref().unwrap_or(".");
         let base_dir = Path::new(base_dir_str);
         let resources = custom::loader::load_custom_resources(custom_config, base_dir);
+        let validation_level = custom_config.validation_level.unwrap_or_default();
         total.merge(custom::register::register_custom_resources(
             regs,
             resources,
             opts.skip_if_exists,
+            validation_level,
         ));
     }
 

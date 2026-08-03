@@ -10,7 +10,7 @@ pub use compose::Config as PromptComposition;
 pub use custom::{
     load_custom_prompts, load_custom_resources, load_custom_tools, load_custom_triggers,
     register_custom_prompts, register_custom_resources, register_custom_tools,
-    register_custom_triggers, CustomResources, CustomResourcesPresetConfig,
+    register_custom_triggers, CustomResources, CustomResourcesPresetConfig, CustomValidationLevel,
 };
 pub use dynamic::{build_system_context, build_user_context, SystemConfig, UserInput};
 pub use predefined::builder::{

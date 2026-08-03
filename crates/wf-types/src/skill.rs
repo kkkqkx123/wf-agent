@@ -17,7 +17,7 @@ pub struct SkillMetadata {
     pub metadata: Option<HashMap<String, String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillResourceType {
     References,
@@ -42,7 +42,7 @@ pub struct Skill {
     pub assets: Option<HashMap<String, serde_json::Value>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct SkillConfig {
     pub paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -17,7 +17,7 @@ impl StrategyImplementation for JavaScriptOsHookStrategy {
         "JavaScript execution with OS-level process isolation"
     }
     fn priority(&self) -> i32 {
-        30
+        25
     }
     fn is_available(&self) -> bool {
         true

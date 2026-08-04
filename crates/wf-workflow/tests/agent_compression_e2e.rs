@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use wf_core::EventBus;
 use wf_types::events::EventType;
-use wf_types::message::{Message, MessageContentValue, MessageRole};
+use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_workflow::execution_context::ExecutionContextRegistry;
 use wf_workflow::trigger_listener::{
@@ -36,6 +36,19 @@ fn text_message(role: MessageRole, text: &str) -> Message {
         tool_calls: None,
         thinking: None,
         metadata: None,
+    }
+}
+
+/// Extract the plain text of a message content, regardless of whether it is
+/// a bare text or a single-part rich array (the summary workflow output
+/// JSON deserializes into the latter).
+fn message_text(content: &MessageContentValue) -> Option<&str> {
+    match content {
+        MessageContentValue::Text(text) => Some(text.as_str()),
+        MessageContentValue::Rich(parts) => parts.iter().find_map(|part| match part {
+            MessageContent::Text { text } => Some(text.as_str()),
+            _ => None,
+        }),
     }
 }
 
@@ -97,11 +110,20 @@ impl SubworkflowRunner for SummaryRunner {
 }
 
 /// Wait until the bus sees the expected number of receivers (the listener's
-/// subscription is created when its task first polls).
+/// subscription is created when its task first polls). Bounded: a wrong
+/// expectation must fail loudly instead of spinning forever.
 async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
-    while bus.receiver_count() < expected_receivers {
-        tokio::task::yield_now().await;
+    for _ in 0..200 {
+        if bus.receiver_count() >= expected_receivers {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
+    panic!(
+        "expected {} receivers within 2s, got {}",
+        expected_receivers,
+        bus.receiver_count()
+    );
 }
 
 async fn wait_until(cond: impl Fn() -> bool) {
@@ -146,7 +168,8 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
         tokio_util::sync::CancellationToken::new(),
     );
     let listener_task = tokio::spawn(async move { listener.run().await });
-    wait_for_listener(&bus, 3).await;
+    // Two receivers: the conversation compression consumer and the listener.
+    wait_for_listener(&bus, 2).await;
 
     // The agent emitted a compression request over its conversation.
     let snapshot = conversation.read().await.messages().to_vec();
@@ -163,18 +186,21 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     ))
     .unwrap();
 
-    // The summary workflow ran and the conversation applied the compressed
-    // array (version matched): replaced as a unit.
+    // The conversation starts with a single long message, so wait for the
+    // actual replacement (content change) rather than just the length.
     wait_until(|| {
         conversation
             .try_read()
             .ok()
-            .is_some_and(|session| session.messages().len() == 1)
+            .is_some_and(|session| {
+                session.messages().len() == 1
+                    && message_text(&session.messages()[0].content) == Some("compressed summary")
+            })
     })
     .await;
     assert_eq!(
-        conversation.try_read().unwrap().messages()[0].content,
-        MessageContentValue::Text("compressed summary".to_string())
+        message_text(&conversation.try_read().unwrap().messages()[0].content),
+        Some("compressed summary")
     );
 
     consumer.abort();

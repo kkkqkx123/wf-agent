@@ -23,14 +23,52 @@ pub struct ScriptDefinition {
     pub code: String,
 }
 
+/// Thread-safe registry of named scripts.
+///
+/// A local instance can be injected into a `TriggerContext` for isolation
+/// (unit tests) instead of the process-wide default used by production
+/// wiring, so tests never share or clobber script names.
+pub struct ScriptRegistry {
+    scripts: dashmap::DashMap<String, ScriptDefinition>,
+}
+
+impl ScriptRegistry {
+    pub fn new() -> Self {
+        Self {
+            scripts: dashmap::DashMap::new(),
+        }
+    }
+
+    pub fn register(&self, name: &str, language: &str, code: &str) {
+        self.scripts.insert(
+            name.to_string(),
+            ScriptDefinition {
+                language: language.to_string(),
+                code: code.to_string(),
+            },
+        );
+    }
+
+    pub fn get(&self, name: &str) -> Option<ScriptDefinition> {
+        self.scripts
+            .get(name)
+            .map(|entry| entry.value().clone())
+    }
+}
+
+impl Default for ScriptRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Process-wide registry of graphs addressable by workflow id, used by
 /// ExecuteTriggeredSubworkflow trigger actions.
 static TRIGGER_GRAPHS: std::sync::OnceLock<WorkflowGraphRegistry> = std::sync::OnceLock::new();
 
 /// Process-wide registry of named scripts, used by ExecuteScript trigger
 /// actions.
-static SCRIPTS: std::sync::OnceLock<dashmap::DashMap<String, ScriptDefinition>> =
-    std::sync::OnceLock::new();
+static SCRIPTS: std::sync::OnceLock<ScriptRegistry> = std::sync::OnceLock::new();
 
 /// Register a graph so a trigger action can execute it as a sub-workflow.
 pub fn register_graph(workflow_id: &str, graph: WorkflowGraphStructure) {
@@ -46,23 +84,15 @@ pub fn lookup_graph(workflow_id: &str) -> Option<WorkflowGraphStructure> {
         .map(|graph| graph.as_ref().clone())
 }
 
-/// Register a named script for trigger actions.
+/// Register a named script for trigger actions (process-wide default).
 pub fn register_script(name: &str, language: &str, code: &str) {
-    let scripts = SCRIPTS.get_or_init(dashmap::DashMap::new);
-    scripts.insert(
-        name.to_string(),
-        ScriptDefinition {
-            language: language.to_string(),
-            code: code.to_string(),
-        },
-    );
+    let scripts = SCRIPTS.get_or_init(ScriptRegistry::new);
+    scripts.register(name, language, code);
 }
 
-/// Look up a previously registered script by name.
+/// Look up a previously registered script by name (process-wide default).
 pub fn lookup_script(name: &str) -> Option<ScriptDefinition> {
-    SCRIPTS
-        .get()
-        .and_then(|scripts| scripts.get(name).map(|entry| entry.value().clone()))
+    SCRIPTS.get().and_then(|scripts| scripts.get(name))
 }
 
 pub struct WorkflowExecutionPool {

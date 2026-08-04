@@ -71,7 +71,8 @@ pub use message_context::{
 };
 pub use registry::{
     create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
-    register_script, ScriptDefinition, WorkflowExecutionPool, WorkflowExecutionRegistry,
+    register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionPool,
+    WorkflowExecutionRegistry,
     WorkflowGraphRegistry,
 };
 pub use state::{NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot};

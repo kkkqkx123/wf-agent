@@ -19,12 +19,58 @@ use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 use crate::handler::{variable_mapping, HandlerRegistry};
 use crate::message_context;
-use crate::registry::{lookup_graph, lookup_script};
+use crate::registry::{lookup_graph, lookup_script, ScriptRegistry};
 use crate::WorkflowExecutionEntity;
 use wf_execution_shared::context::ExecutorContext;
 use wf_tools::registry::ToolRegistry;
-use wf_types::script::sandbox::SandboxConfig;
+use wf_types::script::sandbox::{SandboxConfig, ScriptExecutionResult};
 use wf_types::workflow_execution::WorkflowExecutionOptions;
+
+/// Executes a script inside a sandbox.
+///
+/// Production uses the wf-sandbox runtime; unit tests inject a mock so
+/// handler tests stay hermetic (no real interpreter subprocess, no load
+/// sensitivity).
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn execute(
+        &self,
+        language: &str,
+        code: &str,
+        config: &SandboxConfig,
+    ) -> ScriptExecutionResult;
+}
+
+/// wf-sandbox-backed [`ScriptRunner`].
+pub struct SandboxScriptRunner {
+    sandbox: Arc<SandboxRuntime>,
+}
+
+impl SandboxScriptRunner {
+    pub fn new() -> Self {
+        Self {
+            sandbox: Arc::new(SandboxRuntime::new()),
+        }
+    }
+}
+
+impl Default for SandboxScriptRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl ScriptRunner for SandboxScriptRunner {
+    async fn execute(
+        &self,
+        language: &str,
+        code: &str,
+        config: &SandboxConfig,
+    ) -> ScriptExecutionResult {
+        self.sandbox.execute(language, code, config).await
+    }
+}
 
 #[derive(Clone)]
 pub struct TriggerContext {
@@ -35,6 +81,8 @@ pub struct TriggerContext {
     pub handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
     pub tool_registry: Option<Arc<ToolRegistry>>,
     pub metrics: Option<Arc<MetricsRegistry>>,
+    pub script_runner: Option<Arc<dyn ScriptRunner>>,
+    pub script_registry: Option<Arc<ScriptRegistry>>,
 }
 
 impl TriggerContext {
@@ -47,6 +95,8 @@ impl TriggerContext {
             handlers: None,
             tool_registry: None,
             metrics: None,
+            script_runner: None,
+            script_registry: None,
         }
     }
 
@@ -75,6 +125,16 @@ impl TriggerContext {
 
     pub fn with_metrics(mut self, metrics: Arc<MetricsRegistry>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    pub fn with_script_runner(mut self, runner: Arc<dyn ScriptRunner>) -> Self {
+        self.script_runner = Some(runner);
+        self
+    }
+
+    pub fn with_script_registry(mut self, registry: Arc<ScriptRegistry>) -> Self {
+        self.script_registry = Some(registry);
         self
     }
 }
@@ -429,7 +489,11 @@ impl TriggerCoordinator {
             _ => return Err(WorkflowError::Internal("Invalid action type".to_string())),
         };
 
-        let script = lookup_script(&script_name).ok_or_else(|| {
+        let script = match &ctx.script_registry {
+            Some(registry) => registry.get(&script_name),
+            None => lookup_script(&script_name),
+        }
+        .ok_or_else(|| {
             WorkflowError::TriggerError(format!(
                 "Script '{}' not found in script registry",
                 script_name
@@ -450,7 +514,6 @@ impl TriggerCoordinator {
         }
         code.push_str(&script.code);
 
-        let sandbox = SandboxRuntime::new();
         let sandbox_config = SandboxConfig {
             mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             policy: None,
@@ -465,7 +528,11 @@ impl TriggerCoordinator {
             network_enabled: None,
             allowed_paths: None,
         };
-        let execution = sandbox.execute(&script.language, &code, &sandbox_config);
+        let runner = ctx
+            .script_runner
+            .clone()
+            .unwrap_or_else(|| Arc::new(SandboxScriptRunner::new()) as Arc<dyn ScriptRunner>);
+        let execution = runner.execute(&script.language, &code, &sandbox_config);
 
         let execution_result = if timeout > 0 {
             match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await {
@@ -842,6 +909,8 @@ impl NodeHandler for ContinueFromTriggerHandler {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Duration;
     use wf_execution_shared::context::ExecutorContext;
     use wf_tools::registry::ToolRegistry;
     use wf_types::workflow::EdgeType;
@@ -853,7 +922,7 @@ mod tests {
     use crate::entity::WorkflowExecutionEntity;
     use crate::handler::HandlerRegistry;
     use crate::register_graph;
-    use crate::register_script;
+    use crate::ScriptRegistry;
 
     fn options_with_input(input: serde_json::Value) -> WorkflowExecutionOptions {
         WorkflowExecutionOptions {
@@ -928,6 +997,70 @@ mod tests {
         let mut coordinator =
             WorkflowCoordinator::new(exec_ctx, graph, handlers)?.with_entity(entity);
         coordinator.execute().await
+    }
+
+    /// Hermetic script runner for trigger-script unit tests: no real
+    /// interpreter subprocess, no load sensitivity.
+    struct MockScriptRunner {
+        stdout: Option<String>,
+        stderr: Option<String>,
+        success: bool,
+        delay_ms: u64,
+        calls: Arc<AtomicU32>,
+    }
+
+    #[async_trait]
+    impl ScriptRunner for MockScriptRunner {
+        async fn execute(
+            &self,
+            _language: &str,
+            _code: &str,
+            _config: &SandboxConfig,
+        ) -> ScriptExecutionResult {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+            }
+            ScriptExecutionResult {
+                success: self.success,
+                script_name: "mock".to_string(),
+                stdout: self.stdout.clone(),
+                stderr: self.stderr.clone(),
+                exit_code: Some(if self.success { 0 } else { 1 }),
+                execution_time: 0,
+                error: if self.success {
+                    None
+                } else {
+                    self.stderr.clone().or(Some("mock failure".to_string()))
+                },
+                sandbox_mode: Some("Strict".to_string()),
+                strategy_id: Some("mock".to_string()),
+                violations: None,
+            }
+        }
+    }
+
+    fn mock_runner(stdout: Option<&str>, success: bool) -> Arc<dyn ScriptRunner> {
+        Arc::new(MockScriptRunner {
+            stdout: stdout.map(|s| s.to_string()),
+            stderr: if success {
+                None
+            } else {
+                Some("mock failure".to_string())
+            },
+            success,
+            delay_ms: 0,
+            calls: Arc::new(AtomicU32::new(0)),
+        })
+    }
+
+    fn script_context(
+        registry: &Arc<ScriptRegistry>,
+        runner: Arc<dyn ScriptRunner>,
+    ) -> TriggerContext {
+        TriggerContext::new(Id::new(), Id::new())
+            .with_script_registry(registry.clone())
+            .with_script_runner(runner)
     }
 
     #[test]
@@ -1088,12 +1221,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_trigger_execute_script() {
-        register_script(
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register(
             "hello",
             "javascript",
             "console.log(JSON.stringify({greeting: 'Hello, ' + parameters.name}));",
         );
-        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let ctx = script_context(&registry, mock_runner(Some("{\"greeting\":\"Hello, world\"}"), true));
 
         let result = TriggerCoordinator::execute(
             &TriggerAction::ExecuteScript {
@@ -1125,7 +1259,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_trigger_execute_script_missing() {
-        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let registry = Arc::new(ScriptRegistry::new());
+        let ctx = script_context(&registry, mock_runner(None, true));
         let result = TriggerCoordinator::execute(
             &TriggerAction::ExecuteScript {
                 script_name: "not_registered".to_string(),
@@ -1143,8 +1278,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_trigger_execute_script_ignore_error() {
-        register_script("boom", "javascript", "throw new Error('kaboom');");
-        let ctx = TriggerContext::new(Id::new(), Id::new());
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register("boom", "javascript", "throw new Error('kaboom');");
+        let ctx = script_context(&registry, mock_runner(None, false));
         let result = TriggerCoordinator::execute(
             &TriggerAction::ExecuteScript {
                 script_name: "boom".to_string(),
@@ -1158,6 +1294,33 @@ mod tests {
         .await;
         assert!(result.success, "ignore_error should swallow failures");
         assert_eq!(result.result.unwrap()["success"], serde_json::json!(false));
+    }
+
+    #[tokio::test]
+    async fn test_trigger_execute_script_timeout() {
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register("slow", "javascript", "while (true) {}");
+        let runner: Arc<dyn ScriptRunner> = Arc::new(MockScriptRunner {
+            stdout: None,
+            stderr: None,
+            success: true,
+            delay_ms: 10_000,
+            calls: Arc::new(AtomicU32::new(0)),
+        });
+        let ctx = script_context(&registry, runner);
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "slow".to_string(),
+                parameters: None,
+                timeout: Some(50),
+                ignore_error: Some(false),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(!result.success, "timeout must fail the trigger");
+        assert!(result.error.unwrap().contains("timed out after 50ms"));
     }
 
     #[tokio::test]

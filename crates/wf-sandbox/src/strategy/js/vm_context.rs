@@ -133,7 +133,7 @@ impl StrategyImplementation for JavaScriptVmContextStrategy {
     }
 
     fn priority(&self) -> i32 {
-        25
+        30
     }
 
     fn is_available(&self) -> bool {

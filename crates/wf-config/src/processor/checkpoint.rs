@@ -18,6 +18,7 @@ pub fn merge_checkpoint_with_defaults(user: &UnifiedCheckpointPolicy) -> Unified
             include_history: Some(true),
             include_statistics: Some(false),
             metadata: None,
+            asynchronous: None,
         })),
         retention: user.retention.clone().or(Some(CheckpointRetentionConfig {
             max_checkpoints: Some(10),

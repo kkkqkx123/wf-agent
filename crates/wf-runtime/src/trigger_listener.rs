@@ -379,11 +379,20 @@ mod tests {
     }
 
     /// Wait until the bus sees the expected number of receivers (the
-    /// listener subscribes on its first poll).
+    /// listener subscribes on its first poll). Bounded: a wrong expectation
+    /// must fail loudly instead of spinning forever.
     async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
-        while bus.receiver_count() < expected_receivers {
-            tokio::task::yield_now().await;
+        for _ in 0..200 {
+            if bus.receiver_count() >= expected_receivers {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        panic!(
+            "expected {} receivers within 2s, got {}",
+            expected_receivers,
+            bus.receiver_count()
+        );
     }
 
     /// Poll a condition until it holds (2s budget).

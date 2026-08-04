@@ -245,6 +245,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -271,6 +272,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -293,6 +295,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -315,6 +318,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )

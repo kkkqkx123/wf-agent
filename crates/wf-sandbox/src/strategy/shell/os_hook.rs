@@ -135,25 +135,27 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
         denied.extend_from_slice(&[SYS_fork, SYS_vfork, SYS_clone, SYS_clone3]);
     }
 
-    // Filesystem policy: with no configured write paths, deny filesystem
-    // modification syscalls (unlink/rmdir/rename/mkdir/chmod/...). This is
-    // the syscall-level enforcement behind the VFS write policy and closes
-    // the `rm -rf` gap even if a static-analysis gate were bypassed.
+    // Filesystem policy: write authorization does NOT imply delete
+    // authorization. Delete-class syscalls (unlink/rmdir/rename/...) are only
+    // permitted when `allowed_remove_paths` is explicitly configured;
+    // create/modify-class syscalls (mkdir/chmod/truncate/...) follow
+    // `allowed_write_paths`. With no remove paths configured, deletes are
+    // rejected at the syscall layer even if a static-analysis gate were
+    // bypassed, closing the `rm -rf` gap.
     let write_paths: &[String] = policy
         .filesystem
         .as_ref()
         .map(|f| f.allowed_write_paths.as_slice())
         .unwrap_or(&[]);
+    let remove_paths: &[String] = policy
+        .filesystem
+        .as_ref()
+        .map(|f| f.allowed_remove_paths.as_slice())
+        .unwrap_or(&[]);
     if write_paths.is_empty() {
         denied.extend_from_slice(&[
             SYS_mkdir,
             SYS_mkdirat,
-            SYS_rmdir,
-            SYS_unlink,
-            SYS_unlinkat,
-            SYS_rename,
-            SYS_renameat,
-            SYS_renameat2,
             SYS_symlink,
             SYS_symlinkat,
             SYS_link,
@@ -173,6 +175,16 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
             SYS_utimes,
             SYS_utimensat,
             SYS_futimesat,
+        ]);
+    }
+    if remove_paths.is_empty() {
+        denied.extend_from_slice(&[
+            SYS_rmdir,
+            SYS_unlink,
+            SYS_unlinkat,
+            SYS_rename,
+            SYS_renameat,
+            SYS_renameat2,
         ]);
     }
 
@@ -397,6 +409,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -446,6 +459,7 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
+                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -591,13 +605,13 @@ mod tests {
         ] {
             assert!(
                 denied.contains(&syscall),
-                "fs-modify syscall {syscall} must be denied without write paths"
+                "fs-modify syscall {syscall} must be denied without write/remove paths"
             );
         }
     }
 
     #[test]
-    fn test_fs_mod_allowed_with_write_paths() {
+    fn test_fs_mod_write_allowed_but_delete_denied_with_write_paths_only() {
         use wf_types::script::sandbox::FilesystemPolicy;
         let policy = SandboxPolicy {
             filesystem: Some(FilesystemPolicy {
@@ -611,15 +625,60 @@ mod tests {
             ..basic_policy()
         };
         let denied = get_denied_syscalls(&policy);
+        for syscall in [libc::SYS_mkdir, libc::SYS_chmod, libc::SYS_truncate] {
+            assert!(
+                !denied.contains(&syscall),
+                "create/modify syscall {syscall} must be allowed with write paths configured"
+            );
+        }
         for syscall in [
             libc::SYS_unlink,
             libc::SYS_unlinkat,
             libc::SYS_rmdir,
             libc::SYS_rename,
+            libc::SYS_renameat,
+            libc::SYS_renameat2,
+        ] {
+            assert!(
+                denied.contains(&syscall),
+                "delete-class syscall {syscall} must stay denied without remove paths: \
+                 write authorization does not imply delete authorization"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fs_mod_delete_allowed_with_remove_paths() {
+        use wf_types::script::sandbox::FilesystemPolicy;
+        let policy = SandboxPolicy {
+            filesystem: Some(FilesystemPolicy {
+                allowed_read_paths: vec![],
+                allowed_write_paths: vec![],
+                allowed_remove_paths: vec!["/workspace".to_string()],
+                allowed_execute_paths: vec![],
+                copy_on_write: true,
+                max_file_size: 1024,
+            }),
+            ..basic_policy()
+        };
+        let denied = get_denied_syscalls(&policy);
+        for syscall in [
+            libc::SYS_unlink,
+            libc::SYS_unlinkat,
+            libc::SYS_rmdir,
+            libc::SYS_rename,
+            libc::SYS_renameat,
+            libc::SYS_renameat2,
         ] {
             assert!(
                 !denied.contains(&syscall),
-                "fs-modify syscall {syscall} must stay allowed when write paths are configured"
+                "delete-class syscall {syscall} must be allowed when remove paths are configured"
+            );
+        }
+        for syscall in [libc::SYS_mkdir, libc::SYS_chmod, libc::SYS_truncate] {
+            assert!(
+                denied.contains(&syscall),
+                "create/modify syscall {syscall} must stay denied without write paths"
             );
         }
     }

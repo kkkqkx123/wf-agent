@@ -129,19 +129,19 @@ impl ShellAnalyzer for BashAnalyzer {
             }
         };
 
-        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
+        if policy.denied_commands.contains(&primary) {
             return ShellAnalysisResult {
                 allowed: false,
-                reason: Some(format!("Command not in whitelist: {primary}")),
+                reason: Some(format!("Command denied by blacklist: {primary}")),
                 command: ctx.command.to_string(),
                 shell_type: SHELL_TYPE,
             };
         }
 
-        if policy.denied_commands.contains(&primary) {
+        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
             return ShellAnalysisResult {
                 allowed: false,
-                reason: Some(format!("Command denied by blacklist: {primary}")),
+                reason: Some(format!("Command not in whitelist: {primary}")),
                 command: ctx.command.to_string(),
                 shell_type: SHELL_TYPE,
             };
@@ -289,6 +289,24 @@ mod tests {
         let result = analyze("cat /etc/passwd", &policy);
         assert!(!result.allowed);
         assert!(result.reason.unwrap().contains("whitelist"));
+    }
+
+    #[test]
+    fn test_blacklist_wins_over_whitelist() {
+        let policy = ShellPolicy {
+            allowed_commands: Some(vec!["sudo".to_string(), "echo".to_string()]),
+            denied_commands: None,
+            dangerous_patterns: None,
+            allow_pipe: None,
+            allow_redirect: None,
+        };
+        let result = analyze("sudo rm -rf /", &policy);
+        assert!(!result.allowed);
+        let reason = result.reason.unwrap();
+        assert!(
+            reason.contains("blacklist"),
+            "blacklist must be reported before whitelist: {reason}"
+        );
     }
 
     #[test]

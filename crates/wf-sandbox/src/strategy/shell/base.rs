@@ -52,6 +52,17 @@ pub struct ShellAnalysisContext<'a> {
     pub tokens: &'a [String],
 }
 
+/// Contract for shell analyzers. Rule evaluation order is fixed for every
+/// language analyzer and MUST NOT be reordered (deny always wins):
+///
+/// 1. **blacklist** — `denied_commands` hit → deny (highest priority)
+/// 2. **whitelist** — non-empty `allowed_commands` miss → deny
+/// 3. **dangerous patterns** — `dangerous_patterns` regex hit → deny
+/// 4. **switch rules** — `allow_pipe` / `allow_redirect` off → deny
+///
+/// Any new shell language analyzer must follow this exact order so error
+/// priority stays consistent across languages (blacklist reports before
+/// whitelist misses).
 pub trait ShellAnalyzer: Send + Sync {
     fn shell_type(&self) -> ShellType;
 

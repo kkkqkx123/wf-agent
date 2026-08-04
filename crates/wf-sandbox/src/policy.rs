@@ -1,7 +1,4 @@
-use wf_types::script::sandbox::{
-    FilesystemPolicy, JavaScriptPolicy, LuaPolicy, NetworkAccessType, NetworkPolicy, ProcessPolicy,
-    PythonPolicy, ResourcePolicy, SandboxMode, SandboxPolicy, ShellPolicy,
-};
+use wf_types::script::sandbox::SandboxPolicy;
 
 pub struct SandboxPolicyManager;
 
@@ -25,86 +22,17 @@ impl SandboxPolicyManager {
             resource: overrides.resource.clone().or_else(|| base.resource.clone()),
         }
     }
-
-    pub fn default_strict() -> SandboxPolicy {
-        SandboxPolicy {
-            mode: Some(SandboxMode::Strict),
-            shell: Some(ShellPolicy {
-                allowed_commands: None,
-                denied_commands: Some(vec![
-                    "sudo".to_string(),
-                    "su".to_string(),
-                    "chroot".to_string(),
-                ]),
-                dangerous_patterns: Some(vec!["rm\\s+(-rf|--recursive)".to_string()]),
-                allow_pipe: Some(true),
-                allow_redirect: Some(true),
-            }),
-            python: Some(PythonPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![],
-                allow_subprocess: false,
-                restrict_builtin_open: true,
-                allow_dynamic_eval: false,
-            }),
-            javascript: Some(JavaScriptPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![],
-                allow_child_process: false,
-                allow_fs_write: false,
-                allow_dynamic_eval: false,
-            }),
-            lua: Some(LuaPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![
-                    "os".to_string(),
-                    "io".to_string(),
-                    "package".to_string(),
-                    "debug".to_string(),
-                    "ffi".to_string(),
-                ],
-                allow_os_execute: false,
-                restrict_io_open: true,
-                allow_dynamic_load: false,
-            }),
-            filesystem: Some(FilesystemPolicy {
-                allowed_read_paths: vec![],
-                allowed_write_paths: vec![],
-                allowed_remove_paths: vec![],
-                allowed_execute_paths: vec![],
-                copy_on_write: true,
-                max_file_size: 10 * 1024 * 1024,
-            }),
-            process: Some(ProcessPolicy {
-                allowed_child_processes: vec![],
-                denied_child_processes: vec![],
-                max_child_processes: 10,
-                allow_fork: false,
-                allow_exec: false,
-            }),
-            network: Some(NetworkPolicy {
-                access_type: NetworkAccessType::None,
-                allowed_domains: None,
-                allowed_ports: None,
-                allow_dns: false,
-            }),
-            resource: Some(ResourcePolicy {
-                cpu_limit_ms: None,
-                memory_limit_mb: Some(512),
-                disk_limit_mb: Some(1024),
-                timeout_limit_ms: Some(30000),
-            }),
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::default_policy::default_sandbox_policy;
+    use wf_types::script::sandbox::{SandboxMode, ShellPolicy};
 
     #[test]
     fn test_merge_policy_overrides_shell() {
-        let base = SandboxPolicyManager::default_strict();
+        let base = default_sandbox_policy();
         let override_shell = ShellPolicy {
             allowed_commands: Some(vec!["ls".to_string()]),
             denied_commands: Some(vec![]),
@@ -116,7 +44,7 @@ mod tests {
             shell: Some(override_shell),
             ..base.clone()
         };
-        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        let merged = SandboxPolicyManager::merge(base, &overrides);
         assert_eq!(
             merged.shell.as_ref().unwrap().allowed_commands,
             Some(vec!["ls".to_string()])
@@ -126,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_default_strict_mode() {
-        let policy = SandboxPolicyManager::default_strict();
+        let policy = default_sandbox_policy();
         assert_eq!(policy.mode, Some(SandboxMode::Strict));
         assert!(policy.lua.is_some());
         assert!(policy.shell.is_some());
@@ -134,12 +62,12 @@ mod tests {
 
     #[test]
     fn test_merge_mode_explicit_strict_overrides_base() {
-        let base = SandboxPolicyManager::default_strict();
+        let base = default_sandbox_policy();
         let overrides = SandboxPolicy {
             mode: Some(SandboxMode::Strict),
             ..base.clone()
         };
-        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        let merged = SandboxPolicyManager::merge(base, &overrides);
         assert_eq!(
             merged.mode,
             Some(SandboxMode::Strict),
@@ -149,23 +77,23 @@ mod tests {
 
     #[test]
     fn test_merge_mode_inherits_when_unset() {
-        let base = SandboxPolicyManager::default_strict();
+        let base = default_sandbox_policy();
         let overrides = SandboxPolicy {
             mode: None,
             ..base.clone()
         };
-        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        let merged = SandboxPolicyManager::merge(base, &overrides);
         assert_eq!(merged.mode, Some(SandboxMode::Strict));
     }
 
     #[test]
     fn test_merge_mode_override_lenient() {
-        let base = SandboxPolicyManager::default_strict();
+        let base = default_sandbox_policy();
         let overrides = SandboxPolicy {
             mode: Some(SandboxMode::Lenient),
             ..base.clone()
         };
-        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        let merged = SandboxPolicyManager::merge(base, &overrides);
         assert_eq!(merged.mode, Some(SandboxMode::Lenient));
     }
 }

@@ -10,7 +10,8 @@
 
 - **分层架构**：Policy → Strategy (链) → Runtime
 - **策略可组合**：全局默认策略 + Profile 规则 + 执行时覆盖
-- **显式有序策略链**：分析层门禁 + 执行层隔离串行纵深防御，无隐式 priority 回退
+- **三阶段链模型**：分析门禁全序通过 → 执行层取首个可用 → 兜底显式报错，纵深防御，无静默降级
+- **门禁保障**：有默认门禁的语言（shell/python/lua）链中必须含 Analysis 策略，fail-closed；`skip_gate_check` 显式豁免
 - **Fail-closed**：链中策略缺失/不可用时报错，不静默降级
 - **宽松模式**：严格模式拒绝违规，宽松模式记录违规但仍真正执行
 - **模式合并无哨兵**：`SandboxPolicy.mode` 为 `Option`，"未指定"继承 base，"显式 Strict"真实生效
@@ -63,7 +64,7 @@ wf-sandbox
 ```rust
 // crates/wf-types/src/script/sandbox.rs
 
-SandboxMode       → Disabled | Lenient | Strict | Custom
+SandboxMode       → Disabled | Lenient | Strict
 FilesystemPolicy  → 路径读写白名单 + CoW + 文件大小限制
 ProcessPolicy     → 子进程白名单/黑名单 + fork/exec 控制
 NetworkPolicy     → None | Localhost | Specific | All
@@ -100,26 +101,32 @@ trait StrategyResolver {
 }
 ```
 
-链语义：
+链语义（**三阶段模型**，策略在链中的位置只决定同阶段内的相对顺序）：
+
+1. **门禁阶段**：链中全部 `Analysis` 策略按链序执行，Strict 首违即拒，Lenient 记录违规继续；任一分析策略不可用 → 显式报错（不跳过门禁）。Analysis 恒先于 Execution，与其在链中的位置无关。
+2. **执行阶段**：按链序取第一个 `is_available()` 的 Execution 策略运行，不可用跳过并记 `StrategyFallback` 审计。
+3. **兜底阶段**：执行层全部不可用 → 显式报错（附不可用 ID 列表）。
+
+链解析与校验：
 - `preferred_ids` 非空时即链顺序；为空时使用每语言默认链常量。
 - **未知策略 ID 直接报错（fail-closed）**，不再静默丢弃。
-- Runtime 执行：分析层按链序全数通过 → 执行层按链序取第一个可用者运行。
-- 执行层全部不可用时显式报错（附不可用 ID 列表）。
+- **门禁保障（gate guarantee）**：shell/python/lua 的链必须至少含一个 Analysis 策略，否则 fail-closed（错误提示给出豁免方式与缺省建议门禁 ID，shell 建议 `vfs-gate`，自定义链如 `["vfs-gate", "os-hook"]` 可保留路径级安全）；`SandboxConfig.skip_gate_check = true` 可显式豁免（高级用户自担风险，审计事件标记）。javascript 无 Analysis 策略（vm-context 为运行时拦截），不受此约束。
 
 每语言默认链：
 
 | 语言 | 默认链 | 说明 |
 |------|--------|------|
-| shell | `[static-analyzer, os-hook]` | tokenize 门禁 + seccomp BPF |
+| shell | `[static-analyzer, vfs-gate, os-hook]` | 命令级门禁 + 路径级门禁 + seccomp BPF |
 | python | `[ast-analyzer, builtin-hook]` | AST 门禁 + 内置函数挂钩 |
 | javascript | `[vm-context]` | 包裹 require/fs 的 node 执行 |
-| lua | `[mlua-sandbox, static-analyzer]` | 内嵌 VM + 标识符级 tokenize 门禁 |
+| lua | `[static-analyzer, mlua-sandbox]` | 标识符级 tokenize 门禁 + 内嵌 VM |
 
 注册的全部策略：
 
 | 语言 | 策略 ID | kind | 说明 |
 |------|---------|------|------|
-| shell | static-analyzer | Analysis | 命令替换拒绝 + shlex 分词分析 + 读写路径检查（门禁，不执行） |
+| shell | static-analyzer | Analysis | 命令替换拒绝 + shlex 分词分析 + 命令级规则（门禁，不执行） |
+| shell | vfs-gate | Analysis | 路径级门禁：token 级提取读写路径 + SecurityValidator + check_read/check_write（门禁，不执行） |
 | shell | os-hook | Execution | 真实 seccomp BPF + rlimit，映射 network/process/filesystem 策略 |
 | shell | container | Execution | Docker 容器隔离（`docker --version` 探测可用性） |
 | python | ast-analyzer | Analysis | Python AST 真实解析（门禁，不执行） |
@@ -137,20 +144,21 @@ trait StrategyResolver {
 
 ```
 execute(language, command, config):
-  1. 确定 mode：config.mode → default_policy.mode → Strict
+  1. 确定 mode：config.mode → profile.mode → global_config.mode → default_policy.mode → Strict
   2. mode == Disabled? → execute_direct (sh -c 直接执行)
   3. 合并策略：SandboxPolicyManager::merge(&default, &config.policy)
   4. 解析策略链：按语言取 shell_strategy / python_strategy / ...
      - 非空 = 链顺序；空 = 每语言默认链
   5. resolve_chain：未知 ID → 显式报错（fail-closed）
-  6. 分析层（kind == Analysis，链序）：全数通过才继续
+  6. 门禁保障：shell/python/lua 链无 Analysis 策略 → fail-closed（skip_gate_check=true 豁免）
+  7. 门禁阶段（kind == Analysis，链序）：全数通过才继续
      - Strict：首个违规即拒绝
      - Lenient：记录 violation，继续交给执行层真正执行
      - 分析策略不可用 → 显式报错（不跳过门禁）
-  7. 执行层（kind == Execution，链序）：取第一个可用者运行
+  8. 执行阶段（kind == Execution，链序）：取第一个可用者运行
      - 全部不可用 → 显式报错（附缺失 ID 列表）
-  8. 统一经 execute_with_timeout 强制 timeout_limit_ms
-  9. 返回 ScriptExecutionResult（Lenient 附加 analysis violations）
+  9. 统一经 execute_with_timeout 强制 timeout_limit_ms
+  10. 返回 ScriptExecutionResult（Lenient 附加 analysis violations）
 ```
 
 ---
@@ -165,8 +173,10 @@ execute(language, command, config):
 - **Layer 0**：全局危险模式正则匹配（`rm -rf`，fork bomb 等）
 - **Layer 0**：管道操作符检查（`|`）
 - **Layer 1**：命令替换拒绝——`$(...)` 与反引号命令替换直接拒绝（bash/powershell），防止 `echo $(rm -rf /)` 隐藏危险命令
-- **Layer 2**：命令链解析（`;` `&&` `||` `|`，引号/反斜杠感知，保留原文供 shlex 重新分词），子命令经 `shlex` 分词后逐条白名单/黑名单分析
-- **Layer 3**：VFS 路径检查——token 级提取读写路径（重定向目标按**写路径**校验，`>&2`/heredoc 不误判），`SecurityValidator` + `check_read`/`check_write` 双向校验
+- **Layer 2**：命令链解析（`;` `&&` `||` `|`，引号/反斜杠感知，保留原文供 shlex 重新分词），子命令经 `shlex` 分词后逐条黑名单/白名单/危险模式分析（规则顺序见 3.10）
+- **Layer 3**：VFS 路径检查（可选兜底）——token 级提取读写路径（重定向目标按**写路径**校验，`>&2`/heredoc 不误判），`SecurityValidator` + `check_read`/`check_write` 双向校验；**链中含 vfs-gate 时此层跳过**（由 vfs-gate 单次执行，避免双重检查），无 vfs-gate 时保留为兜底
+
+路径提取/校验逻辑下沉至 `src/strategy/shell/vfs_paths.rs` 公共模块（`parse_command_chain`/`tokenize_command`/`extract_file_paths`/`check_vfs_paths`），供 static-analyzer 与 vfs-gate 复用，避免双份实现漂移。
 
 ### 3.2 Shell os-hook (Seccomp BPF)
 
@@ -194,11 +204,12 @@ BPF 过滤器: LD nr → JEQ 链匹配拒绝列表 → 默认 ALLOW
 - 性能：`perf_event_open`
 - 网络（当 policy 禁止时）：`socket`, `connect`, `sendto`, `recvfrom` 等 18 个
 
-**策略映射（P1 补齐）**：
+**策略映射**：
 - `process.allow_exec=false` → 拒绝 `execve`/`execveat`
 - `process.allow_fork=false` → 拒绝 `fork`/`vfork`/`clone`/`clone3`
-- `filesystem.allowed_write_paths` 为空 → 拒绝 fsMod 类系统调用（`unlink`/`unlinkat`/`rmdir`/`rename`/`mkdir`/`chmod` 等 28 个），从系统调用层兜住 `rm -rf`
-- ShellPolicy 命令级管控由链中 static-analyzer 门禁承担；其系统级命令（chroot/mount/reboot/insmod 等）已由基础拒绝列表覆盖
+- `filesystem.allowed_write_paths` 为空 → 拒绝**创建/修改类** fsMod 系统调用（`mkdir`/`mkdirat`/`symlink`/`link`/`mknod`/`chmod`/`chown`/`truncate`/`utime` 等 21 个）
+- `filesystem.allowed_remove_paths` 为空 → 拒绝**删除类**系统调用（`unlink`/`unlinkat`/`rmdir`/`rename`/`renameat`/`renameat2` 共 6 个）。**写路径 ≠ 删除授权**：未显式授予删除权限时，删除操作一律系统调用层拒绝，从底层兜住 `rm -rf`（即使分析门禁被绕过）
+- ShellPolicy 命令级管控由链中 static-analyzer/vfs-gate 门禁承担；其系统级命令（chroot/mount/reboot/insmod 等）已由基础拒绝列表覆盖
 - 默认策略 `allow_exec=true`、`allow_fork=true`，保证默认链可执行外部命令；用户显式收紧时系统调用层立即生效
 
 ### 3.3 Python builtin-hook
@@ -297,6 +308,8 @@ return JSON({"safe": bool, "violations": [...]})
 - 替换 `require` 为白名单/黑名单过滤版
 - 通过 `tokio::task::spawn_blocking` 调用，外层 `execute_with_timeout`
 
+默认链 `[static-analyzer, mlua-sandbox]`：static-analyzer 门禁先于执行，mlua-sandbox 承担 API 级隔离。
+
 ### 3.7 Lua static-analyzer（分析门禁）
 
 文件：`src/strategy/lua/static_analyzer.rs`
@@ -326,6 +339,30 @@ return JSON({"safe": bool, "violations": [...]})
 `is_available()` 通过 `docker --version` 探测（结果缓存）；docker 不可用时返回不可用，
 链末执行层全部不可用则显式报错，不再静默降级。遗留 `type: docker` 配置映射到 `["container"]` 链。
 
+### 3.10 Shell vfs-gate（路径级分析门禁）
+
+文件：`src/strategy/vfs_gate.rs`
+
+独立的路径级 Analysis 门禁（shell 语言注册），职责单一化：
+- 仅执行路径检查：token 级提取读写路径（复用 `shell/vfs_paths.rs` 公共模块）→ `SecurityValidator` 路径合法性 → `check_read`/`check_write` 双向校验
+- **不重复命令级规则**（黑名单/危险模式等归 static-analyzer）
+- 未启用 VFS（`options.vfs` 为 None）时为空操作门禁（返回 allow），static-analyzer 的 VFS 兜底继续生效
+- shell 默认链 `[static-analyzer, vfs-gate, os-hook]`：命令级与路径级检查分离；链中含 vfs-gate 时 runtime 置 `skip_vfs_check=true`，static-analyzer 跳过重复的 VFS 检查
+- 作为门禁保障的缺省建议门禁：自定义链 `["vfs-gate", "os-hook"]` 可保留路径级安全
+
+### 3.11 单策略内规则顺序（deny 恒优先）
+
+所有 shell 语言分析器（bash/cmd/powershell，及未来新增语言）必须遵循固定检查顺序，由
+`ShellAnalyzer` trait 文档注释固化：
+
+1. **黑名单** — `denied_commands` 命中 → 拒绝（最高优先级，报错含 `blacklist`）
+2. **白名单** — `allowed_commands` 非空且未命中 → 拒绝（报错含 `whitelist`）
+3. **危险模式** — `dangerous_patterns` 正则命中 → 拒绝
+4. **开关类** — `allow_pipe`/`allow_redirect` 关闭 → 拒绝
+
+两序（先白后黑 / 先黑后白）最终均收敛为 deny 优先，统一为**黑名单 → 白名单 → 危险模式 → 开关类**
+后报错信息优先级一致（黑名单命中优先于白名单未命中），便于用户排查。
+
 ---
 
 ## 四、VFS 子系统
@@ -343,10 +380,10 @@ VFS 已通过 config 集成到 `SandboxRuntime`（`options.vfs`）。
 `VfsProvider` trait 提供 `read_file`/`write_file`/`exists`/`check_read`/`check_write` 异步接口，
 其中 `check_read`/`check_write` 为**纯权限检查**（不产生副作用），供分析门禁预执行校验使用。
 
-**当前 VFS 为预执行检查**（P1 落地）：Shell static-analyzer 从 token 级提取路径——
-重定向目标（`>`/`>>`/`2>`/`&>`）按**写路径**经 `check_write` 校验，其余路径按读路径经
-`check_read` 校验；`>&2` 文件描述符复制、heredoc（`<<`）、herestring（`<<<`）不误判。
-OverlayVFS 的 `read_file`/`write_file` 均强制路径策略。
+**当前 VFS 为预执行检查**：路径级校验由链中 Analysis 门禁完成——默认链走 `vfs-gate`
+（或 static-analyzer 兜底），从 token 级提取路径：重定向目标（`>`/`>>`/`2>`/`&>`）按**写路径**
+经 `check_write` 校验，其余路径按读路径经 `check_read` 校验；`>&2` 文件描述符复制、
+heredoc（`<<`）、herestring（`<<<`）不误判。OverlayVFS 的 `read_file`/`write_file` 均强制路径策略。
 **不拦截子进程实际 IO**（CoW/路径重定向为长期任务，见 `docs/plan/sandbox-redesign.md`）。
 
 ---
@@ -393,6 +430,11 @@ validate_sandbox_config(config: &SandboxConfig) → ConfigResult<()>
 ```
 
 `SandboxGlobalConfig::default()` 中 `audit_logging` **默认开启**（true），安全事件默认可追溯。
+`SandboxRuntime::new()` 以 `SandboxGlobalConfig::default()` 初始化全局配置（审计恒开启）。
+全局 mode 参与决议链：`config.mode → profile.mode → global_config.mode → default_policy.mode → Strict`，
+其中 `SandboxGlobalConfig.mode` 仅当 config 与 profile 均未指定时生效。
+
+`SandboxConfig.skip_gate_check`（可选，默认 false）：显式豁免门禁保障校验，允许无 Analysis 策略的链（仅高级用户使用）。
 
 ---
 
@@ -411,13 +453,30 @@ SecurityViolation     → 安全违规记录
 
 Profile 解析器 `SandboxProfileResolver`（尚未实现，定义在补全计划中）。
 
+### 7.1 审计事件完整性约定
+
+所有 `AuditEvent` 字段必须显式填值，禁止缺省遗漏。每类事件的必填字段约定：
+
+| event_type | 触发路径 | language | script_name | violation | strategy_id | allowed |
+|------------|----------|----------|-------------|-----------|-------------|---------|
+| `ExecutionAllowed` | Disabled 直接执行 | 实际语言 | `direct-exec` | `None`（显式） | `None`（显式） | `true` |
+| `ExecutionAllowed` | 执行策略成功 | 实际语言 | 策略返回名 | `None` | 执行策略 ID | `true` |
+| `ExecutionDenied` | 门禁/执行拒绝 | 实际语言 | 拒绝来源 | 错误/违规信息 | 相关策略 ID | `false` |
+| `ExecutionViolation` | Lenient 违规继续 | 实际语言 | 策略返回名 | 首条违规 | 执行策略 ID | `true` |
+| `StrategyFallback` | 执行策略不可用跳过 | 实际语言 | `sandbox-<lang>` | 不可用原因 | 被跳过策略 ID | `true` |
+| `StrategyFallback` | 链解析失败（兜底） | 实际语言 | `sandbox-<lang>` | 错误信息 | **待解析链首个策略 ID**（显式链取首选 ID，默认链取语言默认链首项） | `false` |
+| `StrategyFallback` | 执行层全部不可用 | 实际语言 | `sandbox-<lang>` | 不可用 ID 列表 | `None`（显式） | `false` |
+
+`SandboxGlobalConfig.audit_logging` 默认开启（true）；`SandboxRuntime::new()` 以
+`SandboxGlobalConfig::default()` 初始化，审计恒开启，`with_global_config` 可显式覆盖。
+
 ---
 
 ## 八、与 TypeScript 参考实现对比
 
 | 维度 | TS 实现 | Rust 实现 | 状态 |
 |------|---------|-----------|------|
-| Shell static-analyzer | 4 层 + bash/powershell/cmd 解析 | 命令替换拒绝 + shlex 分词 + 读写路径检查 | ✅ 等价 |
+| Shell static-analyzer | 4 层 + bash/powershell/cmd 解析 | 命令替换拒绝 + shlex 分词（命令级规则）+ vfs-gate 路径级门禁 | ✅ 等价 |
 | Shell os-hook (seccomp) | `seccomp-loader` 二进制 | 真实 BPF 过滤 (libc) + 策略映射 | 🏆 RS 更优 |
 | Python builtin-hook | 生成包围代码 | 生成包围代码 | ✅ 等价 |
 | Python ast-analyzer | ast 子进程 JSON 分析 | ast 子进程 JSON 分析 | ✅ 等价 |

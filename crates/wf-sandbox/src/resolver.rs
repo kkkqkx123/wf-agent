@@ -14,12 +14,16 @@ pub enum StrategyKind {
 }
 
 /// Per-language default chains used when the config does not specify a chain.
-/// Order matters: analysis gates run first, then the first available
-/// execution strategy runs.
-pub const DEFAULT_SHELL_CHAIN: &[&str] = &["static-analyzer", "os-hook"];
+///
+/// Chain semantics are three-phase: every `Analysis` strategy runs in chain
+/// order as a gate (Strict rejects on first denial, Lenient records and
+/// continues); then the first available `Execution` strategy runs. Analysis
+/// strategies therefore always precede execution regardless of their
+/// position in the chain list.
+pub const DEFAULT_SHELL_CHAIN: &[&str] = &["static-analyzer", "vfs-gate", "os-hook"];
 pub const DEFAULT_PYTHON_CHAIN: &[&str] = &["ast-analyzer", "builtin-hook"];
 pub const DEFAULT_JS_CHAIN: &[&str] = &["vm-context"];
-pub const DEFAULT_LUA_CHAIN: &[&str] = &["mlua-sandbox", "static-analyzer"];
+pub const DEFAULT_LUA_CHAIN: &[&str] = &["static-analyzer", "mlua-sandbox"];
 
 pub fn default_chain(language: &str) -> &'static [&'static str] {
     match language {
@@ -31,6 +35,13 @@ pub fn default_chain(language: &str) -> &'static [&'static str] {
     }
 }
 
+/// Whether a language requires at least one `Analysis` strategy in its
+/// chain (gate guarantee). JavaScript is exempt because its only strategy
+/// (`vm-context`) enforces policy at runtime inside the wrapped execution.
+pub fn analysis_gate_required(language: &str) -> bool {
+    matches!(language, "shell" | "python" | "lua")
+}
+
 #[derive(Clone)]
 pub struct StrategyExecuteOptions {
     pub command: String,
@@ -40,6 +51,10 @@ pub struct StrategyExecuteOptions {
     pub env_vars: Option<HashMap<String, String>>,
     pub timeout_ms: Option<u64>,
     pub vfs: Option<Arc<dyn VfsProvider>>,
+    /// Set by the runtime when the resolved chain contains a dedicated
+    /// `vfs-gate` strategy, so `static-analyzer` skips its duplicated VFS
+    /// path checks (the gate runs them once).
+    pub skip_vfs_check: bool,
 }
 
 impl fmt::Debug for StrategyExecuteOptions {
@@ -52,6 +67,7 @@ impl fmt::Debug for StrategyExecuteOptions {
             .field("env_vars", &self.env_vars)
             .field("timeout_ms", &self.timeout_ms)
             .field("vfs", &self.vfs.as_ref().map(|_| "VfsProvider"))
+            .field("skip_vfs_check", &self.skip_vfs_check)
             .finish()
     }
 }
@@ -133,14 +149,17 @@ impl DefaultStrategyResolver {
 
     fn register_default_strategies(&mut self) {
         // Shell strategies
+        use crate::strategy::shell::os_hook::LinuxSeccompStrategy;
+        self.shell_strategies
+            .insert("os-hook".to_string(), Arc::new(LinuxSeccompStrategy));
         use crate::strategy::shell::static_analyzer::ShellStaticAnalyzerStrategy;
         self.shell_strategies.insert(
             "static-analyzer".to_string(),
             Arc::new(ShellStaticAnalyzerStrategy::new()),
         );
-        use crate::strategy::shell::os_hook::LinuxSeccompStrategy;
+        use crate::strategy::vfs_gate::VfsGateStrategy;
         self.shell_strategies
-            .insert("os-hook".to_string(), Arc::new(LinuxSeccompStrategy));
+            .insert("vfs-gate".to_string(), Arc::new(VfsGateStrategy));
         use crate::strategy::container::ContainerStrategy;
         self.shell_strategies
             .insert("container".to_string(), Arc::new(ContainerStrategy));
@@ -329,7 +348,7 @@ mod tests {
         let resolver = DefaultStrategyResolver::with_defaults();
         let chain = resolver.resolve_chain("shell", &[]).unwrap();
         let ids: Vec<&str> = chain.iter().map(|s| s.id()).collect();
-        assert_eq!(ids, vec!["static-analyzer", "os-hook"]);
+        assert_eq!(ids, vec!["static-analyzer", "vfs-gate", "os-hook"]);
         assert_eq!(
             chain[0].kind(),
             StrategyKind::Analysis,
@@ -337,6 +356,11 @@ mod tests {
         );
         assert_eq!(
             chain[1].kind(),
+            StrategyKind::Analysis,
+            "vfs-gate must be an analysis gate"
+        );
+        assert_eq!(
+            chain[2].kind(),
             StrategyKind::Execution,
             "os-hook must be an execution strategy"
         );

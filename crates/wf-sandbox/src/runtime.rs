@@ -10,7 +10,8 @@ use wf_types::script::sandbox::{
 use crate::default_policy::default_sandbox_policy;
 use crate::policy::SandboxPolicyManager;
 use crate::resolver::{
-    DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind, StrategyResolver,
+    analysis_gate_required, DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind,
+    StrategyResolver,
 };
 use crate::vfs::overlay::OverlayVFS;
 
@@ -32,7 +33,7 @@ impl SandboxRuntime {
         Self {
             resolver: Arc::new(DefaultStrategyResolver::with_defaults()),
             default_policy: default_sandbox_policy().clone(),
-            global_config: None,
+            global_config: Some(SandboxGlobalConfig::default()),
             audit_log: Mutex::new(Vec::new()),
         }
     }
@@ -50,7 +51,7 @@ impl SandboxRuntime {
         Self {
             resolver,
             default_policy: default_sandbox_policy().clone(),
-            global_config: None,
+            global_config: Some(SandboxGlobalConfig::default()),
             audit_log: Mutex::new(Vec::new()),
         }
     }
@@ -96,6 +97,7 @@ impl SandboxRuntime {
             vfs: config.vfs.clone().or(profile.vfs.clone()),
             legacy_type: config.legacy_type.clone(),
             resource_limits: config.resource_limits.clone(),
+            skip_gate_check: config.skip_gate_check,
         }
     }
 
@@ -196,9 +198,12 @@ impl SandboxRuntime {
     ) -> ScriptExecutionResult {
         let resolved_config = self.resolve_config(config);
 
+        // Mode resolution: config → profile (merged above) → global config →
+        // default policy → Strict.
         let mode = resolved_config
             .mode
             .clone()
+            .or_else(|| self.global_config.as_ref().and_then(|g| g.mode.clone()))
             .or(self.default_policy.mode.clone())
             .unwrap_or(SandboxMode::Strict);
 
@@ -235,17 +240,48 @@ impl SandboxRuntime {
         let chain = match self.resolver.resolve_chain(language, &preferred_ids) {
             Ok(chain) => chain,
             Err(e) => {
+                // Associate the event with the first strategy id of the
+                // intended chain (explicit config, else the language default).
+                let chain_context = preferred_ids.first().cloned().or_else(|| {
+                    crate::resolver::default_chain(language)
+                        .first()
+                        .map(|s| s.to_string())
+                });
                 self.record_audit(
                     AuditEventType::StrategyFallback,
                     language,
                     &format!("sandbox-{language}"),
                     Some(e.clone()),
-                    None,
+                    chain_context,
                     false,
                 );
                 return self.failed_result(language, &mode, e, None);
             }
         };
+
+        // Gate guarantee: languages with an analysis gate by default must keep
+        // at least one Analysis strategy in the chain. Failing closed prevents
+        // custom chains (e.g. ["os-hook"]) from silently dropping the
+        // pre-execution checks. Explicit skip_gate_check opts out.
+        let has_analysis_gate = chain.iter().any(|s| s.kind() == StrategyKind::Analysis);
+        let skip_gate = resolved_config.skip_gate_check.unwrap_or(false);
+        if analysis_gate_required(language) && !has_analysis_gate && !skip_gate {
+            let e = format!(
+                "Strategy chain for language '{language}' has no analysis gate \
+                 (Analysis strategies); refusing to run without it. Configure \
+                 an analysis strategy (e.g. vfs-gate for shell) or set \
+                 skip_gate_check to true to opt out."
+            );
+            self.record_audit(
+                AuditEventType::ExecutionDenied,
+                language,
+                &format!("sandbox-{language}"),
+                Some(e.clone()),
+                None,
+                false,
+            );
+            return self.failed_result(language, &mode, e, None);
+        }
 
         let vfs = if let Some(ref vfs_config) = resolved_config.vfs {
             if vfs_config.enabled {
@@ -277,6 +313,9 @@ impl SandboxRuntime {
             env_vars: None,
             timeout_ms: policy.resource.as_ref().and_then(|r| r.timeout_limit_ms),
             vfs,
+            // A dedicated vfs-gate in the chain runs the path checks itself;
+            // static-analyzer skips its duplicated VFS validation.
+            skip_vfs_check: chain.iter().any(|s| s.id() == "vfs-gate"),
         };
 
         // Phase 1: run all analysis gates in chain order. Strict rejects on
@@ -499,6 +538,7 @@ mod tests {
             vfs: None,
             legacy_type: None,
             resource_limits: None,
+            skip_gate_check: None,
         }
     }
 
@@ -591,6 +631,7 @@ mod tests {
                 ..default_sandbox_policy().clone()
             }),
             python_strategy: Some(vec!["direct".to_string()]),
+            skip_gate_check: Some(true),
             ..make_config(None)
         };
 
@@ -629,5 +670,234 @@ mod tests {
             result.stderr
         );
         assert_eq!(result.strategy_id.as_deref(), Some("ast-analyzer"));
+    }
+
+    #[tokio::test]
+    async fn test_gate_guarantee_denies_gateless_shell_chain() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["os-hook".to_string()]),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            !result.success,
+            "chain without analysis gate must fail closed: {:?}",
+            result.error
+        );
+        let error = result.error.unwrap_or_default();
+        assert!(error.contains("no analysis gate"), "error: {error}");
+    }
+
+    #[tokio::test]
+    async fn test_gate_guarantee_skipped_when_explicit() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["os-hook".to_string()]),
+            skip_gate_check: Some(true),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            result.success,
+            "skip_gate_check must allow gateless chain: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+    }
+
+    #[tokio::test]
+    async fn test_gate_guarantee_js_exempt() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            javascript_strategy: Some(vec!["vm-context".to_string()]),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("js", "console.log('hi')", &config).await;
+        let reached_execution = result.strategy_id.as_deref() == Some("vm-context")
+            || result
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("vm-context"));
+        assert!(
+            reached_execution,
+            "gate guarantee must not reject js; it must reach vm-context: {:?}",
+            result.error
+        );
+    }
+
+    #[tokio::test]
+    async fn test_global_config_mode_applied_when_unset() {
+        let runtime = SandboxRuntime::with_global_config(SandboxGlobalConfig {
+            mode: Some(SandboxMode::Disabled),
+            ..SandboxGlobalConfig::default()
+        });
+        let config = make_config(None);
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            result.success,
+            "global Disabled mode must apply when config/profile unset: {:?}",
+            result.error
+        );
+        assert_eq!(result.sandbox_mode, Some("Disabled".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_global_config_mode_does_not_override_explicit() {
+        let runtime = SandboxRuntime::with_global_config(SandboxGlobalConfig {
+            mode: Some(SandboxMode::Disabled),
+            ..SandboxGlobalConfig::default()
+        });
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert_eq!(result.sandbox_mode, Some("Strict".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_audit_logging_enabled_by_default() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(result.success);
+        let log = runtime.get_audit_log();
+        assert!(
+            !log.is_empty(),
+            "audit must be recorded by default (global config audit_logging=true)"
+        );
+        assert!(log
+            .iter()
+            .any(|e| e.event_type == AuditEventType::ExecutionAllowed));
+    }
+
+    #[tokio::test]
+    async fn test_audit_disabled_mode_records_complete_event() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Disabled));
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(result.success);
+        let log = runtime.get_audit_log();
+        let event = log
+            .iter()
+            .find(|e| e.event_type == AuditEventType::ExecutionAllowed)
+            .expect("disabled direct execution must be audited");
+        assert_eq!(event.language, "shell");
+        assert_eq!(event.script_name, "direct-exec");
+        assert_eq!(event.strategy_id, None);
+        assert_eq!(event.violation, None);
+        assert!(event.allowed);
+    }
+
+    #[tokio::test]
+    async fn test_audit_chain_resolution_failure_links_strategy_id() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            python_strategy: Some(vec!["nonexistent-strategy".to_string()]),
+            ..make_config(None)
+        };
+
+        let result = runtime.execute("python", "print(1)", &config).await;
+        assert!(!result.success);
+        let log = runtime.get_audit_log();
+        let event = log
+            .iter()
+            .find(|e| e.event_type == AuditEventType::StrategyFallback)
+            .expect("chain resolution failure must be audited");
+        assert_eq!(
+            event.strategy_id.as_deref(),
+            Some("nonexistent-strategy"),
+            "audit must associate the failing chain's first strategy id"
+        );
+        assert!(event
+            .violation
+            .as_deref()
+            .unwrap_or_default()
+            .contains("unregistered"));
+        assert!(!event.allowed);
+    }
+
+    fn vfs_config() -> wf_types::script::sandbox::VfsConfig {
+        wf_types::script::sandbox::VfsConfig {
+            enabled: true,
+            storage: None,
+            db_path: None,
+            workspace_root: None,
+            path_policy: Some(wf_types::script::sandbox::PathPolicy {
+                allowed_read: vec!["/tmp".to_string()],
+                allowed_write: vec!["/tmp".to_string()],
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_vfs_gate_chain_denies_write_outside_policy() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["vfs-gate".to_string(), "os-hook".to_string()]),
+            vfs: Some(vfs_config()),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime
+            .execute("shell", "echo hi > /etc/shadow", &config)
+            .await;
+        assert!(
+            !result.success,
+            "vfs-gate must deny write outside VFS policy: {:?}",
+            result.error
+        );
+        assert_eq!(
+            result.strategy_id.as_deref(),
+            Some("vfs-gate"),
+            "denial must be attributed to vfs-gate"
+        );
+        assert!(result.error.unwrap().contains("path violation"));
+    }
+
+    #[tokio::test]
+    async fn test_vfs_gate_chain_allows_write_inside_policy() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["vfs-gate".to_string(), "os-hook".to_string()]),
+            vfs: Some(vfs_config()),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime
+            .execute("shell", "echo hi > /tmp/ok.txt", &config)
+            .await;
+        assert!(
+            result.success,
+            "write under /tmp must be allowed: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+        let _ = std::fs::remove_file("/tmp/ok.txt");
+    }
+
+    #[tokio::test]
+    async fn test_static_analyzer_keeps_vfs_fallback_without_vfs_gate() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["static-analyzer".to_string(), "os-hook".to_string()]),
+            vfs: Some(vfs_config()),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime
+            .execute("shell", "echo hi > /etc/shadow", &config)
+            .await;
+        assert!(
+            !result.success,
+            "static-analyzer must still enforce VFS paths without vfs-gate: {:?}",
+            result.error
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("static-analyzer"));
     }
 }

@@ -5,7 +5,6 @@ pub enum SandboxMode {
     Disabled,
     Lenient,
     Strict,
-    Custom,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -117,6 +116,10 @@ pub struct SandboxConfig {
     #[serde(rename = "type")]
     pub legacy_type: Option<String>,
     pub resource_limits: Option<ResourceLimits>,
+    /// Allow a strategy chain without any analysis gate for languages that
+    /// have one by default (shell/python/lua). Defaults to `false`
+    /// (fail-closed); only for advanced users accepting the risk.
+    pub skip_gate_check: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

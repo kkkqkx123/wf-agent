@@ -124,6 +124,7 @@ pub fn merge_sandbox_with_defaults(
             memory: Some(512),
             disk: Some(1024),
         })),
+        skip_gate_check: user.skip_gate_check,
     }
 }
 
@@ -251,6 +252,7 @@ mod tests {
             vfs: None,
             legacy_type: None,
             resource_limits: None,
+            skip_gate_check: None,
         };
         let merged = merge_sandbox_with_defaults(&user, None);
         assert_eq!(merged.mode, Some(SandboxMode::Lenient));
@@ -273,6 +275,7 @@ mod tests {
                 memory: Some(0),
                 disk: Some(100),
             }),
+            skip_gate_check: None,
         };
         assert!(validate_sandbox_config(&config).is_err());
 
@@ -290,6 +293,7 @@ mod tests {
                 memory: Some(512),
                 disk: Some(1024),
             }),
+            skip_gate_check: None,
         };
         assert!(validate_sandbox_config(&config).is_ok());
     }

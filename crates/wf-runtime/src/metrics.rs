@@ -397,7 +397,7 @@ fn flush_interval(config: &MetricsConfig) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage_manager::{StorageBackendType, StorageConfig};
+    use wf_types::config::storage::{StorageConfig, StorageType};
     use wf_metrics::MetricType;
 
     #[test]
@@ -438,8 +438,10 @@ mod tests {
     #[tokio::test]
     async fn start_returns_none_when_disabled() {
         let storage = StorageManager::new(StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
         });
         let config = MetricsConfig {
             enabled: Some(false),
@@ -454,8 +456,10 @@ mod tests {
     #[tokio::test]
     async fn start_runs_resource_sampler_and_report_task() {
         let storage = StorageManager::new(StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
         });
         let config = MetricsConfig {
             enabled: Some(true),
@@ -502,8 +506,10 @@ mod tests {
     #[tokio::test]
     async fn start_serves_http_export_when_addr_configured() {
         let storage = StorageManager::new(StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
         });
         let config = MetricsConfig {
             enabled: Some(true),
@@ -522,8 +528,10 @@ mod tests {
     #[tokio::test]
     async fn sampler_records_event_queue_and_storage_ops() {
         let storage = StorageManager::new(StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
         });
         let mut storage = storage;
         storage.initialize().await.unwrap();
@@ -583,8 +591,10 @@ mod tests {
     #[tokio::test]
     async fn sink_roundtrips_through_storage_adapter() {
         let mut storage = StorageManager::new(StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
         });
         storage.initialize().await.unwrap();
         let ctx = storage.context().unwrap();

@@ -8,7 +8,7 @@
     "timeout": "./timeout.toml",
     "storage": "./storage.toml",
     "output": "./output.toml",
-    "fileCheckpoint": "./file-checkpoint.toml",
+    "file_checkpoint": "./file-checkpoint.toml",
     "presets": "./presets.toml",
     "tools": "./tools.toml",
     "sandbox": "./sandbox.toml"

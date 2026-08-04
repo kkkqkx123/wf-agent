@@ -3,57 +3,56 @@
 # Controls the metrics collection system across the SDK.
 # Each collector can be independently configured for buffer size and flush interval.
 #
-# Processor: sdk/api/shared/config/processors/metrics.ts → mergeMetricsWithDefaults()
-# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadMetricsConfig()
+# Processor: infrastructure → merge_metrics_with_defaults()
 
 # Global settings
 enabled = true
-enablePeriodicReporting = false
-reportingInterval = 60000
+enable_periodic_reporting = false
+reporting_interval = 60000
 
 # --- Individual collectors ---
 
-[workflowMetrics]
-bufferSize = 100
-flushInterval = 5000
-enablePeriodicReporting = false
+[workflow_metrics]
+buffer_size = 100
+flush_interval = 5000
+enable_periodic_reporting = false
 
-[nodeMetrics]
-bufferSize = 100
-flushInterval = 5000
+[node_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[agentMetrics]
-bufferSize = 100
-flushInterval = 5000
+[agent_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[eventMetrics]
-bufferSize = 100
-flushInterval = 5000
+[event_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[toolMetrics]
-bufferSize = 100
-flushInterval = 5000
+[tool_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[tokenMetrics]
-bufferSize = 100
-flushInterval = 5000
+[token_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[templateMetrics]
-bufferSize = 100
-flushInterval = 5000
+[template_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[configMetrics]
-bufferSize = 100
-flushInterval = 5000
+[config_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[errorMetrics]
-bufferSize = 100
-flushInterval = 5000
+[error_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[resourceMetrics]
-bufferSize = 100
-flushInterval = 5000
+[resource_metrics]
+buffer_size = 100
+flush_interval = 5000
 
-[agentLoopMetrics]
-bufferSize = 100
-flushInterval = 5000
+[agent_loop_metrics]
+buffer_size = 100
+flush_interval = 5000

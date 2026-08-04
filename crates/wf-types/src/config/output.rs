@@ -35,3 +35,15 @@ pub struct OutputConfig {
     pub enable_sdk_logs: bool,
     pub sdk_log_level: SdkLogLevel,
 }
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            dir: "./outputs".to_string(),
+            log_file_pattern: "app-{date}.log".to_string(),
+            enable_log_terminal: true,
+            enable_sdk_logs: true,
+            sdk_log_level: SdkLogLevel::Warn,
+        }
+    }
+}

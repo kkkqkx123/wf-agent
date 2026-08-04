@@ -17,7 +17,8 @@ use crate::lifecycle::{shutdown_channel, ShutdownHandle, ShutdownWaiter};
 use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
-use crate::storage_manager::{StorageConfig, StorageManager};
+use crate::storage_manager::StorageManager;
+use wf_types::config::storage::StorageConfig;
 use crate::trigger_listener::{start_trigger_listener_with_registry, ExecutionContextRegistry};
 
 #[derive(Debug, Clone, Default)]
@@ -172,12 +173,10 @@ impl Runtime {
         let event_bus = Arc::new(EventBus::new(1024));
         let metrics = match config.metrics.as_ref() {
             Some(cfg) => {
-                // Share one config collector between the merge path (records
-                // access) and the metrics registry (exposes the counters).
                 let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
                     wf_metrics::CollectorConfig::default(),
                 ));
-                let merged = merge_metrics_with_defaults(cfg, Some(&config_metrics));
+                let merged = merge_metrics_with_defaults(cfg);
                 MetricsContext::start(
                     &merged,
                     &storage_manager,
@@ -464,7 +463,7 @@ fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConfig {
 mod tests {
     use super::*;
     use crate::mode::ExecutionMode;
-    use crate::storage_manager::StorageBackendType;
+    use wf_types::config::storage::StorageType;
     use wf_core::registry::Registry;
 
     fn clear_env_vars() {
@@ -481,8 +480,10 @@ mod tests {
 
         let config = RuntimeConfig {
             storage: StorageConfig {
-                backend_type: StorageBackendType::Memory,
-                ..Default::default()
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
@@ -723,8 +724,10 @@ mod tests {
 
         let config = RuntimeConfig {
             storage: StorageConfig {
-                backend_type: StorageBackendType::Memory,
-                ..Default::default()
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
@@ -756,8 +759,8 @@ mod tests {
     fn test_runtime_config_default() {
         let config = RuntimeConfig::default();
         assert!(matches!(
-            config.storage.backend_type,
-            StorageBackendType::Memory
+            config.storage.storage_type,
+            StorageType::Memory
         ));
         assert!(config.mode_override.is_none());
         assert!(config.metrics.is_none());
@@ -769,8 +772,10 @@ mod tests {
 
         let config = RuntimeConfig {
             storage: StorageConfig {
-                backend_type: StorageBackendType::Memory,
-                ..Default::default()
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
@@ -828,8 +833,10 @@ mod tests {
 
         let config = RuntimeConfig {
             storage: StorageConfig {
-                backend_type: StorageBackendType::Memory,
-                ..Default::default()
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),
@@ -903,8 +910,10 @@ mod tests {
 
         let config = RuntimeConfig {
             storage: StorageConfig {
-                backend_type: StorageBackendType::Memory,
-                ..Default::default()
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
             },
             log_config: LogConfig::default().with_level("off"),
             mode_override: Some(ExecutionMode::Test),

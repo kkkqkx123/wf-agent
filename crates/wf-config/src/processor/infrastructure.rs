@@ -1,7 +1,6 @@
 use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_min;
 
-use wf_metrics::collectors::ConfigMetricsCollector;
 use wf_types::config::metrics::{MetricCollectorConfig, MetricsConfig};
 use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
@@ -10,20 +9,7 @@ use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
 
 pub const WAIT_FOREVER: i64 = -1;
 
-/// Optional config metrics hook; `None` keeps the merge path zero-overhead.
-pub type ConfigMetricsHook<'a> = Option<&'a ConfigMetricsCollector>;
-
-fn record_access(hook: ConfigMetricsHook<'_>) {
-    if let Some(metrics) = hook {
-        metrics.record_access();
-    }
-}
-
-pub fn merge_timeout_with_defaults(
-    user: &TimeoutConfig,
-    config_metrics: ConfigMetricsHook,
-) -> TimeoutConfig {
-    record_access(config_metrics);
+pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
     TimeoutConfig {
         workflow_execution_completion: user.workflow_execution_completion.or(Some(30000)),
         workflow_execution_pause: user.workflow_execution_pause.or(Some(5000)),
@@ -64,11 +50,7 @@ fn merge_collector_with_defaults(
     })
 }
 
-pub fn merge_metrics_with_defaults(
-    user: &MetricsConfig,
-    config_metrics: ConfigMetricsHook,
-) -> MetricsConfig {
-    record_access(config_metrics);
+pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
     MetricsConfig {
         enabled: user.enabled.or(Some(true)),
         reporting_interval: user.reporting_interval.or(Some(10000)),
@@ -89,27 +71,15 @@ pub fn merge_metrics_with_defaults(
     }
 }
 
-pub fn merge_output_with_defaults(
-    user: &OutputConfig,
-    config_metrics: ConfigMetricsHook,
-) -> OutputConfig {
-    record_access(config_metrics);
+pub fn merge_output_with_defaults(user: &OutputConfig) -> OutputConfig {
     user.clone()
 }
 
-pub fn merge_storage_with_defaults(
-    user: &StorageConfig,
-    config_metrics: ConfigMetricsHook,
-) -> StorageConfig {
-    record_access(config_metrics);
+pub fn merge_storage_with_defaults(user: &StorageConfig) -> StorageConfig {
     user.clone()
 }
 
-pub fn merge_sandbox_with_defaults(
-    user: &SandboxConfig,
-    config_metrics: ConfigMetricsHook,
-) -> SandboxConfig {
-    record_access(config_metrics);
+pub fn merge_sandbox_with_defaults(user: &SandboxConfig) -> SandboxConfig {
     SandboxConfig {
         mode: user.mode.clone().or(Some(SandboxMode::Strict)),
         policy: user.policy.clone(),
@@ -173,7 +143,7 @@ mod tests {
             default: None,
             max_allowed: None,
         };
-        let merged = merge_timeout_with_defaults(&user, None);
+        let merged = merge_timeout_with_defaults(&user);
         assert_eq!(merged.workflow_execution_completion, Some(60000));
         assert_eq!(merged.workflow_execution_pause, Some(5000));
         assert_eq!(merged.default, Some(30000));
@@ -191,7 +161,7 @@ mod tests {
     #[test]
     fn test_merge_metrics_with_defaults() {
         let user = MetricsConfig::default();
-        let merged = merge_metrics_with_defaults(&user, None);
+        let merged = merge_metrics_with_defaults(&user);
         assert_eq!(merged.enabled, Some(true));
         assert_eq!(merged.reporting_interval, Some(10000));
         assert_eq!(merged.enable_periodic_reporting, Some(false));
@@ -208,7 +178,7 @@ mod tests {
             token_metrics: Some(MetricCollectorConfig::default()),
             ..Default::default()
         };
-        let merged = merge_metrics_with_defaults(&user, None);
+        let merged = merge_metrics_with_defaults(&user);
         let workflow = merged.workflow_metrics.unwrap();
         assert_eq!(workflow.buffer_size, Some(50));
         assert_eq!(workflow.flush_interval, Some(5000));
@@ -228,7 +198,7 @@ mod tests {
             enable_sdk_logs: true,
             sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
         };
-        let merged = merge_output_with_defaults(&user, None);
+        let merged = merge_output_with_defaults(&user);
         assert_eq!(merged.dir, "/logs");
         assert_eq!(
             merged.sdk_log_level,
@@ -242,8 +212,9 @@ mod tests {
             storage_type: wf_types::config::storage::StorageType::Sqlite,
             sqlite: None,
             postgres: None,
+            app_name: None,
         };
-        let merged = merge_storage_with_defaults(&user, None);
+        let merged = merge_storage_with_defaults(&user);
         assert_eq!(
             merged.storage_type,
             wf_types::config::storage::StorageType::Sqlite
@@ -266,7 +237,7 @@ mod tests {
             resource_limits: None,
             skip_gate_check: None,
         };
-        let merged = merge_sandbox_with_defaults(&user, None);
+        let merged = merge_sandbox_with_defaults(&user);
         assert_eq!(merged.mode, Some(SandboxMode::Lenient));
         assert_eq!(merged.resource_limits.as_ref().unwrap().memory, Some(512));
         assert_eq!(merged.workdir.as_deref(), Some("/tmp"));

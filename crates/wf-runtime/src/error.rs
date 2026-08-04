@@ -31,4 +31,10 @@ pub enum RuntimeError {
     Plugin(#[from] wf_plugin::PluginError),
 }
 
+impl From<wf_config::ConfigError> for RuntimeError {
+    fn from(e: wf_config::ConfigError) -> Self {
+        RuntimeError::Config(e.to_string())
+    }
+}
+
 pub type RuntimeResult<T> = Result<T, RuntimeError>;

@@ -8,24 +8,7 @@ use wf_storage::domain::Store;
 
 use crate::error::{RuntimeError, RuntimeResult};
 
-#[derive(Debug, Clone)]
-pub struct StorageConfig {
-    pub backend_type: StorageBackendType,
-    pub sqlite: Option<SqliteConfig>,
-    pub postgres: Option<PostgresConfig>,
-    pub app_name: Option<String>,
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self {
-            backend_type: StorageBackendType::Memory,
-            sqlite: None,
-            postgres: None,
-            app_name: None,
-        }
-    }
-}
+pub use wf_types::config::storage::StorageConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageBackendType {
@@ -34,40 +17,12 @@ pub enum StorageBackendType {
     Postgres,
 }
 
-#[derive(Debug, Clone)]
-pub struct SqliteConfig {
-    pub db_path: Option<PathBuf>,
-    pub cache_size: Option<i32>,
-    pub page_size: Option<i32>,
-}
-
-impl Default for SqliteConfig {
-    fn default() -> Self {
-        Self {
-            db_path: None,
-            cache_size: Some(64_000),
-            page_size: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PostgresConfig {
-    pub connection_string: String,
-    pub max_connections: Option<u32>,
-    pub min_connections: Option<u32>,
-    pub idle_timeout: Option<u64>,
-    pub connection_timeout: Option<u64>,
-}
-
-impl PostgresConfig {
-    pub fn new(connection_string: impl Into<String>) -> Self {
-        Self {
-            connection_string: connection_string.into(),
-            max_connections: None,
-            min_connections: None,
-            idle_timeout: None,
-            connection_timeout: None,
+impl From<wf_types::config::storage::StorageType> for StorageBackendType {
+    fn from(ty: wf_types::config::storage::StorageType) -> Self {
+        match ty {
+            wf_types::config::storage::StorageType::Sqlite => StorageBackendType::SQLite,
+            wf_types::config::storage::StorageType::Postgres => StorageBackendType::Postgres,
+            wf_types::config::storage::StorageType::Memory => StorageBackendType::Memory,
         }
     }
 }
@@ -115,7 +70,8 @@ impl StorageManager {
             return Err(RuntimeError::AlreadyInitialized);
         }
 
-        let ctx = match self.config.backend_type {
+        let backend: StorageBackendType = self.config.storage_type.clone().into();
+        let ctx = match backend {
             StorageBackendType::Memory => {
                 info!("Initializing in-memory storage");
                 StorageContext::new_memory()
@@ -128,7 +84,9 @@ impl StorageManager {
                         .config
                         .sqlite
                         .as_ref()
-                        .and_then(|c| c.db_path.clone())
+                        .map(|c| c.db_path.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(PathBuf::from)
                         .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
                     let path_str = db_path.to_string_lossy();
                     info!("Initializing SQLite storage at {:?}", db_path);
@@ -148,7 +106,7 @@ impl StorageManager {
                         RuntimeError::Config("PostgreSQL storage config is missing".into())
                     })?;
                     info!("Initializing PostgreSQL storage");
-                    StorageContext::new_postgres(&pg_config.connection_string).await?
+                    StorageContext::new_postgres(&pg_config.host).await?
                 }
                 #[cfg(not(feature = "postgres"))]
                 {
@@ -219,13 +177,18 @@ impl Drop for StorageManager {
 mod tests {
     use super::*;
 
+    fn memory_config() -> StorageConfig {
+        StorageConfig {
+            storage_type: wf_types::config::storage::StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
+        }
+    }
+
     #[tokio::test]
     async fn test_storage_manager_memory_init_close() {
-        let config = StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
-        };
-        let mut manager = StorageManager::new(config);
+        let mut manager = StorageManager::new(memory_config());
 
         assert!(!manager.is_initialized());
         manager.initialize().await.unwrap();
@@ -241,11 +204,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_manager_double_init_fails() {
-        let config = StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
-        };
-        let mut manager = StorageManager::new(config);
+        let mut manager = StorageManager::new(memory_config());
 
         manager.initialize().await.unwrap();
         let result = manager.initialize().await;
@@ -256,11 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_manager_not_initialized_accessors() {
-        let config = StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
-        };
-        let manager = StorageManager::new(config);
+        let manager = StorageManager::new(memory_config());
 
         assert!(matches!(
             manager.workflow(),
@@ -278,11 +233,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_manager_close_not_initialized() {
-        let config = StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
-        };
-        let mut manager = StorageManager::new(config);
+        let mut manager = StorageManager::new(memory_config());
 
         let result = manager.close().await;
         assert!(result.is_ok());
@@ -290,11 +241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_manager_clear() {
-        let config = StorageConfig {
-            backend_type: StorageBackendType::Memory,
-            ..Default::default()
-        };
-        let mut manager = StorageManager::new(config);
+        let mut manager = StorageManager::new(memory_config());
 
         manager.initialize().await.unwrap();
         manager.clear().await.unwrap();
@@ -303,16 +250,21 @@ mod tests {
 
     #[test]
     fn test_storage_config_default() {
-        let config = StorageConfig::default();
-        assert_eq!(config.backend_type, StorageBackendType::Memory);
+        let config = memory_config();
+        assert_eq!(config.storage_type, wf_types::config::storage::StorageType::Memory);
         assert!(config.sqlite.is_none());
         assert!(config.postgres.is_none());
     }
 
     #[test]
-    fn test_postgres_config_new() {
-        let config = PostgresConfig::new("postgresql://localhost/test");
-        assert_eq!(config.connection_string, "postgresql://localhost/test");
-        assert!(config.max_connections.is_none());
+    fn test_storage_backend_type_conversion() {
+        let backend: StorageBackendType = wf_types::config::storage::StorageType::Sqlite.into();
+        assert_eq!(backend, StorageBackendType::SQLite);
+
+        let backend: StorageBackendType = wf_types::config::storage::StorageType::Postgres.into();
+        assert_eq!(backend, StorageBackendType::Postgres);
+
+        let backend: StorageBackendType = wf_types::config::storage::StorageType::Memory.into();
+        assert_eq!(backend, StorageBackendType::Memory);
     }
 }

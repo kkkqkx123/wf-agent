@@ -3,15 +3,14 @@
 # Defines sandbox profiles and auto-matching rules for script sandboxing.
 # Each profile specifies security policies, strategy priority, and VFS config.
 #
-# Processor: sdk/api/shared/config/processors/sandbox.ts
-# Loader:   apps/config-processor/src/loader-orchestrator.ts → loadSandboxConfig()
+# Processor: sandbox_global → validate_sandbox_global()
 
 # Default sandbox mode for all scripts (overridden by profiles and execution-time config)
 # "disabled" | "lenient" | "strict" | "custom"
 mode = "lenient"
 
 # Default profile when no rules match
-defaultProfile = "default"
+default_profile = "default"
 
 # Named sandbox profiles
 [[profiles]]
@@ -20,13 +19,13 @@ description = "Default safe sandbox profile"
 mode = "strict"
 
 [profiles.shell]
-deniedCommands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
+denied_commands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
 
 [profiles.python]
-deniedModules = ["os", "subprocess", "ctypes", "socket", "pty"]
+denied_modules = ["os", "subprocess", "ctypes", "socket", "pty"]
 
 [profiles.javascript]
-deniedModules = ["child_process", "cluster", "worker_threads", "vm"]
+denied_modules = ["child_process", "cluster", "worker_threads", "vm"]
 
 [[profiles]]
 name = "permissive"
@@ -34,25 +33,25 @@ description = "Permissive sandbox profile for trusted scripts"
 mode = "lenient"
 
 [profiles.shell]
-deniedCommands = ["sudo", "su", "chroot"]
+denied_commands = ["sudo", "su", "chroot"]
 
 # Profile selection rules (evaluated in order, first match wins)
 [[rules]]
 language = "shell"
-riskLevel = "high"
+risk_level = "high"
 profile = "default"
 
 [[rules]]
 language = "python"
-riskLevel = "high"
+risk_level = "high"
 profile = "default"
 
 [[rules]]
 language = "javascript"
-riskLevel = "high"
+risk_level = "high"
 profile = "default"
 
 [[rules]]
 language = "lua"
-riskLevel = "high"
+risk_level = "high"
 profile = "default"

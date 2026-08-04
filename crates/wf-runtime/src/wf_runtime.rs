@@ -10,6 +10,7 @@ pub use crate::mode::{
     is_headless, is_interactive, is_json_mode, is_silent_mode, is_test, ExecutionMode, ModeInfo,
     OutputFormat,
 };
-pub use crate::storage_manager::{
-    PostgresConfig, SqliteConfig, StorageBackendType, StorageConfig, StorageManager,
+pub use crate::storage_manager::{StorageBackendType, StorageManager};
+pub use wf_types::config::storage::{
+    PostgresStorageConfig as PostgresConfig, SqliteStorageConfig as SqliteConfig, StorageConfig,
 };

@@ -1,7 +1,4 @@
-use wf_config::processor::infrastructure::{
-    merge_metrics_with_defaults, merge_output_with_defaults, merge_sandbox_with_defaults,
-    merge_storage_with_defaults, merge_timeout_with_defaults,
-};
+use wf_config::orchestrator::ConfigOverrides;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
@@ -60,94 +57,50 @@ impl SdkOptions {
         self
     }
 
-    /// Merged metrics configuration, or `None` when no metrics config was set.
-    pub fn metrics_config(&self) -> Option<MetricsConfig> {
-        self.metrics
-            .as_ref()
-            .map(|m| merge_metrics_with_defaults(m, None))
-    }
-
-    /// Whether the metrics system should be initialized (default: enabled
-    /// when a metrics config is present).
-    pub fn metrics_enabled(&self) -> bool {
-        self.metrics_config()
-            .map(|c| c.enabled.unwrap_or(false))
-            .unwrap_or(false)
-    }
-
-    /// Merged timeout configuration with defaults.
-    pub fn timeout_config(&self) -> Option<TimeoutConfig> {
-        self.timeout
-            .as_ref()
-            .map(|t| merge_timeout_with_defaults(t, None))
-    }
-
-    /// Merged output configuration with defaults.
-    pub fn output_config(&self) -> Option<OutputConfig> {
-        self.output
-            .as_ref()
-            .map(|o| merge_output_with_defaults(o, None))
-    }
-
-    /// Merged storage configuration with defaults.
-    pub fn storage_config(&self) -> Option<StorageConfig> {
-        self.storage
-            .as_ref()
-            .map(|s| merge_storage_with_defaults(s, None))
-    }
-
-    /// Merged sandbox configuration with defaults.
-    pub fn sandbox_config(&self) -> Option<SandboxConfig> {
-        self.sandbox
-            .as_ref()
-            .map(|s| merge_sandbox_with_defaults(s, None))
+    /// Convert into `ConfigOverrides` for use with the orchestrator.
+    pub fn into_overrides(self) -> ConfigOverrides {
+        ConfigOverrides {
+            storage: self.storage,
+            timeout: self.timeout,
+            metrics: self.metrics,
+            output: self.output,
+            sandbox: None, // SandboxConfig != SandboxGlobalConfig; keep separate
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::config::metrics::MetricCollectorConfig;
 
     #[test]
     fn metrics_disabled_without_config() {
         let options = SdkOptions::new();
-        assert!(!options.metrics_enabled());
-        assert!(options.metrics_config().is_none());
+        assert!(options.metrics.is_none());
+        let overrides = options.into_overrides();
+        assert!(overrides.metrics.is_none());
     }
 
     #[test]
-    fn metrics_enabled_by_default_with_config() {
-        let options = SdkOptions::new().with_metrics(MetricsConfig::default());
-        assert!(options.metrics_enabled());
-        let merged = options.metrics_config().unwrap();
-        assert_eq!(merged.enabled, Some(true));
-        assert_eq!(merged.reporting_interval, Some(10000));
-    }
-
-    #[test]
-    fn metrics_explicitly_disabled() {
-        let options = SdkOptions::new().with_metrics(MetricsConfig {
-            enabled: Some(false),
-            ..Default::default()
-        });
-        assert!(!options.metrics_enabled());
-    }
-
-    #[test]
-    fn metrics_config_merges_collector_defaults() {
-        let options = SdkOptions::new().with_metrics(MetricsConfig {
-            workflow_metrics: Some(MetricCollectorConfig {
-                flush_interval: Some(1000),
+    fn into_overrides_preserves_fields() {
+        let options = SdkOptions::new()
+            .with_storage(StorageConfig {
+                storage_type: wf_types::config::storage::StorageType::Sqlite,
                 ..Default::default()
-            }),
-            ..Default::default()
-        });
-        let merged = options.metrics_config().unwrap();
-        let workflow = merged.workflow_metrics.unwrap();
-        assert_eq!(workflow.flush_interval, Some(1000));
-        assert_eq!(workflow.buffer_size, Some(100));
-        assert_eq!(workflow.reporting_interval, Some(10000));
-        assert_eq!(workflow.max_age, Some(3600000));
+            })
+            .with_timeout(TimeoutConfig {
+                default: Some(99999),
+                ..Default::default()
+            })
+            .with_metrics(MetricsConfig {
+                enabled: Some(false),
+                ..Default::default()
+            });
+
+        let overrides = options.into_overrides();
+        assert!(overrides.storage.is_some());
+        assert!(overrides.timeout.is_some());
+        assert!(overrides.metrics.is_some());
+        assert!(overrides.output.is_none());
     }
 }

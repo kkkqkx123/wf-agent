@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageType {
+    #[default]
     Sqlite,
     Postgres,
     Memory,
@@ -32,7 +33,7 @@ pub enum AutoVacuum {
     Incremental,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct SqliteStorageConfig {
     pub db_path: String,
     #[serde(default)]
@@ -79,4 +80,18 @@ pub struct StorageConfig {
     pub storage_type: StorageType,
     pub sqlite: Option<SqliteStorageConfig>,
     pub postgres: Option<PostgresStorageConfig>,
+    /// Application name used for default db path derivation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            storage_type: StorageType::Memory,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
+        }
+    }
 }

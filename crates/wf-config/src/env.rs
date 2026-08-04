@@ -1,8 +1,8 @@
 //! Environment variable parsing and override application.
 //!
-//! **Status:** Pending migration. The `apply_env_overrides` and related
-//! functions are intended for application-level config loading (e.g. CLI
-//! runtime config with env var substitution). Not yet wired into wf-runtime.
+//! Provides a declarative mapping from env var names to typed values.
+//! Used by the orchestrator to apply `WF_*` overrides to infrastructure
+//! config.
 
 use std::collections::HashMap;
 
@@ -199,7 +199,7 @@ impl EnvMappingBuilder {
 }
 
 pub fn apply_env_overrides(
-    apply_fn: impl Fn(&str, EnvValue),
+    mut apply_fn: impl FnMut(&str, EnvValue),
     mapping: &HashMap<String, EnvMappingEntry>,
 ) -> ConfigResult<()> {
     for (key, entry) in mapping {

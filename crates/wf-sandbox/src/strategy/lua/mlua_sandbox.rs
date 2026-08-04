@@ -11,10 +11,9 @@ impl LuaMluaSandboxStrategy {
         let globals = lua.globals();
 
         let denied_by_default = ["os", "io", "package", "debug", "ffi"];
+        let denied_modules = policy.denied_modules.as_deref().unwrap_or_default();
         for module in &denied_by_default {
-            if policy.denied_modules.contains(&(*module).to_string())
-                || policy.denied_modules.is_empty()
-            {
+            if denied_modules.contains(&(*module).to_string()) || denied_modules.is_empty() {
                 globals.set(*module, mlua::Value::Nil)?;
             }
         }
@@ -25,8 +24,8 @@ impl LuaMluaSandboxStrategy {
         })?;
         globals.set("print", safe_print)?;
 
-        let allowed = policy.allowed_modules.clone();
-        let denied = policy.denied_modules.clone();
+        let allowed = policy.allowed_modules.clone().unwrap_or_default();
+        let denied = policy.denied_modules.clone().unwrap_or_default();
 
         let safe_require = lua.create_function(
             move |lua, module_name: String| -> mlua::Result<mlua::Value> {
@@ -148,13 +147,7 @@ impl StrategyImplementation for LuaMluaSandboxStrategy {
         options: StrategyExecuteOptions,
         policy: &SandboxPolicy,
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
-        let lua_policy = policy.lua.clone().unwrap_or(LuaPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![],
-            allow_os_execute: false,
-            restrict_io_open: true,
-            allow_dynamic_load: false,
-        });
+        let lua_policy = policy.lua.clone().unwrap_or_default();
 
         let code = options.command.clone();
 

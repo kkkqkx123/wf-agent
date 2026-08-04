@@ -72,11 +72,11 @@ impl PythonAstAnalyzerStrategy {
         code: &str,
         policy: &PythonPolicy,
     ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        let allowed = serde_json::to_string(&policy.allowed_modules)?;
-        let denied = serde_json::to_string(&policy.denied_modules)?;
-        let allow_sub = policy.allow_subprocess.to_string();
-        let restrict = policy.restrict_builtin_open.to_string();
-        let allow_eval = policy.allow_dynamic_eval.to_string();
+        let allowed = serde_json::to_string(&policy.allowed_modules.clone().unwrap_or_default())?;
+        let denied = serde_json::to_string(&policy.denied_modules.clone().unwrap_or_default())?;
+        let allow_sub = policy.allow_subprocess.unwrap_or(false).to_string();
+        let restrict = policy.restrict_builtin_open.unwrap_or(true).to_string();
+        let allow_eval = policy.allow_dynamic_eval.unwrap_or(false).to_string();
 
         let mut child = tokio::process::Command::new("python3")
             .arg("-c")
@@ -162,13 +162,7 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
             });
         }
 
-        let py_policy = policy.python.as_ref().cloned().unwrap_or(PythonPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![],
-            allow_subprocess: false,
-            restrict_builtin_open: true,
-            allow_dynamic_eval: false,
-        });
+        let py_policy = policy.python.clone().unwrap_or_default();
 
         let violations = Self::analyze(code, &py_policy).await?;
 
@@ -216,11 +210,11 @@ mod tests {
             mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             shell: None,
             python: Some(PythonPolicy {
-                allowed_modules: vec![],
-                denied_modules: denied,
-                allow_subprocess,
-                restrict_builtin_open: restrict_open,
-                allow_dynamic_eval: allow_eval,
+                allowed_modules: Some(vec![]),
+                denied_modules: Some(denied),
+                allow_subprocess: Some(allow_subprocess),
+                restrict_builtin_open: Some(restrict_open),
+                allow_dynamic_eval: Some(allow_eval),
             }),
             javascript: None,
             lua: None,
@@ -245,7 +239,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -272,7 +265,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -295,7 +287,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -318,7 +309,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )

@@ -25,6 +25,10 @@ impl InteractiveScriptHandler {
         }
     }
 
+    pub fn with_sandbox_opt(sandbox: Option<Arc<SandboxRuntime>>) -> Self {
+        Self { sandbox }
+    }
+
     fn get_sandbox(&self) -> Arc<SandboxRuntime> {
         self.sandbox
             .clone()
@@ -71,7 +75,11 @@ impl NodeHandler for InteractiveScriptHandler {
 
         let code = definition.code;
         let sandbox = self.get_sandbox();
-        let sandbox_config = crate::handler::script::ScriptHandler::build_sandbox_config(&language);
+        let sandbox_config = crate::handler::script::sandbox_config_from_node(
+            config,
+            &language,
+            &ctx.node_id,
+        )?;
 
         let user_input = if interaction_mode.is_some() {
             ctx.get_variable("__interaction_input__")
@@ -86,8 +94,9 @@ impl NodeHandler for InteractiveScriptHandler {
             code.clone()
         };
 
+        // execute_named so global rules can route to a profile by script_name.
         let result = sandbox
-            .execute(&language, &augmented_code, &sandbox_config)
+            .execute_named(&language, script_name, &augmented_code, &sandbox_config)
             .await;
 
         if !result.success {

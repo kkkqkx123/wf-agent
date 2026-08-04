@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::script::sandbox::SandboxConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptRisk {
@@ -35,6 +37,10 @@ pub struct ScriptNodeConfig {
     pub arguments: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_mapping: Option<Vec<ScriptOutputMapping>>,
+    /// Per-node sandbox config; missing fields inherit from the global
+    /// profile/rule routing at execution time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<SandboxConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -58,6 +64,10 @@ pub struct InteractiveScriptNodeConfig {
     pub round_timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_mapping: Option<Vec<ScriptOutputMapping>>,
+    /// Per-node sandbox config; missing fields inherit from the global
+    /// profile/rule routing at execution time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<SandboxConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

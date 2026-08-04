@@ -9,6 +9,7 @@ use wf_types::script::sandbox::{
 
 use crate::default_policy::default_sandbox_policy;
 use crate::policy::SandboxPolicyManager;
+use crate::profile::{SandboxProfileError, SandboxProfileResolver};
 use crate::resolver::{
     analysis_gate_required, DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind,
     StrategyResolver,
@@ -18,7 +19,7 @@ use crate::vfs::overlay::OverlayVFS;
 pub struct SandboxRuntime {
     resolver: Arc<dyn StrategyResolver>,
     default_policy: SandboxPolicy,
-    global_config: Option<SandboxGlobalConfig>,
+    profile_resolver: Option<SandboxProfileResolver>,
     audit_log: Mutex<Vec<AuditEvent>>,
 }
 
@@ -33,25 +34,32 @@ impl SandboxRuntime {
         Self {
             resolver: Arc::new(DefaultStrategyResolver::with_defaults()),
             default_policy: default_sandbox_policy().clone(),
-            global_config: Some(SandboxGlobalConfig::default()),
+            profile_resolver: Some(SandboxProfileResolver::default()),
             audit_log: Mutex::new(Vec::new()),
         }
     }
 
-    pub fn with_global_config(global_config: SandboxGlobalConfig) -> Self {
-        Self {
+    /// Build a runtime from a global sandbox configuration.
+    ///
+    /// The configuration is compiled and validated up front (fail-fast):
+    /// rules referencing unknown profiles or a missing `default_profile`
+    /// are rejected here instead of at script execution time.
+    pub fn with_global_config(
+        global_config: SandboxGlobalConfig,
+    ) -> Result<Self, SandboxProfileError> {
+        Ok(Self {
             resolver: Arc::new(DefaultStrategyResolver::with_defaults()),
             default_policy: default_sandbox_policy().clone(),
-            global_config: Some(global_config),
+            profile_resolver: Some(SandboxProfileResolver::compile(global_config)?),
             audit_log: Mutex::new(Vec::new()),
-        }
+        })
     }
 
     pub fn with_resolver(resolver: Arc<dyn StrategyResolver>) -> Self {
         Self {
             resolver,
             default_policy: default_sandbox_policy().clone(),
-            global_config: Some(SandboxGlobalConfig::default()),
+            profile_resolver: Some(SandboxProfileResolver::default()),
             audit_log: Mutex::new(Vec::new()),
         }
     }
@@ -95,23 +103,32 @@ impl SandboxRuntime {
                 .or(profile.javascript_strategy.clone()),
             lua_strategy: config.lua_strategy.clone().or(profile.lua_strategy.clone()),
             vfs: config.vfs.clone().or(profile.vfs.clone()),
+            workdir: config.workdir.clone().or(profile.workdir.clone()),
+            env: config.env.clone().or(profile.env.clone()),
             legacy_type: config.legacy_type.clone(),
             resource_limits: config.resource_limits.clone(),
             skip_gate_check: config.skip_gate_check,
         }
     }
 
-    fn resolve_config(&self, config: &SandboxConfig) -> SandboxConfig {
+    /// Resolve the effective config: explicit `config` wins, then the
+    /// profile selected by the first matching global rule, then the global
+    /// `default_profile` fills the remaining gaps.
+    ///
+    /// Infallible: the profile resolver is precompiled and validated when
+    /// the runtime is constructed.
+    fn resolve_config(
+        &self,
+        config: &SandboxConfig,
+        language: &str,
+        script_name: &str,
+    ) -> SandboxConfig {
         let mut resolved = config.clone();
-        if let Some(ref global) = self.global_config {
-            if let Some(ref default_profile_name) = global.default_profile {
-                if let Some(profile) = global
-                    .profiles
-                    .iter()
-                    .find(|p| p.name == *default_profile_name)
-                {
-                    resolved = Self::merge_profile_into_config(profile, &resolved);
-                }
+        if let Some(resolver) = &self.profile_resolver {
+            if let Some(profile) = resolver.resolve(language, script_name) {
+                resolved = Self::merge_profile_into_config(profile, &resolved);
+            } else if let Some(default_profile) = resolver.default_profile() {
+                resolved = Self::merge_profile_into_config(default_profile, &resolved);
             }
         }
         self.apply_legacy_mappings(&mut resolved);
@@ -144,9 +161,9 @@ impl SandboxRuntime {
         allowed: bool,
     ) {
         let should_record = self
-            .global_config
+            .profile_resolver
             .as_ref()
-            .map(|g| g.audit_logging)
+            .map(|r| r.audit_logging())
             .unwrap_or(false);
         if !should_record {
             return;
@@ -196,16 +213,24 @@ impl SandboxRuntime {
         command: &str,
         config: &SandboxConfig,
     ) -> ScriptExecutionResult {
-        let resolved_config = self.resolve_config(config);
+        self.execute_named(language, "", command, config).await
+    }
 
-        // Mode resolution: config → profile (merged above) → global config →
-        // default policy → Strict.
-        let mode = resolved_config
-            .mode
-            .clone()
-            .or_else(|| self.global_config.as_ref().and_then(|g| g.mode.clone()))
-            .or(self.default_policy.mode.clone())
-            .unwrap_or(SandboxMode::Strict);
+    /// Execute with a script name so global `rules` can route to a profile by
+    /// `script_name` (or `language`). Callers without a script name should
+    /// use [`SandboxRuntime::execute`].
+    pub async fn execute_named(
+        &self,
+        language: &str,
+        script_name: &str,
+        command: &str,
+        config: &SandboxConfig,
+    ) -> ScriptExecutionResult {
+        let resolved_config = self.resolve_config(config, language, script_name);
+
+        // Mode resolution happens AFTER profile merge so a profile-selected
+        // mode is honored: config → profile → global config → default → Strict.
+        let mode = self.resolve_mode(&resolved_config);
 
         if mode == SandboxMode::Disabled {
             let result = self.execute_direct(command).await;
@@ -262,26 +287,47 @@ impl SandboxRuntime {
         // Gate guarantee: languages with an analysis gate by default must keep
         // at least one Analysis strategy in the chain. Failing closed prevents
         // custom chains (e.g. ["os-hook"]) from silently dropping the
-        // pre-execution checks. Explicit skip_gate_check opts out.
+        // pre-execution checks. Explicit skip_gate_check opts out and is
+        // always audited so the exemption stays traceable.
         let has_analysis_gate = chain.iter().any(|s| s.kind() == StrategyKind::Analysis);
         let skip_gate = resolved_config.skip_gate_check.unwrap_or(false);
-        if analysis_gate_required(language) && !has_analysis_gate && !skip_gate {
-            let e = format!(
-                "Strategy chain for language '{language}' has no analysis gate \
-                 (Analysis strategies); refusing to run without it. Configure \
-                 an analysis strategy (e.g. vfs-gate for shell) or set \
-                 skip_gate_check to true to opt out."
+        let gate_warning: Option<String> = if analysis_gate_required(language) && !has_analysis_gate
+        {
+            if !skip_gate {
+                let e = format!(
+                    "Strategy chain for language '{language}' has no analysis gate \
+                     (Analysis strategies); refusing to run without it. Configure \
+                     an analysis strategy (e.g. vfs-gate for shell) or set \
+                     skip_gate_check to true to opt out."
+                );
+                self.record_audit(
+                    AuditEventType::ExecutionDenied,
+                    language,
+                    &format!("sandbox-{language}"),
+                    Some(e.clone()),
+                    None,
+                    false,
+                );
+                return self.failed_result(language, &mode, e, None);
+            }
+            let chain_ids: Vec<String> =
+                chain.iter().map(|s| s.id().to_string()).collect();
+            let warning = format!(
+                "WARNING: analysis gate skipped via skip_gate_check=true; chain {chain_ids:?} \
+                 has no Analysis strategy, command-level policy is NOT enforced"
             );
             self.record_audit(
-                AuditEventType::ExecutionDenied,
+                AuditEventType::StrategyFallback,
                 language,
                 &format!("sandbox-{language}"),
-                Some(e.clone()),
+                Some(warning.clone()),
                 None,
-                false,
+                true,
             );
-            return self.failed_result(language, &mode, e, None);
-        }
+            Some(warning)
+        } else {
+            None
+        };
 
         let vfs = if let Some(ref vfs_config) = resolved_config.vfs {
             if vfs_config.enabled {
@@ -305,17 +351,56 @@ impl SandboxRuntime {
             None
         };
 
+        // VFS path enforcement is the single responsibility of `vfs-gate`
+        // (a shell analysis strategy). Whenever VFS is enabled and the chain
+        // lacks it, inject it at the head of the chain: this only adds
+        // checks, never removes any, so it cannot weaken security.
+        let mut chain = chain;
+        if vfs.is_some() && !chain.iter().any(|s| s.id() == "vfs-gate") {
+            match self.resolver.resolve_shell_strategy("vfs-gate") {
+                Some(gate) => {
+                    chain.insert(0, gate);
+                    self.record_audit(
+                        AuditEventType::StrategyFallback,
+                        language,
+                        &format!("sandbox-{language}"),
+                        Some(format!(
+                            "VFS enabled: auto-injected 'vfs-gate' into chain {:?}",
+                            chain
+                                .iter()
+                                .map(|s| s.id().to_string())
+                                .collect::<Vec<_>>()
+                        )),
+                        Some("vfs-gate".to_string()),
+                        true,
+                    );
+                }
+                None => {
+                    let e = format!(
+                        "VFS is enabled but the 'vfs-gate' strategy is not registered \
+                         for language '{language}'; refusing to run without path checks"
+                    );
+                    self.record_audit(
+                        AuditEventType::ExecutionDenied,
+                        language,
+                        &format!("sandbox-{language}"),
+                        Some(e.clone()),
+                        None,
+                        false,
+                    );
+                    return self.failed_result(language, &mode, e, None);
+                }
+            }
+        }
+
         let options = StrategyExecuteOptions {
             command: command.to_string(),
             shell_type: None,
             runtime: None,
-            workdir: None,
-            env_vars: None,
+            workdir: resolved_config.workdir.clone(),
+            env_vars: resolved_config.env.clone(),
             timeout_ms: policy.resource.as_ref().and_then(|r| r.timeout_limit_ms),
             vfs,
-            // A dedicated vfs-gate in the chain runs the path checks itself;
-            // static-analyzer skips its duplicated VFS validation.
-            skip_vfs_check: chain.iter().any(|s| s.id() == "vfs-gate"),
         };
 
         // Phase 1: run all analysis gates in chain order. Strict rejects on
@@ -380,8 +465,13 @@ impl SandboxRuntime {
             }
         }
 
-        // Phase 2: run the first available execution strategy in chain order.
+        // Phase 2: run execution strategies in chain order. The first one
+        // that actually produces a result wins. In Strict mode a sandbox
+        // layer failure fails fast; in Lenient mode the next available
+        // execution strategy is tried instead (no silent downgrade of an
+        // executed-but-failed command).
         let mut unavailable: Vec<String> = Vec::new();
+        let mut last_strategy_error: Option<(String, String)> = None;
         for s in chain.iter().filter(|s| s.kind() == StrategyKind::Execution) {
             if !s.is_available() {
                 unavailable.push(s.id().to_string());
@@ -400,7 +490,7 @@ impl SandboxRuntime {
             }
 
             let result = s.execute(options.clone(), &policy).await;
-            return match result {
+            match result {
                 Ok(mut res) => {
                     res.sandbox_mode = Some(format!("{:?}", mode));
                     res.strategy_id = Some(s.id().to_string());
@@ -440,28 +530,45 @@ impl SandboxRuntime {
                             true,
                         );
                     }
-                    res
+                    return self.finalize_result(res, gate_warning);
                 }
                 Err(e) => {
+                    if mode == SandboxMode::Strict {
+                        self.record_audit(
+                            AuditEventType::ExecutionDenied,
+                            language,
+                            &format!("sandbox-{language}"),
+                            Some(e.to_string()),
+                            Some(s.id().to_string()),
+                            false,
+                        );
+                        return self.failed_result(
+                            language,
+                            &mode,
+                            format!("Execution strategy '{}' failed: {e}", s.id()),
+                            Some(s.id().to_string()),
+                        );
+                    }
+                    // Lenient: try the next execution strategy.
                     self.record_audit(
-                        AuditEventType::ExecutionDenied,
+                        AuditEventType::StrategyFallback,
                         language,
                         &format!("sandbox-{language}"),
-                        Some(e.to_string()),
+                        Some(format!(
+                            "Execution strategy '{}' failed, trying next: {e}",
+                            s.id()
+                        )),
                         Some(s.id().to_string()),
-                        false,
+                        true,
                     );
-                    self.failed_result(
-                        language,
-                        &mode,
-                        format!("Execution strategy '{}' failed: {e}", s.id()),
-                        Some(s.id().to_string()),
-                    )
+                    last_strategy_error = Some((s.id().to_string(), e.to_string()));
                 }
-            };
+            }
         }
 
-        let e = if unavailable.is_empty() {
+        let error = if let Some((sid, msg)) = last_strategy_error {
+            format!("All execution strategies failed; last error from '{sid}': {msg}")
+        } else if unavailable.is_empty() {
             format!("No execution strategy in chain for language: {language}")
         } else {
             format!(
@@ -473,11 +580,48 @@ impl SandboxRuntime {
             AuditEventType::StrategyFallback,
             language,
             &format!("sandbox-{language}"),
-            Some(e.clone()),
+            Some(error.clone()),
             None,
             false,
         );
-        self.failed_result(language, &mode, e, None)
+        let mut result = self.failed_result(language, &mode, error, None);
+        // Lenient: keep the analysis violations on the failed result so no
+        // collected information is dropped.
+        if mode == SandboxMode::Lenient && !analysis_violations.is_empty() {
+            result.violations = Some(analysis_violations.clone());
+        }
+        self.finalize_result(result, gate_warning)
+    }
+
+    /// Resolve the effective mode: config → profile (already merged above) →
+    /// global config → default policy → Strict.
+    fn resolve_mode(&self, config: &SandboxConfig) -> SandboxMode {
+        config
+            .mode
+            .clone()
+            .or_else(|| {
+                self.profile_resolver
+                    .as_ref()
+                    .and_then(|r| r.mode().cloned())
+            })
+            .or(self.default_policy.mode.clone())
+            .unwrap_or(SandboxMode::Strict)
+    }
+
+    /// Attach the skip-gate warning (if any) to the returned result so the
+    /// exemption is visible to the caller, not just in the audit log.
+    fn finalize_result(
+        &self,
+        mut res: ScriptExecutionResult,
+        gate_warning: Option<String>,
+    ) -> ScriptExecutionResult {
+        if let Some(warning) = gate_warning {
+            res.stderr = Some(match res.stderr.take() {
+                Some(prev) if !prev.is_empty() => format!("{warning}\n{prev}"),
+                _ => warning,
+            });
+        }
+        res
     }
 
     async fn execute_direct(&self, command: &str) -> ScriptExecutionResult {
@@ -536,6 +680,8 @@ mod tests {
             javascript_strategy: None,
             lua_strategy: None,
             vfs: None,
+            workdir: None,
+            env: None,
             legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
@@ -734,7 +880,8 @@ mod tests {
         let runtime = SandboxRuntime::with_global_config(SandboxGlobalConfig {
             mode: Some(SandboxMode::Disabled),
             ..SandboxGlobalConfig::default()
-        });
+        })
+        .expect("default global config must compile");
         let config = make_config(None);
 
         let result = runtime.execute("shell", "echo hello", &config).await;
@@ -751,7 +898,8 @@ mod tests {
         let runtime = SandboxRuntime::with_global_config(SandboxGlobalConfig {
             mode: Some(SandboxMode::Disabled),
             ..SandboxGlobalConfig::default()
-        });
+        })
+        .expect("default global config must compile");
         let config = make_config(Some(SandboxMode::Strict));
 
         let result = runtime.execute("shell", "echo hello", &config).await;
@@ -882,7 +1030,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_static_analyzer_keeps_vfs_fallback_without_vfs_gate() {
+    async fn test_vfs_auto_injects_gate_without_vfs_gate() {
         let runtime = SandboxRuntime::new();
         let config = SandboxConfig {
             shell_strategy: Some(vec!["static-analyzer".to_string(), "os-hook".to_string()]),
@@ -895,9 +1043,318 @@ mod tests {
             .await;
         assert!(
             !result.success,
-            "static-analyzer must still enforce VFS paths without vfs-gate: {:?}",
+            "vfs-gate must be auto-injected when VFS is enabled: {:?}",
             result.error
         );
-        assert_eq!(result.strategy_id.as_deref(), Some("static-analyzer"));
+        assert_eq!(
+            result.strategy_id.as_deref(),
+            Some("vfs-gate"),
+            "denial must be attributed to the injected vfs-gate"
+        );
+        assert!(result.error.unwrap().contains("path violation"));
+
+        // The injection must be recorded in the audit log.
+        let log = runtime.get_audit_log();
+        assert!(
+            log.iter().any(|e| e
+                .violation
+                .as_deref()
+                .is_some_and(|v| v.contains("auto-injected 'vfs-gate'"))),
+            "auto-injection must be audited: {log:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_runtime_rejects_mixed_order_chain() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["os-hook".to_string(), "static-analyzer".to_string()]),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            !result.success,
+            "execution-before-analysis chain must fail closed: {:?}",
+            result.error
+        );
+        assert!(
+            result.error.unwrap_or_default().contains("after an Execution"),
+            "error should explain the shape violation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_skip_gate_check_is_audited_and_warned() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["os-hook".to_string()]),
+            skip_gate_check: Some(true),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            result.success,
+            "skip_gate_check must allow the gateless chain: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+        let stderr = result.stderr.unwrap_or_default();
+        assert!(
+            stderr.contains("skip_gate_check"),
+            "exemption warning must be attached to the result: {stderr}"
+        );
+
+        let log = runtime.get_audit_log();
+        assert!(
+            log.iter().any(|e| e.event_type == AuditEventType::StrategyFallback
+                && e.violation
+                    .as_deref()
+                    .is_some_and(|v| v.contains("skip_gate_check"))),
+            "exemption must be audited: {log:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_profile_rule_routes_mode() {
+        use wf_types::script::sandbox::{
+            SandboxProfile, SandboxProfileRule, SandboxRuleMatchField,
+        };
+
+        let global = SandboxGlobalConfig {
+            profiles: vec![SandboxProfile {
+                name: "lenient".to_string(),
+                description: None,
+                mode: Some(SandboxMode::Lenient),
+                shell_strategy: None,
+                python_strategy: None,
+                javascript_strategy: None,
+                lua_strategy: None,
+                policy: None,
+                vfs: None,
+                workdir: None,
+                env: None,
+            }],
+            rules: vec![SandboxProfileRule {
+                match_field: SandboxRuleMatchField::Language,
+                match_pattern: "python".to_string(),
+                profile: "lenient".to_string(),
+            }],
+            ..SandboxGlobalConfig::default()
+        };
+        let runtime = SandboxRuntime::with_global_config(global)
+            .expect("rule referencing an existing profile must compile");
+
+        // python matches the rule -> Lenient mode from the profile.
+        let config = make_config(None);
+        let result = runtime.execute("python", "print(1)", &config).await;
+        assert!(
+            result.success,
+            "lenient profile must allow execution: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.sandbox_mode, Some("Lenient".to_string()));
+
+        // shell does not match -> falls back to the global Strict default.
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(result.success);
+        assert_eq!(result.sandbox_mode, Some("Strict".to_string()));
+    }
+
+    #[test]
+    fn test_profile_rule_config_error_fails_fast() {
+        use wf_types::script::sandbox::{SandboxProfileRule, SandboxRuleMatchField};
+
+        let global = SandboxGlobalConfig {
+            rules: vec![SandboxProfileRule {
+                match_field: SandboxRuleMatchField::Language,
+                match_pattern: "python".to_string(),
+                profile: "does-not-exist".to_string(),
+            }],
+            ..SandboxGlobalConfig::default()
+        };
+        let err = match SandboxRuntime::with_global_config(global) {
+            Ok(_) => panic!("rule referencing an unknown profile must fail at construction"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("unknown profile"),
+            "error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workdir_and_env_propagate_to_execution() {
+        use std::collections::HashMap;
+
+        let runtime = SandboxRuntime::new();
+        let tmp = std::env::temp_dir();
+        let mut env = HashMap::new();
+        env.insert(
+            "WF_SANDBOX_TEST".to_string(),
+            "hello-from-env".to_string(),
+        );
+        let config = SandboxConfig {
+            python_strategy: Some(vec!["direct".to_string()]),
+            skip_gate_check: Some(true),
+            workdir: Some(tmp.to_string_lossy().to_string()),
+            env: Some(env),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime
+            .execute(
+                "python",
+                "import os; print(os.environ['WF_SANDBOX_TEST']); print(os.getcwd())",
+                &config,
+            )
+            .await;
+        assert!(
+            result.success,
+            "python direct must receive workdir/env: {:?}",
+            result.stderr
+        );
+        let stdout = result.stdout.unwrap_or_default();
+        assert!(stdout.contains("hello-from-env"), "stdout: {stdout}");
+        assert!(
+            stdout.contains(&tmp.to_string_lossy().to_string()),
+            "workdir must be applied: {stdout}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_workdir_propagates_to_os_hook() {
+        let runtime = SandboxRuntime::new();
+        let tmp = std::env::temp_dir();
+        let config = SandboxConfig {
+            shell_strategy: Some(vec!["static-analyzer".to_string(), "os-hook".to_string()]),
+            workdir: Some(tmp.to_string_lossy().to_string()),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+
+        let result = runtime.execute("shell", "pwd", &config).await;
+        assert!(
+            result.success,
+            "os-hook must honor workdir: {:?}",
+            result.stderr
+        );
+        let stdout = result.stdout.unwrap_or_default();
+        assert!(
+            stdout.contains(&tmp.to_string_lossy().to_string()),
+            "workdir must be applied: {stdout}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lenient_execution_falls_back_on_strategy_failure() {
+        use async_trait::async_trait;
+        use crate::StrategyImplementation;
+
+        struct FailingStrategy;
+
+        #[async_trait]
+        impl StrategyImplementation for FailingStrategy {
+            fn id(&self) -> &str {
+                "failing"
+            }
+            fn name(&self) -> &str {
+                "Failing"
+            }
+            fn description(&self) -> &str {
+                "mock strategy that fails with an error"
+            }
+            fn kind(&self) -> StrategyKind {
+                StrategyKind::Execution
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            async fn execute(
+                &self,
+                _options: StrategyExecuteOptions,
+                _policy: &SandboxPolicy,
+            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+                Err("mock sandbox failure".into())
+            }
+        }
+
+        struct PassingGate;
+
+        #[async_trait]
+        impl StrategyImplementation for PassingGate {
+            fn id(&self) -> &str {
+                "pass-gate"
+            }
+            fn name(&self) -> &str {
+                "Passing Gate"
+            }
+            fn description(&self) -> &str {
+                "mock analysis gate that always allows"
+            }
+            fn kind(&self) -> StrategyKind {
+                StrategyKind::Analysis
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            async fn execute(
+                &self,
+                _options: StrategyExecuteOptions,
+                _policy: &SandboxPolicy,
+            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(ScriptExecutionResult {
+                    success: true,
+                    script_name: "sandbox-python".to_string(),
+                    stdout: None,
+                    stderr: None,
+                    exit_code: Some(0),
+                    execution_time: 0,
+                    error: None,
+                    sandbox_mode: None,
+                    strategy_id: Some("pass-gate".to_string()),
+                    violations: None,
+                })
+            }
+        }
+
+        let mut resolver = DefaultStrategyResolver::with_defaults();
+        resolver.register_strategy("python", std::sync::Arc::new(PassingGate));
+        resolver.register_strategy("python", std::sync::Arc::new(FailingStrategy));
+        let runtime = SandboxRuntime::with_resolver(std::sync::Arc::new(resolver));
+
+        // Lenient: the failing execution strategy is skipped, `direct` runs.
+        let config = SandboxConfig {
+            python_strategy: Some(vec![
+                "pass-gate".to_string(),
+                "failing".to_string(),
+                "direct".to_string(),
+            ]),
+            ..make_config(Some(SandboxMode::Lenient))
+        };
+        let result = runtime
+            .execute("python", "print('fallback-ok')", &config)
+            .await;
+        assert!(
+            result.success,
+            "lenient must fall back to the next execution strategy: {:?}",
+            result.error
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("direct"));
+
+        // Strict: the first execution strategy failure fails fast.
+        let config = SandboxConfig {
+            python_strategy: Some(vec![
+                "pass-gate".to_string(),
+                "failing".to_string(),
+                "direct".to_string(),
+            ]),
+            ..make_config(Some(SandboxMode::Strict))
+        };
+        let result = runtime
+            .execute("python", "print('should-not-run')", &config)
+            .await;
+        assert!(!result.success, "strict must fail fast");
+        assert_eq!(result.strategy_id.as_deref(), Some("failing"));
     }
 }

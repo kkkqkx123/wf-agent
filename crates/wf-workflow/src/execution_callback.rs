@@ -44,6 +44,10 @@ pub struct WorkflowExecutionCallback {
     store: Arc<StorageBackend>,
     metrics: Option<Arc<MetricsRegistry>>,
     hooks: Vec<BaseHookDefinition>,
+    /// Shared sandbox runtime (global profiles + routing rules); injected
+    /// into the script handlers of executions launched here. `None` uses
+    /// per-handler defaults.
+    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
 }
 
 impl WorkflowExecutionCallback {
@@ -59,6 +63,7 @@ impl WorkflowExecutionCallback {
             store: Arc::new(StorageBackend::new_memory()),
             metrics: None,
             hooks: Vec::new(),
+            sandbox: None,
         }
     }
 
@@ -72,6 +77,13 @@ impl WorkflowExecutionCallback {
         handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
     ) -> Self {
         self.handlers = Some(handlers);
+        self
+    }
+
+    /// Inject a shared sandbox runtime (compiled global profiles + routing
+    /// rules) into the script handlers of executions launched here.
+    pub fn with_sandbox(mut self, sandbox: Arc<wf_sandbox::SandboxRuntime>) -> Self {
+        self.sandbox = Some(sandbox);
         self
     }
 
@@ -127,7 +139,7 @@ impl WorkflowExecutionCallback {
             Some(h) => h.clone(),
             None => {
                 let mut registry = HandlerRegistry::new();
-                registry.register_defaults(self.gateway.clone());
+                registry.register_defaults_with_sandbox(self.gateway.clone(), self.sandbox.clone());
                 registry.into_arc()
             }
         }

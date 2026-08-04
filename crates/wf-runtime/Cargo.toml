@@ -27,6 +27,7 @@ wf-server = { path = "../wf-server" }
 wf-workflow = { path = "../wf-workflow" }
 wf-execution-shared = { path = "../wf-execution-shared" }
 wf-tools = { path = "../wf-tools" }
+wf-sandbox = { path = "../wf-sandbox" }
 
 [dev-dependencies]
 wf-llm = { path = "../wf-llm", features = ["mock"] }

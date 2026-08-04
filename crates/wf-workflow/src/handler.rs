@@ -67,8 +67,19 @@ impl HandlerRegistry {
     }
 
     /// Register the standard handler set. The LLM gateway is injected here
-    /// and shared by the LLM and AGENT_LOOP handlers.
+    /// and shared by the LLM and AGENT_LOOP handlers; script handlers fall
+    /// back to their own default sandbox runtime.
     pub fn register_defaults(&mut self, gateway: Arc<LlmGateway>) {
+        self.register_defaults_with_sandbox(gateway, None)
+    }
+
+    /// Register the standard handler set with a caller-provided shared
+    /// sandbox runtime (profiles + global routing rules precompiled).
+    pub fn register_defaults_with_sandbox(
+        &mut self,
+        gateway: Arc<LlmGateway>,
+        sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+    ) {
         self.register(Arc::new(start_end::StartHandler));
         self.register(Arc::new(start_end::EndHandler));
         self.register(Arc::new(route::RouteHandler));
@@ -81,8 +92,10 @@ impl HandlerRegistry {
         self.register(Arc::new(subgraph::SubgraphHandler));
         self.register(Arc::new(llm::LlmHandler::new(gateway.clone())));
         self.register(Arc::new(context_processor::ContextProcessorHandler));
-        self.register(Arc::new(script::ScriptHandler::new()));
-        self.register(Arc::new(interactive_script::InteractiveScriptHandler::new()));
+        self.register(Arc::new(script::ScriptHandler::with_sandbox_opt(sandbox.clone())));
+        self.register(Arc::new(interactive_script::InteractiveScriptHandler::with_sandbox_opt(
+            sandbox,
+        )));
         self.register(Arc::new(agent_loop::AgentLoopHandler::new(gateway)));
         self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
         self.register(Arc::new(embed::EmbedHandler));

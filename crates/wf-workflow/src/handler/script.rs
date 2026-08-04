@@ -27,6 +27,10 @@ impl ScriptHandler {
         }
     }
 
+    pub fn with_sandbox_opt(sandbox: Option<Arc<SandboxRuntime>>) -> Self {
+        Self { sandbox }
+    }
+
     fn get_sandbox(&self) -> Arc<SandboxRuntime> {
         self.sandbox
             .clone()
@@ -72,9 +76,12 @@ impl NodeHandler for ScriptHandler {
         };
 
         let sandbox = self.get_sandbox();
-        let sandbox_config = Self::build_sandbox_config(language);
+        let sandbox_config = sandbox_config_from_node(config, language, &ctx.node_id)?;
 
-        let result = sandbox.execute(language, &code, &sandbox_config).await;
+        // execute_named so global rules can route to a profile by script_name.
+        let result = sandbox
+            .execute_named(language, script_name, &code, &sandbox_config)
+            .await;
 
         if !result.success {
             let stderr = result.stderr.as_deref().unwrap_or("unknown error");
@@ -137,9 +144,75 @@ impl ScriptHandler {
             javascript_strategy: None,
             lua_strategy: None,
             vfs: None,
+            workdir: None,
+            env: None,
             legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
         }
+    }
+}
+
+/// Parse the per-node `sandbox` section of a script node config.
+///
+/// Fail-closed: a present but malformed `sandbox` section is an error, never
+/// a silent fallback to the default config — a sandbox section that is not
+/// honored exactly as written must not run with a weaker default. When the
+/// section is absent, the default config is used and the global
+/// profile/rule routing still applies at execution time.
+pub(crate) fn sandbox_config_from_node(
+    config: &Value,
+    language: &str,
+    node_id: &str,
+) -> WorkflowResult<SandboxConfig> {
+    match config.get("sandbox") {
+        Some(v) => serde_json::from_value::<SandboxConfig>(v.clone()).map_err(|e| {
+            WorkflowError::Internal(format!(
+                "Script node '{node_id}': invalid sandbox config: {e}"
+            ))
+        }),
+        None => Ok(ScriptHandler::build_sandbox_config(language)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::script::sandbox::{SandboxMode, SandboxPolicy};
+
+    #[test]
+    fn test_sandbox_config_absent_uses_default() {
+        let config = serde_json::json!({ "script_name": "a.sh" });
+        let cfg = sandbox_config_from_node(&config, "shell", "n1").expect("absent -> default");
+        assert_eq!(cfg.mode, Some(SandboxMode::Lenient));
+        assert!(cfg.policy.is_none());
+    }
+
+    #[test]
+    fn test_sandbox_config_parsed_from_node() {
+        let config = serde_json::json!({
+            "script_name": "a.sh",
+            "sandbox": {
+                "mode": "Strict",
+                "policy": { "network": { "access": "None" } }
+            }
+        });
+        let cfg = sandbox_config_from_node(&config, "shell", "n1").expect("valid sandbox");
+        assert_eq!(cfg.mode, Some(SandboxMode::Strict));
+        let policy: SandboxPolicy = cfg.policy.expect("policy parsed");
+        assert!(policy.network.is_some());
+    }
+
+    #[test]
+    fn test_sandbox_config_malformed_fails_closed() {
+        // Wrong value type: parsing must fail instead of falling back to the
+        // (weaker) Lenient default.
+        let config = serde_json::json!({
+            "script_name": "a.sh",
+            "sandbox": { "mode": 42 }
+        });
+        let err = sandbox_config_from_node(&config, "shell", "n1").expect_err("must fail");
+        assert!(err.to_string().contains("invalid sandbox config"), "error: {err}");
+        assert!(err.to_string().contains("n1"), "error: {err}");
     }
 }

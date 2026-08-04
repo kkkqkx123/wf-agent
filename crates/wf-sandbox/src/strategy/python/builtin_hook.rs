@@ -8,21 +8,21 @@ pub struct PythonBuiltinHookStrategy;
 
 impl PythonBuiltinHookStrategy {
     fn build_wrapper(code: &str, policy: &PythonPolicy) -> String {
-        let allowed =
-            serde_json::to_string(&policy.allowed_modules).unwrap_or_else(|_| "[]".to_string());
-        let denied =
-            serde_json::to_string(&policy.denied_modules).unwrap_or_else(|_| "[]".to_string());
-        let allow_subprocess = if policy.allow_subprocess {
+        let allowed = serde_json::to_string(&policy.allowed_modules.clone().unwrap_or_default())
+            .unwrap_or_else(|_| "[]".to_string());
+        let denied = serde_json::to_string(&policy.denied_modules.clone().unwrap_or_default())
+            .unwrap_or_else(|_| "[]".to_string());
+        let allow_subprocess = if policy.allow_subprocess.unwrap_or(false) {
             "True"
         } else {
             "False"
         };
-        let restrict_open = if policy.restrict_builtin_open {
+        let restrict_open = if policy.restrict_builtin_open.unwrap_or(true) {
             "True"
         } else {
             "False"
         };
-        let allow_eval = if policy.allow_dynamic_eval {
+        let allow_eval = if policy.allow_dynamic_eval.unwrap_or(false) {
             "True"
         } else {
             "False"
@@ -115,23 +115,23 @@ impl StrategyImplementation for PythonBuiltinHookStrategy {
             });
         }
 
-        let py_policy = policy.python.as_ref().cloned().unwrap_or(PythonPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![],
-            allow_subprocess: false,
-            restrict_builtin_open: true,
-            allow_dynamic_eval: false,
-        });
+        let py_policy = policy.python.clone().unwrap_or_default();
 
         let wrapped = Self::build_wrapper(code, &py_policy);
+        let workdir = options.workdir.clone();
+        let env_vars = options.env_vars.clone();
 
         let output = execute_with_timeout(
             async move {
-                tokio::process::Command::new("python3")
-                    .arg("-c")
-                    .arg(&wrapped)
-                    .output()
-                    .await
+                let mut command = tokio::process::Command::new("python3");
+                command.arg("-c").arg(&wrapped);
+                if let Some(dir) = &workdir {
+                    command.current_dir(dir);
+                }
+                if let Some(envs) = &env_vars {
+                    command.envs(envs);
+                }
+                command.output().await
             },
             options.timeout_ms,
         )
@@ -165,11 +165,11 @@ mod tests {
             mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             shell: None,
             python: Some(PythonPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![],
-                allow_subprocess,
-                restrict_builtin_open: restrict_open,
-                allow_dynamic_eval: allow_eval,
+                allowed_modules: Some(vec![]),
+                denied_modules: Some(vec![]),
+                allow_subprocess: Some(allow_subprocess),
+                restrict_builtin_open: Some(restrict_open),
+                allow_dynamic_eval: Some(allow_eval),
             }),
             javascript: None,
             lua: None,
@@ -194,7 +194,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -217,7 +216,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -240,7 +238,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -263,7 +260,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )

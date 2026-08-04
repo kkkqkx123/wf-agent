@@ -7,6 +7,7 @@ pub mod llm_profile;
 pub mod node_template;
 pub mod presets;
 pub mod prompt;
+pub mod sandbox_global;
 pub mod script;
 pub mod script_flow;
 pub mod script_interactive;

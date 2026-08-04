@@ -163,28 +163,6 @@ pub struct ScriptExecutorConfigSchema {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SandboxProfileRuleSchema {
-    pub path: String,
-    pub permission: String,
-    pub recursive: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SandboxProfileSchema {
-    pub name: String,
-    pub description: Option<String>,
-    pub rules: Vec<SandboxProfileRuleSchema>,
-    pub policy: Option<SandboxPolicySchema>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SandboxGlobalConfigSchema {
-    pub default_profile: Option<String>,
-    pub profiles: Option<Vec<SandboxProfileSchema>>,
-    pub global_policy: Option<SandboxPolicySchema>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ScriptExecutionOptionsSchema {
     pub timeout_seconds: Option<u64>,
     pub max_memory_mb: Option<u64>,

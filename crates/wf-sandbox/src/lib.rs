@@ -1,5 +1,6 @@
 pub mod default_policy;
 pub mod policy;
+pub mod profile;
 pub mod resolver;
 pub mod runtime;
 pub mod security;
@@ -8,6 +9,7 @@ pub mod timeout;
 pub mod vfs;
 
 pub use policy::SandboxPolicyManager;
+pub use profile::{SandboxProfileError, SandboxProfileResolver};
 pub use resolver::{
     default_chain, DefaultStrategyResolver, StrategyExecuteOptions, StrategyImplementation,
     StrategyKind, StrategyResolver, VfsProvider, DEFAULT_JS_CHAIN, DEFAULT_LUA_CHAIN,

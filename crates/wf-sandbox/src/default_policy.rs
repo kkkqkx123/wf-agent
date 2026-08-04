@@ -23,56 +23,56 @@ fn build_default_sandbox_policy() -> SandboxPolicy {
             allow_redirect: Some(true),
         }),
         python: Some(PythonPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec!["os".to_string(), "subprocess".to_string()],
-            allow_subprocess: false,
-            restrict_builtin_open: true,
-            allow_dynamic_eval: false,
+            allowed_modules: Some(vec![]),
+            denied_modules: Some(vec!["os".to_string(), "subprocess".to_string()]),
+            allow_subprocess: Some(false),
+            restrict_builtin_open: Some(true),
+            allow_dynamic_eval: Some(false),
         }),
         javascript: Some(JavaScriptPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec!["child_process".to_string(), "fs".to_string()],
-            allow_child_process: false,
-            allow_fs_write: false,
-            allow_dynamic_eval: false,
+            allowed_modules: Some(vec![]),
+            denied_modules: Some(vec!["child_process".to_string(), "fs".to_string()]),
+            allow_child_process: Some(false),
+            allow_fs_write: Some(false),
+            allow_dynamic_eval: Some(false),
         }),
         lua: Some(LuaPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![
+            allowed_modules: Some(vec![]),
+            denied_modules: Some(vec![
                 "os".to_string(),
                 "io".to_string(),
                 "package".to_string(),
                 "debug".to_string(),
                 "ffi".to_string(),
-            ],
-            allow_os_execute: false,
-            restrict_io_open: true,
-            allow_dynamic_load: false,
+            ]),
+            allow_os_execute: Some(false),
+            restrict_io_open: Some(true),
+            allow_dynamic_load: Some(false),
         }),
         filesystem: Some(FilesystemPolicy {
-            allowed_read_paths: vec![],
-            allowed_write_paths: vec![],
-            allowed_remove_paths: vec![],
-            allowed_execute_paths: vec![],
-            copy_on_write: true,
-            max_file_size: 10 * 1024 * 1024,
+            allowed_read_paths: Some(vec![]),
+            allowed_write_paths: Some(vec![]),
+            allowed_remove_paths: Some(vec![]),
+            allowed_execute_paths: Some(vec![]),
+            copy_on_write: Some(true),
+            max_file_size: Some(10 * 1024 * 1024),
         }),
         process: Some(ProcessPolicy {
-            allowed_child_processes: vec![],
-            denied_child_processes: vec![],
-            max_child_processes: 10,
+            allowed_child_processes: Some(vec![]),
+            denied_child_processes: Some(vec![]),
+            max_child_processes: Some(10),
             // Exec/fork are permitted by default so the default chain
             // (static-analyzer + os-hook) stays usable for external commands;
             // the analysis gate enforces command-level policy and the seccomp
             // layer denies them when a user explicitly sets these to false.
-            allow_fork: true,
-            allow_exec: true,
+            allow_fork: Some(true),
+            allow_exec: Some(true),
         }),
         network: Some(NetworkPolicy {
-            access_type: NetworkAccessType::None,
+            access_type: Some(NetworkAccessType::None),
             allowed_domains: None,
             allowed_ports: None,
-            allow_dns: false,
+            allow_dns: Some(false),
         }),
         resource: Some(ResourcePolicy {
             cpu_limit_ms: None,
@@ -103,8 +103,8 @@ mod tests {
     fn test_default_policy_permits_exec_and_fork() {
         let policy = default_sandbox_policy();
         let process = policy.process.as_ref().unwrap();
-        assert!(process.allow_exec);
-        assert!(process.allow_fork);
+        assert_eq!(process.allow_exec, Some(true));
+        assert_eq!(process.allow_fork, Some(true));
     }
 
     #[test]
@@ -122,6 +122,10 @@ mod tests {
     fn test_default_policy_lua_denies_os() {
         let policy = default_sandbox_policy();
         let lua = policy.lua.as_ref().unwrap();
-        assert!(lua.denied_modules.contains(&"os".to_string()));
+        assert!(lua
+            .denied_modules
+            .as_ref()
+            .unwrap()
+            .contains(&"os".to_string()));
     }
 }

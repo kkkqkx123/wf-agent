@@ -118,6 +118,8 @@ pub fn merge_sandbox_with_defaults(
         javascript_strategy: user.javascript_strategy.clone(),
         lua_strategy: user.lua_strategy.clone(),
         vfs: user.vfs.clone(),
+        workdir: user.workdir.clone(),
+        env: user.env.clone(),
         legacy_type: user.legacy_type.clone(),
         resource_limits: user.resource_limits.clone().or(Some(ResourceLimits {
             cpu: None,
@@ -135,6 +137,14 @@ pub fn validate_sandbox_config(config: &SandboxConfig) -> ConfigResult<()> {
         }
         if let Some(disk) = limits.disk {
             validate_min(disk, 1, "resource_limits.disk")?;
+        }
+    }
+    if let Some(ref workdir) = config.workdir {
+        let path = std::path::Path::new(workdir);
+        if !path.is_dir() {
+            return Err(ConfigError::Validation(format!(
+                "Invalid sandbox workdir '{workdir}': not an existing directory"
+            )));
         }
     }
     Ok(())
@@ -250,6 +260,8 @@ mod tests {
             javascript_strategy: None,
             lua_strategy: None,
             vfs: None,
+            workdir: Some("/tmp".to_string()),
+            env: None,
             legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
@@ -257,6 +269,7 @@ mod tests {
         let merged = merge_sandbox_with_defaults(&user, None);
         assert_eq!(merged.mode, Some(SandboxMode::Lenient));
         assert_eq!(merged.resource_limits.as_ref().unwrap().memory, Some(512));
+        assert_eq!(merged.workdir.as_deref(), Some("/tmp"));
     }
 
     #[test]
@@ -269,6 +282,8 @@ mod tests {
             javascript_strategy: None,
             lua_strategy: None,
             vfs: None,
+            workdir: None,
+            env: None,
             legacy_type: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
@@ -287,6 +302,8 @@ mod tests {
             javascript_strategy: None,
             lua_strategy: None,
             vfs: None,
+            workdir: None,
+            env: None,
             legacy_type: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
@@ -294,6 +311,34 @@ mod tests {
                 disk: Some(1024),
             }),
             skip_gate_check: None,
+        };
+        assert!(validate_sandbox_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_sandbox_workdir() {
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: Some("/definitely/not/a/real/dir-xyz".to_string()),
+            env: None,
+            legacy_type: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        };
+        assert!(
+            validate_sandbox_config(&config).is_err(),
+            "nonexistent workdir must be rejected"
+        );
+
+        let config = SandboxConfig {
+            workdir: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            ..config
         };
         assert!(validate_sandbox_config(&config).is_ok());
     }

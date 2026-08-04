@@ -146,7 +146,7 @@ impl WorkflowRunner {
         Self {
             registries,
             event_bus,
-            handlers: wf_workflow::create_default_handlers(gateway),
+            handlers: wf_workflow::create_default_handlers(gateway, None),
             contexts,
             skill_loader,
             tool_registry: None,
@@ -161,11 +161,12 @@ impl WorkflowRunner {
         gateway: Arc<LlmGateway>,
         contexts: Arc<ExecutionContextRegistry>,
         tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+        sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     ) -> Self {
         Self {
             registries,
             event_bus,
-            handlers: wf_workflow::create_default_handlers(gateway),
+            handlers: wf_workflow::create_default_handlers(gateway, sandbox),
             contexts,
             skill_loader: None,
             tool_registry,
@@ -292,14 +293,15 @@ pub fn start_trigger_listener_with_skills(
 }
 
 /// Like `start_trigger_listener`, but uses a caller-provided shared tool
-/// registry (builtin handlers + skills + MCP tools) for every triggered
-/// sub-workflow run.
+/// registry (builtin handlers + skills + MCP tools) and shared sandbox
+/// runtime for every triggered sub-workflow run.
 pub fn start_trigger_listener_with_registry(
     event_bus: Arc<EventBus>,
     registries: Arc<Registries>,
     gateway: Arc<LlmGateway>,
     contexts: Arc<ExecutionContextRegistry>,
     tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
 ) -> TriggerListenerHandle {
     let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
         registries.clone(),
@@ -307,6 +309,7 @@ pub fn start_trigger_listener_with_registry(
         gateway,
         contexts.clone(),
         tool_registry,
+        sandbox,
     ));
     spawn_listener(event_bus, registries, contexts, runner)
 }
@@ -511,7 +514,7 @@ mod tests {
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
         };
-        let handlers = wf_workflow::create_default_handlers(gateway.clone());
+        let handlers = wf_workflow::create_default_handlers(gateway.clone(), None);
         let exec_ctx = ExecutorContext::new(
             execution_id.clone(),
             wf_common::generate_id(),
@@ -654,7 +657,7 @@ mod tests {
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
         };
-        let handlers = wf_workflow::create_default_handlers(gateway.clone());
+        let handlers = wf_workflow::create_default_handlers(gateway.clone(), None);
         let exec_ctx = ExecutorContext::new(
             execution_id.clone(),
             wf_common::generate_id(),

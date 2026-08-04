@@ -51,10 +51,6 @@ pub struct StrategyExecuteOptions {
     pub env_vars: Option<HashMap<String, String>>,
     pub timeout_ms: Option<u64>,
     pub vfs: Option<Arc<dyn VfsProvider>>,
-    /// Set by the runtime when the resolved chain contains a dedicated
-    /// `vfs-gate` strategy, so `static-analyzer` skips its duplicated VFS
-    /// path checks (the gate runs them once).
-    pub skip_vfs_check: bool,
 }
 
 impl fmt::Debug for StrategyExecuteOptions {
@@ -67,7 +63,6 @@ impl fmt::Debug for StrategyExecuteOptions {
             .field("env_vars", &self.env_vars)
             .field("timeout_ms", &self.timeout_ms)
             .field("vfs", &self.vfs.as_ref().map(|_| "VfsProvider"))
-            .field("skip_vfs_check", &self.skip_vfs_check)
             .finish()
     }
 }
@@ -279,6 +274,26 @@ impl StrategyResolver for DefaultStrategyResolver {
             ));
         }
 
+        // Chain shape validation: the runtime executes all Analysis
+        // strategies before any Execution strategy, so the configured chain
+        // must have the same shape (Analysis segment first). Rejecting a
+        // mixed-order chain at resolution time keeps the configuration
+        // surface identical to the execution order instead of silently
+        // reordering it.
+        let mut seen_execution = false;
+        for s in &chain {
+            if s.kind() == StrategyKind::Execution {
+                seen_execution = true;
+            } else if seen_execution {
+                return Err(format!(
+                    "Strategy chain for language '{language}' has an Analysis \
+                     strategy after an Execution strategy: '{}'. Analysis gates \
+                     must precede all execution strategies.",
+                    s.id()
+                ));
+            }
+        }
+
         Ok(chain)
     }
 }
@@ -374,6 +389,39 @@ mod tests {
             .err()
             .expect("missing strategy must fail resolution");
         assert!(err.contains("nope"), "error should list missing id: {err}");
+    }
+
+    #[test]
+    fn test_resolve_chain_rejects_execution_before_analysis() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        let err = resolver
+            .resolve_chain(
+                "shell",
+                &["os-hook".to_string(), "static-analyzer".to_string()],
+            )
+            .err()
+            .expect("execution-before-analysis chain must be rejected");
+        assert!(
+            err.contains("after an Execution"),
+            "error should describe the shape violation: {err}"
+        );
+    }
+
+    #[test]
+    fn test_resolve_chain_accepts_analysis_before_execution() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        let chain = resolver
+            .resolve_chain(
+                "shell",
+                &[
+                    "static-analyzer".to_string(),
+                    "os-hook".to_string(),
+                    "container".to_string(),
+                ],
+            )
+            .unwrap();
+        let ids: Vec<&str> = chain.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, vec!["static-analyzer", "os-hook", "container"]);
     }
 
     #[test]

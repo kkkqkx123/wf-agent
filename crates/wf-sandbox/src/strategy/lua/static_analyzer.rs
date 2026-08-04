@@ -231,7 +231,7 @@ impl LuaStaticAnalyzer {
         }
 
         let name = field.as_deref().unwrap_or("");
-        if base == "os" && name == "execute" && policy.allow_os_execute {
+        if base == "os" && name == "execute" && policy.allow_os_execute.unwrap_or(false) {
             return None;
         }
         if dangerous_fields.contains(&name) {
@@ -286,7 +286,7 @@ impl LuaStaticAnalyzer {
                             .iter()
                             .position(|t| t.kind == TokenKind::Punct && t.text == "(");
                         if let Some(call_idx) = call_idx {
-                            if policy.restrict_io_open {
+                            if policy.restrict_io_open.unwrap_or(true) {
                                 let open = Self::find_matching_bracket(&tokens, call_idx, '(', ')');
                                 if let Some(open) = open {
                                     let args: Vec<&Token> =
@@ -323,7 +323,9 @@ impl LuaStaticAnalyzer {
                         .map(|t| t.kind == TokenKind::Punct && t.text == "(")
                         .unwrap_or(false);
                     if is_call {
-                        if (name == "loadstring" || name == "load") && policy.allow_dynamic_load {
+                        if (name == "loadstring" || name == "load")
+                            && policy.allow_dynamic_load.unwrap_or(false)
+                        {
                             // allowed by policy
                         } else {
                             violations.push(format!("Dangerous function call: {name}()"));
@@ -335,12 +337,12 @@ impl LuaStaticAnalyzer {
                         if !module.is_empty() {
                             let module_base =
                                 module.split('.').next().unwrap_or(&module).to_string();
-                            if !policy.allowed_modules.is_empty()
-                                && !policy.allowed_modules.contains(&module_base)
-                            {
+                            let allowed = policy.allowed_modules.as_deref().unwrap_or_default();
+                            let denied = policy.denied_modules.as_deref().unwrap_or_default();
+                            if !allowed.is_empty() && !allowed.contains(&module_base) {
                                 violations.push(format!("Module not allowed: {module}"));
                             }
-                            if policy.denied_modules.contains(&module_base) {
+                            if denied.contains(&module_base) {
                                 violations.push(format!("Module denied: {module}"));
                             }
                         }
@@ -428,13 +430,7 @@ impl StrategyImplementation for LuaStaticAnalyzerStrategy {
             return Ok(violation_result(&["Empty Lua code".to_string()]));
         }
 
-        let lua_policy = policy.lua.as_ref().cloned().unwrap_or(LuaPolicy {
-            allowed_modules: vec![],
-            denied_modules: vec![],
-            allow_os_execute: false,
-            restrict_io_open: true,
-            allow_dynamic_load: false,
-        });
+        let lua_policy = policy.lua.clone().unwrap_or_default();
 
         let violations = LuaStaticAnalyzer::analyze(&command, &lua_policy);
         if !violations.is_empty() {
@@ -453,17 +449,17 @@ mod tests {
         SandboxPolicy {
             mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             lua: Some(LuaPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![
+                allowed_modules: Some(vec![]),
+                denied_modules: Some(vec![
                     "os".to_string(),
                     "io".to_string(),
                     "package".to_string(),
                     "debug".to_string(),
                     "ffi".to_string(),
-                ],
-                allow_os_execute,
-                restrict_io_open: true,
-                allow_dynamic_load,
+                ]),
+                allow_os_execute: Some(allow_os_execute),
+                restrict_io_open: Some(true),
+                allow_dynamic_load: Some(allow_dynamic_load),
             }),
             shell: None,
             python: None,
@@ -484,7 +480,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         }
     }
 
@@ -602,7 +597,7 @@ mod tests {
     async fn test_require_whitelist_enforced() {
         let mut policy = make_policy(false, false);
         let lua = policy.lua.as_mut().unwrap();
-        lua.allowed_modules = vec!["math".to_string()];
+        lua.allowed_modules = Some(vec!["math".to_string()]);
         let violations = analyze_code("require('string')", &policy).await;
         assert!(
             violations

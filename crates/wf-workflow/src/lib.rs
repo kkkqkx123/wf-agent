@@ -87,10 +87,14 @@ use wf_llm::LlmGateway;
 
 pub use wf_types::node::StaticNodeType;
 
+/// Build the standard handler set. `sandbox` (shared, precompiled sandbox
+/// runtime) is injected into the script handlers; `None` lets them fall back
+/// to their own default runtime.
 pub fn create_default_handlers(
     gateway: Arc<LlmGateway>,
+    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
 ) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
     let mut registry = HandlerRegistry::new();
-    registry.register_defaults(gateway);
+    registry.register_defaults_with_sandbox(gateway, sandbox);
     registry.into_arc()
 }

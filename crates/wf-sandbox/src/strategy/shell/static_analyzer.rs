@@ -9,7 +9,7 @@ use super::base::{ShellAnalysisContext, ShellAnalyzer, ShellType};
 use super::bash::BashAnalyzer;
 use super::cmd::CmdAnalyzer;
 use super::powershell::PowerShellAnalyzer;
-use super::vfs_paths::{check_vfs_paths, parse_command_chain, tokenize_command};
+use super::vfs_paths::{parse_command_chain, tokenize_command};
 
 const DEFAULT_DANGEROUS_PATTERNS_BASH: &[&str] = super::bash::DANGEROUS_PATTERNS;
 const DEFAULT_DANGEROUS_PATTERNS_CMD: &[&str] = super::cmd::DANGEROUS_PATTERNS;
@@ -113,7 +113,7 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
         "Shell Static Analyzer"
     }
     fn description(&self) -> &str {
-        "Static command analysis with shell-type detection, command substitution rejection, shlex tokenization and read/write path checks (analysis gate, does not execute)"
+        "Static command analysis with shell-type detection, command substitution rejection and shlex tokenization (analysis gate, does not execute)"
     }
     fn kind(&self) -> StrategyKind {
         StrategyKind::Analysis
@@ -174,7 +174,6 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
             return Ok(deny("Empty command"));
         }
 
-        let mut all_tokens: Vec<String> = Vec::new();
         for sub_command in &sub_commands {
             let tokens = tokenize_command(sub_command);
             if tokens.is_empty() {
@@ -194,22 +193,11 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
                     result.reason.unwrap_or_default()
                 )));
             }
-            all_tokens.extend(tokens);
         }
 
-        // VFS path checks are skipped when a dedicated `vfs-gate` strategy is
-        // present in the chain (runtime sets skip_vfs_check) to avoid running
-        // the same extraction twice; without vfs-gate this stays as a
-        // fallback so a VFS-enabled policy is still enforced.
-        if !options.skip_vfs_check {
-            if let Some(ref vfs) = options.vfs {
-                let path_violation = check_vfs_paths(&all_tokens, vfs).await;
-                if let Some(reason) = path_violation {
-                    return Ok(deny(&format!("Command path violation: {reason}")));
-                }
-            }
-        }
-
+        // VFS path validation is the single responsibility of the `vfs-gate`
+        // strategy (auto-injected by the runtime whenever VFS is enabled);
+        // this gate only enforces command-level rules.
         Ok(allow())
     }
 }
@@ -217,10 +205,8 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     use crate::strategy::shell::vfs_paths::extract_file_paths;
-    use crate::VfsProvider;
 
     fn make_options(command: &str) -> StrategyExecuteOptions {
         StrategyExecuteOptions {
@@ -231,7 +217,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         }
     }
 
@@ -338,7 +323,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         };
         let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
@@ -356,7 +340,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         };
         let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
@@ -373,7 +356,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         };
         let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
@@ -391,7 +373,6 @@ mod tests {
             env_vars: None,
             timeout_ms: None,
             vfs: None,
-            skip_vfs_check: false,
         };
         let result = strategy.execute(options, &default_policy()).await.unwrap();
         assert!(!result.success);
@@ -440,40 +421,5 @@ mod tests {
         let (reads, writes) = extract_file_paths(&tokens);
         assert!(writes.is_empty());
         assert!(reads.contains(&"/tmp".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_vfs_denies_write_outside_policy() {
-        use crate::vfs::overlay::OverlayVFS;
-        use wf_types::script::sandbox::PathPolicy;
-
-        let dir = std::env::temp_dir().join("sandbox-vfs-analyzer-test");
-        let vfs = Arc::new(OverlayVFS::new(
-            dir.clone(),
-            PathPolicy {
-                allowed_read: vec!["/tmp".to_string()],
-                allowed_write: vec!["/tmp".to_string()],
-            },
-        )) as Arc<dyn VfsProvider>;
-
-        let strategy = ShellStaticAnalyzerStrategy::new();
-        let mut options = make_options("echo hi > /etc/shadow");
-        options.vfs = Some(vfs.clone());
-        let result = strategy.execute(options, &default_policy()).await.unwrap();
-        assert!(
-            !result.success,
-            "write to /etc/shadow must be denied by VFS policy"
-        );
-        assert!(result.error.unwrap().contains("write"));
-
-        let mut options = make_options("cat /etc/shadow");
-        options.vfs = Some(vfs.clone());
-        let result = strategy.execute(options, &default_policy()).await.unwrap();
-        assert!(!result.success, "read of /etc/shadow must be denied");
-
-        let mut options = make_options("echo hi > /tmp/ok.txt");
-        options.vfs = Some(vfs);
-        let result = strategy.execute(options, &default_policy()).await.unwrap();
-        assert!(result.success, "write under /tmp must be allowed");
     }
 }

@@ -51,6 +51,11 @@ pub struct RuntimeConfig {
     pub mcp: McpRuntimeConfig,
     pub metrics: Option<MetricsConfig>,
     pub llm: LlmConfig,
+    /// Global sandbox configuration (profiles + routing rules). Compiled and
+    /// validated at bootstrap (fail-fast); the resulting shared runtime is
+    /// exposed via [`Runtime::sandbox_runtime`] and injected into every
+    /// script handler. `None` uses the sandbox defaults.
+    pub sandbox: Option<wf_types::script::sandbox::SandboxGlobalConfig>,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }
@@ -92,6 +97,9 @@ pub struct Runtime {
     pub event_bus: Arc<EventBus>,
     pub metrics: Option<Arc<MetricsContext>>,
     pub llm_gateway: Arc<LlmGateway>,
+    /// Shared sandbox runtime: global profiles and routing rules compiled
+    /// at bootstrap, injected into every script handler.
+    pub sandbox_runtime: Arc<wf_sandbox::SandboxRuntime>,
     /// Variable maps of live workflow executions (write-back target of the
     /// event-driven context compression chain).
     pub execution_contexts: Arc<ExecutionContextRegistry>,
@@ -192,6 +200,26 @@ impl Runtime {
         let llm_gateway =
             init_llm_gateway(&config.llm, metrics.as_ref().map(|m| m.registry().as_ref()))?;
 
+        // Shared sandbox runtime: compile the global config (profiles +
+        // routing rules) up front so configuration errors surface at
+        // bootstrap, not at script execution.
+        let sandbox_runtime = Arc::new(match &config.sandbox {
+            Some(global) => wf_sandbox::SandboxRuntime::with_global_config(global.clone())
+                .map_err(|e| {
+                    crate::error::RuntimeError::Config(format!(
+                        "Invalid sandbox global config: {e}"
+                    ))
+                })?,
+            None => wf_sandbox::SandboxRuntime::new(),
+        });
+        if let Some(global) = &config.sandbox {
+            info!(
+                "Sandbox runtime initialized: {} profiles, {} routing rules",
+                global.profiles.len(),
+                global.rules.len()
+            );
+        }
+
         // Event-driven trigger listener: powers the context-compression chain
         // (CONTEXT_COMPRESSION_REQUESTED -> llm_summary_workflow -> write-back).
         let execution_contexts = Arc::new(ExecutionContextRegistry::new());
@@ -201,6 +229,7 @@ impl Runtime {
             llm_gateway.clone(),
             execution_contexts.clone(),
             Some(tool_registry.clone()),
+            Some(sandbox_runtime.clone()),
         );
 
         info!("Runtime bootstrap complete");
@@ -218,6 +247,7 @@ impl Runtime {
             event_bus,
             metrics,
             llm_gateway,
+            sandbox_runtime,
             execution_contexts,
             trigger_listener: Some(listener.listener),
             trigger_listener_shutdown: Some(listener.shutdown),
@@ -306,6 +336,13 @@ impl Runtime {
     /// this instance so all LLM calls resolve profiles from one registry.
     pub fn llm_gateway(&self) -> &Arc<LlmGateway> {
         &self.llm_gateway
+    }
+
+    /// Shared sandbox runtime (global profiles + routing rules compiled at
+    /// bootstrap). Injected into the script handlers of every workflow
+    /// execution started by this runtime.
+    pub fn sandbox_runtime(&self) -> &Arc<wf_sandbox::SandboxRuntime> {
+        &self.sandbox_runtime
     }
 
     #[cfg(feature = "plugins")]
@@ -452,6 +489,7 @@ mod tests {
             resource: ResourceConfig::default(),
             metrics: None,
             llm: LlmConfig::default(),
+            sandbox: None,
             skills: Default::default(),
             mcp: Default::default(),
             #[cfg(feature = "plugins")]
@@ -580,6 +618,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runtime_sandbox_config_compiled_at_bootstrap() {
+        clear_env_vars();
+
+        use wf_types::script::sandbox::{
+            SandboxConfig, SandboxGlobalConfig, SandboxMode, SandboxProfile, SandboxProfileRule,
+            SandboxRuleMatchField,
+        };
+
+        // Valid global config: bootstrap succeeds and exposes the compiled
+        // shared sandbox runtime; the rule routes shell executions to the
+        // Lenient profile.
+        let global = SandboxGlobalConfig {
+            mode: Some(SandboxMode::Strict),
+            profiles: vec![SandboxProfile {
+                name: "lenient".to_string(),
+                description: None,
+                mode: Some(SandboxMode::Lenient),
+                shell_strategy: None,
+                python_strategy: None,
+                javascript_strategy: None,
+                lua_strategy: None,
+                policy: None,
+                vfs: None,
+                workdir: None,
+                env: None,
+            }],
+            rules: vec![SandboxProfileRule {
+                match_field: SandboxRuleMatchField::Language,
+                match_pattern: "shell".to_string(),
+                profile: "lenient".to_string(),
+            }],
+            default_profile: None,
+            audit_logging: true,
+        };
+        let config = RuntimeConfig {
+            sandbox: Some(global),
+            ..Default::default()
+        };
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+        let result = runtime
+            .sandbox_runtime()
+            .execute(
+                "shell",
+                "echo hello",
+                &SandboxConfig {
+                    mode: None,
+                    policy: None,
+                    shell_strategy: None,
+                    python_strategy: None,
+                    javascript_strategy: None,
+                    lua_strategy: None,
+                    vfs: None,
+                    workdir: None,
+                    env: None,
+                    legacy_type: None,
+                    resource_limits: None,
+                    skip_gate_check: None,
+                },
+            )
+            .await;
+        assert!(
+            result.success,
+            "shared sandbox runtime must execute shell: {:?}",
+            result.error
+        );
+        assert_eq!(
+            result.sandbox_mode,
+            Some("Lenient".to_string()),
+            "rule must route shell to the lenient profile"
+        );
+        runtime.shutdown().await.unwrap();
+
+        // Invalid config (rule references unknown profile): bootstrap must
+        // fail fast instead of deferring the error to script execution.
+        let bad = SandboxGlobalConfig {
+            rules: vec![SandboxProfileRule {
+                match_field: SandboxRuleMatchField::Language,
+                match_pattern: "shell".to_string(),
+                profile: "does-not-exist".to_string(),
+            }],
+            ..Default::default()
+        };
+        let config = RuntimeConfig {
+            sandbox: Some(bad),
+            ..Default::default()
+        };
+        let err = match Runtime::bootstrap(config).await {
+            Ok(_) => panic!("invalid sandbox global config must fail bootstrap"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("Invalid sandbox global config"),
+            "error: {err}"
+        );
+        assert!(err.to_string().contains("unknown profile"), "error: {err}");
+
+        clear_env_vars();
+    }
+
+    #[tokio::test]
     async fn test_runtime_trigger_shutdown() {
         clear_env_vars();
 
@@ -593,6 +731,7 @@ mod tests {
             resource: ResourceConfig::default(),
             metrics: None,
             llm: LlmConfig::default(),
+            sandbox: None,
             skills: Default::default(),
             mcp: Default::default(),
             #[cfg(feature = "plugins")]
@@ -646,6 +785,7 @@ mod tests {
                 ..Default::default()
             }),
             llm: LlmConfig::default(),
+            sandbox: None,
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -701,6 +841,7 @@ mod tests {
                 ..Default::default()
             }),
             llm: LlmConfig::default(),
+            sandbox: None,
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -775,6 +916,7 @@ mod tests {
             },
             metrics: None,
             llm: LlmConfig::default(),
+            sandbox: None,
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,

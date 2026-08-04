@@ -47,13 +47,20 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
             });
         }
 
+        let workdir = options.workdir.clone();
+        let env_vars = options.env_vars.clone();
+
         let output = execute_with_timeout(
             async move {
-                tokio::process::Command::new("node")
-                    .arg("--eval")
-                    .arg(code)
-                    .output()
-                    .await
+                let mut command = tokio::process::Command::new("node");
+                command.arg("--eval").arg(code);
+                if let Some(dir) = &workdir {
+                    command.current_dir(dir);
+                }
+                if let Some(envs) = &env_vars {
+                    command.envs(envs);
+                }
+                command.output().await
             },
             options.timeout_ms,
         )

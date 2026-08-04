@@ -89,7 +89,9 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
     let network_allowed = policy
         .network
         .as_ref()
-        .map(|n| n.access_type != NetworkAccessType::None)
+        .map(|n| {
+            n.access_type.as_ref().unwrap_or(&NetworkAccessType::None) != &NetworkAccessType::None
+        })
         .unwrap_or(false);
 
     if !network_allowed {
@@ -121,7 +123,7 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
     let allow_exec = policy
         .process
         .as_ref()
-        .map(|p| p.allow_exec)
+        .and_then(|p| p.allow_exec)
         .unwrap_or(true);
     if !allow_exec {
         denied.extend_from_slice(&[SYS_execve, SYS_execveat]);
@@ -129,7 +131,7 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
     let allow_fork = policy
         .process
         .as_ref()
-        .map(|p| p.allow_fork)
+        .and_then(|p| p.allow_fork)
         .unwrap_or(true);
     if !allow_fork {
         denied.extend_from_slice(&[SYS_fork, SYS_vfork, SYS_clone, SYS_clone3]);
@@ -145,12 +147,12 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
     let write_paths: &[String] = policy
         .filesystem
         .as_ref()
-        .map(|f| f.allowed_write_paths.as_slice())
+        .and_then(|f| f.allowed_write_paths.as_deref())
         .unwrap_or(&[]);
     let remove_paths: &[String] = policy
         .filesystem
         .as_ref()
-        .map(|f| f.allowed_remove_paths.as_slice())
+        .and_then(|f| f.allowed_remove_paths.as_deref())
         .unwrap_or(&[]);
     if write_paths.is_empty() {
         denied.extend_from_slice(&[
@@ -240,15 +242,23 @@ impl StrategyImplementation for LinuxSeccompStrategy {
         let max_file_size = policy
             .filesystem
             .as_ref()
-            .map(|f| f.max_file_size)
+            .and_then(|f| f.max_file_size)
             .unwrap_or(0);
 
         let cmd = options.command.clone();
+        let workdir = options.workdir.clone();
+        let env_vars = options.env_vars.clone();
         let fut = async move {
             tokio::task::spawn_blocking(move || -> std::io::Result<ScriptExecutionResult> {
                 let started = std::time::Instant::now();
                 let mut child = std::process::Command::new("sh");
                 child.args(["-c", &cmd]);
+                if let Some(dir) = &workdir {
+                    child.current_dir(dir);
+                }
+                if let Some(envs) = &env_vars {
+                    child.envs(envs);
+                }
 
                 unsafe {
                     child.pre_exec(move || {
@@ -409,7 +419,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -459,7 +468,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -502,10 +510,10 @@ mod tests {
         use wf_types::script::sandbox::NetworkPolicy;
         let policy = SandboxPolicy {
             network: Some(NetworkPolicy {
-                access_type: NetworkAccessType::All,
+                access_type: Some(NetworkAccessType::All),
                 allowed_domains: None,
                 allowed_ports: None,
-                allow_dns: true,
+                allow_dns: Some(true),
             }),
             ..basic_policy()
         };
@@ -521,11 +529,11 @@ mod tests {
         use wf_types::script::sandbox::ProcessPolicy;
         let policy = SandboxPolicy {
             process: Some(ProcessPolicy {
-                allowed_child_processes: vec![],
-                denied_child_processes: vec![],
-                max_child_processes: 0,
-                allow_fork: true,
-                allow_exec: false,
+                allowed_child_processes: Some(vec![]),
+                denied_child_processes: Some(vec![]),
+                max_child_processes: Some(0),
+                allow_fork: Some(true),
+                allow_exec: Some(false),
             }),
             ..basic_policy()
         };
@@ -549,11 +557,11 @@ mod tests {
         use wf_types::script::sandbox::ProcessPolicy;
         let policy = SandboxPolicy {
             process: Some(ProcessPolicy {
-                allowed_child_processes: vec![],
-                denied_child_processes: vec![],
-                max_child_processes: 0,
-                allow_fork: false,
-                allow_exec: true,
+                allowed_child_processes: Some(vec![]),
+                denied_child_processes: Some(vec![]),
+                max_child_processes: Some(0),
+                allow_fork: Some(false),
+                allow_exec: Some(true),
             }),
             ..basic_policy()
         };
@@ -615,12 +623,12 @@ mod tests {
         use wf_types::script::sandbox::FilesystemPolicy;
         let policy = SandboxPolicy {
             filesystem: Some(FilesystemPolicy {
-                allowed_read_paths: vec![],
-                allowed_write_paths: vec!["/workspace".to_string()],
-                allowed_remove_paths: vec![],
-                allowed_execute_paths: vec![],
-                copy_on_write: true,
-                max_file_size: 1024,
+                allowed_read_paths: Some(vec![]),
+                allowed_write_paths: Some(vec!["/workspace".to_string()]),
+                allowed_remove_paths: Some(vec![]),
+                allowed_execute_paths: Some(vec![]),
+                copy_on_write: Some(true),
+                max_file_size: Some(1024),
             }),
             ..basic_policy()
         };
@@ -652,12 +660,12 @@ mod tests {
         use wf_types::script::sandbox::FilesystemPolicy;
         let policy = SandboxPolicy {
             filesystem: Some(FilesystemPolicy {
-                allowed_read_paths: vec![],
-                allowed_write_paths: vec![],
-                allowed_remove_paths: vec!["/workspace".to_string()],
-                allowed_execute_paths: vec![],
-                copy_on_write: true,
-                max_file_size: 1024,
+                allowed_read_paths: Some(vec![]),
+                allowed_write_paths: Some(vec![]),
+                allowed_remove_paths: Some(vec!["/workspace".to_string()]),
+                allowed_execute_paths: Some(vec![]),
+                copy_on_write: Some(true),
+                max_file_size: Some(1024),
             }),
             ..basic_policy()
         };

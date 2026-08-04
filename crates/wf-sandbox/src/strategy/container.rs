@@ -46,17 +46,24 @@ impl StrategyImplementation for ContainerStrategy {
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
         let start = std::time::Instant::now();
         let command = options.command.clone();
+        let workdir = options.workdir.clone();
+        let env_vars = options.env_vars.clone();
 
         let output = execute_with_timeout(
             async move {
-                tokio::process::Command::new("docker")
-                    .args(["run", "--rm", "-i", "--network", "none"])
+                let mut cmd = tokio::process::Command::new("docker");
+                cmd.args(["run", "--rm", "-i", "--network", "none"])
                     .arg("alpine:latest")
                     .arg("sh")
                     .arg("-c")
-                    .arg(&command)
-                    .output()
-                    .await
+                    .arg(&command);
+                if let Some(dir) = &workdir {
+                    cmd.current_dir(dir);
+                }
+                if let Some(envs) = &env_vars {
+                    cmd.envs(envs);
+                }
+                cmd.output().await
             },
             options.timeout_ms,
         )

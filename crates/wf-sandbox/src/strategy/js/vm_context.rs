@@ -10,19 +10,23 @@ impl JavaScriptVmContextStrategy {
     fn build_wrapper(code: &str, policy: &JavaScriptPolicy) -> String {
         let allowed = policy
             .allowed_modules
+            .clone()
+            .unwrap_or_default()
             .iter()
             .map(|m| format!("\"{m}\""))
             .collect::<Vec<_>>()
             .join(", ");
         let denied = policy
             .denied_modules
+            .clone()
+            .unwrap_or_default()
             .iter()
             .map(|m| format!("\"{m}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        let allow_child_process = policy.allow_child_process;
-        let allow_fs_write = policy.allow_fs_write;
-        let allow_dynamic_eval = policy.allow_dynamic_eval;
+        let allow_child_process = policy.allow_child_process.unwrap_or(false);
+        let allow_fs_write = policy.allow_fs_write.unwrap_or(false);
+        let allow_dynamic_eval = policy.allow_dynamic_eval.unwrap_or(false);
 
         let prefix = format!(
             r#"(function() {{
@@ -164,27 +168,23 @@ impl StrategyImplementation for JavaScriptVmContextStrategy {
             });
         }
 
-        let js_policy = policy
-            .javascript
-            .as_ref()
-            .cloned()
-            .unwrap_or(JavaScriptPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![],
-                allow_child_process: false,
-                allow_fs_write: false,
-                allow_dynamic_eval: false,
-            });
+        let js_policy = policy.javascript.clone().unwrap_or_default();
 
         let wrapped = Self::build_wrapper(code, &js_policy);
+        let workdir = options.workdir.clone();
+        let env_vars = options.env_vars.clone();
 
         let output = execute_with_timeout(
             async move {
-                tokio::process::Command::new("node")
-                    .arg("--eval")
-                    .arg(&wrapped)
-                    .output()
-                    .await
+                let mut command = tokio::process::Command::new("node");
+                command.arg("--eval").arg(&wrapped);
+                if let Some(dir) = &workdir {
+                    command.current_dir(dir);
+                }
+                if let Some(envs) = &env_vars {
+                    command.envs(envs);
+                }
+                command.output().await
             },
             options.timeout_ms,
         )
@@ -223,11 +223,11 @@ mod tests {
             shell: None,
             python: None,
             javascript: Some(JavaScriptPolicy {
-                allowed_modules: vec![],
-                denied_modules: vec![],
-                allow_child_process,
-                allow_fs_write,
-                allow_dynamic_eval,
+                allowed_modules: Some(vec![]),
+                denied_modules: Some(vec![]),
+                allow_child_process: Some(allow_child_process),
+                allow_fs_write: Some(allow_fs_write),
+                allow_dynamic_eval: Some(allow_dynamic_eval),
             }),
             lua: None,
             filesystem: None,
@@ -251,7 +251,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -278,7 +277,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -301,7 +299,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -325,7 +322,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )
@@ -352,7 +348,6 @@ mod tests {
                     env_vars: None,
                     timeout_ms: None,
                     vfs: None,
-                    skip_vfs_check: false,
                 },
                 &policy,
             )

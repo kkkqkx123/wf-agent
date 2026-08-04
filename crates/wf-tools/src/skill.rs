@@ -481,10 +481,7 @@ pub fn generate_skill_metadata_prompt(skills: &[SkillMetadata]) -> String {
 /// Inject the skill metadata prompt into a system prompt: replaces the
 /// `{SKILLS_METADATA}` placeholder when present, otherwise appends the
 /// metadata at the end. Returns the (possibly unchanged) prompt.
-pub fn inject_skill_metadata(
-    system_prompt: &str,
-    enabled_skills: &[SkillMetadata],
-) -> String {
+pub fn inject_skill_metadata(system_prompt: &str, enabled_skills: &[SkillMetadata]) -> String {
     let metadata_prompt = generate_skill_metadata_prompt(enabled_skills);
 
     if metadata_prompt.is_empty() {
@@ -952,7 +949,9 @@ mod tests {
             variables: Some(variables),
             tools: None,
         };
-        let content = loader.load_skill_content("var-skill", Some(&context)).unwrap();
+        let content = loader
+            .load_skill_content("var-skill", Some(&context))
+            .unwrap();
         assert!(content.contains("Hello world, count=3 missing="));
 
         // Without variables the placeholders remain.
@@ -985,14 +984,18 @@ mod tests {
             variables: None,
             tools: Some(vec!["read_file".into()]),
         };
-        assert!(loader.load_skill_content("perm-skill", Some(&denied)).is_err());
+        assert!(loader
+            .load_skill_content("perm-skill", Some(&denied))
+            .is_err());
 
         // All tools present → allowed.
         let allowed = SkillLoadContext {
             variables: None,
             tools: Some(vec!["read_file".into(), "write_file".into()]),
         };
-        assert!(loader.load_skill_content("perm-skill", Some(&allowed)).is_ok());
+        assert!(loader
+            .load_skill_content("perm-skill", Some(&allowed))
+            .is_ok());
 
         // No context → permission skipped.
         assert!(loader.load_skill_content("perm-skill", None).is_ok());
@@ -1029,10 +1032,7 @@ mod tests {
         assert!(prompt.contains("review: Review code"));
 
         // Placeholder replacement.
-        let injected = inject_skill_metadata(
-            "You are a coder.\n{SKILLS_METADATA}",
-            &skills,
-        );
+        let injected = inject_skill_metadata("You are a coder.\n{SKILLS_METADATA}", &skills);
         assert!(!injected.contains("{SKILLS_METADATA}"));
         assert!(injected.contains("Available skills:"));
 

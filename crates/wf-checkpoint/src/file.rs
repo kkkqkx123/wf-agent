@@ -299,7 +299,8 @@ impl FileCheckpointManager {
         &self,
         entity_id: &str,
         files: &[FileState],
-    ) -> Result<FileCheckpoint, CheckpointError> {        let storage = self.storage.as_ref().ok_or_else(|| {
+    ) -> Result<FileCheckpoint, CheckpointError> {
+        let storage = self.storage.as_ref().ok_or_else(|| {
             CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
         })?;
         let full_hash = {
@@ -337,10 +338,7 @@ impl FileCheckpointManager {
         })?;
         match storage.get_latest_by_entity(entity_id)? {
             Some(meta) => {
-                let files = storage
-                    .load(&meta.id)?
-                    .map(|c| c.files)
-                    .unwrap_or_default();
+                let files = storage.load(&meta.id)?.map(|c| c.files).unwrap_or_default();
                 Ok(Some(self.create_checkpoint(entity_id, &files)?))
             }
             None => Ok(None),

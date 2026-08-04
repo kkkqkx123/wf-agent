@@ -1,9 +1,25 @@
 use async_trait::async_trait;
 use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
+use crate::timeout::execute_with_timeout;
 
 pub struct ContainerStrategy;
+
+impl ContainerStrategy {
+    /// Probe for a usable `docker` binary. The result is cached because the
+    /// probe spawns a subprocess and availability rarely changes at runtime.
+    fn docker_available() -> bool {
+        static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            std::process::Command::new("docker")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        })
+    }
+}
 
 #[async_trait]
 impl StrategyImplementation for ContainerStrategy {
@@ -14,13 +30,13 @@ impl StrategyImplementation for ContainerStrategy {
         "Container (Docker)"
     }
     fn description(&self) -> &str {
-        "Run script in isolated Docker container"
+        "Run script in isolated Docker container (requires a working docker binary)"
     }
-    fn priority(&self) -> i32 {
-        40
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
     fn is_available(&self) -> bool {
-        false
+        Self::docker_available()
     }
 
     async fn execute(
@@ -29,15 +45,22 @@ impl StrategyImplementation for ContainerStrategy {
         _policy: &SandboxPolicy,
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
         let start = std::time::Instant::now();
+        let command = options.command.clone();
 
-        let output = tokio::process::Command::new("docker")
-            .args(["run", "--rm", "-i", "--network", "none"])
-            .arg("alpine:latest")
-            .arg("sh")
-            .arg("-c")
-            .arg(&options.command)
-            .output()
-            .await?;
+        let output = execute_with_timeout(
+            async move {
+                tokio::process::Command::new("docker")
+                    .args(["run", "--rm", "-i", "--network", "none"])
+                    .arg("alpine:latest")
+                    .arg("sh")
+                    .arg("-c")
+                    .arg(&command)
+                    .output()
+                    .await
+            },
+            options.timeout_ms,
+        )
+        .await?;
 
         Ok(ScriptExecutionResult {
             success: output.status.success(),

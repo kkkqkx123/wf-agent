@@ -492,10 +492,7 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
     /// Batch load with bounded concurrency (aligned with the TS adapter's
     /// batches of 10); per-item failures yield `None` instead of failing the
     /// whole batch.
-    pub async fn batch_load(
-        &self,
-        ids: &[String],
-    ) -> Result<Vec<Option<Vec<u8>>>, LayertwineError>
+    pub async fn batch_load(&self, ids: &[String]) -> Result<Vec<Option<Vec<u8>>>, LayertwineError>
     where
         T: 'static,
     {
@@ -569,7 +566,11 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
             return vec!["checkpoint blob is not JSON".to_string()];
         };
         let mut warnings = Vec::new();
-        if value.get("id").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+        if value
+            .get("id")
+            .and_then(|v| v.as_str())
+            .is_none_or(str::is_empty)
+        {
             warnings.push("checkpoint missing 'id'".to_string());
         }
         if value.get("type").is_none() {
@@ -577,20 +578,25 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
         }
         match value.get("type").and_then(|v| v.as_str()) {
             Some(t) if t.eq_ignore_ascii_case("delta") => {
-                if value.get("baseCheckpointId").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+                if value
+                    .get("baseCheckpointId")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(str::is_empty)
+                {
                     warnings.push("delta checkpoint missing 'baseCheckpointId'".to_string());
                 }
-                if value.get("previousCheckpointId").and_then(|v| v.as_str()).is_none_or(str::is_empty) {
+                if value
+                    .get("previousCheckpointId")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(str::is_empty)
+                {
                     warnings.push("delta checkpoint missing 'previousCheckpointId'".to_string());
                 }
                 if value.get("delta").is_none() {
                     warnings.push("delta checkpoint missing 'delta'".to_string());
                 }
             }
-            Some(t)
-                if t.eq_ignore_ascii_case("full")
-                    && value.get("snapshot").is_none() =>
-            {
+            Some(t) if t.eq_ignore_ascii_case("full") && value.get("snapshot").is_none() => {
                 warnings.push("full checkpoint missing 'snapshot'".to_string());
             }
             _ => {}
@@ -712,18 +718,34 @@ mod tests {
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         let items = vec![
-            ("cp-1".to_string(), make_blob("cp-1", "FULL"), "workflow".to_string(), "exec-1".to_string()),
-            ("cp-2".to_string(), make_blob("cp-2", "DELTA"), "workflow".to_string(), "exec-1".to_string()),
+            (
+                "cp-1".to_string(),
+                make_blob("cp-1", "FULL"),
+                "workflow".to_string(),
+                "exec-1".to_string(),
+            ),
+            (
+                "cp-2".to_string(),
+                make_blob("cp-2", "DELTA"),
+                "workflow".to_string(),
+                "exec-1".to_string(),
+            ),
         ];
         bridge.batch_save(&items).await.unwrap();
 
-        let loaded = bridge.batch_load(&["cp-1".to_string(), "cp-2".to_string()]).await.unwrap();
+        let loaded = bridge
+            .batch_load(&["cp-1".to_string(), "cp-2".to_string()])
+            .await
+            .unwrap();
         assert_eq!(loaded.len(), 2);
         assert!(loaded[0].is_some());
         assert!(loaded[1].is_some());
 
         // Missing ids yield None, not a batch failure.
-        let loaded = bridge.batch_load(&["cp-1".to_string(), "nope".to_string()]).await.unwrap();
+        let loaded = bridge
+            .batch_load(&["cp-1".to_string(), "nope".to_string()])
+            .await
+            .unwrap();
         assert!(loaded[0].is_some());
         assert!(loaded[1].is_none());
     }
@@ -737,7 +759,10 @@ mod tests {
         })
         .to_string()
         .into_bytes();
-        let warnings = LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(&delta);
+        let warnings =
+            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(
+                &delta,
+            );
         assert!(
             warnings.iter().any(|w| w.contains("baseCheckpointId")),
             "delta without baseCheckpointId reported"
@@ -749,7 +774,9 @@ mod tests {
 
         let full = make_blob("cp-2", "FULL");
         let warnings =
-            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(&full);
+            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(
+                &full,
+            );
         assert!(warnings.is_empty());
     }
 
@@ -922,7 +949,10 @@ mod tests {
 
         // Create the default branch registry entry explicitly.
         manager.create_branch("main", None).await.unwrap();
-        manager.create_branch("feature", Some("main")).await.unwrap();
+        manager
+            .create_branch("feature", Some("main"))
+            .await
+            .unwrap();
 
         let mut branches = manager.list_branches().await.unwrap();
         branches.sort();
@@ -955,7 +985,10 @@ mod tests {
         let probe = adapter.share();
         let manager = ExecutionBranchManager::new(adapter, "main");
         manager.create_branch("main", None).await.unwrap();
-        manager.create_branch("feature", Some("main")).await.unwrap();
+        manager
+            .create_branch("feature", Some("main"))
+            .await
+            .unwrap();
 
         // Checkpoints on two branches stay isolated.
         probe

@@ -5,9 +5,7 @@
 //! and the LLM-facing [`ToolDescriptionData`], guaranteeing the two stay in
 //! sync and eliminating duplicated descriptions.
 
-use wf_types::tool::{
-    Tool, ToolMetadata, ToolParameterSchema, ToolProperty, ToolType,
-};
+use wf_types::tool::{Tool, ToolMetadata, ToolParameterSchema, ToolProperty, ToolType};
 use wf_types::tool_description::{ToolDescriptionData, ToolParameterDescription};
 
 /// A parameter of a tool definition (shared by schema and description).
@@ -23,8 +21,7 @@ pub struct ToolParameter {
 
 impl ToolParameter {
     fn default_value(&self) -> Option<serde_json::Value> {
-        self.default_json
-            .and_then(|s| serde_json::from_str(s).ok())
+        self.default_json.and_then(|s| serde_json::from_str(s).ok())
     }
 }
 
@@ -122,9 +119,7 @@ impl ToolDefinition {
                     default_value: p.default_value(),
                 })
                 .collect(),
-            tips: self
-                .tips
-                .map(|t| t.iter().map(|s| s.to_string()).collect()),
+            tips: self.tips.map(|t| t.iter().map(|s| s.to_string()).collect()),
             examples: self
                 .examples
                 .map(|e| e.iter().map(|s| s.to_string()).collect()),

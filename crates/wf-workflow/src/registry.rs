@@ -50,9 +50,7 @@ impl ScriptRegistry {
     }
 
     pub fn get(&self, name: &str) -> Option<ScriptDefinition> {
-        self.scripts
-            .get(name)
-            .map(|entry| entry.value().clone())
+        self.scripts.get(name).map(|entry| entry.value().clone())
     }
 }
 

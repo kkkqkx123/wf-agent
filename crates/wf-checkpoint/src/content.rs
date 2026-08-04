@@ -102,9 +102,7 @@ impl SizeBudget {
     }
 
     fn snapshot_over(&self, snapshot: &WorkflowExecutionStateSnapshot) -> bool {
-        !self.is_within_budget(
-            serde_json::to_vec(snapshot).map(|b| b.len()).unwrap_or(0),
-        )
+        !self.is_within_budget(serde_json::to_vec(snapshot).map(|b| b.len()).unwrap_or(0))
     }
 
     pub fn max_snapshot_bytes(&self) -> usize {
@@ -229,7 +227,11 @@ mod tests {
             },
             input: None,
             output: None,
-            messages: Some(vec![make_message("1"), make_message("2"), make_message("3")]),
+            messages: Some(vec![
+                make_message("1"),
+                make_message("2"),
+                make_message("3"),
+            ]),
             fork_join_context: None,
             active_operations: None,
             conversation_state: None,
@@ -289,7 +291,10 @@ mod tests {
         let budget = SizeBudget::new(256, 10);
         let still_over = budget.truncate_snapshot(&mut snapshot);
         assert!(still_over, "small budget cannot be satisfied by truncation");
-        assert!(snapshot.conversation_state.is_none(), "conversation dropped");
+        assert!(
+            snapshot.conversation_state.is_none(),
+            "conversation dropped"
+        );
         assert!(
             snapshot.variable_state.variables.is_empty(),
             "variables dropped last"

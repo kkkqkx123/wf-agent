@@ -124,36 +124,27 @@ impl PowerShellAnalyzer {
         }
     }
 
-    fn extract_primary_cmdlet(&self, command: &str) -> Option<String> {
-        let trimmed = command.trim();
-        if trimmed.is_empty() {
-            return None;
+    fn extract_primary_cmdlet(&self, tokens: &[String]) -> Option<String> {
+        // Skip leading variable assignments like `$x =`
+        let mut idx = 0;
+        while idx + 1 < tokens.len() && tokens[idx].starts_with('$') && tokens[idx + 1] == "=" {
+            idx += 2;
         }
 
-        let no_assign = Regex::new(r"^\$\w+\s*=\s*")
-            .ok()
-            .map(|re| re.replace(trimmed, "").to_string())
-            .unwrap_or_else(|| trimmed.to_string());
-
-        let no_call_op = if let Some(stripped) = no_assign.strip_prefix('&') {
-            stripped.trim_start().to_string()
-        } else {
-            no_assign
-        };
-
-        let first = no_call_op.split([' ', ';', '|']).next()?;
-
+        let first = tokens.get(idx)?;
         if first.is_empty() {
             return None;
         }
 
+        let stripped = first.strip_prefix('&').unwrap_or(first).trim_start();
+
         let alias_map = build_alias_map();
-        let lower = first.to_lowercase();
+        let lower = stripped.to_lowercase();
         if let Some(&resolved) = alias_map.get(lower.as_str()) {
             return Some(resolved.to_string());
         }
 
-        Some(first.replace(['"', '\''], ""))
+        Some(stripped.replace(['"', '\''], ""))
     }
 }
 
@@ -165,7 +156,7 @@ impl ShellAnalyzer for PowerShellAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_cmdlet(ctx.command);
+        let primary = self.extract_primary_cmdlet(ctx.tokens);
         let primary = match primary {
             Some(p) if !p.is_empty() => p,
             _ => {
@@ -256,9 +247,11 @@ mod tests {
     }
 
     fn analyze(cmd: &str, policy: &ShellPolicy) -> ShellAnalysisResult {
+        let tokens = shlex::split(cmd).unwrap_or_default();
         let ctx = ShellAnalysisContext {
             command: cmd,
             policy,
+            tokens: &tokens,
         };
         analyzer().analyze(&ctx)
     }

@@ -223,7 +223,10 @@ impl VersionManager {
 
     /// Switch the current format version (and with it the migration target).
     /// Registered default migrations remain available for the new target.
-    pub fn set_current_version(&mut self, version: impl Into<String>) -> Result<(), CheckpointError> {
+    pub fn set_current_version(
+        &mut self,
+        version: impl Into<String>,
+    ) -> Result<(), CheckpointError> {
         let semver = SemanticVersion::parse(&version.into())?;
         self.current_version = semver.to_string();
         self.current_semver = semver;
@@ -252,10 +255,7 @@ impl VersionManager {
 
     /// Write the current format version and creation timestamp into the
     /// checkpoint metadata custom fields.
-    pub fn add_version_metadata(
-        &self,
-        metadata: &mut serde_json::Map<String, serde_json::Value>,
-    ) {
+    pub fn add_version_metadata(&self, metadata: &mut serde_json::Map<String, serde_json::Value>) {
         let custom = metadata
             .entry("customFields".to_string())
             .or_insert_with(|| serde_json::Value::Object(Default::default()));
@@ -345,10 +345,7 @@ impl MigrationHandler for DefaultV1_1ToV2 {
     async fn migrate(&self, data: &[u8], from: &str, to: &str) -> Result<Vec<u8>, CheckpointError> {
         let mut value: serde_json::Value = serde_json::from_slice(data)?;
         if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "_majorVersionUpgrade".to_string(),
-                serde_json::json!(true),
-            );
+            obj.insert("_majorVersionUpgrade".to_string(), serde_json::json!(true));
             if let Some(format) = obj
                 .get_mut("metadata")
                 .and_then(|m| m.as_object_mut())
@@ -406,9 +403,7 @@ mod tests {
         assert_eq!(v.minor, 0);
         assert_eq!(v.patch, 0);
         assert_eq!(v.to_string(), "1.0.0");
-        assert!(
-            SemanticVersion::parse("1.0").unwrap() < SemanticVersion::parse("1.1").unwrap()
-        );
+        assert!(SemanticVersion::parse("1.0").unwrap() < SemanticVersion::parse("1.1").unwrap());
     }
 
     #[test]

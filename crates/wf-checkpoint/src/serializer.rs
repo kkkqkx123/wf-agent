@@ -237,7 +237,10 @@ mod tests {
         assert_eq!(envelope.previous_checkpoint_id.as_deref(), Some("cp-0"));
         assert_eq!(envelope.timestamp, Some(1700000000000));
         let metadata = envelope.metadata.unwrap();
-        assert_eq!(metadata.get("description").and_then(|v| v.as_str()), Some("test"));
+        assert_eq!(
+            metadata.get("description").and_then(|v| v.as_str()),
+            Some("test")
+        );
         assert_eq!(
             metadata.get("tags").and_then(|v| v.as_array()),
             Some(&serde_json::json!(["auto"]).as_array().unwrap().clone())
@@ -260,11 +263,11 @@ mod tests {
 
         let envelope: BaseCheckpointCore<serde_json::Value, serde_json::Value> =
             serde_json::from_str(legacy_json).unwrap();
-        assert_eq!(envelope.r#type, Some(wf_types::checkpoint::CheckpointType::Delta));
         assert_eq!(
-            envelope.base_checkpoint_id.as_deref(),
-            Some("cp-full")
+            envelope.r#type,
+            Some(wf_types::checkpoint::CheckpointType::Delta)
         );
+        assert_eq!(envelope.base_checkpoint_id.as_deref(), Some("cp-full"));
         assert_eq!(envelope.previous_checkpoint_id.as_deref(), Some("cp-full"));
     }
 

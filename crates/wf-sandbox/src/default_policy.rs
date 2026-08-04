@@ -7,7 +7,7 @@ use wf_types::script::sandbox::{
 
 fn build_default_sandbox_policy() -> SandboxPolicy {
     SandboxPolicy {
-        mode: SandboxMode::Strict,
+        mode: Some(SandboxMode::Strict),
         shell: Some(ShellPolicy {
             allowed_commands: None,
             denied_commands: Some(vec![
@@ -61,8 +61,12 @@ fn build_default_sandbox_policy() -> SandboxPolicy {
             allowed_child_processes: vec![],
             denied_child_processes: vec![],
             max_child_processes: 10,
-            allow_fork: false,
-            allow_exec: false,
+            // Exec/fork are permitted by default so the default chain
+            // (static-analyzer + os-hook) stays usable for external commands;
+            // the analysis gate enforces command-level policy and the seccomp
+            // layer denies them when a user explicitly sets these to false.
+            allow_fork: true,
+            allow_exec: true,
         }),
         network: Some(NetworkPolicy {
             access_type: NetworkAccessType::None,
@@ -92,7 +96,15 @@ mod tests {
     #[test]
     fn test_default_policy_is_strict() {
         let policy = default_sandbox_policy();
-        assert_eq!(policy.mode, SandboxMode::Strict);
+        assert_eq!(policy.mode, Some(SandboxMode::Strict));
+    }
+
+    #[test]
+    fn test_default_policy_permits_exec_and_fork() {
+        let policy = default_sandbox_policy();
+        let process = policy.process.as_ref().unwrap();
+        assert!(process.allow_exec);
+        assert!(process.allow_fork);
     }
 
     #[test]

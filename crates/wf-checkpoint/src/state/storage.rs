@@ -63,7 +63,12 @@ impl<T> StorageBackedStateManager<T> {
         entity_id: &str,
     ) -> Result<(Option<i64>, u64), CheckpointError> {
         let key = Self::entity_cleanup_meta_key(entity_id);
-        match self.storage.load(&key).await.map_err(CheckpointError::Storage)? {
+        match self
+            .storage
+            .load(&key)
+            .await
+            .map_err(CheckpointError::Storage)?
+        {
             Some((_, meta)) => {
                 let watermark = meta.get("cleanupWatermark").and_then(|v| v.as_i64());
                 let run_count = meta
@@ -202,9 +207,7 @@ where
     fn extract_custom_fields(&self, checkpoint: &T) -> Option<serde_json::Map<String, Value>> {
         serde_json::to_value(checkpoint).ok().and_then(|json| {
             json.get("metadata")
-                .and_then(|m| {
-                    m.get("customFields").or_else(|| m.get("custom_fields"))
-                })
+                .and_then(|m| m.get("customFields").or_else(|| m.get("custom_fields")))
                 .and_then(|v| v.as_object())
                 .cloned()
         })
@@ -263,26 +266,20 @@ where
 
         // Incremental filtering: only consider checkpoints created after the
         // watermark (plus the excluded id, which must stay visible).
-        let candidates: Vec<CheckpointStorageMetadata> =
-            match last_watermark {
-                Some(watermark) if !is_full_scan => all
-                    .iter()
-                    .filter(|c| {
-                        c.timestamp > watermark
-                            || Some(c.id.as_str()) == exclude_checkpoint_id
-                    })
-                    .cloned()
-                    .collect(),
-                _ => all.clone(),
-            };
+        let candidates: Vec<CheckpointStorageMetadata> = match last_watermark {
+            Some(watermark) if !is_full_scan => all
+                .iter()
+                .filter(|c| c.timestamp > watermark || Some(c.id.as_str()) == exclude_checkpoint_id)
+                .cloned()
+                .collect(),
+            _ => all.clone(),
+        };
 
         let executor = CleanupExecutor::new();
         let mut result = executor.evaluate_protected_with_result(&candidates, strategy);
 
         if let Some(exclude) = exclude_checkpoint_id {
-            result
-                .deleted_checkpoint_ids
-                .retain(|id| id != exclude);
+            result.deleted_checkpoint_ids.retain(|id| id != exclude);
             result.deleted_count = result.deleted_checkpoint_ids.len() as u64;
             let size_by_id: HashMap<&str, u64> = candidates
                 .iter()
@@ -512,7 +509,11 @@ where
             metrics.record_chain_length(&wf_types::checkpoint::CheckpointChainLengthMetric {
                 entity_id: entity_id.to_string(),
                 chain_length: chain_position.unwrap_or(0) + 1,
-                delta_count: if is_full { 0 } else { chain_position.unwrap_or(0) },
+                delta_count: if is_full {
+                    0
+                } else {
+                    chain_position.unwrap_or(0)
+                },
             });
         }
 
@@ -672,9 +673,10 @@ fn extract_optional_i64_field<T: Serialize>(
     let json = serde_json::to_value(value).map_err(|e| {
         CheckpointError::Serialization(format!("failed to serialize for field {}: {}", field, e))
     })?;
-    Ok(json
-        .get(field)
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))))
+    Ok(json.get(field).and_then(|v| {
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    }))
 }
 
 fn parse_storage_metadata(id: &str, entity_id: &str, meta: &Value) -> CheckpointStorageMetadata {
@@ -1310,8 +1312,14 @@ mod tests {
             .into_iter()
             .map(|m| (m.entity_id.clone(), m.id.clone()))
             .collect();
-        assert_eq!(by_entity.get("exec-1").map(String::as_str), Some("cp-exec-1-1"));
-        assert_eq!(by_entity.get("exec-2").map(String::as_str), Some("cp-exec-2-0"));
+        assert_eq!(
+            by_entity.get("exec-1").map(String::as_str),
+            Some("cp-exec-1-1")
+        );
+        assert_eq!(
+            by_entity.get("exec-2").map(String::as_str),
+            Some("cp-exec-2-0")
+        );
     }
 
     #[tokio::test]

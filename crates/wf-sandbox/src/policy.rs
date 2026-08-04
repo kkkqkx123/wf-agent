@@ -8,11 +8,7 @@ pub struct SandboxPolicyManager;
 impl SandboxPolicyManager {
     pub fn merge(base: &SandboxPolicy, overrides: &SandboxPolicy) -> SandboxPolicy {
         SandboxPolicy {
-            mode: if overrides.mode != SandboxMode::Strict {
-                overrides.mode.clone()
-            } else {
-                base.mode.clone()
-            },
+            mode: overrides.mode.clone().or_else(|| base.mode.clone()),
             shell: overrides.shell.clone().or_else(|| base.shell.clone()),
             python: overrides.python.clone().or_else(|| base.python.clone()),
             javascript: overrides
@@ -32,7 +28,7 @@ impl SandboxPolicyManager {
 
     pub fn default_strict() -> SandboxPolicy {
         SandboxPolicy {
-            mode: SandboxMode::Strict,
+            mode: Some(SandboxMode::Strict),
             shell: Some(ShellPolicy {
                 allowed_commands: None,
                 denied_commands: Some(vec![
@@ -131,8 +127,45 @@ mod tests {
     #[test]
     fn test_default_strict_mode() {
         let policy = SandboxPolicyManager::default_strict();
-        assert_eq!(policy.mode, SandboxMode::Strict);
+        assert_eq!(policy.mode, Some(SandboxMode::Strict));
         assert!(policy.lua.is_some());
         assert!(policy.shell.is_some());
+    }
+
+    #[test]
+    fn test_merge_mode_explicit_strict_overrides_base() {
+        let base = SandboxPolicyManager::default_strict();
+        let overrides = SandboxPolicy {
+            mode: Some(SandboxMode::Strict),
+            ..base.clone()
+        };
+        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        assert_eq!(
+            merged.mode,
+            Some(SandboxMode::Strict),
+            "explicit Strict must be preserved, not treated as unset"
+        );
+    }
+
+    #[test]
+    fn test_merge_mode_inherits_when_unset() {
+        let base = SandboxPolicyManager::default_strict();
+        let overrides = SandboxPolicy {
+            mode: None,
+            ..base.clone()
+        };
+        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        assert_eq!(merged.mode, Some(SandboxMode::Strict));
+    }
+
+    #[test]
+    fn test_merge_mode_override_lenient() {
+        let base = SandboxPolicyManager::default_strict();
+        let overrides = SandboxPolicy {
+            mode: Some(SandboxMode::Lenient),
+            ..base.clone()
+        };
+        let merged = SandboxPolicyManager::merge(&base, &overrides);
+        assert_eq!(merged.mode, Some(SandboxMode::Lenient));
     }
 }

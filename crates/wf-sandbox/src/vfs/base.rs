@@ -33,4 +33,12 @@ impl VfsProvider for HostFS {
         let full_path = Path::new(&self.root).join(path.trim_start_matches('/'));
         tokio::fs::try_exists(full_path).await.unwrap_or(false)
     }
+
+    async fn check_read(&self, _path: &str) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    async fn check_write(&self, _path: &str) -> Result<(), std::io::Error> {
+        Ok(())
+    }
 }

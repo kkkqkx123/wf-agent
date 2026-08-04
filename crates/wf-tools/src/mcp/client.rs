@@ -71,7 +71,8 @@ impl McpClient {
         }
 
         // MCP handshake: the initialized notification follows initialize.
-        self.send_notification("notifications/initialized", None).await?;
+        self.send_notification("notifications/initialized", None)
+            .await?;
 
         Ok(init)
     }
@@ -330,8 +331,7 @@ impl McpClient {
         }
         eprintln!("[client] request sent id={}", id);
 
-        let result =
-            tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), rx).await;
+        let result = tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), rx).await;
 
         self.pending.remove(&id);
 

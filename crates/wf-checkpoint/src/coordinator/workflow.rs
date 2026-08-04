@@ -684,11 +684,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         );
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
-            ctx.trigger
-                .as_ref()
-                .map(trigger_tag)
-                .into_iter()
-                .collect(),
+            ctx.trigger.as_ref().map(trigger_tag).into_iter().collect(),
             custom_fields,
             self.version_manager.current_version(),
         );
@@ -743,9 +739,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                         snapshot: Some(state),
                         timestamp: Some(chrono::Utc::now().timestamp_millis()),
                         metadata,
-                        format_version: Some(
-                            self.version_manager.current_version().to_string(),
-                        ),
+                        format_version: Some(self.version_manager.current_version().to_string()),
                     }),
                 }
             }
@@ -773,12 +767,9 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             // Route through the checkpoint error handler: non-fatal
             // strategies (warn/silent) swallow the failure so the execution
             // continues without a checkpoint.
-            let context = self.error_handler.context(
-                "create",
-                Some(checkpoint.id.clone()),
-                None,
-                0,
-            );
+            let context =
+                self.error_handler
+                    .context("create", Some(checkpoint.id.clone()), None, 0);
             let outcome = self.error_handler.decide(&context, &err);
             if outcome.should_rethrow {
                 return Err(err);
@@ -1027,7 +1018,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         if let Some(cadence) = self.cadence.get(&trigger) {
             if *cadence > 1 {
                 let attempt = {
-                    let mut entry = self.cadence_attempts.entry(entity_id.to_string()).or_insert(0);
+                    let mut entry = self
+                        .cadence_attempts
+                        .entry(entity_id.to_string())
+                        .or_insert(0);
                     *entry += 1;
                     *entry
                 };
@@ -1882,7 +1876,10 @@ mod tests {
         );
 
         let loaded = coord.state_manager().load(&id).await.unwrap();
-        assert!(loaded.is_some(), "checkpoint itself persisted synchronously");
+        assert!(
+            loaded.is_some(),
+            "checkpoint itself persisted synchronously"
+        );
     }
 
     #[tokio::test]
@@ -1991,7 +1988,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(coord.state_manager().load(&created).await.unwrap().is_some());
+        assert!(coord
+            .state_manager()
+            .load(&created)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]

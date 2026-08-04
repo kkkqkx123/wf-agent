@@ -189,13 +189,10 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // The conversation starts with a single long message, so wait for the
     // actual replacement (content change) rather than just the length.
     wait_until(|| {
-        conversation
-            .try_read()
-            .ok()
-            .is_some_and(|session| {
-                session.messages().len() == 1
-                    && message_text(&session.messages()[0].content) == Some("compressed summary")
-            })
+        conversation.try_read().ok().is_some_and(|session| {
+            session.messages().len() == 1
+                && message_text(&session.messages()[0].content) == Some("compressed summary")
+        })
     })
     .await;
     assert_eq!(

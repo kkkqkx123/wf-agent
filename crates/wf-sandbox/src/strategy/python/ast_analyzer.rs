@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use wf_types::script::sandbox::{PythonPolicy, SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
 
 pub struct PythonAstAnalyzerStrategy;
 
@@ -129,11 +129,11 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
     }
 
     fn description(&self) -> &str {
-        "Static analysis of Python code using Python's ast module with policy-driven checks"
+        "Static analysis of Python code using Python's ast module with policy-driven checks (analysis gate, does not execute)"
     }
 
-    fn priority(&self) -> i32 {
-        15
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Analysis
     }
 
     fn is_available(&self) -> bool {
@@ -145,7 +145,6 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
         options: StrategyExecuteOptions,
         policy: &SandboxPolicy,
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
-        let start = std::time::Instant::now();
         let code = &options.command;
 
         if code.is_empty() {
@@ -159,7 +158,7 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
                 error: Some("Empty Python code".to_string()),
                 sandbox_mode: None,
                 strategy_id: Some("ast-analyzer".to_string()),
-                violations: None,
+                violations: Some(vec!["Empty Python code".to_string()]),
             });
         }
 
@@ -180,7 +179,7 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
                 stdout: None,
                 stderr: Some(violations.join("; ")),
                 exit_code: Some(1),
-                execution_time: start.elapsed().as_millis() as u64,
+                execution_time: 0,
                 error: Some("Security violation".to_string()),
                 sandbox_mode: None,
                 strategy_id: Some("ast-analyzer".to_string()),
@@ -188,24 +187,14 @@ impl StrategyImplementation for PythonAstAnalyzerStrategy {
             });
         }
 
-        let output = tokio::process::Command::new("python3")
-            .arg("-c")
-            .arg(code)
-            .output()
-            .await?;
-
         Ok(ScriptExecutionResult {
-            success: output.status.success(),
+            success: true,
             script_name: "sandbox-python".to_string(),
-            stdout: Some(String::from_utf8_lossy(&output.stdout).to_string()),
-            stderr: Some(String::from_utf8_lossy(&output.stderr).to_string()),
-            exit_code: output.status.code(),
-            execution_time: start.elapsed().as_millis() as u64,
-            error: if output.status.success() {
-                None
-            } else {
-                Some("Python execution failed".to_string())
-            },
+            stdout: None,
+            stderr: None,
+            exit_code: Some(0),
+            execution_time: 0,
+            error: None,
             sandbox_mode: None,
             strategy_id: Some("ast-analyzer".to_string()),
             violations: None,
@@ -224,7 +213,7 @@ mod tests {
         denied: Vec<String>,
     ) -> SandboxPolicy {
         SandboxPolicy {
-            mode: wf_types::script::sandbox::SandboxMode::Strict,
+            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             shell: None,
             python: Some(PythonPolicy {
                 allowed_modules: vec![],

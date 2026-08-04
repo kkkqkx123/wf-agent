@@ -90,7 +90,10 @@ pub struct LuaPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SandboxPolicy {
-    pub mode: SandboxMode,
+    /// `None` means "not specified" and inherits from the base policy during
+    /// merge; only an explicit `Some(mode)` overrides. This eliminates the
+    /// former Strict-as-unset sentinel semantics.
+    pub mode: Option<SandboxMode>,
     pub shell: Option<ShellPolicy>,
     pub python: Option<PythonPolicy>,
     pub javascript: Option<JavaScriptPolicy>,
@@ -113,10 +116,7 @@ pub struct SandboxConfig {
 
     #[serde(rename = "type")]
     pub legacy_type: Option<String>,
-    pub image: Option<String>,
     pub resource_limits: Option<ResourceLimits>,
-    pub network_enabled: Option<bool>,
-    pub allowed_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -201,7 +201,7 @@ impl Default for SandboxGlobalConfig {
             profiles: vec![],
             rules: vec![],
             default_profile: None,
-            audit_logging: false,
+            audit_logging: true,
         }
     }
 }

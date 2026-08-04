@@ -54,13 +54,19 @@ impl ExecutionEventBus {
         self.wildcard.write().unwrap().push(handler.clone());
         let wildcard = self.wildcard.clone();
         move || {
-            wildcard.write().unwrap().retain(|h| !Arc::ptr_eq(h, &handler));
+            wildcard
+                .write()
+                .unwrap()
+                .retain(|h| !Arc::ptr_eq(h, &handler));
         }
     }
 
     /// Subscribe to handler errors (a subscriber panicked or an error handler
     /// raised an error).
-    pub fn on_error(&self, handler: impl Fn(&str) + Send + Sync + 'static) -> impl FnOnce() + 'static {
+    pub fn on_error(
+        &self,
+        handler: impl Fn(&str) + Send + Sync + 'static,
+    ) -> impl FnOnce() + 'static {
         let handler: ErrorHandler = Arc::new(handler);
         self.error_handlers.write().unwrap().push(handler.clone());
         let error_handlers = self.error_handlers.clone();
@@ -112,11 +118,7 @@ impl ExecutionEventBus {
 
     /// Total number of registered handlers (all types + wildcard).
     pub fn handler_count(&self) -> usize {
-        let typed: usize = self
-            .handlers
-            .iter()
-            .map(|entry| entry.value().len())
-            .sum();
+        let typed: usize = self.handlers.iter().map(|entry| entry.value().len()).sum();
         typed + self.wildcard.read().unwrap().len()
     }
 
@@ -142,9 +144,7 @@ impl ExecutionEventBus {
             let message = panic
                 .downcast_ref::<&str>()
                 .map(|s| s.to_string())
-                .or_else(|| {
-                    panic.downcast_ref::<String>().map(|s| s.to_string())
-                })
+                .or_else(|| panic.downcast_ref::<String>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "unknown panic in event handler".to_string());
             self.handle_error(&message);
         }
@@ -183,12 +183,14 @@ mod tests {
             new_status: "running".to_string(),
             changes: None,
         }));
-        bus.publish(&ExecutionEvent::IterationCompleted(IterationCompletedEvent {
-            execution_id: "exec-1".to_string(),
-            timestamp: 0,
-            iteration: 1,
-            result: None,
-        }));
+        bus.publish(&ExecutionEvent::IterationCompleted(
+            IterationCompletedEvent {
+                execution_id: "exec-1".to_string(),
+                timestamp: 0,
+                iteration: 1,
+                result: None,
+            },
+        ));
 
         assert_eq!(count.load(Ordering::SeqCst), 1);
         assert_eq!(bus.handler_count(), 1);
@@ -211,12 +213,14 @@ mod tests {
             new_status: "running".to_string(),
             changes: None,
         }));
-        bus.publish(&ExecutionEvent::IterationCompleted(IterationCompletedEvent {
-            execution_id: "e".to_string(),
-            timestamp: 0,
-            iteration: 2,
-            result: None,
-        }));
+        bus.publish(&ExecutionEvent::IterationCompleted(
+            IterationCompletedEvent {
+                execution_id: "e".to_string(),
+                timestamp: 0,
+                iteration: 2,
+                result: None,
+            },
+        ));
 
         let got = types.lock().unwrap();
         assert_eq!(got.len(), 2);
@@ -253,7 +257,11 @@ mod tests {
         bus.publish_state_changed("e", None, "running", None);
         bus.publish_state_changed("e", None, "completed", None);
 
-        assert_eq!(count.load(Ordering::SeqCst), 2, "second publish still works");
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            2,
+            "second publish still works"
+        );
     }
 
     #[test]

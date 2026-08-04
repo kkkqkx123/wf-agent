@@ -61,22 +61,23 @@ impl CmdAnalyzer {
         }
     }
 
-    fn extract_primary_command(&self, command: &str) -> Option<String> {
-        let trimmed = command.trim();
-        if trimmed.is_empty() {
+    fn extract_primary_command(&self, tokens: &[String]) -> Option<String> {
+        let without_start = {
+            let first = tokens.first()?;
+            if first.eq_ignore_ascii_case("start") {
+                tokens
+                    .iter()
+                    .find(|w| !w.starts_with('/'))
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                first.trim_start_matches('@').to_string()
+            }
+        };
+
+        if without_start.is_empty() {
             return None;
         }
-
-        let no_at = trimmed.strip_prefix('@').unwrap_or(trimmed).trim_start();
-
-        let without_start = if let Some(rest) = no_at.strip_prefix("start") {
-            let rest = rest.trim_start();
-            let mut words = rest.split_whitespace();
-            let cmd_part: String = words.find(|w| !w.starts_with('/'))?.to_string();
-            cmd_part
-        } else {
-            no_at.split_whitespace().next()?.to_string()
-        };
 
         let basename = without_start
             .rsplit(['/', '\\'])
@@ -105,7 +106,7 @@ impl ShellAnalyzer for CmdAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_command(ctx.command);
+        let primary = self.extract_primary_command(ctx.tokens);
         let primary = match primary {
             Some(p) if !p.is_empty() => p,
             _ => {
@@ -196,9 +197,11 @@ mod tests {
     }
 
     fn analyze(cmd: &str, policy: &ShellPolicy) -> ShellAnalysisResult {
+        let tokens = shlex::split(cmd).unwrap_or_default();
         let ctx = ShellAnalysisContext {
             command: cmd,
             policy,
+            tokens: &tokens,
         };
         analyzer().analyze(&ctx)
     }

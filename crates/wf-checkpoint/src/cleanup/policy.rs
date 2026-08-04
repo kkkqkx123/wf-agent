@@ -182,12 +182,16 @@ impl CleanupExecutor {
             .iter()
             .map(|c| (c.id.as_str(), c.blob_size.unwrap_or(0)))
             .collect();
-        let freed_bytes = to_remove.iter().map(|id| size_by_id.get(id.as_str()).copied().unwrap_or(0)).sum();
+        let freed_bytes = to_remove
+            .iter()
+            .map(|id| size_by_id.get(id.as_str()).copied().unwrap_or(0))
+            .sum();
 
         let mut deleted_checkpoint_ids: Vec<String> = to_remove.into_iter().collect();
         deleted_checkpoint_ids.sort_unstable();
-        let remaining_count =
-            checkpoints.len().saturating_sub(deleted_checkpoint_ids.len()) as u64;
+        let remaining_count = checkpoints
+            .len()
+            .saturating_sub(deleted_checkpoint_ids.len()) as u64;
 
         CleanupResult {
             deleted_count: deleted_checkpoint_ids.len() as u64,
@@ -243,10 +247,12 @@ impl CleanupExecutor {
         let mut missing = 0usize;
         let total_size: u64 = checkpoints
             .iter()
-            .map(|c| c.blob_size.unwrap_or_else(|| {
-                missing += 1;
-                0
-            }))
+            .map(|c| {
+                c.blob_size.unwrap_or_else(|| {
+                    missing += 1;
+                    0
+                })
+            })
             .sum();
         if missing > 0 {
             tracing::warn!(
@@ -297,9 +303,7 @@ impl CleanupExecutor {
                 .filter(|c| {
                     let age_days = (now - c.timestamp) / DAY_MS;
                     age_days >= tier.min_age_days as i64
-                        && tier
-                            .max_age_days
-                            .is_none_or(|max| age_days < max as i64)
+                        && tier.max_age_days.is_none_or(|max| age_days < max as i64)
                 })
                 .collect();
 

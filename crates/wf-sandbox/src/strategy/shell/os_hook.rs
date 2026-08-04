@@ -3,7 +3,8 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use async_trait::async_trait;
 use wf_types::script::sandbox::{NetworkAccessType, SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
+use crate::timeout::execute_with_timeout;
 
 // ============== Seccomp BPF filter builder ==============
 
@@ -114,6 +115,72 @@ fn get_denied_syscalls(policy: &SandboxPolicy) -> Vec<i64> {
         ]);
     }
 
+    // Process policy: `allow_exec`/`allow_fork` map to process-creation
+    // syscalls. Absent policy defaults to permitting both so the default
+    // chain keeps working; explicit `false` fail-closes.
+    let allow_exec = policy
+        .process
+        .as_ref()
+        .map(|p| p.allow_exec)
+        .unwrap_or(true);
+    if !allow_exec {
+        denied.extend_from_slice(&[SYS_execve, SYS_execveat]);
+    }
+    let allow_fork = policy
+        .process
+        .as_ref()
+        .map(|p| p.allow_fork)
+        .unwrap_or(true);
+    if !allow_fork {
+        denied.extend_from_slice(&[SYS_fork, SYS_vfork, SYS_clone, SYS_clone3]);
+    }
+
+    // Filesystem policy: with no configured write paths, deny filesystem
+    // modification syscalls (unlink/rmdir/rename/mkdir/chmod/...). This is
+    // the syscall-level enforcement behind the VFS write policy and closes
+    // the `rm -rf` gap even if a static-analysis gate were bypassed.
+    let write_paths: &[String] = policy
+        .filesystem
+        .as_ref()
+        .map(|f| f.allowed_write_paths.as_slice())
+        .unwrap_or(&[]);
+    if write_paths.is_empty() {
+        denied.extend_from_slice(&[
+            SYS_mkdir,
+            SYS_mkdirat,
+            SYS_rmdir,
+            SYS_unlink,
+            SYS_unlinkat,
+            SYS_rename,
+            SYS_renameat,
+            SYS_renameat2,
+            SYS_symlink,
+            SYS_symlinkat,
+            SYS_link,
+            SYS_linkat,
+            SYS_mknod,
+            SYS_mknodat,
+            SYS_chmod,
+            SYS_fchmod,
+            SYS_fchmodat,
+            SYS_chown,
+            SYS_fchown,
+            SYS_fchownat,
+            SYS_lchown,
+            SYS_truncate,
+            SYS_ftruncate,
+            SYS_utime,
+            SYS_utimes,
+            SYS_utimensat,
+            SYS_futimesat,
+        ]);
+    }
+
+    // Shell policy: system-modifying denied commands (chroot/mount/umount/
+    // reboot/shutdown/insmod/rmmod/swapon/swapoff/passwd...) are already
+    // covered by the base deny list above. Command-level policy remains the
+    // responsibility of the static-analyzer gate earlier in the chain.
+
     denied.sort();
     denied.dedup();
     denied
@@ -134,11 +201,11 @@ impl StrategyImplementation for LinuxSeccompStrategy {
     }
 
     fn description(&self) -> &str {
-        "Linux seccomp-bpf system call filtering with policy-driven deny list"
+        "Linux seccomp-bpf system call filtering driven by network, process and filesystem policies"
     }
 
-    fn priority(&self) -> i32 {
-        50
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
 
     fn is_available(&self) -> bool {
@@ -153,8 +220,19 @@ impl StrategyImplementation for LinuxSeccompStrategy {
         let allowed = get_denied_syscalls(policy);
         let mut filters = build_deny_filter(&allowed);
 
+        let memory_limit_mb = policy
+            .resource
+            .as_ref()
+            .and_then(|r| r.memory_limit_mb)
+            .unwrap_or(0);
+        let max_file_size = policy
+            .filesystem
+            .as_ref()
+            .map(|f| f.max_file_size)
+            .unwrap_or(0);
+
         let cmd = options.command.clone();
-        let result =
+        let fut = async move {
             tokio::task::spawn_blocking(move || -> std::io::Result<ScriptExecutionResult> {
                 let started = std::time::Instant::now();
                 let mut child = std::process::Command::new("sh");
@@ -162,6 +240,25 @@ impl StrategyImplementation for LinuxSeccompStrategy {
 
                 unsafe {
                     child.pre_exec(move || {
+                        if memory_limit_mb > 0 {
+                            let bytes = memory_limit_mb * 1024 * 1024;
+                            let rlim = libc::rlimit {
+                                rlim_cur: bytes,
+                                rlim_max: bytes,
+                            };
+                            if libc::setrlimit(libc::RLIMIT_AS, &rlim) < 0 {
+                                return Err(std::io::Error::last_os_error());
+                            }
+                        }
+                        if max_file_size > 0 {
+                            let rlim = libc::rlimit {
+                                rlim_cur: max_file_size,
+                                rlim_max: max_file_size,
+                            };
+                            if libc::setrlimit(libc::RLIMIT_FSIZE, &rlim) < 0 {
+                                return Err(std::io::Error::last_os_error());
+                            }
+                        }
                         let ret = libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
                         if ret < 0 {
                             return Err(std::io::Error::last_os_error());
@@ -220,10 +317,15 @@ impl StrategyImplementation for LinuxSeccompStrategy {
                 })
             })
             .await
-            .map_err(|e| format!("Task join error: {e}"))?
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                format!("Task join error: {e}").into()
+            })
+            .and_then(|res| {
+                res.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })
+            })
+        };
 
-        Ok(result)
+        execute_with_timeout(fut, options.timeout_ms).await
     }
 }
 
@@ -245,8 +347,8 @@ impl StrategyImplementation for LinuxSeccompStrategy {
         "Linux seccomp-bpf system call filtering (unavailable on this platform)"
     }
 
-    fn priority(&self) -> i32 {
-        50
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
 
     fn is_available(&self) -> bool {
@@ -269,7 +371,7 @@ mod tests {
 
     fn basic_policy() -> SandboxPolicy {
         SandboxPolicy {
-            mode: SandboxMode::Strict,
+            mode: Some(SandboxMode::Strict),
             shell: None,
             python: None,
             javascript: None,
@@ -398,5 +500,127 @@ mod tests {
             !denied.contains(&41),
             "socket (41) must NOT be in deny list when network enabled"
         );
+    }
+
+    #[test]
+    fn test_process_policy_denies_exec_when_disabled() {
+        use wf_types::script::sandbox::ProcessPolicy;
+        let policy = SandboxPolicy {
+            process: Some(ProcessPolicy {
+                allowed_child_processes: vec![],
+                denied_child_processes: vec![],
+                max_child_processes: 0,
+                allow_fork: true,
+                allow_exec: false,
+            }),
+            ..basic_policy()
+        };
+        let denied = get_denied_syscalls(&policy);
+        assert!(
+            denied.contains(&libc::SYS_execve),
+            "execve must be denied when allow_exec is false"
+        );
+        assert!(
+            denied.contains(&libc::SYS_execveat),
+            "execveat must be denied when allow_exec is false"
+        );
+        assert!(
+            !denied.contains(&libc::SYS_clone),
+            "clone must NOT be denied when allow_fork stays true"
+        );
+    }
+
+    #[test]
+    fn test_process_policy_denies_fork_when_disabled() {
+        use wf_types::script::sandbox::ProcessPolicy;
+        let policy = SandboxPolicy {
+            process: Some(ProcessPolicy {
+                allowed_child_processes: vec![],
+                denied_child_processes: vec![],
+                max_child_processes: 0,
+                allow_fork: false,
+                allow_exec: true,
+            }),
+            ..basic_policy()
+        };
+        let denied = get_denied_syscalls(&policy);
+        for syscall in [
+            libc::SYS_fork,
+            libc::SYS_vfork,
+            libc::SYS_clone,
+            libc::SYS_clone3,
+        ] {
+            assert!(
+                denied.contains(&syscall),
+                "fork-family syscall {syscall} must be denied when allow_fork is false"
+            );
+        }
+        assert!(
+            !denied.contains(&libc::SYS_execve),
+            "execve must stay allowed when allow_exec is true"
+        );
+    }
+
+    #[test]
+    fn test_absent_process_policy_permits_exec_and_fork() {
+        let denied = get_denied_syscalls(&basic_policy());
+        for syscall in [
+            libc::SYS_execve,
+            libc::SYS_execveat,
+            libc::SYS_clone,
+            libc::SYS_fork,
+            libc::SYS_vfork,
+        ] {
+            assert!(
+                !denied.contains(&syscall),
+                "syscall {syscall} must NOT be denied without a process policy"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fs_mod_denied_without_write_paths() {
+        let denied = get_denied_syscalls(&basic_policy());
+        for syscall in [
+            libc::SYS_unlink,
+            libc::SYS_unlinkat,
+            libc::SYS_rmdir,
+            libc::SYS_rename,
+            libc::SYS_mkdir,
+            libc::SYS_chmod,
+        ] {
+            assert!(
+                denied.contains(&syscall),
+                "fs-modify syscall {syscall} must be denied without write paths"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fs_mod_allowed_with_write_paths() {
+        use wf_types::script::sandbox::FilesystemPolicy;
+        let policy = SandboxPolicy {
+            filesystem: Some(FilesystemPolicy {
+                allowed_read_paths: vec![],
+                allowed_write_paths: vec!["/workspace".to_string()],
+                allowed_remove_paths: vec![],
+                allowed_execute_paths: vec![],
+                copy_on_write: true,
+                max_file_size: 1024,
+            }),
+            ..basic_policy()
+        };
+        let denied = get_denied_syscalls(&policy);
+        for syscall in [
+            libc::SYS_unlink,
+            libc::SYS_unlinkat,
+            libc::SYS_rmdir,
+            libc::SYS_rename,
+        ] {
+            assert!(
+                !denied.contains(&syscall),
+                "fs-modify syscall {syscall} must stay allowed when write paths are configured"
+            );
+        }
     }
 }

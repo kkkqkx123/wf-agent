@@ -87,10 +87,7 @@ where
 
     pub fn keys(&self) -> Vec<String> {
         self.inner.run_pending_tasks();
-        self.inner
-            .iter()
-            .map(|(k, _)| k.to_string())
-            .collect()
+        self.inner.iter().map(|(k, _)| k.to_string()).collect()
     }
 
     /// Remove all expired entries. Moka expires entries lazily: pending

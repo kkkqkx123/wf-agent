@@ -18,9 +18,7 @@ use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::{StorageConfig, StorageManager};
-use crate::trigger_listener::{
-    start_trigger_listener_with_registry, ExecutionContextRegistry,
-};
+use crate::trigger_listener::{start_trigger_listener_with_registry, ExecutionContextRegistry};
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
@@ -144,10 +142,7 @@ impl Runtime {
             let registry = tool_registry.clone();
             let manager_clone = manager.clone();
             manager.set_on_connected(Arc::new(move |_server| {
-                wf_tools::mcp::registration::register_connected_tools(
-                    &registry,
-                    &manager_clone,
-                );
+                wf_tools::mcp::registration::register_connected_tools(&registry, &manager_clone);
             }));
             wf_tools::mcp::registration::register_use_mcp(&tool_registry).map_err(|e| {
                 crate::error::RuntimeError::Config(format!("Failed to register use_mcp: {}", e))
@@ -325,7 +320,8 @@ impl Runtime {
 fn init_llm_gateway(
     config: &LlmConfig,
     metrics: Option<&wf_metrics::MetricsRegistry>,
-) -> RuntimeResult<Arc<LlmGateway>> {    let mut gateway = LlmGateway::new();
+) -> RuntimeResult<Arc<LlmGateway>> {
+    let mut gateway = LlmGateway::new();
 
     for profile in &config.profiles {
         validate_llm_profile(profile).map_err(|e| {
@@ -351,7 +347,9 @@ fn init_llm_gateway(
 /// when MCP is not configured (no settings sources or no servers). Servers
 /// are registered with their configured lifecycle; eager/keep-alive servers
 /// are connected immediately (failure is logged, not fatal).
-async fn init_mcp(config: &McpRuntimeConfig) -> Option<Arc<wf_tools::mcp::connection::McpConnectionManager>> {
+async fn init_mcp(
+    config: &McpRuntimeConfig,
+) -> Option<Arc<wf_tools::mcp::connection::McpConnectionManager>> {
     use wf_tools::mcp::connection::{McpConnectionManager, McpServerRegistry};
 
     let (Some(settings_dir), Some(project_root)) = (&config.settings_dir, &config.project_root)
@@ -359,8 +357,8 @@ async fn init_mcp(config: &McpRuntimeConfig) -> Option<Arc<wf_tools::mcp::connec
         return None;
     };
 
-    let settings = wf_config::mcp::load_and_merge_mcp_settings(settings_dir, project_root)
-        .unwrap_or_default();
+    let settings =
+        wf_config::mcp::load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default();
     if settings.mcp_servers.is_empty() {
         return None;
     }
@@ -788,7 +786,10 @@ mod tests {
 
         let manager = runtime.mcp_manager().expect("MCP manager initialized");
         assert_eq!(manager.registry().list().len(), 1);
-        assert!(manager.connected_servers().is_empty(), "lazy server not connected");
+        assert!(
+            manager.connected_servers().is_empty(),
+            "lazy server not connected"
+        );
 
         // use_mcp is registered into the shared tool registry.
         assert!(runtime.tool_registry().get_tool("use_mcp").is_some());

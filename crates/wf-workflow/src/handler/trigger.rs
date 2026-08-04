@@ -523,10 +523,7 @@ impl TriggerCoordinator {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: None,
-            network_enabled: None,
-            allowed_paths: None,
         };
         let runner = ctx
             .script_runner
@@ -1227,7 +1224,10 @@ mod tests {
             "javascript",
             "console.log(JSON.stringify({greeting: 'Hello, ' + parameters.name}));",
         );
-        let ctx = script_context(&registry, mock_runner(Some("{\"greeting\":\"Hello, world\"}"), true));
+        let ctx = script_context(
+            &registry,
+            mock_runner(Some("{\"greeting\":\"Hello, world\"}"), true),
+        );
 
         let result = TriggerCoordinator::execute(
             &TriggerAction::ExecuteScript {

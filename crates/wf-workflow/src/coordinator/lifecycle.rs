@@ -575,10 +575,7 @@ mod tests {
 
         use wf_checkpoint::state::CheckpointStateManager;
         let sm = wf_checkpoint::state::WorkflowCheckpointStateManager::new(store.clone());
-        let latest = sm
-            .get_latest("exec-no-cp")
-            .await
-            .expect("query ok");
+        let latest = sm.get_latest("exec-no-cp").await.expect("query ok");
         assert!(latest.is_none(), "no checkpoint created when disabled");
     }
 

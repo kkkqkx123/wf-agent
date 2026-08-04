@@ -211,14 +211,26 @@ mod tests {
 
     #[test]
     fn trigger_description_maps_all_triggers() {
-        assert_eq!(trigger_description(&CheckpointTrigger::OnError), "Error checkpoint");
-        assert_eq!(trigger_description(&CheckpointTrigger::AfterExecute), "After execute");
-        assert_eq!(trigger_description(&CheckpointTrigger::Manual), "Manual checkpoint");
+        assert_eq!(
+            trigger_description(&CheckpointTrigger::OnError),
+            "Error checkpoint"
+        );
+        assert_eq!(
+            trigger_description(&CheckpointTrigger::AfterExecute),
+            "After execute"
+        );
+        assert_eq!(
+            trigger_description(&CheckpointTrigger::Manual),
+            "Manual checkpoint"
+        );
     }
 
     #[test]
     fn trigger_tag_uses_wire_name() {
-        assert_eq!(trigger_tag(&CheckpointTrigger::BeforeExecute), "trigger:BEFORE_EXECUTE");
+        assert_eq!(
+            trigger_tag(&CheckpointTrigger::BeforeExecute),
+            "trigger:BEFORE_EXECUTE"
+        );
         assert_eq!(trigger_tag(&CheckpointTrigger::OnPause), "trigger:ON_PAUSE");
     }
 
@@ -243,7 +255,10 @@ mod tests {
             Some(&serde_json::json!(["trigger:MANUAL"]))
         );
         let custom = metadata.get("customFields").unwrap().as_object().unwrap();
-        assert_eq!(custom.get(FORMAT_VERSION_FIELD), Some(&serde_json::json!("1.1.0")));
+        assert_eq!(
+            custom.get(FORMAT_VERSION_FIELD),
+            Some(&serde_json::json!("1.1.0"))
+        );
         assert!(custom.get(CREATED_AT_FIELD).is_some());
         assert_eq!(custom.get("node_id"), Some(&serde_json::json!("node-1")));
     }

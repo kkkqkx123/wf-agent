@@ -47,6 +47,9 @@ pub struct ShellAnalysisResult {
 pub struct ShellAnalysisContext<'a> {
     pub command: &'a str,
     pub policy: &'a ShellPolicy,
+    /// shlex-tokenized words of `command`. Quote handling happens here so the
+    /// analyzers never parse quotes themselves.
+    pub tokens: &'a [String],
 }
 
 pub trait ShellAnalyzer: Send + Sync {

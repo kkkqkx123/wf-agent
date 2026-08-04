@@ -1,12 +1,17 @@
 pub mod default_policy;
-pub mod executor;
 pub mod policy;
 pub mod resolver;
 pub mod runtime;
 pub mod security;
 pub mod strategy;
+pub mod timeout;
 pub mod vfs;
 
 pub use policy::SandboxPolicyManager;
-pub use resolver::{DefaultStrategyResolver, StrategyImplementation, StrategyResolver};
+pub use resolver::{
+    default_chain, DefaultStrategyResolver, StrategyExecuteOptions, StrategyImplementation,
+    StrategyKind, StrategyResolver, VfsProvider, DEFAULT_JS_CHAIN, DEFAULT_LUA_CHAIN,
+    DEFAULT_PYTHON_CHAIN, DEFAULT_SHELL_CHAIN,
+};
 pub use runtime::SandboxRuntime;
+pub use timeout::execute_with_timeout;

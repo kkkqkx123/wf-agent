@@ -126,8 +126,10 @@ impl NodeHandler for ScriptHandler {
 }
 
 impl ScriptHandler {
-    pub fn build_sandbox_config(language: &str) -> SandboxConfig {
-        let mut config = SandboxConfig {
+    pub fn build_sandbox_config(_language: &str) -> SandboxConfig {
+        // Strategy chains are left unspecified so the runtime applies the
+        // per-language default chains (e.g. shell: [static-analyzer, os-hook]).
+        SandboxConfig {
             mode: Some(SandboxMode::Lenient),
             policy: None,
             shell_strategy: None,
@@ -136,28 +138,7 @@ impl ScriptHandler {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: None,
-            network_enabled: None,
-            allowed_paths: None,
-        };
-
-        match language {
-            "shell" => {
-                config.shell_strategy = Some(vec!["os-hook".to_string()]);
-            }
-            "python" | "py" => {
-                config.python_strategy = Some(vec!["os-hook".to_string()]);
-            }
-            "javascript" | "js" => {
-                config.javascript_strategy = Some(vec!["os-hook".to_string()]);
-            }
-            "lua" => {
-                config.lua_strategy = Some(vec!["mlua-sandbox".to_string()]);
-            }
-            _ => {}
         }
-
-        config
     }
 }

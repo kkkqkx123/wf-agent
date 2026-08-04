@@ -88,9 +88,8 @@ fn build_select_sql(
                     if values.is_empty() {
                         conditions.push("0 = 1".into());
                     } else {
-                        let placeholders: Vec<String> = (0..values.len())
-                            .map(|_| "?".into())
-                            .collect();
+                        let placeholders: Vec<String> =
+                            (0..values.len()).map(|_| "?".into()).collect();
                         conditions.push(format!(
                             "json_extract(metadata, '$.{}') IN ({})",
                             key,

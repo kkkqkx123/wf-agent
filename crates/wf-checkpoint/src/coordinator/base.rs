@@ -164,10 +164,6 @@ pub trait CheckpointCoordinator: Send + Sync {
 fn checkpoint_id_of<C: serde::Serialize>(checkpoint: &C) -> String {
     serde_json::to_value(checkpoint)
         .ok()
-        .and_then(|json| {
-            json.get("id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
+        .and_then(|json| json.get("id").and_then(|v| v.as_str()).map(String::from))
         .unwrap_or_default()
 }

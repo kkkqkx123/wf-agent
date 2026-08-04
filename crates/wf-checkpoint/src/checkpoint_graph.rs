@@ -31,10 +31,7 @@ impl CheckpointDependencyGraph {
                         .push(cp.id.clone());
                 }
             }
-            let root = cp
-                .chain_root_id
-                .clone()
-                .unwrap_or_else(|| cp.id.clone());
+            let root = cp.chain_root_id.clone().unwrap_or_else(|| cp.id.clone());
             chain_root_map.insert(cp.id.clone(), root.clone());
             chain_groups.entry(root).or_default().push(cp.id.clone());
         }
@@ -191,13 +188,26 @@ mod tests {
         };
         let checkpoints = vec![
             cp("full-1", CheckpointType::Full, None, None),
-            cp("delta-1", CheckpointType::Delta, Some("full-1"), Some("full-1")),
-            cp("delta-2", CheckpointType::Delta, Some("delta-1"), Some("full-1")),
+            cp(
+                "delta-1",
+                CheckpointType::Delta,
+                Some("full-1"),
+                Some("full-1"),
+            ),
+            cp(
+                "delta-2",
+                CheckpointType::Delta,
+                Some("delta-1"),
+                Some("full-1"),
+            ),
             cp("full-2", CheckpointType::Full, None, None),
         ];
         let graph = CheckpointDependencyGraph::build(&checkpoints);
 
-        assert_eq!(graph.chain_root_map.get("delta-2"), Some(&"full-1".to_string()));
+        assert_eq!(
+            graph.chain_root_map.get("delta-2"),
+            Some(&"full-1".to_string())
+        );
         let group = graph.chain_groups.get("full-1").unwrap();
         assert!(group.contains(&"delta-1".to_string()));
         assert!(group.contains(&"delta-2".to_string()));

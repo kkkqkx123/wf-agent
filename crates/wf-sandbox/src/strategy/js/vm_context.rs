@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use wf_types::script::sandbox::{JavaScriptPolicy, SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
+use crate::timeout::execute_with_timeout;
 
 pub struct JavaScriptVmContextStrategy;
 
@@ -132,8 +133,8 @@ impl StrategyImplementation for JavaScriptVmContextStrategy {
         "JavaScript sandboxing using wrapped vm context with restricted globals"
     }
 
-    fn priority(&self) -> i32 {
-        30
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
 
     fn is_available(&self) -> bool {
@@ -177,11 +178,17 @@ impl StrategyImplementation for JavaScriptVmContextStrategy {
 
         let wrapped = Self::build_wrapper(code, &js_policy);
 
-        let output = tokio::process::Command::new("node")
-            .arg("--eval")
-            .arg(&wrapped)
-            .output()
-            .await?;
+        let output = execute_with_timeout(
+            async move {
+                tokio::process::Command::new("node")
+                    .arg("--eval")
+                    .arg(&wrapped)
+                    .output()
+                    .await
+            },
+            options.timeout_ms,
+        )
+        .await?;
 
         Ok(ScriptExecutionResult {
             success: output.status.success(),
@@ -212,7 +219,7 @@ mod tests {
         allow_dynamic_eval: bool,
     ) -> SandboxPolicy {
         SandboxPolicy {
-            mode: wf_types::script::sandbox::SandboxMode::Strict,
+            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             shell: None,
             python: None,
             javascript: Some(JavaScriptPolicy {

@@ -4,18 +4,21 @@ use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
 use crate::timeout::execute_with_timeout;
 
-pub struct JavaScriptSubprocessStrategy;
+/// Bare `node --eval` execution without any isolation.
+///
+/// NOT part of any default chain: only usable when explicitly configured.
+pub struct JavaScriptDirectStrategy;
 
 #[async_trait]
-impl StrategyImplementation for JavaScriptSubprocessStrategy {
+impl StrategyImplementation for JavaScriptDirectStrategy {
     fn id(&self) -> &str {
-        "subprocess"
+        "direct"
     }
     fn name(&self) -> &str {
-        "JavaScript Subprocess"
+        "JavaScript Direct Executor"
     }
     fn description(&self) -> &str {
-        "Run JavaScript in isolated subprocess using node --eval"
+        "Bare node --eval execution without isolation; explicit opt-in only"
     }
     fn kind(&self) -> StrategyKind {
         StrategyKind::Execution
@@ -30,8 +33,8 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
         _policy: &SandboxPolicy,
     ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
         let start = std::time::Instant::now();
+        let code = options.command.clone();
 
-        let code = &options.command;
         if code.is_empty() {
             return Ok(ScriptExecutionResult {
                 success: false,
@@ -42,7 +45,7 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
                 execution_time: 0,
                 error: Some("Empty JavaScript code".to_string()),
                 sandbox_mode: None,
-                strategy_id: Some("subprocess".to_string()),
+                strategy_id: Some("direct".to_string()),
                 violations: None,
             });
         }
@@ -51,7 +54,7 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
             async move {
                 tokio::process::Command::new("node")
                     .arg("--eval")
-                    .arg(code)
+                    .arg(&code)
                     .output()
                     .await
             },
@@ -72,7 +75,7 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
                 Some("JavaScript execution failed".to_string())
             },
             sandbox_mode: None,
-            strategy_id: Some("subprocess".to_string()),
+            strategy_id: Some("direct".to_string()),
             violations: None,
         })
     }

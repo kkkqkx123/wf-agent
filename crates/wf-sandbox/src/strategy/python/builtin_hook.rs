@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use wf_types::script::sandbox::{PythonPolicy, SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
+use crate::timeout::execute_with_timeout;
 
 pub struct PythonBuiltinHookStrategy;
 
@@ -83,8 +84,8 @@ impl StrategyImplementation for PythonBuiltinHookStrategy {
         "Python built-in function hooking for sandboxing with policy-driven wrappers"
     }
 
-    fn priority(&self) -> i32 {
-        20
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
 
     fn is_available(&self) -> bool {
@@ -124,11 +125,17 @@ impl StrategyImplementation for PythonBuiltinHookStrategy {
 
         let wrapped = Self::build_wrapper(code, &py_policy);
 
-        let output = tokio::process::Command::new("python3")
-            .arg("-c")
-            .arg(&wrapped)
-            .output()
-            .await?;
+        let output = execute_with_timeout(
+            async move {
+                tokio::process::Command::new("python3")
+                    .arg("-c")
+                    .arg(&wrapped)
+                    .output()
+                    .await
+            },
+            options.timeout_ms,
+        )
+        .await?;
 
         Ok(ScriptExecutionResult {
             success: output.status.success(),
@@ -155,7 +162,7 @@ mod tests {
 
     fn make_policy(allow_subprocess: bool, restrict_open: bool, allow_eval: bool) -> SandboxPolicy {
         SandboxPolicy {
-            mode: wf_types::script::sandbox::SandboxMode::Strict,
+            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
             shell: None,
             python: Some(PythonPolicy {
                 allowed_modules: vec![],

@@ -534,11 +534,7 @@ impl FsToolHandlers {
         }))
     }
 
-    fn apply_patch_add(
-        &self,
-        hunk: &crate::patch::PatchHunk,
-        path: &Path,
-    ) -> Value {
+    fn apply_patch_add(&self, hunk: &crate::patch::PatchHunk, path: &Path) -> Value {
         if self.is_write_protected(path) {
             return failure_value(hunk, "add", "File is write-protected");
         }
@@ -564,11 +560,7 @@ impl FsToolHandlers {
         }
     }
 
-    fn apply_patch_delete(
-        &self,
-        hunk: &crate::patch::PatchHunk,
-        path: &Path,
-    ) -> Value {
+    fn apply_patch_delete(&self, hunk: &crate::patch::PatchHunk, path: &Path) -> Value {
         if self.is_write_protected(path) {
             return failure_value(hunk, "delete", "File is write-protected");
         }
@@ -588,11 +580,7 @@ impl FsToolHandlers {
         }
     }
 
-    fn apply_patch_update(
-        &self,
-        hunk: &crate::patch::PatchHunk,
-        path: &Path,
-    ) -> Value {
+    fn apply_patch_update(&self, hunk: &crate::patch::PatchHunk, path: &Path) -> Value {
         if self.is_write_protected(path) {
             return failure_value(hunk, "update", "File is write-protected");
         }
@@ -612,11 +600,11 @@ impl FsToolHandlers {
                 );
             }
         };
-        let new_content = match crate::patch::apply_chunks_to_content(&original, &hunk.path, &hunk.chunks)
-        {
-            Ok(c) => c,
-            Err(e) => return failure_value(hunk, "update", &e.to_string()),
-        };
+        let new_content =
+            match crate::patch::apply_chunks_to_content(&original, &hunk.path, &hunk.chunks) {
+                Ok(c) => c,
+                Err(e) => return failure_value(hunk, "update", &e.to_string()),
+            };
 
         if let Some(move_path) = &hunk.move_path {
             let dest = self.resolve_path(move_path);
@@ -682,12 +670,15 @@ impl FsToolHandlers {
             ))
         })?;
 
-        crate::patch::validate_marker_sequencing(diff)
-            .map_err(ToolError::ValidationFailed)?;
-        let blocks = crate::patch::parse_search_replace_blocks(diff)
-            .map_err(ToolError::ValidationFailed)?;
+        crate::patch::validate_marker_sequencing(diff).map_err(ToolError::ValidationFailed)?;
+        let blocks =
+            crate::patch::parse_search_replace_blocks(diff).map_err(ToolError::ValidationFailed)?;
 
-        let line_ending = if content.contains("\r\n") { "\r\n" } else { "\n" };
+        let line_ending = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         let mut result_lines: Vec<String> = content
             .split('\n')
             .map(|l| l.trim_end_matches('\r').to_string())
@@ -856,10 +847,9 @@ fn walk_flat(
             {
                 out.push((rel, "directory".into()));
             }
-        } else if path.is_file()
-            && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
-                out.push((rel, "file".into()));
-            }
+        } else if path.is_file() && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
+            out.push((rel, "file".into()));
+        }
     }
 }
 
@@ -896,10 +886,9 @@ fn walk_recursive(
                 out.push((rel, "directory".into()));
                 walk_recursive(&path, root, out, ignore, depth + 1);
             }
-        } else if path.is_file()
-            && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
-                out.push((rel, "file".into()));
-            }
+        } else if path.is_file() && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true) {
+            out.push((rel, "file".into()));
+        }
     }
 }
 
@@ -933,9 +922,10 @@ fn collect_files(
             }
         } else if path.is_file()
             && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
-                && include.map(|g| g.is_match(rel.as_str())).unwrap_or(true) {
-                    out.push(path);
-                }
+            && include.map(|g| g.is_match(rel.as_str())).unwrap_or(true)
+        {
+            out.push(path);
+        }
     }
 }
 
@@ -978,9 +968,10 @@ fn collect_glob_matches(
             }
         } else if path.is_file()
             && ignore.map(|i| i.validate_access(&rel)).unwrap_or(true)
-                && glob.is_match(rel_normalized.as_str()) {
-                    out.push((rel, "file".into()));
-                }
+            && glob.is_match(rel_normalized.as_str())
+        {
+            out.push((rel, "file".into()));
+        }
     }
 }
 

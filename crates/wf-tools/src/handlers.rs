@@ -178,7 +178,12 @@ mod tests {
 
         let patch = "*** Begin Patch\n*** Add File: new.txt\n+hello patch\n*** Update File: new.txt\n@@\n+more\n*** End Patch";
         let result = registry
-            .execute_tool("apply_patch", &serde_json::json!({ "patch": patch }), &options, &ctx)
+            .execute_tool(
+                "apply_patch",
+                &serde_json::json!({ "patch": patch }),
+                &options,
+                &ctx,
+            )
             .await
             .unwrap();
         assert!(result.success, "patch failed: {:?}", result.error);

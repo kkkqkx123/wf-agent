@@ -92,10 +92,7 @@ pub struct BaseCheckpointCore<TDelta, TSnapshot> {
     pub id: super::super::Id,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<CheckpointType>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        alias = "base_checkpoint_id"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "base_checkpoint_id")]
     pub base_checkpoint_id: Option<super::super::Id>,
     #[serde(
         skip_serializing_if = "Option::is_none",
@@ -113,10 +110,7 @@ pub struct BaseCheckpointCore<TDelta, TSnapshot> {
     /// Checkpoint format version of this blob. Absent for blobs written
     /// before version tracking was introduced (treated as the minimum
     /// compatible version by the VersionManager).
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        alias = "format_version"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "format_version")]
     pub format_version: Option<String>,
 }
 

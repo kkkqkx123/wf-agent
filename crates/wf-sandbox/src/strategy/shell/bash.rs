@@ -86,16 +86,10 @@ impl BashAnalyzer {
         }
     }
 
-    fn extract_primary_command(&self, command: &str) -> Option<String> {
-        let trimmed = command.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    fn extract_primary_command(&self, tokens: &[String]) -> Option<String> {
         let mut idx = 0;
 
-        while idx < tokens.len() && PREFIX_COMMANDS.contains(&tokens[idx]) {
+        while idx < tokens.len() && PREFIX_COMMANDS.contains(&tokens[idx].as_str()) {
             idx += 1;
         }
 
@@ -122,7 +116,7 @@ impl ShellAnalyzer for BashAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_command(ctx.command);
+        let primary = self.extract_primary_command(ctx.tokens);
         let primary = match primary {
             Some(p) if !p.is_empty() => p,
             _ => {
@@ -213,9 +207,11 @@ mod tests {
     }
 
     fn analyze(cmd: &str, policy: &ShellPolicy) -> ShellAnalysisResult {
+        let tokens = shlex::split(cmd).unwrap_or_default();
         let ctx = ShellAnalysisContext {
             command: cmd,
             policy,
+            tokens: &tokens,
         };
         analyzer().analyze(&ctx)
     }

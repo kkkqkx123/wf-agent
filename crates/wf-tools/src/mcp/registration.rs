@@ -56,10 +56,7 @@ pub fn convert_input_schema(input_schema: &Value) -> ToolParameterSchema {
                 name.clone(),
                 ToolProperty {
                     name: name.clone(),
-                    value: prop
-                        .get("default")
-                        .cloned()
-                        .unwrap_or(Value::Null),
+                    value: prop.get("default").cloned().unwrap_or(Value::Null),
                     r#type: prop.get("type").and_then(|t| t.as_str()).map(String::from),
                     required: Some(required.contains(name)),
                     description: prop

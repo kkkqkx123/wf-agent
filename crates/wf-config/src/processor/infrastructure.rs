@@ -119,14 +119,11 @@ pub fn merge_sandbox_with_defaults(
         lua_strategy: user.lua_strategy.clone(),
         vfs: user.vfs.clone(),
         legacy_type: user.legacy_type.clone(),
-        image: user.image.clone(),
         resource_limits: user.resource_limits.clone().or(Some(ResourceLimits {
             cpu: None,
             memory: Some(512),
             disk: Some(1024),
         })),
-        network_enabled: user.network_enabled,
-        allowed_paths: user.allowed_paths.clone(),
     }
 }
 
@@ -253,14 +250,10 @@ mod tests {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: None,
-            network_enabled: Some(false),
-            allowed_paths: Some(vec!["/tmp".to_string()]),
         };
         let merged = merge_sandbox_with_defaults(&user, None);
         assert_eq!(merged.mode, Some(SandboxMode::Lenient));
-        assert_eq!(merged.allowed_paths, Some(vec!["/tmp".to_string()]));
         assert_eq!(merged.resource_limits.as_ref().unwrap().memory, Some(512));
     }
 
@@ -275,14 +268,11 @@ mod tests {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
                 memory: Some(0),
                 disk: Some(100),
             }),
-            network_enabled: None,
-            allowed_paths: None,
         };
         assert!(validate_sandbox_config(&config).is_err());
 
@@ -295,14 +285,11 @@ mod tests {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
                 memory: Some(512),
                 disk: Some(1024),
             }),
-            network_enabled: None,
-            allowed_paths: None,
         };
         assert!(validate_sandbox_config(&config).is_ok());
     }

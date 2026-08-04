@@ -9,7 +9,9 @@ use wf_types::script::sandbox::{
 
 use crate::default_policy::default_sandbox_policy;
 use crate::policy::SandboxPolicyManager;
-use crate::resolver::{DefaultStrategyResolver, StrategyExecuteOptions, StrategyResolver};
+use crate::resolver::{
+    DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind, StrategyResolver,
+};
 use crate::vfs::overlay::OverlayVFS;
 
 pub struct SandboxRuntime {
@@ -93,10 +95,7 @@ impl SandboxRuntime {
             lua_strategy: config.lua_strategy.clone().or(profile.lua_strategy.clone()),
             vfs: config.vfs.clone().or(profile.vfs.clone()),
             legacy_type: config.legacy_type.clone(),
-            image: config.image.clone(),
             resource_limits: config.resource_limits.clone(),
-            network_enabled: config.network_enabled,
-            allowed_paths: config.allowed_paths.clone(),
         }
     }
 
@@ -168,6 +167,27 @@ impl SandboxRuntime {
         }
     }
 
+    fn failed_result(
+        &self,
+        language: &str,
+        mode: &SandboxMode,
+        error: String,
+        strategy_id: Option<String>,
+    ) -> ScriptExecutionResult {
+        ScriptExecutionResult {
+            success: false,
+            script_name: format!("sandbox-{language}"),
+            stdout: None,
+            stderr: Some(error.clone()),
+            exit_code: Some(1),
+            execution_time: 0,
+            error: Some(error),
+            sandbox_mode: Some(format!("{:?}", mode)),
+            strategy_id,
+            violations: None,
+        }
+    }
+
     pub async fn execute(
         &self,
         language: &str,
@@ -179,7 +199,7 @@ impl SandboxRuntime {
         let mode = resolved_config
             .mode
             .clone()
-            .or(Some(self.default_policy.mode.clone()))
+            .or(self.default_policy.mode.clone())
             .unwrap_or(SandboxMode::Strict);
 
         if mode == SandboxMode::Disabled {
@@ -212,153 +232,213 @@ impl SandboxRuntime {
             _ => vec![],
         };
 
-        let strategy = self.resolver.resolve_best(language, &preferred_ids);
+        let chain = match self.resolver.resolve_chain(language, &preferred_ids) {
+            Ok(chain) => chain,
+            Err(e) => {
+                self.record_audit(
+                    AuditEventType::StrategyFallback,
+                    language,
+                    &format!("sandbox-{language}"),
+                    Some(e.clone()),
+                    None,
+                    false,
+                );
+                return self.failed_result(language, &mode, e, None);
+            }
+        };
 
-        if let Some(ref s) = strategy {
-            if let Some(pref) = preferred_ids.first() {
-                if s.id() != pref.as_str() {
+        let vfs = if let Some(ref vfs_config) = resolved_config.vfs {
+            if vfs_config.enabled {
+                let base = vfs_config
+                    .workspace_root
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
+                let path_policy = vfs_config.path_policy.clone().unwrap_or(
+                    wf_types::script::sandbox::PathPolicy {
+                        allowed_read: vec![],
+                        allowed_write: vec![],
+                    },
+                );
+                Some(Arc::new(OverlayVFS::new(base, path_policy))
+                    as Arc<dyn crate::resolver::VfsProvider>)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let options = StrategyExecuteOptions {
+            command: command.to_string(),
+            shell_type: None,
+            runtime: None,
+            workdir: None,
+            env_vars: None,
+            timeout_ms: policy.resource.as_ref().and_then(|r| r.timeout_limit_ms),
+            vfs,
+        };
+
+        // Phase 1: run all analysis gates in chain order. Strict rejects on
+        // the first denial; Lenient records violations and continues so the
+        // execution layer still runs for real.
+        let mut analysis_violations: Vec<String> = Vec::new();
+        for s in chain.iter().filter(|s| s.kind() == StrategyKind::Analysis) {
+            if !s.is_available() {
+                let e = format!(
+                    "Analysis strategy '{}' is not available on this platform; refusing to run without the gate",
+                    s.id()
+                );
+                self.record_audit(
+                    AuditEventType::ExecutionDenied,
+                    language,
+                    &format!("sandbox-{language}"),
+                    Some(e.clone()),
+                    Some(s.id().to_string()),
+                    false,
+                );
+                return self.failed_result(language, &mode, e, Some(s.id().to_string()));
+            }
+            match s.execute(options.clone(), &policy).await {
+                Ok(res) if !res.success => {
+                    if mode == SandboxMode::Strict {
+                        let mut res = res;
+                        res.sandbox_mode = Some(format!("{:?}", mode));
+                        self.record_audit(
+                            AuditEventType::ExecutionDenied,
+                            language,
+                            &res.script_name,
+                            res.error.clone(),
+                            Some(s.id().to_string()),
+                            false,
+                        );
+                        return res;
+                    }
+                    let new_violations: Vec<String> = res
+                        .violations
+                        .clone()
+                        .or_else(|| res.error.clone().map(|e| vec![e]))
+                        .unwrap_or_default();
+                    analysis_violations.extend(new_violations);
+                }
+                Ok(_) => {}
+                Err(e) => {
                     self.record_audit(
-                        AuditEventType::StrategyFallback,
+                        AuditEventType::ExecutionDenied,
                         language,
                         &format!("sandbox-{language}"),
-                        Some(format!(
-                            "Preferred strategy '{pref}' unavailable, using '{}'",
-                            s.id()
-                        )),
+                        Some(e.to_string()),
                         Some(s.id().to_string()),
-                        true,
+                        false,
+                    );
+                    return self.failed_result(
+                        language,
+                        &mode,
+                        format!("Analysis strategy '{}' failed: {e}", s.id()),
+                        Some(s.id().to_string()),
                     );
                 }
             }
         }
 
-        match strategy {
-            Some(s) => {
-                let vfs = if let Some(ref vfs_config) = resolved_config.vfs {
-                    if vfs_config.enabled {
-                        let base = vfs_config
-                            .workspace_root
-                            .as_ref()
-                            .map(PathBuf::from)
-                            .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
-                        let path_policy = vfs_config.path_policy.clone().unwrap_or(
-                            wf_types::script::sandbox::PathPolicy {
-                                allowed_read: vec![],
-                                allowed_write: vec![],
-                            },
-                        );
-                        Some(Arc::new(OverlayVFS::new(base, path_policy))
-                            as Arc<dyn crate::resolver::VfsProvider>)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                let options = StrategyExecuteOptions {
-                    command: command.to_string(),
-                    shell_type: None,
-                    runtime: None,
-                    workdir: None,
-                    env_vars: None,
-                    timeout_ms: policy.resource.as_ref().and_then(|r| r.timeout_limit_ms),
-                    vfs,
-                };
-
-                let result = s.execute(options, &policy).await;
-
-                match result {
-                    Ok(mut res) => {
-                        res.sandbox_mode = Some(format!("{:?}", mode));
-                        res.strategy_id = Some(s.id().to_string());
-
-                        if mode == SandboxMode::Lenient {
-                            if let Some(ref err) = res.error {
-                                res.violations = Some(vec![err.clone()]);
-                                res.error = None;
-                                res.success = true;
-                            }
-                        }
-
-                        if !res.success {
-                            self.record_audit(
-                                AuditEventType::ExecutionDenied,
-                                language,
-                                &res.script_name,
-                                res.error.clone(),
-                                Some(s.id().to_string()),
-                                false,
-                            );
-                        } else if res.violations.is_some() {
-                            self.record_audit(
-                                AuditEventType::ExecutionViolation,
-                                language,
-                                &res.script_name,
-                                res.violations.as_ref().and_then(|v| v.first().cloned()),
-                                Some(s.id().to_string()),
-                                true,
-                            );
-                        } else {
-                            self.record_audit(
-                                AuditEventType::ExecutionAllowed,
-                                language,
-                                &res.script_name,
-                                None,
-                                Some(s.id().to_string()),
-                                true,
-                            );
-                        }
-
-                        res
-                    }
-                    Err(e) => {
-                        self.record_audit(
-                            AuditEventType::ExecutionDenied,
-                            language,
-                            &format!("sandbox-{language}"),
-                            Some(e.to_string()),
-                            Some(s.id().to_string()),
-                            false,
-                        );
-                        ScriptExecutionResult {
-                            success: false,
-                            script_name: format!("sandbox-{language}"),
-                            stdout: None,
-                            stderr: Some(e.to_string()),
-                            exit_code: Some(1),
-                            execution_time: 0,
-                            error: Some(e.to_string()),
-                            sandbox_mode: Some(format!("{:?}", mode)),
-                            strategy_id: Some(s.id().to_string()),
-                            violations: None,
-                        }
-                    }
-                }
-            }
-            None => {
+        // Phase 2: run the first available execution strategy in chain order.
+        let mut unavailable: Vec<String> = Vec::new();
+        for s in chain.iter().filter(|s| s.kind() == StrategyKind::Execution) {
+            if !s.is_available() {
+                unavailable.push(s.id().to_string());
                 self.record_audit(
                     AuditEventType::StrategyFallback,
                     language,
                     &format!("sandbox-{language}"),
-                    Some(format!("No available strategy for language: {language}")),
-                    None,
-                    false,
+                    Some(format!(
+                        "Execution strategy '{}' unavailable, skipping",
+                        s.id()
+                    )),
+                    Some(s.id().to_string()),
+                    true,
                 );
-                ScriptExecutionResult {
-                    success: false,
-                    script_name: format!("sandbox-{language}"),
-                    stdout: None,
-                    stderr: Some(format!("No available strategy for language: {language}")),
-                    exit_code: Some(1),
-                    execution_time: 0,
-                    error: Some(format!("No available strategy for language: {language}")),
-                    sandbox_mode: Some(format!("{:?}", mode)),
-                    strategy_id: None,
-                    violations: None,
-                }
+                continue;
             }
+
+            let result = s.execute(options.clone(), &policy).await;
+            return match result {
+                Ok(mut res) => {
+                    res.sandbox_mode = Some(format!("{:?}", mode));
+                    res.strategy_id = Some(s.id().to_string());
+                    if mode == SandboxMode::Lenient && !analysis_violations.is_empty() {
+                        let mut all = analysis_violations.clone();
+                        if let Some(mut existing) = res.violations.take() {
+                            all.append(&mut existing);
+                        }
+                        res.violations = Some(all);
+                    }
+
+                    if !res.success {
+                        self.record_audit(
+                            AuditEventType::ExecutionDenied,
+                            language,
+                            &res.script_name,
+                            res.error.clone(),
+                            Some(s.id().to_string()),
+                            false,
+                        );
+                    } else if res.violations.is_some() {
+                        self.record_audit(
+                            AuditEventType::ExecutionViolation,
+                            language,
+                            &res.script_name,
+                            res.violations.as_ref().and_then(|v| v.first().cloned()),
+                            Some(s.id().to_string()),
+                            true,
+                        );
+                    } else {
+                        self.record_audit(
+                            AuditEventType::ExecutionAllowed,
+                            language,
+                            &res.script_name,
+                            None,
+                            Some(s.id().to_string()),
+                            true,
+                        );
+                    }
+                    res
+                }
+                Err(e) => {
+                    self.record_audit(
+                        AuditEventType::ExecutionDenied,
+                        language,
+                        &format!("sandbox-{language}"),
+                        Some(e.to_string()),
+                        Some(s.id().to_string()),
+                        false,
+                    );
+                    self.failed_result(
+                        language,
+                        &mode,
+                        format!("Execution strategy '{}' failed: {e}", s.id()),
+                        Some(s.id().to_string()),
+                    )
+                }
+            };
         }
+
+        let e = if unavailable.is_empty() {
+            format!("No execution strategy in chain for language: {language}")
+        } else {
+            format!(
+                "No available execution strategy for language '{language}': {} unavailable",
+                unavailable.join(", ")
+            )
+        };
+        self.record_audit(
+            AuditEventType::StrategyFallback,
+            language,
+            &format!("sandbox-{language}"),
+            Some(e.clone()),
+            None,
+            false,
+        );
+        self.failed_result(language, &mode, e, None)
     }
 
     async fn execute_direct(&self, command: &str) -> ScriptExecutionResult {
@@ -406,12 +486,11 @@ impl SandboxRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_types::script::sandbox::{ResourcePolicy, ShellPolicy};
 
-    #[tokio::test]
-    async fn test_disabled_mode_executes_directly() {
-        let runtime = SandboxRuntime::new();
-        let config = SandboxConfig {
-            mode: Some(SandboxMode::Disabled),
+    fn make_config(mode: Option<SandboxMode>) -> SandboxConfig {
+        SandboxConfig {
+            mode,
             policy: None,
             shell_strategy: None,
             python_strategy: None,
@@ -419,14 +498,136 @@ mod tests {
             lua_strategy: None,
             vfs: None,
             legacy_type: None,
-            image: None,
             resource_limits: None,
-            network_enabled: None,
-            allowed_paths: None,
-        };
+        }
+    }
+
+    #[tokio::test]
+    async fn test_disabled_mode_executes_directly() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Disabled));
 
         let result = runtime.execute("shell", "echo hello", &config).await;
         assert!(result.success);
         assert_eq!(result.sandbox_mode, Some("Disabled".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_strict_default_chain_denies_rm_rf() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let result = runtime.execute("shell", "rm -rf /", &config).await;
+        assert!(
+            !result.success,
+            "static-analyzer must gate rm -rf before seccomp sees it"
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("static-analyzer"));
+        assert!(result.violations.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_strict_default_chain_allows_safe_command() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let result = runtime.execute("shell", "echo hello", &config).await;
+        assert!(
+            result.success,
+            "safe command should execute: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+        assert!(result.stdout.unwrap_or_default().contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn test_lenient_records_violation_but_executes_for_real() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Lenient),
+            policy: Some(SandboxPolicy {
+                mode: Some(SandboxMode::Lenient),
+                shell: Some(ShellPolicy {
+                    allowed_commands: None,
+                    denied_commands: None,
+                    dangerous_patterns: Some(vec!["MARKER123".to_string()]),
+                    allow_pipe: None,
+                    allow_redirect: None,
+                }),
+                ..default_sandbox_policy().clone()
+            }),
+            ..make_config(None)
+        };
+
+        let result = runtime.execute("shell", "echo MARKER123", &config).await;
+        assert!(
+            result.success,
+            "lenient must still run the command: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+        assert!(result.stdout.unwrap_or_default().contains("MARKER123"));
+        let violations = result.violations.unwrap_or_default();
+        assert!(
+            violations.iter().any(|v| v.contains("MARKER123")),
+            "violations must be recorded: {violations:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeout_policy_enforced() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: Some(SandboxPolicy {
+                mode: Some(SandboxMode::Strict),
+                resource: Some(ResourcePolicy {
+                    cpu_limit_ms: None,
+                    memory_limit_mb: None,
+                    disk_limit_mb: None,
+                    timeout_limit_ms: Some(100),
+                }),
+                ..default_sandbox_policy().clone()
+            }),
+            python_strategy: Some(vec!["direct".to_string()]),
+            ..make_config(None)
+        };
+
+        let result = runtime
+            .execute("python", "import time; time.sleep(5)", &config)
+            .await;
+        assert!(!result.success);
+        assert!(result.error.unwrap_or_default().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn test_fail_closed_on_unknown_strategy() {
+        let runtime = SandboxRuntime::new();
+        let config = SandboxConfig {
+            python_strategy: Some(vec!["nonexistent-strategy".to_string()]),
+            ..make_config(None)
+        };
+
+        let result = runtime.execute("python", "print(1)", &config).await;
+        assert!(!result.success);
+        assert!(
+            result.error.unwrap_or_default().contains("unregistered"),
+            "must report the missing strategy id"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_default_chain_denies_python_os_import_in_strict() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let result = runtime.execute("python", "import os", &config).await;
+        assert!(
+            !result.success,
+            "ast-analyzer must gate import os: {:?}",
+            result.stderr
+        );
+        assert_eq!(result.strategy_id.as_deref(), Some("ast-analyzer"));
     }
 }

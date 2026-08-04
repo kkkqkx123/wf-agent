@@ -5,6 +5,33 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrategyKind {
+    /// Static analysis gate. Never executes user code.
+    Analysis,
+    /// Actually executes user code.
+    Execution,
+}
+
+/// Per-language default chains used when the config does not specify a chain.
+/// Order matters: analysis gates run first, then the first available
+/// execution strategy runs.
+pub const DEFAULT_SHELL_CHAIN: &[&str] = &["static-analyzer", "os-hook"];
+pub const DEFAULT_PYTHON_CHAIN: &[&str] = &["ast-analyzer", "builtin-hook"];
+pub const DEFAULT_JS_CHAIN: &[&str] = &["vm-context"];
+pub const DEFAULT_LUA_CHAIN: &[&str] = &["mlua-sandbox", "static-analyzer"];
+
+pub fn default_chain(language: &str) -> &'static [&'static str] {
+    match language {
+        "shell" => DEFAULT_SHELL_CHAIN,
+        "python" => DEFAULT_PYTHON_CHAIN,
+        "javascript" | "js" => DEFAULT_JS_CHAIN,
+        "lua" => DEFAULT_LUA_CHAIN,
+        _ => &[],
+    }
+}
+
+#[derive(Clone)]
 pub struct StrategyExecuteOptions {
     pub command: String,
     pub shell_type: Option<String>,
@@ -34,6 +61,12 @@ pub trait VfsProvider: Send + Sync {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error>;
     async fn write_file(&self, path: &str, data: Vec<u8>) -> Result<(), std::io::Error>;
     async fn exists(&self, path: &str) -> bool;
+    /// Pure access check; must not mutate VFS state. Used by pre-execution
+    /// analysis gates to validate read paths.
+    async fn check_read(&self, path: &str) -> Result<(), std::io::Error>;
+    /// Pure access check; must not mutate VFS state. Used by pre-execution
+    /// analysis gates to validate write paths (e.g. redirect targets).
+    async fn check_write(&self, path: &str) -> Result<(), std::io::Error>;
 }
 
 #[async_trait]
@@ -41,7 +74,7 @@ pub trait StrategyImplementation: Send + Sync {
     fn id(&self) -> &str;
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    fn priority(&self) -> i32;
+    fn kind(&self) -> StrategyKind;
     fn is_available(&self) -> bool;
     async fn execute(
         &self,
@@ -57,11 +90,16 @@ pub trait StrategyResolver: Send + Sync {
     fn resolve_js_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
     fn resolve_lua_strategy(&self, id: &str) -> Option<Arc<dyn StrategyImplementation>>;
     fn register_strategy(&mut self, language: &str, strategy: Arc<dyn StrategyImplementation>);
-    fn resolve_best(
+    /// Resolve an ordered strategy chain for a language.
+    ///
+    /// `preferred_ids` (if non-empty) is the chain order; otherwise the
+    /// per-language default chain is used. Unknown strategy IDs are a
+    /// fail-closed error rather than a silent drop.
+    fn resolve_chain(
         &self,
         language: &str,
         preferred_ids: &[String],
-    ) -> Option<Arc<dyn StrategyImplementation>>;
+    ) -> Result<Vec<Arc<dyn StrategyImplementation>>, String>;
 }
 
 pub struct DefaultStrategyResolver {
@@ -103,6 +141,9 @@ impl DefaultStrategyResolver {
         use crate::strategy::shell::os_hook::LinuxSeccompStrategy;
         self.shell_strategies
             .insert("os-hook".to_string(), Arc::new(LinuxSeccompStrategy));
+        use crate::strategy::container::ContainerStrategy;
+        self.shell_strategies
+            .insert("container".to_string(), Arc::new(ContainerStrategy));
 
         // Python strategies
         use crate::strategy::python::builtin_hook::PythonBuiltinHookStrategy;
@@ -115,9 +156,9 @@ impl DefaultStrategyResolver {
             "ast-analyzer".to_string(),
             Arc::new(PythonAstAnalyzerStrategy),
         );
-        use crate::strategy::python::os_hook::PythonOsHookStrategy;
+        use crate::strategy::python::direct::PythonDirectStrategy;
         self.python_strategies
-            .insert("os-hook".to_string(), Arc::new(PythonOsHookStrategy));
+            .insert("direct".to_string(), Arc::new(PythonDirectStrategy));
 
         // JavaScript strategies
         use crate::strategy::js::vm_context::JavaScriptVmContextStrategy;
@@ -130,9 +171,9 @@ impl DefaultStrategyResolver {
             "subprocess".to_string(),
             Arc::new(JavaScriptSubprocessStrategy),
         );
-        use crate::strategy::js::os_hook::JavaScriptOsHookStrategy;
+        use crate::strategy::js::direct::JavaScriptDirectStrategy;
         self.js_strategies
-            .insert("os-hook".to_string(), Arc::new(JavaScriptOsHookStrategy));
+            .insert("direct".to_string(), Arc::new(JavaScriptDirectStrategy));
 
         // Lua strategies
         use crate::strategy::lua::static_analyzer::LuaStaticAnalyzerStrategy;
@@ -178,32 +219,48 @@ impl StrategyResolver for DefaultStrategyResolver {
         map.insert(strategy.id().to_string(), strategy);
     }
 
-    fn resolve_best(
+    fn resolve_chain(
         &self,
         language: &str,
         preferred_ids: &[String],
-    ) -> Option<Arc<dyn StrategyImplementation>> {
+    ) -> Result<Vec<Arc<dyn StrategyImplementation>>, String> {
         let map: &HashMap<String, Arc<dyn StrategyImplementation>> = match language {
             "shell" => &self.shell_strategies,
             "python" => &self.python_strategies,
             "javascript" | "js" => &self.js_strategies,
             "lua" => &self.lua_strategies,
-            _ => return None,
+            _ => return Err(format!("Unsupported sandbox language: {language}")),
         };
 
-        if !preferred_ids.is_empty() {
-            for id in preferred_ids {
-                if let Some(strategy) = map.get(id) {
-                    if strategy.is_available() {
-                        return Some(strategy.clone());
-                    }
-                }
+        let ids: Vec<&str> = if preferred_ids.is_empty() {
+            default_chain(language).to_vec()
+        } else {
+            preferred_ids.iter().map(|s| s.as_str()).collect()
+        };
+
+        if ids.is_empty() {
+            return Err(format!(
+                "No strategy chain configured for language: {language}"
+            ));
+        }
+
+        let mut chain = Vec::with_capacity(ids.len());
+        let mut missing = Vec::new();
+        for id in ids {
+            match map.get(id) {
+                Some(strategy) => chain.push(strategy.clone()),
+                None => missing.push(id.to_string()),
             }
         }
 
-        let mut candidates: Vec<&Arc<dyn StrategyImplementation>> = map.values().collect();
-        candidates.sort_by_key(|b| std::cmp::Reverse(b.priority()));
-        candidates.into_iter().find(|s| s.is_available()).cloned()
+        if !missing.is_empty() {
+            return Err(format!(
+                "Strategy chain for language '{language}' contains unregistered strategies: {}",
+                missing.join(", ")
+            ));
+        }
+
+        Ok(chain)
     }
 }
 
@@ -213,7 +270,7 @@ mod tests {
 
     struct MockStrategy {
         id: &'static str,
-        priority_val: i32,
+        kind: StrategyKind,
         available: bool,
     }
 
@@ -228,8 +285,8 @@ mod tests {
         fn description(&self) -> &str {
             "mock"
         }
-        fn priority(&self) -> i32 {
-            self.priority_val
+        fn kind(&self) -> StrategyKind {
+            self.kind
         }
         fn is_available(&self) -> bool {
             self.available
@@ -243,78 +300,69 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_resolve_best_preferred_id() {
-        let mut resolver = DefaultStrategyResolver::new();
+    fn register(resolver: &mut DefaultStrategyResolver, language: &str, id: &'static str) {
         resolver.register_strategy(
-            "shell",
+            language,
             Arc::new(MockStrategy {
-                id: "foo",
-                priority_val: 10,
+                id,
+                kind: StrategyKind::Execution,
                 available: true,
             }),
         );
-        resolver.register_strategy(
-            "shell",
-            Arc::new(MockStrategy {
-                id: "bar",
-                priority_val: 20,
-                available: true,
-            }),
-        );
-
-        let result = resolver.resolve_best("shell", &["foo".to_string()]);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().id(), "foo");
     }
 
-    #[tokio::test]
-    async fn test_resolve_best_falls_back_by_priority() {
+    #[test]
+    fn test_resolve_chain_preferred_order() {
         let mut resolver = DefaultStrategyResolver::new();
-        resolver.register_strategy(
-            "lua",
-            Arc::new(MockStrategy {
-                id: "low",
-                priority_val: 10,
-                available: true,
-            }),
-        );
-        resolver.register_strategy(
-            "lua",
-            Arc::new(MockStrategy {
-                id: "high",
-                priority_val: 100,
-                available: true,
-            }),
-        );
+        register(&mut resolver, "shell", "foo");
+        register(&mut resolver, "shell", "bar");
 
-        let result = resolver.resolve_best("lua", &[]);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().id(), "high");
+        let chain = resolver
+            .resolve_chain("shell", &["bar".to_string(), "foo".to_string()])
+            .unwrap();
+        let ids: Vec<&str> = chain.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, vec!["bar", "foo"]);
     }
 
-    #[tokio::test]
-    async fn test_resolve_best_skips_unavailable() {
-        let mut resolver = DefaultStrategyResolver::new();
-        resolver.register_strategy(
-            "lua",
-            Arc::new(MockStrategy {
-                id: "broken",
-                priority_val: 100,
-                available: false,
-            }),
+    #[test]
+    fn test_resolve_chain_default_chain() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        let chain = resolver.resolve_chain("shell", &[]).unwrap();
+        let ids: Vec<&str> = chain.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, vec!["static-analyzer", "os-hook"]);
+        assert_eq!(
+            chain[0].kind(),
+            StrategyKind::Analysis,
+            "static-analyzer must be an analysis gate"
         );
-        resolver.register_strategy(
-            "lua",
-            Arc::new(MockStrategy {
-                id: "working",
-                priority_val: 10,
-                available: true,
-            }),
+        assert_eq!(
+            chain[1].kind(),
+            StrategyKind::Execution,
+            "os-hook must be an execution strategy"
         );
+    }
 
-        let result = resolver.resolve_best("lua", &[]);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().id(), "working");
+    #[test]
+    fn test_resolve_chain_missing_strategy_is_error() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        let err = resolver
+            .resolve_chain("shell", &["os-hook".to_string(), "nope".to_string()])
+            .err()
+            .expect("missing strategy must fail resolution");
+        assert!(err.contains("nope"), "error should list missing id: {err}");
+    }
+
+    #[test]
+    fn test_resolve_chain_unknown_language() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        assert!(resolver.resolve_chain("cobol", &[]).is_err());
+    }
+
+    #[test]
+    fn test_default_chain_js_is_vm_context_only() {
+        let resolver = DefaultStrategyResolver::with_defaults();
+        let chain = resolver.resolve_chain("js", &[]).unwrap();
+        let ids: Vec<&str> = chain.iter().map(|s| s.id()).collect();
+        assert_eq!(ids, vec!["vm-context"]);
     }
 }

@@ -20,9 +20,7 @@ use std::time::{Duration, Instant};
 use crate::error::ToolResult;
 use crate::mcp::client::{McpClient, McpToolInfo};
 use crate::mcp::transport;
-use wf_types::tool::mcp_connection::{
-    McpServerConfig, McpServerLifecycle, McpServerStatus,
-};
+use wf_types::tool::mcp_connection::{McpServerConfig, McpServerLifecycle, McpServerStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum McpLifecycleMode {
@@ -74,11 +72,11 @@ pub struct McpServerEntry {
 
 impl McpServerEntry {
     fn new(name: String, config: McpServerConfig) -> Self {
-        let lifecycle = McpLifecycleMode::from_server_lifecycle(
-            base_config(&config)
-                .and_then(|b| b.lifecycle),
-        );
-        let idle_timeout = base_config(&config).and_then(|b| b.idle_timeout).map(Duration::from_secs);
+        let lifecycle =
+            McpLifecycleMode::from_server_lifecycle(base_config(&config).and_then(|b| b.lifecycle));
+        let idle_timeout = base_config(&config)
+            .and_then(|b| b.idle_timeout)
+            .map(Duration::from_secs);
         let health_check_interval = base_config(&config)
             .and_then(|b| b.health_check_interval)
             .map(Duration::from_secs);
@@ -96,7 +94,9 @@ impl McpServerEntry {
     }
 }
 
-fn base_config(config: &McpServerConfig) -> Option<&wf_types::tool::mcp_connection::McpServerConfigBase> {
+fn base_config(
+    config: &McpServerConfig,
+) -> Option<&wf_types::tool::mcp_connection::McpServerConfigBase> {
     match config {
         McpServerConfig::Stdio(c) => Some(&c.base),
         McpServerConfig::Sse(c) => Some(&c.base),
@@ -164,7 +164,11 @@ impl McpServerRegistry {
     pub fn is_disabled(&self, name: &str) -> bool {
         self.servers
             .get(name)
-            .map(|e| base_config(&e.config).map(|b| b.disabled == Some(true)).unwrap_or(false))
+            .map(|e| {
+                base_config(&e.config)
+                    .map(|b| b.disabled == Some(true))
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
@@ -241,18 +245,12 @@ impl McpConnectionManager {
     /// Register a server and connect according to its lifecycle mode:
     /// lazy = deferred, eager/keep-alive = connect now (keep-alive also
     /// spawns the background health check loop).
-    pub async fn connect_server(
-        &self,
-        name: &str,
-        config: McpServerConfig,
-    ) -> ToolResult<()> {
+    pub async fn connect_server(&self, name: &str, config: McpServerConfig) -> ToolResult<()> {
         let entry = McpServerEntry::new(name.to_string(), config);
         let lifecycle = entry.lifecycle;
         let idle_timeout = entry.idle_timeout;
         let health_check_interval = entry.health_check_interval;
-        self.registry
-            .servers
-            .insert(name.to_string(), entry);
+        self.registry.servers.insert(name.to_string(), entry);
 
         if lifecycle == McpLifecycleMode::Lazy {
             return Ok(());
@@ -533,8 +531,11 @@ impl McpConnectionManager {
         })?;
 
         let timeout_ms = self.server_timeout_ms(server_name);
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), client.list_tools(timeout_ms))
-            .await
+        match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            client.list_tools(timeout_ms),
+        )
+        .await
         {
             Ok(Ok(_)) => {
                 self.record_activity(server_name);
@@ -555,8 +556,7 @@ impl McpConnectionManager {
             .list()
             .into_iter()
             .filter(|e| {
-                e.lifecycle == McpLifecycleMode::KeepAlive
-                    && e.status == McpServerStatus::Connected
+                e.lifecycle == McpLifecycleMode::KeepAlive && e.status == McpServerStatus::Connected
             })
             .map(|e| e.name)
             .collect();
@@ -819,9 +819,6 @@ mod tests {
         }
         let entry = McpServerEntry::new("ka".into(), cfg);
         assert_eq!(entry.lifecycle, McpLifecycleMode::KeepAlive);
-        assert_eq!(
-            entry.health_check_interval,
-            Some(Duration::from_secs(30))
-        );
+        assert_eq!(entry.health_check_interval, Some(Duration::from_secs(30)));
     }
 }

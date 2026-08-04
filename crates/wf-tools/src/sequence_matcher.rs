@@ -15,16 +15,16 @@ pub fn normalize_unicode(s: &str) -> String {
 fn normalize_char(c: char) -> char {
     match c {
         // Various dash/hyphen code-points -> ASCII '-'
-        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' | '\u{2212}' => {
-            '-'
-        }
+        '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
+        | '\u{2212}' => '-',
         // Fancy single quotes -> '\''
         '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
         // Fancy double quotes -> '"'
         '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
         // Non-breaking space and other odd spaces -> normal space
-        '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}' | '\u{2007}'
-        | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
+        '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
+        | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}' | '\u{205F}'
+        | '\u{3000}' => ' ',
         _ => c,
     }
 }
@@ -37,39 +37,30 @@ fn exact_match(lines: &[String], pattern: &[String], start_index: usize) -> bool
 }
 
 fn trim_end_match(lines: &[String], pattern: &[String], start_index: usize) -> bool {
-    pattern
-        .iter()
-        .enumerate()
-        .all(|(i, p)| {
-            lines
-                .get(start_index + i)
-                .map(|l| l.trim_end() == p.trim_end())
-                .unwrap_or(false)
-        })
+    pattern.iter().enumerate().all(|(i, p)| {
+        lines
+            .get(start_index + i)
+            .map(|l| l.trim_end() == p.trim_end())
+            .unwrap_or(false)
+    })
 }
 
 fn trim_match(lines: &[String], pattern: &[String], start_index: usize) -> bool {
-    pattern
-        .iter()
-        .enumerate()
-        .all(|(i, p)| {
-            lines
-                .get(start_index + i)
-                .map(|l| l.trim() == p.trim())
-                .unwrap_or(false)
-        })
+    pattern.iter().enumerate().all(|(i, p)| {
+        lines
+            .get(start_index + i)
+            .map(|l| l.trim() == p.trim())
+            .unwrap_or(false)
+    })
 }
 
 fn normalized_match(lines: &[String], pattern: &[String], start_index: usize) -> bool {
-    pattern
-        .iter()
-        .enumerate()
-        .all(|(i, p)| {
-            lines
-                .get(start_index + i)
-                .map(|l| normalize_unicode(l) == normalize_unicode(p))
-                .unwrap_or(false)
-        })
+    pattern.iter().enumerate().all(|(i, p)| {
+        lines
+            .get(start_index + i)
+            .map(|l| normalize_unicode(l) == normalize_unicode(p))
+            .unwrap_or(false)
+    })
 }
 
 /// Attempt to find the sequence of pattern lines within lines beginning at or
@@ -165,7 +156,10 @@ mod tests {
         let lines = v(&["foo—bar"]);
         assert_eq!(seek_sequence(&lines, &v(&["foo-bar"]), 0, false), Some(0));
         let lines = v(&["\u{201C}quoted\u{201D}"]);
-        assert_eq!(seek_sequence(&lines, &v(&["\"quoted\""]), 0, false), Some(0));
+        assert_eq!(
+            seek_sequence(&lines, &v(&["\"quoted\""]), 0, false),
+            Some(0)
+        );
     }
 
     #[test]

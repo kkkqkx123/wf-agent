@@ -77,7 +77,10 @@ async fn test_connect_discover_and_call_tool() {
 
     // Capabilities were discovered during connect.
     let entry = registry.get("e2e").unwrap();
-    assert_eq!(entry.status, wf_types::tool::mcp_connection::McpServerStatus::Connected);
+    assert_eq!(
+        entry.status,
+        wf_types::tool::mcp_connection::McpServerStatus::Connected
+    );
     assert_eq!(entry.tools.len(), 1);
     assert_eq!(entry.tools[0].name, "ping");
 

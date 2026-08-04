@@ -23,6 +23,19 @@ impl OverlayVFS {
     }
 
     pub async fn read_file(&self, path: &Path) -> Result<Vec<u8>, std::io::Error> {
+        let path_str = path.to_string_lossy().to_string();
+        if !self
+            .path_policy
+            .allowed_read
+            .iter()
+            .any(|p| path_str.starts_with(p))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Read not allowed",
+            ));
+        }
+
         {
             let delta = self.delta.lock().await;
             if let Some(data) = delta.get(path) {
@@ -35,22 +48,27 @@ impl OverlayVFS {
     }
 
     pub async fn write_file(&self, path: &Path, data: Vec<u8>) -> Result<(), std::io::Error> {
-        let path_str = path.to_string_lossy().to_string();
-        if !self
-            .path_policy
-            .allowed_write
-            .iter()
-            .any(|p| path_str.starts_with(p))
-        {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "Write not allowed",
-            ));
-        }
+        self.check_write(&path.to_string_lossy()).await?;
 
         let mut delta = self.delta.lock().await;
         delta.insert(path.to_path_buf(), data);
         Ok(())
+    }
+
+    fn check_path(
+        &self,
+        path: &str,
+        allowed: &[String],
+        action: &str,
+    ) -> Result<(), std::io::Error> {
+        if allowed.iter().any(|p| path.starts_with(p)) {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!("{action} not allowed"),
+            ))
+        }
     }
 
     pub async fn exists(&self, path: &Path) -> bool {
@@ -78,6 +96,14 @@ impl VfsProvider for OverlayVFS {
 
     async fn exists(&self, path: &str) -> bool {
         self.exists(Path::new(path)).await
+    }
+
+    async fn check_read(&self, path: &str) -> Result<(), std::io::Error> {
+        self.check_path(path, &self.path_policy.allowed_read, "Read")
+    }
+
+    async fn check_write(&self, path: &str) -> Result<(), std::io::Error> {
+        self.check_path(path, &self.path_policy.allowed_write, "Write")
     }
 }
 

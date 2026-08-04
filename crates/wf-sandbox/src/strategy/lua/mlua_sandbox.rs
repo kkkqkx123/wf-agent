@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use wf_types::script::sandbox::{LuaPolicy, SandboxPolicy, ScriptExecutionResult};
 
-use crate::resolver::{StrategyExecuteOptions, StrategyImplementation};
+use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
+use crate::timeout::execute_with_timeout;
 
 pub struct LuaMluaSandboxStrategy;
 
@@ -135,8 +136,8 @@ impl StrategyImplementation for LuaMluaSandboxStrategy {
     fn description(&self) -> &str {
         "Lua script sandboxing using mlua VM with API-level isolation"
     }
-    fn priority(&self) -> i32 {
-        100
+    fn kind(&self) -> StrategyKind {
+        StrategyKind::Execution
     }
     fn is_available(&self) -> bool {
         true
@@ -157,9 +158,16 @@ impl StrategyImplementation for LuaMluaSandboxStrategy {
 
         let code = options.command.clone();
 
-        tokio::task::spawn_blocking(move || Self::execute_sync(&code, &lua_policy))
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-            .and_then(|r| r)
+        execute_with_timeout(
+            async move {
+                tokio::task::spawn_blocking(move || Self::execute_sync(&code, &lua_policy))
+                    .await
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                        format!("Task join error: {e}").into()
+                    })?
+            },
+            options.timeout_ms,
+        )
+        .await
     }
 }

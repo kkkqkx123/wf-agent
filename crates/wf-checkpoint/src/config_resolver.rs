@@ -149,11 +149,7 @@ impl CheckpointConfigResolver {
         if !resolved.policy.enabled {
             return false;
         }
-        if resolved
-            .policy
-            .triggers
-            .contains(&CheckpointTrigger::Never)
-        {
+        if resolved.policy.triggers.contains(&CheckpointTrigger::Never) {
             return false;
         }
         resolved.policy.triggers.is_empty() || resolved.policy.triggers.contains(trigger)
@@ -296,14 +292,8 @@ mod tests {
     fn resolve_first_wins_highest_priority() {
         let layers = vec![
             CheckpointConfigLayer::global(policy(false, vec![CheckpointTrigger::OnError])),
-            CheckpointConfigLayer::node(policy(
-                true,
-                vec![CheckpointTrigger::BeforeExecute],
-            )),
-            CheckpointConfigLayer::runtime(policy(
-                true,
-                vec![CheckpointTrigger::AfterExecute],
-            )),
+            CheckpointConfigLayer::node(policy(true, vec![CheckpointTrigger::BeforeExecute])),
+            CheckpointConfigLayer::runtime(policy(true, vec![CheckpointTrigger::AfterExecute])),
         ];
         let resolved = CheckpointConfigResolver::resolve(&layers);
         assert!(resolved.policy.enabled);
@@ -327,10 +317,7 @@ mod tests {
             CheckpointConfigLayer::node(node_policy),
         ];
         let resolved = CheckpointConfigResolver::resolve(&layers);
-        assert_eq!(
-            resolved.policy.retention.unwrap().max_checkpoints,
-            Some(5)
-        );
+        assert_eq!(resolved.policy.retention.unwrap().max_checkpoints, Some(5));
     }
 
     #[test]
@@ -343,9 +330,10 @@ mod tests {
     #[test]
     fn never_trigger_short_circuits() {
         let resolver = CheckpointConfigResolver;
-        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::global(
-            policy(true, vec![CheckpointTrigger::Never]),
-        )]);
+        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::global(policy(
+            true,
+            vec![CheckpointTrigger::Never],
+        ))]);
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTrigger::OnError));
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTrigger::Manual));
     }
@@ -353,9 +341,10 @@ mod tests {
     #[test]
     fn agent_cadence_semantics() {
         let resolver = CheckpointConfigResolver;
-        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::agent(
-            policy(true, vec![CheckpointTrigger::IterationEnd]),
-        )]);
+        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::agent(policy(
+            true,
+            vec![CheckpointTrigger::IterationEnd],
+        ))]);
 
         assert!(resolver.evaluate_agent_trigger(
             &resolved,

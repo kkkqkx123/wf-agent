@@ -82,35 +82,13 @@ pub fn load_and_merge_mcp_settings(
 
 /// Load merged settings, returning an empty settings object when no source
 /// file exists (used at bootstrap when MCP is not configured).
-pub fn try_load_and_merge_mcp_settings(
-    settings_dir: &Path,
-    project_root: &Path,
-) -> McpSettings {
+pub fn try_load_and_merge_mcp_settings(settings_dir: &Path, project_root: &Path) -> McpSettings {
     load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::tool::mcp_connection::{McpServerConfigBase, McpStdioConfig};
-
-    fn stdio_config(command: &str) -> McpServerConfig {
-        McpServerConfig::Stdio(McpStdioConfig {
-            base: McpServerConfigBase {
-                disabled: None,
-                timeout: Some(60),
-                always_allow: None,
-                disabled_tools: None,
-                lifecycle: None,
-                idle_timeout: None,
-                health_check_interval: None,
-            },
-            command: command.to_string(),
-            args: None,
-            cwd: None,
-            env: None,
-        })
-    }
 
     fn write_json(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {

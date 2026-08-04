@@ -117,10 +117,8 @@ impl CheckpointMetricsCollector {
         self.chain_length_count.fetch_add(1, Ordering::Relaxed);
         self.total_chain_length
             .fetch_add(metrics.chain_length as u64, Ordering::Relaxed);
-        self.max_chain_length.fetch_max(
-            metrics.chain_length as u64,
-            Ordering::Relaxed,
-        );
+        self.max_chain_length
+            .fetch_max(metrics.chain_length as u64, Ordering::Relaxed);
     }
 
     /// Average of the last `WINDOW_SIZE` creation durations.
@@ -199,7 +197,10 @@ impl CheckpointMetricsCollector {
         line("size_bytes_total", agg.total_size_bytes.to_string());
         line("full_checkpoints_total", agg.full_checkpoints.to_string());
         line("delta_checkpoints_total", agg.delta_checkpoints.to_string());
-        line("creation_duration_ms_avg", agg.avg_creation_time_ms.to_string());
+        line(
+            "creation_duration_ms_avg",
+            agg.avg_creation_time_ms.to_string(),
+        );
         line("cleanup_count_total", agg.cleanup_count.to_string());
         line("freed_bytes_total", agg.freed_bytes.to_string());
         line("load_count_total", agg.load_count.to_string());

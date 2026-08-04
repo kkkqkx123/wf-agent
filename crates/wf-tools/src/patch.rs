@@ -75,7 +75,10 @@ fn validate_path(path: &str, line_number: usize) -> ToolResult<()> {
             line_number, trimmed
         )));
     }
-    if trimmed.chars().any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')) {
+    if trimmed
+        .chars()
+        .any(|c| matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+    {
         return Err(ToolError::ValidationFailed(format!(
             "Invalid patch path at line {}: filename contains invalid characters ('{}')",
             line_number, trimmed
@@ -120,10 +123,7 @@ fn parse_update_file_chunk(
     let (change_context, start_index) = if lines[0] == EMPTY_CHANGE_CONTEXT_MARKER {
         (None, 1)
     } else if lines[0].starts_with(CHANGE_CONTEXT_MARKER) {
-        (
-            Some(lines[0][CHANGE_CONTEXT_MARKER.len()..].to_string()),
-            1,
-        )
+        (Some(lines[0][CHANGE_CONTEXT_MARKER.len()..].to_string()), 1)
     } else if allow_missing_context {
         (None, 0)
     } else {
@@ -352,14 +352,18 @@ fn compute_replacements(
 
     for chunk in chunks {
         if let Some(context) = &chunk.change_context {
-            let idx = seek_sequence(original_lines, std::slice::from_ref(context), line_index, false).ok_or_else(
-                || {
-                    ToolError::ExecutionError(format!(
-                        "Context '{}' not found in '{}'",
-                        context, file_path
-                    ))
-                },
-            )?;
+            let idx = seek_sequence(
+                original_lines,
+                std::slice::from_ref(context),
+                line_index,
+                false,
+            )
+            .ok_or_else(|| {
+                ToolError::ExecutionError(format!(
+                    "Context '{}' not found in '{}'",
+                    context, file_path
+                ))
+            })?;
             line_index = idx + 1;
         }
 
@@ -380,8 +384,7 @@ fn compute_replacements(
         // Try to find the old lines in the file.
         let mut pattern = chunk.old_lines.clone();
         let mut new_slice = chunk.new_lines.clone();
-        let mut found =
-            seek_sequence(original_lines, &pattern, line_index, chunk.is_end_of_file);
+        let mut found = seek_sequence(original_lines, &pattern, line_index, chunk.is_end_of_file);
 
         // If not found and the pattern ends with an empty string (trailing
         // newline), retry without it.
@@ -667,9 +670,7 @@ pub fn parse_search_replace_blocks(diff_content: &str) -> Result<Vec<SearchRepla
 /// Find the first line index where the hint text appears (case-insensitive).
 fn find_context_hint(lines: &[String], hint: &str) -> Option<usize> {
     let lower = hint.to_lowercase();
-    lines
-        .iter()
-        .position(|l| l.to_lowercase().contains(&lower))
+    lines.iter().position(|l| l.to_lowercase().contains(&lower))
 }
 
 /// Preserve indentation when applying replacements: calculates relative
@@ -679,11 +680,8 @@ fn preserve_indentation(
     search_lines: &[String],
     replace_lines: &[String],
 ) -> Vec<String> {
-    let leading_ws = |s: &str| -> String {
-        s.chars()
-            .take_while(|c| *c == ' ' || *c == '\t')
-            .collect()
-    };
+    let leading_ws =
+        |s: &str| -> String { s.chars().take_while(|c| *c == ' ' || *c == '\t').collect() };
 
     let matched_indent = leading_ws(matched_lines.first().map(|s| s.as_str()).unwrap_or(""));
     let search_base_indent = leading_ws(search_lines.first().map(|s| s.as_str()).unwrap_or(""));
@@ -697,14 +695,12 @@ fn preserve_indentation(
             let relative_level = current_level as isize - search_base_level as isize;
 
             let final_indent = if relative_level < 0 {
-                let cut = matched_indent.len().saturating_sub(relative_level.unsigned_abs());
+                let cut = matched_indent
+                    .len()
+                    .saturating_sub(relative_level.unsigned_abs());
                 matched_indent[..cut].to_string()
             } else {
-                format!(
-                    "{}{}",
-                    matched_indent,
-                    &current_indent[search_base_level..]
-                )
+                format!("{}{}", matched_indent, &current_indent[search_base_level..])
             };
 
             format!("{}{}", final_indent, line.trim())
@@ -719,19 +715,12 @@ pub fn apply_block(
     block: &SearchReplaceBlock,
     delta: isize,
 ) -> Result<(Vec<String>, isize), String> {
-    let start_line = block
-        .start_line
-        .map(|l| l as isize + delta)
-        .unwrap_or(0);
+    let start_line = block.start_line.map(|l| l as isize + delta).unwrap_or(0);
 
     let search_lines: Vec<String> = if block.search_content.is_empty() {
         Vec::new()
     } else {
-        block
-            .search_content
-            .split('\n')
-            .map(String::from)
-            .collect()
+        block.search_content.split('\n').map(String::from).collect()
     };
     let replace_lines: Vec<String> = if block.replace_content.is_empty() {
         Vec::new()
@@ -785,7 +774,11 @@ pub fn apply_block(
             .iter()
             .enumerate()
             .map(|(i, l)| {
-                let line_num = if start_line > 0 { start_line - 3 + i as isize } else { i as isize + 1 };
+                let line_num = if start_line > 0 {
+                    start_line - 3 + i as isize
+                } else {
+                    i as isize + 1
+                };
                 format!("{}: {}", line_num, l)
             })
             .collect::<Vec<_>>()
@@ -839,7 +832,8 @@ mod tests {
 
     #[test]
     fn test_parse_update_file() {
-        let patch = "*** Begin Patch\n*** Update File: a.txt\n@@ context\n-old\n+new\n*** End Patch";
+        let patch =
+            "*** Begin Patch\n*** Update File: a.txt\n@@ context\n-old\n+new\n*** End Patch";
         let hunks = parse_patch(patch).unwrap();
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].op, PatchOp::UpdateFile);
@@ -872,7 +866,8 @@ mod tests {
 
     #[test]
     fn test_parse_end_of_file_marker() {
-        let patch = "*** Begin Patch\n*** Update File: a.txt\n@@\n+tail\n*** End of File\n*** End Patch";
+        let patch =
+            "*** Begin Patch\n*** Update File: a.txt\n@@\n+tail\n*** End of File\n*** End Patch";
         let hunks = parse_patch(patch).unwrap();
         assert!(hunks[0].chunks[0].is_end_of_file);
     }
@@ -1020,7 +1015,8 @@ mod tests {
 
     #[test]
     fn test_parse_hints() {
-        let diff = "<<<<<<< SEARCH\n# line: 5\n# context: fn main\nfoo\n=======\nbar\n>>>>>>> REPLACE";
+        let diff =
+            "<<<<<<< SEARCH\n# line: 5\n# context: fn main\nfoo\n=======\nbar\n>>>>>>> REPLACE";
         let blocks = parse_search_replace_blocks(diff).unwrap();
         assert_eq!(blocks[0].start_line, Some(5));
         assert_eq!(blocks[0].context_hint.as_deref(), Some("fn main"));
@@ -1043,10 +1039,9 @@ mod tests {
 
     #[test]
     fn test_validate_marker_sequencing() {
-        assert!(validate_marker_sequencing(
-            "<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE"
-        )
-        .is_ok());
+        assert!(
+            validate_marker_sequencing("<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE").is_ok()
+        );
         assert!(validate_marker_sequencing("=======\nb\n>>>>>>> REPLACE").is_err());
         assert!(validate_marker_sequencing("<<<<<<< SEARCH\na\n=======\nb").is_err());
     }
@@ -1093,7 +1088,11 @@ mod tests {
 
     #[test]
     fn test_apply_block_indentation_preserved() {
-        let lines: Vec<String> = vec!["    fn foo() {".into(), "        old".into(), "    }".into()];
+        let lines: Vec<String> = vec![
+            "    fn foo() {".into(),
+            "        old".into(),
+            "    }".into(),
+        ];
         let block = SearchReplaceBlock {
             search_content: "    old".into(),
             replace_content: "    new1\n    new2".into(),
@@ -1101,7 +1100,10 @@ mod tests {
             context_hint: None,
         };
         let (new_lines, delta) = apply_block(&lines, &block, 0).unwrap();
-        assert_eq!(new_lines, vec!["    fn foo() {", "        new1", "        new2", "    }"]);
+        assert_eq!(
+            new_lines,
+            vec!["    fn foo() {", "        new1", "        new2", "    }"]
+        );
         assert_eq!(delta, 1);
     }
 

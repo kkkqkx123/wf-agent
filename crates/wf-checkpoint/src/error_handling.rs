@@ -106,7 +106,11 @@ impl CheckpointErrorHandler {
 
     /// Handle a checkpoint error according to the configured strategy.
     /// Retry progress is tracked through the context attempt count.
-    pub fn handle(&self, context: &CheckpointErrorContext, error: &CheckpointError) -> CheckpointErrorHandlingResult {
+    pub fn handle(
+        &self,
+        context: &CheckpointErrorContext,
+        error: &CheckpointError,
+    ) -> CheckpointErrorHandlingResult {
         let retry_count = context.attempt.min(self.max_retries);
 
         if self.fail_on_checkpoint_error {
@@ -171,7 +175,11 @@ impl CheckpointErrorHandler {
     }
 
     /// Convenience wrapper mapping the result to a rethrow decision.
-    pub fn decide(&self, context: &CheckpointErrorContext, error: &CheckpointError) -> ErrorHandlingOutcome {
+    pub fn decide(
+        &self,
+        context: &CheckpointErrorContext,
+        error: &CheckpointError,
+    ) -> ErrorHandlingOutcome {
         let result = self.handle(context, error);
         if result.recovered && !self.fail_on_checkpoint_error {
             ErrorHandlingOutcome::swallowed()
@@ -259,7 +267,10 @@ mod tests {
         assert!(handler.retry_on_failure());
 
         let exhausted = handler.handle(&context(4), &error());
-        assert_eq!(exhausted.retry_count, 3, "retry count capped at max_retries");
+        assert_eq!(
+            exhausted.retry_count, 3,
+            "retry count capped at max_retries"
+        );
     }
 
     #[test]

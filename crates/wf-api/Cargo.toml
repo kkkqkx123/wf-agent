@@ -15,5 +15,6 @@ wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }
 wf-core = { path = "../wf-core" }
+wf-config = { path = "../wf-config" }
 wf-resource = { path = "../wf-resource" }
 wf-metrics = { path = "../wf-metrics" }

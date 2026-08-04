@@ -1,4 +1,5 @@
 use crate::error::{ConfigError, ConfigResult};
+use crate::processor::node_config;
 use crate::validator::validate_required;
 
 use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
@@ -25,7 +26,39 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
         validate_required(&edge.target_node_id, "edge.target_node_id")?;
     }
 
+    let mut issues = Vec::new();
+    for node in &definition.nodes {
+        issues.extend(node_config::validate_node_config(
+            &node_type_name(&node.node_type),
+            &node.id,
+            node.config.as_ref(),
+        ));
+    }
+    if !issues.is_empty() {
+        let details = issues
+            .iter()
+            .map(|i| format!("{}: {}", i.field, i.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ConfigError::Validation(details));
+    }
+
     Ok(())
+}
+
+fn node_type_name(node_type: &StaticNodeType) -> String {
+    match node_type {
+        StaticNodeType::Llm => "LLM".to_string(),
+        StaticNodeType::Script => "SCRIPT".to_string(),
+        StaticNodeType::Variable => "VARIABLE".to_string(),
+        StaticNodeType::Route => "ROUTE".to_string(),
+        StaticNodeType::Fork => "FORK".to_string(),
+        StaticNodeType::Join => "JOIN".to_string(),
+        StaticNodeType::Subgraph => "SUBGRAPH".to_string(),
+        StaticNodeType::UserInteraction => "USER_INTERACTION".to_string(),
+        StaticNodeType::AgentLoop => "AGENT_LOOP".to_string(),
+        _ => format!("{:?}", node_type),
+    }
 }
 
 pub fn transform_nodes(nodes: &[WorkflowNodeConfig]) -> Vec<BaseStaticNode> {

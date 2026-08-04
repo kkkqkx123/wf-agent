@@ -11,6 +11,7 @@ wf-tools = { path = "../wf-tools" }
 wf-llm = { path = "../wf-llm" }
 wf-checkpoint = { path = "../wf-checkpoint" }
 wf-execution-shared = { path = "../wf-execution-shared" }
+wf-config = { path = "../wf-config" }
 wf-metrics = { path = "../wf-metrics" }
 wf-agent = { path = "../wf-agent" }
 wf-sandbox = { path = "../wf-sandbox" }

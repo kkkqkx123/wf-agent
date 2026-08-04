@@ -12,10 +12,16 @@ use wf_types::{ExecutionStatus, WorkflowDefinition, WorkflowExecution};
 
 use crate::not_found;
 
+fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> {
+    wf_config::processor::workflow::validate_workflow_definition(workflow)
+        .map_err(|e| crate::ApiError::Validation(e.to_string()))
+}
+
 pub async fn save_workflow(
     ctx: &StorageContext,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
+    validate_workflow(workflow)?;
     ctx.workflow.save(workflow).await?;
     Ok(())
 }
@@ -72,6 +78,7 @@ pub async fn rollback_workflow(
     version: &str,
 ) -> crate::ApiResult<()> {
     let template = get_workflow_version(ctx, id, version).await?;
+    validate_workflow(&template)?;
     ctx.workflow.save(&template).await?;
     Ok(())
 }
@@ -102,6 +109,7 @@ pub async fn save_workflow_version(
     version: &str,
     template: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
+    validate_workflow(template)?;
     ctx.workflow
         .save_version(workflow_id, version, template)
         .await?;
@@ -179,7 +187,14 @@ mod tests {
             description: None,
             r#type: None,
             version: Some("1.0.0".into()),
-            nodes: vec![],
+            nodes: vec![wf_types::node::BaseStaticNode {
+                id: "start".into(),
+                node_type: wf_types::node::StaticNodeType::Start,
+                name: Some("start".into()),
+                description: None,
+                config: None,
+                execution_config: None,
+            }],
             edges: vec![],
             config: None,
             variables: None,
@@ -190,6 +205,27 @@ mod tests {
             created_at: wf_common::now(),
             updated_at: wf_common::now(),
         }
+    }
+
+    #[tokio::test]
+    async fn test_save_workflow_rejects_invalid_definition() {
+        let ctx = StorageContext::new_memory();
+        let mut wf = make_workflow("wf-invalid");
+        wf.name = String::new();
+        let err = save_workflow(&ctx, &wf).await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
+
+        let mut wf = make_workflow("wf-bad-node");
+        wf.nodes.push(wf_types::node::BaseStaticNode {
+            id: "n1".into(),
+            node_type: wf_types::node::StaticNodeType::Llm,
+            name: Some("llm".into()),
+            description: None,
+            config: None,
+            execution_config: None,
+        });
+        let err = save_workflow(&ctx, &wf).await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
     #[tokio::test]

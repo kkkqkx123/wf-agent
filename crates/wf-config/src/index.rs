@@ -1,3 +1,8 @@
+//! Config index resolution and resolver registry.
+//!
+//! **Status:** Pending migration. Intended for CLI/resource index loading
+//! (glob expansion, per-type resolvers). Not yet wired into any consumer.
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;

@@ -370,6 +370,7 @@ mod tests {
     use crate::mcp::transport::*;
 
     /// Mock transport that serves pre-programmed responses in order.
+    #[allow(dead_code)]
     struct MockTransport {
         responses: std::sync::Mutex<VecDeque<JsonRpcResponse>>,
     }

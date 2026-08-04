@@ -207,13 +207,16 @@ impl Default for McpServerRegistry {
     }
 }
 
+/// Callback type for server connection events
+pub type ConnectionCallback = std::sync::RwLock<Arc<dyn Fn(&str) + Send + Sync>>;
+
 #[derive(Clone)]
 pub struct McpConnectionManager {
     clients: Arc<DashMap<String, Arc<McpClient>>>,
     registry: Arc<McpServerRegistry>,
     last_activity: Arc<DashMap<String, Instant>>,
     /// Shared across clones: all instances observe the same callback.
-    on_connected: Arc<std::sync::RwLock<Arc<dyn Fn(&str) + Send + Sync>>>,
+    on_connected: Arc<ConnectionCallback>,
 }
 
 impl McpConnectionManager {

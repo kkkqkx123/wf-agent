@@ -172,7 +172,7 @@ mod tests {
         let bus = ExecutionEventBus::new();
         let count = Arc::new(AtomicUsize::new(0));
         let count2 = count.clone();
-        bus.on(ExecutionEventType::StateChanged, move |_| {
+        let _unsub = bus.on(ExecutionEventType::StateChanged, move |_| {
             count2.fetch_add(1, Ordering::SeqCst);
         });
 
@@ -202,7 +202,7 @@ mod tests {
         let bus = ExecutionEventBus::new();
         let types: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
         let types2 = types.clone();
-        bus.on_any(move |t, _| {
+        let _unsub_any = bus.on_any(move |t, _| {
             types2.lock().unwrap().push(format!("{:?}", t));
         });
 
@@ -249,7 +249,7 @@ mod tests {
         let bus = ExecutionEventBus::new();
         let count = Arc::new(AtomicUsize::new(0));
         let count2 = count.clone();
-        bus.on(ExecutionEventType::StateChanged, move |_| {
+        let _unsub = bus.on(ExecutionEventType::StateChanged, move |_| {
             count2.fetch_add(1, Ordering::SeqCst);
             panic!("boom");
         });
@@ -269,7 +269,7 @@ mod tests {
         let bus = ExecutionEventBus::new();
         let count = Arc::new(AtomicUsize::new(0));
         let count2 = count.clone();
-        bus.on(ExecutionEventType::StateChanged, move |_| {
+        let _unsub = bus.on(ExecutionEventType::StateChanged, move |_| {
             count2.fetch_add(1, Ordering::SeqCst);
         });
         assert_eq!(bus.handler_count(), 1);

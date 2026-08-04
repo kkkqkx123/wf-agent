@@ -252,8 +252,10 @@ mod tests {
 
     #[test]
     fn fail_on_checkpoint_error_rethrows() {
-        let mut handler = CheckpointErrorHandler::default();
-        handler.fail_on_checkpoint_error = true;
+        let handler = CheckpointErrorHandler {
+            fail_on_checkpoint_error: true,
+            ..Default::default()
+        };
         assert!(handler.decide(&context(0), &error()).should_rethrow);
     }
 

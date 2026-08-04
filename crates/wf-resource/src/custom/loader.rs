@@ -1,7 +1,6 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use wf_config::parser;
 
 use crate::custom::types::{
     CustomPromptDefinition, CustomResources, CustomResourcesPresetConfig, CustomToolDefinition,
@@ -9,9 +8,8 @@ use crate::custom::types::{
 };
 
 fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let content =
-        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
-    serde_json::from_str(&content).map_err(|e| format!("parse error in {}: {}", path.display(), e))
+    parser::parse_config_file(path)
+        .map_err(|e| format!("parse error in {}: {}", path.display(), e))
 }
 
 fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {
@@ -27,7 +25,7 @@ pub fn load_custom_tools(
     path: &Path,
     _base_dir: &Path,
 ) -> Result<Vec<CustomToolDefinition>, Vec<String>> {
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct ToolsFile {
         tools: Vec<CustomToolDefinition>,
     }
@@ -42,7 +40,7 @@ pub fn load_custom_triggers(
     path: &Path,
     _base_dir: &Path,
 ) -> Result<Vec<CustomTriggerDefinition>, Vec<String>> {
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct TriggersFile {
         triggers: Vec<CustomTriggerDefinition>,
     }
@@ -57,7 +55,7 @@ pub fn load_custom_prompts(
     path: &Path,
     _base_dir: &Path,
 ) -> Result<Vec<CustomPromptDefinition>, Vec<String>> {
-    #[derive(Deserialize)]
+    #[derive(serde::Deserialize)]
     struct PromptsFile {
         prompts: Vec<CustomPromptDefinition>,
     }
@@ -109,4 +107,64 @@ pub fn load_custom_resources(
     }
 
     resources
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::Builder;
+
+    fn write_tmp(content: &str, ext: &str) -> tempfile::NamedTempFile {
+        let mut file = Builder::new().suffix(ext).tempfile().unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file
+    }
+
+    #[test]
+    fn loads_tools_from_json() {
+        let file = write_tmp(
+            r#"{"tools": [{"id": "t1", "type": "STATELESS", "description": "d",
+                "schema": {"parameters": []}, "handler": {"type": "inline", "code": "x"}}]}"#,
+            ".json",
+        );
+        let tools = load_custom_tools(file.path(), Path::new(".")).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].id, "t1");
+    }
+
+    #[test]
+    fn loads_tools_from_toml() {
+        let file = write_tmp(
+            r#"
+[[tools]]
+id = "t1"
+type = "STATELESS"
+description = "d"
+[tools.schema]
+parameters = []
+[tools.handler]
+type = "inline"
+code = "x"
+"#,
+            ".toml",
+        );
+        let tools = load_custom_tools(file.path(), Path::new(".")).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].id, "t1");
+    }
+
+    #[test]
+    fn invalid_file_reports_error() {
+        let file = write_tmp("not json at all", ".json");
+        let err = load_custom_tools(file.path(), Path::new(".")).unwrap_err();
+        assert!(err[0].contains("parse error"));
+    }
+
+    #[test]
+    fn unsupported_format_rejected() {
+        let file = write_tmp("{}", ".yaml");
+        let err = load_custom_tools(file.path(), Path::new(".")).unwrap_err();
+        assert!(err[0].contains("unsupported config format"));
+    }
 }

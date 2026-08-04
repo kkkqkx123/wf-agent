@@ -245,7 +245,7 @@ mod tests {
             metadata.get("tags").and_then(|v| v.as_array()),
             Some(&serde_json::json!(["auto"]).as_array().unwrap().clone())
         );
-        assert!(metadata.get("customFields").is_some());
+        assert!(metadata.contains_key("customFields"));
     }
 
     #[test]

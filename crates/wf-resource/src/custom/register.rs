@@ -22,6 +22,13 @@ fn now_ts() -> i64 {
         .unwrap_or(0)
 }
 
+fn validate_tool(tool: &CustomToolDefinition) -> Result<(), String> {
+    wf_config::validator::validate_required(&tool.id, "tool.id")
+        .map_err(|e| e.to_string())?;
+    wf_config::validator::validate_required(&tool.description, "tool.description")
+        .map_err(|e| e.to_string())
+}
+
 fn convert_tool_type(tt: &CustomToolType) -> ToolType {
     match tt {
         CustomToolType::Stateless => ToolType::Stateless,
@@ -59,6 +66,10 @@ pub fn register_custom_tools(
 ) -> Summary {
     let mut total = Summary::new();
     for t in tools {
+        if let Err(e) = validate_tool(&t) {
+            total.merge(Summary::err(&t.id, e));
+            continue;
+        }
         let (properties, required) = build_properties(&t.schema.parameters);
         let schema = ToolParameterSchema {
             r#type: "object".into(),
@@ -159,6 +170,11 @@ pub fn register_custom_triggers(
             checkpoint_description_template: None,
         };
 
+        if let Err(e) = wf_config::processor::trigger::validate_trigger_template(&template) {
+            total.merge(Summary::err(&t.name, e.to_string()));
+            continue;
+        }
+
         total.merge(register_item(registry, t.name, template, skip_if_exists));
     }
     total
@@ -199,6 +215,11 @@ pub fn register_custom_prompts(
             variables,
             fragments: None,
         };
+
+        if let Err(e) = wf_config::processor::prompt::validate_prompt_template(&template) {
+            total.merge(Summary::err(&p.id, e.to_string()));
+            continue;
+        }
 
         total.merge(register_item(registry, p.id, template, skip_if_exists));
     }

@@ -13,3 +13,7 @@ thiserror.workspace = true
 dashmap.workspace = true
 tracing.workspace = true
 chrono.workspace = true
+wf-config = { path = "../wf-config" }
+
+[dev-dependencies]
+tempfile = "3"

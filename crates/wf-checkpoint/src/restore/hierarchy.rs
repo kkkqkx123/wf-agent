@@ -621,7 +621,7 @@ mod tests {
             status: RecoveryOperationStatus::Pending,
         });
 
-        let _ = tx.execute(|_op| Box::pin(async { Ok(()) })).await.unwrap();
+        tx.execute(|_op| Box::pin(async { Ok(()) })).await.unwrap();
 
         assert_eq!(tx.completed_count(), 2);
         assert_eq!(tx.failed_count(), 0);
@@ -815,7 +815,7 @@ mod tests {
     }
 
     thread_local! {
-        static ORDER: std::cell::RefCell<Vec<i32>> = std::cell::RefCell::new(Vec::new());
+        static ORDER: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
     }
 
     fn order_push(value: i32) {

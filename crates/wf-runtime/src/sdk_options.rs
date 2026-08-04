@@ -1,8 +1,12 @@
-use wf_config::processor::infrastructure::merge_metrics_with_defaults;
+use wf_config::processor::infrastructure::{
+    merge_metrics_with_defaults, merge_output_with_defaults, merge_sandbox_with_defaults,
+    merge_storage_with_defaults, merge_timeout_with_defaults,
+};
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
+use wf_types::script::sandbox::SandboxConfig;
 
 #[derive(Debug, Clone, Default)]
 pub struct SdkOptions {
@@ -10,6 +14,7 @@ pub struct SdkOptions {
     pub timeout: Option<TimeoutConfig>,
     pub metrics: Option<MetricsConfig>,
     pub output: Option<OutputConfig>,
+    pub sandbox: Option<SandboxConfig>,
     pub graceful_shutdown_timeout: Option<u64>,
     pub enable_recovery: Option<bool>,
     pub log_level: Option<String>,
@@ -40,6 +45,11 @@ impl SdkOptions {
         self
     }
 
+    pub fn with_sandbox(mut self, config: SandboxConfig) -> Self {
+        self.sandbox = Some(config);
+        self
+    }
+
     pub fn with_graceful_shutdown_timeout(mut self, timeout_ms: u64) -> Self {
         self.graceful_shutdown_timeout = Some(timeout_ms);
         self
@@ -63,6 +73,34 @@ impl SdkOptions {
         self.metrics_config()
             .map(|c| c.enabled.unwrap_or(false))
             .unwrap_or(false)
+    }
+
+    /// Merged timeout configuration with defaults.
+    pub fn timeout_config(&self) -> Option<TimeoutConfig> {
+        self.timeout
+            .as_ref()
+            .map(|t| merge_timeout_with_defaults(t, None))
+    }
+
+    /// Merged output configuration with defaults.
+    pub fn output_config(&self) -> Option<OutputConfig> {
+        self.output
+            .as_ref()
+            .map(|o| merge_output_with_defaults(o, None))
+    }
+
+    /// Merged storage configuration with defaults.
+    pub fn storage_config(&self) -> Option<StorageConfig> {
+        self.storage
+            .as_ref()
+            .map(|s| merge_storage_with_defaults(s, None))
+    }
+
+    /// Merged sandbox configuration with defaults.
+    pub fn sandbox_config(&self) -> Option<SandboxConfig> {
+        self.sandbox
+            .as_ref()
+            .map(|s| merge_sandbox_with_defaults(s, None))
     }
 }
 

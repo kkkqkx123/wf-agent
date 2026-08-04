@@ -1,3 +1,9 @@
+//! Environment variable parsing and override application.
+//!
+//! **Status:** Pending migration. The `apply_env_overrides` and related
+//! functions are intended for application-level config loading (e.g. CLI
+//! runtime config with env var substitution). Not yet wired into wf-runtime.
+
 use std::collections::HashMap;
 
 use crate::error::{ConfigError, ConfigResult};

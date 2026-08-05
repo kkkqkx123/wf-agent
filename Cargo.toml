@@ -9,6 +9,7 @@ members = [
     "crates/wf-runtime",
     "crates/wf-config",
     "crates/wf-tools",
+    "crates/wf-shell",
     "crates/wf-llm",
     "crates/wf-execution-shared",
     "crates/wf-agent",
@@ -64,6 +65,10 @@ clap = { version = "4", features = ["derive"] }
 # Pattern matching / glob
 regex = "1"
 globset = "0.4"
+
+# Process / terminal
+libc = "0.2"
+portable-pty = "0.8"
 
 # HTTP/gRPC transport
 axum = { version = "0.8", features = ["macros"] }

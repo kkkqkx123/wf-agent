@@ -10,7 +10,7 @@ use wf_types::tool::mcp_approval::{
 };
 use wf_types::tool::ToolRiskLevel;
 
-use crate::command_safety::{get_command_decision, CommandDecision};
+use wf_shell::command_safety::{get_command_decision, CommandDecision};
 
 #[derive(Debug, Clone)]
 pub struct ToolBatch {

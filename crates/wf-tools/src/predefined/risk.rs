@@ -39,6 +39,7 @@ mod tests {
             "recall_notes",
             "list_categories",
             "shell_output",
+            "shell_resize",
             "query_workflow_status",
             "skill",
             "update_todo_list",
@@ -75,7 +76,15 @@ mod tests {
 
     #[test]
     fn test_execute_classification() {
-        for id in ["execute_command", "backend_shell", "shell_kill"] {
+        for id in [
+            "execute_command",
+            "backend_shell",
+            "shell_kill",
+            "shell_send_input",
+            "get_or_create_shell",
+            "execute_in_session",
+            "release_sessions_for_task",
+        ] {
             assert_eq!(
                 get_tool_risk_level(id),
                 Some(ToolRiskLevel::Execute),
@@ -129,7 +138,7 @@ mod tests {
     #[test]
     fn test_every_definition_has_risk_and_count() {
         let defs = all_definitions();
-        assert_eq!(defs.len(), 29);
+        assert_eq!(defs.len(), 34);
         for d in defs {
             assert!(get_tool_risk_level(d.id).is_some());
         }

@@ -119,6 +119,11 @@ pub enum EventType {
     CheckpointRestoreCompleted,
     ExecutionTimeoutWarning,
     ExecutionTimeoutExpired,
+    ShellSessionCreated,
+    ShellCommandStarted,
+    ShellOutputReceived,
+    ShellCommandCompleted,
+    ShellSessionTerminated,
 }
 
 impl EventType {
@@ -247,6 +252,11 @@ impl EventType {
             EventType::CheckpointRestoreCompleted => "CHECKPOINT_RESTORE_COMPLETED",
             EventType::ExecutionTimeoutWarning => "EXECUTION_TIMEOUT_WARNING",
             EventType::ExecutionTimeoutExpired => "EXECUTION_TIMEOUT_EXPIRED",
+            EventType::ShellSessionCreated => "SHELL_SESSION_CREATED",
+            EventType::ShellCommandStarted => "SHELL_COMMAND_STARTED",
+            EventType::ShellOutputReceived => "SHELL_OUTPUT_RECEIVED",
+            EventType::ShellCommandCompleted => "SHELL_COMMAND_COMPLETED",
+            EventType::ShellSessionTerminated => "SHELL_SESSION_TERMINATED",
         }
     }
 }

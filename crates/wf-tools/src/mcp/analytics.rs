@@ -192,7 +192,11 @@ impl McpUsageAnalytics {
     /// Most frequently called tools.
     pub fn get_hot_tools(&self, limit: usize) -> Vec<ToolStats> {
         let mut values: Vec<ToolStats> = self.stats.lock().unwrap().values().cloned().collect();
-        values.sort_by_key(|t| std::cmp::Reverse(t.call_count));
+        values.sort_by(|a, b| {
+            b.call_count
+                .cmp(&a.call_count)
+                .then_with(|| a.tool_name.cmp(&b.tool_name))
+        });
         values.truncate(limit);
         values
     }
@@ -435,6 +439,7 @@ mod tests {
     #[test]
     fn test_hot_and_problematic_tools() {
         let analytics = McpUsageAnalytics::new(100);
+        analytics.record_execution("s1", "hot", 10, true, None, None);
         analytics.record_execution("s1", "hot", 10, true, None, None);
         analytics.record_execution("s1", "hot", 10, true, None, None);
         analytics.record_execution("s1", "bad", 10, false, Some("boom".into()), None);

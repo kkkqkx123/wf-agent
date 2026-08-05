@@ -67,6 +67,7 @@ wf-agent/
 │   ├── wf-core/         # EventBus, StateMachine, Registry
 │   ├── wf-checkpoint/   # Checkpoint system
 │   ├── wf-config/       # Configuration processing
+│   ├── wf-shell/        # Shell/terminal engine (PTY, sessions, detector)
 │   ├── wf-tools/        # Tool registry, executors, MCP
 │   ├── wf-llm/          # LLM client abstraction
 │   ├── wf-plugin/       # Plugin system (Lua/Native)
@@ -87,10 +88,9 @@ wf-agent/
 ```
 wf-types  ←  wf-storage  →  wf-common
     ↓           ↓               ↓
-wf-core ←──────┘          wf-config  wf-script
-    ↓
-    ├── wf-checkpoint
-    ├── wf-tools   wf-llm   wf-plugin
+wf-core ←──────┘          wf-shell  wf-config  wf-script
+    ↓                          ↓
+    ├── wf-checkpoint           └── wf-tools   wf-llm   wf-plugin
     └── wf-execution-shared
               ↓
          wf-agent

@@ -52,3 +52,15 @@ pub enum ToolError {
 }
 
 pub type ToolResult<T> = Result<T, ToolError>;
+
+impl From<wf_shell::ShellError> for ToolError {
+    fn from(err: wf_shell::ShellError) -> Self {
+        match err {
+            wf_shell::ShellError::NotFound(msg) => ToolError::NotFound(msg),
+            wf_shell::ShellError::ValidationFailed(msg) => ToolError::ValidationFailed(msg),
+            wf_shell::ShellError::Internal(msg) => ToolError::Internal(msg),
+            wf_shell::ShellError::ExecutionError(msg) => ToolError::ExecutionError(msg),
+            wf_shell::ShellError::Io(e) => ToolError::Io(e),
+        }
+    }
+}

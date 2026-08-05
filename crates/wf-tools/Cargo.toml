@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
+wf-shell = { path = "../wf-shell" }
 
 async-trait.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "net"] }
@@ -27,6 +28,10 @@ tonic = { workspace = true, optional = true }
 default = []
 # Layertwine gRPC remote executor (embedded + remote deployment modes).
 remote-layertwine = ["dep:layertwine", "dep:tonic"]
+# Real terminal (PTY) backend for interactive shell sessions. Disabled by
+# default; interactive sessions fall back to pipe mode without it. The
+# implementation lives in wf-shell.
+pty = ["wf-shell/pty"]
 
 [dev-dependencies]
 tempfile = "3"

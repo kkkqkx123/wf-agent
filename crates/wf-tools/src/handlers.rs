@@ -3,7 +3,7 @@ use crate::filesystem::{FsToolConfig, FsToolHandlers};
 use crate::predefined;
 use crate::protect::ProtectController;
 use crate::registry::ToolRegistry;
-use crate::shell::ShellToolConfig;
+use wf_shell::config::ShellToolConfig;
 
 /// Configuration for registering builtin tool handlers.
 #[derive(Debug, Clone, Default)]

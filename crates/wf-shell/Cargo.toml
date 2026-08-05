@@ -1,0 +1,22 @@
+[package]
+name = "wf-shell"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-common = { path = "../wf-common" }
+
+tokio = { workspace = true, features = ["process", "io-util"] }
+serde_json.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+libc.workspace = true
+portable-pty = { workspace = true, optional = true }
+
+[features]
+default = []
+# Real terminal (PTY) backend for interactive shell sessions. Disabled by
+# default; interactive sessions fall back to pipe mode without it.
+pty = ["dep:portable-pty"]

@@ -9,6 +9,7 @@ pub mod persistence_layer;
 pub mod plugin_bridge;
 pub mod recovery;
 pub mod sdk_options;
+pub mod shell_event_bridge;
 pub mod storage_manager;
 pub mod trigger_listener;
 

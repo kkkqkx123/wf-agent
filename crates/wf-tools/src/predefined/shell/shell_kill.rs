@@ -8,8 +8,8 @@ use wf_types::tool::{ToolRiskLevel, ToolType};
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
-use crate::predefined::shell::engine::BackgroundShellStore;
 use crate::registry::ToolRegistry;
+use wf_shell::engine::BackgroundShellStore;
 
 pub static SHELL_KILL: ToolDefinition = ToolDefinition {
     id: "shell_kill",
@@ -18,16 +18,13 @@ pub static SHELL_KILL: ToolDefinition = ToolDefinition {
     create_checkpoint: None,
     category: "shell",
     tags: &["kill"],
-    description: "Kill a running background shell session by session_id.",
-    parameters: &[ToolParameter {
-        name: "session_id",
-        r#type: "string",
-        required: true,
-        description: "The session ID to kill",
-        default_json: None,
-    }],
+    description: "Kill a running background shell session by session_id. By default the session is terminated gracefully (SIGTERM, then SIGKILL after the configured timeout); set 'graceful' to false for an immediate force kill.",
+    parameters: &[
+        ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID to kill", default_json: None },
+        ToolParameter { name: "graceful", r#type: "boolean", required: false, description: "Terminate gracefully (SIGTERM then SIGKILL on timeout); false forces an immediate kill (default true)", default_json: Some("true") },
+    ],
     tips: None,
-    examples: Some(&["shell_kill(\"abc123\")"]),
+    examples: Some(&["shell_kill(\"abc123\")", "shell_kill(\"abc123\", graceful=false)"]),
 };
 
 /// Stateful instance for the shell_kill tool.
@@ -44,8 +41,16 @@ impl StatefulInstance for ShellKillInstance {
             .ok_or_else(|| {
                 ToolError::ValidationFailed("Missing or invalid 'session_id' parameter".into())
             })?;
-        let killed = self.store.kill(session_id)?;
-        Ok(serde_json::json!({ "session_id": session_id, "killed": killed }))
+        let graceful = params
+            .get("graceful")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let killed = self.store.kill_with(session_id, graceful)?;
+        Ok(serde_json::json!({
+            "session_id": session_id,
+            "killed": killed,
+            "graceful": graceful,
+        }))
     }
 
     fn destroy(&self) -> ToolResult<()> {

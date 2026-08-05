@@ -52,6 +52,9 @@ pub struct RuntimeConfig {
     pub mcp: McpRuntimeConfig,
     pub metrics: Option<MetricsConfig>,
     pub llm: LlmConfig,
+    /// Shell tool configuration; when `output_event_enabled` is set, shell
+    /// session/output events are bridged to the runtime `EventBus`.
+    pub shell: wf_shell::config::ShellToolConfig,
     /// Global sandbox configuration (profiles + routing rules). Compiled and
     /// validated at bootstrap (fail-fast); the resulting shared runtime is
     /// exposed via [`Runtime::sandbox_runtime`] and injected into every
@@ -143,8 +146,33 @@ impl Runtime {
             );
         }
 
+        // Shared event bus: shell event bridge depends on it, so it is
+        // created before the tool registry.
+        let event_bus = Arc::new(EventBus::new(1024));
+
         // Shared tool registry: builtin handlers + skill loader + MCP tools.
-        let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
+        // When shell output events are enabled, a bridge forwards them to
+        // the shared EventBus (unless a custom sink is already configured).
+        let mut shell_config = config.shell.clone();
+        if shell_config.output_event_enabled && shell_config.event_sink.is_none() {
+            shell_config.event_sink = Some(Arc::new(
+                crate::shell_event_bridge::ShellEventBusBridge::new(event_bus.clone()),
+            ));
+        }
+        let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+        wf_tools::register_builtin_handlers(
+            &tool_registry,
+            wf_tools::BuiltinHandlersConfig {
+                shell: shell_config,
+                ..Default::default()
+            },
+        )
+        .map_err(|e| {
+            crate::error::RuntimeError::Config(format!(
+                "Failed to register builtin handlers: {}",
+                e
+            ))
+        })?;
         tool_registry.set_skill_loader(skill_loader.clone());
         if let Some(manager) = &mcp_manager {
             tool_registry.set_mcp_manager(manager.clone());
@@ -170,7 +198,6 @@ impl Runtime {
             tracing::warn!("Resource registration failed: {} - {}", fail.id, fail.error);
         }
 
-        let event_bus = Arc::new(EventBus::new(1024));
         let metrics = match config.metrics.as_ref() {
             Some(cfg) => {
                 let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
@@ -493,6 +520,7 @@ mod tests {
             sandbox: None,
             skills: Default::default(),
             mcp: Default::default(),
+            shell: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -737,6 +765,7 @@ mod tests {
             sandbox: None,
             skills: Default::default(),
             mcp: Default::default(),
+            shell: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -779,6 +808,7 @@ mod tests {
             resource: ResourceConfig::default(),
             skills: Default::default(),
             mcp: Default::default(),
+            shell: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
                     flush_interval: Some(100),
@@ -840,6 +870,7 @@ mod tests {
             resource: ResourceConfig::default(),
             skills: Default::default(),
             mcp: Default::default(),
+            shell: Default::default(),
             metrics: Some(wf_types::config::metrics::MetricsConfig {
                 enabled: Some(false),
                 ..Default::default()
@@ -923,6 +954,7 @@ mod tests {
             metrics: None,
             llm: LlmConfig::default(),
             sandbox: None,
+            shell: Default::default(),
             #[cfg(feature = "plugins")]
             plugins: PluginConfig {
                 enabled: false,
@@ -1003,5 +1035,89 @@ mod tests {
             Err(e) => e,
         };
         assert!(err.to_string().contains("LLM profile"));
+    }
+
+    #[tokio::test]
+    async fn test_shell_events_bridged_to_event_bus() {
+        clear_env_vars();
+
+        let config = RuntimeConfig {
+            storage: StorageConfig {
+                storage_type: StorageType::Memory,
+                sqlite: None,
+                postgres: None,
+                app_name: None,
+            },
+            log_config: LogConfig::default().with_level("off"),
+            mode_override: Some(ExecutionMode::Test),
+            resource: ResourceConfig::default(),
+            metrics: None,
+            llm: LlmConfig::default(),
+            sandbox: None,
+            skills: Default::default(),
+            mcp: Default::default(),
+            shell: wf_shell::config::ShellToolConfig {
+                output_event_enabled: true,
+                ..Default::default()
+            },
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+        let mut sub = runtime.event_bus.subscribe();
+
+        // Tool definitions are registered by wf-resource in production;
+        // register the shell defs used by this test directly.
+        runtime
+            .tool_registry()
+            .register_tool(wf_tools::predefined::shell::GET_OR_CREATE_SHELL.tool_def());
+
+        std::fs::create_dir_all("/tmp/bootstrap-shell-events").unwrap();
+        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("exec-bridge".into());
+        let options = wf_types::tool::ToolExecutionOptions {
+            timeout: None,
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+        let result = runtime
+            .tool_registry()
+            .execute_tool(
+                "get_or_create_shell",
+                &serde_json::json!({ "cwd": "/tmp/bootstrap-shell-events" }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert!(result.success);
+
+        let mut saw_created = false;
+        for _ in 0..16 {
+            match sub.try_recv() {
+                Ok(event) => {
+                    if event.r#type == wf_types::events::EventType::ShellSessionCreated {
+                        saw_created = true;
+                        assert_eq!(
+                            event.metadata.unwrap()["session_id"],
+                            result.result.unwrap()["session_id"]
+                        );
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        assert!(
+            saw_created,
+            "no ShellSessionCreated event on the runtime EventBus"
+        );
+
+        runtime.shutdown().await.unwrap();
+        clear_env_vars();
     }
 }

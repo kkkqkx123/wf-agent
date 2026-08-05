@@ -635,7 +635,7 @@ impl RestExecutor {
 mod tests {
     use super::*;
     use std::io::Read;
-    use std::net::{TcpListener, TcpStream};
+    use std::net::TcpListener;
     use std::sync::mpsc;
 
     fn make_rest_tool(id: &str, config: Value) -> wf_types::tool::Tool {
@@ -836,23 +836,21 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
             let mut attempt = 0;
-            for stream in listener.incoming() {
-                if let Ok(mut stream) = stream {
-                    let mut buf = [0u8; 1024];
-                    let _ = stream.read(&mut buf);
-                    attempt += 1;
-                    if attempt == 1 {
-                        let resp = "HTTP/1.1 500 Server Error \r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                        let _ = stream.write_all(resp.as_bytes());
-                    } else {
-                        let body = r#"{"ok":true}"#;
-                        let resp = format!(
-                            "HTTP/1.1 200 OK \r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            body.len(),
-                            body
-                        );
-                        let _ = stream.write_all(resp.as_bytes());
-                    }
+            for mut stream in listener.incoming().flatten() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                attempt += 1;
+                if attempt == 1 {
+                    let resp = "HTTP/1.1 500 Server Error \r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let _ = stream.write_all(resp.as_bytes());
+                } else {
+                    let body = r#"{"ok":true}"#;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK \r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(resp.as_bytes());
                 }
             }
         });
@@ -891,13 +889,12 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                if let Ok(mut stream) = stream {
-                    let mut buf = [0u8; 1024];
-                    let _ = stream.read(&mut buf);
-                    let resp = "HTTP/1.1 503 Unavailable \r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-                    let _ = stream.write_all(resp.as_bytes());
-                }
+            for mut stream in listener.incoming().flatten() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let resp =
+                    "HTTP/1.1 503 Unavailable \r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                let _ = stream.write_all(resp.as_bytes());
             }
         });
 

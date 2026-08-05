@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod checkpoint;
 pub mod definition;
 pub mod execution;
 pub mod file_permission;
@@ -11,6 +12,7 @@ pub mod state;
 pub mod static_config;
 
 pub use approval::*;
+pub use checkpoint::*;
 pub use definition::*;
 pub use execution::*;
 pub use file_permission::*;

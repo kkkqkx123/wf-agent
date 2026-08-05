@@ -92,10 +92,12 @@ impl HandlerRegistry {
         self.register(Arc::new(subgraph::SubgraphHandler));
         self.register(Arc::new(llm::LlmHandler::new(gateway.clone())));
         self.register(Arc::new(context_processor::ContextProcessorHandler));
-        self.register(Arc::new(script::ScriptHandler::with_sandbox_opt(sandbox.clone())));
-        self.register(Arc::new(interactive_script::InteractiveScriptHandler::with_sandbox_opt(
-            sandbox,
+        self.register(Arc::new(script::ScriptHandler::with_sandbox_opt(
+            sandbox.clone(),
         )));
+        self.register(Arc::new(
+            interactive_script::InteractiveScriptHandler::with_sandbox_opt(sandbox),
+        ));
         self.register(Arc::new(agent_loop::AgentLoopHandler::new(gateway)));
         self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
         self.register(Arc::new(embed::EmbedHandler));

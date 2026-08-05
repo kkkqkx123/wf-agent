@@ -10,6 +10,8 @@ pub mod layertwine_proto {
     tonic::include_proto!("layertwine");
 }
 
+pub mod client;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

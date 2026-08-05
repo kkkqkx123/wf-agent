@@ -1,12 +1,14 @@
 //! Definition of the apply_diff tool.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static APPLY_DIFF: ToolDefinition = ToolDefinition {
     id: "apply_diff",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::Write,
+    create_checkpoint: None,
     category: "filesystem",
     tags: &["diff", "search-replace"],
     description: "Apply SEARCH/REPLACE blocks to modify a file. Each block contains a SEARCH section and a REPLACE section delimited by '<<<<<<< SEARCH' and '>>>>>>> REPLACE'.",

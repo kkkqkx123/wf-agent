@@ -20,3 +20,13 @@ dashmap.workspace = true
 futures.workspace = true
 regex.workspace = true
 globset.workspace = true
+layertwine = { path = "../layertwine", features = ["grpc"], optional = true }
+tonic = { workspace = true, optional = true }
+
+[features]
+default = []
+# Layertwine gRPC remote executor (embedded + remote deployment modes).
+remote-layertwine = ["dep:layertwine", "dep:tonic"]
+
+[dev-dependencies]
+tempfile = "3"

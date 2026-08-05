@@ -313,11 +313,13 @@ impl McpTransport for SseTransport {
                                 let _ = tx.send(event.data.clone());
                             }
                         }
-                        "message" => if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&event.data) {
-                            if response_tx_clone.send(Ok(resp)).await.is_err() {
-                                break;
+                        "message" => {
+                            if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&event.data) {
+                                if response_tx_clone.send(Ok(resp)).await.is_err() {
+                                    break;
+                                }
                             }
-                        },
+                        }
                         _ => {}
                     },
                     Err(_) => {

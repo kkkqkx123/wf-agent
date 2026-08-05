@@ -77,11 +77,7 @@ impl SandboxProfileResolver {
             if !rule.matcher.is_match(value) {
                 continue;
             }
-            return self
-                .global
-                .profiles
-                .iter()
-                .find(|p| p.name == rule.profile);
+            return self.global.profiles.iter().find(|p| p.name == rule.profile);
         }
         None
     }
@@ -126,8 +122,7 @@ fn compile_glob(pattern: &str) -> Result<Regex, SandboxProfileError> {
 mod tests {
     use super::*;
     use wf_types::script::sandbox::{
-        SandboxGlobalConfig, SandboxMode, SandboxProfile, SandboxProfileRule,
-        SandboxRuleMatchField,
+        SandboxGlobalConfig, SandboxMode, SandboxProfile, SandboxProfileRule, SandboxRuleMatchField,
     };
 
     fn profile(name: &str) -> SandboxProfile {
@@ -179,16 +174,25 @@ mod tests {
 
     #[test]
     fn test_no_match_returns_none() {
-        let resolver = compile(vec![rule(SandboxRuleMatchField::Language, "lua", "lenient")]);
+        let resolver = compile(vec![rule(
+            SandboxRuleMatchField::Language,
+            "lua",
+            "lenient",
+        )]);
         assert!(resolver.resolve("shell", "").is_none());
     }
 
     #[test]
     fn test_script_name_glob_match() {
-        let resolver =
-            compile(vec![rule(SandboxRuleMatchField::ScriptName, "data-*.py", "lenient")]);
+        let resolver = compile(vec![rule(
+            SandboxRuleMatchField::ScriptName,
+            "data-*.py",
+            "lenient",
+        )]);
         assert_eq!(
-            resolver.resolve("python", "data-clean.py").map(|p| p.name.as_str()),
+            resolver
+                .resolve("python", "data-clean.py")
+                .map(|p| p.name.as_str()),
             Some("lenient")
         );
         assert!(resolver.resolve("python", "main.py").is_none());
@@ -218,10 +222,7 @@ mod tests {
             audit_logging: true,
         };
         let err = SandboxProfileResolver::compile(global).expect_err("must fail");
-        assert!(
-            err.to_string().contains("default_profile"),
-            "error: {err}"
-        );
+        assert!(err.to_string().contains("default_profile"), "error: {err}");
     }
 
     #[test]
@@ -238,8 +239,7 @@ mod tests {
         let rule = rule(SandboxRuleMatchField::ScriptName, "*.py", "lenient");
         let json = serde_json::to_string(&rule).expect("serialize");
         assert!(json.contains("\"script_name\""), "json: {json}");
-        let back: SandboxProfileRule =
-            serde_json::from_str(&json).expect("deserialize back");
+        let back: SandboxProfileRule = serde_json::from_str(&json).expect("deserialize back");
         assert_eq!(back.match_field, SandboxRuleMatchField::ScriptName);
     }
 
@@ -252,8 +252,7 @@ mod tests {
             default_profile: Some("strict".to_string()),
             audit_logging: true,
         };
-        let resolver =
-            SandboxProfileResolver::compile(global).expect("valid config must compile");
+        let resolver = SandboxProfileResolver::compile(global).expect("valid config must compile");
         assert_eq!(
             resolver.default_profile().map(|p| p.name.as_str()),
             Some("strict")

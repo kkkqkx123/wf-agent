@@ -1,13 +1,15 @@
 //! Definition of the cancel_workflow tool (builtin type). Execution is
 //! handled by the BuiltinExecutor through the registered ExecutionCallback.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static CANCEL_WORKFLOW: ToolDefinition = ToolDefinition {
     id: "cancel_workflow",
     tool_type: ToolType::BuiltIn,
+    risk_level: ToolRiskLevel::System,
+    create_checkpoint: None,
     category: "workflow",
     tags: &["cancel"],
     description: "Cancel a running workflow by ID.",

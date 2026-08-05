@@ -75,11 +75,8 @@ impl NodeHandler for InteractiveScriptHandler {
 
         let code = definition.code;
         let sandbox = self.get_sandbox();
-        let sandbox_config = crate::handler::script::sandbox_config_from_node(
-            config,
-            &language,
-            &ctx.node_id,
-        )?;
+        let sandbox_config =
+            crate::handler::script::sandbox_config_from_node(config, &language, &ctx.node_id)?;
 
         let user_input = if interaction_mode.is_some() {
             ctx.get_variable("__interaction_input__")

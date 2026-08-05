@@ -18,8 +18,8 @@ use crate::logger::{init_tracing, LogConfig};
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::StorageManager;
-use wf_types::config::storage::StorageConfig;
 use crate::trigger_listener::{start_trigger_listener_with_registry, ExecutionContextRegistry};
+use wf_types::config::storage::StorageConfig;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
@@ -463,8 +463,8 @@ fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConfig {
 mod tests {
     use super::*;
     use crate::mode::ExecutionMode;
-    use wf_types::config::storage::StorageType;
     use wf_core::registry::Registry;
+    use wf_types::config::storage::StorageType;
 
     fn clear_env_vars() {
         std::env::remove_var("CLI_MODE");
@@ -758,10 +758,7 @@ mod tests {
     #[test]
     fn test_runtime_config_default() {
         let config = RuntimeConfig::default();
-        assert!(matches!(
-            config.storage.storage_type,
-            StorageType::Memory
-        ));
+        assert!(matches!(config.storage.storage_type, StorageType::Memory));
         assert!(config.mode_override.is_none());
         assert!(config.metrics.is_none());
     }

@@ -1,13 +1,15 @@
 //! Definition of the ask_followup_question tool (builtin type). It signals
 //! the agent loop to pause for user input.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static ASK_FOLLOWUP_QUESTION: ToolDefinition = ToolDefinition {
     id: "ask_followup_question",
     tool_type: ToolType::BuiltIn,
+    risk_level: ToolRiskLevel::Interaction,
+    create_checkpoint: None,
     category: "interaction",
     tags: &["ask"],
     description:

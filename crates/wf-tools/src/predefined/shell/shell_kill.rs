@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static SHELL_KILL: ToolDefinition = ToolDefinition {
     id: "shell_kill",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::Execute,
+    create_checkpoint: None,
     category: "shell",
     tags: &["kill"],
     description: "Kill a running background shell session by session_id.",

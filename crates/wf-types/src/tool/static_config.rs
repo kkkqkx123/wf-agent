@@ -26,4 +26,6 @@ pub struct ToolMetadata {
     pub risk_level: Option<super::ToolRiskLevel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_approvable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub create_checkpoint: Option<super::CheckpointTiming>,
 }

@@ -61,15 +61,19 @@ pub fn load_layered_config_sync<T: DeserializeOwned>(paths: &[&Path]) -> ConfigR
     let merged = base.ok_or_else(|| {
         ConfigError::NotFound(format!(
             "no config files found in: {:?}",
-            paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>()
+            paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
         ))
     })?;
 
     // Serialize merged toml::Value back to string, then deserialize into T.
     // This round-trip is necessary because toml::Value -> T requires
     // going through serialization when T is not directly from Value.
-    let serialized = toml::to_string_pretty(&merged)
-        .map_err(|e| ConfigError::Serialization(format!("failed to serialize merged config: {e}")))?;
+    let serialized = toml::to_string_pretty(&merged).map_err(|e| {
+        ConfigError::Serialization(format!("failed to serialize merged config: {e}"))
+    })?;
     toml::from_str(&serialized)
         .map_err(|e| ConfigError::Parse(format!("failed to deserialize merged config: {e}")))
 }
@@ -102,12 +106,16 @@ pub async fn load_layered_config<T: DeserializeOwned>(paths: &[&Path]) -> Config
     let merged = base.ok_or_else(|| {
         ConfigError::NotFound(format!(
             "no config files found in: {:?}",
-            paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>()
+            paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
         ))
     })?;
 
-    let serialized = toml::to_string_pretty(&merged)
-        .map_err(|e| ConfigError::Serialization(format!("failed to serialize merged config: {e}")))?;
+    let serialized = toml::to_string_pretty(&merged).map_err(|e| {
+        ConfigError::Serialization(format!("failed to serialize merged config: {e}"))
+    })?;
     toml::from_str(&serialized)
         .map_err(|e| ConfigError::Parse(format!("failed to deserialize merged config: {e}")))
 }
@@ -172,7 +180,10 @@ mod tests {
         merge_toml_values(&mut base, overlay);
 
         assert_eq!(base["nested"]["port"], toml::Value::Integer(9090));
-        assert_eq!(base["nested"]["host"], toml::Value::String("localhost".to_string()));
+        assert_eq!(
+            base["nested"]["host"],
+            toml::Value::String("localhost".to_string())
+        );
     }
 
     #[test]

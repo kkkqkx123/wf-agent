@@ -11,6 +11,7 @@ pub mod filesystem;
 pub mod interaction;
 pub mod knowledge;
 pub mod memory;
+pub mod risk;
 pub mod schema;
 pub mod shell;
 pub mod utility;

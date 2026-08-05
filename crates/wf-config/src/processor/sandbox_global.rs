@@ -37,8 +37,7 @@ pub fn export_sandbox_global(config: SandboxGlobalConfig) -> SandboxGlobalConfig
 mod tests {
     use super::*;
     use wf_types::script::sandbox::{
-        SandboxGlobalConfig, SandboxMode, SandboxProfile, SandboxProfileRule,
-        SandboxRuleMatchField,
+        SandboxGlobalConfig, SandboxMode, SandboxProfile, SandboxProfileRule, SandboxRuleMatchField,
     };
 
     fn profile(name: &str) -> SandboxProfile {

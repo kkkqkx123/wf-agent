@@ -1,12 +1,14 @@
 //! Definition of the grep_search tool.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static GREP_SEARCH: ToolDefinition = ToolDefinition {
     id: "grep_search",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "filesystem",
     tags: &["grep", "search"],
     description: "Search file contents using a regular expression pattern. Returns matching file paths and line numbers.",

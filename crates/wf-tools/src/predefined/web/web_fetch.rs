@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessAsyncHandler;
@@ -13,6 +13,8 @@ use crate::registry::ToolRegistry;
 pub static WEB_FETCH: ToolDefinition = ToolDefinition {
     id: "web_fetch",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::Network,
+    create_checkpoint: None,
     category: "web",
     tags: &["fetch"],
     description:

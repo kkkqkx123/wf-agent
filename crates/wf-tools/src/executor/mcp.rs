@@ -1,16 +1,19 @@
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::base::BaseExecutor;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
+use crate::mcp::analytics::McpUsageAnalytics;
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 
 pub struct McpExecutor {
     server_name: String,
     connection_manager: Option<crate::mcp::connection::McpConnectionManager>,
+    analytics: Option<Arc<McpUsageAnalytics>>,
 }
 
 impl McpExecutor {
@@ -18,6 +21,7 @@ impl McpExecutor {
         Self {
             server_name: server_name.into(),
             connection_manager: None,
+            analytics: None,
         }
     }
 
@@ -26,6 +30,11 @@ impl McpExecutor {
         manager: crate::mcp::connection::McpConnectionManager,
     ) -> Self {
         self.connection_manager = Some(manager);
+        self
+    }
+
+    pub fn with_analytics(mut self, analytics: Arc<McpUsageAnalytics>) -> Self {
+        self.analytics = Some(analytics);
         self
     }
 
@@ -131,6 +140,11 @@ impl ToolExecutor for McpExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or(&self.server_name);
 
+        let tool_name = parameters
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&tool.name);
+
         let result = if let Some(manager) = &self.connection_manager {
             if let Some(uri) = parameters.get("uri").and_then(|v| v.as_str()) {
                 // Resource access: read the resource identified by the URI
@@ -140,7 +154,11 @@ impl ToolExecutor for McpExecutor {
                     }
                     Err(e) => Err(e),
                 }
-            } else if let Some(tool_name) = parameters.get("tool_name").and_then(|v| v.as_str()) {
+            } else if parameters
+                .get("tool_name")
+                .and_then(|v| v.as_str())
+                .is_some()
+            {
                 // Explicit tool call on a named server (use_mcp style)
                 let args = parameters.get("arguments").cloned().unwrap_or(Value::Null);
                 manager
@@ -173,6 +191,33 @@ impl ToolExecutor for McpExecutor {
         };
 
         let execution_time = start.elapsed().as_millis() as i64;
+        if let Some(analytics) = &self.analytics {
+            match &result {
+                Ok(value) => {
+                    let is_error = value
+                        .get("isError")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    analytics.record_execution(
+                        server_name,
+                        tool_name,
+                        execution_time.max(0) as u64,
+                        !is_error,
+                        None,
+                        None,
+                    );
+                }
+                Err(e) => analytics.record_execution(
+                    server_name,
+                    tool_name,
+                    execution_time.max(0) as u64,
+                    false,
+                    Some(e.to_string()),
+                    None,
+                ),
+            }
+        }
+
         match result {
             Ok(value) => Ok(BaseExecutor::build_result(
                 true,

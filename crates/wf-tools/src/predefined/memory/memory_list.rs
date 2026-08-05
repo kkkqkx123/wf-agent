@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::ToolResult;
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static MEMORY_LIST: ToolDefinition = ToolDefinition {
     id: "memory_list",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::Write,
+    create_checkpoint: None,
     category: "memory",
     tags: &["list"],
     description: "List all stored memories. Optionally filter by prefix.",

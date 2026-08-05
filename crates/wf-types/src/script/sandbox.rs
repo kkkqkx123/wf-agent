@@ -283,7 +283,9 @@ impl SandboxGlobalConfig {
         if let Some(ref name) = self.default_profile {
             let exists = self.profiles.iter().any(|p| p.name == *name);
             if !exists {
-                return Err(SandboxGlobalConfigError::UnknownDefaultProfile(name.clone()));
+                return Err(SandboxGlobalConfigError::UnknownDefaultProfile(
+                    name.clone(),
+                ));
             }
         }
         Ok(())

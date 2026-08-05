@@ -1,3 +1,5 @@
+pub mod shell_detector;
+
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,6 +9,7 @@ use crate::command_safety::{get_command_decision, CommandDecision};
 use crate::error::{ToolError, ToolResult};
 use crate::executor::stateless::StatelessAsyncHandler;
 use crate::executor::trait_def::ToolExecutionContext;
+use crate::shell::shell_detector::{default_shell_detector, resolve_shell_command, ShellType};
 
 const DEFAULT_MAX_TIMEOUT_MS: u64 = 600_000;
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
@@ -26,6 +29,9 @@ pub struct ShellToolConfig {
     pub max_timeout_ms: u64,
     pub allowed_commands: Vec<String>,
     pub denied_commands: Option<Vec<String>>,
+    /// Explicit shell override. When `None`, the platform default is detected
+    /// via `$SHELL` / `which`.
+    pub shell_type: Option<ShellType>,
 }
 
 impl Default for ShellToolConfig {
@@ -38,6 +44,7 @@ impl Default for ShellToolConfig {
                 .map(|s| s.to_string())
                 .collect(),
             denied_commands: None,
+            shell_type: None,
         }
     }
 }
@@ -89,7 +96,8 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 });
 
             let start = Instant::now();
-            let output = run_command(&command, cwd.as_deref(), timeout_ms).await?;
+            let output =
+                run_command(&command, cwd.as_deref(), timeout_ms, config.shell_type).await?;
 
             let mut content = String::from_utf8_lossy(&output.stdout).to_string();
             if !output.stderr.is_empty() {
@@ -128,16 +136,21 @@ async fn run_command(
     command: &str,
     cwd: Option<&str>,
     timeout_ms: u64,
+    shell_type: Option<ShellType>,
 ) -> ToolResult<std::process::Output> {
-    let child = tokio::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(command)
+    let (shell, shell_args) = resolve_shell_command(default_shell_detector(), shell_type, command);
+    let mut cmd = tokio::process::Command::new(&shell);
+    cmd.args(&shell_args)
         .current_dir(cwd.unwrap_or("."))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| ToolError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
+        .kill_on_drop(true);
+    let child = cmd.spawn().map_err(|e| {
+        ToolError::ExecutionError(format!(
+            "Failed to spawn command with shell '{}': {}",
+            shell, e
+        ))
+    })?;
 
     match tokio::time::timeout(
         std::time::Duration::from_millis(timeout_ms),

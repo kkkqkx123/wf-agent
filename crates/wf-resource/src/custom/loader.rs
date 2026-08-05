@@ -8,8 +8,7 @@ use crate::custom::types::{
 };
 
 fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    parser::parse_config_file(path)
-        .map_err(|e| format!("parse error in {}: {}", path.display(), e))
+    parser::parse_config_file(path).map_err(|e| format!("parse error in {}: {}", path.display(), e))
 }
 
 fn resolve_path(path_str: &str, base_dir: &Path) -> PathBuf {

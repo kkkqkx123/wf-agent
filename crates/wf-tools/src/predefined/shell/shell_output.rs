@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
@@ -14,18 +14,17 @@ use crate::registry::ToolRegistry;
 pub static SHELL_OUTPUT: ToolDefinition = ToolDefinition {
     id: "shell_output",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "shell",
     tags: &["output"],
-    description: "Retrieve output from a running background shell session by session_id.",
-    parameters: &[ToolParameter {
-        name: "session_id",
-        r#type: "string",
-        required: true,
-        description: "The session ID returned by backend_shell",
-        default_json: None,
-    }],
+    description: "Retrieve output from a running background shell session by session_id. Set 'all' to false to read only output produced since the last read (incremental).",
+    parameters: &[
+        ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by backend_shell", default_json: None },
+        ToolParameter { name: "all", r#type: "boolean", required: false, description: "Return the full output buffer (default true); false returns only new output since the last read", default_json: Some("true") },
+    ],
     tips: None,
-    examples: Some(&["shell_output(\"abc123\")"]),
+    examples: Some(&["shell_output(\"abc123\")", "shell_output(\"abc123\", all=false)"]),
 };
 
 /// Stateful instance for the shell_output tool.
@@ -42,12 +41,26 @@ impl StatefulInstance for ShellOutputInstance {
             .ok_or_else(|| {
                 ToolError::ValidationFailed("Missing or invalid 'session_id' parameter".into())
             })?;
+        let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(true);
+
         let session = self.store.get(session_id).ok_or_else(|| {
             ToolError::NotFound(format!("No background shell session '{}'", session_id))
         })?;
-        let mut value = session.snapshot();
-        value["session_id"] = Value::String(session_id.into());
-        Ok(value)
+
+        if all {
+            let mut value = session.snapshot();
+            value["session_id"] = Value::String(session_id.into());
+            Ok(value)
+        } else {
+            let new_output = session.read_new_output();
+            let (status, exit_code) = session.status();
+            Ok(serde_json::json!({
+                "session_id": session_id,
+                "status": status,
+                "exit_code": exit_code,
+                "new_output": new_output,
+            }))
+        }
     }
 
     fn destroy(&self) -> ToolResult<()> {

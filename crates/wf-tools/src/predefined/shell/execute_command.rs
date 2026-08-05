@@ -1,6 +1,6 @@
 //! Definition and handler wiring of the execute_command tool.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::ToolResult;
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
@@ -10,6 +10,8 @@ use crate::shell::{execute_command_handler, ShellToolConfig};
 pub static EXECUTE_COMMAND: ToolDefinition = ToolDefinition {
     id: "execute_command",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::Execute,
+    create_checkpoint: None,
     category: "shell",
     tags: &["shell", "command"],
     description: "Execute a shell command and capture its output. Supports configurable timeout and working directory.",

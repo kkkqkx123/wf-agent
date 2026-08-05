@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessHandler;
@@ -13,6 +13,8 @@ use crate::registry::ToolRegistry;
 pub static UPDATE_TODO_LIST: ToolDefinition = ToolDefinition {
     id: "update_todo_list",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "utility",
     tags: &["todo", "list"],
     description: "Update the current todo list with markdown-formatted tasks. Supports [ ], [-], [x] statuses for pending, in-progress and completed items.",

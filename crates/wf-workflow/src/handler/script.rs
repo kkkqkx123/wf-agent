@@ -212,7 +212,10 @@ mod tests {
             "sandbox": { "mode": 42 }
         });
         let err = sandbox_config_from_node(&config, "shell", "n1").expect_err("must fail");
-        assert!(err.to_string().contains("invalid sandbox config"), "error: {err}");
+        assert!(
+            err.to_string().contains("invalid sandbox config"),
+            "error: {err}"
+        );
         assert!(err.to_string().contains("n1"), "error: {err}");
     }
 }

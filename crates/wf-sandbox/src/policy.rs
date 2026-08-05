@@ -58,15 +58,15 @@ impl SandboxPolicyManager {
             allowed_modules: or(&overrides.allowed_modules, &base.allowed_modules),
             denied_modules: or(&overrides.denied_modules, &base.denied_modules),
             allow_subprocess: or(&overrides.allow_subprocess, &base.allow_subprocess),
-            restrict_builtin_open: or(&overrides.restrict_builtin_open, &base.restrict_builtin_open),
+            restrict_builtin_open: or(
+                &overrides.restrict_builtin_open,
+                &base.restrict_builtin_open,
+            ),
             allow_dynamic_eval: or(&overrides.allow_dynamic_eval, &base.allow_dynamic_eval),
         }
     }
 
-    fn merge_javascript(
-        base: &JavaScriptPolicy,
-        overrides: &JavaScriptPolicy,
-    ) -> JavaScriptPolicy {
+    fn merge_javascript(base: &JavaScriptPolicy, overrides: &JavaScriptPolicy) -> JavaScriptPolicy {
         JavaScriptPolicy {
             allowed_modules: or(&overrides.allowed_modules, &base.allowed_modules),
             denied_modules: or(&overrides.denied_modules, &base.denied_modules),
@@ -86,10 +86,7 @@ impl SandboxPolicyManager {
         }
     }
 
-    fn merge_filesystem(
-        base: &FilesystemPolicy,
-        overrides: &FilesystemPolicy,
-    ) -> FilesystemPolicy {
+    fn merge_filesystem(base: &FilesystemPolicy, overrides: &FilesystemPolicy) -> FilesystemPolicy {
         FilesystemPolicy {
             allowed_read_paths: or(&overrides.allowed_read_paths, &base.allowed_read_paths),
             allowed_write_paths: or(&overrides.allowed_write_paths, &base.allowed_write_paths),
@@ -140,11 +137,7 @@ impl SandboxPolicyManager {
 
 /// Merge two optional sub-policies: `Some` on both sides is merged
 /// field-by-field; a single `Some` (or both `None`) passes through unchanged.
-fn merge_sub<T, F>(
-    base: &Option<T>,
-    overrides: &Option<T>,
-    merge_fields: F,
-) -> Option<T>
+fn merge_sub<T, F>(base: &Option<T>, overrides: &Option<T>, merge_fields: F) -> Option<T>
 where
     T: Clone,
     F: Fn(&T, &T) -> T,
@@ -255,7 +248,10 @@ mod tests {
             "default denied_commands must be inherited by a partial override"
         );
         assert!(
-            shell.dangerous_patterns.as_ref().is_some_and(|p| !p.is_empty()),
+            shell
+                .dangerous_patterns
+                .as_ref()
+                .is_some_and(|p| !p.is_empty()),
             "default dangerous patterns must be inherited by a partial override"
         );
     }

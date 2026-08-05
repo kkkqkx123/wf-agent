@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatelessAsyncHandler;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static WEB_SEARCH: ToolDefinition = ToolDefinition {
     id: "web_search",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::Network,
+    create_checkpoint: None,
     category: "web",
     tags: &["search"],
     description:

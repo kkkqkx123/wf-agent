@@ -1,12 +1,14 @@
 //! Definition of the edit_file tool.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static EDIT_FILE: ToolDefinition = ToolDefinition {
     id: "edit_file",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::Write,
+    create_checkpoint: None,
     category: "filesystem",
     tags: &["edit", "file"],
     description: "Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.",

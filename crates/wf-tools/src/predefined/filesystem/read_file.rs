@@ -1,12 +1,14 @@
 //! Definition of the read_file tool.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static READ_FILE: ToolDefinition = ToolDefinition {
     id: "read_file",
     tool_type: ToolType::Stateless,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "filesystem",
     tags: &["read", "file"],
     description: "Read the contents of a file at the given path. Returns the file content as text. Supports line-range and offset-based slicing.",

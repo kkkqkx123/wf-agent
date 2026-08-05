@@ -25,6 +25,9 @@ pub use handlers::{
     create_default_tool_registry, register_builtin_handlers, BuiltinHandlersConfig,
 };
 pub use predefined::web::WebToolConfig;
+pub use shell::shell_detector::{
+    default_shell_detector, resolve_shell_command, ShellDetector, ShellInfo, ShellType,
+};
 pub use shell::{execute_command_handler, ShellToolConfig};
 pub use skill::{SkillLoader, SkillResourceContent};
 pub use tool_call::ToolCallEvent;

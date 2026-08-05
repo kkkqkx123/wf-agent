@@ -2,19 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::join_all;
+use async_trait::async_trait;
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::{BaseHookContext, HookExecutorConfig};
+use wf_execution_shared::types::execution_entity::IExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_tools::approval::ToolApprovalCoordinator;
+use wf_tools::failure_protection::ToolFailureProtectionState;
 use wf_tools::registry::ToolRegistry;
 use wf_types::interaction::tool_approval::{PendingToolCallInfo, ToolApprovalRequestData};
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::tool::approval::ToolApprovalOptions;
-use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolRiskLevel;
+use wf_types::tool::{CheckpointTiming, ToolExecutionOptions};
 
 use crate::approval::{RejectionMessageBuilder, ToolApprovalHandler, ToolApprovalRequest};
 use crate::entity::AgentLoopEntity;
@@ -35,6 +38,54 @@ enum ApprovalOutcome {
     Rejected { reason: String },
 }
 
+/// Phase of a single tool execution reported through the progress channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolProgressStatus {
+    Started,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// A progress event emitted for a single tool call.
+#[derive(Debug, Clone)]
+pub struct ToolProgressEvent {
+    pub tool_call_id: String,
+    pub status: ToolProgressStatus,
+    pub partial: Option<Value>,
+}
+
+/// Optional visibility gate applied before tool execution. Used to hide
+/// tools from an execution without removing them from the registry.
+#[async_trait]
+pub trait ToolVisibilityStore: Send + Sync {
+    async fn is_tool_visible(&self, execution_id: &str, tool_name: &str) -> bool;
+}
+
+/// Optional checkpoint creation callback invoked around tool executions that
+/// opt in via `ToolMetadata::create_checkpoint`.
+#[async_trait]
+pub trait ToolCheckpointHandler: Send + Sync {
+    async fn create_checkpoint(&self, execution_id: &str, reason: &str) -> AgentResult<()>;
+}
+
+/// Per-task outcome produced by the parallel execution path.
+enum TaskOutcome {
+    Ok(Message),
+    Failed(String),
+}
+
+/// Immutable execution context shared by sequential and parallel tool runs.
+#[derive(Clone)]
+struct ToolRunCtx {
+    registry: Arc<ToolRegistry>,
+    metrics: Option<Arc<MetricsRegistry>>,
+    progress_tx: Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+    checkpoint_handler: Option<Arc<dyn ToolCheckpointHandler>>,
+    failure_protection: Option<Arc<ToolFailureProtectionState>>,
+    visibility_store: Option<Arc<dyn ToolVisibilityStore>>,
+}
+
 pub struct ToolExecutionCoordinator {
     tool_registry: Arc<ToolRegistry>,
     hook_executor: Arc<HookExecutor>,
@@ -43,6 +94,12 @@ pub struct ToolExecutionCoordinator {
     approval_options: Option<ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
     rejection_builder: RejectionMessageBuilder,
+    progress_tx: Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+    cancellation: Option<CancellationToken>,
+    cancel_on_failure: bool,
+    visibility_store: Option<Arc<dyn ToolVisibilityStore>>,
+    checkpoint_handler: Option<Arc<dyn ToolCheckpointHandler>>,
+    failure_protection: Option<Arc<ToolFailureProtectionState>>,
 }
 
 impl ToolExecutionCoordinator {
@@ -55,6 +112,12 @@ impl ToolExecutionCoordinator {
             approval_options: None,
             approval_handler: None,
             rejection_builder: RejectionMessageBuilder::new(),
+            progress_tx: None,
+            cancellation: None,
+            cancel_on_failure: false,
+            visibility_store: None,
+            checkpoint_handler: None,
+            failure_protection: None,
         }
     }
 
@@ -65,6 +128,60 @@ impl ToolExecutionCoordinator {
 
     pub fn with_metrics(mut self, metrics: Option<Arc<MetricsRegistry>>) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// Stream tool progress events (started / completed / failed / cancelled)
+    /// into the given channel. Default: no progress reporting.
+    pub fn with_progress_tx(
+        mut self,
+        progress_tx: Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+    ) -> Self {
+        self.progress_tx = progress_tx;
+        self
+    }
+
+    /// Merge an external cancellation token with the entity abort signal. All
+    /// tool executions observe it; parallel mode additionally aborts the whole
+    /// batch on cancellation.
+    pub fn with_cancellation(mut self, cancellation: Option<CancellationToken>) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    /// In parallel mode, abort the whole batch when any tool call fails.
+    /// Default: `false` (independent tool execution, matching current
+    /// behavior).
+    pub fn with_cancel_on_failure(mut self, enabled: bool) -> Self {
+        self.cancel_on_failure = enabled;
+        self
+    }
+
+    /// Gate tool visibility before execution. Invisible tools produce an
+    /// error message instead of executing. Default: all tools visible.
+    pub fn with_visibility_store(mut self, store: Option<Arc<dyn ToolVisibilityStore>>) -> Self {
+        self.visibility_store = store;
+        self
+    }
+
+    /// Enable checkpoint creation around tools whose metadata opts in via
+    /// `create_checkpoint`. Default: no checkpoints.
+    pub fn with_checkpoint_handler(
+        mut self,
+        handler: Option<Arc<dyn ToolCheckpointHandler>>,
+    ) -> Self {
+        self.checkpoint_handler = handler;
+        self
+    }
+
+    /// Enable failure protection: tools are blocked after a configurable
+    /// number of consecutive failures, and successes reset the counter.
+    /// Default: disabled.
+    pub fn with_failure_protection(
+        mut self,
+        state: Option<Arc<ToolFailureProtectionState>>,
+    ) -> Self {
+        self.failure_protection = state;
         self
     }
 
@@ -87,6 +204,19 @@ impl ToolExecutionCoordinator {
 
     pub fn tool_registry(&self) -> &Arc<ToolRegistry> {
         &self.tool_registry
+    }
+
+    /// Snapshot the immutable execution context shared by sequential and
+    /// parallel tool runs.
+    fn run_ctx(&self) -> ToolRunCtx {
+        ToolRunCtx {
+            registry: self.tool_registry.clone(),
+            metrics: self.metrics.clone(),
+            progress_tx: self.progress_tx.clone(),
+            checkpoint_handler: self.checkpoint_handler.clone(),
+            failure_protection: self.failure_protection.clone(),
+            visibility_store: self.visibility_store.clone(),
+        }
     }
 
     pub async fn execute_tool_calls(
@@ -344,8 +474,10 @@ impl ToolExecutionCoordinator {
     ) -> AgentResult<Vec<Message>> {
         let outcomes = self.approve_tool_calls(entity, tool_calls).await;
         let mut messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
-        let mut tasks: Vec<(usize, tokio::task::JoinHandle<Message>)> = Vec::new();
+        let run_ctx = self.run_ctx();
+        let batch_cancellation = self.batch_cancellation(entity);
 
+        let mut set = tokio::task::JoinSet::new();
         for (idx, tc) in tool_calls.iter().enumerate() {
             match &outcomes[idx] {
                 ApprovalOutcome::Rejected { reason } => {
@@ -357,14 +489,14 @@ impl ToolExecutionCoordinator {
                         tool_call.function.arguments =
                             serde_json::to_string(edited).unwrap_or(tool_call.function.arguments);
                     }
-                    let tool_registry = self.tool_registry.clone();
+                    let run_ctx = run_ctx.clone();
                     let hook_executor = self.hook_executor.clone();
                     let entity_state = entity.state.clone();
                     let entity_hooks = entity.hooks().to_vec();
                     let entity_id = entity.id().clone();
-                    let metrics = self.metrics.clone();
+                    let task_cancellation = batch_cancellation.child_token();
 
-                    let task = tokio::spawn(async move {
+                    set.spawn(async move {
                         let hook_data = Self::build_hook_data(&tool_call);
 
                         let _ = AgentHookHandler::execute_hooks(
@@ -383,17 +515,17 @@ impl ToolExecutionCoordinator {
                         )
                         .await;
 
-                        let params: Value = serde_json::from_str(&tool_call.function.arguments)
-                            .unwrap_or(Value::Null);
-                        let result_msg = Self::build_result_msg(
-                            &tool_registry,
-                            &tool_call,
-                            &params,
-                            &entity_id,
-                            &entity_state,
-                            metrics.as_ref(),
-                        )
-                        .await;
+                        let result = tokio::select! {
+                            res = Self::run_tool(
+                                &run_ctx,
+                                &tool_call,
+                                &entity_id,
+                                &entity_state,
+                            ) => res,
+                            _ = task_cancellation.cancelled() => Err(
+                                "Tool execution was cancelled".to_string()
+                            ),
+                        };
 
                         let _ = AgentHookHandler::execute_hooks(
                             &hook_executor,
@@ -411,24 +543,56 @@ impl ToolExecutionCoordinator {
                         )
                         .await;
 
-                        result_msg
+                        match result {
+                            Ok(msg) => (idx, TaskOutcome::Ok(msg)),
+                            Err(reason) => (idx, TaskOutcome::Failed(reason)),
+                        }
                     });
-
-                    tasks.push((idx, task));
                 }
             }
         }
 
-        let results = join_all(tasks.iter_mut().map(|(_, t)| t)).await;
-        for ((idx, _), result) in tasks.iter().zip(results) {
-            messages[*idx] = match result {
-                Ok(msg) => Some(msg),
-                Err(e) => Some(Self::error_message(
-                    &format!("Tool execution panicked: {}", e),
-                    None,
-                    None,
-                )),
-            };
+        let mut aborted = false;
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((idx, outcome)) => match outcome {
+                    TaskOutcome::Ok(msg) => {
+                        messages[idx] = Some(msg);
+                    }
+                    TaskOutcome::Failed(reason) => {
+                        messages[idx] = Some(Self::error_message(&reason, None, None));
+                        if self.cancel_on_failure {
+                            set.abort_all();
+                            aborted = true;
+                        }
+                    }
+                },
+                Err(e) if e.is_cancelled() => {
+                    // Task aborted as part of a batch cancellation.
+                    aborted = true;
+                }
+                Err(e) => {
+                    // Task panicked. Its slot is filled with a generic error
+                    // below; the concrete panic is logged.
+                    tracing::error!(error = %e, "parallel tool task panicked");
+                    aborted = true;
+                }
+            }
+        }
+
+        // Fill slots for tasks that were aborted / panicked before producing a
+        // result. Rejected tools already filled their slots above.
+        if aborted {
+            for (idx, slot) in messages.iter_mut().enumerate() {
+                if slot.is_none() {
+                    let tc = &tool_calls[idx];
+                    *slot = Some(Self::error_message(
+                        "Tool execution did not complete (batch aborted, cancelled or panicked)",
+                        Some(&tc.id),
+                        Some(&tc.function.name),
+                    ));
+                }
+            }
         }
 
         Ok(messages.into_iter().flatten().collect())
@@ -448,13 +612,8 @@ impl ToolExecutionCoordinator {
             })
     }
 
-    fn resolve_timeout(&self, tool_name: &str) -> u64 {
-        if let Some(tool) = self
-            .tool_registry
-            .list_tools()
-            .iter()
-            .find(|t| t.name == tool_name)
-        {
+    fn resolve_timeout(registry: &ToolRegistry, tool_name: &str) -> u64 {
+        if let Some(tool) = registry.list_tools().iter().find(|t| t.name == tool_name) {
             if let Some(ms) = tool.default_timeout_ms {
                 return ms;
             }
@@ -477,280 +636,293 @@ impl ToolExecutionCoordinator {
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
     ) -> AgentResult<Message> {
+        let ctx = self.run_ctx();
+        Ok(Self::run_tool(&ctx, tc, entity.id(), &entity.state)
+            .await
+            .unwrap_or_else(|reason| {
+                Self::error_message(&reason, Some(&tc.id), Some(&tc.function.name))
+            }))
+    }
+
+    /// Shared single-tool execution core used by the sequential and parallel
+    /// paths. Errors are returned as `Err(reason)` so callers can decide how
+    /// to surface them (tool error message, batch abort, etc.).
+    async fn run_tool(
+        ctx: &ToolRunCtx,
+        tc: &LlmToolCall,
+        entity_id: &str,
+        entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
+    ) -> Result<Message, String> {
         let params: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
-        let tool_id = Self::find_tool_id_by_name(&self.tool_registry, &tc.function.name);
-        let timeout_ms = self.resolve_timeout(&tc.function.name);
-        let execution_id = entity.id().clone();
         let tool_name = tc.function.name.clone();
+        let tool_id = Self::find_tool_id_by_name(&ctx.registry, &tool_name);
+        let timeout_ms = Self::resolve_timeout(&ctx.registry, &tool_name);
         let parameter_size = json_size(&params);
 
-        if let Some(ref metrics) = self.metrics {
-            metrics
-                .tool()
-                .record_tool_call_start(&tool_name, &execution_id);
+        // Visibility gate.
+        if let Some(ref store) = ctx.visibility_store {
+            if !store.is_tool_visible(entity_id, &tool_name).await {
+                return Err(format!(
+                    "Tool '{}' is not visible in this execution",
+                    tool_name
+                ));
+            }
         }
 
-        match tool_id {
-            Some(tid) => {
-                let ctx =
-                    wf_tools::executor::trait_def::ToolExecutionContext::new(entity.id().clone());
-                let options = ToolExecutionOptions {
-                    timeout: Some(timeout_ms),
-                    retries: None,
-                    retry_delay: None,
-                    exponential_backoff: None,
-                };
+        if let Some(ref metrics) = ctx.metrics {
+            metrics.tool().record_tool_call_start(&tool_name, entity_id);
+        }
+        Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Started, None);
 
-                let start = wf_common::now();
-                let result = tokio::time::timeout(
-                    Self::tool_execution_deadline(timeout_ms),
-                    self.tool_registry
-                        .execute_tool(&tid, &params, &options, &ctx),
-                )
-                .await;
-                let duration_ms = (wf_common::now() - start) as f64;
-                let success = matches!(&result, Ok(Ok(_)));
+        let Some(tid) = tool_id else {
+            if let Some(ref metrics) = ctx.metrics {
+                metrics
+                    .tool()
+                    .record_tool_call_error(&tool_name, entity_id, "not_found");
+            }
+            Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+            return Err(format!("Tool not found: {}", tool_name));
+        };
 
-                entity.state.write().await.record_tool_call(
-                    &tool_name,
-                    duration_ms as i64,
-                    success,
-                );
+        // Failure protection gate.
+        if let Some(ref fp) = ctx.failure_protection {
+            let check = fp.can_execute(&tool_name);
+            if !check.allowed {
+                let reason = check.reason.unwrap_or_else(|| {
+                    format!("Tool '{}' is blocked due to repeated failures", tool_name)
+                });
+                Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                return Err(reason);
+            }
+        }
 
-                if let Some(ref metrics) = self.metrics {
-                    match &result {
-                        Ok(Ok(tool_result)) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                &execution_id,
-                                true,
-                                duration_ms,
-                                parameter_size,
-                                json_size(tool_result.result.as_ref().unwrap_or(&Value::Null)),
+        // Checkpoint before execution.
+        let checkpoint_timing = ctx
+            .registry
+            .get_tool(&tid)
+            .and_then(|t| t.metadata)
+            .and_then(|m| m.create_checkpoint);
+        let before = matches!(
+            checkpoint_timing,
+            Some(CheckpointTiming::Before) | Some(CheckpointTiming::Both)
+        );
+        let after = matches!(
+            checkpoint_timing,
+            Some(CheckpointTiming::After) | Some(CheckpointTiming::Both)
+        );
+        if before {
+            if let Some(ref handler) = ctx.checkpoint_handler {
+                if let Err(e) = handler
+                    .create_checkpoint(entity_id, &format!("before tool '{}'", tool_name))
+                    .await
+                {
+                    Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                    return Err(format!(
+                        "Checkpoint failed before tool '{}': {}",
+                        tool_name, e
+                    ));
+                }
+            }
+        }
+
+        let tool_ctx = wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.into());
+        let options = ToolExecutionOptions {
+            timeout: Some(timeout_ms),
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+
+        let start = wf_common::now();
+        let result = tokio::time::timeout(
+            Self::tool_execution_deadline(timeout_ms),
+            ctx.registry
+                .execute_tool(&tid, &params, &options, &tool_ctx),
+        )
+        .await;
+        let duration_ms = (wf_common::now() - start) as f64;
+        let success = matches!(&result, Ok(Ok(r)) if r.success);
+
+        entity_state
+            .write()
+            .await
+            .record_tool_call(&tool_name, duration_ms as i64, success);
+
+        if let Some(ref metrics) = ctx.metrics {
+            match &result {
+                Ok(Ok(tool_result)) if tool_result.success => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        true,
+                        duration_ms,
+                        parameter_size,
+                        json_size(tool_result.result.as_ref().unwrap_or(&Value::Null)),
+                    );
+                }
+                Ok(Ok(_)) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics.tool().record_tool_call_error(
+                        &tool_name,
+                        entity_id,
+                        "execution_failed",
+                    );
+                    tracing::warn!(tool = %tool_name, "tool call reported failure");
+                }
+                Ok(Err(e)) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics.tool().record_tool_call_error(
+                        &tool_name,
+                        entity_id,
+                        "execution_failed",
+                    );
+                    tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
+                }
+                Err(_) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics
+                        .tool()
+                        .record_tool_call_error(&tool_name, entity_id, "timeout");
+                    tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
+                }
+            }
+        }
+
+        match result {
+            Ok(Ok(tool_result)) if tool_result.success => {
+                if let Some(ref fp) = ctx.failure_protection {
+                    fp.record_success(&tool_name);
+                }
+                if after {
+                    if let Some(ref handler) = ctx.checkpoint_handler {
+                        if let Err(e) = handler
+                            .create_checkpoint(entity_id, &format!("after tool '{}'", tool_name))
+                            .await
+                        {
+                            Self::emit_progress(
+                                &ctx.progress_tx,
+                                &tc.id,
+                                ToolProgressStatus::Failed,
+                                None,
                             );
-                        }
-                        Ok(Err(e)) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                &execution_id,
-                                false,
-                                duration_ms,
-                                parameter_size,
-                                0,
-                            );
-                            metrics.tool().record_tool_call_error(
-                                &tool_name,
-                                &execution_id,
-                                "execution_failed",
-                            );
-                            tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
-                        }
-                        Err(_) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                &execution_id,
-                                false,
-                                duration_ms,
-                                parameter_size,
-                                0,
-                            );
-                            metrics.tool().record_tool_call_error(
-                                &tool_name,
-                                &execution_id,
-                                "timeout",
-                            );
-                            tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
+                            return Err(format!(
+                                "Checkpoint failed after tool '{}': {}",
+                                tool_name, e
+                            ));
                         }
                     }
                 }
-
-                match result {
-                    Ok(Ok(tool_result)) => Ok(Message {
-                        id: wf_types::Id::new(),
-                        role: MessageRole::Tool,
-                        content: MessageContentValue::Text(
-                            tool_result
-                                .result
-                                .as_ref()
-                                .map(|v| v.to_string())
-                                .unwrap_or_default(),
-                        ),
-                        timestamp: wf_common::now(),
-                        tool_call_id: Some(tc.id.clone()),
-                        tool_name: Some(tc.function.name.clone()),
-                        tool_calls: None,
-                        thinking: None,
-                        metadata: None,
-                    }),
-                    Ok(Err(e)) => Ok(Self::error_message(
-                        &e.to_string(),
-                        Some(&tc.id),
-                        Some(&tc.function.name),
-                    )),
-                    Err(_) => Ok(Self::error_message(
-                        &format!(
-                            "Tool '{}' timed out after {}ms",
-                            tc.function.name, timeout_ms
-                        ),
-                        Some(&tc.id),
-                        Some(&tc.function.name),
-                    )),
-                }
+                let msg = Message {
+                    id: wf_types::Id::new(),
+                    role: MessageRole::Tool,
+                    content: MessageContentValue::Text(
+                        tool_result
+                            .result
+                            .as_ref()
+                            .map(|v| v.to_string())
+                            .unwrap_or_default(),
+                    ),
+                    timestamp: wf_common::now(),
+                    tool_call_id: Some(tc.id.clone()),
+                    tool_name: Some(tc.function.name.clone()),
+                    tool_calls: None,
+                    thinking: None,
+                    metadata: None,
+                };
+                Self::emit_progress(
+                    &ctx.progress_tx,
+                    &tc.id,
+                    ToolProgressStatus::Completed,
+                    tool_result.result.clone(),
+                );
+                Ok(msg)
             }
-            None => {
-                if let Some(ref metrics) = self.metrics {
-                    metrics
-                        .tool()
-                        .record_tool_call_error(&tool_name, &execution_id, "not_found");
+            Ok(Ok(tool_result)) => {
+                // Tool reported failure through its result payload.
+                let reason = tool_result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| format!("Tool '{}' reported failure", tool_name));
+                if let Some(ref fp) = ctx.failure_protection {
+                    fp.record_failure(&tool_name, reason.clone());
                 }
-                Ok(Self::error_message(
-                    &format!("Tool not found: {}", tc.function.name),
-                    Some(&tc.id),
-                    Some(&tc.function.name),
+                Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                Err(reason)
+            }
+            Ok(Err(e)) => {
+                if let Some(ref fp) = ctx.failure_protection {
+                    fp.record_failure(&tool_name, e.to_string());
+                }
+                Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                Err(e.to_string())
+            }
+            Err(_) => {
+                if let Some(ref fp) = ctx.failure_protection {
+                    fp.record_failure(&tool_name, format!("timeout after {}ms", timeout_ms));
+                }
+                Self::emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                Err(format!(
+                    "Tool '{}' timed out after {}ms",
+                    tool_name, timeout_ms
                 ))
             }
         }
     }
 
-    async fn build_result_msg(
-        tool_registry: &ToolRegistry,
-        tc: &LlmToolCall,
-        params: &Value,
-        entity_id: &str,
-        entity_state: &tokio::sync::RwLock<crate::state::AgentLoopState>,
-        metrics: Option<&Arc<MetricsRegistry>>,
-    ) -> Message {
-        let tool_id = Self::find_tool_id_by_name(tool_registry, &tc.function.name);
-        let timeout_ms = tool_id
-            .as_ref()
-            .and_then(|tid| {
-                tool_registry
-                    .get_tool(tid)
-                    .and_then(|t| t.default_timeout_ms)
-            })
-            .unwrap_or(120_000);
-        let tool_name = tc.function.name.clone();
-        let parameter_size = json_size(params);
-
-        if let Some(metrics) = metrics {
-            metrics.tool().record_tool_call_start(&tool_name, entity_id);
+    /// Combine the entity abort signal with an optional external cancellation
+    /// token. In parallel mode every task observes a child of this token.
+    fn batch_cancellation(&self, entity: &AgentLoopEntity) -> CancellationToken {
+        let entity_token = entity.get_abort_signal();
+        match &self.cancellation {
+            None => entity_token,
+            Some(external) => {
+                let batch = CancellationToken::new();
+                let batch_clone = batch.clone();
+                let external_clone = external.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        _ = entity_token.cancelled() => batch_clone.cancel(),
+                        _ = external_clone.cancelled() => batch_clone.cancel(),
+                    }
+                });
+                batch
+            }
         }
+    }
 
-        match tool_id {
-            Some(tid) => {
-                let ctx =
-                    wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.to_string());
-                let options = ToolExecutionOptions {
-                    timeout: Some(timeout_ms),
-                    retries: None,
-                    retry_delay: None,
-                    exponential_backoff: None,
-                };
-                let deadline = Duration::from_millis(timeout_ms + 30_000);
-
-                let start = wf_common::now();
-                let result = tokio::time::timeout(
-                    deadline,
-                    tool_registry.execute_tool(&tid, params, &options, &ctx),
-                )
-                .await;
-                let duration_ms = (wf_common::now() - start) as f64;
-                let success = matches!(&result, Ok(Ok(_)));
-
-                entity_state.write().await.record_tool_call(
-                    &tool_name,
-                    duration_ms as i64,
-                    success,
-                );
-
-                if let Some(metrics) = metrics {
-                    match &result {
-                        Ok(Ok(tool_result)) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                entity_id,
-                                true,
-                                duration_ms,
-                                parameter_size,
-                                json_size(tool_result.result.as_ref().unwrap_or(&Value::Null)),
-                            );
-                        }
-                        Ok(Err(e)) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                entity_id,
-                                false,
-                                duration_ms,
-                                parameter_size,
-                                0,
-                            );
-                            metrics.tool().record_tool_call_error(
-                                &tool_name,
-                                entity_id,
-                                "execution_failed",
-                            );
-                            tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
-                        }
-                        Err(_) => {
-                            metrics.tool().record_tool_call_complete(
-                                &tool_name,
-                                entity_id,
-                                false,
-                                duration_ms,
-                                parameter_size,
-                                0,
-                            );
-                            metrics
-                                .tool()
-                                .record_tool_call_error(&tool_name, entity_id, "timeout");
-                            tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
-                        }
-                    }
-                }
-
-                match result {
-                    Ok(Ok(tool_result)) => Message {
-                        id: wf_types::Id::new(),
-                        role: MessageRole::Tool,
-                        content: MessageContentValue::Text(
-                            tool_result
-                                .result
-                                .as_ref()
-                                .map(|v| v.to_string())
-                                .unwrap_or_default(),
-                        ),
-                        timestamp: wf_common::now(),
-                        tool_call_id: Some(tc.id.clone()),
-                        tool_name: Some(tc.function.name.clone()),
-                        tool_calls: None,
-                        thinking: None,
-                        metadata: None,
-                    },
-                    Ok(Err(e)) => {
-                        Self::error_message(&e.to_string(), Some(&tc.id), Some(&tc.function.name))
-                    }
-                    Err(_) => Self::error_message(
-                        &format!(
-                            "Tool '{}' timed out after {}ms",
-                            tc.function.name, timeout_ms
-                        ),
-                        Some(&tc.id),
-                        Some(&tc.function.name),
-                    ),
-                }
-            }
-            None => {
-                if let Some(metrics) = metrics {
-                    metrics
-                        .tool()
-                        .record_tool_call_error(&tool_name, entity_id, "not_found");
-                }
-                Self::error_message(
-                    &format!("Tool not found: {}", tc.function.name),
-                    Some(&tc.id),
-                    Some(&tc.function.name),
-                )
-            }
+    fn emit_progress(
+        tx: &Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+        tool_call_id: &str,
+        status: ToolProgressStatus,
+        partial: Option<Value>,
+    ) {
+        if let Some(tx) = tx {
+            let _ = tx.try_send(ToolProgressEvent {
+                tool_call_id: tool_call_id.to_string(),
+                status,
+                partial,
+            });
         }
     }
 
@@ -831,6 +1003,7 @@ mod tests {
                 custom_fields: None,
                 risk_level: Some(ToolRiskLevel::Write),
                 auto_approvable: None,
+                create_checkpoint: None,
             }),
             config: None,
             enabled: Some(true),
@@ -975,6 +1148,7 @@ mod tests {
                 custom_fields: None,
                 risk_level: Some(ToolRiskLevel::ReadOnly),
                 auto_approvable: None,
+                create_checkpoint: None,
             }),
             config: None,
             enabled: Some(true),
@@ -1043,5 +1217,317 @@ mod tests {
         assert!(messages
             .iter()
             .all(|m| text_of(m).contains("tool-result-ok")));
+    }
+
+    // ---- Stage 2: orchestration enhancements ----
+
+    #[tokio::test]
+    async fn test_predefined_read_file_auto_approved_under_safe_preset() {
+        let registry = Arc::new(ToolRegistry::new());
+        let tool = wf_tools::predefined::filesystem::READ_FILE.tool_def();
+        let tool_name = tool.name.clone();
+        let handler: wf_tools::executor::stateless::StatelessHandler = Arc::new(
+            move |_p: &Value, _c: &wf_tools::executor::trait_def::ToolExecutionContext| {
+                Ok(Value::from(format!("content of {}", tool_name)))
+            },
+        );
+        registry.register_tool(tool);
+        registry.register_stateless_handler("read_file", handler);
+
+        let options = ToolApprovalOptions {
+            auto_approval_enabled: Some(true),
+            security_preset: Some(wf_types::tool::approval::SecurityPreset::Safe),
+            risk_threshold: None,
+            auto_approve_patterns: None,
+            categories: None,
+            workspace_boundary: None,
+            file_permissions: None,
+            command: None,
+            mcp: None,
+            network: None,
+            interaction: None,
+            allow_write_protected: None,
+        };
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_approval(Some(options), None);
+        let entity = make_entity();
+
+        let mut tc = make_tool_call("tc-read", "read_file");
+        tc.function.arguments = serde_json::json!({ "path": "/tmp/readme.md" }).to_string();
+
+        let messages = coordinator
+            .execute_tool_calls(&entity, &[tc])
+            .await
+            .expect("read-only tool must be auto-approved and executed");
+
+        assert_eq!(messages.len(), 1);
+        assert!(text_of(&messages[0]).contains("content of read_file"));
+    }
+
+    #[tokio::test]
+    async fn test_progress_events_emitted() {
+        let executed = Arc::new(AtomicU32::new(0));
+        let registry = mock_tool_registry(&executed);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_progress_tx(Some(tx));
+        let entity = make_entity();
+
+        let messages = coordinator
+            .execute_tool_calls(&entity, &[make_tool_call("tc-1", "mock_write")])
+            .await
+            .expect("execution must succeed");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(executed.load(Ordering::SeqCst), 1);
+        let mut statuses = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            assert_eq!(ev.tool_call_id, "tc-1");
+            statuses.push(ev.status);
+        }
+        assert_eq!(
+            statuses,
+            vec![ToolProgressStatus::Started, ToolProgressStatus::Completed]
+        );
+    }
+
+    struct BlockingVisibilityStore;
+
+    #[async_trait]
+    impl ToolVisibilityStore for BlockingVisibilityStore {
+        async fn is_tool_visible(&self, _execution_id: &str, _tool_name: &str) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn test_visibility_gate_blocks_tool() {
+        let executed = Arc::new(AtomicU32::new(0));
+        let registry = mock_tool_registry(&executed);
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_visibility_store(Some(Arc::new(BlockingVisibilityStore)));
+        let entity = make_entity();
+
+        let messages = coordinator
+            .execute_tool_calls(&entity, &[make_tool_call("tc-1", "mock_write")])
+            .await
+            .expect("visibility rejection must not fail the loop");
+
+        assert_eq!(executed.load(Ordering::SeqCst), 0);
+        assert_eq!(messages.len(), 1);
+        assert!(text_of(&messages[0]).contains("not visible"));
+    }
+
+    fn mock_failing_registry() -> Arc<ToolRegistry> {
+        let registry = Arc::new(ToolRegistry::new());
+        let handler: wf_tools::executor::stateless::StatelessHandler = Arc::new(
+            move |_p: &Value, _c: &wf_tools::executor::trait_def::ToolExecutionContext| {
+                Err(wf_tools::error::ToolError::ExecutionFailed {
+                    tool_id: "fail-id".to_string(),
+                    reason: "boom".to_string(),
+                })
+            },
+        );
+        registry.register_tool(Tool {
+            id: "fail-id".to_string(),
+            name: "mock_fail".to_string(),
+            description: "mock failing tool".to_string(),
+            tool_type: wf_types::tool::ToolType::Stateless,
+            parameters: None,
+            metadata: Some(wf_types::tool::ToolMetadata {
+                category: Some("mock".to_string()),
+                tags: None,
+                documentation_url: None,
+                custom_fields: None,
+                risk_level: Some(ToolRiskLevel::Write),
+                auto_approvable: None,
+                create_checkpoint: None,
+            }),
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: Some(5000),
+        });
+        registry.register_stateless_handler("fail-id", handler);
+        registry
+    }
+
+    #[tokio::test]
+    async fn test_failure_protection_blocks_after_consecutive_failures() {
+        let registry = mock_failing_registry();
+        let protection = Arc::new(ToolFailureProtectionState::new(
+            wf_tools::failure_protection::ToolFailureProtectionConfig {
+                max_consecutive_failures: 2,
+                cooldown_period: Duration::from_secs(60),
+                enabled: true,
+            },
+        ));
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_failure_protection(Some(protection.clone()));
+        let entity = make_entity();
+
+        // First two executions are allowed and record failures.
+        for _ in 0..2 {
+            let messages = coordinator
+                .execute_tool_calls(&entity, &[make_tool_call("tc-x", "mock_fail")])
+                .await
+                .expect("execution must not fail");
+            assert_eq!(messages.len(), 1);
+        }
+        assert!(protection.is_blocked("mock_fail"));
+
+        // The third execution is blocked by the protection gate.
+        let messages = coordinator
+            .execute_tool_calls(&entity, &[make_tool_call("tc-y", "mock_fail")])
+            .await
+            .expect("blocked execution must not fail");
+        assert_eq!(messages.len(), 1);
+        assert!(text_of(&messages[0]).contains("blocked"));
+    }
+
+    struct CountingCheckpointHandler {
+        before: Arc<AtomicU32>,
+        after: Arc<AtomicU32>,
+    }
+
+    #[async_trait]
+    impl ToolCheckpointHandler for CountingCheckpointHandler {
+        async fn create_checkpoint(&self, _execution_id: &str, reason: &str) -> AgentResult<()> {
+            if reason.starts_with("before") {
+                self.before.fetch_add(1, Ordering::SeqCst);
+            } else {
+                self.after.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_checkpoint_before_and_after() {
+        let executed = Arc::new(AtomicU32::new(0));
+        let registry = mock_tool_registry(&executed);
+        let mut tool = registry.get_tool("tool-1").unwrap();
+        tool.metadata.as_mut().unwrap().create_checkpoint = Some(CheckpointTiming::Both);
+        registry.register_tool(tool);
+
+        let before = Arc::new(AtomicU32::new(0));
+        let after = Arc::new(AtomicU32::new(0));
+        let handler = Arc::new(CountingCheckpointHandler {
+            before: before.clone(),
+            after: after.clone(),
+        });
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_checkpoint_handler(Some(handler));
+        let entity = make_entity();
+
+        let messages = coordinator
+            .execute_tool_calls(&entity, &[make_tool_call("tc-1", "mock_write")])
+            .await
+            .expect("checkpoint-enabled execution must succeed");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(executed.load(Ordering::SeqCst), 1);
+        assert_eq!(before.load(Ordering::SeqCst), 1);
+        assert_eq!(after.load(Ordering::SeqCst), 1);
+    }
+
+    fn mock_mixed_registry() -> Arc<ToolRegistry> {
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_tool(Tool {
+            id: "fail-id".to_string(),
+            name: "mock_fail".to_string(),
+            description: "mock failing tool".to_string(),
+            tool_type: wf_types::tool::ToolType::Stateless,
+            parameters: None,
+            metadata: Some(wf_types::tool::ToolMetadata {
+                category: Some("mock".to_string()),
+                tags: None,
+                documentation_url: None,
+                custom_fields: None,
+                risk_level: Some(ToolRiskLevel::Write),
+                auto_approvable: None,
+                create_checkpoint: None,
+            }),
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: Some(5000),
+        });
+        registry.register_stateless_handler(
+            "fail-id",
+            Arc::new(
+                move |_p: &Value, _c: &wf_tools::executor::trait_def::ToolExecutionContext| {
+                    Err(wf_tools::error::ToolError::ExecutionFailed {
+                        tool_id: "fail-id".to_string(),
+                        reason: "boom".to_string(),
+                    })
+                },
+            ),
+        );
+        registry.register_tool(Tool {
+            id: "slow-id".to_string(),
+            name: "mock_slow".to_string(),
+            description: "slow mock tool".to_string(),
+            tool_type: wf_types::tool::ToolType::Stateless,
+            parameters: None,
+            metadata: Some(wf_types::tool::ToolMetadata {
+                category: Some("mock".to_string()),
+                tags: None,
+                documentation_url: None,
+                custom_fields: None,
+                risk_level: Some(ToolRiskLevel::ReadOnly),
+                auto_approvable: None,
+                create_checkpoint: None,
+            }),
+            config: None,
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: Some(5000),
+        });
+        registry.register_stateless_async_handler(
+            "slow-id",
+            Arc::new(
+                |_p: Value, _c: wf_tools::executor::trait_def::ToolExecutionContext| {
+                    Box::pin(async move {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        Ok(Value::from("tool-result-ok"))
+                    })
+                },
+            ),
+        );
+        registry
+    }
+
+    #[tokio::test]
+    async fn test_parallel_cancel_on_failure_aborts_batch() {
+        let registry = mock_mixed_registry();
+        let coordinator = ToolExecutionCoordinator::new(registry, Arc::new(HookExecutor::new()))
+            .with_mode(ToolExecutionMode::Parallel)
+            .with_cancel_on_failure(true);
+        let entity = make_entity();
+
+        let messages = coordinator
+            .execute_tool_calls(
+                &entity,
+                &[
+                    make_tool_call("tc-fail", "mock_fail"),
+                    make_tool_call("tc-slow", "mock_slow"),
+                ],
+            )
+            .await
+            .expect("parallel execution must not fail");
+
+        assert_eq!(messages.len(), 2);
+        let texts: Vec<String> = messages.iter().map(text_of).collect();
+        assert!(
+            texts.iter().any(|t| t.contains("boom")),
+            "failing tool must surface its error: {:?}",
+            texts
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("did not complete")),
+            "aborted tool must be reported: {:?}",
+            texts
+        );
     }
 }

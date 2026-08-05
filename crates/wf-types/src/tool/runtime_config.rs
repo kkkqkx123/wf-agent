@@ -36,6 +36,10 @@ pub struct RestToolConfig {
     pub max_retries: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_delay: Option<u64>,
+    /// Default HTTP method applied when the call parameters do not provide
+    /// one. The method can always be overridden per call via `parameters.method`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

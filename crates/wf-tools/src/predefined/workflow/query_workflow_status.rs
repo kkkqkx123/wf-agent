@@ -2,13 +2,15 @@
 //! is handled by the BuiltinExecutor through the registered
 //! ExecutionCallback.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static QUERY_WORKFLOW_STATUS: ToolDefinition = ToolDefinition {
     id: "query_workflow_status",
     tool_type: ToolType::BuiltIn,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "workflow",
     tags: &["query", "status"],
     description: "Query the status of a running or completed workflow.",

@@ -397,8 +397,8 @@ fn flush_interval(config: &MetricsConfig) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::config::storage::{StorageConfig, StorageType};
     use wf_metrics::MetricType;
+    use wf_types::config::storage::{StorageConfig, StorageType};
 
     #[test]
     fn flush_interval_uses_smallest_collector_interval() {

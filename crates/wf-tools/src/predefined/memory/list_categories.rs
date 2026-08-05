@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::ToolResult;
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static LIST_CATEGORIES: ToolDefinition = ToolDefinition {
     id: "list_categories",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::ReadOnly,
+    create_checkpoint: None,
     category: "memory",
     tags: &["category"],
     description: "List all note categories with note counts.",

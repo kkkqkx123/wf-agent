@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static MEMORY_FORGET: ToolDefinition = ToolDefinition {
     id: "memory_forget",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::Write,
+    create_checkpoint: None,
     category: "memory",
     tags: &["forget"],
     description: "Remove a specific piece of information from long-term memory.",

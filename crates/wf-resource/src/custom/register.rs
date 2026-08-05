@@ -23,8 +23,7 @@ fn now_ts() -> i64 {
 }
 
 fn validate_tool(tool: &CustomToolDefinition) -> Result<(), String> {
-    wf_config::validator::validate_required(&tool.id, "tool.id")
-        .map_err(|e| e.to_string())?;
+    wf_config::validator::validate_required(&tool.id, "tool.id").map_err(|e| e.to_string())?;
     wf_config::validator::validate_required(&tool.description, "tool.description")
         .map_err(|e| e.to_string())
 }
@@ -100,6 +99,7 @@ pub fn register_custom_tools(
                     custom_fields: Some(map),
                     risk_level: None,
                     auto_approvable: None,
+                    create_checkpoint: None,
                 }
             }),
             config: None,

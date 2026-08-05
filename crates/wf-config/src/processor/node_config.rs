@@ -77,7 +77,11 @@ fn field_not_in(
     ))
 }
 
-fn validate_llm_node(node_id: &str, node_type: &str, config: Option<&Value>) -> Vec<NodeConfigIssue> {
+fn validate_llm_node(
+    node_id: &str,
+    node_type: &str,
+    config: Option<&Value>,
+) -> Vec<NodeConfigIssue> {
     let mut errors = Vec::new();
     if let Some(config) = config.and_then(|c| c.as_object()) {
         let config = Value::Object(config.clone());
@@ -169,11 +173,17 @@ fn validate_route_node(
     match config.get("conditions").and_then(|v| v.as_array()) {
         Some(arr) if arr.is_empty() => errors.push(NodeConfigIssue::new(
             field_path(node_id, "conditions"),
-            format!("ROUTE node '{}' must define a non-empty conditions array", node_id),
+            format!(
+                "ROUTE node '{}' must define a non-empty conditions array",
+                node_id
+            ),
         )),
         None => errors.push(NodeConfigIssue::new(
             field_path(node_id, "conditions"),
-            format!("ROUTE node '{}' must define a non-empty conditions array", node_id),
+            format!(
+                "ROUTE node '{}' must define a non-empty conditions array",
+                node_id
+            ),
         )),
         Some(conditions) => {
             for (idx, condition) in conditions.iter().enumerate() {
@@ -225,11 +235,17 @@ fn validate_fork_node(
     match config.get("fork_paths").and_then(|v| v.as_array()) {
         Some(arr) if arr.is_empty() => errors.push(NodeConfigIssue::new(
             field_path(node_id, "fork_paths"),
-            format!("FORK node '{}' must define a non-empty fork_paths array", node_id),
+            format!(
+                "FORK node '{}' must define a non-empty fork_paths array",
+                node_id
+            ),
         )),
         None => errors.push(NodeConfigIssue::new(
             field_path(node_id, "fork_paths"),
-            format!("FORK node '{}' must define a non-empty fork_paths array", node_id),
+            format!(
+                "FORK node '{}' must define a non-empty fork_paths array",
+                node_id
+            ),
         )),
         Some(paths) => {
             for (idx, path) in paths.iter().enumerate() {
@@ -252,8 +268,13 @@ fn validate_fork_node(
         }
     }
 
-    if let Some(err) = field_not_in(node_id, node_type, &config, "fork_strategy", &["serial", "parallel"])
-    {
+    if let Some(err) = field_not_in(
+        node_id,
+        node_type,
+        &config,
+        "fork_strategy",
+        &["serial", "parallel"],
+    ) {
         errors.push(err);
     }
     errors
@@ -450,7 +471,10 @@ fn validate_agent_loop_node(
         .get("agent_loop_id")
         .and_then(|v| v.as_str())
         .is_some_and(|s| !s.is_empty());
-    let has_inline = config.get("inline_definition").filter(|v| !v.is_null()).is_some();
+    let has_inline = config
+        .get("inline_definition")
+        .filter(|v| !v.is_null())
+        .is_some();
     if !has_loop_id && !has_inline {
         errors.push(NodeConfigIssue::new(
             format!("nodes.{}.config", node_id),
@@ -523,12 +547,13 @@ mod tests {
         );
         assert!(ok.is_empty());
 
-        let camel = validate_node_config(
-            "LLM",
-            "n1",
-            Some(&serde_json::json!({"profileId": "mock"})),
+        let camel =
+            validate_node_config("LLM", "n1", Some(&serde_json::json!({"profileId": "mock"})));
+        assert_eq!(
+            camel.len(),
+            1,
+            "camelCase profileId is not a canonical config"
         );
-        assert_eq!(camel.len(), 1, "camelCase profileId is not a canonical config");
     }
 
     #[test]
@@ -546,7 +571,9 @@ mod tests {
         let errors = validate_node_config(
             "VARIABLE",
             "n1",
-            Some(&serde_json::json!({"variable_name": "x", "expression": "1", "variable_type": "nope"})),
+            Some(
+                &serde_json::json!({"variable_name": "x", "expression": "1", "variable_type": "nope"}),
+            ),
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("invalid value"));
@@ -589,14 +616,12 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("child_node_id"));
 
-        assert!(
-            validate_node_config(
-                "FORK",
-                "f",
-                Some(&serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "n1"}]})),
-            )
-            .is_empty()
-        );
+        assert!(validate_node_config(
+            "FORK",
+            "f",
+            Some(&serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "n1"}]})),
+        )
+        .is_empty());
     }
 
     #[test]
@@ -704,7 +729,11 @@ mod tests {
             "a",
             Some(&serde_json::json!({"model": "mock"})),
         );
-        assert_eq!(errors.len(), 1, "top-level model is not a canonical AGENT_LOOP config");
+        assert_eq!(
+            errors.len(),
+            1,
+            "top-level model is not a canonical AGENT_LOOP config"
+        );
     }
 
     #[test]
@@ -744,7 +773,11 @@ mod tests {
     fn validate_all_collects_from_iterator() {
         let nodes: Vec<(&str, &str, Option<Value>)> = vec![
             ("n1", "LLM", Some(serde_json::json!({}))),
-            ("n2", "SCRIPT", Some(serde_json::json!({"script_name": "s", "risk": "medium"}))),
+            (
+                "n2",
+                "SCRIPT",
+                Some(serde_json::json!({"script_name": "s", "risk": "medium"})),
+            ),
         ];
         let tuples: Vec<(&str, &str, Option<&Value>)> = nodes
             .iter()

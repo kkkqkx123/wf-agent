@@ -7,9 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::env::{
-    apply_env_overrides, env_parse_bool, env_parse_int, EnvMappingBuilder, EnvValue,
-};
+use crate::env::{apply_env_overrides, env_parse_bool, env_parse_int, EnvMappingBuilder, EnvValue};
 use crate::error::ConfigResult;
 use crate::layered;
 use crate::processor::infrastructure::{
@@ -73,11 +71,7 @@ fn build_infra_env_mapping() -> HashMap<String, crate::env::EnvMappingEntry> {
             }),
             None,
         )
-        .string(
-            "storage_sqlite_db_path",
-            "WF_STORAGE_SQLITE_DB_PATH",
-            None,
-        )
+        .string("storage_sqlite_db_path", "WF_STORAGE_SQLITE_DB_PATH", None)
         .custom(
             "timeout_default",
             "WF_TIMEOUT_DEFAULT",
@@ -104,7 +98,10 @@ pub struct ConfigOrchestrator;
 
 impl ConfigOrchestrator {
     /// Assemble configuration using default paths.
-    pub fn assemble(project_dir: &Path, overrides: Option<ConfigOverrides>) -> ConfigResult<AssembledConfig> {
+    pub fn assemble(
+        project_dir: &Path,
+        overrides: Option<ConfigOverrides>,
+    ) -> ConfigResult<AssembledConfig> {
         ConfigOrchestratorBuilder::new(project_dir)
             .build()
             .assemble(overrides)

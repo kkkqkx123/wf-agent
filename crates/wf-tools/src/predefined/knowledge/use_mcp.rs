@@ -1,12 +1,14 @@
 //! Definition of the use_mcp tool. Execution is handled by the McpExecutor.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static USE_MCP: ToolDefinition = ToolDefinition {
     id: "use_mcp",
     tool_type: ToolType::Mcp,
+    risk_level: ToolRiskLevel::Mcp,
+    create_checkpoint: None,
     category: "integration",
     tags: &["mcp"],
     description: "Call a tool or access a resource on an MCP (Model Context Protocol) server. Allows extending capabilities dynamically.",

@@ -5,7 +5,10 @@
 //! and the LLM-facing [`ToolDescriptionData`], guaranteeing the two stay in
 //! sync and eliminating duplicated descriptions.
 
-use wf_types::tool::{Tool, ToolMetadata, ToolParameterSchema, ToolProperty, ToolType};
+use wf_types::tool::{
+    CheckpointTiming, Tool, ToolMetadata, ToolParameterSchema, ToolProperty, ToolRiskLevel,
+    ToolType,
+};
 use wf_types::tool_description::{ToolDescriptionData, ToolParameterDescription};
 
 /// A parameter of a tool definition (shared by schema and description).
@@ -35,6 +38,10 @@ pub struct ToolDefinition {
     pub parameters: &'static [ToolParameter],
     pub tips: Option<&'static [&'static str]>,
     pub examples: Option<&'static [&'static str]>,
+    /// Risk classification used by the approval engine.
+    pub risk_level: ToolRiskLevel,
+    /// When to create a checkpoint around execution of this tool.
+    pub create_checkpoint: Option<CheckpointTiming>,
 }
 
 impl ToolDefinition {
@@ -91,8 +98,9 @@ impl ToolDefinition {
                 tags: Some(self.tags.iter().map(|t| t.to_string()).collect()),
                 documentation_url: None,
                 custom_fields: None,
-                risk_level: None,
+                risk_level: Some(self.risk_level),
                 auto_approvable: None,
+                create_checkpoint: self.create_checkpoint,
             }),
             config: None,
             enabled: Some(true),

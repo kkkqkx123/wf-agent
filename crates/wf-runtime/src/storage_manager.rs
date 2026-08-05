@@ -251,7 +251,10 @@ mod tests {
     #[test]
     fn test_storage_config_default() {
         let config = memory_config();
-        assert_eq!(config.storage_type, wf_types::config::storage::StorageType::Memory);
+        assert_eq!(
+            config.storage_type,
+            wf_types::config::storage::StorageType::Memory
+        );
         assert!(config.sqlite.is_none());
         assert!(config.postgres.is_none());
     }

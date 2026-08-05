@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static BACKEND_SHELL: ToolDefinition = ToolDefinition {
     id: "backend_shell",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::Execute,
+    create_checkpoint: None,
     category: "shell",
     tags: &["backend", "shell"],
     description: "Start a long-running shell command in the background. Returns a session_id for subsequent operations with shell_output and shell_kill.",

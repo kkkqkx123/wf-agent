@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::error::{ToolError, ToolResult};
 use crate::executor::StatefulInstance;
@@ -14,6 +14,8 @@ use crate::registry::ToolRegistry;
 pub static RECORD_NOTE: ToolDefinition = ToolDefinition {
     id: "record_note",
     tool_type: ToolType::Stateful,
+    risk_level: ToolRiskLevel::Write,
+    create_checkpoint: None,
     category: "memory",
     tags: &["note", "session"],
     description: "Record a note in memory with an optional category. Notes can be recalled later within the same execution.",

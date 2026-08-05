@@ -1,13 +1,15 @@
 //! Definition of the call_agent tool (builtin type). Execution is handled
 //! by the BuiltinExecutor through the registered ExecutionCallback.
 
-use wf_types::tool::ToolType;
+use wf_types::tool::{ToolRiskLevel, ToolType};
 
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
 
 pub static CALL_AGENT: ToolDefinition = ToolDefinition {
     id: "call_agent",
     tool_type: ToolType::BuiltIn,
+    risk_level: ToolRiskLevel::System,
+    create_checkpoint: None,
     category: "agent",
     tags: &["call"],
     description:

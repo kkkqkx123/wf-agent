@@ -310,8 +310,7 @@ impl SandboxRuntime {
                 );
                 return self.failed_result(language, &mode, e, None);
             }
-            let chain_ids: Vec<String> =
-                chain.iter().map(|s| s.id().to_string()).collect();
+            let chain_ids: Vec<String> = chain.iter().map(|s| s.id().to_string()).collect();
             let warning = format!(
                 "WARNING: analysis gate skipped via skip_gate_check=true; chain {chain_ids:?} \
                  has no Analysis strategy, command-level policy is NOT enforced"
@@ -366,10 +365,7 @@ impl SandboxRuntime {
                         &format!("sandbox-{language}"),
                         Some(format!(
                             "VFS enabled: auto-injected 'vfs-gate' into chain {:?}",
-                            chain
-                                .iter()
-                                .map(|s| s.id().to_string())
-                                .collect::<Vec<_>>()
+                            chain.iter().map(|s| s.id().to_string()).collect::<Vec<_>>()
                         )),
                         Some("vfs-gate".to_string()),
                         true,
@@ -1079,7 +1075,10 @@ mod tests {
             result.error
         );
         assert!(
-            result.error.unwrap_or_default().contains("after an Execution"),
+            result
+                .error
+                .unwrap_or_default()
+                .contains("after an Execution"),
             "error should explain the shape violation"
         );
     }
@@ -1108,10 +1107,11 @@ mod tests {
 
         let log = runtime.get_audit_log();
         assert!(
-            log.iter().any(|e| e.event_type == AuditEventType::StrategyFallback
-                && e.violation
-                    .as_deref()
-                    .is_some_and(|v| v.contains("skip_gate_check"))),
+            log.iter()
+                .any(|e| e.event_type == AuditEventType::StrategyFallback
+                    && e.violation
+                        .as_deref()
+                        .is_some_and(|v| v.contains("skip_gate_check"))),
             "exemption must be audited: {log:?}"
         );
     }
@@ -1178,10 +1178,7 @@ mod tests {
             Ok(_) => panic!("rule referencing an unknown profile must fail at construction"),
             Err(e) => e,
         };
-        assert!(
-            err.to_string().contains("unknown profile"),
-            "error: {err}"
-        );
+        assert!(err.to_string().contains("unknown profile"), "error: {err}");
     }
 
     #[tokio::test]
@@ -1191,10 +1188,7 @@ mod tests {
         let runtime = SandboxRuntime::new();
         let tmp = std::env::temp_dir();
         let mut env = HashMap::new();
-        env.insert(
-            "WF_SANDBOX_TEST".to_string(),
-            "hello-from-env".to_string(),
-        );
+        env.insert("WF_SANDBOX_TEST".to_string(), "hello-from-env".to_string());
         let config = SandboxConfig {
             python_strategy: Some(vec!["direct".to_string()]),
             skip_gate_check: Some(true),
@@ -1248,8 +1242,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_lenient_execution_falls_back_on_strategy_failure() {
-        use async_trait::async_trait;
         use crate::StrategyImplementation;
+        use async_trait::async_trait;
 
         struct FailingStrategy;
 
@@ -1274,7 +1268,8 @@ mod tests {
                 &self,
                 _options: StrategyExecuteOptions,
                 _policy: &SandboxPolicy,
-            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>>
+            {
                 Err("mock sandbox failure".into())
             }
         }
@@ -1302,7 +1297,8 @@ mod tests {
                 &self,
                 _options: StrategyExecuteOptions,
                 _policy: &SandboxPolicy,
-            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+            ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>>
+            {
                 Ok(ScriptExecutionResult {
                     success: true,
                     script_name: "sandbox-python".to_string(),

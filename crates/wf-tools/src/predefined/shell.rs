@@ -110,4 +110,110 @@ mod tests {
         assert!(killed.success);
         assert_eq!(killed.result.unwrap()["killed"], serde_json::json!(true));
     }
+
+    #[tokio::test]
+    async fn test_shell_output_incremental_read() {
+        let registry = ToolRegistry::new();
+        register(&registry, &ShellToolConfig::default()).unwrap();
+        registry.register_tool(BACKEND_SHELL.tool_def());
+        registry.register_tool(SHELL_OUTPUT.tool_def());
+        registry.register_tool(SHELL_KILL.tool_def());
+
+        let ctx = ToolExecutionContext::new("exec-1".into());
+        let options = wf_types::tool::ToolExecutionOptions {
+            timeout: None,
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+
+        let backend = registry
+            .execute_tool(
+                "backend_shell",
+                &serde_json::json!({ "command": "printf 'first\\n'; sleep 0.2; printf 'second\\n'" }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let session_id = backend
+            .result
+            .unwrap()
+            .get("session_id")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap();
+
+        // Allow the first chunk to be captured before the incremental read.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let out1 = registry
+            .execute_tool(
+                "shell_output",
+                &serde_json::json!({ "session_id": session_id, "all": false }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let new1 = out1
+            .result
+            .unwrap()
+            .get("new_output")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        assert!(
+            new1.contains("first"),
+            "first read should contain 'first': {}",
+            new1
+        );
+
+        // Wait for the second chunk, then read incrementally again.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let out2 = registry
+            .execute_tool(
+                "shell_output",
+                &serde_json::json!({ "session_id": session_id, "all": false }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let new2 = out2
+            .result
+            .unwrap()
+            .get("new_output")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        assert!(
+            new2.contains("second"),
+            "second read should contain 'second': {}",
+            new2
+        );
+
+        // A full read returns everything seen so far.
+        let full = registry
+            .execute_tool(
+                "shell_output",
+                &serde_json::json!({ "session_id": session_id }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let full_text = full
+            .result
+            .unwrap()
+            .get("output")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default();
+        assert!(full_text.contains("first") && full_text.contains("second"));
+
+        let _ = registry
+            .execute_tool(
+                "shell_kill",
+                &serde_json::json!({ "session_id": session_id }),
+                &options,
+                &ctx,
+            )
+            .await;
+    }
 }

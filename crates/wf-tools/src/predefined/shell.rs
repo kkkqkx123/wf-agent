@@ -72,6 +72,33 @@ mod tests {
     use wf_shell::event_sink::ShellEventSink;
 
     #[tokio::test]
+    async fn test_backend_shell_denied_command_rejected() {
+        let config = ShellToolConfig {
+            denied_commands: Some(vec!["danger".into()]),
+            ..Default::default()
+        };
+        let registry = shell_registry(&config);
+        let ctx = ToolExecutionContext::new("exec-denied".into());
+        let options = make_options();
+        let result = registry
+            .execute_tool(
+                "backend_shell",
+                &serde_json::json!({ "command": "danger --all" }),
+                &options,
+                &ctx,
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("rejected by shell policy"),
+            "backend_shell must honor the deny policy at the spawn entry"
+        );
+    }
+
+    #[tokio::test]
     async fn test_backend_shell_lifecycle() {
         let registry = ToolRegistry::new();
         register(&registry, &ShellToolConfig::default()).unwrap();
@@ -878,7 +905,6 @@ mod tests {
         let registry = Arc::new(shell_registry(&ShellToolConfig::default()));
         let ctx = ToolExecutionContext::new("exec-session-busy".into());
         let options = make_options();
-
         let created = registry
             .execute_tool(
                 "get_or_create_shell",
@@ -950,6 +976,69 @@ mod tests {
         );
 
         handle.join().unwrap();
+        let _ = registry
+            .execute_tool(
+                "shell_kill",
+                &serde_json::json!({ "session_id": session_id }),
+                &options,
+                &ctx,
+            )
+            .await;
+    }
+
+    /// A long blocking `execute_in_session` must not occupy a tokio worker
+    /// thread: an async timer scheduled concurrently fires well before the
+    /// blocking command finishes (the call runs on the tokio blocking pool).
+    #[tokio::test]
+    async fn test_execute_in_session_does_not_occupy_worker() {
+        std::fs::create_dir_all("/tmp/session-worker").unwrap();
+        let registry = Arc::new(shell_registry(&ShellToolConfig::default()));
+        let ctx = ToolExecutionContext::new("exec-worker".into());
+        let options = make_options();
+
+        let created = registry
+            .execute_tool(
+                "get_or_create_shell",
+                &serde_json::json!({ "cwd": "/tmp/session-worker" }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let session_id = created.result.unwrap()["session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let busy_registry = registry.clone();
+        let busy_ctx = ToolExecutionContext::new("exec-worker".into());
+        let busy_options = make_options();
+        let sid = session_id.clone();
+        let start = std::time::Instant::now();
+        let handle = tokio::spawn(async move {
+            busy_registry
+                .execute_tool(
+                    "execute_in_session",
+                    &serde_json::json!({ "session_id": sid, "command": "sleep 2", "timeout": 10000 }),
+                    &busy_options,
+                    &busy_ctx,
+                )
+                .await
+                .unwrap()
+        });
+
+        // A timer must fire while the blocking command is still running; if
+        // `execute_in_session` had blocked a worker thread this would wait
+        // until the command finished (~2s).
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(1000),
+            "tokio worker was occupied: {:?}",
+            start.elapsed()
+        );
+
+        let result = handle.await.unwrap();
+        assert_eq!(result.result.unwrap()["success"], serde_json::json!(true));
         let _ = registry
             .execute_tool(
                 "shell_kill",
@@ -1145,7 +1234,21 @@ mod tests {
             )
             .await;
 
-        let events = sink.events.lock().unwrap().clone();
+        // Events are delivered on a background dispatch thread; wait for the
+        // terminated event (queued after kill) to arrive, which implies the
+        // rest have been flushed by the execute_in_session path.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let events = loop {
+            let events = sink.events.lock().unwrap().clone();
+            if events
+                .iter()
+                .any(|e| e.starts_with(&format!("terminated:{}:{}", session_id, "exec-events")))
+                || std::time::Instant::now() >= deadline
+            {
+                break events;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
         assert!(
             events
                 .iter()

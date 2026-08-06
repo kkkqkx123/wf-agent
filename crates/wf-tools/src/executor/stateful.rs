@@ -22,7 +22,7 @@ pub type InstanceFactory = Arc<dyn Fn(&str) -> Box<dyn StatefulInstance> + Send 
 pub struct StatefulExecutor {
     storage: DashMap<String, DashMap<String, Value>>,
     factories: Arc<DashMap<String, InstanceFactory>>,
-    instances: DashMap<String, DashMap<String, Box<dyn StatefulInstance>>>,
+    instances: DashMap<String, DashMap<String, Arc<dyn StatefulInstance>>>,
 }
 
 impl StatefulExecutor {
@@ -66,7 +66,7 @@ impl StatefulExecutor {
         self.instances
             .entry(execution_id.to_string())
             .or_default()
-            .insert(tool_id.to_string(), instance);
+            .insert(tool_id.to_string(), Arc::from(instance));
         Ok(())
     }
 
@@ -143,24 +143,42 @@ impl ToolExecutor for StatefulExecutor {
         let exec_id = &context.execution_id;
 
         if let Some(factory) = self.factories.get(&tool_id) {
-            let exec = self.instances.entry(exec_id.to_string()).or_default();
-            if !exec.contains_key(&tool_id) {
-                exec.insert(tool_id.clone(), factory(exec_id));
+            let exec_id_owned = exec_id.to_string();
+            {
+                let exec = self.instances.entry(exec_id_owned.clone()).or_default();
+                if !exec.contains_key(&tool_id) {
+                    exec.insert(tool_id.clone(), Arc::from(factory(exec_id)));
+                }
             }
             drop(factory);
-            if let Some(instance) = exec.get(&tool_id) {
-                let result = instance.execute(parameters)?;
-                let execution_time = start.elapsed().as_millis() as i64;
-                return Ok(BaseExecutor::build_result(
-                    true,
-                    Some(result),
-                    None,
-                    execution_time,
-                    0,
-                ));
-            }
-            return Err(ToolError::Internal(
-                "Failed to create stateful instance".into(),
+            let instance = {
+                let Some(exec) = self.instances.get(&exec_id_owned) else {
+                    return Err(ToolError::Internal(
+                        "Failed to create stateful instance".into(),
+                    ));
+                };
+                let Some(instance) = exec.get(&tool_id) else {
+                    return Err(ToolError::Internal(
+                        "Failed to create stateful instance".into(),
+                    ));
+                };
+                Arc::clone(instance.value())
+            };
+            // Stateful handlers may block for a long time (e.g.
+            // `execute_in_session` waits for a command to finish). Run them on
+            // the tokio blocking pool so a tokio worker thread is never
+            // occupied for the duration of the call.
+            let params = parameters.clone();
+            let result = tokio::task::spawn_blocking(move || instance.execute(&params))
+                .await
+                .map_err(|e| ToolError::Internal(format!("Stateful tool task failed: {}", e)))??;
+            let execution_time = start.elapsed().as_millis() as i64;
+            return Ok(BaseExecutor::build_result(
+                true,
+                Some(result),
+                None,
+                execution_time,
+                0,
             ));
         }
 

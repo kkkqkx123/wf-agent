@@ -1096,8 +1096,11 @@ mod tests {
             .unwrap();
         assert!(result.success);
 
+        // The created event is delivered on a background dispatch thread;
+        // poll until it arrives.
         let mut saw_created = false;
-        for _ in 0..16 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while std::time::Instant::now() < deadline {
             match sub.try_recv() {
                 Ok(event) => {
                     if event.r#type == wf_types::events::EventType::ShellSessionCreated {
@@ -1109,7 +1112,7 @@ mod tests {
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
             }
         }
         assert!(

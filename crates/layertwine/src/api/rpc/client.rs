@@ -27,12 +27,12 @@ use super::layertwine_proto::{
     AgentEditRequest, AgentSubmitRequest, ApproveRequest, BackupRequest, BranchCreateRequest,
     BranchListResponse, BranchSwitchRequest, CheckpointDiffRequest, CheckpointDiffResponse,
     CheckpointRestoreRequest, CheckpointRestoreResponse, CommitRequest, EditRequest, EditResponse,
-    Empty, InitRequest, InitResponse, LogRequest, LogResponse, RestoreRequest, StatusResponse,
+    Empty, InitResponse, LogRequest, LogResponse, RestoreRequest, StatusResponse,
 };
 
 pub use super::layertwine_proto::{
     AgentSubmitRequest as AgentSubmit, CheckpointRestoreByTimeRequest,
-    CheckpointRestoreRequest as CheckpointRestore,
+    CheckpointRestoreRequest as CheckpointRestore, InitRequest,
 };
 
 /// Error returned by the Layertwine gRPC client.

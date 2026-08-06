@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use wf_types::interaction::tool_approval::{ToolApprovalRequestData, ToolApprovalResponseData};
-use wf_types::tool::approval::{SecurityPreset, ToolApprovalOptions, ToolApprovalResult};
+use wf_types::tool::approval::{
+    CommandApprovalSettings, SecurityPreset, ToolApprovalOptions, ToolApprovalResult,
+};
 use wf_types::tool::file_permission::{
     is_operation_allowed, FileOperationType, FilePermissionSettings,
 };
@@ -10,7 +12,8 @@ use wf_types::tool::mcp_approval::{
 };
 use wf_types::tool::ToolRiskLevel;
 
-use wf_shell::command_safety::{get_command_decision, CommandDecision};
+use wf_shell::command_safety::{CommandDecision, CommandPolicy};
+use wf_shell::config::ShellToolConfig;
 
 #[derive(Debug, Clone)]
 pub struct ToolBatch {
@@ -292,6 +295,10 @@ fn handle_execute_command_approval(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
+    // Reuse the engine-level CommandPolicy instead of re-implementing the
+    // decision here: when the approval layer derives its command settings from
+    // the same ShellToolConfig (see command_approval_settings_from_shell),
+    // both layers always agree.
     let allowed = options
         .command
         .as_ref()
@@ -301,13 +308,24 @@ fn handle_execute_command_approval(
         .command
         .as_ref()
         .and_then(|c| c.denied_commands.clone());
+    let policy = CommandPolicy::new(allowed, denied);
 
-    match get_command_decision(command, &allowed, denied.as_deref()) {
+    match policy.decision(command) {
         CommandDecision::AutoApprove => ApprovalDecision::Approve,
         CommandDecision::AutoDeny => {
             ApprovalDecision::Deny("Command is in denylist or not in allowlist".to_string())
         }
         CommandDecision::AskUser => ApprovalDecision::Ask,
+    }
+}
+
+/// Derive the command approval settings for [`ToolApprovalOptions`] from a
+/// [`ShellToolConfig`], so the approval layer and the engine baseline share
+/// the same allow/deny lists (single config source, no double-source drift).
+pub fn command_approval_settings_from_shell(config: &ShellToolConfig) -> CommandApprovalSettings {
+    CommandApprovalSettings {
+        allowed_commands: Some(config.allowed_commands.clone()),
+        denied_commands: config.denied_commands.clone(),
     }
 }
 
@@ -512,6 +530,7 @@ pub enum ApprovalDecision {
 mod tests {
     use super::*;
     use serde_json::json;
+    use wf_types::tool::approval::ApprovalCategories;
 
     fn make_request(id: &str, name: &str, risk: Option<&str>) -> ToolApprovalRequestData {
         ToolApprovalRequestData {
@@ -527,6 +546,109 @@ mod tests {
             timeout: None,
             security_preset: None,
         }
+    }
+
+    fn make_execute_request(id: &str, command: &str) -> ToolApprovalRequestData {
+        ToolApprovalRequestData {
+            tool_call_id: id.into(),
+            tool_name: "shell_execute".into(),
+            tool_description: None,
+            parameters: json!({ "command": command }),
+            risk_level: Some("execute".into()),
+            pending_queue: None,
+            batch_id: None,
+            tool_index: None,
+            total_tools: None,
+            timeout: None,
+            security_preset: None,
+        }
+    }
+
+    fn execute_approval_options(command: Option<CommandApprovalSettings>) -> ToolApprovalOptions {
+        ToolApprovalOptions {
+            auto_approval_enabled: Some(true),
+            security_preset: Some(SecurityPreset::Balanced),
+            risk_threshold: None,
+            auto_approve_patterns: None,
+            categories: Some(ApprovalCategories {
+                always_allow_read_only: None,
+                always_allow_write: None,
+                always_allow_execute: Some(true),
+                always_allow_mcp: None,
+                always_allow_network: None,
+                always_allow_interaction: None,
+            }),
+            workspace_boundary: None,
+            file_permissions: None,
+            command,
+            mcp: None,
+            network: None,
+            interaction: None,
+            allow_write_protected: None,
+        }
+    }
+
+    #[test]
+    fn test_engine_and_approval_command_policy_agree_from_same_source() {
+        // One ShellToolConfig drives both the engine baseline (CommandPolicy)
+        // and the approval layer (ToolApprovalOptions.command); their decisions
+        // must agree for every command.
+        let shell = ShellToolConfig {
+            allowed_commands: vec!["git".into(), "echo".into()],
+            denied_commands: Some(vec!["rm".into()]),
+            ..Default::default()
+        };
+        let engine = CommandPolicy::from_config(&shell);
+        let settings = command_approval_settings_from_shell(&shell);
+        let approval = CommandPolicy::new(
+            settings.allowed_commands.clone().unwrap_or_default(),
+            settings.denied_commands.clone(),
+        );
+
+        for cmd in [
+            "echo hi",
+            "git status",
+            "git checkout main && rm -rf /",
+            "rm -rf /",
+            "some unknown tool",
+        ] {
+            assert_eq!(
+                engine.decision(cmd),
+                approval.decision(cmd),
+                "engine and approval policies diverged for: {}",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn test_execute_approval_reuses_engine_policy_from_same_source() {
+        let shell = ShellToolConfig {
+            allowed_commands: vec!["echo".into()],
+            denied_commands: Some(vec!["rm".into()]),
+            ..Default::default()
+        };
+        let coordinator = ToolApprovalCoordinator::new(execute_approval_options(Some(
+            command_approval_settings_from_shell(&shell),
+        )));
+
+        let batch = coordinator.process_batch(vec![
+            make_execute_request("t1", "echo hi"),
+            make_execute_request("t2", "rm -rf /"),
+            make_execute_request("t3", "some unknown tool"),
+        ]);
+        assert!(
+            batch.auto_approved.contains(&0),
+            "allowed command must be auto-approved"
+        );
+        assert!(
+            batch.pending.contains(&1),
+            "denied command must not be auto-approved"
+        );
+        assert!(
+            batch.pending.contains(&2),
+            "unknown command must ask the user"
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
 
-use wf_shell::command_safety::{get_command_decision, CommandDecision};
+use wf_shell::command_safety::{CommandDecision, CommandPolicy};
 use wf_shell::config::{ShellToolConfig, DEFAULT_TIMEOUT_MS};
 use wf_shell::runner::run_command;
 
@@ -17,8 +17,12 @@ use crate::executor::trait_def::ToolExecutionContext;
 
 /// Create the async handler for the execute_command tool.
 pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler {
+    // Single policy instance shared across calls so the stateless path uses
+    // the same decision logic as the engine-level spawn baseline.
+    let policy = CommandPolicy::from_config(&config);
     Arc::new(move |parameters: Value, _ctx: ToolExecutionContext| {
         let config = config.clone();
+        let policy = policy.clone();
         Box::pin(async move {
             let command = parameters
                 .get("command")
@@ -32,12 +36,7 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 .to_string();
 
             // Shell policy check: deny is hard, ask/approve proceed at this layer.
-            let decision = get_command_decision(
-                &command,
-                &config.allowed_commands,
-                config.denied_commands.as_deref(),
-            );
-            if decision == CommandDecision::AutoDeny {
+            if policy.decision(&command) == CommandDecision::AutoDeny {
                 return Err(ToolError::ExecutionError(format!(
                     "Command rejected by shell policy: {}",
                     command

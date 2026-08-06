@@ -131,6 +131,71 @@ pub enum CommandDecision {
     AskUser,
 }
 
+/// Immutable allow/deny command policy evaluated at the unified spawn entry.
+///
+/// The policy is the single source of truth for the engine-level command
+/// baseline: `AutoDeny` is hard-rejected at every spawn path, while
+/// `AskUser`/`AutoApprove` proceed (interactive approval is an upper-layer
+/// concern). Upper crates build a policy from the same
+/// [`crate::config::ShellToolConfig`] so the engine baseline and the
+/// approval layer stay consistent.
+#[derive(Debug, Clone)]
+pub struct CommandPolicy {
+    allowed_commands: Vec<String>,
+    denied_commands: Option<Vec<String>>,
+}
+
+impl CommandPolicy {
+    pub fn new(allowed_commands: Vec<String>, denied_commands: Option<Vec<String>>) -> Self {
+        Self {
+            allowed_commands,
+            denied_commands,
+        }
+    }
+
+    /// Default policy: the common development command allowlist and no deny
+    /// list (aligned with the default `ShellToolConfig`).
+    pub fn default_allowed() -> Self {
+        Self::new(
+            crate::config::DEFAULT_ALLOWED_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            None,
+        )
+    }
+
+    /// Build a policy from the shell tool configuration.
+    pub fn from_config(config: &crate::config::ShellToolConfig) -> Self {
+        Self::new(
+            config.allowed_commands.clone(),
+            config.denied_commands.clone(),
+        )
+    }
+
+    pub fn allowed_commands(&self) -> &[String] {
+        &self.allowed_commands
+    }
+
+    pub fn denied_commands(&self) -> Option<&[String]> {
+        self.denied_commands.as_deref()
+    }
+
+    /// Evaluate the command against the policy.
+    pub fn decision(&self, command: &str) -> CommandDecision {
+        get_command_decision(
+            command,
+            &self.allowed_commands,
+            self.denied_commands.as_deref(),
+        )
+    }
+
+    /// Whether the command is hard-rejected by the policy.
+    pub fn is_denied(&self, command: &str) -> bool {
+        self.decision(command) == CommandDecision::AutoDeny
+    }
+}
+
 pub fn get_single_command_decision(
     command: &str,
     allowed_commands: &[String],

@@ -1,9 +1,17 @@
 //! Stateless single-command runner.
+//!
+//! The actual process launch is delegated to [`crate::spawn::run_shell_blocking`]
+//! (the same spawn configuration the session engine uses), so this entry and
+//! the stateful entries never drift on env/cwd/kill semantics. The blocking
+//! execution runs on the tokio blocking pool so a tokio worker thread is
+//! never occupied for the duration of the command.
 
-use tokio::process::Command;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use crate::error::{ShellError, ShellResult};
-use crate::shell_detector::{default_shell_detector, resolve_shell_command, ShellType};
+use crate::shell_detector::ShellType;
+use crate::spawn::run_shell_blocking;
 
 /// Run a single command via the resolved shell, capturing stdout/stderr and
 /// enforcing a timeout. An optional one-shot `input` line is written to stdin
@@ -15,51 +23,22 @@ pub async fn run_command(
     shell_type: Option<ShellType>,
     input: Option<&str>,
 ) -> ShellResult<std::process::Output> {
-    let (shell, shell_args) = resolve_shell_command(default_shell_detector(), shell_type, command);
-    let mut cmd = Command::new(&shell);
-    cmd.args(&shell_args)
-        .current_dir(cwd.unwrap_or("."))
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    if input.is_some() {
-        cmd.stdin(std::process::Stdio::piped());
-    } else {
-        cmd.stdin(std::process::Stdio::null());
-    }
-    let mut child = cmd.spawn().map_err(|e| {
-        ShellError::ExecutionError(format!(
-            "Failed to spawn command with shell '{}': {}",
-            shell, e
-        ))
-    })?;
-
-    if let Some(text) = input {
-        if let Some(mut stdin) = child.stdin.take() {
-            use tokio::io::AsyncWriteExt;
-            let mut bytes = text.as_bytes().to_vec();
-            bytes.push(b'\n');
-            let _ = stdin.write_all(&bytes).await;
-            drop(stdin);
-        }
-    }
-
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        child.wait_with_output(),
-    )
+    let command = command.to_string();
+    let cwd = cwd.map(PathBuf::from);
+    let input = input.map(String::from);
+    let result = tokio::task::spawn_blocking(move || {
+        run_shell_blocking(
+            shell_type,
+            &command,
+            cwd.as_deref(),
+            None,
+            input.as_deref(),
+            Duration::from_millis(timeout_ms),
+        )
+    })
     .await
-    {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(e)) => Err(ShellError::ExecutionError(format!(
-            "Failed to run command: {}",
-            e
-        ))),
-        Err(_) => Err(ShellError::ExecutionError(format!(
-            "Command timed out after {} seconds",
-            timeout_ms / 1000
-        ))),
-    }
+    .map_err(|e| ShellError::ExecutionError(format!("Runner task failed: {}", e)))??;
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -81,5 +60,14 @@ mod tests {
         let result = run_command("sleep 10", None, 200, None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn test_run_command_with_input() {
+        let output = run_command("cat", None, DEFAULT_TIMEOUT_MS, None, Some("runner-input"))
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("runner-input"));
     }
 }

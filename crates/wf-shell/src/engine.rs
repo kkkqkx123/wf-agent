@@ -13,15 +13,20 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::process::{Child, ChildStdin, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::command_safety::{get_command_decision, CommandDecision};
+use crate::command_safety::CommandPolicy;
 use crate::error::{ShellError, ShellResult};
-use crate::event_sink::ShellEventSink;
-use crate::shell_detector::{default_shell_detector, resolve_shell_command, ShellType};
+use crate::event_sink::{EventDispatcher, ShellEvent};
+use crate::shell_detector::ShellType;
+#[cfg(feature = "pty")]
+use crate::shell_detector::{default_shell_detector, resolve_shell_command};
+#[cfg(feature = "pty")]
+use crate::spawn::wait_for_exit;
+use crate::spawn::{build_shell_command, graceful_kill_child};
 
 const MAX_OUTPUT_BYTES: usize = 256_000;
 const MAX_SESSIONS: usize = 64;
@@ -29,6 +34,14 @@ const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
 const DEFAULT_PTY_SIZE: (u16, u16) = (24, 80);
 const DEFAULT_EXECUTE_TIMEOUT_MS: u64 = 120_000;
 const DEFAULT_MAX_TIMEOUT_MS: u64 = 600_000;
+/// Poll interval of the store-level monitor thread that detects process exits
+/// and finalizes busy sessions (push-based completion).
+const COMPLETION_POLL_INTERVAL_MS: u64 = 20;
+/// How long finalization waits for the output readers to drain before
+/// dispatching the completion event, so the event is always ordered after
+/// every output event of the command. Bounded so a descendant holding the
+/// output pipe open cannot stall finalization forever.
+const FINALIZE_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -127,11 +140,26 @@ pub struct GetOrCreateResult {
 
 /// Ring buffer of session output with an incremental read cursor, aligned
 /// with the TS terminal service `getOutput` behaviour.
+///
+/// The buffer keeps the tail of the output once it exceeds
+/// [`MAX_OUTPUT_BYTES`]. All positions are **absolute**: they index the
+/// stream of every byte ever appended (`written`), so a byte offset recorded
+/// before a truncation stays valid afterwards (a window that fell into the
+/// dropped prefix is reported with a truncation marker instead of being
+/// silently empty).
 #[derive(Default)]
 struct OutputBuffer {
+    /// Retained real output (no truncation marker; `text[0]` corresponds to
+    /// the absolute position `trimmed`).
     text: String,
-    /// Byte offset of the next unread output chunk.
-    last_read_index: usize,
+    /// Total bytes ever appended (monotonic).
+    written: usize,
+    /// Bytes dropped from the front by truncation; origin of `text`.
+    trimmed: usize,
+    /// Whether output was dropped; a marker is prepended on reads/snapshots.
+    truncated: bool,
+    /// Absolute position of the next unread output chunk.
+    last_read: usize,
 }
 
 impl OutputBuffer {
@@ -139,63 +167,133 @@ impl OutputBuffer {
         if self.text.len() + chunk.len() > MAX_OUTPUT_BYTES {
             let keep = MAX_OUTPUT_BYTES.saturating_sub(chunk.len() + 64);
             if self.text.len() > keep {
+                // Drop the oldest bytes from the front. The cut is aligned to
+                // a char boundary so `text[..]` never splits a multi-byte
+                // UTF-8 sequence.
                 let cut = self.text.len() - keep;
-                self.text = format!(
-                    "(output truncated, {} bytes omitted)\n{}",
-                    cut,
-                    &self.text[cut..]
-                );
-                // Output was trimmed: reset the cursor to the start so readers
-                // do not miss the truncated prefix.
-                self.last_read_index = 0;
+                let bound = self.text.floor_char_boundary(cut);
+                self.text = self.text[bound..].to_string();
+                self.trimmed += bound;
+                self.truncated = true;
+                // A reader whose cursor fell into the dropped prefix sees the
+                // truncation marker plus the retained content on its next read
+                // (see `read_new`/`peek_new`).
             }
         }
         self.text.push_str(chunk);
+        self.written += chunk.len();
     }
 
     fn snapshot(&self) -> String {
-        self.text.clone()
+        format!("{}{}", self.marker(), self.text)
     }
 
-    /// Current byte length of the buffered text.
-    fn len(&self) -> usize {
-        self.text.len()
+    /// Absolute position of the next byte to be appended (callers record it to
+    /// delimit the output produced by a single command).
+    fn written(&self) -> usize {
+        self.written
     }
 
-    /// Tail of the buffer starting at `start` (empty when the buffer has been
-    /// truncated past that point).
+    /// Truncation marker prepended when some prefix was dropped.
+    fn marker(&self) -> String {
+        if self.truncated {
+            format!("(output truncated, {} bytes omitted)\n", self.trimmed)
+        } else {
+            String::new()
+        }
+    }
+
+    /// Tail of the buffer starting at the absolute position `start`. A start
+    /// that fell into the dropped prefix yields the marker plus the whole
+    /// retained content; a start at/beyond the end yields the empty string.
     fn tail_from(&self, start: usize) -> String {
-        if start >= self.text.len() {
+        if start >= self.written {
             return String::new();
         }
-        self.text[start..].to_string()
+        if start < self.trimmed {
+            return format!("{}{}", self.marker(), self.text);
+        }
+        self.text[start - self.trimmed..].to_string()
     }
 
     /// Return output since the last call and advance the cursor.
     fn read_new(&mut self) -> String {
-        if self.last_read_index >= self.text.len() {
+        if self.last_read >= self.written {
             return String::new();
         }
-        let new = self.text[self.last_read_index..].to_string();
-        self.last_read_index = self.text.len();
+        if self.last_read < self.trimmed {
+            let new = format!("{}{}", self.marker(), self.text);
+            self.last_read = self.written;
+            return new;
+        }
+        let new = self.text[self.last_read - self.trimmed..].to_string();
+        self.last_read = self.written;
         new
     }
 
     /// Output since the cursor, without advancing it.
     fn peek_new(&self) -> String {
-        if self.last_read_index >= self.text.len() {
+        if self.last_read >= self.written {
             return String::new();
         }
-        self.text[self.last_read_index..].to_string()
+        if self.last_read < self.trimmed {
+            return format!("{}{}", self.marker(), self.text);
+        }
+        self.text[self.last_read - self.trimmed..].to_string()
+    }
+}
+
+/// Tracks the number of active output reader threads so a waiter (e.g.
+/// `execute_in_session`) can wait for the session output buffer to be fully
+/// drained after the process has exited.
+#[derive(Default)]
+struct OutputDrain {
+    remaining: AtomicUsize,
+    lock: Mutex<()>,
+    cv: Condvar,
+}
+
+impl OutputDrain {
+    /// Register one output reader thread.
+    fn add_reader(&self) {
+        self.remaining.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Mark one reader as finished (reached EOF). When the last reader
+    /// finishes, waiting threads are woken.
+    fn mark_reader_done(&self) {
+        if self.remaining.fetch_sub(1, Ordering::SeqCst) == 1 {
+            let _guard = self.lock.lock().unwrap();
+            self.cv.notify_all();
+        }
+    }
+
+    /// Block until every reader has drained, or `timeout` elapses. A
+    /// descendant process holding the output pipe open delays EOF past the
+    /// actual exit; the timeout bounds the wait and the caller returns the
+    /// output collected so far.
+    fn wait_drained(&self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        let mut guard = self.lock.lock().unwrap();
+        while self.remaining.load(Ordering::SeqCst) > 0 {
+            let now = Instant::now();
+            if now >= deadline {
+                return;
+            }
+            let (g, _) = self.cv.wait_timeout(guard, deadline - now).unwrap();
+            guard = g;
+        }
     }
 }
 
 /// Splits the raw output stream into lines and forwards complete (non-empty)
-/// lines to the configured [`ShellEventSink`], keeping partial lines across
+/// lines to the session [`EventDispatcher`], keeping partial lines across
 /// chunks. Empty lines are skipped (aligned with the TS terminal service).
+/// Dispatch is a non-blocking queue send, so a slow sink never backpressures
+/// the reader thread this runs on.
 #[derive(Clone)]
 struct OutputLineDispatcher {
-    sink: Option<Arc<dyn ShellEventSink>>,
+    dispatcher: Option<Arc<EventDispatcher>>,
     session_id: String,
     task_id: Arc<Mutex<Option<String>>>,
     pending: String,
@@ -203,12 +301,12 @@ struct OutputLineDispatcher {
 
 impl OutputLineDispatcher {
     fn new(
-        sink: Option<Arc<dyn ShellEventSink>>,
+        dispatcher: Option<Arc<EventDispatcher>>,
         session_id: String,
         task_id: Arc<Mutex<Option<String>>>,
     ) -> Self {
         Self {
-            sink,
+            dispatcher,
             session_id,
             task_id,
             pending: String::new(),
@@ -233,7 +331,7 @@ impl OutputLineDispatcher {
     }
 
     fn dispatch(&self, line: String) {
-        let Some(sink) = self.sink.as_ref() else {
+        let Some(dispatcher) = self.dispatcher.as_ref() else {
             return;
         };
         let trimmed = line.trim_end_matches('\r');
@@ -241,7 +339,76 @@ impl OutputLineDispatcher {
             return;
         }
         let task_id = self.task_id.lock().unwrap().clone();
-        sink.on_output(&self.session_id, task_id.as_deref(), trimmed);
+        dispatcher.send(ShellEvent::Output {
+            session_id: self.session_id.clone(),
+            task_id,
+            line: trimmed.to_string(),
+        });
+    }
+}
+
+/// Decodes raw pipe bytes chunk by chunk while carrying the incomplete tail of
+/// a multi-byte UTF-8 sequence across reads, so a character split at a chunk
+/// boundary is never corrupted by per-chunk lossy decoding (at most 3 bytes
+/// are carried). The PTY path additionally normalizes CRLF on the raw bytes
+/// before decoding, keeping the cross-chunk `\r\n` state here as well.
+struct Utf8ChunkDecoder {
+    carry: Vec<u8>,
+    normalize_crlf: bool,
+    pending_cr: bool,
+}
+
+impl Utf8ChunkDecoder {
+    fn new(normalize_crlf: bool) -> Self {
+        Self {
+            carry: Vec::new(),
+            normalize_crlf,
+            pending_cr: false,
+        }
+    }
+
+    /// Feed a raw chunk; returns the decodable prefix. Incomplete trailing
+    /// UTF-8 bytes (and, on the PTY path, a trailing `\r`) are retained for
+    /// the next call.
+    fn push(&mut self, chunk: &[u8]) -> String {
+        let mut combined = std::mem::take(&mut self.carry);
+        combined.extend_from_slice(chunk);
+        if self.normalize_crlf {
+            combined = normalize_crlf(&combined, &mut self.pending_cr);
+        }
+        match std::str::from_utf8(&combined) {
+            Ok(_) => {
+                self.carry.clear();
+                String::from_utf8_lossy(&combined).into_owned()
+            }
+            Err(e) => match e.error_len() {
+                // Truncated sequence at the very end: keep it for the next
+                // chunk so the split character is decoded intact.
+                None => {
+                    let valid = e.valid_up_to();
+                    let decoded = String::from_utf8_lossy(&combined[..valid]).into_owned();
+                    self.carry = combined[valid..].to_vec();
+                    decoded
+                }
+                // Genuinely invalid byte(s) mid-stream: lossy-decode the whole
+                // batch and drop the carry.
+                Some(_) => {
+                    self.carry.clear();
+                    String::from_utf8_lossy(&combined).into_owned()
+                }
+            },
+        }
+    }
+
+    /// Emit the remaining carried bytes on EOF (an incomplete trailing
+    /// sequence or a pending `\r` is decoded/emitted lossily).
+    fn flush(&mut self) -> String {
+        let bytes = std::mem::take(&mut self.carry);
+        if self.normalize_crlf {
+            let normalized = normalize_crlf(&bytes, &mut self.pending_cr);
+            return String::from_utf8_lossy(&normalized).into_owned();
+        }
+        String::from_utf8_lossy(&bytes).into_owned()
     }
 }
 
@@ -476,6 +643,15 @@ impl Backend {
     }
 }
 
+/// Exit state of a finished command, cached once the backend observes the
+/// process has exited so concurrent observers (the completion monitor thread,
+/// `sync_status`, `execute_in_session`) all read the same exit code.
+#[derive(Clone)]
+struct ExitState {
+    status: String,
+    code: Option<i32>,
+}
+
 /// A single command running inside a terminal session. Each command is an
 /// independent subprocess; the session record owns its lifetime.
 pub struct ShellSession {
@@ -484,16 +660,39 @@ pub struct ShellSession {
     backend: Backend,
     killed: AtomicBool,
     graceful_kill_timeout_ms: u64,
+    /// Process id captured at spawn; kept after exit so callers building a
+    /// response right after `backend_shell` do not race the monitor thread
+    /// reaping the child.
+    pid: Option<u32>,
+    /// Cached exit state (Some once the command has exited).
+    exit: Mutex<Option<ExitState>>,
+    /// Completion signal: notified whenever the exit state transitions to
+    /// `Some`, so event-driven waiters (e.g. `execute_in_session`) are woken
+    /// without polling.
+    exit_cv: Condvar,
+    /// Tracks the output reader threads so callers can wait for the buffer to
+    /// be fully drained once the process has exited.
+    drain: Arc<OutputDrain>,
 }
 
 impl ShellSession {
-    fn new(command: String, backend: Backend, graceful_kill_timeout_ms: u64) -> Self {
+    fn new(
+        command: String,
+        backend: Backend,
+        graceful_kill_timeout_ms: u64,
+        drain: Arc<OutputDrain>,
+    ) -> Self {
+        let pid = backend.pid();
         Self {
             command,
             start_time: Instant::now(),
             backend,
             killed: AtomicBool::new(false),
             graceful_kill_timeout_ms,
+            pid,
+            exit: Mutex::new(None),
+            exit_cv: Condvar::new(),
+            drain,
         }
     }
 
@@ -509,24 +708,35 @@ impl ShellSession {
         pipe: R,
         output: Arc<Mutex<OutputBuffer>>,
         mut dispatcher: OutputLineDispatcher,
+        drain: Arc<OutputDrain>,
     ) where
         R: Read + Send + 'static,
     {
+        drain.add_reader();
         std::thread::spawn(move || {
             let mut reader = pipe;
             let mut buffer = [0u8; 4096];
+            let mut decoder = Utf8ChunkDecoder::new(false);
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buffer[..n]).to_string();
-                        Self::append_output(&output, chunk.clone());
-                        dispatcher.consume(&chunk);
+                        let chunk = decoder.push(&buffer[..n]);
+                        if !chunk.is_empty() {
+                            Self::append_output(&output, chunk.clone());
+                            dispatcher.consume(&chunk);
+                        }
                     }
                     Err(_) => break,
                 }
             }
+            let tail = decoder.flush();
+            if !tail.is_empty() {
+                Self::append_output(&output, tail.clone());
+                dispatcher.consume(&tail);
+            }
             dispatcher.flush();
+            drain.mark_reader_done();
         });
     }
 
@@ -536,26 +746,35 @@ impl ShellSession {
         pipe: R,
         output: Arc<Mutex<OutputBuffer>>,
         mut dispatcher: OutputLineDispatcher,
+        drain: Arc<OutputDrain>,
     ) where
         R: Read + Send + 'static,
     {
+        drain.add_reader();
         std::thread::spawn(move || {
             let mut reader = pipe;
             let mut buffer = [0u8; 4096];
-            let mut pending_cr = false;
+            let mut decoder = Utf8ChunkDecoder::new(true);
             loop {
                 match reader.read(&mut buffer) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buffer[..n]).to_string();
-                        let normalized = normalize_crlf(&chunk, &mut pending_cr);
-                        Self::append_output(&output, normalized.clone());
-                        dispatcher.consume(&normalized);
+                        let chunk = decoder.push(&buffer[..n]);
+                        if !chunk.is_empty() {
+                            Self::append_output(&output, chunk.clone());
+                            dispatcher.consume(&chunk);
+                        }
                     }
                     Err(_) => break,
                 }
             }
+            let tail = decoder.flush();
+            if !tail.is_empty() {
+                Self::append_output(&output, tail.clone());
+                dispatcher.consume(&tail);
+            }
             dispatcher.flush();
+            drain.mark_reader_done();
         });
     }
 
@@ -570,7 +789,61 @@ impl ShellSession {
     }
 
     pub fn status(&self) -> (String, Option<i32>) {
-        self.backend.status()
+        {
+            let exit = self.exit.lock().unwrap();
+            if let Some(exit) = exit.as_ref() {
+                return (exit.status.clone(), exit.code);
+            }
+        }
+        let (status, code) = self.backend.status();
+        if status == "exited" {
+            // Cache the first observed exit state so a racy second observer
+            // (which would only see `code: None` after the backend reaps)
+            // cannot overwrite the real exit code.
+            let mut exit = self.exit.lock().unwrap();
+            if exit.is_none() {
+                *exit = Some(ExitState {
+                    status: status.clone(),
+                    code,
+                });
+                drop(exit);
+                // Wake event-driven waiters (execute_in_session, ...) so they
+                // observe the exit without polling.
+                self.exit_cv.notify_all();
+            }
+        }
+        (status, code)
+    }
+
+    /// Block until the command exits or `timeout` elapses, returning
+    /// `(exit_code, timed_out)`. Event-driven: any status observer (the store
+    /// monitor thread, an external `status()` query) notifies the completion
+    /// signal on exit, so this does not busy-poll. The exit code is `None`
+    /// when the deadline is hit; the caller decides whether to terminate the
+    /// command.
+    pub fn wait_for_exit(&self, timeout: Duration) -> (Option<i32>, bool) {
+        let deadline = Instant::now() + timeout;
+        let mut exit = self.exit.lock().unwrap();
+        while exit.is_none() {
+            let now = Instant::now();
+            if now >= deadline {
+                return (None, true);
+            }
+            let (guard, timed_out) = self.exit_cv.wait_timeout(exit, deadline - now).unwrap();
+            exit = guard;
+            if timed_out.timed_out() && exit.is_none() {
+                return (None, true);
+            }
+        }
+        let state = exit.as_ref().expect("exit state is Some");
+        (state.code, false)
+    }
+
+    /// Block until every output reader has drained (all produced bytes are in
+    /// the session buffer), or `timeout` elapses. Used after a command exits
+    /// so a caller snapshoting the buffer does not miss the trailing output.
+    pub fn wait_for_output_drained(&self, timeout: Duration) {
+        self.drain.wait_drained(timeout);
     }
 
     /// Kill the session and wait for it to terminate. When `graceful` is
@@ -599,9 +872,10 @@ impl ShellSession {
         self.backend.mode().as_str()
     }
 
-    /// Process id of the session, if it is still tracked.
+    /// Process id of the command, captured at spawn (available even after the
+    /// command has exited and the child was reaped).
     pub fn pid(&self) -> Option<u32> {
-        self.backend.pid()
+        self.pid
     }
 }
 
@@ -627,13 +901,17 @@ pub struct TerminalSession {
     output: Arc<Mutex<OutputBuffer>>,
     /// The running command handle (Some while busy).
     current: Mutex<Option<Arc<ShellSession>>>,
+    /// Process id of the running command, kept after the command exits so a
+    /// response built right after `backend_shell` does not race the monitor
+    /// thread clearing the current handle.
+    last_pid: Mutex<Option<u32>>,
     last_exit_code: Mutex<Option<i32>>,
     killed: AtomicBool,
     graceful_kill_timeout_ms: u64,
     /// Master switch for pushing events to the sink (derived from the
     /// store's `output_event_enabled`).
     events_enabled: bool,
-    event_sink: Option<Arc<dyn ShellEventSink>>,
+    event_sink: Option<Arc<EventDispatcher>>,
 }
 
 impl TerminalSession {
@@ -647,7 +925,7 @@ impl TerminalSession {
         task_id: Option<String>,
         graceful_kill_timeout_ms: u64,
         events_enabled: bool,
-        event_sink: Option<Arc<dyn ShellEventSink>>,
+        event_sink: Option<Arc<EventDispatcher>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             session_id,
@@ -662,6 +940,7 @@ impl TerminalSession {
             last_active_at: Mutex::new(wf_common::time::now()),
             output: Arc::new(Mutex::new(OutputBuffer::default())),
             current: Mutex::new(None),
+            last_pid: Mutex::new(None),
             last_exit_code: Mutex::new(None),
             killed: AtomicBool::new(false),
             graceful_kill_timeout_ms,
@@ -671,29 +950,30 @@ impl TerminalSession {
     }
 
     /// Lazily transition `Busy` -> `Idle` once the current command has
-    /// exited, dispatching the completion event.
+    /// exited. The store monitor thread is the primary finalizer (push-based);
+    /// this fallback covers commands observed exiting through a `status()`
+    /// query, and it is idempotent with the monitor because it funnels into
+    /// the shared [`Self::finalize`] (the `Idle` guard prevents double
+    /// dispatch).
     fn sync_status(&self) -> SessionStatus {
-        let mut current = self.current.lock().unwrap();
-        let mut status = self.status.lock().unwrap();
+        let current = self.current.lock().unwrap();
+        let status = self.status.lock().unwrap();
         let mut completed = None;
         if *status == SessionStatus::Busy {
             if let Some(cmd) = current.as_ref() {
                 let (st, code) = cmd.status();
                 if st == "exited" {
                     let command = cmd.command().to_string();
-                    *self.last_exit_code.lock().unwrap() = code;
-                    *self.last_active_at.lock().unwrap() = wf_common::time::now();
-                    *current = None;
-                    *status = SessionStatus::Idle;
-                    completed = Some((command, code, code == Some(0)));
+                    let drain = Arc::clone(&cmd.drain);
+                    completed = Some((command, code, code == Some(0), drain));
                 }
             }
         }
         let result = *status;
         drop(current);
         drop(status);
-        if let Some((command, code, success)) = completed {
-            self.dispatch_command_completed(&command, code, success);
+        if let Some((command, code, success, drain)) = completed {
+            self.finalize(&command, code, success, &drain);
         }
         result
     }
@@ -721,9 +1001,15 @@ impl TerminalSession {
         self.mode().as_str()
     }
 
-    /// Process id of the running command, if any.
+    /// Process id of the running command, or of the most recently finished
+    /// command once the monitor thread has cleared the current handle.
     pub fn pid(&self) -> Option<u32> {
-        self.current.lock().unwrap().as_ref().and_then(|c| c.pid())
+        self.current
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|c| c.pid())
+            .or(*self.last_pid.lock().unwrap())
     }
 
     /// Kill the running command (if any) and dispatch the termination event.
@@ -738,8 +1024,11 @@ impl TerminalSession {
         result
     }
 
-    fn start_len(&self) -> usize {
-        self.output.lock().unwrap().len()
+    /// Absolute position (in the session output stream) where the next output
+    /// will be appended; used to delimit the output of a single command. Valid
+    /// across truncations (see [`OutputBuffer`]).
+    fn output_start(&self) -> usize {
+        self.output.lock().unwrap().written()
     }
 
     fn tail_output(&self, start: usize) -> String {
@@ -782,78 +1071,123 @@ impl TerminalSession {
 
     fn dispatch_created(&self, reused: bool) {
         if self.events_enabled {
-            if let Some(sink) = &self.event_sink {
+            if let Some(dispatcher) = &self.event_sink {
                 let task_id = self.task_id.lock().unwrap().clone();
-                sink.on_session_created(&self.session_id, reused, task_id.as_deref());
+                dispatcher.send(ShellEvent::SessionCreated {
+                    session_id: self.session_id.clone(),
+                    reused,
+                    task_id,
+                });
             }
         }
     }
 
     fn dispatch_command_started(&self, command: &str) {
         if self.events_enabled {
-            if let Some(sink) = &self.event_sink {
+            if let Some(dispatcher) = &self.event_sink {
                 let task_id = self.task_id.lock().unwrap().clone();
-                sink.on_command_started(&self.session_id, task_id.as_deref(), command);
+                dispatcher.send(ShellEvent::CommandStarted {
+                    session_id: self.session_id.clone(),
+                    task_id,
+                    command: command.to_string(),
+                });
             }
         }
     }
 
     fn dispatch_command_completed(&self, command: &str, exit_code: Option<i32>, success: bool) {
         if self.events_enabled {
-            if let Some(sink) = &self.event_sink {
+            if let Some(dispatcher) = &self.event_sink {
                 let task_id = self.task_id.lock().unwrap().clone();
-                sink.on_command_completed(
-                    &self.session_id,
-                    task_id.as_deref(),
-                    command,
+                dispatcher.send(ShellEvent::CommandCompleted {
+                    session_id: self.session_id.clone(),
+                    task_id,
+                    command: command.to_string(),
                     exit_code,
                     success,
-                );
+                });
             }
         }
     }
 
     fn dispatch_session_terminated(&self) {
         if self.events_enabled {
-            if let Some(sink) = &self.event_sink {
+            if let Some(dispatcher) = &self.event_sink {
                 let task_id = self.task_id.lock().unwrap().clone();
-                sink.on_session_terminated(&self.session_id, task_id.as_deref());
+                dispatcher.send(ShellEvent::SessionTerminated {
+                    session_id: self.session_id.clone(),
+                    task_id,
+                });
             }
         }
     }
 
-    /// Mark the current command finished (used by the blocking
-    /// [`BackgroundShellStore::execute_in_session`] path).
-    fn command_finished(&self, command: &str, exit_code: Option<i32>, success: bool) {
+    /// Wait until every queued event has been delivered to the sink. Called by
+    /// the finalizer and by synchronous paths (`execute_in_session`) so a
+    /// caller can rely on all events of the finished command being delivered
+    /// when it returns.
+    fn flush_events(&self) {
+        if let Some(dispatcher) = &self.event_sink {
+            dispatcher.flush(Duration::from_secs(10));
+        }
+    }
+
+    /// Mark the current command finished. Single finalization entry used by
+    /// every path that observes an exit (the blocking
+    /// [`BackgroundShellStore::execute_in_session`], the store monitor thread
+    /// and the lazy [`Self::sync_status`]); idempotent — only the running
+    /// command transitions the session to idle, so a racy double finalize
+    /// dispatches the completion event at most once.
+    ///
+    /// The `Busy` -> `Idle` transition happens immediately so a concurrent
+    /// `status()` query reflects the idle state without waiting, but the
+    /// completion event is dispatched only after the output readers have
+    /// drained (bounded by [`FINALIZE_DRAIN_TIMEOUT`]), guaranteeing the event
+    /// is ordered after every output event of this command on the push path.
+    fn finalize(&self, command: &str, exit_code: Option<i32>, success: bool, drain: &OutputDrain) {
         let mut current = self.current.lock().unwrap();
         let mut status = self.status.lock().unwrap();
+        if *status != SessionStatus::Busy {
+            return;
+        }
         *current = None;
         *status = SessionStatus::Idle;
         *self.last_exit_code.lock().unwrap() = exit_code;
         *self.last_active_at.lock().unwrap() = wf_common::time::now();
         drop(current);
         drop(status);
+        drain.wait_drained(FINALIZE_DRAIN_TIMEOUT);
         self.dispatch_command_completed(command, exit_code, success);
     }
 }
 
+/// Handle to the store-level monitor thread. One thread per store lazily
+/// polls busy sessions for process exits and finalizes them (push-based
+/// completion), replacing one thread per command. The thread exits when the
+/// store is dropped (see [`Drop for BackgroundShellStore`]).
+struct StoreMonitor {
+    stop: Arc<AtomicBool>,
+    thread: std::thread::JoinHandle<()>,
+}
+
 /// Shared store of background shell sessions across the shell tools.
 pub struct BackgroundShellStore {
-    sessions: dashmap::DashMap<String, Arc<TerminalSession>>,
+    sessions: Arc<dashmap::DashMap<String, Arc<TerminalSession>>>,
+    /// Lazily started store-level monitor thread (see [`StoreMonitor`]).
+    monitor: Mutex<Option<StoreMonitor>>,
     default_cwd: Option<PathBuf>,
     shell_type: Option<ShellType>,
     pty_enabled: bool,
     default_pty_size: (u16, u16),
     graceful_kill_timeout_ms: u64,
     default_env: HashMap<String, String>,
-    allowed_commands: Vec<String>,
-    denied_commands: Option<Vec<String>>,
+    policy: CommandPolicy,
     max_timeout_ms: u64,
     session_reuse_enabled: bool,
     max_sessions_per_task: Option<usize>,
     session_idle_timeout_ms: Option<u64>,
     output_event_enabled: bool,
-    event_sink: Option<Arc<dyn ShellEventSink>>,
+    event_sink: Option<Arc<EventDispatcher>>,
 }
 
 impl BackgroundShellStore {
@@ -864,18 +1198,15 @@ impl BackgroundShellStore {
     /// Create a store with an explicit shell override (detected otherwise).
     pub fn with_shell(default_cwd: Option<PathBuf>, shell_type: Option<ShellType>) -> Self {
         Self {
-            sessions: dashmap::DashMap::new(),
+            sessions: Arc::new(dashmap::DashMap::new()),
+            monitor: Mutex::new(None),
             default_cwd,
             shell_type,
             pty_enabled: true,
             default_pty_size: DEFAULT_PTY_SIZE,
             graceful_kill_timeout_ms: DEFAULT_GRACEFUL_KILL_TIMEOUT_MS,
             default_env: HashMap::new(),
-            allowed_commands: crate::config::DEFAULT_ALLOWED_COMMANDS
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-            denied_commands: None,
+            policy: CommandPolicy::default_allowed(),
             max_timeout_ms: DEFAULT_MAX_TIMEOUT_MS,
             session_reuse_enabled: true,
             max_sessions_per_task: None,
@@ -892,14 +1223,19 @@ impl BackgroundShellStore {
         store.default_pty_size = config.default_pty_size;
         store.graceful_kill_timeout_ms = config.graceful_kill_timeout_ms;
         store.default_env = config.default_env.clone();
-        store.allowed_commands = config.allowed_commands.clone();
-        store.denied_commands = config.denied_commands.clone();
+        store.policy = CommandPolicy::from_config(config);
         store.max_timeout_ms = config.max_timeout_ms;
         store.session_reuse_enabled = config.session_reuse_enabled;
         store.max_sessions_per_task = config.max_sessions_per_task;
         store.session_idle_timeout_ms = config.session_idle_timeout_ms;
         store.output_event_enabled = config.output_event_enabled;
-        store.event_sink = config.event_sink.clone();
+        // Wrap the configured sink in an async dispatcher so a blocking sink
+        // cannot backpressure the reader threads (single dispatch thread per
+        // store, shared by all sessions).
+        store.event_sink = config
+            .event_sink
+            .as_ref()
+            .map(|sink| EventDispatcher::new(sink.clone()));
         store
     }
 
@@ -939,7 +1275,12 @@ impl BackgroundShellStore {
                 created.session_id
             ))
         })?;
-        let _ = self.spawn_command(&session, &options.command)?;
+        if let Err(err) = self.spawn_command(&session, &options.command) {
+            // Do not leave an empty idle session behind (e.g. a policy-denied
+            // command): roll the fresh record back.
+            self.sessions.remove(&created.session_id);
+            return Err(err);
+        }
         Ok(created.session_id)
     }
 
@@ -1031,26 +1372,19 @@ impl BackgroundShellStore {
                 "Missing or invalid 'command' parameter".into(),
             ));
         }
-        let decision = get_command_decision(
-            command,
-            &self.allowed_commands,
-            self.denied_commands.as_deref(),
-        );
-        if decision == CommandDecision::AutoDeny {
-            return Err(ShellError::ExecutionError(format!(
-                "Command rejected by shell policy: {}",
-                command
-            )));
-        }
         let timeout_ms = timeout_ms
             .unwrap_or(DEFAULT_EXECUTE_TIMEOUT_MS)
             .clamp(1000, self.max_timeout_ms);
-        let start_index = session.start_len();
+        let start_index = session.output_start();
         let started_at = Instant::now();
         let shell = self.spawn_command(&session, command)?;
         let (exit_code, timed_out) = wait_for_command_exit(&shell, timeout_ms);
         let success = !timed_out && exit_code == Some(0);
-        session.command_finished(command, exit_code, success);
+        session.finalize(command, exit_code, success, &shell.drain);
+        // Make sure every event of this command (output lines, completion) is
+        // delivered before returning, so callers can rely on push-based events
+        // having reached the sink once this synchronous path completes.
+        session.flush_events();
         let output = session.tail_output(start_index);
         Ok(serde_json::json!({
             "session_id": session_id,
@@ -1297,33 +1631,45 @@ impl BackgroundShellStore {
         session: &Arc<TerminalSession>,
         command: &str,
     ) -> ShellResult<Arc<ShellSession>> {
-        let (shell, shell_args) =
-            resolve_shell_command(default_shell_detector(), self.shell_type, command);
+        // Unified policy checkpoint: every spawn path (backend_shell,
+        // execute_in_session, future callers) enforces the engine baseline.
+        // AutoDeny is hard-rejected; AskUser/AutoApprove proceed (interactive
+        // approval is handled by an upper approval layer).
+        if self.policy.is_denied(command) {
+            return Err(ShellError::ExecutionError(format!(
+                "Command rejected by shell policy: {}",
+                command
+            )));
+        }
+        // Push-based completion: the store-level monitor thread finalizes the
+        // session (idle + completion event) without requiring an external
+        // status query, so a background command emits `on_command_completed`
+        // on its own. Lazy start: an empty store never holds a thread.
+        self.ensure_monitor_started();
         let output = session.output.clone();
         let dispatcher = self.line_dispatcher(session);
-
+        let drain = Arc::new(OutputDrain::default());
         let want_pty = self.pty_enabled && session.interactive;
         let backend = if want_pty {
             #[cfg(feature = "pty")]
             {
                 match spawn_pty_backend(
-                    &shell,
-                    &shell_args,
-                    session.cwd.as_deref(),
-                    &session.env,
-                    session.pty_size,
+                    self.shell_type,
+                    command,
+                    session,
                     output.clone(),
                     dispatcher.clone(),
+                    drain.clone(),
                 ) {
                     // PTY creation failed: fall back to a pipe session.
                     Ok(pty) => Backend::Pty(pty),
                     Err(_) => Backend::Pipe(spawn_pipe_backend(
-                        &shell,
-                        &shell_args,
-                        session.cwd.as_deref(),
-                        &session.env,
+                        self.shell_type,
+                        command,
+                        session,
                         output.clone(),
                         dispatcher,
+                        drain.clone(),
                     )?),
                 }
             }
@@ -1331,22 +1677,22 @@ impl BackgroundShellStore {
             {
                 let _ = session.pty_size;
                 Backend::Pipe(spawn_pipe_backend(
-                    &shell,
-                    &shell_args,
-                    session.cwd.as_deref(),
-                    &session.env,
+                    self.shell_type,
+                    command,
+                    session,
                     output.clone(),
                     dispatcher,
+                    drain.clone(),
                 )?)
             }
         } else {
             Backend::Pipe(spawn_pipe_backend(
-                &shell,
-                &shell_args,
-                session.cwd.as_deref(),
-                &session.env,
+                self.shell_type,
+                command,
+                session,
                 output.clone(),
                 dispatcher,
+                drain.clone(),
             )?)
         };
 
@@ -1355,25 +1701,77 @@ impl BackgroundShellStore {
             command.to_string(),
             backend,
             session.graceful_kill_timeout_ms,
+            drain,
         ));
         *session.current.lock().unwrap() = Some(shell_session.clone());
+        *session.last_pid.lock().unwrap() = shell_session.pid();
         *session.status.lock().unwrap() = SessionStatus::Busy;
         *session.last_active_at.lock().unwrap() = wf_common::time::now();
         session.dispatch_command_started(command);
         Ok(shell_session)
     }
 
+    /// Lazily start the store-level monitor thread. The thread polls every
+    /// live session via [`TerminalSession::status`] (which internally detects
+    /// process exit and funnels into the shared, idempotent finalizer), so
+    /// completion events are pushed without an external query while keeping
+    /// the thread count at one per store. The thread holds a clone of the
+    /// sessions map; the [`Drop`] impl signals it and joins it before the map
+    /// is released.
+    fn ensure_monitor_started(&self) {
+        let mut monitor = self.monitor.lock().unwrap();
+        if monitor.is_some() {
+            return;
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = Arc::clone(&stop);
+        let sessions = Arc::clone(&self.sessions);
+        let thread = std::thread::Builder::new()
+            .name("shell-monitor".into())
+            .spawn(move || {
+                while !stop_clone.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(COMPLETION_POLL_INTERVAL_MS));
+                    for entry in sessions.iter() {
+                        let session = entry.value();
+                        // A killed session's termination event already covers
+                        // it; skip so no completion event is dispatched after
+                        // a termination.
+                        if session.killed.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        session.status();
+                    }
+                }
+            })
+            .expect("failed to spawn shell session monitor thread");
+        *monitor = Some(StoreMonitor { stop, thread });
+    }
+
     fn line_dispatcher(&self, session: &Arc<TerminalSession>) -> OutputLineDispatcher {
-        let sink = if self.output_event_enabled {
+        let dispatcher = if self.output_event_enabled {
             session.event_sink.clone()
         } else {
             None
         };
         OutputLineDispatcher::new(
-            sink,
+            dispatcher,
             session.session_id.clone(),
             Arc::clone(&session.task_id),
         )
+    }
+}
+
+impl Drop for BackgroundShellStore {
+    fn drop(&mut self) {
+        // Signal the monitor thread and join it before any field is dropped,
+        // guaranteeing the thread no longer holds a clone of the sessions map
+        // (no reference cycle) and no session is finalized concurrently with
+        // store teardown.
+        let monitor = self.monitor.lock().unwrap().take();
+        if let Some(monitor) = monitor {
+            monitor.stop.store(true, Ordering::SeqCst);
+            let _ = monitor.thread.join();
+        }
     }
 }
 
@@ -1392,47 +1790,35 @@ fn normalize_cwd_path(path: &str) -> String {
 }
 
 /// Block until the command exits or the timeout elapses, returning
-/// `(exit_code, timed_out)`. On timeout the command is terminated gracefully.
+/// `(exit_code, timed_out)`. On timeout the command is terminated gracefully;
+/// on success it additionally waits for the output readers to drain so the
+/// caller's buffer snapshot is complete.
 fn wait_for_command_exit(shell: &Arc<ShellSession>, timeout_ms: u64) -> (Option<i32>, bool) {
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        let (status, code) = shell.status();
-        if status == "exited" {
-            return (code, false);
-        }
-        if Instant::now() >= deadline {
-            let _ = shell.kill(true);
-            return (None, true);
-        }
-        std::thread::sleep(Duration::from_millis(50));
+    let (exit_code, timed_out) = shell.wait_for_exit(Duration::from_millis(timeout_ms));
+    if timed_out {
+        let _ = shell.kill(true);
+    } else {
+        shell.wait_for_output_drained(Duration::from_millis(timeout_ms));
     }
+    (exit_code, timed_out)
 }
 
 /// Spawn a pipe-backed session (std child with piped stdin/stdout/stderr).
+/// The process is built through [`build_shell_command`] so the session engine
+/// and the stateless runner share the same spawn configuration.
 fn spawn_pipe_backend(
-    shell: &str,
-    shell_args: &[String],
-    cwd: Option<&std::path::Path>,
-    env: &HashMap<String, String>,
+    shell_type: Option<ShellType>,
+    command: &str,
+    session: &Arc<TerminalSession>,
     output: Arc<Mutex<OutputBuffer>>,
     dispatcher: OutputLineDispatcher,
+    drain: Arc<OutputDrain>,
 ) -> ShellResult<PipeBackend> {
-    let mut cmd = Command::new(shell);
-    cmd.args(shell_args)
-        .stdout(Stdio::piped())
+    let mut cmd = build_shell_command(shell_type, command, session.cwd.as_deref());
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::piped());
-    cmd.envs(env);
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // Make the child the leader of its own process group so a graceful
-        // kill can terminate the shell and its descendants together.
-        cmd.process_group(0);
-    }
+    cmd.envs(&session.env);
     let mut child = cmd
         .spawn()
         .map_err(|e| ShellError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
@@ -1448,8 +1834,8 @@ fn spawn_pipe_backend(
         .stderr
         .take()
         .ok_or_else(|| ShellError::ExecutionError("Failed to capture stderr".into()))?;
-    ShellSession::spawn_output_reader(stdout, output.clone(), dispatcher.clone());
-    ShellSession::spawn_output_reader(stderr, output.clone(), dispatcher);
+    ShellSession::spawn_output_reader(stdout, output.clone(), dispatcher.clone(), drain.clone());
+    ShellSession::spawn_output_reader(stderr, output.clone(), dispatcher, drain);
     Ok(PipeBackend::new(child, stdin))
 }
 
@@ -1458,16 +1844,17 @@ fn spawn_pipe_backend(
 /// retained for resizing.
 #[cfg(feature = "pty")]
 fn spawn_pty_backend(
-    shell: &str,
-    shell_args: &[String],
-    cwd: Option<&std::path::Path>,
-    env: &HashMap<String, String>,
-    size: (u16, u16),
+    shell_type: Option<ShellType>,
+    command: &str,
+    session: &Arc<TerminalSession>,
     output: Arc<Mutex<OutputBuffer>>,
     dispatcher: OutputLineDispatcher,
+    drain: Arc<OutputDrain>,
 ) -> ShellResult<PtyBackend> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
+    let (shell, shell_args) = resolve_shell_command(default_shell_detector(), shell_type, command);
+    let size = session.pty_size;
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
@@ -1480,10 +1867,10 @@ fn spawn_pty_backend(
 
     let mut cmd = CommandBuilder::new(shell);
     cmd.args(shell_args);
-    if let Some(dir) = cwd {
+    if let Some(dir) = session.cwd.as_deref() {
         cmd.cwd(dir);
     }
-    for (key, value) in env {
+    for (key, value) in &session.env {
         cmd.env(key, value);
     }
     let child = pair
@@ -1499,14 +1886,14 @@ fn spawn_pty_backend(
         .take_writer()
         .map_err(|e| ShellError::ExecutionError(format!("Failed to take PTY writer: {}", e)))?;
     let master = pair.master;
-    ShellSession::spawn_pty_reader(reader, output, dispatcher);
+    ShellSession::spawn_pty_reader(reader, output, dispatcher, drain);
     Ok(PtyBackend::new(child, master, writer))
 }
 
-/// Normalize CRLF (and a split `\r` / `\n` across chunks) to `\n`.
-#[cfg(feature = "pty")]
-fn normalize_crlf(chunk: &str, pending_cr: &mut bool) -> String {
-    let bytes = chunk.as_bytes();
+/// Normalize CRLF (and a split `\r` / `\n` across chunks) to `\n` on raw
+/// bytes. Operates on bytes so it composes with the UTF-8 chunk decoding done
+/// by [`Utf8ChunkDecoder`].
+fn normalize_crlf(bytes: &[u8], pending_cr: &mut bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     if *pending_cr {
@@ -1536,62 +1923,10 @@ fn normalize_crlf(chunk: &str, pending_cr: &mut bool) -> String {
             i += 1;
         }
     }
-    String::from_utf8_lossy(&out).to_string()
+    out
 }
 
-/// Poll `check` until it reports success or the timeout elapses.
-fn wait_for_exit<F>(mut check: F, timeout_ms: u64) -> bool
-where
-    F: FnMut() -> Result<bool, ()>,
-{
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        match check() {
-            Ok(true) => return true,
-            Ok(false) => {
-                if Instant::now() >= deadline {
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(()) => return false,
-        }
-    }
-}
-
-/// Gracefully terminate a std child: SIGTERM the process group, wait up to
-/// `timeout_ms`, then SIGKILL. Degenerates to a force kill on non-Unix.
-fn graceful_kill_child(child: &mut Child, timeout_ms: u64) -> ShellResult<()> {
-    #[cfg(unix)]
-    {
-        let pid = child.id() as i32;
-        unsafe {
-            libc::kill(-pid, libc::SIGTERM);
-        }
-        let exited = {
-            let mut check = || match child.try_wait() {
-                Ok(Some(_)) => Ok(true),
-                Ok(None) => Ok(false),
-                Err(_) => Err(()),
-            };
-            wait_for_exit(&mut check, timeout_ms)
-        };
-        if !exited {
-            unsafe {
-                libc::kill(-pid, libc::SIGKILL);
-            }
-        }
-        let _ = child.wait();
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    Ok(())
-}
-
-/// Gracefully terminate a PTY child (see [`graceful_kill_child`]).
+/// Gracefully terminate a PTY child (see [`crate::spawn::graceful_kill_child`]).
 #[cfg(feature = "pty")]
 fn graceful_kill_pty(
     child: &mut (dyn portable_pty::Child + Send + Sync),
@@ -1634,12 +1969,187 @@ fn graceful_kill_pty(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_sink::ShellEventSink;
     use std::sync::Mutex as StdMutex;
+
+    /// Poll the sink until `predicate` holds or the deadline elapses. Events
+    /// are delivered on a background dispatch thread, so tests must wait for
+    /// them instead of reading synchronously.
+    fn wait_for_events(sink: &MemSink, predicate: impl Fn(&[String]) -> bool) -> Vec<String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        loop {
+            let events = sink.events.lock().unwrap().clone();
+            if predicate(&events) || std::time::Instant::now() >= deadline {
+                return events;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn test_spawn_validation() {
         let store = BackgroundShellStore::new(None);
         assert!(store.spawn("", None).is_err());
+    }
+
+    #[test]
+    fn test_spawn_denied_command_rejected() {
+        let config = crate::config::ShellToolConfig {
+            denied_commands: Some(vec!["danger".into()]),
+            ..Default::default()
+        };
+        let store = BackgroundShellStore::from_config(&config);
+        let err = store.spawn("danger --all", None).unwrap_err();
+        assert!(
+            err.to_string().contains("rejected by shell policy"),
+            "error: {}",
+            err
+        );
+        // No empty idle session is left behind by the rejected spawn.
+        assert_eq!(store.session_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_execute_in_session_denied_command_rejected() {
+        let config = crate::config::ShellToolConfig {
+            denied_commands: Some(vec!["danger".into()]),
+            ..Default::default()
+        };
+        let store = Arc::new(BackgroundShellStore::from_config(&config));
+        let created = store
+            .get_or_create(&SessionCreateOptions::default(), Some("t1"))
+            .unwrap();
+        let sid = &created.session_id;
+        let err = store
+            .execute_in_session(sid, "danger --all", None)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("rejected by shell policy"),
+            "error: {}",
+            err
+        );
+        assert_eq!(
+            store.get(sid).unwrap().status(),
+            SessionStatus::Idle,
+            "session stays idle after a rejected command"
+        );
+        let _ = store.kill(sid);
+    }
+
+    #[tokio::test]
+    async fn test_background_command_dispatches_completion_without_query() {
+        let sink = Arc::new(MemSink::default());
+        let mut store = BackgroundShellStore::new(None);
+        store.output_event_enabled = true;
+        store.event_sink = Some(EventDispatcher::new(sink.clone()));
+
+        // Spawn a short background command; never query the session.
+        let id = store.spawn("echo background-done", None).unwrap();
+
+        // The completion event must arrive on its own (push-based), without
+        // any shell_output / status query.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let completed = loop {
+            let events = sink.events.lock().unwrap().clone();
+            if let Some(e) = events
+                .iter()
+                .find(|e| e.starts_with(&format!("completed:{}:", id)))
+            {
+                break e.clone();
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "completion event never dispatched: {:?}",
+                events
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert!(completed.contains("echo background-done"), "{}", completed);
+
+        // The session was finalized without any external query.
+        let session = store.get(&id).unwrap();
+        assert_eq!(session.status(), SessionStatus::Idle);
+        assert_eq!(session.last_exit_code(), Some(0));
+        assert!(
+            session.pid().is_some(),
+            "pid stays available after the monitor reaped the child"
+        );
+        let _ = store.kill(&id);
+    }
+
+    #[test]
+    fn test_store_monitor_thread_exits_on_drop() {
+        let store = BackgroundShellStore::new(None);
+        let id = store.spawn("echo monitor-exit", None).unwrap();
+        // The monitor thread is lazily started on the first spawn.
+        assert!(
+            store.monitor.lock().unwrap().is_some(),
+            "monitor thread lazily started on first spawn"
+        );
+
+        // Wait for the monitor to finalize the command (reaps the child).
+        let session = store.get(&id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while std::time::Instant::now() < deadline && session.status() != SessionStatus::Idle {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(session.status(), SessionStatus::Idle);
+
+        // Dropping the store joins the monitor thread; if the thread did not
+        // exit, the join (and hence the drop) would hang past the bound.
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            drop(store);
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("store drop hung: monitor thread never exited");
+    }
+
+    #[tokio::test]
+    async fn test_monitor_finalizes_concurrent_background_commands() {
+        let sink = Arc::new(MemSink::default());
+        let mut store = BackgroundShellStore::new(None);
+        store.output_event_enabled = true;
+        store.event_sink = Some(EventDispatcher::new(sink.clone()));
+
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let id = store.spawn(&format!("echo bg-{}", i), None).unwrap();
+            ids.push(id);
+        }
+
+        // Every command completes on its own (push-based); a single monitor
+        // thread must finalize all of them.
+        let events = wait_for_events(&sink, |events| {
+            ids.iter().all(|id| {
+                events
+                    .iter()
+                    .any(|e| e.starts_with(&format!("completed:{}:", id)))
+            })
+        });
+
+        for id in &ids {
+            let count = events
+                .iter()
+                .filter(|e| e.starts_with(&format!("completed:{}:", id)))
+                .count();
+            assert_eq!(
+                count, 1,
+                "completion for {} dispatched {} times: {:?}",
+                id, count, events
+            );
+            let session = store.get(id).unwrap();
+            assert_eq!(
+                session.status(),
+                SessionStatus::Idle,
+                "session {} finalized by the monitor",
+                id
+            );
+            assert_eq!(session.last_exit_code(), Some(0));
+            let _ = store.kill_with(id, true);
+        }
     }
 
     #[test]
@@ -1688,10 +2198,42 @@ mod tests {
     fn test_output_buffer_tail_from() {
         let mut buf = OutputBuffer::default();
         buf.append("abc");
-        assert_eq!(buf.len(), 3);
         assert_eq!(buf.tail_from(1), "bc");
         assert_eq!(buf.tail_from(3), "");
         assert_eq!(buf.tail_from(99), "");
+    }
+
+    #[test]
+    fn test_output_buffer_tail_after_truncation() {
+        let mut buf = OutputBuffer::default();
+        // Absolute start recorded before the buffer fills up.
+        let start = buf.written();
+        buf.append(&"x".repeat(MAX_OUTPUT_BYTES));
+        buf.append("tail");
+        // A start that fell into the dropped prefix yields the marker plus the
+        // retained content instead of an empty string.
+        let tail = buf.tail_from(start);
+        assert!(tail.contains("truncated"), "tail: {}", tail);
+        assert!(tail.ends_with("tail"), "tail: {}", tail);
+        // A start inside the retained region returns the plain tail.
+        let later = buf.written() - "tail".len();
+        assert_eq!(buf.tail_from(later), "tail");
+    }
+
+    #[test]
+    fn test_output_buffer_truncation_char_boundary() {
+        // Truncation must never split a multi-byte UTF-8 sequence.
+        let mut buf = OutputBuffer::default();
+        buf.append(&"界".repeat(MAX_OUTPUT_BYTES / 3 + 100));
+        buf.append("end");
+        let text = buf.snapshot();
+        assert!(text.contains("truncated"));
+        assert!(text.ends_with("end"));
+        assert!(std::str::from_utf8(text.as_bytes()).is_ok());
+        // The absolute cursor still delimiters output correctly afterwards.
+        let start = buf.written();
+        buf.append("tail");
+        assert!(buf.tail_from(start).ends_with("tail"));
     }
 
     #[test]
@@ -1852,12 +2394,52 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "pty")]
     fn test_normalize_crlf() {
         let mut pending = false;
-        assert_eq!(normalize_crlf("a\r\nb\nc\r", &mut pending), "a\nb\nc");
-        assert_eq!(normalize_crlf("\nd", &mut pending), "\nd");
-        assert_eq!(normalize_crlf("plain", &mut pending), "plain");
+        assert_eq!(
+            normalize_crlf(b"a\r\nb\nc\r", &mut pending).as_slice(),
+            b"a\nb\nc"
+        );
+        assert_eq!(normalize_crlf(b"\nd", &mut pending).as_slice(), b"\nd");
+        assert_eq!(normalize_crlf(b"plain", &mut pending).as_slice(), b"plain");
+    }
+
+    #[test]
+    fn test_utf8_chunk_decoder_split_sequence() {
+        // 中 = E4 B8 AD, split across two chunks; must not be corrupted.
+        let mut d = Utf8ChunkDecoder::new(false);
+        assert_eq!(d.push(&[0xE4, 0xB8]), "");
+        assert_eq!(d.push(&[0xAD, b'X', b'\n', b'Y', b'\n']), "中X\nY\n");
+        assert_eq!(d.flush(), "");
+    }
+
+    #[test]
+    fn test_utf8_chunk_decoder_partial_line() {
+        let mut d = Utf8ChunkDecoder::new(false);
+        assert_eq!(d.push(b"he"), "he");
+        assert_eq!(d.push(b"llo"), "llo");
+        assert_eq!(d.flush(), "");
+    }
+
+    #[test]
+    fn test_utf8_chunk_decoder_invalid_bytes() {
+        let mut d = Utf8ChunkDecoder::new(false);
+        assert_eq!(d.push(&[0xFF, b'a', b'\n']), "\u{FFFD}a\n");
+        // Carry must not grow past the incomplete sequence.
+        assert_eq!(d.push(b"b"), "b");
+        assert!(d.carry.is_empty());
+    }
+
+    #[test]
+    fn test_utf8_chunk_decoder_crlf_across_chunks() {
+        let mut d = Utf8ChunkDecoder::new(true);
+        assert_eq!(d.push(b"a\r"), "a");
+        assert_eq!(d.push(b"\nb"), "\nb");
+        assert_eq!(d.flush(), "");
+        // A trailing lone \r is emitted on EOF.
+        let mut d = Utf8ChunkDecoder::new(true);
+        assert_eq!(d.push(b"x\r"), "x");
+        assert_eq!(d.flush(), "\r");
     }
 
     #[test]
@@ -1962,6 +2544,32 @@ mod tests {
         let _ = store.kill(sid);
     }
 
+    #[tokio::test]
+    async fn test_stateless_vs_stateful_output_consistent() {
+        // The stateless runner and the stateful session entry share the same
+        // spawn configuration; the same command must produce the same output
+        // on both paths.
+        let output =
+            crate::runner::run_command("printf 'alpha\\nbeta\\n'", None, 10_000, None, None)
+                .await
+                .unwrap();
+        assert!(output.status.success());
+        let stateless = String::from_utf8_lossy(&output.stdout).to_string();
+
+        let store = Arc::new(BackgroundShellStore::new(None));
+        let created = store
+            .get_or_create(&SessionCreateOptions::default(), Some("cmp"))
+            .unwrap();
+        let sid = &created.session_id;
+        let result = store
+            .execute_in_session(sid, "printf 'alpha\\nbeta\\n'", Some(10_000))
+            .unwrap();
+        let stateful = result["output"].as_str().unwrap().to_string();
+
+        assert_eq!(stateless, stateful, "outputs diverged between entries");
+        let _ = store.kill(sid);
+    }
+
     #[derive(Default)]
     struct MemSink {
         events: StdMutex<Vec<String>>,
@@ -2027,7 +2635,7 @@ mod tests {
         let sink = Arc::new(MemSink::default());
         let mut store = BackgroundShellStore::new(None);
         store.output_event_enabled = true;
-        store.event_sink = Some(sink.clone());
+        store.event_sink = Some(EventDispatcher::new(sink.clone()));
 
         let created = store
             .get_or_create(&SessionCreateOptions::default(), Some("t1"))
@@ -2039,7 +2647,13 @@ mod tests {
         assert_eq!(result["success"], serde_json::json!(true));
 
         let _ = store.kill_with(&sid, true);
-        let events = sink.events.lock().unwrap().clone();
+        // The terminated event is queued asynchronously after kill; wait for
+        // it (the execute_in_session path already flushed the rest).
+        let events = wait_for_events(&sink, |events| {
+            events
+                .iter()
+                .any(|e| e.starts_with(&format!("terminated:{}:t1", sid)))
+        });
         assert!(
             events
                 .iter()
@@ -2085,10 +2699,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_completion_event_ordered_after_output_events() {
+        // The completion event must be delivered after every output event of
+        // the same command (drain-gated finalization), so a push consumer
+        // never sees the command "complete" before its trailing output.
+        let sink = Arc::new(MemSink::default());
+        let mut store = BackgroundShellStore::new(None);
+        store.output_event_enabled = true;
+        store.event_sink = Some(EventDispatcher::new(sink.clone()));
+
+        let id = store
+            .spawn("for i in $(seq 1 200); do echo line-$i; done", None)
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let events = loop {
+            let events = sink.events.lock().unwrap().clone();
+            if events
+                .iter()
+                .any(|e| e.starts_with(&format!("completed:{}:", id)))
+            {
+                break events;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "completion never arrived: {:?}",
+                events
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+
+        let mut last_output = None;
+        let mut completed = None;
+        for (i, e) in events.iter().enumerate() {
+            if e.starts_with(&format!("output:{}:", id)) {
+                last_output = Some(i);
+            }
+            if e.starts_with(&format!("completed:{}:", id)) {
+                completed = Some(i);
+            }
+        }
+        let last_output = last_output.expect("output events were delivered");
+        let completed = completed.expect("completed event was delivered");
+        assert!(
+            completed > last_output,
+            "completed at {} must follow last output at {}: {:?}",
+            completed,
+            last_output,
+            events
+        );
+        let _ = store.kill(&id);
+    }
+
+    #[test]
+    fn test_blocked_sink_does_not_backpressure_output_reading() {
+        // A sink whose on_output blocks forever must not prevent the reader
+        // threads from draining the process output into the session buffer
+        // (backpressure would leave the reader stuck and output incomplete).
+        let (_never_tx, never_rx) = std::sync::mpsc::channel::<()>();
+        let sink = Arc::new(BlockingSink {
+            gate: never_rx.into(),
+        });
+        let mut store = BackgroundShellStore::new(None);
+        store.output_event_enabled = true;
+        store.event_sink = Some(EventDispatcher::new(sink));
+
+        let id = store
+            .spawn("printf 'blocked-a\\nblocked-b\\n'", None)
+            .unwrap();
+
+        // The monitor thread finalizes the session independently of the
+        // blocked sink (idle is set before the async dispatch flush).
+        let session = store.get(&id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while std::time::Instant::now() < deadline && session.status() != SessionStatus::Idle {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(session.status(), SessionStatus::Idle);
+
+        // The full output was captured even though the sink never consumed a
+        // single line.
+        let output = session.output.lock().unwrap().snapshot();
+        assert!(output.contains("blocked-a"), "output: {}", output);
+        assert!(output.contains("blocked-b"), "output: {}", output);
+        let _ = store.kill(&id);
+    }
+
+    /// Sink whose `on_output` blocks forever, used to prove the dispatch
+    /// channel decouples readers from sink work.
+    struct BlockingSink {
+        gate: StdMutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl ShellEventSink for BlockingSink {
+        fn on_output(&self, _session_id: &str, _task_id: Option<&str>, _line: &str) {
+            let gate = self.gate.lock().unwrap();
+            let _ = gate.recv();
+        }
+    }
+
+    #[tokio::test]
     async fn test_events_disabled_by_default() {
         let sink = Arc::new(MemSink::default());
         let mut store = BackgroundShellStore::new(None);
-        store.event_sink = Some(sink.clone());
+        store.event_sink = Some(EventDispatcher::new(sink.clone()));
 
         let created = store
             .get_or_create(&SessionCreateOptions::default(), Some("t1"))

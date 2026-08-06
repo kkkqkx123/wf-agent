@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
@@ -42,22 +43,33 @@ impl From<TriggerExecutionListOptions> for QueryFilter {
 pub trait TriggerExecutionStorageAdapter:
     BaseStorageAdapter<wf_types::TriggerExecutionStorageMetadata, TriggerExecutionListOptions>
 {
-    async fn list_by_trigger(
-        &self,
-        trigger_name: &str,
-    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>;
+    fn list_by_trigger<'a>(
+        &'a self,
+        trigger_name: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn list_by_execution(
-        &self,
-        execution_id: &str,
-    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>;
+    fn list_by_execution<'a>(
+        &'a self,
+        execution_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn list_by_workflow(
-        &self,
-        workflow_id: &str,
-    ) -> Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>;
+    fn list_by_workflow<'a>(
+        &'a self,
+        workflow_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::TriggerExecutionStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
+    fn get_stats<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
 
-    async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError>;
+    fn cleanup<'a>(
+        &'a self,
+        older_than: i64,
+    ) -> impl Future<Output = Result<u64, StorageError>> + Send + 'a;
 }

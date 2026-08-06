@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
@@ -38,15 +39,21 @@ impl From<UserInteractionListOptions> for QueryFilter {
 pub trait UserInteractionStorageAdapter:
     BaseStorageAdapter<wf_types::UserInteractionStorageMetadata, UserInteractionListOptions>
 {
-    async fn list_by_execution(
-        &self,
-        execution_id: &str,
-    ) -> Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError>;
+    fn list_by_execution<'a>(
+        &'a self,
+        execution_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn list_by_status(
-        &self,
-        status: &str,
-    ) -> Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError>;
+    fn list_by_status<'a>(
+        &'a self,
+        status: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::UserInteractionStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
+    fn get_stats<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
 }

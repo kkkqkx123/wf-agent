@@ -2,6 +2,7 @@ use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskListOptions {
@@ -33,6 +34,12 @@ impl From<TaskListOptions> for QueryFilter {
 pub trait TaskStorageAdapter:
     BaseStorageAdapter<wf_types::TaskStorageMetadata, TaskListOptions>
 {
-    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
-    async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError>;
+    fn get_stats<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
+
+    fn cleanup<'a>(
+        &'a self,
+        older_than: i64,
+    ) -> impl Future<Output = Result<u64, StorageError>> + Send + 'a;
 }

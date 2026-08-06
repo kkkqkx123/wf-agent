@@ -2,6 +2,7 @@ use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowListOptions {
@@ -33,29 +34,33 @@ impl From<WorkflowListOptions> for QueryFilter {
 pub trait WorkflowStorageAdapter:
     BaseStorageAdapter<wf_types::WorkflowDefinition, WorkflowListOptions>
 {
-    async fn update_metadata(
-        &self,
-        id: &str,
-        metadata: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), StorageError>;
+    fn update_metadata<'a>(
+        &'a self,
+        id: &'a str,
+        metadata: &'a HashMap<String, serde_json::Value>,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn save_version(
-        &self,
-        workflow_id: &str,
-        version: &str,
-        template: &wf_types::WorkflowDefinition,
-    ) -> Result<(), StorageError>;
+    fn save_version<'a>(
+        &'a self,
+        workflow_id: &'a str,
+        version: &'a str,
+        template: &'a wf_types::WorkflowDefinition,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn list_versions(
-        &self,
-        workflow_id: &str,
-    ) -> Result<Vec<wf_types::WorkflowDefinition>, StorageError>;
+    fn list_versions<'a>(
+        &'a self,
+        workflow_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::WorkflowDefinition>, StorageError>> + Send + 'a;
 
-    async fn load_version(
-        &self,
-        workflow_id: &str,
-        version: &str,
-    ) -> Result<Option<wf_types::WorkflowDefinition>, StorageError>;
+    fn load_version<'a>(
+        &'a self,
+        workflow_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<Option<wf_types::WorkflowDefinition>, StorageError>> + Send + 'a;
 
-    async fn delete_version(&self, workflow_id: &str, version: &str) -> Result<bool, StorageError>;
+    fn delete_version<'a>(
+        &'a self,
+        workflow_id: &'a str,
+        version: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a;
 }

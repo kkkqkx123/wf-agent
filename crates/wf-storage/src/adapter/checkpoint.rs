@@ -2,6 +2,7 @@ use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct CheckpointListOptions {
@@ -33,38 +34,38 @@ impl From<CheckpointListOptions> for QueryFilter {
 pub trait CheckpointStorageAdapter:
     BaseStorageAdapter<wf_types::Checkpoint, CheckpointListOptions>
 {
-    async fn list_by_entity(
-        &self,
-        entity_id: &str,
-        entity_type: &str,
-    ) -> Result<Vec<wf_types::Checkpoint>, StorageError>;
+    fn list_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+        entity_type: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::Checkpoint>, StorageError>> + Send + 'a;
 
-    async fn get_latest_by_entity(
-        &self,
-        entity_id: &str,
-        entity_type: &str,
-    ) -> Result<Option<wf_types::Checkpoint>, StorageError>;
+    fn get_latest_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+        entity_type: &'a str,
+    ) -> impl Future<Output = Result<Option<wf_types::Checkpoint>, StorageError>> + Send + 'a;
 
-    async fn delete_by_entity(
-        &self,
-        entity_id: &str,
-        entity_type: &str,
-    ) -> Result<u64, StorageError>;
+    fn delete_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+        entity_type: &'a str,
+    ) -> impl Future<Output = Result<u64, StorageError>> + Send + 'a;
 
-    async fn get_entity_metadata(
-        &self,
-        entity_id: &str,
-    ) -> Result<Option<HashMap<String, serde_json::Value>>, StorageError>;
+    fn get_entity_metadata<'a>(
+        &'a self,
+        entity_id: &'a str,
+    ) -> impl Future<Output = Result<Option<HashMap<String, serde_json::Value>>, StorageError>> + Send + 'a;
 
-    async fn set_entity_metadata(
-        &self,
-        entity_id: &str,
-        metadata: &HashMap<String, serde_json::Value>,
-    ) -> Result<(), StorageError>;
+    fn set_entity_metadata<'a>(
+        &'a self,
+        entity_id: &'a str,
+        metadata: &'a HashMap<String, serde_json::Value>,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn list_by_entities_with_metadata(
-        &self,
-        entity_ids: &[String],
-        entity_type: &str,
-    ) -> Result<Vec<wf_types::Checkpoint>, StorageError>;
+    fn list_by_entities_with_metadata<'a>(
+        &'a self,
+        entity_ids: &'a [String],
+        entity_type: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::Checkpoint>, StorageError>> + Send + 'a;
 }

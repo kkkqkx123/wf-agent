@@ -1,5 +1,3 @@
-#![allow(async_fn_in_trait)]
-
 pub mod adapter;
 pub mod backend;
 pub mod context;

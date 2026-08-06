@@ -2,6 +2,7 @@ use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentLoopListOptions {
@@ -29,12 +30,18 @@ impl From<AgentLoopListOptions> for QueryFilter {
 pub trait AgentLoopStorageAdapter:
     BaseStorageAdapter<wf_types::AgentLoopStorageMetadata, AgentLoopListOptions>
 {
-    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError>;
+    fn update_status<'a>(
+        &'a self,
+        id: &'a str,
+        status: &'a str,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn list_by_status(
-        &self,
-        status: &str,
-    ) -> Result<Vec<wf_types::AgentLoopStorageMetadata>, StorageError>;
+    fn list_by_status<'a>(
+        &'a self,
+        status: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::AgentLoopStorageMetadata>, StorageError>> + Send + 'a;
 
-    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
+    fn get_stats<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
 }

@@ -174,7 +174,7 @@ impl NodeRetryConfig {
 
 pub struct WorkflowCoordinator {
     ctx: ExecutorContext,
-    entity: Option<WorkflowExecutionEntity>,
+    entity: Option<Arc<WorkflowExecutionEntity>>,
     traversal: GraphTraversal,
     handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
     current_node_id: Option<String>,
@@ -224,6 +224,22 @@ impl WorkflowCoordinator {
     }
 
     pub fn with_entity(mut self, entity: WorkflowExecutionEntity) -> Self {
+        let entity = Arc::new(entity);
+        self.completed_nodes = {
+            if let Ok(state) = entity.state.try_read() {
+                state.completed_nodes().to_vec()
+            } else {
+                Vec::new()
+            }
+        };
+        self.entity = Some(entity);
+        self
+    }
+
+    /// Like [`WorkflowCoordinator::with_entity`], but accepts a shared
+    /// `Arc` so callers can keep a handle to pause/resume/cancel the
+    /// execution through the same entity the coordinator drives.
+    pub fn with_entity_arc(mut self, entity: Arc<WorkflowExecutionEntity>) -> Self {
         self.completed_nodes = {
             if let Ok(state) = entity.state.try_read() {
                 state.completed_nodes().to_vec()

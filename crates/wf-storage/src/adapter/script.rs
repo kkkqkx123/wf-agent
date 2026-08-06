@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct ScriptListOptions {
@@ -28,8 +29,8 @@ impl From<ScriptListOptions> for QueryFilter {
 pub trait ScriptStorageAdapter:
     BaseStorageAdapter<wf_types::ScriptStorageMetadata, ScriptListOptions>
 {
-    async fn list_by_language(
-        &self,
-        language: &str,
-    ) -> Result<Vec<wf_types::ScriptStorageMetadata>, StorageError>;
+    fn list_by_language<'a>(
+        &'a self,
+        language: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::ScriptStorageMetadata>, StorageError>> + Send + 'a;
 }

@@ -2,6 +2,7 @@ use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
 use std::collections::HashMap;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolListOptions {
@@ -29,5 +30,7 @@ impl From<ToolListOptions> for QueryFilter {
 pub trait ToolStorageAdapter:
     BaseStorageAdapter<wf_types::ToolStorageMetadata, ToolListOptions>
 {
-    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError>;
+    fn get_stats<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
 }

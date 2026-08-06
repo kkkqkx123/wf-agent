@@ -1,5 +1,6 @@
 use crate::error::StorageError;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NoteEntity {
@@ -13,10 +14,24 @@ pub struct NoteEntity {
 }
 
 pub trait NoteStorageAdapter: Send + Sync {
-    async fn save(&self, entity: &NoteEntity) -> Result<(), StorageError>;
-    async fn load(&self, id: &str) -> Result<Option<NoteEntity>, StorageError>;
-    async fn delete(&self, id: &str) -> Result<bool, StorageError>;
-    async fn list_all(&self) -> Result<Vec<NoteEntity>, StorageError>;
-    async fn search(&self, query: &str) -> Result<Vec<NoteEntity>, StorageError>;
-    async fn clear(&self) -> Result<(), StorageError>;
+    fn save<'a>(
+        &'a self,
+        entity: &'a NoteEntity,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
+    fn load<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> impl Future<Output = Result<Option<NoteEntity>, StorageError>> + Send + 'a;
+    fn delete<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a;
+    fn list_all<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<Vec<NoteEntity>, StorageError>> + Send + 'a;
+    fn search<'a>(
+        &'a self,
+        query: &'a str,
+    ) -> impl Future<Output = Result<Vec<NoteEntity>, StorageError>> + Send + 'a;
+    fn clear<'a>(&'a self) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 }

@@ -113,6 +113,9 @@ pub struct Runtime {
     trigger_listener_handle: Option<tokio::task::JoinHandle<()>>,
     #[cfg(feature = "plugins")]
     pub plugin_engine: Option<wf_plugin::PluginEngine>,
+    /// Lazily-created application-facing API context; shared so live execution
+    /// handles (pause/resume/cancel) stay valid across calls.
+    api_ctx: std::sync::OnceLock<wf_api::ApiContext>,
 }
 
 impl Runtime {
@@ -280,6 +283,7 @@ impl Runtime {
             trigger_listener_handle: Some(listener.handle),
             #[cfg(feature = "plugins")]
             plugin_engine,
+            api_ctx: std::sync::OnceLock::new(),
         })
     }
 
@@ -304,6 +308,30 @@ impl Runtime {
     /// Shared MCP connection manager, when MCP settings were configured.
     pub fn mcp_manager(&self) -> Option<&Arc<wf_tools::mcp::connection::McpConnectionManager>> {
         self.mcp_manager.as_ref()
+    }
+
+    /// The application-facing API context assembled from the runtime's shared
+    /// pieces (storage, registries, event bus, LLM gateway, tool registry).
+    ///
+    /// Built once and cached: the live execution handles inside the context
+    /// (`WorkflowApi` / `AgentApi` pause/resume/cancel) must be shared by all
+    /// callers.
+    pub fn api_context(&self) -> &wf_api::ApiContext {
+        self.api_ctx.get_or_init(|| {
+            let storage = self
+                .storage_manager
+                .shared_context()
+                .unwrap_or_else(|| Arc::new(wf_storage::context::StorageContext::new_memory()));
+            wf_api::ApiContext::from_runtime_parts(
+                storage,
+                self.registries.clone(),
+                self.bundles.clone(),
+                self.event_bus.clone(),
+                self.llm_gateway.clone(),
+                self.tool_registry.clone(),
+                self.metrics.as_ref().map(|m| m.registry().clone()),
+            )
+        })
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
@@ -560,6 +588,32 @@ mod tests {
         assert!(!runtime.registries().agent_templates.is_empty());
         assert!(!runtime.registries().trigger_templates.is_empty());
         assert!(!runtime.registries().workflows.is_empty());
+
+        runtime.shutdown().await.unwrap();
+
+        clear_env_vars();
+    }
+
+    #[tokio::test]
+    async fn test_runtime_api_context_shared_and_cached() {
+        clear_env_vars();
+
+        let config = RuntimeConfig {
+            log_config: LogConfig::default().with_level("off"),
+            resource: ResourceConfig::default(),
+            metrics: None,
+            ..Default::default()
+        };
+
+        let runtime = Runtime::bootstrap(config).await.unwrap();
+
+        let first: &wf_api::ApiContext = runtime.api_context();
+        let second: &wf_api::ApiContext = runtime.api_context();
+        assert!(std::ptr::eq(first, second), "api_context must be cached");
+
+        // The context shares the runtime's event bus and tool registry.
+        assert!(Arc::ptr_eq(&first.event_bus, &runtime.event_bus));
+        assert!(Arc::ptr_eq(&first.tool_registry, &runtime.tool_registry));
 
         runtime.shutdown().await.unwrap();
 

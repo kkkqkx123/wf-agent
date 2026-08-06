@@ -1,46 +1,75 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::Value;
 
+use wf_core::registry::{MutableRegistry, Registry};
+use wf_resource::registrar::Registries;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::{
     WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter,
 };
 use wf_storage::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
-use wf_storage::context::StorageContext;
+use wf_types::workflow::WorkflowTemplate;
 use wf_types::{ExecutionStatus, WorkflowDefinition, WorkflowExecution};
 
 use crate::not_found;
+use crate::workflow_execution::definition_to_graph;
+use crate::ApiContext;
 
-fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> {
+/// Validate a workflow before persisting it: the config-level checks
+/// (`wf-config`) run first, then the full graph validator
+/// (`wf-workflow::GraphValidator`) — fork-join pairing, loop pairing,
+/// start/end, subgraph, sync nodes, isolated nodes, triggered subgraphs,
+/// cycles and reachability.
+pub(crate) fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> {
     wf_config::processor::workflow::validate_workflow_definition(workflow)
-        .map_err(|e| crate::ApiError::Validation(e.to_string()))
+        .map_err(|e| crate::ApiError::Validation(e.to_string()))?;
+
+    let graph = definition_to_graph(workflow);
+    wf_workflow::validation::GraphValidator::validate(&graph).map_err(|errors| {
+        let detail = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        crate::ApiError::Validation(format!(
+            "workflow graph validation failed ({} error(s)): {}",
+            errors.len(),
+            detail
+        ))
+    })
 }
 
+/// Persist a workflow and keep the execution registry in sync: storage is the
+/// persistent source, the registry is the execution index (`search`/`execute`
+/// read it), so both must see the same current definition.
 pub async fn save_workflow(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
     validate_workflow(workflow)?;
-    ctx.workflow.save(workflow).await?;
+    ctx.storage.workflow.save(workflow).await?;
+    upsert_workflow_registry(&ctx.registries, workflow);
     Ok(())
 }
 
-pub async fn get_workflow(ctx: &StorageContext, id: &str) -> crate::ApiResult<WorkflowDefinition> {
-    ctx.workflow
+pub async fn get_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<WorkflowDefinition> {
+    ctx.storage
+        .workflow
         .load(id)
         .await?
         .ok_or_else(|| not_found("workflow", id))
 }
 
-pub async fn workflow_exists(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
-    ctx.workflow.exists(id).await.map_err(Into::into)
+pub async fn workflow_exists(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
+    ctx.storage.workflow.exists(id).await.map_err(Into::into)
 }
 
 /// Clone a workflow: saves a copy under a new id (generated unless given) and
 /// records `cloned_from` / `cloned_at` provenance in its storage metadata.
 pub async fn clone_workflow(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     id: &str,
     new_id: Option<&str>,
 ) -> crate::ApiResult<String> {
@@ -55,7 +84,7 @@ pub async fn clone_workflow(
     cloned.id = cloned_id.clone();
     cloned.name = format!("{} (copy)", source.name);
 
-    ctx.workflow.save(&cloned).await?;
+    save_workflow(ctx, &cloned).await?;
 
     let mut provenance = HashMap::new();
     provenance.insert("cloned_from".into(), Value::String(id.to_string()));
@@ -63,7 +92,8 @@ pub async fn clone_workflow(
         "cloned_at".into(),
         Value::Number(serde_json::Number::from(wf_common::now())),
     );
-    ctx.workflow
+    ctx.storage
+        .workflow
         .update_metadata(&cloned_id, &provenance)
         .await?;
 
@@ -72,113 +102,162 @@ pub async fn clone_workflow(
 
 /// Roll back a workflow to a saved version: the version snapshot becomes the
 /// current definition (a new version should be saved afterwards).
-pub async fn rollback_workflow(
-    ctx: &StorageContext,
-    id: &str,
-    version: &str,
-) -> crate::ApiResult<()> {
+pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> crate::ApiResult<()> {
     let template = get_workflow_version(ctx, id, version).await?;
     validate_workflow(&template)?;
-    ctx.workflow.save(&template).await?;
+    save_workflow(ctx, &template).await?;
     Ok(())
 }
 
-pub async fn delete_workflow(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
-    ctx.workflow.delete(id).await.map_err(Into::into)
+pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
+    ctx.registries.workflows.unregister(id);
+    ctx.storage.workflow.delete(id).await.map_err(Into::into)
 }
 
 pub async fn list_workflows(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     options: Option<WorkflowListOptions>,
 ) -> crate::ApiResult<Vec<WorkflowDefinition>> {
-    ctx.workflow.list(options).await.map_err(Into::into)
+    ctx.storage.workflow.list(options).await.map_err(Into::into)
 }
 
 pub async fn update_workflow_metadata(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     id: &str,
     metadata: &HashMap<String, Value>,
 ) -> crate::ApiResult<()> {
-    ctx.workflow.update_metadata(id, metadata).await?;
+    ctx.storage.workflow.update_metadata(id, metadata).await?;
     Ok(())
 }
 
 pub async fn save_workflow_version(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     workflow_id: &str,
     version: &str,
     template: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
     validate_workflow(template)?;
-    ctx.workflow
+    ctx.storage
+        .workflow
         .save_version(workflow_id, version, template)
         .await?;
     Ok(())
 }
 
 pub async fn get_workflow_version(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     workflow_id: &str,
     version: &str,
 ) -> crate::ApiResult<WorkflowDefinition> {
-    ctx.workflow
+    ctx.storage
+        .workflow
         .load_version(workflow_id, version)
         .await?
         .ok_or_else(|| not_found("workflow_version", &format!("{}:v{}", workflow_id, version)))
 }
 
 pub async fn list_workflow_versions(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     workflow_id: &str,
 ) -> crate::ApiResult<Vec<WorkflowDefinition>> {
-    ctx.workflow
+    ctx.storage
+        .workflow
         .list_versions(workflow_id)
         .await
         .map_err(Into::into)
 }
 
 pub async fn save_execution(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     execution: &WorkflowExecution,
 ) -> crate::ApiResult<()> {
-    ctx.workflow_execution.save(execution).await?;
+    ctx.storage.workflow_execution.save(execution).await?;
     Ok(())
 }
 
-pub async fn get_execution(ctx: &StorageContext, id: &str) -> crate::ApiResult<WorkflowExecution> {
-    ctx.workflow_execution
+pub async fn get_execution(ctx: &ApiContext, id: &str) -> crate::ApiResult<WorkflowExecution> {
+    ctx.storage
+        .workflow_execution
         .load(id)
         .await?
         .ok_or_else(|| not_found("execution", id))
 }
 
-pub async fn delete_execution(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
-    ctx.workflow_execution.delete(id).await.map_err(Into::into)
+pub async fn delete_execution(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
+    ctx.storage
+        .workflow_execution
+        .delete(id)
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn list_executions(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     options: Option<WorkflowExecutionListOptions>,
 ) -> crate::ApiResult<Vec<WorkflowExecution>> {
-    ctx.workflow_execution
+    ctx.storage
+        .workflow_execution
         .list(options)
         .await
         .map_err(Into::into)
 }
 
 pub async fn update_execution_status(
-    ctx: &StorageContext,
+    ctx: &ApiContext,
     id: &str,
     status: &ExecutionStatus,
 ) -> crate::ApiResult<()> {
-    ctx.workflow_execution.update_status(id, status).await?;
+    ctx.storage
+        .workflow_execution
+        .update_status(id, status)
+        .await?;
     Ok(())
+}
+
+/// Register the workflow in the execution index, replacing any prior entry
+/// under the same id (upsert).
+fn upsert_workflow_registry(registries: &Arc<Registries>, workflow: &WorkflowDefinition) {
+    let template = WorkflowTemplate {
+        id: workflow.id.clone(),
+        name: workflow.name.clone(),
+        description: workflow.description.clone().unwrap_or_default(),
+        definition: workflow.clone(),
+        template_category: workflow.metadata.as_ref().and_then(|m| m.category.clone()),
+        template_tags: workflow.metadata.as_ref().and_then(|m| m.tags.clone()),
+        is_public: None,
+        enabled: Some(true),
+    };
+    if registries.workflows.has(&workflow.id) {
+        registries.workflows.unregister(&workflow.id);
+    }
+    if let Err(err) = registries
+        .workflows
+        .register(workflow.id.clone(), Arc::new(template))
+    {
+        tracing::warn!(
+            target: "wf_api",
+            workflow = %workflow.id,
+            error = %err,
+            "failed to register workflow in execution index"
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use wf_core::registry::Registry;
+    use wf_resource::registrar::Registries;
+    use wf_resource::starter::BundleRegistry;
     use wf_storage::context::StorageContext;
+
+    fn make_ctx() -> ApiContext {
+        let storage = StorageContext::new_memory();
+        let registries = Arc::new(Registries::new());
+        let bundles = Arc::new(BundleRegistry::new());
+        ApiContext::new(storage, registries, bundles)
+    }
 
     fn make_workflow(id: &str) -> WorkflowDefinition {
         WorkflowDefinition {
@@ -187,15 +266,35 @@ mod tests {
             description: None,
             r#type: None,
             version: Some("1.0.0".into()),
-            nodes: vec![wf_types::node::BaseStaticNode {
-                id: "start".into(),
-                node_type: wf_types::node::StaticNodeType::Start,
-                name: Some("start".into()),
+            nodes: vec![
+                wf_types::node::BaseStaticNode {
+                    id: "start".into(),
+                    node_type: wf_types::node::StaticNodeType::Start,
+                    name: Some("start".into()),
+                    description: None,
+                    config: None,
+                    execution_config: None,
+                },
+                wf_types::node::BaseStaticNode {
+                    id: "end".into(),
+                    node_type: wf_types::node::StaticNodeType::End,
+                    name: Some("end".into()),
+                    description: None,
+                    config: None,
+                    execution_config: None,
+                },
+            ],
+            edges: vec![wf_types::workflow::Edge {
+                id: "e1".into(),
+                source_node_id: "start".into(),
+                target_node_id: "end".into(),
+                r#type: wf_types::workflow::EdgeType::Default,
+                condition: None,
+                label: None,
                 description: None,
-                config: None,
-                execution_config: None,
+                weight: None,
+                metadata: None,
             }],
-            edges: vec![],
             config: None,
             variables: None,
             triggers: None,
@@ -209,7 +308,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_workflow_rejects_invalid_definition() {
-        let ctx = StorageContext::new_memory();
+        let ctx = make_ctx();
         let mut wf = make_workflow("wf-invalid");
         wf.name = String::new();
         let err = save_workflow(&ctx, &wf).await.unwrap_err();
@@ -229,16 +328,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_save_workflow_rejects_invalid_graph() {
+        let ctx = make_ctx();
+
+        // A FORK node without a matching JOIN must be rejected by the
+        // graph-level validation wired into the save path.
+        let mut wf = make_workflow("wf-bad-graph");
+        wf.nodes.insert(
+            1,
+            wf_types::node::BaseStaticNode {
+                id: "fork".into(),
+                node_type: wf_types::node::StaticNodeType::Fork,
+                name: Some("fork".into()),
+                description: None,
+                config: Some(serde_json::json!({
+                    "fork_paths": [{"path_id": "p1", "child_node_id": "end"}],
+                    "fork_strategy": "parallel",
+                })),
+                execution_config: None,
+            },
+        );
+        wf.edges.push(wf_types::workflow::Edge {
+            id: "e2".into(),
+            source_node_id: "start".into(),
+            target_node_id: "fork".into(),
+            r#type: wf_types::workflow::EdgeType::Default,
+            condition: None,
+            label: None,
+            description: None,
+            weight: None,
+            metadata: None,
+        });
+        let err = save_workflow(&ctx, &wf).await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
+        let message = err.to_string();
+        assert!(
+            message.contains("FORK") && message.contains("JOIN"),
+            "expected a fork-join pairing error, got: {message}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_workflow_exists() {
-        let ctx = StorageContext::new_memory();
+        let ctx = make_ctx();
         assert!(!workflow_exists(&ctx, "wf-1").await.unwrap());
         save_workflow(&ctx, &make_workflow("wf-1")).await.unwrap();
         assert!(workflow_exists(&ctx, "wf-1").await.unwrap());
     }
 
     #[tokio::test]
+    async fn test_save_workflow_syncs_registry() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-sync"))
+            .await
+            .unwrap();
+        assert!(ctx.registries.workflows.has("wf-sync"));
+
+        // Re-saving under the same id updates the registered template.
+        let mut updated = make_workflow("wf-sync");
+        updated.name = "Workflow renamed".into();
+        save_workflow(&ctx, &updated).await.unwrap();
+        let template = ctx.registries.workflows.get("wf-sync").unwrap();
+        assert_eq!(template.name, "Workflow renamed");
+    }
+
+    #[tokio::test]
     async fn test_clone_workflow() {
-        let ctx = StorageContext::new_memory();
+        let ctx = make_ctx();
         save_workflow(&ctx, &make_workflow("wf-orig"))
             .await
             .unwrap();
@@ -251,6 +407,7 @@ mod tests {
         let cloned = get_workflow(&ctx, "wf-copy").await.unwrap();
         assert_eq!(cloned.name, "Workflow wf-orig (copy)");
         assert!(cloned.id != "wf-orig");
+        assert!(ctx.registries.workflows.has("wf-copy"));
 
         let auto_id = clone_workflow(&ctx, "wf-orig", None).await.unwrap();
         assert!(!auto_id.is_empty());
@@ -259,7 +416,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rollback_workflow() {
-        let ctx = StorageContext::new_memory();
+        let ctx = make_ctx();
         save_workflow(&ctx, &make_workflow("wf-rb")).await.unwrap();
         save_workflow_version(&ctx, "wf-rb", "0.9", &make_workflow("wf-rb"))
             .await
@@ -273,5 +430,25 @@ mod tests {
         rollback_workflow(&ctx, "wf-rb", "0.9").await.unwrap();
         let restored = get_workflow(&ctx, "wf-rb").await.unwrap();
         assert_eq!(restored.name, "Workflow wf-rb");
+        assert_eq!(
+            ctx.registries
+                .workflows
+                .get("wf-rb")
+                .unwrap()
+                .definition
+                .name,
+            "Workflow wf-rb"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_workflow_syncs_registry() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-del")).await.unwrap();
+        assert!(ctx.registries.workflows.has("wf-del"));
+
+        assert!(delete_workflow(&ctx, "wf-del").await.unwrap());
+        assert!(!ctx.registries.workflows.has("wf-del"));
+        assert!(!workflow_exists(&ctx, "wf-del").await.unwrap());
     }
 }

@@ -1,3 +1,6 @@
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
 use tokio::sync::broadcast;
 
 use wf_types::events::BaseEvent;
@@ -6,12 +9,21 @@ use crate::error::EventError;
 
 const DEFAULT_CAPACITY: usize = 1024;
 
+/// Number of most recent events kept for search/observability. Bounded so
+/// unbounded publish rates never grow memory.
+const DEFAULT_RECENT_LIMIT: usize = 512;
+
 pub struct EventBus {
     sender: broadcast::Sender<BaseEvent>,
+    /// Ring buffer of the most recent published events, serving the unified
+    /// search's `event` type and lightweight observability queries.
+    recent: Mutex<VecDeque<BaseEvent>>,
+    recent_limit: usize,
 }
 
 pub struct EventBusBuilder {
     capacity: usize,
+    recent_limit: usize,
 }
 
 pub struct Subscription {
@@ -27,13 +39,26 @@ pub struct StateTransition {
 
 impl EventBus {
     pub fn new(capacity: usize) -> Self {
-        let (sender, _) = broadcast::channel(capacity);
-        Self { sender }
+        Self {
+            sender: broadcast::channel(capacity).0,
+            recent: Mutex::new(VecDeque::with_capacity(DEFAULT_RECENT_LIMIT)),
+            recent_limit: DEFAULT_RECENT_LIMIT,
+        }
+    }
+
+    /// Build a bus with an explicit recent-event history size.
+    pub fn with_recent_limit(capacity: usize, recent_limit: usize) -> Self {
+        Self {
+            sender: broadcast::channel(capacity).0,
+            recent: Mutex::new(VecDeque::with_capacity(recent_limit)),
+            recent_limit,
+        }
     }
 
     pub fn builder() -> EventBusBuilder {
         EventBusBuilder {
             capacity: DEFAULT_CAPACITY,
+            recent_limit: DEFAULT_RECENT_LIMIT,
         }
     }
 
@@ -44,6 +69,7 @@ impl EventBus {
     }
 
     pub fn publish(&self, event: BaseEvent) -> Result<usize, EventError> {
+        self.record_recent(event.clone());
         Ok(self.sender.send(event)?)
     }
 
@@ -56,6 +82,33 @@ impl EventBus {
     pub fn queue_len(&self) -> usize {
         self.sender.len()
     }
+
+    /// Maximum number of events retained in the recent-event history.
+    pub fn recent_limit(&self) -> usize {
+        self.recent_limit
+    }
+
+    /// Most recent published events, newest first, up to `recent_limit`.
+    pub fn recent_events(&self) -> Vec<BaseEvent> {
+        self.recent
+            .lock()
+            .expect("event bus recent history lock poisoned")
+            .iter()
+            .rev()
+            .cloned()
+            .collect()
+    }
+
+    fn record_recent(&self, event: BaseEvent) {
+        let mut recent = self
+            .recent
+            .lock()
+            .expect("event bus recent history lock poisoned");
+        if recent.len() == self.recent_limit {
+            recent.pop_front();
+        }
+        recent.push_back(event);
+    }
 }
 
 impl EventBusBuilder {
@@ -64,8 +117,13 @@ impl EventBusBuilder {
         self
     }
 
+    pub fn recent_limit(mut self, limit: usize) -> Self {
+        self.recent_limit = limit;
+        self
+    }
+
     pub fn build(self) -> EventBus {
-        EventBus::new(self.capacity)
+        EventBus::with_recent_limit(self.capacity, self.recent_limit)
     }
 }
 
@@ -140,5 +198,36 @@ mod tests {
 
         let result = sub.try_recv();
         assert!(matches!(result, Err(EventError::Lagged(1))));
+    }
+
+    #[tokio::test]
+    async fn recent_events_are_retained_newest_first() {
+        let bus = EventBus::new(16);
+        let _sub = bus.subscribe();
+        bus.publish(make_event(Some("exec-1"), EventType::Heartbeat))
+            .unwrap();
+        bus.publish(make_event(Some("exec-2"), EventType::NodeStarted))
+            .unwrap();
+        bus.publish(make_event(Some("exec-3"), EventType::NodeCompleted))
+            .unwrap();
+
+        let recent = bus.recent_events();
+        assert_eq!(recent.len(), 3);
+        assert_eq!(recent[0].execution_id.as_deref(), Some("exec-3"));
+        assert_eq!(recent[2].execution_id.as_deref(), Some("exec-1"));
+    }
+
+    #[tokio::test]
+    async fn recent_events_are_bounded() {
+        let bus = EventBus::with_recent_limit(16, 3);
+        let _sub = bus.subscribe();
+        for i in 0..10 {
+            bus.publish(make_event(Some(&format!("exec-{i}")), EventType::Heartbeat))
+                .unwrap();
+        }
+        let recent = bus.recent_events();
+        assert_eq!(recent.len(), 3);
+        assert_eq!(recent[0].execution_id.as_deref(), Some("exec-9"));
+        assert_eq!(recent[2].execution_id.as_deref(), Some("exec-7"));
     }
 }

@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentExecutionListOptions {
@@ -32,8 +33,8 @@ impl From<AgentExecutionListOptions> for QueryFilter {
 pub trait AgentExecutionStorageAdapter:
     BaseStorageAdapter<wf_types::AgentExecution, AgentExecutionListOptions>
 {
-    async fn list_by_definition(
-        &self,
-        definition_id: &str,
-    ) -> Result<Vec<wf_types::AgentExecution>, StorageError>;
+    fn list_by_definition<'a>(
+        &'a self,
+        definition_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::AgentExecution>, StorageError>> + Send + 'a;
 }

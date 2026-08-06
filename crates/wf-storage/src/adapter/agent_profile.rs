@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentProfileListOptions {
@@ -32,7 +33,9 @@ impl From<AgentProfileListOptions> for QueryFilter {
 pub trait AgentProfileStorageAdapter:
     BaseStorageAdapter<wf_types::AgentProfileStorageMetadata, AgentProfileListOptions>
 {
-    async fn get_first(
-        &self,
-    ) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError>;
+    fn get_first<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 }

@@ -61,3 +61,85 @@ pub async fn get_interaction_stats(ctx: &StorageContext) -> crate::ApiResult<Has
 pub async fn delete_interaction(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
     ctx.user_interaction.delete(id).await.map_err(Into::into)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_interaction(
+        id: &str,
+        execution_id: &str,
+        interaction_type: &str,
+        status: &str,
+    ) -> UserInteractionStorageMetadata {
+        UserInteractionStorageMetadata {
+            id: id.into(),
+            execution_id: execution_id.into(),
+            interaction_type: interaction_type.into(),
+            status: status.into(),
+            request_data: json!({ "prompt": "confirm" }),
+            response_data: None,
+            result_data: None,
+            error: None,
+            created_at: 1000,
+            responded_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn interaction_crud() {
+        let ctx = StorageContext::new_memory();
+        save_interaction(
+            &ctx,
+            &make_interaction("ui-1", "ex-1", "confirm", "pending"),
+        )
+        .await
+        .unwrap();
+
+        let loaded = get_interaction(&ctx, "ui-1").await.unwrap();
+        assert_eq!(loaded.interaction_type, "confirm");
+
+        let err = get_interaction(&ctx, "ui-missing").await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::NotFound { .. }));
+
+        assert!(delete_interaction(&ctx, "ui-1").await.unwrap());
+        assert!(!delete_interaction(&ctx, "ui-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn interaction_domain_methods() {
+        let ctx = StorageContext::new_memory();
+        save_interaction(
+            &ctx,
+            &make_interaction("ui-1", "ex-1", "confirm", "pending"),
+        )
+        .await
+        .unwrap();
+        save_interaction(
+            &ctx,
+            &make_interaction("ui-2", "ex-1", "input", "responded"),
+        )
+        .await
+        .unwrap();
+        save_interaction(
+            &ctx,
+            &make_interaction("ui-3", "ex-2", "confirm", "pending"),
+        )
+        .await
+        .unwrap();
+
+        let by_execution = list_interactions_by_execution(&ctx, "ex-1").await.unwrap();
+        assert_eq!(by_execution.len(), 2);
+
+        let by_status = list_interactions_by_status(&ctx, "pending").await.unwrap();
+        assert_eq!(by_status.len(), 2);
+
+        let listed = list_interactions(&ctx, None).await.unwrap();
+        assert_eq!(listed.len(), 3);
+
+        let stats = get_interaction_stats(&ctx).await.unwrap();
+        assert_eq!(stats.get("pending"), Some(&2));
+        assert_eq!(stats.get("responded"), Some(&1));
+    }
+}

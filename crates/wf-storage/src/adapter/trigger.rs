@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct TriggerListOptions {
@@ -32,8 +33,8 @@ impl From<TriggerListOptions> for QueryFilter {
 pub trait TriggerStorageAdapter:
     BaseStorageAdapter<wf_types::TriggerStorageMetadata, TriggerListOptions>
 {
-    async fn list_by_event(
-        &self,
-        event: &str,
-    ) -> Result<Vec<wf_types::TriggerStorageMetadata>, StorageError>;
+    fn list_by_event<'a>(
+        &'a self,
+        event: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::TriggerStorageMetadata>, StorageError>> + Send + 'a;
 }

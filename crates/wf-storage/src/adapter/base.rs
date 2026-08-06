@@ -1,5 +1,5 @@
-use serde::Serialize;
 use std::collections::HashMap;
+use std::future::Future;
 
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
@@ -17,50 +17,89 @@ impl From<ListOptions> for QueryFilter {
     }
 }
 
-pub trait BaseStorageAdapter<TEntity, TListOptions>: Send + Sync {
-    async fn initialize(&self) -> Result<(), StorageError>;
-    async fn close(&self) -> Result<(), StorageError>;
+pub trait BaseStorageAdapter<TEntity, TListOptions>: Send + Sync
+where
+    TEntity: Send + Sync,
+    TListOptions: Send + Sync,
+{
+    fn initialize<'a>(&'a self) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn save(&self, entity: &TEntity) -> Result<(), StorageError>;
-    async fn load(&self, id: &str) -> Result<Option<TEntity>, StorageError>;
-    async fn delete(&self, id: &str) -> Result<bool, StorageError>;
-    async fn list(&self, options: Option<TListOptions>) -> Result<Vec<TEntity>, StorageError>;
-    async fn clear(&self) -> Result<(), StorageError>;
+    fn close<'a>(&'a self) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 
-    async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        Ok(self.load(id).await?.is_some())
+    fn save<'a>(
+        &'a self,
+        entity: &'a TEntity,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
+
+    fn load<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> impl Future<Output = Result<Option<TEntity>, StorageError>> + Send + 'a;
+
+    fn delete<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a;
+
+    fn list<'a>(
+        &'a self,
+        options: Option<TListOptions>,
+    ) -> impl Future<Output = Result<Vec<TEntity>, StorageError>> + Send + 'a;
+
+    fn clear<'a>(&'a self) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
+
+    fn exists<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> impl Future<Output = Result<bool, StorageError>> + Send + 'a {
+        async move { Ok(self.load(id).await?.is_some()) }
     }
 
-    async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError>;
+    fn count_by_field<'a>(
+        &'a self,
+        field: &'a str,
+    ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
 
-    async fn save_batch(&self, entities: &[TEntity]) -> Result<(), StorageError>
-    where
-        TEntity: Serialize,
-    {
-        for entity in entities {
-            self.save(entity).await?;
-        }
-        Ok(())
-    }
-
-    async fn load_batch(&self, ids: &[String]) -> Result<Vec<(String, TEntity)>, StorageError> {
-        let mut results = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(entity) = self.load(id).await? {
-                results.push((id.clone(), entity));
+    fn save_batch<'a>(
+        &'a self,
+        entities: &'a [TEntity],
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a {
+        async move {
+            for entity in entities {
+                self.save(entity).await?;
             }
+            Ok(())
         }
-        Ok(results)
     }
 
-    async fn delete_batch(&self, ids: &[String]) -> Result<u64, StorageError> {
-        let mut count = 0u64;
-        for id in ids {
-            if self.delete(id).await? {
-                count += 1;
+    fn load_batch<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> impl Future<Output = Result<Vec<(String, TEntity)>, StorageError>> + Send + 'a {
+        async move {
+            let mut results = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Some(entity) = self.load(id).await? {
+                    results.push((id.clone(), entity));
+                }
             }
+            Ok(results)
         }
-        Ok(count)
+    }
+
+    fn delete_batch<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> impl Future<Output = Result<u64, StorageError>> + Send + 'a {
+        async move {
+            let mut count = 0u64;
+            for id in ids {
+                if self.delete(id).await? {
+                    count += 1;
+                }
+            }
+            Ok(count)
+        }
     }
 }
 

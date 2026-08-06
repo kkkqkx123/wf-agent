@@ -27,6 +27,7 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
+use crate::registry::AgentLoopRegistry;
 use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
 use tokio::sync::RwLock;
 
@@ -43,6 +44,9 @@ pub struct AgentLoopCoordinator {
     approval_options: Option<ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
     max_pause_duration: Option<u64>,
+    /// Shared registry the built entity is registered into, giving callers
+    /// a live handle for pause/resume/cancel/status queries.
+    entity_registry: Option<Arc<AgentLoopRegistry>>,
 }
 
 impl AgentLoopCoordinator {
@@ -73,6 +77,7 @@ impl AgentLoopCoordinator {
             approval_options: None,
             approval_handler: None,
             max_pause_duration: None,
+            entity_registry: None,
         }
     }
 
@@ -128,6 +133,14 @@ impl AgentLoopCoordinator {
         self
     }
 
+    /// Register the built entity into a shared registry so the caller can
+    /// pause/resume/cancel the loop through the same entity the coordinator
+    /// drives.
+    pub fn with_entity_registry(mut self, registry: Arc<AgentLoopRegistry>) -> Self {
+        self.entity_registry = Some(registry);
+        self
+    }
+
     /// Spawn the conversation compression consumer for the live session
     /// (self-consumption, compression chain closure): completed compression
     /// events matching `agent_loop_id` are applied to the conversation with
@@ -152,7 +165,10 @@ impl AgentLoopCoordinator {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
-        let entity = self.build_entity(&config, input).await?;
+        let entity = Arc::new(self.build_entity(&config, input).await?);
+        if let Some(ref registry) = self.entity_registry {
+            registry.register(entity.clone());
+        }
         let execution_id = entity.id().clone();
 
         // The conversation applies compression results itself (it subscribes
@@ -170,7 +186,7 @@ impl AgentLoopCoordinator {
     async fn execute_inner(
         &self,
         config: AgentLoopConfig,
-        entity: AgentLoopEntity,
+        entity: Arc<AgentLoopEntity>,
     ) -> AgentResult<AgentLoopOutput> {
         let execution_id = entity.id().clone();
 
@@ -396,6 +412,7 @@ impl AgentLoopCoordinator {
         let approval_options = self.approval_options.clone();
         let approval_handler = self.approval_handler.clone();
         let max_pause_duration = self.max_pause_duration;
+        let entity_registry = self.entity_registry.clone();
         let hooks: Vec<BaseHookDefinition> = config
             .hooks
             .iter()
@@ -442,6 +459,10 @@ impl AgentLoopCoordinator {
                     metadata: None,
                 };
                 entity.conversation().write().await.add_message(msg);
+            }
+            let entity = Arc::new(entity);
+            if let Some(ref registry) = entity_registry {
+                registry.register(entity.clone());
             }
 
             // The conversation applies compression results itself (it

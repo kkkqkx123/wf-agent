@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct WorkflowExecutionListOptions {
@@ -32,9 +33,9 @@ impl From<WorkflowExecutionListOptions> for QueryFilter {
 pub trait WorkflowExecutionStorageAdapter:
     BaseStorageAdapter<wf_types::WorkflowExecution, WorkflowExecutionListOptions>
 {
-    async fn update_status(
-        &self,
-        id: &str,
-        status: &wf_types::ExecutionStatus,
-    ) -> Result<(), StorageError>;
+    fn update_status<'a>(
+        &'a self,
+        id: &'a str,
+        status: &'a wf_types::ExecutionStatus,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a;
 }

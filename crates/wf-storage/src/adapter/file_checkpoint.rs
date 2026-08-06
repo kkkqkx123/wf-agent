@@ -1,6 +1,7 @@
 use crate::adapter::base::BaseStorageAdapter;
 use crate::domain::store::{FilterOp, QueryFilter};
 use crate::error::StorageError;
+use std::future::Future;
 
 #[derive(Debug, Clone, Default)]
 pub struct FileCheckpointListOptions {
@@ -28,13 +29,17 @@ impl From<FileCheckpointListOptions> for QueryFilter {
 pub trait FileCheckpointStorageAdapter:
     BaseStorageAdapter<wf_types::FileCheckpointStorageMetadata, FileCheckpointListOptions>
 {
-    async fn load_by_file_path(
-        &self,
-        file_path: &str,
-    ) -> Result<Option<wf_types::FileCheckpointStorageMetadata>, StorageError>;
+    fn load_by_file_path<'a>(
+        &'a self,
+        file_path: &'a str,
+    ) -> impl Future<Output = Result<Option<wf_types::FileCheckpointStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 
-    async fn list_by_entity(
-        &self,
-        entity_id: &str,
-    ) -> Result<Vec<wf_types::FileCheckpointStorageMetadata>, StorageError>;
+    fn list_by_entity<'a>(
+        &'a self,
+        entity_id: &'a str,
+    ) -> impl Future<Output = Result<Vec<wf_types::FileCheckpointStorageMetadata>, StorageError>>
+           + Send
+           + 'a;
 }

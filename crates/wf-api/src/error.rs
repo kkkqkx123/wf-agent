@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use wf_storage::error::StorageError;
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -36,9 +38,36 @@ impl ApiError {
         }
     }
 
+    /// Convenience constructor for a duplicate entity.
+    pub fn already_exists(entity_type: &str, id: &str) -> Self {
+        ApiError::AlreadyExists {
+            entity_type: entity_type.to_string(),
+            id: id.to_string(),
+        }
+    }
+
     /// Convenience constructor for a missing execution handle.
     pub fn execution_not_found(id: &str) -> Self {
         ApiError::ExecutionNotFound { id: id.to_string() }
+    }
+}
+
+/// Run `future` bounded by `duration`; an elapse maps onto `ApiError::Timeout`.
+///
+/// Library-level timeout primitive (the design keeps execution "capabilities"
+/// such as timeout/cancel as reusable tools instead of a command layer). The
+/// default execution timeouts of `WorkflowApi::execute` / `AgentApi::run`
+/// compose through it.
+pub async fn with_timeout<F, T>(duration: Duration, future: F) -> ApiResult<T>
+where
+    F: std::future::Future<Output = ApiResult<T>>,
+{
+    match tokio::time::timeout(duration, future).await {
+        Ok(result) => result,
+        Err(_) => Err(ApiError::Timeout(format!(
+            "operation timed out after {}ms",
+            duration.as_millis()
+        ))),
     }
 }
 

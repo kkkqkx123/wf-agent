@@ -1,8 +1,9 @@
 use crate::adapter::adapter_impls::{
     AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, CheckpointStorage,
-    FileCheckpointStorage, HookTemplateStorage, MetricsStorage, NodeTemplateStorage, ScriptStorage,
-    TaskStorage, ToolStorage, TriggerExecutionStorage, TriggerStorage, UserInteractionStorage,
-    WorkflowExecutionStorage, WorkflowStorage,
+    FileCheckpointStorage, HookTemplateStorage, MessageStorage, MetricsStorage,
+    NodeTemplateStorage, ScriptStorage, TaskStorage, ToolStorage, TriggerExecutionStorage,
+    TriggerStorage, UserInteractionStorage, VariableStorage, WorkflowExecutionStorage,
+    WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
@@ -31,6 +32,8 @@ pub struct StorageContext {
     pub node_template: NodeTemplateStorage<StorageBackend>,
     pub hook_template: HookTemplateStorage<StorageBackend>,
     pub metrics: MetricsStorage<StorageBackend>,
+    pub message: MessageStorage<StorageBackend>,
+    pub variable: VariableStorage<StorageBackend>,
     pub note_store: MemoryNoteStore,
 }
 
@@ -65,6 +68,8 @@ impl StorageContext {
             node_template: NodeTemplateStorage::new(make_backend!(Memory, "node_template")),
             hook_template: HookTemplateStorage::new(make_backend!(Memory, "hook_template")),
             metrics: MetricsStorage::new(make_backend!(Memory, "metrics")),
+            message: MessageStorage::new(make_backend!(Memory, "message")),
+            variable: VariableStorage::new(make_backend!(Memory, "variable")),
             note_store: MemoryNoteStore::new(),
         }
     }
@@ -95,6 +100,8 @@ impl StorageContext {
             node_template: NodeTemplateStorage::new(sqlite_backend!("node_template")),
             hook_template: HookTemplateStorage::new(sqlite_backend!("hook_template")),
             metrics: MetricsStorage::new(sqlite_backend!("metrics")),
+            message: MessageStorage::new(sqlite_backend!("message")),
+            variable: VariableStorage::new(sqlite_backend!("variable")),
             note_store: MemoryNoteStore::new(),
         })
     }
@@ -125,6 +132,8 @@ impl StorageContext {
             node_template: NodeTemplateStorage::new(pg_backend!("node_template")),
             hook_template: HookTemplateStorage::new(pg_backend!("hook_template")),
             metrics: MetricsStorage::new(pg_backend!("metrics")),
+            message: MessageStorage::new(pg_backend!("message")),
+            variable: VariableStorage::new(pg_backend!("variable")),
             note_store: MemoryNoteStore::new(),
         })
     }
@@ -152,6 +161,8 @@ impl StorageContext {
             self.node_template.store().op_metrics(),
             self.hook_template.store().op_metrics(),
             self.metrics.inner().op_metrics(),
+            self.message.store().op_metrics(),
+            self.variable.store().op_metrics(),
         ];
         for backend in backends {
             total = total.accumulate(backend);

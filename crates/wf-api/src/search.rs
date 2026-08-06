@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use futures::future::join_all;
 
@@ -104,11 +105,11 @@ pub struct SearchResult {
 /// are collected first and then sorted, so the outcome never depends on
 /// registry iteration order.
 pub struct Searcher {
-    ctx: ApiContext,
+    ctx: Arc<ApiContext>,
 }
 
 impl Searcher {
-    pub fn new(ctx: ApiContext) -> Self {
+    pub fn new(ctx: Arc<ApiContext>) -> Self {
         Self { ctx }
     }
 
@@ -426,7 +427,7 @@ mod tests {
     use wf_types::workflow::{WorkflowDefinition, WorkflowMetadata, WorkflowTemplate};
     use wf_types::ExecutionStatus;
 
-    fn make_ctx() -> (Arc<Registries>, Arc<BundleRegistry>, ApiContext) {
+    fn make_ctx() -> (Arc<Registries>, Arc<BundleRegistry>, Arc<ApiContext>) {
         let storage = StorageContext::new_memory();
         let registries = Arc::new(Registries::new());
         wf_resource::register_all(
@@ -435,11 +436,15 @@ mod tests {
             &ResourceOptions::default(),
         );
         let bundles = Arc::new(BundleRegistry::new());
-        let ctx = ApiContext::new(storage, registries.clone(), bundles.clone());
+        let ctx = Arc::new(ApiContext::new(
+            storage,
+            registries.clone(),
+            bundles.clone(),
+        ));
         (registries, bundles, ctx)
     }
 
-    fn ctx_only() -> ApiContext {
+    fn ctx_only() -> Arc<ApiContext> {
         let (_, _, ctx) = make_ctx();
         ctx
     }

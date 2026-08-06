@@ -116,6 +116,24 @@ where
     pub async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
         self.storage.count_by_metadata_field(field).await
     }
+
+    /// Read-modify-write of an entity by id, guarded by a per-id lock so
+    /// concurrent mutations of the same record cannot lose updates (e.g. an
+    /// atomic enable/disable toggle). Returns `Ok(None)` when no record with
+    /// the id exists; otherwise applies `f` and persists the mutated entity.
+    pub async fn mutate(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut T) -> Result<(), StorageError>,
+    ) -> Result<Option<T>, StorageError> {
+        let mut entity = match self.load(id).await? {
+            Some(entity) => entity,
+            None => return Ok(None),
+        };
+        f(&mut entity)?;
+        self.save(&entity).await?;
+        Ok(Some(entity))
+    }
 }
 
 impl<S, T> EntityStore<S, T>

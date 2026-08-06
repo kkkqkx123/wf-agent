@@ -16,6 +16,24 @@ pub enum ExecutionStatus {
     Timeout,
 }
 
+impl From<ExecutionStatus> for wf_types::ExecutionStatus {
+    /// Map the execution-engine status onto the persisted `wf-types` status.
+    /// `Timeout` collapses onto `Failed`: the persisted contract has no
+    /// timeout state, so an aborted-by-timeout execution reads as failed.
+    fn from(status: ExecutionStatus) -> Self {
+        match status {
+            ExecutionStatus::Created => wf_types::ExecutionStatus::Created,
+            ExecutionStatus::Running => wf_types::ExecutionStatus::Running,
+            ExecutionStatus::Paused => wf_types::ExecutionStatus::Paused,
+            ExecutionStatus::Completed => wf_types::ExecutionStatus::Completed,
+            ExecutionStatus::Failed => wf_types::ExecutionStatus::Failed,
+            ExecutionStatus::Cancelled => wf_types::ExecutionStatus::Cancelled,
+            ExecutionStatus::Stopped => wf_types::ExecutionStatus::Stopped,
+            ExecutionStatus::Timeout => wf_types::ExecutionStatus::Failed,
+        }
+    }
+}
+
 #[async_trait]
 pub trait IExecutionEntity: Send + Sync {
     fn id(&self) -> &Id;

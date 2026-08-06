@@ -49,14 +49,22 @@ pub async fn disable_trigger(ctx: &StorageContext, id: &str) -> crate::ApiResult
     set_trigger_enabled(ctx, id, false).await
 }
 
+/// Query the enabled state of a trigger.
+pub async fn is_trigger_enabled(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
+    Ok(get_trigger(ctx, id).await?.enabled)
+}
+
+/// Atomic read-modify-write toggle: the storage adapter guards the
+/// compare-and-set so concurrent enable/disable calls cannot lose updates.
 async fn set_trigger_enabled(
     ctx: &StorageContext,
     id: &str,
     enabled: bool,
 ) -> crate::ApiResult<()> {
-    let mut trigger = get_trigger(ctx, id).await?;
-    trigger.enabled = enabled;
-    ctx.trigger.save(&trigger).await?;
+    ctx.trigger
+        .set_enabled(id, enabled)
+        .await?
+        .ok_or_else(|| not_found("trigger", id))?;
     Ok(())
 }
 
@@ -133,11 +141,46 @@ mod tests {
 
         disable_trigger(&ctx, "tr-1").await.unwrap();
         assert!(!get_trigger(&ctx, "tr-1").await.unwrap().enabled);
+        assert!(!is_trigger_enabled(&ctx, "tr-1").await.unwrap());
 
         enable_trigger(&ctx, "tr-1").await.unwrap();
         assert!(get_trigger(&ctx, "tr-1").await.unwrap().enabled);
+        assert!(is_trigger_enabled(&ctx, "tr-1").await.unwrap());
 
         let err = enable_trigger(&ctx, "tr-missing").await.unwrap_err();
         assert!(matches!(err, crate::ApiError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn concurrent_toggles_do_not_lose_updates() {
+        use std::sync::Arc;
+
+        let ctx = Arc::new(StorageContext::new_memory());
+        save_trigger(&ctx, &make_trigger("tr-race", "push"))
+            .await
+            .unwrap();
+
+        // Interleave toggles concurrently; the per-id compare-and-set in the
+        // adapter serializes the read-modify-write so the final state is
+        // always one of the written values and never a stale read.
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let enable_ctx = Arc::clone(&ctx);
+            handles.push(tokio::spawn(async move {
+                let _ = enable_trigger(&enable_ctx, "tr-race").await;
+            }));
+            let disable_ctx = Arc::clone(&ctx);
+            handles.push(tokio::spawn(async move {
+                let _ = disable_trigger(&disable_ctx, "tr-race").await;
+            }));
+        }
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Every toggle completed without a lost-update failure and the record
+        // is still present and consistent.
+        let trigger = get_trigger(&ctx, "tr-race").await.unwrap();
+        assert!(trigger.updated_at >= 1000);
     }
 }

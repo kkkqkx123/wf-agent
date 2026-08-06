@@ -37,4 +37,13 @@ pub trait TriggerStorageAdapter:
         &'a self,
         event: &'a str,
     ) -> impl Future<Output = Result<Vec<wf_types::TriggerStorageMetadata>, StorageError>> + Send + 'a;
+
+    /// Atomically set the enabled flag of a trigger (compare-and-set read /
+    /// modify / write guarded against lost updates). Returns the updated
+    /// record, or `None` when no trigger with the id exists.
+    fn set_enabled<'a>(
+        &'a self,
+        id: &'a str,
+        enabled: bool,
+    ) -> impl Future<Output = Result<Option<wf_types::TriggerStorageMetadata>, StorageError>> + Send + 'a;
 }

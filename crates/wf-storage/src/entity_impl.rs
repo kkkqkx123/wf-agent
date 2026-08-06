@@ -305,3 +305,45 @@ impl Entity for wf_types::FileCheckpointStorageMetadata {
         })
     }
 }
+
+impl Entity for wf_types::MessageStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "message"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "executionId": self.execution_id,
+            "agentLoopId": self.agent_loop_id,
+            "role": self.message.role,
+            "timestamp": self.message.timestamp,
+        })
+    }
+}
+
+impl Entity for wf_types::VariableStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "variable"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "executionId": self.execution_id,
+            "scope": self.scope,
+            "name": self.name,
+            "updatedAt": self.updated_at,
+        })
+    }
+}

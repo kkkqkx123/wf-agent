@@ -1,13 +1,24 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 
 use crate::context::ApiContext;
 use crate::error::ApiError;
 use crate::stream::ExecutionEventStream;
+
+/// Default wall-clock timeout for an agent loop when the config sets neither
+/// `max_execution_time` nor `max_iterations` (30s per iteration, 3 default
+/// iterations). An elapse maps onto `ApiError::Timeout`.
+const DEFAULT_AGENT_TIMEOUT_MS: u64 = 90_000;
+
+/// Per-iteration time budget used to derive the default agent timeout from
+/// `max_iterations` (aligned with TS `max_iterations × 30s`).
+const AGENT_TIMEOUT_PER_ITERATION_MS: u64 = 30_000;
 
 /// Parameters for running an agent loop.
 #[derive(Debug, Clone)]
@@ -33,15 +44,42 @@ impl AgentApi {
     }
 
     /// Run an agent loop to completion and await the final output.
+    ///
+    /// Bounded by a wall-clock timeout: the config's `max_execution_time` when
+    /// set, otherwise `max_iterations × 30s` (default 90s). An elapse maps
+    /// onto `ApiError::Timeout`.
     pub async fn run(
         &self,
         params: RunAgentLoopParams,
     ) -> crate::error::ApiResult<AgentLoopOutput> {
         let coordinator = self.coordinator();
-        coordinator
-            .execute(params.config, params.input)
-            .await
-            .map_err(Into::into)
+        let timeout_ms = agent_timeout_ms(&params.config);
+        let config = params.config.clone();
+        let input = params.input.clone();
+        let outcome = crate::error::with_timeout(Duration::from_millis(timeout_ms), async move {
+            coordinator.execute(config, input).await.map_err(Into::into)
+        })
+        .await;
+        match outcome {
+            Ok(output) => {
+                // Persist the produced conversation so agent-loop messages are
+                // queryable through `MessageApi` (storage injected via the
+                // shared context, mirroring the checkpoint wiring pattern).
+                self.persist_conversation(&params.config.agent_id, &output.conversation)
+                    .await;
+                Ok(output)
+            }
+            Err(e) => {
+                // Align with the workflow path: mark the live entity failed and
+                // write the failure reason into its state. The agent engine
+                // builds the entity under `config.agent_id`, so the registry
+                // lookup finds the handle the coordinator registered.
+                if let Some(entity) = self.ctx.agent_loop(&params.config.agent_id.to_string()) {
+                    entity.state.write().await.fail(e.to_string());
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Run an agent loop in streaming mode. Events (message deltas, tool
@@ -83,9 +121,17 @@ impl AgentApi {
     }
 
     /// Query the live status of an agent loop execution.
-    pub async fn status(&self, agent_loop_id: &str) -> crate::error::ApiResult<String> {
+    ///
+    /// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
+    /// contract) instead of a Debug string, so callers can match without
+    /// string parsing. A timeout in the engine state reads as `Failed`.
+    pub async fn status(
+        &self,
+        agent_loop_id: &str,
+    ) -> crate::error::ApiResult<wf_types::ExecutionStatus> {
         let entity = self.live_entity(agent_loop_id)?;
-        Ok(format!("{:?}", entity.state.read().await.status()))
+        let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
+        Ok(status)
     }
 
     /// Access the shared agent loop registry (query/records/cleanup).
@@ -112,6 +158,46 @@ impl AgentApi {
             .agent_loop(agent_loop_id)
             .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
     }
+
+    /// Persist the final conversation of an agent loop into the message
+    /// adapter, scoped to the agent loop id. Idempotent: message ids are the
+    /// storage keys, so re-running a loop never duplicates a message.
+    async fn persist_conversation(
+        &self,
+        agent_id: &wf_types::Id,
+        conversation: &[wf_types::message::Message],
+    ) {
+        let agent_loop_id = agent_id.to_string();
+        for message in conversation {
+            let record = wf_types::MessageStorageMetadata {
+                id: message.id.clone(),
+                execution_id: agent_loop_id.clone(),
+                agent_loop_id: Some(agent_loop_id.clone()),
+                message: message.clone(),
+            };
+            if let Err(err) = self.ctx.storage.message.save(&record).await {
+                tracing::warn!(
+                    target: "wf_api",
+                    agent_loop_id = %agent_loop_id,
+                    error = %err,
+                    "failed to persist agent conversation message"
+                );
+            }
+        }
+    }
+}
+
+/// Derive the default agent loop wall-clock timeout: `max_execution_time` when
+/// set, otherwise `max_iterations × 30s`, falling back to the 90s default.
+fn agent_timeout_ms(config: &AgentLoopConfig) -> u64 {
+    if let Some(max_execution_time) = config.max_execution_time {
+        return max_execution_time;
+    }
+    config
+        .max_iterations
+        .map(|iterations| iterations as u64 * AGENT_TIMEOUT_PER_ITERATION_MS)
+        .unwrap_or(DEFAULT_AGENT_TIMEOUT_MS)
+        .max(1)
 }
 
 #[cfg(test)]
@@ -173,6 +259,17 @@ mod tests {
             .expect("agent loop should complete");
         assert_eq!(output.result, serde_json::json!("hello from mock"));
         assert_eq!(output.iterations, 1);
+
+        // The produced conversation is persisted and queryable via the
+        // message adapter (execution-time write point).
+        let persisted = ctx.storage.message.list(None).await.unwrap();
+        assert!(
+            !persisted.is_empty(),
+            "agent conversation must be persisted"
+        );
+        assert!(persisted
+            .iter()
+            .all(|r| r.agent_loop_id.as_deref() == Some("agent-1")));
     }
 
     #[tokio::test]

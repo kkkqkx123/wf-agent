@@ -10,6 +10,7 @@ use crate::adapter::execution::{WorkflowExecutionListOptions, WorkflowExecutionS
 use crate::adapter::file_checkpoint::FileCheckpointListOptions;
 use crate::adapter::file_checkpoint::FileCheckpointStorageAdapter;
 use crate::adapter::hook_template::{HookTemplateListOptions, HookTemplateStorageAdapter};
+use crate::adapter::message::{MessageListOptions, MessageStorageAdapter};
 use crate::adapter::metrics::{MetricRecord, MetricsDataPoint, MetricsStorageAdapter};
 use crate::adapter::node_template::{NodeTemplateListOptions, NodeTemplateStorageAdapter};
 use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
@@ -20,6 +21,7 @@ use crate::adapter::trigger_execution::{
     TriggerExecutionListOptions, TriggerExecutionStorageAdapter,
 };
 use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteractionStorageAdapter};
+use crate::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use crate::domain::store::{BatchStore, QueryFilter, Store};
 use crate::error::StorageError;
@@ -94,6 +96,16 @@ make_base_adapter!(
     TriggerExecutionStorage,
     wf_types::TriggerExecutionStorageMetadata,
     TriggerExecutionListOptions
+);
+make_base_adapter!(
+    MessageStorage,
+    wf_types::MessageStorageMetadata,
+    MessageListOptions
+);
+make_base_adapter!(
+    VariableStorage,
+    wf_types::VariableStorageMetadata,
+    VariableListOptions
 );
 
 // ─── WorkflowStorageAdapter ───
@@ -358,6 +370,20 @@ impl<S: Store> TriggerStorageAdapter for TriggerStorage<S> {
         let filter = QueryFilter::new().with_field("event", event);
         self.entity_store.list(Some(&filter)).await
     }
+
+    async fn set_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<Option<wf_types::TriggerStorageMetadata>, StorageError> {
+        self.entity_store
+            .mutate(id, |trigger| {
+                trigger.enabled = enabled;
+                trigger.updated_at = chrono::Utc::now().timestamp_millis();
+                Ok(())
+            })
+            .await
+    }
 }
 
 // ─── ToolStorageAdapter ───
@@ -491,6 +517,84 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
         let mut deleted = 0u64;
         for entry in &all {
             self.entity_store.delete(&entry.id).await?;
+            deleted += 1;
+        }
+        Ok(deleted)
+    }
+}
+
+// ─── MessageStorageAdapter ───
+
+impl<S: Store> MessageStorageAdapter for MessageStorage<S> {
+    async fn list_by_execution(
+        &self,
+        execution_id: &str,
+        options: Option<MessageListOptions>,
+    ) -> Result<Vec<wf_types::MessageStorageMetadata>, StorageError> {
+        let options = options.unwrap_or_default();
+        let mut options = options;
+        options.execution_id_filter = Some(execution_id.to_string());
+        let filter: QueryFilter = options.into();
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_agent_loop(
+        &self,
+        agent_loop_id: &str,
+        options: Option<MessageListOptions>,
+    ) -> Result<Vec<wf_types::MessageStorageMetadata>, StorageError> {
+        let mut options = options.unwrap_or_default();
+        options.agent_loop_id_filter = Some(agent_loop_id.to_string());
+        let filter: QueryFilter = options.into();
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
+        self.count_by_field("role").await
+    }
+}
+
+// ─── VariableStorageAdapter ───
+
+impl<S: Store> VariableStorageAdapter for VariableStorage<S> {
+    async fn get_by_scope(
+        &self,
+        execution_id: Option<&str>,
+        scope: &str,
+        name: &str,
+    ) -> Result<Option<wf_types::VariableStorageMetadata>, StorageError> {
+        let id = wf_types::VariableStorageMetadata::composite_id(execution_id, scope, name);
+        self.entity_store.load(&id).await
+    }
+
+    async fn list_by_execution(
+        &self,
+        execution_id: &str,
+        options: Option<VariableListOptions>,
+    ) -> Result<Vec<wf_types::VariableStorageMetadata>, StorageError> {
+        let mut options = options.unwrap_or_default();
+        options.execution_id_filter = Some(execution_id.to_string());
+        let filter: QueryFilter = options.into();
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_scope(
+        &self,
+        scope: &str,
+        options: Option<VariableListOptions>,
+    ) -> Result<Vec<wf_types::VariableStorageMetadata>, StorageError> {
+        let mut options = options.unwrap_or_default();
+        options.scope_filter = Some(scope.to_string());
+        let filter: QueryFilter = options.into();
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn delete_by_execution(&self, execution_id: &str) -> Result<u64, StorageError> {
+        let filter = QueryFilter::new().with_field("executionId", execution_id);
+        let all = self.entity_store.list(Some(&filter)).await?;
+        let mut deleted = 0u64;
+        for record in &all {
+            self.entity_store.delete(&record.id).await?;
             deleted += 1;
         }
         Ok(deleted)

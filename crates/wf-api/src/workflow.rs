@@ -10,19 +10,20 @@ use wf_storage::adapter::execution::{
     WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter,
 };
 use wf_storage::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
-use wf_types::workflow::WorkflowTemplate;
+use wf_storage::domain::store::{QueryFilter, Store};
+use wf_types::workflow::{WorkflowMetadata, WorkflowTemplate};
 use wf_types::{ExecutionStatus, WorkflowDefinition, WorkflowExecution};
 
 use crate::not_found;
 use crate::workflow_execution::definition_to_graph;
 use crate::ApiContext;
 
-/// Validate a workflow before persisting it: the config-level checks
-/// (`wf-config`) run first, then the full graph validator
+/// Validate a workflow before persisting or executing it: the config-level
+/// checks (`wf-config`) run first, then the full graph validator
 /// (`wf-workflow::GraphValidator`) — fork-join pairing, loop pairing,
 /// start/end, subgraph, sync nodes, isolated nodes, triggered subgraphs,
 /// cycles and reachability.
-pub(crate) fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> {
+pub fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> {
     wf_config::processor::workflow::validate_workflow_definition(workflow)
         .map_err(|e| crate::ApiError::Validation(e.to_string()))?;
 
@@ -76,7 +77,12 @@ pub async fn clone_workflow(
     let source = get_workflow(ctx, id).await?;
 
     let cloned_id = match new_id {
-        Some(nid) if !nid.is_empty() => nid.to_string(),
+        Some(nid) if !nid.is_empty() => {
+            if workflow_exists(ctx, nid).await? {
+                return Err(crate::ApiError::already_exists("workflow", nid));
+            }
+            nid.to_string()
+        }
         _ => wf_common::generate_id(),
     };
 
@@ -86,31 +92,84 @@ pub async fn clone_workflow(
 
     save_workflow(ctx, &cloned).await?;
 
+    // Provenance is a second storage write; on failure compensate by removing
+    // the partially-created clone so the operation stays atomic from the
+    // caller's perspective.
     let mut provenance = HashMap::new();
     provenance.insert("cloned_from".into(), Value::String(id.to_string()));
     provenance.insert(
         "cloned_at".into(),
         Value::Number(serde_json::Number::from(wf_common::now())),
     );
-    ctx.storage
+    if let Err(err) = ctx
+        .storage
         .workflow
         .update_metadata(&cloned_id, &provenance)
-        .await?;
+        .await
+    {
+        ctx.registries.workflows.unregister(&cloned_id);
+        let _ = ctx.storage.workflow.delete(&cloned_id).await;
+        return Err(err.into());
+    }
 
     Ok(cloned_id)
 }
 
 /// Roll back a workflow to a saved version: the version snapshot becomes the
-/// current definition (a new version should be saved afterwards).
+/// current definition, and the pre-rollback current definition is preserved as
+/// a version snapshot automatically (so the rollback never loses history).
 pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> crate::ApiResult<()> {
     let template = get_workflow_version(ctx, id, version).await?;
     validate_workflow(&template)?;
+
+    // Preserve the current definition before it is overwritten.
+    if let Ok(current) = get_workflow(ctx, id).await {
+        let label = current
+            .version
+            .clone()
+            .unwrap_or_else(|| format!("pre-rollback-{}", version));
+        let _ = save_workflow_version(ctx, id, &label, &current).await;
+    }
+
     save_workflow(ctx, &template).await?;
     Ok(())
 }
 
+/// Delete a workflow and cascade its dependent records: executions (with
+/// their checkpoints) and saved versions. Triggers carry no workflow id in
+/// the storage schema, so they are not cascaded.
 pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
     ctx.registries.workflows.unregister(id);
+
+    // Executions of this workflow + their checkpoints.
+    let executions = list_executions(
+        ctx,
+        Some(WorkflowExecutionListOptions {
+            workflow_id_filter: Some(id.to_string()),
+            ..Default::default()
+        }),
+    )
+    .await?;
+    for execution in executions {
+        let _ = crate::checkpoint::delete_checkpoints_by_entity(
+            &ctx.storage,
+            &execution.id,
+            "checkpoint",
+        )
+        .await;
+        let _ = delete_execution(ctx, &execution.id).await;
+    }
+
+    // Saved versions (raw store prefix walk: `{workflow}:v*`).
+    let store = ctx.storage.workflow.store();
+    let prefix = format!("{}:v", id);
+    let versions = store
+        .list(Some(&QueryFilter::new().with_id_prefix(&prefix)))
+        .await?;
+    for (composite_id, _) in versions {
+        let _ = store.delete(&composite_id).await;
+    }
+
     ctx.storage.workflow.delete(id).await.map_err(Into::into)
 }
 
@@ -126,7 +185,34 @@ pub async fn update_workflow_metadata(
     id: &str,
     metadata: &HashMap<String, Value>,
 ) -> crate::ApiResult<()> {
+    // Interpret the searchable fields (`description` / `category` / `tags`)
+    // onto the workflow definition itself, then re-save so the execution-index
+    // template is refreshed and search reads the updated metadata instead of
+    // stale data. The raw metadata map is kept for history compatibility.
+    let mut workflow = get_workflow(ctx, id).await?;
+    if let Some(value) = metadata.get("description") {
+        workflow.description = value.as_str().map(String::from);
+    }
+    let previous_meta = workflow.metadata.clone();
+    let mut workflow_meta = previous_meta.unwrap_or(WorkflowMetadata {
+        author: None,
+        tags: None,
+        category: None,
+    });
+    if let Some(value) = metadata.get("category") {
+        workflow_meta.category = value.as_str().map(String::from);
+    }
+    if let Some(value) = metadata.get("tags") {
+        workflow_meta.tags = value.as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
+    }
+    workflow.metadata = Some(workflow_meta);
+
     ctx.storage.workflow.update_metadata(id, metadata).await?;
+    save_workflow(ctx, &workflow).await?;
     Ok(())
 }
 
@@ -450,5 +536,127 @@ mod tests {
         assert!(delete_workflow(&ctx, "wf-del").await.unwrap());
         assert!(!ctx.registries.workflows.has("wf-del"));
         assert!(!workflow_exists(&ctx, "wf-del").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_delete_workflow_cascades_dependents() {
+        use crate::checkpoint::{get_checkpoint, save_checkpoint};
+        use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
+
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-cascade"))
+            .await
+            .unwrap();
+
+        // A persisted execution of the workflow + its checkpoint + a version.
+        let execution = WorkflowExecution {
+            id: "exec-cascade-1".into(),
+            workflow_id: "wf-cascade".into(),
+            workflow_version: None,
+            status: ExecutionStatus::Completed,
+            current_node_id: None,
+            graph: None,
+            variables: None,
+            input: None,
+            output: None,
+            node_results: None,
+            errors: None,
+            error: None,
+            started_at: wf_common::now(),
+            completed_at: Some(wf_common::now()),
+            execution_type: None,
+            fork_join_context: None,
+            hierarchy: None,
+        };
+        save_execution(&ctx, &execution).await.unwrap();
+        let checkpoint = wf_types::Checkpoint {
+            id: "cp-cascade-1".into(),
+            entity_type: "workflow_execution".into(),
+            entity_id: "exec-cascade-1".into(),
+            checkpoint_type: CheckpointType::Full,
+            timestamp: wf_common::now(),
+            status: CheckpointStatus::Active,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: None,
+            blob_size: None,
+            tags: None,
+            custom_fields: None,
+        };
+        save_checkpoint(&ctx.storage, &checkpoint).await.unwrap();
+        save_workflow_version(&ctx, "wf-cascade", "0.1", &make_workflow("wf-cascade"))
+            .await
+            .unwrap();
+
+        assert!(delete_workflow(&ctx, "wf-cascade").await.unwrap());
+
+        // Cascade: execution, its checkpoint and the version are all gone.
+        assert!(get_execution(&ctx, "exec-cascade-1").await.is_err());
+        assert!(get_checkpoint(&ctx.storage, "cp-cascade-1").await.is_err());
+        assert!(list_workflow_versions(&ctx, "wf-cascade")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_rollback_preserves_previous_current_version() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-rb2")).await.unwrap();
+        save_workflow_version(&ctx, "wf-rb2", "0.8", &make_workflow("wf-rb2"))
+            .await
+            .unwrap();
+
+        // Change the current definition, then roll back.
+        let mut current = make_workflow("wf-rb2");
+        current.name = "Workflow changed".into();
+        save_workflow(&ctx, &current).await.unwrap();
+        rollback_workflow(&ctx, "wf-rb2", "0.8").await.unwrap();
+
+        let restored = get_workflow(&ctx, "wf-rb2").await.unwrap();
+        assert_eq!(restored.name, "Workflow wf-rb2");
+        assert_eq!(
+            ctx.registries
+                .workflows
+                .get("wf-rb2")
+                .unwrap()
+                .definition
+                .name,
+            "Workflow wf-rb2"
+        );
+
+        // The pre-rollback current is preserved as a version.
+        let versions = list_workflow_versions(&ctx, "wf-rb2").await.unwrap();
+        assert!(
+            versions.iter().any(|v| v.name == "Workflow changed"),
+            "pre-rollback current must be preserved as a version"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_update_metadata_refreshes_registry_template() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-meta-sync"))
+            .await
+            .unwrap();
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "description".into(),
+            Value::String("updated description".into()),
+        );
+        update_workflow_metadata(&ctx, "wf-meta-sync", &metadata)
+            .await
+            .unwrap();
+
+        // The registry template must reflect the updated metadata so search
+        // reads fresh data.
+        let template = ctx
+            .registries
+            .workflows
+            .get("wf-meta-sync")
+            .expect("registry entry");
+        assert_eq!(template.description, "updated description");
     }
 }

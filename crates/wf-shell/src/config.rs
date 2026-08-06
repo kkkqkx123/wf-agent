@@ -30,8 +30,8 @@ pub struct ShellToolConfig {
     /// Explicit shell override. When `None`, the platform default is detected
     /// via `$SHELL` / `which`.
     pub shell_type: Option<ShellType>,
-    /// Whether interactive sessions may use the PTY backend. Only effective
-    /// when the `pty` feature is enabled and the platform supports it.
+    /// Whether interactive sessions may use the PTY backend. When `false`,
+    /// sessions run on the pipe backend regardless of the session request.
     pub pty_enabled: bool,
     /// Default terminal size (rows, cols) for PTY sessions.
     pub default_pty_size: (u16, u16),

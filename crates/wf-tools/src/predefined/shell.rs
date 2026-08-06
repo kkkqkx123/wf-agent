@@ -560,7 +560,6 @@ mod tests {
             .await;
     }
 
-    #[cfg(feature = "pty")]
     #[tokio::test]
     async fn test_pty_interactive_read_roundtrip() {
         let registry = shell_registry(&ShellToolConfig::default());
@@ -609,7 +608,6 @@ mod tests {
             .await;
     }
 
-    #[cfg(feature = "pty")]
     #[tokio::test]
     async fn test_pty_resize_changes_terminal_size() {
         let registry = shell_registry(&ShellToolConfig::default());
@@ -674,7 +672,6 @@ mod tests {
             .await;
     }
 
-    #[cfg(feature = "pty")]
     #[tokio::test]
     async fn test_pty_crlf_normalization() {
         let registry = shell_registry(&ShellToolConfig::default());
@@ -702,7 +699,6 @@ mod tests {
             .await;
     }
 
-    #[cfg(feature = "pty")]
     #[tokio::test]
     async fn test_pty_disabled_falls_back_to_pipe() {
         let config = ShellToolConfig {

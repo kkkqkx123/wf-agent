@@ -16,31 +16,33 @@
 //!
 //! ## PTY support
 //!
-//! The `pty` crate feature is **disabled by default**. It enables a real
-//! terminal (PTY) backend for interactive sessions via `portable-pty`; without
-//! it, interactive requests silently fall back to the pipe backend.
-//!
-//! At runtime the backend is governed by two knobs:
+//! Interactive sessions run on a real terminal (PTY) via `portable-pty`,
+//! which is always compiled in (not feature-gated). At runtime the backend is
+//! governed by one knob:
 //!
 //! - [`crate::config::ShellToolConfig::pty_enabled`]: store-level switch for
 //!   whether the PTY backend may be used at all (default `true`).
-//! - [`crate::engine::SessionCreateOptions::interactive`] (or
-//!   `backend_shell`'s `interactive`/`force_pty`): per-session request for a
-//!   real terminal.
 //!
-//! A session only uses PTY mode when the `pty` feature is compiled in,
-//! `pty_enabled` is true and the session requests it; every other combination
-//! falls back to pipe mode. Feature users should enable `pty` on the consuming
-//! crate (e.g. `wf-tools` with `features = ["pty"]`).
+//! A session only uses PTY mode when `pty_enabled` is true and the session
+//! requests it via [`crate::engine::SessionCreateOptions::interactive`] (or
+//! `force_pty`); every other combination falls back to pipe mode.
 
+pub mod backend;
 pub mod command_safety;
 pub mod config;
+pub mod drain;
 pub mod engine;
 pub mod error;
 pub mod event_sink;
+pub mod line_dispatcher;
+pub mod output_buffer;
 pub mod runner;
+pub mod session;
 pub mod shell_detector;
 pub mod spawn;
+pub mod store;
+pub mod terminal_session;
+pub mod utf8;
 
 pub use config::ShellToolConfig;
 pub use engine::BackgroundShellStore;

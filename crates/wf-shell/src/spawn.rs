@@ -2,8 +2,9 @@
 //!
 //! Single place that turns `(command, cwd, env, shell_type)` into a spawned
 //! shell process with process-group setup, reused by both the stateless
-//! runner (`crate::runner`) and the session engine (`crate::engine`) so the
-//! two entries never drift on env, cwd or kill semantics.
+//! runner (`crate::runner`) and the session engine backends
+//! ([`crate::backend`]) so the two entries never drift on env, cwd or kill
+//! semantics.
 //!
 //! **Env inheritance rule** (aligned with the TS terminal service
 //! `{...process.env, ...env}`): every spawned shell inherits the parent
@@ -17,7 +18,9 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::backend::{graceful_kill_child, PipeBackend, PtyBackend};
 use crate::error::{ShellError, ShellResult};
+use crate::session::{OutputPipeline, ShellSession};
 use crate::shell_detector::{default_shell_detector, resolve_shell_command, ShellType};
 
 /// How long a graceful kill waits after SIGTERM before forcing SIGKILL for
@@ -152,56 +155,89 @@ fn join_pipe_thread(handle: std::thread::JoinHandle<Vec<u8>>) -> Vec<u8> {
     handle.join().unwrap_or_default()
 }
 
-/// Poll `check` until it reports success or the timeout elapses.
-pub(crate) fn wait_for_exit<F>(mut check: F, timeout_ms: u64) -> bool
-where
-    F: FnMut() -> Result<bool, ()>,
-{
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        match check() {
-            Ok(true) => return true,
-            Ok(false) => {
-                if Instant::now() >= deadline {
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(()) => return false,
-        }
-    }
+/// Spawn a pipe-backed session (std child with piped stdin/stdout/stderr).
+/// The process is built through [`build_shell_command`] so the session engine
+/// and the stateless runner share the same spawn configuration.
+pub(crate) fn spawn_pipe_backend(
+    shell_type: Option<ShellType>,
+    command: &str,
+    cwd: Option<&Path>,
+    env: &HashMap<String, String>,
+    pipeline: &OutputPipeline,
+) -> ShellResult<PipeBackend> {
+    let mut cmd = build_shell_command(shell_type, command, cwd);
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::piped());
+    cmd.envs(env);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| ShellError::ExecutionError(format!("Failed to spawn command: {}", e)))?;
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| ShellError::ExecutionError("Failed to capture stdin".into()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| ShellError::ExecutionError("Failed to capture stdout".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| ShellError::ExecutionError("Failed to capture stderr".into()))?;
+    ShellSession::spawn_output_reader(stdout, pipeline.clone());
+    ShellSession::spawn_output_reader(stderr, pipeline.clone());
+    Ok(PipeBackend::new(child, stdin))
 }
 
-/// Gracefully terminate a std child: SIGTERM the process group, wait up to
-/// `timeout_ms`, then SIGKILL. Degenerates to a force kill on non-Unix.
-pub(crate) fn graceful_kill_child(child: &mut Child, timeout_ms: u64) -> ShellResult<()> {
-    #[cfg(unix)]
-    {
-        let pid = child.id() as i32;
-        unsafe {
-            libc::kill(-pid, libc::SIGTERM);
-        }
-        let exited = {
-            let mut check = || match child.try_wait() {
-                Ok(Some(_)) => Ok(true),
-                Ok(None) => Ok(false),
-                Err(_) => Err(()),
-            };
-            wait_for_exit(&mut check, timeout_ms)
-        };
-        if !exited {
-            unsafe {
-                libc::kill(-pid, libc::SIGKILL);
-            }
-        }
-        let _ = child.wait();
+/// Spawn a PTY-backed session via `portable-pty`. The single master stream is
+/// read on a background thread with CRLF normalization; the master handle is
+/// retained for resizing.
+pub(crate) fn spawn_pty_backend(
+    shell_type: Option<ShellType>,
+    command: &str,
+    cwd: Option<&Path>,
+    env: &HashMap<String, String>,
+    pty_size: (u16, u16),
+    pipeline: &OutputPipeline,
+) -> ShellResult<PtyBackend> {
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+
+    let (shell, shell_args) = resolve_shell_command(default_shell_detector(), shell_type, command);
+    let size = pty_size;
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: size.0.max(1),
+            cols: size.1.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| ShellError::ExecutionError(format!("Failed to open PTY: {}", e)))?;
+
+    let mut cmd = CommandBuilder::new(shell);
+    cmd.args(shell_args);
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
     }
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
-        let _ = child.wait();
+    for (key, value) in env {
+        cmd.env(key, value);
     }
-    Ok(())
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| ShellError::ExecutionError(format!("Failed to spawn PTY command: {}", e)))?;
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| ShellError::ExecutionError(format!("Failed to clone PTY reader: {}", e)))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| ShellError::ExecutionError(format!("Failed to take PTY writer: {}", e)))?;
+    let master = pair.master;
+    ShellSession::spawn_pty_reader(reader, pipeline.clone());
+    Ok(PtyBackend::new(child, master, writer))
 }
 
 #[cfg(test)]

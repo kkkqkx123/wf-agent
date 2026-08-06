@@ -13,10 +13,4 @@ dashmap.workspace = true
 regex.workspace = true
 once_cell.workspace = true
 libc.workspace = true
-portable-pty = { workspace = true, optional = true }
-
-[features]
-default = []
-# Real terminal (PTY) backend for interactive shell sessions. Disabled by
-# default; interactive sessions fall back to pipe mode without it.
-pty = ["dep:portable-pty"]
+portable-pty.workspace = true

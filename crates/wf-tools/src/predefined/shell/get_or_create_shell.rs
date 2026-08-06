@@ -22,7 +22,7 @@ pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
     parameters: &[
         ToolParameter { name: "cwd", r#type: "string", required: false, description: "Working directory the session is bound to (reuse key)", default_json: None },
         ToolParameter { name: "task_id", r#type: "string", required: false, description: "Task (execution) the session is bound to; defaults to the current execution id", default_json: None },
-        ToolParameter { name: "interactive", r#type: "boolean", required: false, description: "Run commands on a real terminal (PTY) for TTY-dependent programs (default false; falls back to pipe when PTY is unavailable)", default_json: Some("false") },
+        ToolParameter { name: "interactive", r#type: "boolean", required: false, description: "Run commands on a real terminal (PTY) for TTY-dependent programs (default false)", default_json: Some("false") },
         ToolParameter { name: "env", r#type: "object", required: false, description: "Extra environment variables merged into the session environment", default_json: None },
         ToolParameter { name: "rows", r#type: "integer", required: false, description: "PTY terminal rows (default 24)", default_json: Some("24") },
         ToolParameter { name: "cols", r#type: "integer", required: false, description: "PTY terminal columns (default 80)", default_json: Some("80") },
@@ -77,6 +77,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
             env,
             interactive,
             pty_size: (rows, cols),
+            ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
         Ok(serde_json::json!({

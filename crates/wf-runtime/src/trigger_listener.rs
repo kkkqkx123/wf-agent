@@ -115,7 +115,7 @@ pub fn template_to_graph(template: &WorkflowTemplate) -> WorkflowGraphStructure 
 pub struct WorkflowRunner {
     registries: Arc<Registries>,
     event_bus: Arc<EventBus>,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     /// Write-back registry of live workflow executions: every execution
     /// registers its variable map at start and unregisters at end.
     contexts: Arc<ExecutionContextRegistry>,

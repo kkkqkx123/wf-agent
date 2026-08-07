@@ -17,6 +17,7 @@ use wf_storage::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use wf_storage::context::StorageContext;
 use wf_types::node::StaticNodeType;
 use wf_types::script::sandbox::{SandboxConfig, SandboxMode, ScriptExecutionResult};
+use wf_types::enums::ScriptLanguage;
 use wf_types::ScriptStorageMetadata;
 
 use crate::context::ApiContext;
@@ -38,7 +39,7 @@ pub struct ScriptExecuteParams {
     /// Script name (used for audit, profile routing and lookup fallback).
     pub name: String,
     /// Executor language: `shell` / `python` / `javascript` / `lua`.
-    pub language: Option<String>,
+    pub language: Option<ScriptLanguage>,
     /// Inline code to run (takes precedence over `template`).
     pub code: Option<String>,
     /// Template rendered with `args` before execution.
@@ -52,6 +53,18 @@ pub struct ScriptExecuteParams {
     /// Environment variables passed to the sandbox strategy.
     pub environment: Option<HashMap<String, String>>,
     pub timeout_ms: Option<u64>,
+}
+
+/// Parse a script language from its canonical string; `None` for unknown
+/// values (registered scripts may carry arbitrary language labels).
+fn parse_script_language(value: &str) -> Option<ScriptLanguage> {
+    match value {
+        "shell" => Some(ScriptLanguage::Shell),
+        "python" => Some(ScriptLanguage::Python),
+        "javascript" | "js" => Some(ScriptLanguage::JavaScript),
+        "lua" => Some(ScriptLanguage::Lua),
+        _ => None,
+    }
 }
 
 /// Execute a script. When neither `code` nor `template` is supplied, the
@@ -68,9 +81,10 @@ pub async fn execute(
 
     let language = params
         .language
-        .clone()
-        .or_else(|| lookup_registered_language(&params.name))
-        .unwrap_or_else(|| "shell".to_string());
+        .or_else(|| {
+            lookup_registered_language(&params.name).and_then(|stored| parse_script_language(&stored))
+        })
+        .unwrap_or(ScriptLanguage::Shell);
 
     let (code, template, arguments) = if let Some(code) = &params.code {
         (Some(code.clone()), None, None)
@@ -94,7 +108,7 @@ pub async fn execute(
         content: code,
         template,
         arguments,
-        language: Some(language.clone()),
+        language: Some(language.as_str().to_string()),
         executor_mode: None,
     };
 
@@ -113,9 +127,9 @@ pub async fn execute(
     let sandbox_config = params
         .sandbox
         .clone()
-        .unwrap_or_else(|| default_sandbox_config(&language));
+        .unwrap_or_else(|| default_sandbox_config(language));
     let script_name = params.name.clone();
-    let language_for_exec = language.clone();
+    let language_for_exec = language;
     // The script engine hands the rendered command to a closure; keep the
     // full sandbox result (mode / strategy / violations) in a one-shot
     // slot so the API can return it untouched. `OnceLock` is lock-free and
@@ -132,7 +146,7 @@ pub async fn execute(
             move |command, options| {
                 let sandbox = sandbox.clone();
                 let sandbox_config = sandbox_config.clone();
-                let language = language_for_exec.clone();
+                let language = language_for_exec.as_str();
                 let script_name = script_name.clone();
                 let env = options.and_then(|o| o.environment.clone());
                 let workdir = options.and_then(|o| o.working_directory.clone());
@@ -145,7 +159,7 @@ pub async fn execute(
                         config.workdir = workdir;
                     }
                     let result = sandbox
-                        .execute_named(&language, &script_name, &command, &config)
+                        .execute_named(language, &script_name, &command, &config)
                         .await;
                     let _ = sandbox_result_sink.set(result.clone());
                     to_script_result(result)
@@ -218,7 +232,7 @@ fn default_arguments(params: &ScriptExecuteParams) -> Vec<wf_script::ScriptArgum
         .collect()
 }
 
-fn default_sandbox_config(language: &str) -> SandboxConfig {
+fn default_sandbox_config(language: ScriptLanguage) -> SandboxConfig {
     let mut config = SandboxConfig {
         mode: Some(SandboxMode::Lenient),
         policy: None,
@@ -234,19 +248,19 @@ fn default_sandbox_config(language: &str) -> SandboxConfig {
         skip_gate_check: None,
     };
     match language {
-        "python" => {
+        ScriptLanguage::Python => {
             config.python_strategy = Some(vec!["ast-analyzer".into(), "direct".into()]);
             config.skip_gate_check = Some(true);
         }
-        "javascript" | "js" => {
+        ScriptLanguage::JavaScript => {
             config.javascript_strategy = Some(vec!["vm-context".into()]);
             config.skip_gate_check = Some(true);
         }
-        "lua" => {
+        ScriptLanguage::Lua => {
             config.lua_strategy = Some(vec!["mlua-sandbox".into()]);
             config.skip_gate_check = Some(true);
         }
-        _ => {
+        ScriptLanguage::Shell => {
             // shell keeps the default [static-analyzer, os-hook] chain with
             // the analysis gate intact.
         }
@@ -513,7 +527,7 @@ mod tests {
     fn shell_params(name: &str, code: &str) -> ScriptExecuteParams {
         ScriptExecuteParams {
             name: name.into(),
-            language: Some("shell".into()),
+            language: Some(ScriptLanguage::Shell),
             code: Some(code.into()),
             ..ScriptExecuteParams::default()
         }
@@ -538,7 +552,7 @@ mod tests {
         let ctx = make_api_ctx();
         let params = ScriptExecuteParams {
             name: "greet-script".into(),
-            language: Some("shell".into()),
+            language: Some(ScriptLanguage::Shell),
             template: Some("echo {{greeting}}".into()),
             args: HashMap::from([("greeting".to_string(), serde_json::json!("hi-there"))]),
             ..ScriptExecuteParams::default()

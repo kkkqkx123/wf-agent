@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use wf_types::{HookType, MiddlewarePhase};
 
 use crate::context::PluginContext;
 use crate::contributions::registrar::ContributionRegistrar;
@@ -337,7 +338,7 @@ extern "C" fn ffi_register_hook_handler(
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let hook_str = unsafe { ptr_to_string(hook_type) };
     registrar_ctx.registrar.register_hook_handler(
-        &hook_str.clone(),
+        HookType::from(hook_str.as_str()),
         Arc::new(NativeHookHandler {
             hook_type: hook_str,
             dispatch: registrar_ctx.dispatch,
@@ -357,7 +358,7 @@ extern "C" fn ffi_register_middleware(
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let phase_str = unsafe { ptr_to_string(phase) };
     registrar_ctx.registrar.register_middleware(
-        &phase_str.clone(),
+        MiddlewarePhase::from(phase_str.as_str()),
         priority,
         Arc::new(NativeMiddlewareHandler {
             phase: phase_str,

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use serde_json::Value;
+use wf_types::{HookType, MiddlewarePhase};
 
 use super::registrar::ContributionRegistrar;
 use super::registries::{MultiRegistry, Registry};
@@ -94,12 +95,15 @@ impl ContributionManager {
         self.event_handler_registry.get(event_type)
     }
 
-    pub fn get_hook_handlers(&self, hook_type: &str) -> Vec<Arc<dyn PluginHookHandler>> {
-        self.hook_handler_registry.get(hook_type)
+    pub fn get_hook_handlers(&self, hook_type: &HookType) -> Vec<Arc<dyn PluginHookHandler>> {
+        self.hook_handler_registry.get(hook_type.as_str())
     }
 
-    pub fn get_middleware(&self, phase: &str) -> Vec<(i32, Arc<dyn PluginMiddlewareHandler>)> {
-        let mut handlers = self.middleware_registry.get(phase);
+    pub fn get_middleware(
+        &self,
+        phase: &MiddlewarePhase,
+    ) -> Vec<(i32, Arc<dyn PluginMiddlewareHandler>)> {
+        let mut handlers = self.middleware_registry.get(phase.as_str());
         handlers.sort_by_key(|(p, _)| *p);
         handlers
     }
@@ -134,7 +138,7 @@ impl ContributionManager {
         self.middleware_registry.keys()
     }
 
-    pub async fn run_middleware(&self, phase: &str, context: Value) -> PluginResult<()> {
+    pub async fn run_middleware(&self, phase: &MiddlewarePhase, context: Value) -> PluginResult<()> {
         let handlers = self.get_middleware(phase);
 
         let mut next: NextFn = Box::new(|| Box::pin(async { Ok(()) }));
@@ -258,22 +262,107 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .register(event_type.into(), plugin_id, handler);
     }
 
-    fn register_hook_handler(&mut self, hook_type: &str, handler: Arc<dyn PluginHookHandler>) {
+    fn register_hook_handler(&mut self, hook_type: HookType, handler: Arc<dyn PluginHookHandler>) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
+        let key = hook_type.as_str().to_string();
         self.manager
             .hook_handler_registry
-            .register(hook_type.into(), plugin_id, handler);
+            .register(key, plugin_id, handler);
     }
 
     fn register_middleware(
         &mut self,
-        phase: &str,
+        phase: MiddlewarePhase,
         priority: i32,
         handler: Arc<dyn PluginMiddlewareHandler>,
     ) {
         let plugin_id = self.manager.current_plugin_id.read().unwrap().clone();
+        let key = phase.as_str().to_string();
         self.manager
             .middleware_registry
-            .register(phase.into(), plugin_id, (priority, handler));
+            .register(key, plugin_id, (priority, handler));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contributions::types::NextFn;
+
+    struct NoopHookHandler;
+
+    #[async_trait::async_trait]
+    impl PluginHookHandler for NoopHookHandler {
+        async fn handle(&self, _context: Value) -> PluginResult<()> {
+            Ok(())
+        }
+    }
+
+    struct NoopMiddlewareHandler;
+
+    #[async_trait::async_trait]
+    impl PluginMiddlewareHandler for NoopMiddlewareHandler {
+        async fn handle(&self, _context: Value, _next: NextFn) -> PluginResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn arbitrary_hook_string_queryable_via_other() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        let mut registrar = manager.as_registrar();
+        registrar.register_hook_handler(
+            HookType::Other("custom-hook".into()),
+            Arc::new(NoopHookHandler),
+        );
+        assert_eq!(
+            manager
+                .get_hook_handlers(&HookType::Other("custom-hook".into()))
+                .len(),
+            1
+        );
+        // A registration under an arbitrary string does not match known types.
+        assert!(manager.get_hook_handlers(&HookType::OnError).is_empty());
+    }
+
+    #[test]
+    fn known_hook_string_round_trips_through_registry() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        let mut registrar = manager.as_registrar();
+        registrar.register_hook_handler(HookType::OnError, Arc::new(NoopHookHandler));
+        assert_eq!(manager.get_hook_handlers(&HookType::OnError).len(), 1);
+        assert_eq!(
+            manager.get_hook_handlers(&HookType::from("on_error")).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn middleware_phase_round_trips_through_registry() {
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        let mut registrar = manager.as_registrar();
+        registrar.register_middleware(
+            MiddlewarePhase::OnCheckpoint,
+            10,
+            Arc::new(NoopMiddlewareHandler),
+        );
+        assert_eq!(
+            manager.get_middleware(&MiddlewarePhase::OnCheckpoint).len(),
+            1
+        );
+        assert_eq!(
+            manager
+                .get_middleware(&MiddlewarePhase::from("on-checkpoint"))
+                .len(),
+            1
+        );
+        assert!(
+            manager
+                .get_middleware(&MiddlewarePhase::Other("custom-phase".into()))
+                .is_empty()
+        );
     }
 }

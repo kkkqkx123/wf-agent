@@ -18,9 +18,11 @@ pub mod native;
 
 pub use context::PluginContext;
 pub use contributions::{
-    middleware_phase, ContributionBridge, ContributionManager, ContributionRegistrar, NextFn,
-    OverridePolicy, PluginEventHandler, PluginHookHandler, PluginLLMFormatter,
-    PluginMiddlewareHandler, PluginNodeHandler, PluginToolExecutor, RegistrarGuard,
+    ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType, NextFn,
+    OverridePolicy, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginHookHandler,
+    PluginLLMConfig, PluginLLMFormatter, PluginLLMRequest, PluginLLMResponse, PluginLLMUsage,
+    PluginMessage, PluginMiddlewareDef, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

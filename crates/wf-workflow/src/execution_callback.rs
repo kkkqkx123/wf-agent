@@ -36,7 +36,7 @@ use crate::registry::{
 pub struct WorkflowExecutionCallback {
     graphs: crate::registry::WorkflowGraphRegistry,
     executions: WorkflowExecutionRegistry,
-    handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+    handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
     gateway: Arc<wf_llm::LlmGateway>,
     event_bus: Option<Arc<EventBus>>,
     tool_registry: Arc<ToolRegistry>,
@@ -74,7 +74,7 @@ impl WorkflowExecutionCallback {
 
     pub fn with_handlers(
         mut self,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> Self {
         self.handlers = Some(handlers);
         self
@@ -134,7 +134,7 @@ impl WorkflowExecutionCallback {
         &self.executions
     }
 
-    fn handlers(&self) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         match &self.handlers {
             Some(h) => h.clone(),
             None => {

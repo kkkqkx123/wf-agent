@@ -17,12 +17,12 @@ use crate::handler::NodeHandler;
 
 fn resolve_parent_handlers(
     ctx: &NodeExecutionContext,
-) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     match &ctx.handler_registry {
         Some(any) => {
             match any
                 .clone()
-                .downcast::<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>()
+                .downcast::<HashMap<StaticNodeType, Box<dyn NodeHandler>>>()
             {
                 Ok(handlers) => handlers,
                 Err(_) => Arc::new(HashMap::new()),

@@ -13,10 +13,32 @@ use serde::Serialize;
 
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::enums::{BottleneckSeverity, PerformanceTrend};
 
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
 use crate::util::round2;
+
+/// Ratio below which the second half is considered "improving".
+const TREND_IMPROVE_RATIO: f64 = 0.8;
+/// Ratio above which the second half is considered "degrading".
+const TREND_DEGRADE_RATIO: f64 = 1.2;
+/// Share of total duration at/above which a node is a high-severity
+/// bottleneck.
+const BOTTLENECK_HIGH_RATIO: f64 = 0.5;
+/// Share of total duration at/above which a node is a medium-severity
+/// bottleneck.
+const BOTTLENECK_MEDIUM_RATIO: f64 = 0.2;
+/// Maximum number of bottlenecks reported per execution.
+const MAX_BOTTLENECKS: usize = 10;
+/// Maximum number of top bottlenecks in the profile view.
+const PROFILE_BOTTLENECK_COUNT: usize = 5;
+/// Slow-node threshold for the recommendation hint (ms).
+const SLOW_NODE_THRESHOLD_MS: i64 = 5000;
+/// Fast performance tier boundary (ms).
+const FAST_TIER_MS: i64 = 5000;
+/// Normal performance tier boundary (ms).
+const NORMAL_TIER_MS: i64 = 30000;
 
 /// One node's timing on the execution timeline.
 #[derive(Debug, Clone, Serialize)]
@@ -91,7 +113,7 @@ pub struct PerformanceBottleneckView {
     /// Share of the total execution time (0.0 - 1.0).
     pub percentage: f64,
     /// `low` | `medium` | `high`.
-    pub severity: String,
+    pub severity: BottleneckSeverity,
 }
 
 /// Reference to a node in a comparison result.
@@ -114,7 +136,7 @@ pub struct NodeComparisonView {
     pub average_duration: i64,
     pub variance: i64,
     /// `improving` | `degrading` | `stable`.
-    pub trend: String,
+    pub trend: PerformanceTrend,
 }
 
 /// Full workflow performance profile (TS `WorkflowExecutionPerformanceProfile`).
@@ -296,7 +318,7 @@ pub async fn get_iteration_comparison(
             slowest_node: None,
             average_duration: 0,
             variance: 0,
-            trend: "stable".to_string(),
+            trend: PerformanceTrend::Stable,
         });
     }
 
@@ -339,12 +361,12 @@ pub async fn get_iteration_comparison(
         .collect();
     let first_avg = avg(&first);
     let last_avg = avg(&last);
-    let trend = if last_avg < first_avg * 0.8 {
-        "improving".to_string()
-    } else if last_avg > first_avg * 1.2 {
-        "degrading".to_string()
+    let trend = if last_avg < first_avg * TREND_IMPROVE_RATIO {
+        PerformanceTrend::Improving
+    } else if last_avg > first_avg * TREND_DEGRADE_RATIO {
+        PerformanceTrend::Degrading
     } else {
-        "stable".to_string()
+        PerformanceTrend::Stable
     };
 
     Ok(NodeComparisonView {
@@ -419,7 +441,7 @@ fn build_summary(
     };
 
     let mut recommendations = Vec::new();
-    if max_node_duration > 5000 {
+    if max_node_duration > SLOW_NODE_THRESHOLD_MS {
         recommendations.push(format!(
             "slowest node took {max_node_duration}ms; consider parallelizing or optimizing it"
         ));
@@ -463,19 +485,19 @@ fn build_bottleneck_views(
         .iter()
         .map(|entry| {
             let percentage = entry.duration_ms as f64 / denominator as f64;
-            let severity = if percentage >= 0.5 {
-                "high"
-            } else if percentage >= 0.2 {
-                "medium"
+            let severity = if percentage >= BOTTLENECK_HIGH_RATIO {
+                BottleneckSeverity::High
+            } else if percentage >= BOTTLENECK_MEDIUM_RATIO {
+                BottleneckSeverity::Medium
             } else {
-                "low"
+                BottleneckSeverity::Low
             };
             PerformanceBottleneckView {
                 r#type: "node".to_string(),
                 location: format!("{} ({})", entry.node_name, entry.node_id),
                 duration: entry.duration_ms,
                 percentage: round3(percentage),
-                severity: severity.to_string(),
+                severity,
             }
         })
         .collect();
@@ -484,15 +506,15 @@ fn build_bottleneck_views(
             .cmp(&a.duration)
             .then_with(|| a.location.cmp(&b.location))
     });
-    bottlenecks.truncate(10);
+    bottlenecks.truncate(MAX_BOTTLENECKS);
     bottlenecks
 }
 
 /// Classify a total duration into a performance tier.
 fn classify_performance(total_duration_ms: i64) -> PerformanceTier {
-    if total_duration_ms <= 5000 {
+    if total_duration_ms <= FAST_TIER_MS {
         PerformanceTier::Fast
-    } else if total_duration_ms <= 30000 {
+    } else if total_duration_ms <= NORMAL_TIER_MS {
         PerformanceTier::Normal
     } else {
         PerformanceTier::Slow
@@ -518,7 +540,7 @@ fn build_profile(
             .cmp(&a.duration_ms)
             .then_with(|| a.node_id.cmp(&b.node_id))
     });
-    bottlenecks.truncate(5);
+    bottlenecks.truncate(PROFILE_BOTTLENECK_COUNT);
 
     let mut time_by_node_type = BTreeMap::new();
     for entry in &timeline {
@@ -726,7 +748,7 @@ mod tests {
         let bottlenecks = profile.bottlenecks;
         assert_eq!(bottlenecks[0].location, "n0 (n0)");
         assert!(bottlenecks[0].duration >= 8000);
-        assert_eq!(bottlenecks[0].severity, "high");
+        assert_eq!(bottlenecks[0].severity, BottleneckSeverity::High);
     }
 
     #[tokio::test]
@@ -774,8 +796,10 @@ mod tests {
         assert_eq!(comparison.average_duration, 2000);
         assert_eq!(comparison.variance, 666666);
         assert!(matches!(
-            comparison.trend.as_str(),
-            "improving" | "degrading" | "stable"
+            comparison.trend,
+            PerformanceTrend::Improving
+                | PerformanceTrend::Degrading
+                | PerformanceTrend::Stable
         ));
     }
 }

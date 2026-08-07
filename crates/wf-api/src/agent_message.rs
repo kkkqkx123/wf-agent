@@ -20,13 +20,16 @@ pub struct AgentLoopMessageStats {
     pub estimated_tokens: u64,
 }
 
+/// Default number of recent messages returned when no explicit count is given.
+const DEFAULT_RECENT_MESSAGE_COUNT: usize = 20;
+
 /// Most recent messages of an agent loop, newest first.
 pub async fn recent(
     ctx: &ApiContext,
     agent_loop_id: &str,
-    count: usize,
+    count: Option<usize>,
 ) -> ApiResult<Vec<MessageStorageMetadata>> {
-    let count = if count == 0 { 20 } else { count };
+    let count = count.unwrap_or(DEFAULT_RECENT_MESSAGE_COUNT);
     let mut messages = ctx
         .storage
         .message
@@ -155,7 +158,7 @@ pub async fn normalize_history(ctx: &ApiContext, agent_loop_id: &str) -> ApiResu
 pub async fn get_recent_messages(
     ctx: &ApiContext,
     agent_loop_id: &str,
-    count: usize,
+    count: Option<usize>,
 ) -> ApiResult<Vec<MessageStorageMetadata>> {
     recent(ctx, agent_loop_id, count).await
 }
@@ -240,7 +243,7 @@ mod tests {
             .await
             .unwrap();
 
-        let recent = recent(&ctx, "loop-m", 1).await.unwrap();
+        let recent = recent(&ctx, "loop-m", Some(1)).await.unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].message.id, "m2");
 

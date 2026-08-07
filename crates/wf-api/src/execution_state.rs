@@ -740,6 +740,11 @@ pub async fn agent_execution_get_state(
     }
 
     if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        tracing::warn!(
+            target: "wf_api",
+            agent_loop_id,
+            "agent state: live entity absent, degrading to persisted execution record"
+        );
         return Ok(AgentLoopStateView {
             agent_loop_id: record.id.clone(),
             status: record.status,
@@ -760,6 +765,11 @@ pub async fn agent_execution_get_state(
     }
 
     if let Some(meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
+        tracing::warn!(
+            target: "wf_api",
+            agent_loop_id,
+            "agent state: no live entity or execution record, degrading to metadata"
+        );
         return Ok(AgentLoopStateView {
             agent_loop_id: meta.id.clone(),
             status: parse_status(&meta.status),

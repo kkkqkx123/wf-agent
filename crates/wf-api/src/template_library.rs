@@ -15,6 +15,10 @@ use wf_types::workflow::WorkflowTemplate;
 use crate::context::ApiContext;
 use crate::error::{not_found, ApiError, ApiResult};
 
+/// Default number of featured / popular templates returned when no explicit
+/// limit is given.
+const DEFAULT_FEATURED_LIMIT: usize = 10;
+
 /// Template kind addressed by the template library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateKind {
@@ -241,13 +245,13 @@ pub fn query_by_author(ctx: &ApiContext, author: &str) -> ApiResult<Vec<Template
 }
 
 /// Featured templates: public + enabled, most used first.
-pub fn featured(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<TemplateSummary>> {
+pub fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
     let mut all = query(ctx, &TemplateFilter::default())?
         .into_iter()
         .filter(|t| t.is_public && t.enabled)
         .collect::<Vec<_>>();
     all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
-    all.truncate(if limit == 0 { 10 } else { limit });
+    all.truncate(limit.unwrap_or(DEFAULT_FEATURED_LIMIT));
     Ok(all)
 }
 
@@ -255,14 +259,14 @@ pub fn featured(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<TemplateSummary
 pub fn popular_in_category(
     ctx: &ApiContext,
     category: &str,
-    limit: usize,
+    limit: Option<usize>,
 ) -> ApiResult<Vec<TemplateSummary>> {
     let mut all = query_by_category(ctx, category)?
         .into_iter()
         .filter(|t| t.enabled)
         .collect::<Vec<_>>();
     all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
-    all.truncate(if limit == 0 { 10 } else { limit });
+    all.truncate(limit.unwrap_or(DEFAULT_FEATURED_LIMIT));
     Ok(all)
 }
 
@@ -518,11 +522,11 @@ mod tests {
         record_usage(&ctx, "wf-b");
         record_usage(&ctx, "wf-a");
 
-        let featured = featured(&ctx, 10).unwrap();
+        let featured = featured(&ctx, Some(10)).unwrap();
         assert_eq!(featured[0].id, "wf-b");
         assert_eq!(featured[0].usage_count, 2);
 
-        let popular = popular_in_category(&ctx, "analytics", 10).unwrap();
+        let popular = popular_in_category(&ctx, "analytics", Some(10)).unwrap();
         assert_eq!(popular.len(), 2);
         assert_eq!(popular[0].id, "wf-a");
     }

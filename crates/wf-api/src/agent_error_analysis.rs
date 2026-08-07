@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use wf_common::error_chain::ErrorRecord;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::enums::ErrorSeverity;
 use wf_types::errors::RecoveryAction;
 use wf_types::ExecutionStatus;
 
@@ -54,7 +55,7 @@ pub struct AgentErrorStatistics {
     pub execution_id: String,
     pub total: u32,
     pub by_type: BTreeMap<String, u64>,
-    pub by_severity: BTreeMap<String, u64>,
+    pub by_severity: BTreeMap<ErrorSeverity, u64>,
     pub recoverable: u64,
     pub root_cause: Option<String>,
 }
@@ -147,11 +148,11 @@ pub async fn get_error_statistics(
             .unwrap_or_else(|| "Unknown".to_string());
         *stats.by_type.entry(type_name).or_insert(0) += 1;
         let severity = if record.is_recoverable {
-            "warning"
+            ErrorSeverity::Warning
         } else {
-            "critical"
+            ErrorSeverity::Critical
         };
-        *stats.by_severity.entry(severity.to_string()).or_insert(0) += 1;
+        *stats.by_severity.entry(severity).or_insert(0) += 1;
         if record.is_recoverable {
             stats.recoverable += 1;
         }

@@ -22,6 +22,11 @@ pub struct MessageStats {
     pub by_execution: BTreeMap<String, u64>,
 }
 
+/// Default number of recent messages returned when no explicit limit is given.
+const DEFAULT_RECENT_LIMIT: usize = 20;
+/// Default maximum search results when no explicit limit is given.
+const DEFAULT_SEARCH_LIMIT: usize = 50;
+
 /// Persist a message record (upsert by message id).
 pub async fn save(ctx: &ApiContext, record: &MessageStorageMetadata) -> ApiResult<()> {
     ctx.storage.message.save(record).await?;
@@ -70,17 +75,18 @@ pub async fn list(
 }
 
 /// Most recent messages, newest first.
-pub async fn recent(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<MessageStorageMetadata>> {
+pub async fn recent(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<MessageStorageMetadata>> {
+    let limit = limit.unwrap_or(DEFAULT_RECENT_LIMIT);
     let options = MessageListOptions {
         offset: None,
-        limit: Some(if limit == 0 { 20 } else { limit as u64 }),
+        limit: Some(limit as u64),
         execution_id_filter: None,
         agent_loop_id_filter: None,
         role_filter: None,
     };
     let mut messages = ctx.storage.message.list(Some(options)).await?;
     messages.sort_by_key(|r| std::cmp::Reverse(r.message.timestamp));
-    messages.truncate(if limit == 0 { 20 } else { limit });
+    messages.truncate(limit);
     Ok(messages)
 }
 
@@ -112,7 +118,7 @@ pub async fn by_agent_loop(
 pub async fn search(
     ctx: &ApiContext,
     keyword: &str,
-    limit: usize,
+    limit: Option<usize>,
 ) -> ApiResult<Vec<MessageStorageMetadata>> {
     let keyword = keyword.trim().to_lowercase();
     if keyword.is_empty() {
@@ -128,7 +134,7 @@ pub async fn search(
         })
         .collect();
     matches.sort_by_key(|r| std::cmp::Reverse(r.message.timestamp));
-    matches.truncate(if limit == 0 { 50 } else { limit });
+    matches.truncate(limit.unwrap_or(DEFAULT_SEARCH_LIMIT));
     Ok(matches)
 }
 
@@ -297,7 +303,7 @@ mod tests {
         .await
         .unwrap();
 
-        let matches = search(&ctx, "deploy", 10).await.unwrap();
+        let matches = search(&ctx, "deploy", Some(10)).await.unwrap();
         assert_eq!(matches.len(), 2);
 
         let agent = by_agent_loop(&ctx, "agent-9").await.unwrap();

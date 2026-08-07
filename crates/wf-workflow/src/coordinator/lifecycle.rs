@@ -26,7 +26,7 @@ pub struct WorkflowExecutionParams {
     pub workflow_id: wf_types::Id,
     pub graph: WorkflowGraphStructure,
     pub options: WorkflowExecutionOptions,
-    pub handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    pub handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     pub tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     pub input: Option<Value>,
     pub hooks: Vec<BaseHookDefinition>,
@@ -236,7 +236,7 @@ impl WorkflowLifecycleCoordinator {
         execution_id: &str,
         workflow_id: wf_types::Id,
         graph: WorkflowGraphStructure,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
         hooks: Vec<BaseHookDefinition>,
     ) -> WorkflowResult<WorkflowOutput> {
@@ -422,7 +422,7 @@ mod tests {
         }
     }
 
-    fn make_handlers() -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    fn make_handlers() -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         let mut reg = HandlerRegistry::new();
         reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
         reg.into_arc()

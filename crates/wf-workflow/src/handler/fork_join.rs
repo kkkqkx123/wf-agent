@@ -21,11 +21,11 @@ use crate::handler::NodeHandler;
 
 fn resolve_handlers(
     ctx: &NodeExecutionContext,
-) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     match &ctx.handler_registry {
         Some(any) => match any
             .clone()
-            .downcast::<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>()
+            .downcast::<HashMap<StaticNodeType, Box<dyn NodeHandler>>>()
         {
             Ok(handlers) => handlers,
             Err(_) => Arc::new(HashMap::new()),
@@ -404,7 +404,7 @@ impl NodeHandler for ForkHandler {
 }
 
 struct BranchContext {
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     event_bus: Option<Arc<EventBus>>,
     tool_registry: Option<Arc<ToolRegistry>>,
     parent_variables: Arc<dashmap::DashMap<String, Value>>,
@@ -420,7 +420,7 @@ async fn run_branch(
     event_bus: Option<Arc<EventBus>>,
     execution_id: wf_types::Id,
     node_id: String,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     graph: Option<WorkflowGraphStructure>,
     join_node_id: Option<String>,
     tool_registry: Option<Arc<ToolRegistry>>,

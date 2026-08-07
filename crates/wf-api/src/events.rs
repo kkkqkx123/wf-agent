@@ -10,6 +10,9 @@ use crate::subscription::{
     spawn_event_subscription, EventSubscription, EventSubscriptionOptions,
 };
 
+/// Default maximum number of events returned when no explicit limit is given.
+const DEFAULT_EVENT_LIMIT: usize = 100;
+
 /// Query options for the event history / timeline endpoints.
 #[derive(Debug, Clone, Default)]
 pub struct EventQueryOptions {
@@ -21,17 +24,13 @@ pub struct EventQueryOptions {
     pub workflow_id: Option<String>,
     /// Only events of these types; `None` returns every type.
     pub event_types: Option<Vec<EventType>>,
-    /// Maximum number of events to return.
-    pub limit: usize,
+    /// Maximum number of events to return; `None` uses the default.
+    pub limit: Option<usize>,
 }
 
 impl EventQueryOptions {
     fn effective_limit(&self) -> usize {
-        if self.limit == 0 {
-            100
-        } else {
-            self.limit
-        }
+        self.limit.unwrap_or(DEFAULT_EVENT_LIMIT)
     }
 }
 
@@ -51,8 +50,12 @@ pub struct ExecutionTimelinePhase {
     pub start_event: EventType,
     pub end_event: EventType,
     pub start_time: i64,
-    pub end_time: i64,
-    pub duration: i64,
+    /// End timestamp; `None` while the phase is still in progress.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<i64>,
+    /// Phase duration; `None` while the phase is still in progress.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<i64>,
     pub events: Vec<BaseEvent>,
 }
 
@@ -138,7 +141,7 @@ pub async fn history(ctx: &ApiContext, options: &EventQueryOptions) -> ApiResult
 pub async fn timeline(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<BaseEvent>> {
     let options = EventQueryOptions {
         execution_id: Some(execution_id.to_string()),
-        limit: 0,
+        limit: None,
         ..Default::default()
     };
     let mut events = filter_events(merge(ctx, &options).await, &options);
@@ -150,7 +153,7 @@ pub async fn timeline(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<Bas
 pub async fn agent_timeline(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<BaseEvent>> {
     let options = EventQueryOptions {
         agent_loop_id: Some(agent_loop_id.to_string()),
-        limit: 0,
+        limit: None,
         ..Default::default()
     };
     let mut events = filter_events(merge(ctx, &options).await, &options);
@@ -335,8 +338,8 @@ fn build_phases(events: &[BaseEvent]) -> Vec<ExecutionTimelinePhase> {
                     start_event: start_event.clone(),
                     end_event: end_event.clone(),
                     start_time: start.timestamp,
-                    end_time: end.timestamp,
-                    duration: end.timestamp - start.timestamp,
+                    end_time: Some(end.timestamp),
+                    duration: Some(end.timestamp - start.timestamp),
                     events: events
                         .iter()
                         .filter(|e| {
@@ -354,8 +357,8 @@ fn build_phases(events: &[BaseEvent]) -> Vec<ExecutionTimelinePhase> {
                     start_event: start_event.clone(),
                     end_event: end_event.clone(),
                     start_time: start.timestamp,
-                    end_time: 0,
-                    duration: -1,
+                    end_time: None,
+                    duration: None,
                     events: events
                         .iter()
                         .filter(|e| e.timestamp >= start.timestamp)
@@ -518,7 +521,7 @@ mod tests {
         let limited = history(
             &ctx,
             &EventQueryOptions {
-                limit: 3,
+                limit: Some(3),
                 ..EventQueryOptions::default()
             },
         )
@@ -613,7 +616,7 @@ mod tests {
             .iter()
             .find(|p| p.name == "Execution")
             .unwrap();
-        assert_eq!(execution_phase.duration, 200);
+        assert_eq!(execution_phase.duration, Some(200));
     }
 
     #[tokio::test]

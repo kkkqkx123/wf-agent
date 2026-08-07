@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::context::NodeExecutionResult as NodeHandlerResult;
+use wf_types::enums::{HookType, MiddlewarePhase};
 use wf_types::node::StaticNodeType;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
@@ -26,13 +27,13 @@ pub trait PluginNodeExecutor: Send + Sync {
 /// Plugin hook bridge (agent/workflow hook contributions).
 #[async_trait]
 pub trait PluginHookBridge: Send + Sync {
-    async fn handle(&self, hook_type: &str, context: &Value) -> ApiResult<()>;
+    async fn handle(&self, hook_type: &HookType, context: &Value) -> ApiResult<()>;
 }
 
 /// Plugin middleware bridge (lifecycle middleware contributions).
 #[async_trait]
 pub trait PluginMiddlewareBridge: Send + Sync {
-    async fn handle(&self, phase: &str, context: &Value) -> ApiResult<()>;
+    async fn handle(&self, phase: &MiddlewarePhase, context: &Value) -> ApiResult<()>;
 }
 
 /// Contribution source injected by `wf-runtime`. The handler resolution chain
@@ -44,10 +45,10 @@ pub trait PluginHandlerSource: Send + Sync {
     fn node_executor(&self, type_name: &str) -> Option<Arc<dyn PluginNodeExecutor>>;
 
     /// Plugin hook handlers registered for `hook_type`.
-    fn hook_handlers(&self, hook_type: &str) -> Vec<Arc<dyn PluginHookBridge>>;
+    fn hook_handlers(&self, hook_type: &HookType) -> Vec<Arc<dyn PluginHookBridge>>;
 
     /// Plugin middleware handlers registered for `phase`.
-    fn middleware(&self, phase: &str) -> Vec<Arc<dyn PluginMiddlewareBridge>>;
+    fn middleware(&self, phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>>;
 }
 
 /// No-op contribution source; the default when no plugin engine is wired.
@@ -58,11 +59,11 @@ impl PluginHandlerSource for NoopPluginHandlerSource {
         None
     }
 
-    fn hook_handlers(&self, _hook_type: &str) -> Vec<Arc<dyn PluginHookBridge>> {
+    fn hook_handlers(&self, _hook_type: &HookType) -> Vec<Arc<dyn PluginHookBridge>> {
         Vec::new()
     }
 
-    fn middleware(&self, _phase: &str) -> Vec<Arc<dyn PluginMiddlewareBridge>> {
+    fn middleware(&self, _phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>> {
         Vec::new()
     }
 }
@@ -124,14 +125,14 @@ impl NodeHandler for PluginNodeAdapter {
 pub struct TemplateSubgraphHandler {
     workflow_id: String,
     graph: wf_types::workflow_execution::WorkflowGraphStructure,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
 }
 
 impl TemplateSubgraphHandler {
     pub fn new(
         workflow_id: String,
         graph: wf_types::workflow_execution::WorkflowGraphStructure,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> Self {
         Self {
             workflow_id,

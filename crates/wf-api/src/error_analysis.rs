@@ -11,6 +11,7 @@ use serde::Serialize;
 use futures::Stream;
 use wf_common::error_chain::ErrorRecord;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::enums::{ErrorSeverity, ErrorTrend};
 use wf_types::errors::RecoveryAction;
 use wf_types::events::EventType;
 use wf_types::ExecutionStatus;
@@ -28,7 +29,7 @@ pub struct WorkflowErrorHotspot {
     pub node_name: Option<String>,
     pub error_count: u64,
     pub error_types: Vec<String>,
-    pub severity: String,
+    pub severity: ErrorSeverity,
 }
 
 /// A problematic node of a workflow execution (TS `ProblematicNode`).
@@ -54,7 +55,7 @@ pub struct AdvancedWorkflowErrorAnalysis {
     pub temporal_pattern: String,
     pub most_problematic_nodes: Vec<ProblematicNode>,
     /// `increasing` | `decreasing` | `stable`.
-    pub error_trend: String,
+    pub error_trend: ErrorTrend,
 }
 
 /// Reference to a workflow node affected by an error.
@@ -101,7 +102,7 @@ pub struct WorkflowErrorStats {
     pub total: u32,
     pub by_type: BTreeMap<String, u64>,
     pub by_node: BTreeMap<String, u64>,
-    pub by_severity: BTreeMap<String, u64>,
+    pub by_severity: BTreeMap<ErrorSeverity, u64>,
     pub recoverable: u64,
     pub root_cause: Option<String>,
 }
@@ -152,7 +153,6 @@ pub async fn workflow_error_stats(
 
         let severity = severity_of(record);
         *stats.by_severity.entry(severity).or_insert(0) += 1;
-
         if record.is_recoverable {
             stats.recoverable += 1;
         }
@@ -307,12 +307,12 @@ pub async fn get_advanced_error_analysis(
             error_hotspots: Vec::new(),
             temporal_pattern: "none".to_string(),
             most_problematic_nodes: Vec::new(),
-            error_trend: "stable".to_string(),
+            error_trend: ErrorTrend::Stable,
         });
     }
 
     let mut error_frequency: BTreeMap<String, u64> = BTreeMap::new();
-    let mut node_problems: BTreeMap<String, (u64, Vec<String>, Vec<String>, String)> =
+    let mut node_problems: BTreeMap<String, (u64, Vec<String>, Vec<String>, ErrorSeverity)> =
         BTreeMap::new();
     let mut sorted = records.clone();
     sorted.sort_by_key(|r| r.timestamp);
@@ -339,7 +339,7 @@ pub async fn get_advanced_error_analysis(
                     entry.2.push(name);
                 }
             }
-            if severity_rank(&severity_of(record)) > severity_rank(&entry.3) {
+            if severity_rank(severity_of(record)) > severity_rank(entry.3) {
                 entry.3 = severity_of(record);
             }
         }
@@ -562,17 +562,17 @@ fn action_name(action: &RecoveryAction) -> String {
 }
 
 /// Coarse severity bucket used by the stats view.
-fn severity_of(record: &ErrorRecord) -> String {
+fn severity_of(record: &ErrorRecord) -> ErrorSeverity {
     match &record.recovery_action {
-        Some(RecoveryAction::Retry) | Some(RecoveryAction::Fallback) => "warning".to_string(),
+        Some(RecoveryAction::Retry) | Some(RecoveryAction::Fallback) => ErrorSeverity::Warning,
         Some(RecoveryAction::ManualIntervention) | Some(RecoveryAction::Abort) => {
-            "critical".to_string()
+            ErrorSeverity::Critical
         }
         None => {
             if record.is_recoverable {
-                "warning".to_string()
+                ErrorSeverity::Warning
             } else {
-                "critical".to_string()
+                ErrorSeverity::Critical
             }
         }
     }
@@ -645,7 +645,7 @@ fn estimate_likelihood(record: &ErrorRecord, action: &str) -> f64 {
     if record.is_recoverable {
         likelihood += 30.0;
     }
-    if severity_of(record) == "warning" {
+    if severity_of(record) == ErrorSeverity::Warning {
         likelihood += 20.0;
     }
     match action {
@@ -721,9 +721,9 @@ fn analyze_temporal_pattern(sorted: &[ErrorRecord]) -> String {
 
 /// Error trend direction by comparing the first and second half (TS
 /// `WorkflowErrorTrend`).
-fn analyze_error_trend(sorted: &[ErrorRecord]) -> String {
+fn analyze_error_trend(sorted: &[ErrorRecord]) -> ErrorTrend {
     if sorted.len() < 2 {
-        return "stable".to_string();
+        return ErrorTrend::Stable;
     }
     let mid = sorted.len() / 2;
     let first = sorted.len().saturating_sub(mid);
@@ -734,21 +734,19 @@ fn analyze_error_trend(sorted: &[ErrorRecord]) -> String {
         1.0
     };
     if ratio > 1.3 {
-        "increasing".to_string()
+        ErrorTrend::Increasing
     } else if ratio < 0.7 {
-        "decreasing".to_string()
+        ErrorTrend::Decreasing
     } else {
-        "stable".to_string()
+        ErrorTrend::Stable
     }
 }
 
 /// Rank order of a severity label (lower = less severe).
-fn severity_rank(severity: &str) -> u8 {
+fn severity_rank(severity: ErrorSeverity) -> u8 {
     match severity {
-        "warning" => 0,
-        "error" => 1,
-        "critical" => 2,
-        _ => 0,
+        ErrorSeverity::Warning => 0,
+        ErrorSeverity::Critical => 2,
     }
 }
 
@@ -819,7 +817,10 @@ mod tests {
         assert_eq!(stats.total, 2);
         assert_eq!(stats.by_node.get("n1"), Some(&1));
         assert_eq!(stats.recoverable, 2);
-        assert_eq!(stats.by_severity.get("warning"), Some(&2));
+        assert_eq!(
+            stats.by_severity.get(&ErrorSeverity::Warning),
+            Some(&2)
+        );
 
         let recommendations = recovery_recommendations(&ctx, "exec-e").await.unwrap();
         assert_eq!(recommendations.len(), 2);

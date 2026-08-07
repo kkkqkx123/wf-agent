@@ -95,7 +95,7 @@ pub use wf_types::node::StaticNodeType;
 pub fn create_default_handlers(
     gateway: Arc<LlmGateway>,
     sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     let mut registry = HandlerRegistry::new();
     registry.register_defaults_with_sandbox(gateway, sandbox);
     registry.into_arc()

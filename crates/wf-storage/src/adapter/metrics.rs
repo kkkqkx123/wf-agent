@@ -51,14 +51,19 @@ impl Entity for MetricRecord {
     }
 }
 
-#[async_trait::async_trait]
 pub trait MetricsStorageAdapter: Send + Sync {
-    async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError>;
-    async fn query(
+    fn save_batch(
+        &self,
+        points: &[MetricsDataPoint],
+    ) -> impl std::future::Future<Output = Result<(), StorageError>> + Send;
+    fn query(
         &self,
         name: &str,
         start_time: i64,
         end_time: i64,
-    ) -> Result<Vec<MetricsDataPoint>, StorageError>;
-    async fn delete_old(&self, older_than: i64) -> Result<u64, StorageError>;
+    ) -> impl std::future::Future<Output = Result<Vec<MetricsDataPoint>, StorageError>> + Send;
+    fn delete_old(
+        &self,
+        older_than: i64,
+    ) -> impl std::future::Future<Output = Result<u64, StorageError>> + Send;
 }

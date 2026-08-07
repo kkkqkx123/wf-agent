@@ -69,7 +69,7 @@ struct PipeOutput {
     total_bytes: u64,
 }
 
-#[async_trait]
+#[allow(async_fn_in_trait)]
 pub trait CliExecutor: Send + Sync {
     fn config(&self) -> &ExecutorConfig;
     fn binary_path(&self) -> &Option<String>;
@@ -584,7 +584,6 @@ impl Default for RipgrepExecutor {
     }
 }
 
-#[async_trait]
 impl CliExecutor for RipgrepExecutor {
     fn config(&self) -> &ExecutorConfig {
         &self.config

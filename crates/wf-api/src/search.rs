@@ -60,11 +60,16 @@ impl SearchResourceType {
 pub struct SearchOptions {
     /// Resource types to search; `None` searches every type.
     pub types: Option<Vec<SearchResourceType>>,
-    /// Maximum results per resource type.
-    pub limit_per_type: usize,
-    /// Maximum total results.
-    pub limit_total: usize,
+    /// Maximum results per resource type; `None` uses the default.
+    pub limit_per_type: Option<usize>,
+    /// Maximum total results; `None` uses the default.
+    pub limit_total: Option<usize>,
 }
+
+/// Default maximum results per resource type when no explicit limit is given.
+const DEFAULT_LIMIT_PER_TYPE: usize = 20;
+/// Default maximum total results when no explicit limit is given.
+const DEFAULT_LIMIT_TOTAL: usize = 100;
 
 impl SearchOptions {
     fn effective(&self) -> (Vec<SearchResourceType>, usize, usize) {
@@ -72,16 +77,8 @@ impl SearchOptions {
             .types
             .clone()
             .unwrap_or_else(|| SearchResourceType::all().to_vec());
-        let per_type = if self.limit_per_type == 0 {
-            20
-        } else {
-            self.limit_per_type
-        };
-        let total = if self.limit_total == 0 {
-            100
-        } else {
-            self.limit_total
-        };
+        let per_type = self.limit_per_type.unwrap_or(DEFAULT_LIMIT_PER_TYPE);
+        let total = self.limit_total.unwrap_or(DEFAULT_LIMIT_TOTAL);
         (types, per_type, total)
     }
 }
@@ -660,8 +657,8 @@ mod tests {
             "match",
             &SearchOptions {
                 types: Some(vec![SearchResourceType::Task]),
-                limit_per_type: 5,
-                limit_total: 3,
+                limit_per_type: Some(5),
+                limit_total: Some(3),
             },
         )
         .await
@@ -691,7 +688,7 @@ mod tests {
 
         let options = SearchOptions {
             types: Some(vec![SearchResourceType::Workflow]),
-            limit_per_type: 5,
+            limit_per_type: Some(5),
             ..SearchOptions::default()
         };
         let first = search(&ctx, "flow", &options).await.unwrap();

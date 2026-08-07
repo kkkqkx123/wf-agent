@@ -4,6 +4,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use wf_types::{HookType, MiddlewarePhase};
+
 use crate::context::PluginContext;
 use crate::contributions::registrar::ContributionRegistrar;
 use crate::contributions::types::*;
@@ -538,14 +540,14 @@ impl Plugin for LuaPlugin {
                     }),
                 ),
                 5 => registrar.register_hook_handler(
-                    &e.name,
+                    HookType::from(e.name.as_str()),
                     Arc::new(LuaHookHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
                 ),
                 6 => registrar.register_middleware(
-                    &e.phase,
+                    MiddlewarePhase::from(e.phase.as_str()),
                     e.priority,
                     Arc::new(LuaMiddlewareHandler {
                         lua: self.lua.clone(),

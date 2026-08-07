@@ -28,17 +28,20 @@ where
     }
 }
 
-#[async_trait::async_trait]
 pub trait DeltaRestorer<SS, DS>: Send + Sync
 where
     SS: Send + Sync,
     DS: Send + Sync,
 {
-    async fn restore_full_state(
+    /// Restore the full state by replaying the delta chain. The returned
+    /// future is `Send`: `restore_full_state` is awaited inside the
+    /// [`CheckpointCoordinator::restore`] implementations, whose futures are
+    /// required to be `Send` (RPITIT `+ Send`).
+    fn restore_full_state(
         &self,
         target_checkpoint_id: &str,
         loader: &dyn CheckpointLoader,
-    ) -> Result<SS, CheckpointError>;
+    ) -> impl std::future::Future<Output = Result<SS, CheckpointError>> + Send;
 }
 
 #[async_trait::async_trait]

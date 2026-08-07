@@ -13,15 +13,13 @@ use wf_resource::starter::BundleRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_storage::context::StorageContext;
 use wf_tools::registry::ToolRegistry;
+use wf_types::enums::{HookType, MiddlewarePhase};
 use wf_types::node::StaticNodeType;
 use wf_workflow::entity::WorkflowExecutionEntity;
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::registry::WorkflowExecutionRegistry;
 
-use crate::handler_chain::{
-    node_type_name, NoopPluginHandlerSource, PluginHandlerSource, PluginNodeAdapter,
-    TemplateSubgraphHandler,
-};
+use crate::handler_chain::{node_type_name, NoopPluginHandlerSource, PluginHandlerSource};
 use crate::persistence::{PersistenceLayer, StorePersistenceLayer};
 use crate::ApiResult;
 
@@ -56,7 +54,7 @@ pub struct ApiContext {
     /// template id. In-memory analytics; not persisted.
     pub template_usage: Arc<DashMap<String, u64>>,
     /// Node handlers shared by every workflow execution.
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     /// Shared user interaction handler slot (agent config approval / follow-up
     /// wiring). Read and written by `AgentUserInteractionApi`.
     pub user_interaction_handler:
@@ -155,7 +153,7 @@ impl ApiContext {
 
     pub fn with_handlers(
         mut self,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> Self {
         self.handlers = handlers;
         self
@@ -175,77 +173,25 @@ impl ApiContext {
         self
     }
 
-    pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         self.handlers.clone()
     }
 
-    /// Resolve the handler for `node_type` through the plugin-aware chain:
-    /// **builtin → plugin → template fallback**.
+    /// Resolve the builtin handler for `node_type` from the shared handler
+    /// map. The map is immutable after construction, so callers borrow the
+    /// resolved handler rather than taking ownership of a per-handler clone.
     ///
-    /// 1. Builtin handlers (the standard engine handler set) win first.
-    /// 2. Plugin contributions registered under the node type's canonical name
-    ///    serve types without a builtin handler.
-    /// 3. Stored node templates back the type as a subgraph: the template id is
-    ///    treated as a workflow id in the execution registry and executed as a
-    ///    sub-workflow.
-    pub async fn resolve_handler(
-        &self,
-        node_type: StaticNodeType,
-        config: Option<&serde_json::Value>,
-    ) -> Option<Arc<dyn NodeHandler>> {
-        // 1. Builtin.
-        if let Some(handler) = self.handlers.get(&node_type).cloned() {
-            return Some(handler);
-        }
-        let type_name = node_type_name(&node_type);
-        // 2. Plugin contribution.
-        if let Some(executor) = self.plugin_source.node_executor(&type_name) {
-            return Some(Arc::new(PluginNodeAdapter::new(executor, node_type)));
-        }
-        // 3. Template fallback: stored node template → registered workflow.
-        self.template_fallback(node_type, config).await
-    }
-
-    /// Template fallback tier of the handler chain. A stored node template
-    /// whose `node_type` matches and whose id is a registered workflow id backs
-    /// the node as a subgraph execution.
-    async fn template_fallback(
-        &self,
-        node_type: StaticNodeType,
-        config: Option<&serde_json::Value>,
-    ) -> Option<Arc<dyn NodeHandler>> {
-        // A config that already pins a subgraph is handled by the builtin
-        // SUBGRAPH handler; the fallback only serves template-backed types.
-        if let Some(config) = config {
-            if let Some(id) = config.get("subgraph_id").or_else(|| config.get("embed_id")) {
-                if let Some(id) = id.as_str() {
-                    let templates =
-                        crate::node_template::list_node_templates(&self.storage, None).await.ok()?;
-                    if templates.iter().any(|t| t.id == id) {
-                        return None;
-                    }
-                }
-            }
-        }
-        let type_name = node_type_name(&node_type);
-        let templates =
-            crate::node_template::list_node_templates_by_type(&self.storage, &type_name)
-                .await
-                .ok()?;
-        let template = templates.into_iter().next()?;
-        let template_workflow = self.registries.workflows.get(&template.id)?;
-        let graph = crate::workflow_execution::definition_to_graph(&template_workflow.definition);
-        Some(Arc::new(TemplateSubgraphHandler::new(
-            template.id.to_string(),
-            graph,
-            self.handlers.clone(),
-        )))
+    /// Plugin contributions (executors / hooks / middleware) are resolved
+    /// through `plugin_source` instead (see [`Self::run_hooks`] and
+    /// [`Self::has_plugin_node_executor`]).
+    pub fn resolve_handler(&self, node_type: StaticNodeType) -> Option<&dyn NodeHandler> {
+        self.handlers.get(&node_type).map(|handler| handler.as_ref())
     }
 
     /// Run plugin hook handlers registered for `hook_type`.
-    pub async fn run_hooks(&self, hook_type: &str, context: &serde_json::Value) -> ApiResult<()> {
-        for hook in self.plugin_source.hook_handlers(hook_type) {
-            hook.handle(hook_type, context).await?;
+    pub async fn run_hooks(&self, hook_type: HookType, context: &serde_json::Value) -> ApiResult<()> {
+        for hook in self.plugin_source.hook_handlers(&hook_type) {
+            hook.handle(&hook_type, context).await?;
         }
         Ok(())
     }
@@ -253,11 +199,11 @@ impl ApiContext {
     /// Run plugin middleware handlers registered for `phase` in priority order.
     pub async fn run_middleware(
         &self,
-        phase: &str,
+        phase: MiddlewarePhase,
         context: &serde_json::Value,
     ) -> ApiResult<()> {
-        for middleware in self.plugin_source.middleware(phase) {
-            middleware.handle(phase, context).await?;
+        for middleware in self.plugin_source.middleware(&phase) {
+            middleware.handle(&phase, context).await?;
         }
         Ok(())
     }

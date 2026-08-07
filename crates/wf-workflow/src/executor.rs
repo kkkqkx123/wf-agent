@@ -74,7 +74,7 @@ impl WorkflowExecutor {
         graph: WorkflowGraphStructure,
         options: WorkflowExecutionOptions,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
-        handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+        handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
         hooks: Vec<BaseHookDefinition>,
     ) -> WorkflowResult<WorkflowOutput> {
         let handlers = handlers.unwrap_or_else(|| {

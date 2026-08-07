@@ -14,6 +14,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::checkpoint::CheckpointStorageAdapter;
 use wf_storage::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use wf_storage::domain::store::Store;
+use wf_types::enums::VariableSource;
 use wf_types::VariableStorageMetadata;
 
 use crate::context::ApiContext;
@@ -26,7 +27,7 @@ pub struct VariableHistoryEntry {
     pub scope: String,
     pub value: Value,
     pub timestamp: i64,
-    pub source: String,
+    pub source: VariableSource,
 }
 
 /// Read one variable.
@@ -182,7 +183,7 @@ pub async fn history(
             scope: record.scope.clone(),
             value: record.value.clone(),
             timestamp: record.updated_at,
-            source: "storage".into(),
+            source: VariableSource::Storage,
         });
     }
 
@@ -194,7 +195,7 @@ pub async fn history(
                     scope: scope.to_string(),
                     value,
                     timestamp: wf_common::now(),
-                    source: "live".into(),
+                    source: VariableSource::Live,
                 });
             }
         }
@@ -207,7 +208,7 @@ pub async fn history(
                         scope: scope.to_string(),
                         value: variable.value.clone(),
                         timestamp: record.started_at,
-                        source: "persisted".into(),
+                        source: VariableSource::Persisted,
                     });
                 }
             }
@@ -220,7 +221,7 @@ pub async fn history(
                     scope: scope.to_string(),
                     value: value.clone(),
                     timestamp: wf_common::now(),
-                    source: "checkpoint".into(),
+                    source: VariableSource::Checkpoint,
                 });
             }
         }

@@ -1,9 +1,10 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use wf_storage::backend::StorageBackend;
@@ -84,8 +85,29 @@ pub trait PersistenceLayer: Send + Sync {
 
 /// Persistence layer that discards every write (default when no backend is
 /// configured). Keeps the API surface functional while events stay in the
-/// bounded `EventBus` window.
-pub struct NoOpPersistenceLayer;
+/// bounded `EventBus` window. Every discarded write is counted and surfaced
+/// in `health()` so a silently-dropping sink is observable.
+pub struct NoOpPersistenceLayer {
+    discarded: std::sync::atomic::AtomicU64,
+}
+
+impl Default for NoOpPersistenceLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NoOpPersistenceLayer {
+    pub fn new() -> Self {
+        Self {
+            discarded: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    fn count_discarded(&self, amount: u64) {
+        self.discarded.fetch_add(amount, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 
 #[async_trait]
 impl PersistenceLayer for NoOpPersistenceLayer {
@@ -106,10 +128,12 @@ impl PersistenceLayer for NoOpPersistenceLayer {
     }
 
     async fn save_event(&self, _event: &BaseEvent) -> ApiResult<()> {
+        self.count_discarded(1);
         Ok(())
     }
 
-    async fn save_events(&self, _events: &[BaseEvent]) -> ApiResult<()> {
+    async fn save_events(&self, events: &[BaseEvent]) -> ApiResult<()> {
+        self.count_discarded(events.len() as u64);
         Ok(())
     }
 
@@ -126,6 +150,7 @@ impl PersistenceLayer for NoOpPersistenceLayer {
     }
 
     async fn save_snapshot(&self, _key: &str, _snapshot: &Value) -> ApiResult<()> {
+        self.count_discarded(1);
         Ok(())
     }
 
@@ -142,6 +167,7 @@ impl PersistenceLayer for NoOpPersistenceLayer {
     }
 
     async fn save_metric(&self, _key: &str, _value: &Value) -> ApiResult<()> {
+        self.count_discarded(1);
         Ok(())
     }
 
@@ -154,7 +180,10 @@ impl PersistenceLayer for NoOpPersistenceLayer {
             healthy: true,
             storage: "noop".into(),
             pending_writes: 0,
-            message: Some("no-op persistence backend".into()),
+            message: Some(format!(
+                "no-op persistence backend; {} writes discarded",
+                self.discarded.load(std::sync::atomic::Ordering::Relaxed)
+            )),
         }
     }
 }
@@ -181,8 +210,8 @@ impl StorePersistenceLayer {
 
     /// SQLite-backed layer; enabled with the `sqlite` feature.
     #[cfg(feature = "sqlite")]
-    pub fn sqlite(path: &str) -> ApiResult<Self> {
-        let store = wf_storage::store::sqlite::SqliteStorage::new(path, "persistence")?;
+    pub async fn sqlite(path: &str) -> ApiResult<Self> {
+        let store = wf_storage::store::sqlite::SqliteStorage::new(path, "persistence").await?;
         Ok(Self {
             store: StorageBackend::Sqlite(
                 wf_storage::decorator::instrumented::InstrumentedStore::new(store),
@@ -380,38 +409,52 @@ const DEFAULT_SNAPSHOT_BUFFER_SIZE: usize = 64;
 const DEFAULT_METRIC_BUFFER_SIZE: usize = 64;
 const DEFAULT_FLUSH_INTERVAL_MS: u64 = 5000;
 
-/// Buffered persistence layer: writes land in in-memory buffers and are
-/// flushed to the inner backend when a buffer fills or on a time interval
-/// (TS `BufferedPersistenceLayer` counterpart). Queries hit the inner
-/// backend; `pending_writes` reports the buffered backlog.
+/// Write request enqueued on the buffered layer's channel. The channel gives
+/// natural batching (a single flusher drains many writes per wake-up) plus
+/// backpressure-free ingestion; `Flush`/`Shutdown` drive the shutdown path.
+enum WriteOp {
+    Event(BaseEvent),
+    Snapshot(String, Value),
+    Metric(String, Value),
+    /// Force an immediate flush of the flusher's batch (used by `clear_*` and
+    /// the first stage of `shutdown`).
+    Flush,
+    /// Flush the remaining batch and exit the flusher task (second stage of
+    /// `shutdown`).
+    Shutdown,
+}
+
+/// Buffered persistence layer: writes land on an unbounded `mpsc` channel and
+/// are drained by a single flusher task that batches them into the inner
+/// backend when a buffer fills or on a time interval (TS
+/// `BufferedPersistenceLayer` counterpart). Queries hit the inner backend;
+/// `pending_writes` reports the un-persisted backlog.
 pub struct BufferedPersistenceLayer {
     inner: Arc<dyn PersistenceLayer>,
-    event_buffer: Arc<Mutex<Vec<BaseEvent>>>,
-    snapshot_buffer: Arc<Mutex<Vec<(String, Value)>>>,
-    metric_buffer: Arc<Mutex<Vec<(String, Value)>>>,
+    /// Write entry point. `None` until `initialize` spawns the flusher.
+    tx: Mutex<Option<mpsc::UnboundedSender<WriteOp>>>,
     event_buffer_size: usize,
     snapshot_buffer_size: usize,
     metric_buffer_size: usize,
     flush_interval: Duration,
-    shutdown_tx: Mutex<Option<watch::Sender<bool>>>,
     flush_handle: Mutex<Option<JoinHandle<()>>>,
     initialized: Mutex<bool>,
+    /// Records enqueued but not yet persisted (flusher-local backlog).
+    pending: Arc<AtomicUsize>,
 }
 
 impl BufferedPersistenceLayer {
     pub fn new(inner: Arc<dyn PersistenceLayer>) -> Self {
         Self {
             inner,
-            event_buffer: Arc::new(Mutex::new(Vec::new())),
-            snapshot_buffer: Arc::new(Mutex::new(Vec::new())),
-            metric_buffer: Arc::new(Mutex::new(Vec::new())),
+            tx: Mutex::new(None),
             event_buffer_size: DEFAULT_EVENT_BUFFER_SIZE,
             snapshot_buffer_size: DEFAULT_SNAPSHOT_BUFFER_SIZE,
             metric_buffer_size: DEFAULT_METRIC_BUFFER_SIZE,
             flush_interval: Duration::from_millis(DEFAULT_FLUSH_INTERVAL_MS),
-            shutdown_tx: Mutex::new(None),
             flush_handle: Mutex::new(None),
             initialized: Mutex::new(false),
+            pending: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -435,61 +478,91 @@ impl BufferedPersistenceLayer {
         self
     }
 
-    fn spawn_flusher(&self) {
-        let mut handle = lock_ok(self.flush_handle.lock());
-        if handle.is_some() {
-            return;
+    /// Enqueue a flush and wait for the in-flight backlog to drain so a
+    /// following `clear_*` sees a clean backend. Bounded by `flush_interval`;
+    /// on a persistent backend failure the batch stays buffered and is
+    /// retried on the next tick.
+    async fn flush_and_wait(&self) {
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            let _ = tx.send(WriteOp::Flush);
         }
-        let (tx, rx) = watch::channel(false);
-        *lock_ok(self.shutdown_tx.lock()) = Some(tx);
+        let deadline = tokio::time::Instant::now() + self.flush_interval;
+        while self.pending.load(Ordering::Relaxed) != 0 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
 
-        let inner = self.inner.clone();
-        let event_buffer = self.event_buffer.clone();
-        let snapshot_buffer = self.snapshot_buffer.clone();
-        let metric_buffer = self.metric_buffer.clone();
-        let interval = self.flush_interval;
-        let mut rx = rx;
-        let task = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
+    fn spawn_flusher(
+        inner: Arc<dyn PersistenceLayer>,
+        mut rx: mpsc::UnboundedReceiver<WriteOp>,
+        event_limit: usize,
+        snapshot_limit: usize,
+        metric_limit: usize,
+        flush_interval: Duration,
+        pending: Arc<AtomicUsize>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            // First tick after `flush_interval`: writes landing right after
+            // `initialize` are batched rather than flushed by the initial
+            // immediate tick.
+            let mut ticker = tokio::time::interval_at(
+                tokio::time::Instant::now() + flush_interval,
+                flush_interval,
+            );
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut events: Vec<BaseEvent> = Vec::new();
+            let mut snapshots: Vec<(String, Value)> = Vec::new();
+            let mut metrics: Vec<(String, Value)> = Vec::new();
+            let mut just_failed = false;
+
             loop {
+                let mut ticked = false;
                 tokio::select! {
-                    _ = ticker.tick() => {}
-                    changed = rx.changed() => {
-                        let _ = changed;
-                        if *rx.borrow() {
+                    _ = ticker.tick() => ticked = true,
+                    msg = rx.recv() => match msg {
+                        None => break,
+                        Some(WriteOp::Event(event)) => {
+                            events.push(event);
+                            pending.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Some(WriteOp::Snapshot(key, value)) => {
+                            snapshots.push((key, value));
+                            pending.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Some(WriteOp::Metric(key, value)) => {
+                            metrics.push((key, value));
+                            pending.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Some(WriteOp::Flush) => {
+                            just_failed = !flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
+                        }
+                        Some(WriteOp::Shutdown) => {
+                            let _ = flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
                             break;
                         }
-                    }
+                    },
                 }
-                let events = drain(&event_buffer);
-                let snapshots = drain(&snapshot_buffer);
-                let metrics = drain(&metric_buffer);
-                let mut empty = events.is_empty() && snapshots.is_empty() && metrics.is_empty();
-                if empty {
+
+                if ticked {
+                    // Periodic flush; also the retry cadence after a failure.
+                    if !events.is_empty() || !snapshots.is_empty() || !metrics.is_empty() {
+                        just_failed = !flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
+                    }
                     continue;
                 }
-                if let Err(err) = write_batch(&*inner, &events, &snapshots, &metrics).await {
-                    tracing::warn!(target: "wf_api", error = %err, "persistence flush failed; re-buffering");
-                    // Re-buffer so a transient backend failure does not lose data.
-                    lock_ok(event_buffer.lock()).splice(0..0, events);
-                    lock_ok(snapshot_buffer.lock()).splice(0..0, snapshots);
-                    lock_ok(metric_buffer.lock()).splice(0..0, metrics);
-                    empty = false;
+                if just_failed {
+                    // Back off until the next tick instead of busy-looping
+                    // against a persistently failing backend.
+                    continue;
                 }
-                if empty && *rx.borrow() {
-                    break;
+                if events.len() >= event_limit
+                    || snapshots.len() >= snapshot_limit
+                    || metrics.len() >= metric_limit
+                {
+                    just_failed = !flush_batch(&*inner, &mut events, &mut snapshots, &mut metrics, &pending).await;
                 }
             }
-            let _ = write_batch(
-                &*inner,
-                &drain(&event_buffer),
-                &drain(&snapshot_buffer),
-                &drain(&metric_buffer),
-            )
-            .await;
-        });
-        *handle = Some(task);
+        })
     }
 }
 
@@ -511,10 +584,33 @@ async fn write_batch(
     Ok(())
 }
 
-/// Drain `buffer` without panicking on a poisoned lock (a panicked holder is
-/// unrecoverable anyway; the buffered data is still taken).
-fn drain<T>(buffer: &Mutex<Vec<T>>) -> Vec<T> {
-    std::mem::take(&mut *buffer.lock().unwrap_or_else(|p| p.into_inner()))
+/// Flush the flusher-local batch. On success clears the batch and decrements
+/// `pending`; on failure the batch is kept (`pending` unchanged) for the next
+/// tick / `Shutdown` retry, mirroring the old re-buffer semantics.
+async fn flush_batch(
+    inner: &dyn PersistenceLayer,
+    events: &mut Vec<BaseEvent>,
+    snapshots: &mut Vec<(String, Value)>,
+    metrics: &mut Vec<(String, Value)>,
+    pending: &AtomicUsize,
+) -> bool {
+    if events.is_empty() && snapshots.is_empty() && metrics.is_empty() {
+        return true;
+    }
+    match write_batch(inner, events, snapshots, metrics).await {
+        Ok(()) => {
+            let count = events.len() + snapshots.len() + metrics.len();
+            events.clear();
+            snapshots.clear();
+            metrics.clear();
+            pending.fetch_sub(count, Ordering::Relaxed);
+            true
+        }
+        Err(err) => {
+            tracing::warn!(target: "wf_api", error = %err, "persistence flush failed; re-buffering for retry");
+            false
+        }
+    }
 }
 
 /// Recover from a poisoned lock rather than panicking library callers.
@@ -533,7 +629,18 @@ impl PersistenceLayer for BufferedPersistenceLayer {
             return Ok(());
         }
         self.inner.initialize().await?;
-        self.spawn_flusher();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let handle = Self::spawn_flusher(
+            self.inner.clone(),
+            rx,
+            self.event_buffer_size,
+            self.snapshot_buffer_size,
+            self.metric_buffer_size,
+            self.flush_interval,
+            self.pending.clone(),
+        );
+        *lock_ok(self.tx.lock()) = Some(tx);
+        *lock_ok(self.flush_handle.lock()) = Some(handle);
         *lock_ok(self.initialized.lock()) = true;
         Ok(())
     }
@@ -542,47 +649,38 @@ impl PersistenceLayer for BufferedPersistenceLayer {
         if !*lock_ok(self.initialized.lock()) {
             return Ok(());
         }
-        let shutdown_signal = lock_ok(self.shutdown_tx.lock()).take();
-        if let Some(tx) = shutdown_signal {
-            let _ = tx.send(true);
+        // Two-phase shutdown: flush in-flight data first, then ask the flusher
+        // to flush once more and exit. The flusher never blocks shutdown.
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            let _ = tx.send(WriteOp::Flush);
+            let _ = tx.send(WriteOp::Shutdown);
         }
         let handle = lock_ok(self.flush_handle.lock()).take();
         if let Some(handle) = handle {
             let _ = tokio::time::timeout(self.flush_interval, handle).await;
         }
-        // Final flush of anything buffered after the task exited.
-        let events = drain(&self.event_buffer);
-        let snapshots = drain(&self.snapshot_buffer);
-        let metrics = drain(&self.metric_buffer);
-        let _ = write_batch(&*self.inner, &events, &snapshots, &metrics).await;
         self.inner.shutdown().await?;
         *lock_ok(self.initialized.lock()) = false;
         Ok(())
     }
 
     fn pending_writes(&self) -> usize {
-        lock_ok(self.event_buffer.lock()).len()
-            + lock_ok(self.snapshot_buffer.lock()).len()
-            + lock_ok(self.metric_buffer.lock()).len()
+        self.pending.load(Ordering::Relaxed)
     }
 
     async fn save_event(&self, event: &BaseEvent) -> ApiResult<()> {
-        let mut buffer = lock_ok(self.event_buffer.lock());
-        buffer.push(event.clone());
-        let full = buffer.len() >= self.event_buffer_size;
-        if full {
-            let drained = std::mem::take(&mut *buffer);
-            let inner = self.inner.clone();
-            tokio::spawn(async move {
-                let _ = inner.save_events(&drained).await;
-            });
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            let _ = tx.send(WriteOp::Event(event.clone()));
         }
         Ok(())
     }
 
     async fn save_events(&self, events: &[BaseEvent]) -> ApiResult<()> {
-        let mut buffer = lock_ok(self.event_buffer.lock());
-        buffer.extend_from_slice(events);
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            for event in events {
+                let _ = tx.send(WriteOp::Event(event.clone()));
+            }
+        }
         Ok(())
     }
 
@@ -595,21 +693,13 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn clear_events(&self) -> ApiResult<()> {
-        lock_ok(self.event_buffer.lock()).clear();
+        self.flush_and_wait().await;
         self.inner.clear_events().await
     }
 
     async fn save_snapshot(&self, key: &str, snapshot: &Value) -> ApiResult<()> {
-        let mut buffer = lock_ok(self.snapshot_buffer.lock());
-        buffer.push((key.to_string(), snapshot.clone()));
-        if buffer.len() >= self.snapshot_buffer_size {
-            let drained = std::mem::take(&mut *buffer);
-            let inner = self.inner.clone();
-            tokio::spawn(async move {
-                for (key, value) in drained {
-                    let _ = inner.save_snapshot(&key, &value).await;
-                }
-            });
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            let _ = tx.send(WriteOp::Snapshot(key.to_string(), snapshot.clone()));
         }
         Ok(())
     }
@@ -623,21 +713,13 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn clear_snapshots(&self, prefix: &str) -> ApiResult<()> {
-        lock_ok(self.snapshot_buffer.lock()).clear();
+        self.flush_and_wait().await;
         self.inner.clear_snapshots(prefix).await
     }
 
     async fn save_metric(&self, key: &str, value: &Value) -> ApiResult<()> {
-        let mut buffer = lock_ok(self.metric_buffer.lock());
-        buffer.push((key.to_string(), value.clone()));
-        if buffer.len() >= self.metric_buffer_size {
-            let drained = std::mem::take(&mut *buffer);
-            let inner = self.inner.clone();
-            tokio::spawn(async move {
-                for (key, value) in drained {
-                    let _ = inner.save_metric(&key, &value).await;
-                }
-            });
+        if let Some(tx) = lock_ok(self.tx.lock()).as_ref() {
+            let _ = tx.send(WriteOp::Metric(key.to_string(), value.clone()));
         }
         Ok(())
     }
@@ -653,5 +735,158 @@ impl PersistenceLayer for BufferedPersistenceLayer {
             pending_writes: self.pending_writes(),
             message: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingLayer {
+        events: std::sync::Mutex<Vec<BaseEvent>>,
+        snapshots: std::sync::Mutex<Vec<(String, Value)>>,
+        metrics: std::sync::Mutex<Vec<(String, Value)>>,
+    }
+
+    #[async_trait]
+    impl PersistenceLayer for RecordingLayer {
+        fn name(&self) -> &str {
+            "recording"
+        }
+        async fn initialize(&self) -> ApiResult<()> {
+            Ok(())
+        }
+        async fn shutdown(&self) -> ApiResult<()> {
+            Ok(())
+        }
+        fn pending_writes(&self) -> usize {
+            0
+        }
+        async fn save_event(&self, event: &BaseEvent) -> ApiResult<()> {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+        async fn save_events(&self, events: &[BaseEvent]) -> ApiResult<()> {
+            self.events.lock().unwrap().extend_from_slice(events);
+            Ok(())
+        }
+        async fn query_events(&self, _options: &EventQueryOptions) -> ApiResult<Vec<BaseEvent>> {
+            Ok(self.events.lock().unwrap().clone())
+        }
+        async fn count_events(&self, _options: &EventQueryOptions) -> ApiResult<usize> {
+            Ok(self.events.lock().unwrap().len())
+        }
+        async fn clear_events(&self) -> ApiResult<()> {
+            self.events.lock().unwrap().clear();
+            Ok(())
+        }
+        async fn save_snapshot(&self, key: &str, value: &Value) -> ApiResult<()> {
+            self.snapshots.lock().unwrap().push((key.into(), value.clone()));
+            Ok(())
+        }
+        async fn load_snapshot(&self, _key: &str) -> ApiResult<Option<Value>> {
+            Ok(None)
+        }
+        async fn list_snapshots(&self, _prefix: &str) -> ApiResult<Vec<(String, Value)>> {
+            Ok(Vec::new())
+        }
+        async fn clear_snapshots(&self, _prefix: &str) -> ApiResult<()> {
+            Ok(())
+        }
+        async fn save_metric(&self, key: &str, value: &Value) -> ApiResult<()> {
+            self.metrics.lock().unwrap().push((key.into(), value.clone()));
+            Ok(())
+        }
+        async fn query_metrics(&self, _prefix: &str) -> ApiResult<Vec<(String, Value)>> {
+            Ok(Vec::new())
+        }
+        fn health(&self) -> PersistenceHealth {
+            PersistenceHealth {
+                healthy: true,
+                storage: "recording".into(),
+                pending_writes: 0,
+                message: None,
+            }
+        }
+    }
+
+    fn make_event() -> BaseEvent {
+        BaseEvent {
+            id: "evt".into(),
+            r#type: wf_types::events::EventType::NodeStarted,
+            timestamp: 1,
+            workflow_id: Some("wf".into()),
+            execution_id: Some("exec".into()),
+            agent_loop_id: None,
+            metadata: None,
+        }
+    }
+
+    fn buffered_with(limit: usize) -> (Arc<RecordingLayer>, Arc<BufferedPersistenceLayer>) {
+        let inner = Arc::new(RecordingLayer::default());
+        let buffered = Arc::new(
+            BufferedPersistenceLayer::new(inner.clone())
+                .with_event_buffer_size(limit)
+                .with_flush_interval(Duration::from_millis(10_000)),
+        );
+        (inner, buffered)
+    }
+
+    #[tokio::test]
+    async fn shutdown_flushes_everything() {
+        let (inner, buffered) = buffered_with(1024);
+        buffered.initialize().await.unwrap();
+        for _ in 0..5 {
+            buffered.save_event(&make_event()).await.unwrap();
+        }
+        buffered
+            .save_snapshot("s1", &serde_json::json!({"x": 1}))
+            .await
+            .unwrap();
+        buffered
+            .save_metric("m1", &serde_json::json!({"n": 1}))
+            .await
+            .unwrap();
+        buffered.shutdown().await.unwrap();
+        assert_eq!(inner.events.lock().unwrap().len(), 5);
+        assert_eq!(inner.snapshots.lock().unwrap().len(), 1);
+        assert_eq!(inner.metrics.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn water_level_triggers_immediate_flush() {
+        let (inner, buffered) = buffered_with(3);
+        buffered.initialize().await.unwrap();
+        buffered.save_event(&make_event()).await.unwrap();
+        buffered.save_event(&make_event()).await.unwrap();
+        buffered.save_event(&make_event()).await.unwrap();
+        // Water level reached: the flusher flushes without waiting for the
+        // interval or shutdown.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while inner.events.lock().unwrap().len() < 3 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(inner.events.lock().unwrap().len(), 3);
+        buffered.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn pending_writes_tracks_backlog() {
+        let (inner, buffered) = buffered_with(1024);
+        buffered.initialize().await.unwrap();
+        for _ in 0..4 {
+            buffered.save_event(&make_event()).await.unwrap();
+        }
+        // Below the water level and well inside the flush interval: every
+        // write is counted until a flush actually happens.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        while buffered.pending_writes() != 4 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(buffered.pending_writes(), 4);
+        buffered.shutdown().await.unwrap();
+        assert_eq!(buffered.pending_writes(), 0);
+        assert_eq!(inner.events.lock().unwrap().len(), 4);
     }
 }

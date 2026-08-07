@@ -179,7 +179,7 @@ pub struct WorkflowCoordinator {
     ctx: ExecutorContext,
     entity: Option<Arc<WorkflowExecutionEntity>>,
     traversal: GraphTraversal,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     current_node_id: Option<String>,
     completed_nodes: Vec<String>,
     node_outputs: HashMap<String, Value>,
@@ -201,7 +201,7 @@ impl WorkflowCoordinator {
     pub fn new(
         ctx: ExecutorContext,
         graph: WorkflowGraphStructure,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> WorkflowResult<Self> {
         let traversal = GraphTraversal::new(graph)?;
         let start_node_id = traversal
@@ -1157,7 +1157,7 @@ mod tests {
     async fn run(
         g: WorkflowGraphStructure,
         opts: WorkflowExecutionOptions,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> WorkflowResult<Value> {
         let exec_ctx = ExecutorContext::new(
             wf_common::generate_id(),
@@ -1277,16 +1277,16 @@ mod tests {
     }
 
     fn base_handlers(
-        extra: Vec<(StaticNodeType, Arc<dyn NodeHandler>)>,
-    ) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
-        let mut map: HashMap<StaticNodeType, Arc<dyn NodeHandler>> = HashMap::new();
+        extra: Vec<(StaticNodeType, Box<dyn NodeHandler>)>,
+    ) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+        let mut map: HashMap<StaticNodeType, Box<dyn NodeHandler>> = HashMap::new();
         map.insert(
             StaticNodeType::Start,
-            Arc::new(crate::handler::start_end::StartHandler),
+            Box::new(crate::handler::start_end::StartHandler),
         );
         map.insert(
             StaticNodeType::End,
-            Arc::new(crate::handler::start_end::EndHandler),
+            Box::new(crate::handler::start_end::EndHandler),
         );
         for (ty, handler) in extra {
             map.insert(ty, handler);
@@ -1298,11 +1298,11 @@ mod tests {
     async fn retry_recovers_after_transient_failures() {
         let handlers = base_handlers(vec![(
             StaticNodeType::Variable,
-            Arc::new(FlakyHandler {
+            Box::new(FlakyHandler {
                 failures: Arc::new(AtomicUsize::new(0)),
                 fail_count: 2,
                 label: "recovered",
-            }) as Arc<dyn NodeHandler>,
+            }) as Box<dyn NodeHandler>,
         )]);
         let g = graph(vec![
             node("start", "START", Value::Null),
@@ -1345,7 +1345,7 @@ mod tests {
     async fn fallback_output_used_when_retries_exhausted() {
         let handlers = base_handlers(vec![(
             StaticNodeType::Variable,
-            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+            Box::new(AlwaysFailingHandler) as Box<dyn NodeHandler>,
         )]);
         let g = graph(vec![
             node("start", "START", Value::Null),
@@ -1377,7 +1377,7 @@ mod tests {
     async fn failure_without_fallback_propagates() {
         let handlers = base_handlers(vec![(
             StaticNodeType::Variable,
-            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+            Box::new(AlwaysFailingHandler) as Box<dyn NodeHandler>,
         )]);
         let g = graph(vec![
             node("start", "START", Value::Null),
@@ -1393,7 +1393,7 @@ mod tests {
     async fn failed_node_writes_structured_error_records() {
         let handlers = base_handlers(vec![(
             StaticNodeType::Variable,
-            Arc::new(AlwaysFailingHandler) as Arc<dyn NodeHandler>,
+            Box::new(AlwaysFailingHandler) as Box<dyn NodeHandler>,
         )]);
         let g = graph(vec![
             node("start", "START", Value::Null),

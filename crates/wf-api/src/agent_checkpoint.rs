@@ -194,6 +194,16 @@ pub async fn restore(ctx: &ApiContext, agent_loop_id: &str, checkpoint_id: &str)
             })
             .await
             .map_err(|e| ApiError::execution(format!("state restore failed: {e}")))?;
+    } else {
+        // The checkpoint belongs to this agent loop and is already persisted;
+        // a loop that is not currently running has no live state to replay, so
+        // the restore is idempotent: it does not fail for an absent loop.
+        tracing::warn!(
+            target: "wf_api",
+            agent_loop_id,
+            checkpoint_id,
+            "restore: agent loop is not running; checkpoint left as-is"
+        );
     }
 
     Ok(checkpoint)

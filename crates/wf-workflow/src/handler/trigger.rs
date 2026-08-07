@@ -78,7 +78,7 @@ pub struct TriggerContext {
     pub workflow_id: Id,
     pub variables: Arc<DashMap<String, Value>>,
     pub event_bus: Option<Arc<EventBus>>,
-    pub handlers: Option<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>,
+    pub handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
     pub tool_registry: Option<Arc<ToolRegistry>>,
     pub metrics: Option<Arc<MetricsRegistry>>,
     pub script_runner: Option<Arc<dyn ScriptRunner>>,
@@ -112,7 +112,7 @@ impl TriggerContext {
 
     pub fn with_handlers(
         mut self,
-        handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     ) -> Self {
         self.handlers = Some(handlers);
         self
@@ -145,7 +145,7 @@ pub struct TriggerCoordinator;
 struct TriggeredSubworkflowRun {
     triggered_workflow_id: String,
     graph: wf_types::workflow_execution::WorkflowGraphStructure,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     tool_registry: Arc<ToolRegistry>,
     input_mapping: HashMap<String, Value>,
     output_mapping: HashMap<String, Value>,
@@ -676,7 +676,7 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> TriggerContext {
     }
     if let Some(handlers) = &ctx.handler_registry {
         if let Some(handlers) =
-            handlers.downcast_ref::<Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>>()
+            handlers.downcast_ref::<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>()
         {
             tctx = tctx.with_handlers(handlers.clone());
         }

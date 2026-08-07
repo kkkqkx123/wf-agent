@@ -5,7 +5,6 @@
 //! implementing it over the Layertwine gRPC service (embedded or remote
 //! deployment), aligned with the TS `BaseRemoteExecutor` + `LayertwineExecutor`.
 
-use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::ToolResult;
@@ -98,7 +97,7 @@ pub struct RemoteErrorInfo {
 /// A stateful connection to a remote service. Implementations are expected
 /// to use interior mutability so methods take `&self` and the executor can be
 /// shared (e.g. via `Arc`) across concurrent tool executions.
-#[async_trait]
+#[allow(async_fn_in_trait)]
 pub trait RemoteExecutor: Send + Sync {
     async fn connect(&self, config: &RemoteConnectionConfig) -> ToolResult<()>;
     async fn disconnect(&self) -> ToolResult<()>;
@@ -356,7 +355,6 @@ pub mod layertwine_impl {
         }
     }
 
-    #[async_trait]
     impl RemoteExecutor for LayertwineExecutor {
         async fn connect(&self, config: &RemoteConnectionConfig) -> ToolResult<()> {
             {

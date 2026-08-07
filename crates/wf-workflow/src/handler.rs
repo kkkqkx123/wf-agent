@@ -36,7 +36,7 @@ pub trait NodeHandler: Send + Sync {
 }
 
 pub struct HandlerRegistry {
-    handlers: HashMap<StaticNodeType, Arc<dyn NodeHandler>>,
+    handlers: HashMap<StaticNodeType, Box<dyn NodeHandler>>,
 }
 
 impl HandlerRegistry {
@@ -50,19 +50,19 @@ impl HandlerRegistry {
         }
     }
 
-    pub fn register(&mut self, handler: Arc<dyn NodeHandler>) {
+    pub fn register(&mut self, handler: Box<dyn NodeHandler>) {
         self.handlers.insert(handler.node_type(), handler);
     }
 
-    pub fn get(&self, node_type: &StaticNodeType) -> Option<Arc<dyn NodeHandler>> {
-        self.handlers.get(node_type).cloned()
+    pub fn get(&self, node_type: &StaticNodeType) -> Option<&dyn NodeHandler> {
+        self.handlers.get(node_type).map(|h| h.as_ref())
     }
 
     pub fn has_handler(&self, node_type: &StaticNodeType) -> bool {
         self.handlers.contains_key(node_type)
     }
 
-    pub fn into_arc(self) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+    pub fn into_arc(self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
         Arc::new(self.handlers)
     }
 
@@ -80,29 +80,29 @@ impl HandlerRegistry {
         gateway: Arc<LlmGateway>,
         sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
     ) {
-        self.register(Arc::new(start_end::StartHandler));
-        self.register(Arc::new(start_end::EndHandler));
-        self.register(Arc::new(route::RouteHandler));
-        self.register(Arc::new(variable::VariableHandler));
-        self.register(Arc::new(loop_handler::LoopStartHandler));
-        self.register(Arc::new(loop_handler::LoopEndHandler));
-        self.register(Arc::new(fork_join::ForkHandler));
-        self.register(Arc::new(fork_join::JoinHandler));
-        self.register(Arc::new(sync::SyncHandler::new()));
-        self.register(Arc::new(subgraph::SubgraphHandler));
-        self.register(Arc::new(llm::LlmHandler::new(gateway.clone())));
-        self.register(Arc::new(context_processor::ContextProcessorHandler));
-        self.register(Arc::new(script::ScriptHandler::with_sandbox_opt(
+        self.register(Box::new(start_end::StartHandler));
+        self.register(Box::new(start_end::EndHandler));
+        self.register(Box::new(route::RouteHandler));
+        self.register(Box::new(variable::VariableHandler));
+        self.register(Box::new(loop_handler::LoopStartHandler));
+        self.register(Box::new(loop_handler::LoopEndHandler));
+        self.register(Box::new(fork_join::ForkHandler));
+        self.register(Box::new(fork_join::JoinHandler));
+        self.register(Box::new(sync::SyncHandler::new()));
+        self.register(Box::new(subgraph::SubgraphHandler));
+        self.register(Box::new(llm::LlmHandler::new(gateway.clone())));
+        self.register(Box::new(context_processor::ContextProcessorHandler));
+        self.register(Box::new(script::ScriptHandler::with_sandbox_opt(
             sandbox.clone(),
         )));
-        self.register(Arc::new(
+        self.register(Box::new(
             interactive_script::InteractiveScriptHandler::with_sandbox_opt(sandbox),
         ));
-        self.register(Arc::new(agent_loop::AgentLoopHandler::new(gateway)));
-        self.register(Arc::new(tool_visibility::ToolVisibilityHandler));
-        self.register(Arc::new(embed::EmbedHandler));
-        self.register(Arc::new(user_interaction::UserInteractionHandler));
-        self.register(Arc::new(trigger::StartFromTriggerHandler));
-        self.register(Arc::new(trigger::ContinueFromTriggerHandler));
+        self.register(Box::new(agent_loop::AgentLoopHandler::new(gateway)));
+        self.register(Box::new(tool_visibility::ToolVisibilityHandler));
+        self.register(Box::new(embed::EmbedHandler));
+        self.register(Box::new(user_interaction::UserInteractionHandler));
+        self.register(Box::new(trigger::StartFromTriggerHandler));
+        self.register(Box::new(trigger::ContinueFromTriggerHandler));
     }
 }

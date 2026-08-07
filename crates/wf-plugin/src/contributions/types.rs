@@ -92,21 +92,6 @@ pub struct PluginMiddlewareDef {
     pub priority: i32,
 }
 
-/// Middleware phase constants
-pub mod middleware_phase {
-    pub const BEFORE_WORKFLOW_EXECUTION: &str = "before-workflow-execution";
-    pub const AFTER_WORKFLOW_EXECUTION: &str = "after-workflow-execution";
-    pub const BEFORE_NODE_EXECUTION: &str = "before-node-execution";
-    pub const AFTER_NODE_EXECUTION: &str = "after-node-execution";
-    pub const BEFORE_LLM_INVOCATION: &str = "before-llm-invocation";
-    pub const AFTER_LLM_INVOCATION: &str = "after-llm-invocation";
-    pub const BEFORE_TOOL_EXECUTION: &str = "before-tool-execution";
-    pub const AFTER_TOOL_EXECUTION: &str = "after-tool-execution";
-    pub const ON_ERROR: &str = "on-error";
-    pub const ON_CHECKPOINT: &str = "on-checkpoint";
-    pub const ON_RESUME: &str = "on-resume";
-}
-
 /// Next function type for middleware chain
 pub type NextFn = Box<dyn FnOnce() -> BoxFuture<'static, PluginResult<()>> + Send>;
 

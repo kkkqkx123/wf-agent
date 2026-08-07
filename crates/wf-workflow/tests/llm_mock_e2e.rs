@@ -422,25 +422,25 @@ fn options() -> WorkflowExecutionOptions {
     }
 }
 
-fn llm_handlers(mock: Arc<MockLlmClient>) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
+fn llm_handlers(mock: Arc<MockLlmClient>) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
     let gateway = Arc::new(LlmGateway::new());
     gateway.register_mock("mock", mock.clone());
-    let mut map: HashMap<StaticNodeType, Arc<dyn NodeHandler>> = HashMap::new();
+    let mut map: HashMap<StaticNodeType, Box<dyn NodeHandler>> = HashMap::new();
     map.insert(
         StaticNodeType::Start,
-        Arc::new(wf_workflow::handler::start_end::StartHandler),
+        Box::new(wf_workflow::handler::start_end::StartHandler),
     );
     map.insert(
         StaticNodeType::End,
-        Arc::new(wf_workflow::handler::start_end::EndHandler),
+        Box::new(wf_workflow::handler::start_end::EndHandler),
     );
-    map.insert(StaticNodeType::Llm, Arc::new(LlmHandler::new(gateway)));
+    map.insert(StaticNodeType::Llm, Box::new(LlmHandler::new(gateway)));
     Arc::new(map)
 }
 
 async fn run_workflow(
     graph: WorkflowGraphStructure,
-    handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
 ) -> wf_workflow::WorkflowResult<wf_tools::callback::WorkflowOutput> {
     WorkflowExecutor::new()
         .execute_workflow(

@@ -219,7 +219,7 @@ async fn handle_list_events(
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
-        limit: query.limit.unwrap_or(100),
+        limit: query.limit,
         event_types: None,
     };
     match wf_api::events::history(&state.ctx, &options).await {

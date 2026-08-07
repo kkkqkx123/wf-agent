@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use wf_types::enums::{HookType, MiddlewarePhase};
 
 use wf_api::handler_chain::{
     PluginHandlerSource, PluginHookBridge, PluginMiddlewareBridge, PluginNodeExecutor,
@@ -70,7 +71,7 @@ impl PluginHandlerSource for WfPluginHandlerSource {
             .map(|handler| Arc::new(WfPluginNodeExecutor(handler)) as Arc<dyn PluginNodeExecutor>)
     }
 
-    fn hook_handlers(&self, hook_type: &str) -> Vec<Arc<dyn PluginHookBridge>> {
+    fn hook_handlers(&self, hook_type: &HookType) -> Vec<Arc<dyn PluginHookBridge>> {
         self.manager
             .get_hook_handlers(hook_type)
             .into_iter()
@@ -78,7 +79,7 @@ impl PluginHandlerSource for WfPluginHandlerSource {
             .collect()
     }
 
-    fn middleware(&self, phase: &str) -> Vec<Arc<dyn PluginMiddlewareBridge>> {
+    fn middleware(&self, phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>> {
         // The plugin engine chains middleware through a `next` closure; the
         // manager exposes the fully-chained run, so surface it as a single
         // bridge to avoid running the chain once per handler.
@@ -109,7 +110,7 @@ impl PluginNodeExecutor for WfPluginNodeExecutor {
             .0
             .execute(ctx)
             .await
-            .map_err(|e| wf_api::ApiError::execution_with_source(e))?;
+            .map_err(wf_api::ApiError::execution_with_source)?;
         Ok(result.outputs)
     }
 }
@@ -118,7 +119,7 @@ struct WfPluginHookBridge(Arc<dyn wf_plugin::PluginHookHandler>);
 
 #[async_trait]
 impl PluginHookBridge for WfPluginHookBridge {
-    async fn handle(&self, _hook_type: &str, context: &Value) -> wf_api::ApiResult<()> {
+    async fn handle(&self, _hook_type: &HookType, context: &Value) -> wf_api::ApiResult<()> {
         self.0
             .handle(context.clone())
             .await
@@ -130,7 +131,7 @@ struct WfPluginMiddlewareRunner(Arc<ContributionManager>);
 
 #[async_trait]
 impl PluginMiddlewareBridge for WfPluginMiddlewareRunner {
-    async fn handle(&self, phase: &str, context: &Value) -> wf_api::ApiResult<()> {
+    async fn handle(&self, phase: &MiddlewarePhase, context: &Value) -> wf_api::ApiResult<()> {
         self.0
             .run_middleware(phase, context.clone())
             .await

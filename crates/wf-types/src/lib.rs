@@ -1,6 +1,7 @@
 pub mod common;
 pub mod condition;
 pub mod dynamic_context;
+pub mod enums;
 pub mod environment;
 pub mod fragment;
 pub mod hook;
@@ -36,6 +37,7 @@ pub mod workflow_execution;
 pub use common::*;
 pub use condition::*;
 pub use dynamic_context::*;
+pub use enums::*;
 pub use environment::*;
 pub use fragment::*;
 pub use hook::*;

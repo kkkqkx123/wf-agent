@@ -702,7 +702,6 @@ impl<S: Store> MetricsStorage<S> {
     }
 }
 
-#[async_trait::async_trait]
 impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
     async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError> {
         let records: Vec<MetricRecord> = points

@@ -109,7 +109,7 @@ pub fn query_by_profile_type(ctx: &ApiContext, profile_type: &str) -> ApiResult<
 }
 
 /// Featured templates: public + enabled, most used first.
-pub fn featured(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<TemplateSummary>> {
+pub fn featured(ctx: &ApiContext, limit: Option<usize>) -> ApiResult<Vec<TemplateSummary>> {
     Ok(crate::template_library::featured(ctx, limit)?
         .into_iter()
         .filter(|t| t.kind == "agent")
@@ -120,7 +120,7 @@ pub fn featured(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<TemplateSummary
 pub fn popular_in_category(
     ctx: &ApiContext,
     category: &str,
-    limit: usize,
+    limit: Option<usize>,
 ) -> ApiResult<Vec<TemplateSummary>> {
     Ok(crate::template_library::popular_in_category(ctx, category, limit)?
         .into_iter()
@@ -259,11 +259,11 @@ mod tests {
         let ctx = make_ctx();
         ctx.template_usage.insert("agent-b".to_string(), 5);
 
-        let featured = featured(&ctx, 10).unwrap();
+        let featured = featured(&ctx, Some(10)).unwrap();
         assert_eq!(featured.len(), 2);
         assert_eq!(featured[0].id, "agent-b");
 
-        let popular = popular_in_category(&ctx, "writing", 10).unwrap();
+        let popular = popular_in_category(&ctx, "writing", Some(10)).unwrap();
         assert_eq!(popular.len(), 1);
         assert_eq!(popular[0].id, "agent-b");
     }

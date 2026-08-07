@@ -13,6 +13,7 @@ tracing.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true
+dashmap.workspace = true
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
 wf-storage = { path = "../wf-storage" }

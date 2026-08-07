@@ -33,4 +33,13 @@ pub trait ScriptStorageAdapter:
         &'a self,
         language: &'a str,
     ) -> impl Future<Output = Result<Vec<wf_types::ScriptStorageMetadata>, StorageError>> + Send + 'a;
+
+    /// Atomically set the enabled flag of a script (compare-and-set read /
+    /// modify / write guarded against lost updates). Returns the updated
+    /// record, or `None` when no script with the id exists.
+    fn set_enabled<'a>(
+        &'a self,
+        id: &'a str,
+        enabled: bool,
+    ) -> impl Future<Output = Result<Option<wf_types::ScriptStorageMetadata>, StorageError>> + Send + 'a;
 }

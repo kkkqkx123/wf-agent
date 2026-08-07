@@ -392,6 +392,20 @@ impl<S: Store> ToolStorageAdapter for ToolStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         self.count_by_field("toolType").await
     }
+
+    async fn set_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<Option<wf_types::ToolStorageMetadata>, StorageError> {
+        self.entity_store
+            .mutate(id, |tool| {
+                tool.enabled = enabled;
+                tool.updated_at = chrono::Utc::now().timestamp_millis();
+                Ok(())
+            })
+            .await
+    }
 }
 
 // ─── ScriptStorageAdapter ───
@@ -403,6 +417,20 @@ impl<S: Store> ScriptStorageAdapter for ScriptStorage<S> {
     ) -> Result<Vec<wf_types::ScriptStorageMetadata>, StorageError> {
         let filter = QueryFilter::new().with_field("language", language);
         self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn set_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<Option<wf_types::ScriptStorageMetadata>, StorageError> {
+        self.entity_store
+            .mutate(id, |script| {
+                script.enabled = enabled;
+                script.updated_at = chrono::Utc::now().timestamp_millis();
+                Ok(())
+            })
+            .await
     }
 }
 

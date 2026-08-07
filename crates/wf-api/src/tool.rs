@@ -34,6 +34,39 @@ pub async fn get_tool_stats(ctx: &StorageContext) -> crate::ApiResult<HashMap<St
     ctx.tool.get_stats().await.map_err(Into::into)
 }
 
+/// Atomically set the enabled flag of a tool (TS `ToolRegistryAPI` enable /
+/// disable switch counterpart). Returns the updated record.
+pub async fn set_tool_enabled(
+    ctx: &StorageContext,
+    id: &str,
+    enabled: bool,
+) -> crate::ApiResult<ToolStorageMetadata> {
+    ctx.tool
+        .set_enabled(id, enabled)
+        .await?
+        .ok_or_else(|| not_found("tool", id))
+}
+
+pub async fn enable_tool(ctx: &StorageContext, id: &str) -> crate::ApiResult<()> {
+    set_tool_enabled(ctx, id, true).await.map(|_| ())
+}
+
+pub async fn disable_tool(ctx: &StorageContext, id: &str) -> crate::ApiResult<()> {
+    set_tool_enabled(ctx, id, false).await.map(|_| ())
+}
+
+pub async fn is_tool_enabled(ctx: &StorageContext, id: &str) -> crate::ApiResult<bool> {
+    Ok(get_tool(ctx, id).await?.enabled)
+}
+
+/// Enabled / disabled tool counts (TS `getEnabledTools` /
+/// `getDisabledTools` counterpart).
+pub async fn get_tool_enabled_stats(ctx: &StorageContext) -> crate::ApiResult<(u64, u64)> {
+    let all = list_tools(ctx, None).await?;
+    let enabled = all.iter().filter(|t| t.enabled).count() as u64;
+    Ok((enabled, all.len() as u64 - enabled))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +123,27 @@ mod tests {
         let stats = get_tool_stats(&ctx).await.unwrap();
         assert_eq!(stats.get("builtin"), Some(&2));
         assert_eq!(stats.get("mcp"), Some(&1));
+    }
+
+    #[tokio::test]
+    async fn tool_enable_disable_roundtrip() {
+        let ctx = StorageContext::new_memory();
+        save_tool(&ctx, &make_tool("t-enable", "builtin"))
+            .await
+            .unwrap();
+
+        assert!(is_tool_enabled(&ctx, "t-enable").await.unwrap());
+
+        disable_tool(&ctx, "t-enable").await.unwrap();
+        assert!(!is_tool_enabled(&ctx, "t-enable").await.unwrap());
+
+        enable_tool(&ctx, "t-enable").await.unwrap();
+        assert!(is_tool_enabled(&ctx, "t-enable").await.unwrap());
+
+        let (enabled, disabled) = get_tool_enabled_stats(&ctx).await.unwrap();
+        assert_eq!((enabled, disabled), (1, 0));
+
+        let err = enable_tool(&ctx, "t-missing").await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::NotFound { .. }));
     }
 }

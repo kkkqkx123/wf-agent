@@ -33,4 +33,13 @@ pub trait ToolStorageAdapter:
     fn get_stats<'a>(
         &'a self,
     ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
+
+    /// Atomically set the enabled flag of a tool (compare-and-set read /
+    /// modify / write guarded against lost updates). Returns the updated
+    /// record, or `None` when no tool with the id exists.
+    fn set_enabled<'a>(
+        &'a self,
+        id: &'a str,
+        enabled: bool,
+    ) -> impl Future<Output = Result<Option<wf_types::ToolStorageMetadata>, StorageError>> + Send + 'a;
 }

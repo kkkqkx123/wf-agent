@@ -15,6 +15,7 @@ pub mod execution_trigger;
 pub mod file_checkpoint;
 pub mod hook_template;
 pub mod iteration;
+pub mod llm_profile;
 pub mod message;
 pub mod metrics;
 pub mod node_template;
@@ -22,9 +23,11 @@ pub mod performance;
 pub mod resource;
 pub mod script;
 pub mod search;
+pub mod skill;
 pub mod stats;
 pub mod stream;
 pub mod task;
+pub mod template_library;
 pub mod tool;
 pub mod trigger;
 pub mod trigger_execution;
@@ -53,12 +56,15 @@ pub use execution_state::{
 };
 pub use execution_trigger::ExecutionTriggerApi;
 pub use iteration::{AgentIterationAnalysis, IterationApi, ToolCallStat};
+pub use llm_profile::{LlmProfileApi, LlmProfileFilter, LlmProfileTemplate, MASKED_API_KEY};
 pub use message::{MessageApi, MessageStats};
 pub use performance::{
     ExecutionComparison, ExecutionPerformanceProfile, NodeTimelineEntry, PerformanceApi,
 };
 pub use resource::ResourceApi;
 pub use search::{SearchOptions, SearchResourceType, SearchResult, SearchResultItem, Searcher};
+pub use skill::{SkillApi, SkillFilter, SkillResourceEntry};
+pub use template_library::{TemplateFilter, TemplateKind, TemplateLibraryApi, TemplateSummary};
 pub use variable::{VariableApi, VariableHistoryEntry};
 pub use workflow_execution::{RestoredCheckpoint, WorkflowApi};
 

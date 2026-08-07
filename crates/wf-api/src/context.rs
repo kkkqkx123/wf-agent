@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_core::registry::{ConcurrentRegistry, Registry};
 use wf_core::EventBus;
@@ -39,6 +40,9 @@ pub struct ApiContext {
     pub workflow_executions: WorkflowExecutionRegistry,
     /// Live agent loop execution handles (pause/resume/cancel/status queries).
     pub agent_loops: Arc<AgentLoopRegistry>,
+    /// Template usage counters (workflow/agent template library), keyed by
+    /// template id. In-memory analytics; not persisted.
+    pub template_usage: Arc<DashMap<String, u64>>,
     /// Node handlers shared by every workflow execution.
     handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
 }
@@ -63,6 +67,7 @@ impl ApiContext {
             checkpoint_store: Arc::new(StorageBackend::new_memory()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
+            template_usage: Arc::new(DashMap::new()),
             handlers,
         }
     }
@@ -91,6 +96,7 @@ impl ApiContext {
             checkpoint_store: Arc::new(StorageBackend::new_memory()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
+            template_usage: Arc::new(DashMap::new()),
             handlers,
         }
     }

@@ -115,3 +115,26 @@ impl From<wf_tools::error::ToolError> for ApiError {
         ApiError::Execution(e.to_string())
     }
 }
+
+impl From<wf_llm::error::LlmError> for ApiError {
+    fn from(e: wf_llm::error::LlmError) -> Self {
+        use wf_llm::error::LlmError;
+        match e {
+            LlmError::ProfileNotFound(id) => ApiError::NotFound {
+                entity_type: "profile".into(),
+                id,
+            },
+            LlmError::ConfigError(msg) => ApiError::Validation(msg),
+            LlmError::Timeout(ms) => {
+                ApiError::Timeout(format!("LLM request timed out after {ms}ms"))
+            }
+            other => ApiError::Execution(other.to_string()),
+        }
+    }
+}
+
+impl From<serde_json::Error> for ApiError {
+    fn from(e: serde_json::Error) -> Self {
+        ApiError::Validation(e.to_string())
+    }
+}

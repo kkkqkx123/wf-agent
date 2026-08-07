@@ -10,19 +10,21 @@
 //! [`AvailableTools`](wf_types::tool::AvailableTools), [`AgentHookConfig`],
 //! [`TriggerDefinition`], agent definitions and loop configs. Value builders
 //! are pure; the execution builder drives a loop through
-//! [`crate::agent_execution`].
+//! [`crate::agent::agent_execution`].
 
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use wf_core::registry::MutableRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, HookConfig};
-use wf_types::agent::{AgentConfig, AgentDefinition, AgentHookConfig, AgentHookType, AgentMetadata};
+use wf_types::agent::{
+    AgentConfig, AgentDefinition, AgentHookConfig, AgentHookType, AgentMetadata,
+};
 use wf_types::tool::AvailableTools;
 use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerDefinition};
 use wf_types::Metadata;
 
-use crate::agent_execution::RunAgentLoopParams;
+use crate::agent::agent_execution::RunAgentLoopParams;
 use crate::ApiContext;
 
 /// Marker: no model has been assigned to the agent loop config.
@@ -137,8 +139,7 @@ impl AgentToolConfigBuilder<ToolBuilt> {
         AvailableTools {
             available: self.available,
             initial: (!self.initial.is_empty()).then_some(self.initial),
-            require_approval: (!self.require_approval.is_empty())
-                .then_some(self.require_approval),
+            require_approval: (!self.require_approval.is_empty()).then_some(self.require_approval),
             allowed_workflows: (!self.allowed_workflows.is_empty())
                 .then_some(self.allowed_workflows),
         }
@@ -510,7 +511,8 @@ impl AgentDefinitionBuilder<DefNamed> {
             created_at: now,
             updated_at: now,
         };
-        crate::config::validate_agent_definition(&definition).map_err(crate::ApiError::from)?;
+        crate::infra::config::validate_agent_definition(&definition)
+            .map_err(crate::ApiError::from)?;
         Ok(definition)
     }
 
@@ -622,7 +624,7 @@ impl<S> AgentLoopConfigBuilder<S> {
 }
 
 impl AgentLoopConfigBuilder<LoopConfigured> {
-    /// Build the runtime loop config consumed by [`crate::agent_execution::run`].
+    /// Build the runtime loop config consumed by [`crate::agent::agent_execution::run`].
     pub fn build(self) -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: self.agent_id,
@@ -640,7 +642,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
 }
 
 /// Consuming builder that runs an agent loop against an [`ApiContext`]
-/// through [`crate::agent_execution`].
+/// through [`crate::agent::agent_execution`].
 pub struct AgentExecutionBuilder {
     config: AgentLoopConfig,
     message: String,
@@ -674,7 +676,7 @@ impl AgentExecutionBuilder {
         self
     }
 
-    /// Run the loop to completion through [`crate::agent_execution::run`].
+    /// Run the loop to completion through [`crate::agent::agent_execution::run`].
     pub async fn execute(
         self,
         ctx: &Arc<ApiContext>,
@@ -684,7 +686,7 @@ impl AgentExecutionBuilder {
             context: self.context,
             conversation: Vec::new(),
         };
-        let output = crate::agent_execution::run(
+        let output = crate::agent::agent_execution::run(
             ctx,
             RunAgentLoopParams {
                 config: self.config.clone(),

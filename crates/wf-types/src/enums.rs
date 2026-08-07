@@ -265,7 +265,10 @@ mod tests {
 
     #[test]
     fn hook_type_known_strings_round_trip() {
-        assert_eq!(HookType::from("on_workflow_start"), HookType::OnWorkflowStart);
+        assert_eq!(
+            HookType::from("on_workflow_start"),
+            HookType::OnWorkflowStart
+        );
         assert_eq!(HookType::from("on_workflow_end"), HookType::OnWorkflowEnd);
         assert_eq!(HookType::from("on_node_start"), HookType::OnNodeStart);
         assert_eq!(HookType::from("on_node_end"), HookType::OnNodeEnd);
@@ -279,7 +282,10 @@ mod tests {
         let unknown = HookType::from("custom-plugin-hook");
         assert_eq!(unknown, HookType::Other("custom-plugin-hook".into()));
         assert_eq!(unknown.as_str(), "custom-plugin-hook");
-        assert_eq!(serde_json::to_value(&unknown).unwrap(), "custom-plugin-hook");
+        assert_eq!(
+            serde_json::to_value(&unknown).unwrap(),
+            "custom-plugin-hook"
+        );
         assert_eq!(
             serde_json::from_value::<HookType>("custom-plugin-hook".into()).unwrap(),
             unknown

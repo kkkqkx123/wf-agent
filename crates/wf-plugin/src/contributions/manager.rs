@@ -138,7 +138,11 @@ impl ContributionManager {
         self.middleware_registry.keys()
     }
 
-    pub async fn run_middleware(&self, phase: &MiddlewarePhase, context: Value) -> PluginResult<()> {
+    pub async fn run_middleware(
+        &self,
+        phase: &MiddlewarePhase,
+        context: Value,
+    ) -> PluginResult<()> {
         let handlers = self.get_middleware(phase);
 
         let mut next: NextFn = Box::new(|| Box::pin(async { Ok(()) }));
@@ -359,10 +363,8 @@ mod tests {
                 .len(),
             1
         );
-        assert!(
-            manager
-                .get_middleware(&MiddlewarePhase::Other("custom-phase".into()))
-                .is_empty()
-        );
+        assert!(manager
+            .get_middleware(&MiddlewarePhase::Other("custom-phase".into()))
+            .is_empty());
     }
 }

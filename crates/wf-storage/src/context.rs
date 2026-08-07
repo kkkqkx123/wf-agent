@@ -59,7 +59,10 @@ impl StorageContext {
                 Memory,
                 "agent_hook_template"
             )),
-            trigger_template: TriggerTemplateStorage::new(make_backend!(Memory, "trigger_template")),
+            trigger_template: TriggerTemplateStorage::new(make_backend!(
+                Memory,
+                "trigger_template"
+            )),
             file_checkpoint: FileCheckpointStorage::new(make_backend!(Memory, "file_checkpoint")),
             trigger: TriggerStorage::new(make_backend!(Memory, "trigger")),
             trigger_execution: TriggerExecutionStorage::new(make_backend!(
@@ -98,7 +101,9 @@ impl StorageContext {
             agent_loop: AgentLoopStorage::new(sqlite_backend!("agent_loop")),
             agent_execution: AgentExecutionStorage::new(sqlite_backend!("agent_execution")),
             agent_profile: AgentProfileStorage::new(sqlite_backend!("agent_profile")),
-            agent_hook_template: AgentHookTemplateStorage::new(sqlite_backend!("agent_hook_template")),
+            agent_hook_template: AgentHookTemplateStorage::new(sqlite_backend!(
+                "agent_hook_template"
+            )),
             trigger_template: TriggerTemplateStorage::new(sqlite_backend!("trigger_template")),
             file_checkpoint: FileCheckpointStorage::new(sqlite_backend!("file_checkpoint")),
             trigger: TriggerStorage::new(sqlite_backend!("trigger")),

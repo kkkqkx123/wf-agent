@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use wf_api::checkpoint::{get_checkpoint, list_checkpoints, save_checkpoint};
-use wf_api::workflow_execution::ExecuteWorkflowParams;
+use wf_api::workflow::checkpoint::{get_checkpoint, list_checkpoints, save_checkpoint};
+use wf_api::workflow::workflow_execution::ExecuteWorkflowParams;
 use wf_api::ApiContext;
 use wf_resource::registrar::Registries;
 use wf_resource::starter::BundleRegistry;
@@ -102,16 +102,16 @@ async fn workflow_save_get_execute_status() {
     let ctx = make_ctx();
     let definition = make_workflow("wf-e2e-1");
 
-    wf_api::workflow::save_workflow(&ctx, &definition)
+    wf_api::workflow::workflow::save_workflow(&ctx, &definition)
         .await
         .expect("save workflow");
 
-    let loaded = wf_api::workflow::get_workflow(&ctx, "wf-e2e-1")
+    let loaded = wf_api::workflow::workflow::get_workflow(&ctx, "wf-e2e-1")
         .await
         .expect("get workflow");
     assert_eq!(loaded.id, "wf-e2e-1");
 
-    let output = wf_api::workflow_execution::execute(
+    let output = wf_api::workflow::workflow_execution::execute(
         &ctx,
         ExecuteWorkflowParams {
             workflow_id: "wf-e2e-1".into(),
@@ -123,20 +123,21 @@ async fn workflow_save_get_execute_status() {
     .expect("execute workflow");
     assert_eq!(output.result, serde_json::json!({"greeting": "hi"}));
 
-    let status = wf_api::workflow_execution::status(&ctx, &output.execution_id.to_string())
-        .await
-        .expect("status query");
+    let status =
+        wf_api::workflow::workflow_execution::status(&ctx, &output.execution_id.to_string())
+            .await
+            .expect("status query");
     assert_eq!(status, ExecutionStatus::Completed);
 }
 
 #[tokio::test]
 async fn workflow_stream_ends_with_completed() {
     let ctx = make_ctx();
-    wf_api::workflow::save_workflow(&ctx, &make_workflow("wf-e2e-2"))
+    wf_api::workflow::workflow::save_workflow(&ctx, &make_workflow("wf-e2e-2"))
         .await
         .unwrap();
 
-    let (_execution_id, mut stream) = wf_api::workflow_execution::stream(
+    let (_execution_id, mut stream) = wf_api::workflow::workflow_execution::stream(
         ctx,
         ExecuteWorkflowParams {
             workflow_id: "wf-e2e-2".into(),
@@ -150,7 +151,7 @@ async fn workflow_stream_ends_with_completed() {
     use futures::StreamExt;
     let mut saw_terminal = false;
     while let Some(event) = stream.next().await {
-        if let wf_api::stream::ExecutionStreamEvent::Completed { iterations, .. } = event {
+        if let wf_api::infra::stream::ExecutionStreamEvent::Completed { iterations, .. } = event {
             assert!(iterations >= 1, "iterations must be real, got {iterations}");
             saw_terminal = true;
         }
@@ -178,11 +179,11 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
     )));
     let ctx = Arc::new(ctx);
 
-    wf_api::workflow::save_workflow(&ctx, &make_workflow("wf-e2e-cp-sqlite"))
+    wf_api::workflow::workflow::save_workflow(&ctx, &make_workflow("wf-e2e-cp-sqlite"))
         .await
         .expect("save workflow");
 
-    let output = wf_api::workflow_execution::execute(
+    let output = wf_api::workflow::workflow_execution::execute(
         &ctx,
         ExecuteWorkflowParams {
             workflow_id: "wf-e2e-cp-sqlite".into(),
@@ -194,11 +195,12 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
     .expect("execute workflow");
     let execution_id = output.execution_id.to_string();
 
-    let checkpoint_id = wf_api::workflow_execution::create_checkpoint(&ctx, &execution_id)
-        .await
-        .expect("create checkpoint on sqlite store");
+    let checkpoint_id =
+        wf_api::workflow::workflow_execution::create_checkpoint(&ctx, &execution_id)
+            .await
+            .expect("create checkpoint on sqlite store");
 
-    let restored = wf_api::workflow_execution::restore_checkpoint(&ctx, &checkpoint_id)
+    let restored = wf_api::workflow::workflow_execution::restore_checkpoint(&ctx, &checkpoint_id)
         .await
         .expect("restore checkpoint on sqlite store");
     assert_eq!(restored.execution_id, execution_id);

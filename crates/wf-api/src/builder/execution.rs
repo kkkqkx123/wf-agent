@@ -1,7 +1,7 @@
 //! Workflow execution builder.
 //!
 //! Mirrors the TS `ExecutionBuilder` (`packages/sdk/api/workflow/builders`):
-//! a fluent executor over [`crate::workflow_execution`] free functions with
+//! a fluent executor over [`crate::workflow::workflow_execution`] free functions with
 //! execution options and `on_node_executed` / `on_progress` / `on_error`
 //! callbacks, plus `execute` / `execute_stream` / `cancel` entry points.
 
@@ -12,7 +12,7 @@ use serde_json::Value;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
 
-use crate::workflow_execution::ExecuteWorkflowParams;
+use crate::workflow::workflow_execution::ExecuteWorkflowParams;
 use crate::{ApiContext, ApiResult};
 
 /// Info handed to the `on_node_executed` callback.
@@ -117,7 +117,8 @@ impl ExecutionBuilder {
             input: self.input,
             options: Some(self.options),
         };
-        let (execution_id, mut stream) = crate::workflow_execution::stream(ctx.clone(), params).await?;
+        let (execution_id, mut stream) =
+            crate::workflow::workflow_execution::stream(ctx.clone(), params).await?;
         let execution_id_filter = execution_id.to_string();
 
         // Dispatch engine events from the bus for this execution, and
@@ -134,10 +135,10 @@ impl ExecutionBuilder {
                 }
                 next = stream.next() => {
                     match next {
-                        Some(crate::stream::ExecutionStreamEvent::Completed { result: value, .. }) => {
+                        Some(crate::infra::stream::ExecutionStreamEvent::Completed { result: value, .. }) => {
                             break Some(value);
                         }
-                        Some(crate::stream::ExecutionStreamEvent::Failed { error }) => {
+                        Some(crate::infra::stream::ExecutionStreamEvent::Failed { error }) => {
                             callbacks.dispatch_error(&error);
                             return Err(crate::ApiError::execution(error));
                         }
@@ -158,7 +159,7 @@ impl ExecutionBuilder {
     }
 
     /// Execute the workflow and stream engine events
-    /// ([`crate::stream::ExecutionEventStream`]) while dispatching the
+    /// ([`crate::infra::stream::ExecutionEventStream`]) while dispatching the
     /// registered callbacks. Returns the generated `execution_id` alongside
     /// the stream so the caller can `pause` / `cancel` the execution.
     ///
@@ -168,12 +169,12 @@ impl ExecutionBuilder {
     pub async fn execute_stream(
         self,
         ctx: &Arc<ApiContext>,
-    ) -> ApiResult<(wf_types::Id, crate::stream::ExecutionEventStream)> {
+    ) -> ApiResult<(wf_types::Id, crate::infra::stream::ExecutionEventStream)> {
         let callbacks = self.callbacks();
         // Subscribe ahead of the execution so no engine event is missed.
         let bus = ctx.event_bus.clone();
         let mut sub = bus.subscribe();
-        let (execution_id, stream) = crate::workflow_execution::stream(
+        let (execution_id, stream) = crate::workflow::workflow_execution::stream(
             ctx.clone(),
             ExecuteWorkflowParams {
                 workflow_id: self.workflow_id,
@@ -198,9 +199,9 @@ impl ExecutionBuilder {
     }
 
     /// Cancel a running workflow execution by its id (delegates to
-    /// [`crate::workflow_execution::cancel`]).
+    /// [`crate::workflow::workflow_execution::cancel`]).
     pub async fn cancel(&self, ctx: &Arc<ApiContext>, execution_id: &str) -> ApiResult<()> {
-        crate::workflow_execution::cancel(ctx, execution_id).await
+        crate::workflow::workflow_execution::cancel(ctx, execution_id).await
     }
 
     fn callbacks(&self) -> CallbackPack {
@@ -441,7 +442,7 @@ mod tests {
 
         let mut saw_terminal = false;
         while let Some(event) = stream.next().await {
-            if let crate::stream::ExecutionStreamEvent::Completed { .. } = event {
+            if let crate::infra::stream::ExecutionStreamEvent::Completed { .. } = event {
                 saw_terminal = true;
             }
         }

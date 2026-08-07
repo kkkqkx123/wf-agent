@@ -51,8 +51,8 @@ pub use user_config::*;
 
 pub use agent_execution::AgentExecution;
 pub use execution::ExecutionStatus;
-pub use storage::AgentLoopStorageMetadata;
 pub use storage::AgentHookTemplateStorageMetadata;
+pub use storage::AgentLoopStorageMetadata;
 pub use storage::AgentProfileStorageMetadata;
 pub use storage::Checkpoint;
 pub use storage::FileCheckpointStorageMetadata;

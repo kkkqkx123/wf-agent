@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use wf_types::enums::{HookType, MiddlewarePhase};
 
-use wf_api::handler_chain::{
+use wf_api::infra::handler_chain::{
     PluginHandlerSource, PluginHookBridge, PluginMiddlewareBridge, PluginNodeExecutor,
 };
 use wf_plugin::{ContributionBridge, ContributionManager, PluginResult};

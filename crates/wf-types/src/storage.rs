@@ -1,5 +1,5 @@
-pub mod agent_loop;
 pub mod agent_hook_template;
+pub mod agent_loop;
 pub mod agent_profile;
 pub mod checkpoint;
 pub mod file_checkpoint;
@@ -15,8 +15,8 @@ pub mod trigger_template;
 pub mod user_interaction;
 pub mod variable;
 
-pub use agent_loop::*;
 pub use agent_hook_template::*;
+pub use agent_loop::*;
 pub use agent_profile::*;
 pub use checkpoint::*;
 pub use file_checkpoint::*;

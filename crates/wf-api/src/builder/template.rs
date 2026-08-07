@@ -12,12 +12,12 @@ use serde_json::Value;
 
 use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_types::workflow::hook_template::{HookTemplate, WorkflowHookType};
 use wf_types::workflow::node_template::NodeTemplate;
-use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_types::Metadata;
 
-use crate::context::ApiContext;
+use crate::infra::context::ApiContext;
 
 /// Consuming builder for [`NodeTemplate`].
 #[derive(Debug)]
@@ -185,7 +185,8 @@ impl TriggerTemplateBuilder {
             create_checkpoint: self.create_checkpoint,
             checkpoint_description_template: self.checkpoint_description_template,
         };
-        wf_config::processor::trigger::validate_trigger_template(&template).map_err(crate::ApiError::from)?;
+        wf_config::processor::trigger::validate_trigger_template(&template)
+            .map_err(crate::ApiError::from)?;
         Ok(template)
     }
 
@@ -281,7 +282,8 @@ impl HookTemplateBuilder {
             hook_type: self.hook_type,
             default_config: self.default_config,
         };
-        wf_config::processor::hook::validate_hook_template(&template).map_err(crate::ApiError::from)?;
+        wf_config::processor::hook::validate_hook_template(&template)
+            .map_err(crate::ApiError::from)?;
         Ok(template)
     }
 
@@ -337,7 +339,9 @@ mod tests {
 
     #[test]
     fn node_template_builder_rejects_empty_name() {
-        let err = NodeTemplateBuilder::new("nt-2", "", "LLM").build().unwrap_err();
+        let err = NodeTemplateBuilder::new("nt-2", "", "LLM")
+            .build()
+            .unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
@@ -394,14 +398,10 @@ mod tests {
 
     #[test]
     fn hook_template_build_and_validate() {
-        let template = HookTemplateBuilder::new(
-            "ht-1",
-            "Audit Hook",
-            WorkflowHookType::AfterNode,
-        )
-        .default_config(serde_json::json!({"event_name": "node-audit"}))
-        .build()
-        .expect("hook template must build");
+        let template = HookTemplateBuilder::new("ht-1", "Audit Hook", WorkflowHookType::AfterNode)
+            .default_config(serde_json::json!({"event_name": "node-audit"}))
+            .build()
+            .expect("hook template must build");
         assert_eq!(template.hook_type, WorkflowHookType::AfterNode);
         assert_eq!(template.default_config.unwrap()["event_name"], "node-audit");
     }

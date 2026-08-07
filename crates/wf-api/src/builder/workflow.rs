@@ -127,7 +127,7 @@ impl WorkflowBuilder<Building> {
     /// Validate the workflow (config + graph) and produce its definition.
     pub fn build(self) -> crate::ApiResult<WorkflowDefinition> {
         let definition = self.into_definition();
-        crate::workflow::validate_workflow(&definition)?;
+        crate::workflow::workflow::validate_workflow(&definition)?;
         Ok(definition)
     }
 
@@ -135,7 +135,7 @@ impl WorkflowBuilder<Building> {
     /// execution registry), which re-runs the same validation.
     pub async fn save(self, ctx: &ApiContext) -> crate::ApiResult<()> {
         let definition = self.build()?;
-        crate::workflow::save_workflow(ctx, &definition).await
+        crate::workflow::workflow::save_workflow(ctx, &definition).await
     }
 }
 

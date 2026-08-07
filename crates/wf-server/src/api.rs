@@ -50,10 +50,7 @@ pub fn full_router(registry: Arc<wf_metrics::MetricsRegistry>, ctx: Arc<ApiConte
 }
 
 /// Serve the `wf-api` surface on `addr` without blocking.
-pub async fn serve_api(
-    ctx: Arc<ApiContext>,
-    addr: SocketAddr,
-) -> Result<ServerHandle, ServeError> {
+pub async fn serve_api(ctx: Arc<ApiContext>, addr: SocketAddr) -> Result<ServerHandle, ServeError> {
     serve_with_router(api_router(ctx), addr).await
 }
 
@@ -120,7 +117,7 @@ async fn handle_health(State(state): State<ApiState>) -> impl IntoResponse {
 }
 
 async fn handle_list_workflows(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::workflow::list_workflows(&state.ctx, None).await {
+    match wf_api::workflow::workflow::list_workflows(&state.ctx, None).await {
         Ok(workflows) => ok(workflows).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -135,7 +132,7 @@ async fn handle_get_workflow(
     State(state): State<ApiState>,
     Path(path): Path<WorkflowPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::get_workflow(&state.ctx, &path.id).await {
+    match wf_api::workflow::workflow::get_workflow(&state.ctx, &path.id).await {
         Ok(workflow) => ok(workflow).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -157,12 +154,12 @@ async fn handle_execute_workflow(
     Path(path): Path<WorkflowPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let params = wf_api::workflow_execution::ExecuteWorkflowParams {
+    let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         input: body.input,
         options: None,
     };
-    match wf_api::workflow_execution::execute(&state.ctx, params).await {
+    match wf_api::workflow::workflow_execution::execute(&state.ctx, params).await {
         Ok(output) => ok(ExecuteView {
             execution_id: output.execution_id.to_string(),
             result: output.result,
@@ -187,7 +184,7 @@ async fn handle_list_executions(
         limit: query.limit,
         ..Default::default()
     };
-    match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
+    match wf_api::workflow::workflow::list_executions(&state.ctx, Some(options)).await {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -197,7 +194,7 @@ async fn handle_get_execution(
     State(state): State<ApiState>,
     Path(path): Path<WorkflowPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::get_execution(&state.ctx, &path.id).await {
+    match wf_api::workflow::workflow::get_execution(&state.ctx, &path.id).await {
         Ok(execution) => ok(execution).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -222,14 +219,16 @@ async fn handle_list_events(
         limit: query.limit,
         event_types: None,
     };
-    match wf_api::events::history(&state.ctx, &options).await {
+    match wf_api::infra::events::history(&state.ctx, &options).await {
         Ok(events) => ok(events).into_response(),
         Err(e) => crate::http::error_response(e),
     }
 }
 
 async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::events::get_event_stats(&state.ctx, &wf_api::EventQueryOptions::default()).await {
+    match wf_api::infra::events::get_event_stats(&state.ctx, &wf_api::EventQueryOptions::default())
+        .await
+    {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -252,7 +251,7 @@ async fn handle_event_stream(
         workflow_id: query.workflow_id,
         event_types: None,
     };
-    let sub = wf_api::events::subscribe(&state.ctx, options);
+    let sub = wf_api::infra::events::subscribe(&state.ctx, options);
     let stream = futures::stream::unfold(sub, |mut sub| async move {
         match sub.next().await {
             Some(event) => {
@@ -271,14 +270,15 @@ async fn handle_event_stream(
         axum::http::header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("text/event-stream"),
     );
-    parts
-        .headers
-        .insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-cache"));
+    parts.headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-cache"),
+    );
     Response::from_parts(parts, body)
 }
 
 async fn handle_agent_executions(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::agent_execution_registry::summaries(&state.ctx, None).await {
+    match wf_api::agent::agent_execution_registry::summaries(&state.ctx, None).await {
         Ok(summaries) => ok(summaries).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -290,10 +290,10 @@ async fn handle_agent_executions(State(state): State<ApiState>) -> impl IntoResp
 #[cfg(test)]
 mod tests {
     use super::*;
-use axum::body::Body as AxBody;
-use axum::http::Request;
-use tower::ServiceExt;
-use futures::StreamExt;
+    use axum::body::Body as AxBody;
+    use axum::http::Request;
+    use futures::StreamExt;
+    use tower::ServiceExt;
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -351,7 +351,7 @@ use futures::StreamExt;
     #[tokio::test]
     async fn events_endpoints_work() {
         let ctx = make_ctx();
-        wf_api::events::dispatch(
+        wf_api::infra::events::dispatch(
             &ctx,
             wf_types::events::BaseEvent {
                 id: wf_common::generate_id(),
@@ -395,7 +395,7 @@ use futures::StreamExt;
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        wf_api::events::dispatch(
+        wf_api::infra::events::dispatch(
             &ctx,
             wf_types::events::BaseEvent {
                 id: wf_common::generate_id(),

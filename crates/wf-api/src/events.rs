@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -8,7 +7,7 @@ use wf_types::events::{BaseEvent, EventType};
 use crate::context::ApiContext;
 use crate::error::ApiResult;
 use crate::subscription::{
-    spawn_event_subscription, wait_for_event, EventSubscription, EventSubscriptionOptions,
+    spawn_event_subscription, EventSubscription, EventSubscriptionOptions,
 };
 
 /// Query options for the event history / timeline endpoints.
@@ -99,27 +98,16 @@ const PHASE_DEFINITIONS: &[(&str, EventType, EventType)] = &[
 /// Apply `options` to a set of events, honoring the limit.
 pub(crate) fn filter_events(events: Vec<BaseEvent>, options: &EventQueryOptions) -> Vec<BaseEvent> {
     let limit = options.effective_limit();
+    let filter = EventSubscriptionOptions {
+        execution_id: options.execution_id.clone(),
+        agent_loop_id: options.agent_loop_id.clone(),
+        workflow_id: options.workflow_id.clone(),
+        event_types: options.event_types.clone(),
+    };
     let mut out = Vec::new();
     for event in events {
-        if let Some(execution_id) = &options.execution_id {
-            if event.execution_id.as_deref() != Some(execution_id.as_str()) {
-                continue;
-            }
-        }
-        if let Some(agent_loop_id) = &options.agent_loop_id {
-            if event.agent_loop_id.as_deref() != Some(agent_loop_id.as_str()) {
-                continue;
-            }
-        }
-        if let Some(workflow_id) = &options.workflow_id {
-            if event.workflow_id.as_deref() != Some(workflow_id.as_str()) {
-                continue;
-            }
-        }
-        if let Some(types) = &options.event_types {
-            if !types.contains(&event.r#type) {
-                continue;
-            }
+        if !filter.matches(&event) {
+            continue;
         }
         out.push(event);
         if out.len() >= limit {
@@ -129,193 +117,178 @@ pub(crate) fn filter_events(events: Vec<BaseEvent>, options: &EventQueryOptions)
     out
 }
 
-/// Event history, timeline and statistics over the shared `EventBus` recent
-/// history plus the [`crate::persistence::PersistenceLayer`] (TS
-/// `EventResourceAPI` counterpart).
-///
-/// History endpoints merge the durable persisted events with the bounded
-/// in-memory `EventBus` window (newest-first unless sorted by the timeline
-/// endpoints). Events published through [`EventApi::dispatch`] are persisted
-/// and survive restarts.
-pub struct EventApi {
-    ctx: Arc<ApiContext>,
+/// Publish an event on the shared bus and persist it through the persistence
+/// layer (durable event dispatch). Publishing with no active subscribers is not
+/// an error — the event is already persisted.
+pub async fn dispatch(ctx: &ApiContext, event: BaseEvent) -> ApiResult<()> {
+    ctx.persistence.save_event(&event).await?;
+    let _ = ctx.event_bus.publish(event);
+    Ok(())
 }
 
-impl EventApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Recent events matching the query options, newest first.
+pub async fn history(ctx: &ApiContext, options: &EventQueryOptions) -> ApiResult<Vec<BaseEvent>> {
+    let events = merge(ctx, options).await;
+    let mut events = filter_events(events, options);
+    events.reverse();
+    Ok(events)
+}
 
-    /// Publish an event on the shared bus and persist it through the
-    /// persistence layer (durable event dispatch). Publishing with no active
-    /// subscribers is not an error — the event is already persisted.
-    pub async fn dispatch(&self, event: BaseEvent) -> ApiResult<()> {
-        self.ctx.persistence.save_event(&event).await?;
-        let _ = self.ctx.event_bus.publish(event);
-        Ok(())
-    }
+/// Event timeline of a single workflow execution, oldest first.
+pub async fn timeline(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<BaseEvent>> {
+    let options = EventQueryOptions {
+        execution_id: Some(execution_id.to_string()),
+        limit: 0,
+        ..Default::default()
+    };
+    let mut events = filter_events(merge(ctx, &options).await, &options);
+    events.sort_by_key(|e| e.timestamp);
+    Ok(events)
+}
 
-    /// Recent events matching the query options, newest first.
-    pub async fn history(&self, options: &EventQueryOptions) -> ApiResult<Vec<BaseEvent>> {
-        let events = self.merge(options).await;
-        let mut events = filter_events(events, options);
-        events.reverse();
-        Ok(events)
-    }
+/// Event timeline of a single agent loop, oldest first.
+pub async fn agent_timeline(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<BaseEvent>> {
+    let options = EventQueryOptions {
+        agent_loop_id: Some(agent_loop_id.to_string()),
+        limit: 0,
+        ..Default::default()
+    };
+    let mut events = filter_events(merge(ctx, &options).await, &options);
+    events.sort_by_key(|e| e.timestamp);
+    Ok(events)
+}
 
-    /// Event timeline of a single workflow execution, oldest first.
-    pub async fn timeline(&self, execution_id: &str) -> ApiResult<Vec<BaseEvent>> {
-        let options = EventQueryOptions {
-            execution_id: Some(execution_id.to_string()),
-            limit: 0,
-            ..Default::default()
-        };
-        let mut events = filter_events(self.merge(&options).await, &options);
-        events.sort_by_key(|e| e.timestamp);
-        Ok(events)
+/// Count of retained events grouped by event type.
+pub async fn stats(ctx: &ApiContext) -> ApiResult<BTreeMap<String, u64>> {
+    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    for event in merge(ctx, &EventQueryOptions::default()).await {
+        *counts.entry(event.r#type.as_str().to_string()).or_insert(0) += 1;
     }
+    Ok(counts)
+}
 
-    /// Event timeline of a single agent loop, oldest first.
-    pub async fn agent_timeline(&self, agent_loop_id: &str) -> ApiResult<Vec<BaseEvent>> {
-        let options = EventQueryOptions {
-            agent_loop_id: Some(agent_loop_id.to_string()),
-            limit: 0,
-            ..Default::default()
-        };
-        let mut events = filter_events(self.merge(&options).await, &options);
-        events.sort_by_key(|e| e.timestamp);
-        Ok(events)
-    }
-
-    /// Count of retained events grouped by event type.
-    pub async fn stats(&self) -> ApiResult<BTreeMap<String, u64>> {
-        let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-        for event in self.merge(&EventQueryOptions::default()).await {
-            *counts.entry(event.r#type.as_str().to_string()).or_insert(0) += 1;
-        }
-        Ok(counts)
-    }
-
-    /// Aggregate statistics (total, by type, by execution, by workflow).
-    pub async fn get_event_stats(&self, options: &EventQueryOptions) -> ApiResult<EventStats> {
-        let events = filter_events(self.merge(options).await, options);
-        let mut stats = EventStats {
-            total: events.len(),
-            ..Default::default()
-        };
-        for event in events {
+/// Aggregate statistics (total, by type, by execution, by workflow).
+pub async fn get_event_stats(ctx: &ApiContext, options: &EventQueryOptions) -> ApiResult<EventStats> {
+    let events = filter_events(merge(ctx, options).await, options);
+    let mut stats = EventStats {
+        total: events.len(),
+        ..Default::default()
+    };
+    for event in events {
+        *stats
+            .by_type
+            .entry(event.r#type.as_str().to_string())
+            .or_insert(0) += 1;
+        if let Some(execution_id) = event.execution_id.as_deref() {
             *stats
-                .by_type
-                .entry(event.r#type.as_str().to_string())
+                .by_execution
+                .entry(execution_id.to_string())
                 .or_insert(0) += 1;
-            if let Some(execution_id) = event.execution_id.as_deref() {
-                *stats
-                    .by_execution
-                    .entry(execution_id.to_string())
-                    .or_insert(0) += 1;
-            }
-            if let Some(workflow_id) = event.workflow_id.as_deref() {
-                *stats
-                    .by_workflow
-                    .entry(workflow_id.to_string())
-                    .or_insert(0) += 1;
-            }
         }
-        Ok(stats)
-    }
-
-    /// Search events by keyword over type / execution / workflow identifiers.
-    pub async fn search_events(
-        &self,
-        query: &str,
-        options: &EventQueryOptions,
-    ) -> ApiResult<Vec<BaseEvent>> {
-        let query = query.trim().to_lowercase();
-        if query.is_empty() {
-            return Ok(Vec::new());
+        if let Some(workflow_id) = event.workflow_id.as_deref() {
+            *stats
+                .by_workflow
+                .entry(workflow_id.to_string())
+                .or_insert(0) += 1;
         }
-        let mut events = filter_events(self.merge(options).await, options);
-        events.sort_by_key(|e| e.timestamp);
-        events.reverse();
-        Ok(events
-            .into_iter()
-            .filter(|event| {
-                event.r#type.as_str().to_lowercase().contains(&query)
-                    || event
-                        .execution_id
-                        .as_deref()
-                        .map(|id| id.to_lowercase().contains(&query))
-                        .unwrap_or(false)
-                    || event
-                        .workflow_id
-                        .as_deref()
-                        .map(|id| id.to_lowercase().contains(&query))
-                        .unwrap_or(false)
-                    || event
-                        .agent_loop_id
-                        .as_deref()
-                        .map(|id| id.to_lowercase().contains(&query))
-                        .unwrap_or(false)
-            })
-            .collect())
+    }
+    Ok(stats)
+}
+
+/// Search events by keyword over type / execution / workflow identifiers.
+pub async fn search_events(
+    ctx: &ApiContext,
+    query: &str,
+    options: &EventQueryOptions,
+) -> ApiResult<Vec<BaseEvent>> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut events = filter_events(merge(ctx, options).await, options);
+    events.sort_by_key(|e| e.timestamp);
+    events.reverse();
+    Ok(events
+        .into_iter()
+        .filter(|event| {
+            event.r#type.as_str().to_lowercase().contains(&query)
+                || event
+                    .execution_id
+                    .as_deref()
+                    .map(|id| id.to_lowercase().contains(&query))
+                    .unwrap_or(false)
+                || event
+                    .workflow_id
+                    .as_deref()
+                    .map(|id| id.to_lowercase().contains(&query))
+                    .unwrap_or(false)
+                || event
+                    .agent_loop_id
+                    .as_deref()
+                    .map(|id| id.to_lowercase().contains(&query))
+                    .unwrap_or(false)
+        })
+        .collect())
+}
+
+/// Structured execution timeline with lifecycle phases for an execution.
+pub async fn get_execution_timeline(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Option<ExecutionTimeline>> {
+    let events = timeline(ctx, execution_id).await?;
+    if events.is_empty() {
+        return Ok(None);
     }
 
-    /// Structured execution timeline with lifecycle phases for an execution.
-    pub async fn get_execution_timeline(&self, execution_id: &str) -> ApiResult<Option<ExecutionTimeline>> {
-        let events = self.timeline(execution_id).await?;
-        if events.is_empty() {
-            return Ok(None);
-        }
+    let status = determine_status(&events);
+    let start_time = events[0].timestamp;
+    let end_time = events[events.len() - 1].timestamp;
+    let workflow_id = events.iter().find_map(|e| e.workflow_id.clone());
+    let phases = build_phases(&events);
 
-        let status = determine_status(&events);
-        let start_time = events[0].timestamp;
-        let end_time = events[events.len() - 1].timestamp;
-        let workflow_id = events.iter().find_map(|e| e.workflow_id.clone());
-        let phases = build_phases(&events);
+    Ok(Some(ExecutionTimeline {
+        execution_id: execution_id.to_string(),
+        workflow_id,
+        status: status.to_string(),
+        start_time,
+        end_time,
+        total_elapsed: end_time - start_time,
+        phases,
+        events,
+    }))
+}
 
-        Ok(Some(ExecutionTimeline {
-            execution_id: execution_id.to_string(),
-            workflow_id,
-            status: status.to_string(),
-            start_time,
-            end_time,
-            total_elapsed: end_time - start_time,
-            phases,
-            events,
-        }))
+/// Clear persisted event history (the bounded bus window self-truncates).
+pub async fn clear_event_history(ctx: &ApiContext) -> ApiResult<usize> {
+    let count = ctx.persistence.count_events(&EventQueryOptions::default()).await?;
+    ctx.persistence.clear_events().await?;
+    Ok(count)
+}
+
+/// Subscribe to matching events, delivered as an async stream.
+pub fn subscribe(ctx: &ApiContext, options: EventSubscriptionOptions) -> EventSubscription {
+    spawn_event_subscription(ctx.event_bus.clone(), &options)
+}
+
+/// Await the first matching event, bounded by `timeout`.
+pub async fn wait_for_event(
+    ctx: &ApiContext,
+    options: EventSubscriptionOptions,
+    timeout: Duration,
+) -> ApiResult<Option<BaseEvent>> {
+    crate::subscription::wait_for_event(ctx.event_bus.clone(), &options, timeout).await
+}
+
+/// Merge persisted events with the bounded bus window, deduplicated by id.
+async fn merge(ctx: &ApiContext, options: &EventQueryOptions) -> Vec<BaseEvent> {
+    let mut events: Vec<BaseEvent> = ctx.event_bus.recent_events();
+    if let Ok(persisted) = ctx.persistence.query_events(options).await {
+        events.extend(persisted);
     }
-
-    /// Clear persisted event history (the bounded bus window self-truncates).
-    pub async fn clear_event_history(&self) -> ApiResult<usize> {
-        let count = self.ctx.persistence.count_events(&EventQueryOptions::default()).await?;
-        self.ctx.persistence.clear_events().await?;
-        Ok(count)
-    }
-
-    /// Subscribe to matching events, delivered as an async stream.
-    pub fn subscribe(&self, options: EventSubscriptionOptions) -> EventSubscription {
-        spawn_event_subscription(self.ctx.event_bus.clone(), &options)
-    }
-
-    /// Await the first matching event, bounded by `timeout`.
-    pub async fn wait_for_event(
-        &self,
-        options: EventSubscriptionOptions,
-        timeout: Duration,
-    ) -> ApiResult<Option<BaseEvent>> {
-        wait_for_event(self.ctx.event_bus.clone(), &options, timeout).await
-    }
-
-    /// Merge persisted events with the bounded bus window, deduplicated by id.
-    async fn merge(&self, options: &EventQueryOptions) -> Vec<BaseEvent> {
-        let mut events: Vec<BaseEvent> = self.ctx.event_bus.recent_events();
-        if let Ok(persisted) = self.ctx.persistence.query_events(options).await {
-            events.extend(persisted);
-        }
-        events.sort_by_key(|e| e.timestamp);
-        events.dedup_by_key(|e| e.id.clone());
-        events
-    }
+    events.sort_by_key(|e| e.timestamp);
+    events.dedup_by_key(|e| e.id.clone());
+    events
 }
 
 fn determine_status(events: &[BaseEvent]) -> &'static str {
@@ -399,6 +372,7 @@ fn build_phases(events: &[BaseEvent]) -> Vec<ExecutionTimelinePhase> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
     use wf_storage::context::StorageContext;
@@ -457,29 +431,32 @@ mod tests {
             ))
             .unwrap();
 
-        let api = EventApi::new(ctx);
-        let all = api.history(&EventQueryOptions::default()).await.unwrap();
-        assert_eq!(all.len(), 3);
+        let api = history(&ctx, &EventQueryOptions::default()).await.unwrap();
+        assert_eq!(api.len(), 3);
 
-        let for_exec = api
-            .history(&EventQueryOptions {
+        let for_exec = history(
+            &ctx,
+            &EventQueryOptions {
                 execution_id: Some("exec-1".into()),
                 ..EventQueryOptions::default()
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(for_exec.len(), 2);
         assert!(for_exec
             .iter()
             .all(|e| e.execution_id.as_deref() == Some("exec-1")));
 
-        let started = api
-            .history(&EventQueryOptions {
+        let started = history(
+            &ctx,
+            &EventQueryOptions {
                 event_types: Some(vec![EventType::NodeStarted]),
                 ..EventQueryOptions::default()
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(started.len(), 2);
     }
 
@@ -504,8 +481,7 @@ mod tests {
             ))
             .unwrap();
 
-        let api = EventApi::new(ctx);
-        let timeline = api.timeline("exec-t").await.unwrap();
+        let timeline = timeline(&ctx, "exec-t").await.unwrap();
         assert_eq!(timeline.len(), 2);
         assert_eq!(timeline[0].r#type, EventType::NodeStarted);
         assert_eq!(timeline[1].r#type, EventType::NodeCompleted);
@@ -525,8 +501,7 @@ mod tests {
             .publish(make_event(None, None, EventType::NodeStarted, 3))
             .unwrap();
 
-        let api = EventApi::new(ctx);
-        let stats = api.stats().await.unwrap();
+        let stats = stats(&ctx).await.unwrap();
         assert_eq!(stats.get("HEARTBEAT"), Some(&2));
         assert_eq!(stats.get("NODE_STARTED"), Some(&1));
     }
@@ -540,14 +515,15 @@ mod tests {
                 .publish(make_event(None, None, EventType::Heartbeat, i))
                 .unwrap();
         }
-        let api = EventApi::new(ctx);
-        let limited = api
-            .history(&EventQueryOptions {
+        let limited = history(
+            &ctx,
+            &EventQueryOptions {
                 limit: 3,
                 ..EventQueryOptions::default()
-            })
-            .await
-            .unwrap();
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(limited.len(), 3);
     }
 
@@ -555,9 +531,8 @@ mod tests {
     async fn dispatch_persists_and_publishes() {
         let ctx = make_ctx();
         let mut sub = ctx.event_bus.subscribe();
-        let api = EventApi::new(ctx.clone());
 
-        api.dispatch(make_event(Some("exec-d"), None, EventType::NodeStarted, 1))
+        dispatch(&ctx, make_event(Some("exec-d"), None, EventType::NodeStarted, 1))
             .await
             .unwrap();
 
@@ -578,16 +553,14 @@ mod tests {
     #[tokio::test]
     async fn search_events_matches_identifiers() {
         let ctx = make_ctx();
-        let api = EventApi::new(ctx);
-        api.dispatch(make_event(Some("exec-s1"), None, EventType::NodeStarted, 1))
+        dispatch(&ctx, make_event(Some("exec-s1"), None, EventType::NodeStarted, 1))
             .await
             .unwrap();
-        api.dispatch(make_event(Some("exec-s2"), None, EventType::NodeFailed, 2))
+        dispatch(&ctx, make_event(Some("exec-s2"), None, EventType::NodeFailed, 2))
             .await
             .unwrap();
 
-        let results = api
-            .search_events("exec-s2", &EventQueryOptions::default())
+        let results = search_events(&ctx, "exec-s2", &EventQueryOptions::default())
             .await
             .unwrap();
         assert_eq!(results.len(), 1);
@@ -597,8 +570,7 @@ mod tests {
     #[tokio::test]
     async fn execution_timeline_builds_phases_and_status() {
         let ctx = make_ctx();
-        let api = EventApi::new(ctx);
-        api.dispatch(make_event(
+        dispatch(&ctx, make_event(
             Some("exec-tl"),
             None,
             EventType::WorkflowExecutionStarted,
@@ -606,18 +578,18 @@ mod tests {
         ))
         .await
         .unwrap();
-        api.dispatch(make_event(Some("exec-tl"), None, EventType::NodeStarted, 150))
+        dispatch(&ctx, make_event(Some("exec-tl"), None, EventType::NodeStarted, 150))
             .await
             .unwrap();
-        api.dispatch(make_event(
+        dispatch(&ctx, make_event(
             Some("exec-tl"),
             None,
             EventType::NodeCompleted,
             200,
         ))
-            .await
+        .await
             .unwrap();
-        api.dispatch(make_event(
+        dispatch(&ctx, make_event(
             Some("exec-tl"),
             None,
             EventType::WorkflowExecutionCompleted,
@@ -626,8 +598,7 @@ mod tests {
         .await
         .unwrap();
 
-        let timeline = api
-            .get_execution_timeline("exec-tl")
+        let timeline = get_execution_timeline(&ctx, "exec-tl")
             .await
             .unwrap()
             .expect("timeline present");
@@ -648,19 +619,17 @@ mod tests {
     #[tokio::test]
     async fn event_stats_aggregates() {
         let ctx = make_ctx();
-        let api = EventApi::new(ctx);
-        api.dispatch(make_event(Some("e1"), None, EventType::NodeStarted, 1))
+        dispatch(&ctx, make_event(Some("e1"), None, EventType::NodeStarted, 1))
             .await
             .unwrap();
-        api.dispatch(make_event(Some("e1"), None, EventType::NodeCompleted, 2))
+        dispatch(&ctx, make_event(Some("e1"), None, EventType::NodeCompleted, 2))
             .await
             .unwrap();
-        api.dispatch(make_event(Some("e2"), None, EventType::NodeStarted, 3))
+        dispatch(&ctx, make_event(Some("e2"), None, EventType::NodeStarted, 3))
             .await
             .unwrap();
 
-        let stats = api
-            .get_event_stats(&EventQueryOptions::default())
+        let stats = get_event_stats(&ctx, &EventQueryOptions::default())
             .await
             .unwrap();
         assert_eq!(stats.total, 3);
@@ -671,12 +640,11 @@ mod tests {
     #[tokio::test]
     async fn clear_event_history_empties_persisted_events() {
         let ctx = make_ctx();
-        let api = EventApi::new(ctx.clone());
-        api.dispatch(make_event(Some("e1"), None, EventType::NodeStarted, 1))
+        dispatch(&ctx, make_event(Some("e1"), None, EventType::NodeStarted, 1))
             .await
             .unwrap();
 
-        let cleared = api.clear_event_history().await.unwrap();
+        let cleared = clear_event_history(&ctx).await.unwrap();
         assert_eq!(cleared, 1);
         // The durable store is emptied; the bounded bus window may still hold
         // the recently published event, so assert against the store directly.
@@ -691,10 +659,9 @@ mod tests {
     #[tokio::test]
     async fn subscribe_and_wait_for_event_work() {
         let ctx = make_ctx();
-        let api = EventApi::new(ctx.clone());
-        let mut sub = api.subscribe(EventSubscriptionOptions::for_execution("exec-sub"));
+        let mut sub = subscribe(&ctx, EventSubscriptionOptions::for_execution("exec-sub"));
 
-        api.dispatch(make_event(Some("exec-sub"), None, EventType::NodeStarted, 1))
+        dispatch(&ctx, make_event(Some("exec-sub"), None, EventType::NodeStarted, 1))
             .await
             .unwrap();
         let event = sub.next().await.unwrap();
@@ -705,17 +672,17 @@ mod tests {
         let waiter = tokio::spawn({
             let ctx = ctx.clone();
             async move {
-                EventApi::new(ctx)
-                    .wait_for_event(
-                        EventSubscriptionOptions::for_execution("exec-sub"),
-                        Duration::from_millis(500),
-                    )
-                    .await
-                    .unwrap()
+                wait_for_event(
+                    &ctx,
+                    EventSubscriptionOptions::for_execution("exec-sub"),
+                    Duration::from_millis(500),
+                )
+                .await
+                .unwrap()
             }
         });
         tokio::time::sleep(Duration::from_millis(20)).await;
-        api.dispatch(make_event(Some("exec-sub"), None, EventType::NodeCompleted, 2))
+        dispatch(&ctx, make_event(Some("exec-sub"), None, EventType::NodeCompleted, 2))
             .await
             .unwrap();
         let waited = waiter.await.unwrap().expect("event within window");

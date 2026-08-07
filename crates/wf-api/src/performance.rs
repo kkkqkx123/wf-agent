@@ -4,9 +4,10 @@
 //! entity's node execution history (or a persisted `WorkflowExecution`
 //! record), bottleneck identification by duration share, and a two-execution
 //! comparison with an improvement rate.
+//!
+//! Execution-performance queries.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -15,6 +16,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
+use crate::util::round2;
 
 /// One node's timing on the execution timeline.
 #[derive(Debug, Clone, Serialize)]
@@ -55,11 +57,6 @@ pub struct ExecutionComparison {
     /// Positive = the compared execution is faster (0.0 - 1.0).
     pub improvement_rate: f64,
     pub improved: bool,
-}
-
-/// Execution-performance queries.
-pub struct PerformanceApi {
-    ctx: Arc<ApiContext>,
 }
 
 /// Performance tier classification (TS `PerformanceTier`).
@@ -127,270 +124,264 @@ pub struct WorkflowPerformanceProfile {
     pub status: String,
     pub total_duration_ms: i64,
     pub node_count: u32,
-    pub total_tool_calls: u32,
     pub performance_tier: PerformanceTier,
     pub node_executions: Vec<NodeTimelineEntry>,
     pub bottlenecks: Vec<PerformanceBottleneckView>,
     pub summary: PerformanceSummaryView,
 }
 
-impl PerformanceApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Profile one workflow execution: timeline from the live entity's node
+/// execution history, otherwise from the persisted record.
+pub async fn profile(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ExecutionPerformanceProfile> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let state = entity.state.read().await;
+        let snapshot = state
+            .create_snapshot()
+            .await
+            .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+        let mut records = snapshot.node_execution_history;
+        records.sort_by_key(|r| r.start_time);
 
-    /// Profile one workflow execution: timeline from the live entity's node
-    /// execution history, otherwise from the persisted record.
-    pub async fn profile(&self, execution_id: &str) -> ApiResult<ExecutionPerformanceProfile> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let state = entity.state.read().await;
-            let snapshot = state
-                .create_snapshot()
-                .await
-                .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-            let mut records = snapshot.node_execution_history;
-            records.sort_by_key(|r| r.start_time);
-
-            // Execution span from the state boundaries; when the end is not
-            // recorded yet, fall back to the latest node end time so the
-            // timeline still yields a meaningful total.
-            let total_duration_ms = snapshot
-                .end_time
-                .map(|end| (end - snapshot.start_time).max(0))
-                .or_else(|| {
-                    records
-                        .iter()
-                        .filter_map(|r| r.end_time)
-                        .max()
-                        .map(|max_end| (max_end - snapshot.start_time).max(0))
-                })
-                .unwrap_or(0);
-            let timeline: Vec<NodeTimelineEntry> = records
-                .iter()
-                .map(|record| {
-                    let duration = record
-                        .end_time
-                        .map(|end| (end - record.start_time).max(0))
-                        .unwrap_or(0);
-                    let share = if total_duration_ms > 0 {
-                        duration as f64 / total_duration_ms as f64
-                    } else {
-                        0.0
-                    };
-                    NodeTimelineEntry {
-                        node_id: record.node_id.clone(),
-                        node_name: record.node_name.clone(),
-                        node_type: record.node_type.clone(),
-                        duration_ms: duration,
-                        share,
-                        success: record.success,
-                    }
-                })
-                .collect();
-
-            let error_count = records.iter().filter(|r| !r.success).count() as u32;
-            return Ok(build_profile(
-                execution_id,
-                Some(entity.workflow_id().to_string()),
-                format!("{:?}", snapshot.status),
-                total_duration_ms,
-                records.len() as u32,
-                error_count,
-                timeline,
-            ));
-        }
-
-        let record = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        let total_duration_ms = record
-            .completed_at
-            .map(|end| (end - record.started_at).max(0))
+        // Execution span from the state boundaries; when the end is not
+        // recorded yet, fall back to the latest node end time so the
+        // timeline still yields a meaningful total.
+        let total_duration_ms = snapshot
+            .end_time
+            .map(|end| (end - snapshot.start_time).max(0))
+            .or_else(|| {
+                records
+                    .iter()
+                    .filter_map(|r| r.end_time)
+                    .max()
+                    .map(|max_end| (max_end - snapshot.start_time).max(0))
+            })
             .unwrap_or(0);
-        let node_count = record
-            .node_results
-            .as_ref()
-            .map(|results| results.len() as u32)
-            .unwrap_or(0);
-        let error_count = record
-            .errors
-            .as_ref()
-            .map(|errors| errors.len() as u32)
-            .unwrap_or(0);
-        Ok(build_profile(
+        let timeline: Vec<NodeTimelineEntry> = records
+            .iter()
+            .map(|record| {
+                let duration = record
+                    .end_time
+                    .map(|end| (end - record.start_time).max(0))
+                    .unwrap_or(0);
+                let share = if total_duration_ms > 0 {
+                    duration as f64 / total_duration_ms as f64
+                } else {
+                    0.0
+                };
+                NodeTimelineEntry {
+                    node_id: record.node_id.clone(),
+                    node_name: record.node_name.clone(),
+                    node_type: record.node_type.clone(),
+                    duration_ms: duration,
+                    share,
+                    success: record.success,
+                }
+            })
+            .collect();
+
+        let error_count = records.iter().filter(|r| !r.success).count() as u32;
+        return Ok(build_profile(
             execution_id,
-            Some(record.workflow_id.to_string()),
-            format!("{:?}", record.status),
+            Some(entity.workflow_id().to_string()),
+            snapshot.status.as_str().to_string(),
             total_duration_ms,
-            node_count,
+            records.len() as u32,
             error_count,
-            Vec::new(),
-        ))
+            timeline,
+        ));
     }
 
-    /// Full performance profile of a workflow execution: node-level breakdown,
-    /// performance tier, bottlenecks and a summary (TS `analyzePerformance`).
-    pub async fn analyze_performance(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<WorkflowPerformanceProfile> {
-        let profile = self.profile(execution_id).await?;
-        let total_duration_ms = profile.total_duration_ms;
-        let node_executions = profile.timeline.clone();
-        let summary = build_summary(&node_executions, total_duration_ms);
-        let bottlenecks = build_bottleneck_views(&node_executions, total_duration_ms);
-        let performance_tier = classify_performance(total_duration_ms);
+    let record = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    let total_duration_ms = record
+        .completed_at
+        .map(|end| (end - record.started_at).max(0))
+        .unwrap_or(0);
+    let node_count = record
+        .node_results
+        .as_ref()
+        .map(|results| results.len() as u32)
+        .unwrap_or(0);
+    let error_count = record
+        .errors
+        .as_ref()
+        .map(|errors| errors.len() as u32)
+        .unwrap_or(0);
+    Ok(build_profile(
+        execution_id,
+        Some(record.workflow_id.to_string()),
+        record.status.as_str().to_string(),
+        total_duration_ms,
+        node_count,
+        error_count,
+        Vec::new(),
+    ))
+}
 
-        Ok(WorkflowPerformanceProfile {
-            execution_id: execution_id.to_string(),
-            status: profile.status,
-            total_duration_ms,
-            node_count: profile.node_count,
-            total_tool_calls: 0,
-            performance_tier,
-            node_executions,
-            bottlenecks,
-            summary,
-        })
-    }
+/// Full performance profile of a workflow execution: node-level breakdown,
+/// performance tier, bottlenecks and a summary (TS `analyzePerformance`).
+pub async fn analyze_performance(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowPerformanceProfile> {
+    let profile = profile(ctx, execution_id).await?;
+    let total_duration_ms = profile.total_duration_ms;
+    let node_executions = profile.timeline.clone();
+    let summary = build_summary(&node_executions, total_duration_ms);
+    let bottlenecks = build_bottleneck_views(&node_executions, total_duration_ms);
+    let performance_tier = classify_performance(total_duration_ms);
 
-    /// Performance summary statistics of a workflow execution (TS
-    /// `getPerformanceSummary`).
-    pub async fn get_performance_summary(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<PerformanceSummaryView> {
-        let profile = self.profile(execution_id).await?;
-        Ok(build_summary(&profile.timeline, profile.total_duration_ms))
-    }
+    Ok(WorkflowPerformanceProfile {
+        execution_id: execution_id.to_string(),
+        status: profile.status,
+        total_duration_ms,
+        node_count: profile.node_count,
+        performance_tier,
+        node_executions,
+        bottlenecks,
+        summary,
+    })
+}
 
-    /// Identify performance bottlenecks of a workflow execution, ranked by
-    /// duration share (TS `identifyBottlenecks`).
-    pub async fn identify_bottlenecks(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<PerformanceBottleneckView>> {
-        let profile = self.profile(execution_id).await?;
-        Ok(build_bottleneck_views(
-            &profile.timeline,
-            profile.total_duration_ms,
-        ))
-    }
+/// Performance summary statistics of a workflow execution (TS
+/// `getPerformanceSummary`).
+pub async fn get_performance_summary(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<PerformanceSummaryView> {
+    let profile = profile(ctx, execution_id).await?;
+    Ok(build_summary(&profile.timeline, profile.total_duration_ms))
+}
 
-    /// Node-level comparison of a workflow execution: fastest / slowest nodes,
-    /// duration variance and the performance trend across the execution (TS
-    /// `getNodeComparison`).
-    pub async fn get_iteration_comparison(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<NodeComparisonView> {
-        let profile = self.profile(execution_id).await?;
-        let durations: Vec<i64> = profile
-            .timeline
-            .iter()
-            .map(|entry| entry.duration_ms)
-            .filter(|d| *d >= 0)
-            .collect();
+/// Identify performance bottlenecks of a workflow execution, ranked by
+/// duration share (TS `identifyBottlenecks`).
+pub async fn identify_bottlenecks(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<PerformanceBottleneckView>> {
+    let profile = profile(ctx, execution_id).await?;
+    Ok(build_bottleneck_views(
+        &profile.timeline,
+        profile.total_duration_ms,
+    ))
+}
 
-        if durations.is_empty() {
-            return Ok(NodeComparisonView {
-                execution_id: execution_id.to_string(),
-                total_nodes: profile.timeline.len(),
-                fastest_node: None,
-                slowest_node: None,
-                average_duration: 0,
-                variance: 0,
-                trend: "stable".to_string(),
-            });
-        }
+/// Node-level comparison of a workflow execution: fastest / slowest nodes,
+/// duration variance and the performance trend across the execution (TS
+/// `getNodeComparison`).
+pub async fn get_iteration_comparison(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<NodeComparisonView> {
+    let profile = profile(ctx, execution_id).await?;
+    let durations: Vec<i64> = profile
+        .timeline
+        .iter()
+        .map(|entry| entry.duration_ms)
+        .filter(|d| *d >= 0)
+        .collect();
 
-        let average = durations.iter().sum::<i64>() / durations.len() as i64;
-        let variance = durations
-            .iter()
-            .map(|d| (d - average) * (d - average))
-            .sum::<i64>()
-            / durations.len() as i64;
-
-        let min = durations.iter().copied().min().unwrap_or(0);
-        let max = durations.iter().copied().max().unwrap_or(0);
-        let fastest_node = profile
-            .timeline
-            .iter()
-            .find(|entry| entry.duration_ms == min)
-            .map(|entry| NodeRef {
-                node_id: entry.node_id.clone(),
-                node_name: entry.node_name.clone(),
-                duration: entry.duration_ms,
-            });
-        let slowest_node = profile
-            .timeline
-            .iter()
-            .find(|entry| entry.duration_ms == max)
-            .map(|entry| NodeRef {
-                node_id: entry.node_id.clone(),
-                node_name: entry.node_name.clone(),
-                duration: entry.duration_ms,
-            });
-
-        let mid = profile.timeline.len() / 2;
-        let first: Vec<i64> = profile.timeline[..mid]
-            .iter()
-            .map(|e| e.duration_ms)
-            .collect();
-        let last: Vec<i64> = profile.timeline[mid..]
-            .iter()
-            .map(|e| e.duration_ms)
-            .collect();
-        let first_avg = avg(&first);
-        let last_avg = avg(&last);
-        let trend = if last_avg < first_avg * 0.8 {
-            "improving".to_string()
-        } else if last_avg > first_avg * 1.2 {
-            "degrading".to_string()
-        } else {
-            "stable".to_string()
-        };
-
-        Ok(NodeComparisonView {
+    if durations.is_empty() {
+        return Ok(NodeComparisonView {
             execution_id: execution_id.to_string(),
             total_nodes: profile.timeline.len(),
-            fastest_node,
-            slowest_node,
-            average_duration: average,
-            variance,
-            trend,
-        })
+            fastest_node: None,
+            slowest_node: None,
+            average_duration: 0,
+            variance: 0,
+            trend: "stable".to_string(),
+        });
     }
 
-    /// Compare two workflow executions by duration (baseline vs. compared).
-    pub async fn compare(
-        &self,
-        baseline_id: &str,
-        compared_id: &str,
-    ) -> ApiResult<ExecutionComparison> {
-        let baseline = self.profile(baseline_id).await?;
-        let compared = self.profile(compared_id).await?;
-        let duration_change_ms = compared.total_duration_ms - baseline.total_duration_ms;
-        let improvement_rate = if baseline.total_duration_ms > 0 {
-            (baseline.total_duration_ms - compared.total_duration_ms) as f64
-                / baseline.total_duration_ms as f64
-        } else {
-            0.0
-        };
-        Ok(ExecutionComparison {
-            baseline_id: baseline_id.to_string(),
-            compared_id: compared_id.to_string(),
-            baseline_duration_ms: baseline.total_duration_ms,
-            compared_duration_ms: compared.total_duration_ms,
-            duration_change_ms,
-            improvement_rate: improvement_rate.clamp(-1.0, 1.0),
-            improved: improvement_rate > 0.0,
-        })
-    }
+    let average = durations.iter().sum::<i64>() / durations.len() as i64;
+    let variance = durations
+        .iter()
+        .map(|d| (d - average) * (d - average))
+        .sum::<i64>()
+        / durations.len() as i64;
+
+    let min = durations.iter().copied().min().unwrap_or(0);
+    let max = durations.iter().copied().max().unwrap_or(0);
+    let fastest_node = profile
+        .timeline
+        .iter()
+        .find(|entry| entry.duration_ms == min)
+        .map(|entry| NodeRef {
+            node_id: entry.node_id.clone(),
+            node_name: entry.node_name.clone(),
+            duration: entry.duration_ms,
+        });
+    let slowest_node = profile
+        .timeline
+        .iter()
+        .find(|entry| entry.duration_ms == max)
+        .map(|entry| NodeRef {
+            node_id: entry.node_id.clone(),
+            node_name: entry.node_name.clone(),
+            duration: entry.duration_ms,
+        });
+
+    let mid = profile.timeline.len() / 2;
+    let first: Vec<i64> = profile.timeline[..mid]
+        .iter()
+        .map(|e| e.duration_ms)
+        .collect();
+    let last: Vec<i64> = profile.timeline[mid..]
+        .iter()
+        .map(|e| e.duration_ms)
+        .collect();
+    let first_avg = avg(&first);
+    let last_avg = avg(&last);
+    let trend = if last_avg < first_avg * 0.8 {
+        "improving".to_string()
+    } else if last_avg > first_avg * 1.2 {
+        "degrading".to_string()
+    } else {
+        "stable".to_string()
+    };
+
+    Ok(NodeComparisonView {
+        execution_id: execution_id.to_string(),
+        total_nodes: profile.timeline.len(),
+        fastest_node,
+        slowest_node,
+        average_duration: average,
+        variance,
+        trend,
+    })
+}
+
+/// Compare two workflow executions by duration (baseline vs. compared).
+pub async fn compare(
+    ctx: &ApiContext,
+    baseline_id: &str,
+    compared_id: &str,
+) -> ApiResult<ExecutionComparison> {
+    let baseline = profile(ctx, baseline_id).await?;
+    let compared = profile(ctx, compared_id).await?;
+    let duration_change_ms = compared.total_duration_ms - baseline.total_duration_ms;
+    let improvement_rate = if baseline.total_duration_ms > 0 {
+        (baseline.total_duration_ms - compared.total_duration_ms) as f64
+            / baseline.total_duration_ms as f64
+    } else {
+        0.0
+    };
+    Ok(ExecutionComparison {
+        baseline_id: baseline_id.to_string(),
+        compared_id: compared_id.to_string(),
+        baseline_duration_ms: baseline.total_duration_ms,
+        compared_duration_ms: compared.total_duration_ms,
+        duration_change_ms,
+        improvement_rate: improvement_rate.clamp(-1.0, 1.0),
+        improved: improvement_rate > 0.0,
+    })
 }
 
 /// Average of a duration slice, or 0 when empty.
@@ -508,10 +499,6 @@ fn classify_performance(total_duration_ms: i64) -> PerformanceTier {
     }
 }
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
-}
-
 fn round3(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
@@ -556,6 +543,7 @@ fn build_profile(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
     use wf_storage::context::StorageContext;
@@ -610,8 +598,7 @@ mod tests {
             .register("exec-perf-1".to_string(), entity.clone())
             .expect("register");
 
-        let api = PerformanceApi::new(ctx);
-        let profile = api.profile("exec-perf-1").await.unwrap();
+        let profile = profile(&ctx, "exec-perf-1").await.unwrap();
         assert_eq!(profile.node_count, 2);
         // End not recorded -> total derived from the latest node end time.
         assert_eq!(profile.total_duration_ms, 8000);
@@ -645,8 +632,7 @@ mod tests {
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 
-        let api = PerformanceApi::new(ctx);
-        let profile = api.profile("exec-perf-p").await.unwrap();
+        let profile = profile(&ctx, "exec-perf-p").await.unwrap();
         assert_eq!(profile.total_duration_ms, 2000);
         assert_eq!(profile.error_count, 1);
     }
@@ -684,8 +670,7 @@ mod tests {
             .await
             .unwrap();
 
-        let api = PerformanceApi::new(ctx);
-        let comparison = api.compare("exec-a", "exec-b").await.unwrap();
+        let comparison = compare(&ctx, "exec-a", "exec-b").await.unwrap();
         assert!(comparison.improved);
         assert_eq!(comparison.duration_change_ms, -4000);
         assert!((comparison.improvement_rate - 0.4).abs() < 0.001);
@@ -724,14 +709,12 @@ mod tests {
             .register("exec-perf-2".to_string(), entity.clone())
             .expect("register");
 
-        let api = PerformanceApi::new(ctx);
-        let profile = api.analyze_performance("exec-perf-2").await.unwrap();
+        let profile = analyze_performance(&ctx, "exec-perf-2").await.unwrap();
         assert_eq!(profile.node_count, 3);
         assert!(
             profile.total_duration_ms >= 0,
             "state boundaries may collapse to 0ms"
         );
-        assert_eq!(profile.total_tool_calls, 0);
         assert!(matches!(profile.performance_tier, PerformanceTier::Fast));
 
         let summary = profile.summary;
@@ -776,16 +759,15 @@ mod tests {
             .register("exec-perf-3".to_string(), entity.clone())
             .expect("register");
 
-        let api = PerformanceApi::new(ctx);
-        let summary = api.get_performance_summary("exec-perf-3").await.unwrap();
+        let summary = get_performance_summary(&ctx, "exec-perf-3").await.unwrap();
         assert_eq!(summary.avg_node_duration, 2000);
         assert_eq!(summary.max_node_duration, 3000);
 
-        let bottlenecks = api.identify_bottlenecks("exec-perf-3").await.unwrap();
+        let bottlenecks = identify_bottlenecks(&ctx, "exec-perf-3").await.unwrap();
         assert_eq!(bottlenecks.len(), 3);
         assert_eq!(bottlenecks[0].location, "n2 (n2)");
 
-        let comparison = api.get_iteration_comparison("exec-perf-3").await.unwrap();
+        let comparison = get_iteration_comparison(&ctx, "exec-perf-3").await.unwrap();
         assert_eq!(comparison.total_nodes, 3);
         assert_eq!(comparison.fastest_node.as_ref().unwrap().node_id, "n0");
         assert_eq!(comparison.slowest_node.as_ref().unwrap().node_id, "n2");

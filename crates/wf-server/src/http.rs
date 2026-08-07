@@ -127,9 +127,11 @@ pub(crate) fn api_error_response_internal(
             "NOT_FOUND",
             format!("{entity_type} [{id}] not found"),
         ),
-        ApiError::ExecutionNotFound { id } => {
-            (StatusCode::NOT_FOUND, "NOT_FOUND", format!("execution [{id}] not found"))
-        }
+        ApiError::ExecutionNotFound { id } => (
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            format!("execution [{id}] not found"),
+        ),
         ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, "INVALID_PARAMS", msg.clone()),
         ApiError::AlreadyExists { entity_type, id } => (
             StatusCode::CONFLICT,
@@ -138,11 +140,15 @@ pub(crate) fn api_error_response_internal(
         ),
         ApiError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.clone()),
         ApiError::Timeout(msg) => (StatusCode::GATEWAY_TIMEOUT, "TIMEOUT", msg.clone()),
-        ApiError::Storage(err) => (StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_ERROR", err.to_string()),
-        ApiError::Execution(msg) => (
+        ApiError::Storage(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "STORAGE_ERROR",
+            err.to_string(),
+        ),
+        ApiError::Execution { message, .. } => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL_ERROR",
-            msg.clone(),
+            message.clone(),
         ),
     };
     (

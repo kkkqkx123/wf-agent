@@ -1,5 +1,12 @@
+//! Read-only query registry over agent loop executions (TS
+//! `AgentLoopRegistryAPI` counterpart).
+//!
+//! Summaries and status views read the live [`wf_agent::registry::AgentLoopRegistry`]
+//! first and fall back to the persisted `AgentExecution` / `AgentLoopStorageMetadata`
+//! records (Stage 0 persistence), so queries keep returning data after a
+//! restart. Agent loops are not created through this API.
+
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -10,6 +17,8 @@ use wf_types::ExecutionStatus;
 
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
+use crate::execution_state::{parse_status, status_str};
+use crate::util::round2;
 
 /// Agent loop query filter (TS `AgentLoopFilter` counterpart).
 #[derive(Debug, Clone, Default)]
@@ -171,447 +180,463 @@ pub struct ExecutionPath {
     pub total_duration: Option<i64>,
 }
 
-/// Read-only query registry over agent loop executions (TS
-/// `AgentLoopRegistryAPI` counterpart).
-///
-/// Summaries and status views read the live [`wf_agent::registry::AgentLoopRegistry`]
-/// first and fall back to the persisted `AgentExecution` / `AgentLoopStorageMetadata`
-/// records (Stage 0 persistence), so queries keep returning data after a
-/// restart. Agent loops are not created through this API.
-pub struct AgentLoopRegistryApi {
-    ctx: Arc<ApiContext>,
+/// Get agent loop summaries, optionally filtered.
+pub async fn summaries(
+    ctx: &ApiContext,
+    filter: Option<&AgentLoopFilter>,
+) -> ApiResult<Vec<AgentLoopSummary>> {
+    let mut summaries = all_summaries(ctx).await;
+    if let Some(filter) = filter {
+        summaries.retain(|s| filter_matches(s, filter));
+    }
+    Ok(summaries)
 }
 
-impl AgentLoopRegistryApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Get a single agent loop summary by id.
+pub async fn summary(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<AgentLoopSummary>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let summary = live_summary(&entity).await;
+        return Ok(Some(summary));
     }
-
-    /// Get agent loop summaries, optionally filtered.
-    pub async fn summaries(&self, filter: Option<&AgentLoopFilter>) -> ApiResult<Vec<AgentLoopSummary>> {
-        let mut summaries = self.all_summaries().await;
-        if let Some(filter) = filter {
-            summaries.retain(|s| filter_matches(s, filter));
-        }
-        Ok(summaries)
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        return Ok(Some(persisted_summary(&record)));
     }
-
-    /// Get a single agent loop summary by id.
-    pub async fn summary(&self, agent_loop_id: &str) -> ApiResult<Option<AgentLoopSummary>> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let summary = live_summary(&entity).await;
-            return Ok(Some(summary));
-        }
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            return Ok(Some(persisted_summary(&record)));
-        }
-        if let Some(meta) = self.ctx.storage.agent_loop.load(agent_loop_id).await? {
-            return Ok(Some(meta_summary(&meta)));
-        }
-        Ok(None)
+    if let Some(meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
+        return Ok(Some(meta_summary(&meta)));
     }
+    Ok(None)
+}
 
-    /// List agent loops matching a status.
-    pub async fn list_by_status(&self, status: ExecutionStatus) -> ApiResult<Vec<AgentLoopSummary>> {
-        self.summaries(Some(&AgentLoopFilter {
+/// List agent loops matching a status.
+pub async fn list_by_status(
+    ctx: &ApiContext,
+    status: ExecutionStatus,
+) -> ApiResult<Vec<AgentLoopSummary>> {
+    summaries(
+        ctx,
+        Some(&AgentLoopFilter {
             status: Some(status),
             ..AgentLoopFilter::default()
-        }))
-        .await
-    }
+        }),
+    )
+    .await
+}
 
-    /// Update the status of an agent loop through the entity's lifecycle
-    /// transitions when the loop is live (pause / resume / stop); otherwise
-    /// rewrites the persisted `AgentLoopStorageMetadata` status.
-    pub async fn update_status(
-        &self,
-        agent_loop_id: &str,
-        status: ExecutionStatus,
-    ) -> ApiResult<()> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            match status {
-                ExecutionStatus::Running => {
-                    entity.interruption().resume()?;
-                    entity.state.write().await.resume();
-                }
-                ExecutionStatus::Paused => {
-                    entity.interruption().pause()?;
-                    entity.state.write().await.pause();
-                }
-                ExecutionStatus::Cancelled | ExecutionStatus::Stopped => {
-                    entity.interruption().stop()?;
-                    entity.state.write().await.cancel();
-                }
-                _ => {
-                    // Direct status set is not expressible through the entity
-                    // state machine; fall back to the persisted record.
-                    self.update_persisted_status(agent_loop_id, status)
-                        .await?;
-                }
+/// Update the status of an agent loop through the entity's lifecycle
+/// transitions when the loop is live (pause / resume / stop); otherwise
+/// rewrites the persisted `AgentLoopStorageMetadata` status.
+pub async fn update_status(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    status: ExecutionStatus,
+) -> ApiResult<()> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        match status {
+            ExecutionStatus::Running => {
+                entity.interruption().resume()?;
+                entity.state.write().await.resume();
             }
-            return Ok(());
-        }
-        self.update_persisted_status(agent_loop_id, status)
-            .await
-    }
-
-    /// Get the status of an agent loop, or `None` when it does not exist.
-    pub async fn get_status(&self, agent_loop_id: &str) -> ApiResult<Option<ExecutionStatus>> {
-        Ok(self.summary(agent_loop_id).await?.map(|s| s.status))
-    }
-
-    pub async fn running(&self) -> ApiResult<Vec<AgentLoopSummary>> {
-        self.list_by_status(ExecutionStatus::Running).await
-    }
-
-    pub async fn paused(&self) -> ApiResult<Vec<AgentLoopSummary>> {
-        self.list_by_status(ExecutionStatus::Paused).await
-    }
-
-    pub async fn completed(&self) -> ApiResult<Vec<AgentLoopSummary>> {
-        self.list_by_status(ExecutionStatus::Completed).await
-    }
-
-    pub async fn failed(&self) -> ApiResult<Vec<AgentLoopSummary>> {
-        self.list_by_status(ExecutionStatus::Failed).await
-    }
-
-    /// Agent loop statistics: total count and per-status breakdown.
-    pub async fn statistics(&self) -> ApiResult<AgentLoopStatistics> {
-        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
-        let mut total = 0;
-        for summary in self.all_summaries().await {
-            total += 1;
-            *by_status.entry(status_str(&summary.status).to_string()).or_insert(0) += 1;
-        }
-        Ok(AgentLoopStatistics { total, by_status })
-    }
-
-    /// Remove all terminated (completed/failed/cancelled/stopped) live agent
-    /// loops from the registry.
-    pub async fn cleanup_completed(&self) -> ApiResult<usize> {
-        Ok(self.ctx.agent_loops.cleanup_terminated().await)
-    }
-
-    /// Whether an agent loop exists (live or persisted).
-    pub async fn has(&self, agent_loop_id: &str) -> ApiResult<bool> {
-        Ok(self.summary(agent_loop_id).await?.is_some())
-    }
-
-    /// Number of known agent loops (live + persisted).
-    pub async fn count(&self) -> ApiResult<usize> {
-        Ok(self.all_summaries().await.len())
-    }
-
-    /// Iteration history of an agent loop in chronological order.
-    pub async fn iteration_history(&self, agent_loop_id: &str) -> ApiResult<Vec<IterationDetail>> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let snapshot = entity
-                .state
-                .read()
-                .await
-                .create_snapshot()
-                .await
-                .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-            return Ok(snapshot
-                .iteration_history
-                .into_iter()
-                .map(live_iteration_detail)
-                .collect());
-        }
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            return Ok(record
-                .iteration_history
-                .unwrap_or_default()
-                .into_iter()
-                .map(persisted_iteration_detail)
-                .collect());
-        }
-        Ok(Vec::new())
-    }
-
-    /// Iteration history summary, or `None` when the agent loop is unknown.
-    pub async fn iteration_history_summary(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<IterationHistorySummary>> {
-        let Some(summary) = self.summary(agent_loop_id).await? else {
-            return Ok(None);
-        };
-        let history = self.iteration_history(agent_loop_id).await?;
-        let completed = history.iter().filter(|d| d.end_time > d.start_time).count();
-        let mut total_duration = 0i64;
-        let mut total_tool_calls = 0u32;
-        for detail in &history {
-            total_tool_calls += detail.tool_call_count;
-            if detail.end_time > detail.start_time {
-                total_duration += detail.duration.max(0);
+            ExecutionStatus::Paused => {
+                entity.interruption().pause()?;
+                entity.state.write().await.pause();
+            }
+            ExecutionStatus::Cancelled | ExecutionStatus::Stopped => {
+                entity.interruption().stop()?;
+                entity.state.write().await.cancel();
+            }
+            _ => {
+                // Direct status set is not expressible through the entity
+                // state machine; fall back to the persisted record.
+                update_persisted_status(ctx, agent_loop_id, status).await?;
             }
         }
-        let average_duration = if completed > 0 {
-            total_duration / completed as i64
-        } else {
-            0
-        };
-        Ok(Some(IterationHistorySummary {
-            total_iterations: history.len() as u32,
-            total_tool_calls,
-            total_duration,
-            average_duration,
-            status: summary.status,
-        }))
+        return Ok(());
     }
+    update_persisted_status(ctx, agent_loop_id, status).await
+}
 
-    /// Execution timeline of an agent loop, sorted by timestamp.
-    pub async fn execution_timeline(&self, agent_loop_id: &str) -> ApiResult<Vec<ExecutionTimelineEntry>> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let snapshot = entity
-                .state
-                .read()
-                .await
-                .create_snapshot()
-                .await
-                .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-            let mut timeline = live_timeline(agent_loop_id, &snapshot);
-            timeline.sort_by_key(|e| e.timestamp);
-            return Ok(timeline);
-        }
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            let mut timeline = persisted_timeline(agent_loop_id, &record);
-            timeline.sort_by_key(|e| e.timestamp);
-            return Ok(timeline);
-        }
-        Ok(Vec::new())
+/// Get the status of an agent loop, or `None` when it does not exist.
+pub async fn get_status(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<ExecutionStatus>> {
+    Ok(summary(ctx, agent_loop_id).await?.map(|s| s.status))
+}
+
+pub async fn running(ctx: &ApiContext) -> ApiResult<Vec<AgentLoopSummary>> {
+    list_by_status(ctx, ExecutionStatus::Running).await
+}
+
+pub async fn paused(ctx: &ApiContext) -> ApiResult<Vec<AgentLoopSummary>> {
+    list_by_status(ctx, ExecutionStatus::Paused).await
+}
+
+pub async fn completed(ctx: &ApiContext) -> ApiResult<Vec<AgentLoopSummary>> {
+    list_by_status(ctx, ExecutionStatus::Completed).await
+}
+
+pub async fn failed(ctx: &ApiContext) -> ApiResult<Vec<AgentLoopSummary>> {
+    list_by_status(ctx, ExecutionStatus::Failed).await
+}
+
+/// Agent loop statistics: total count and per-status breakdown.
+pub async fn statistics(ctx: &ApiContext) -> ApiResult<AgentLoopStatistics> {
+    let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
+    let mut total = 0;
+    for summary in all_summaries(ctx).await {
+        total += 1;
+        *by_status
+            .entry(status_str(&summary.status).to_string())
+            .or_insert(0) += 1;
     }
+    Ok(AgentLoopStatistics { total, by_status })
+}
 
-    /// Variable history of an agent loop. Live state retains only the latest
-    /// snapshot per variable, so this yields the current value; persisted
-    /// records do not retain the variable map.
-    pub async fn variable_history(
-        &self,
-        agent_loop_id: &str,
-        variable_name: &str,
-    ) -> ApiResult<Vec<VariableHistoryEntry>> {
-        let Some(entity) = self.ctx.agent_loop(agent_loop_id) else {
-            return Ok(Vec::new());
-        };
+/// Remove all terminated (completed/failed/cancelled/stopped) live agent
+/// loops from the registry.
+pub async fn cleanup_completed(ctx: &ApiContext) -> ApiResult<usize> {
+    Ok(ctx.agent_loops.cleanup_terminated().await)
+}
+
+/// Whether an agent loop exists (live or persisted).
+pub async fn has(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<bool> {
+    Ok(summary(ctx, agent_loop_id).await?.is_some())
+}
+
+/// Number of known agent loops (live + persisted).
+pub async fn count(ctx: &ApiContext) -> ApiResult<usize> {
+    Ok(all_summaries(ctx).await.len())
+}
+
+/// Iteration history of an agent loop in chronological order.
+pub async fn iteration_history(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<IterationDetail>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
         let snapshot = entity
             .state
             .read()
             .await
             .create_snapshot()
             .await
-            .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-        let Some(value) = snapshot.variable_snapshots.get(variable_name) else {
-            return Ok(Vec::new());
-        };
-        Ok(vec![VariableHistoryEntry {
-            timestamp: snapshot.start_time,
-            name: variable_name.to_string(),
-            value: value.clone(),
-            iteration: snapshot.current_iteration,
-            change: VariableChange {
-                from: None,
-                to: value.clone(),
-            },
-        }])
-    }
-
-    /// Context evolution of an agent loop: start, iteration boundaries and the
-    /// terminal transition.
-    pub async fn context_evolution(&self, agent_loop_id: &str) -> ApiResult<Vec<ContextEvolutionEntry>> {
-        let Some(summary) = self.summary(agent_loop_id).await? else {
-            return Ok(Vec::new());
-        };
-        let mut evolution = Vec::new();
-        if let Some(start) = summary.start_time {
-            evolution.push(ContextEvolutionEntry {
-                timestamp: start,
-                iteration: 0,
-                status: ExecutionStatus::Running,
-                description: "Execution started".to_string(),
-                tool_calls: None,
-            });
-        }
-        for detail in self.iteration_history(agent_loop_id).await? {
-            evolution.push(ContextEvolutionEntry {
-                timestamp: detail.start_time,
-                iteration: detail.iteration,
-                status: ExecutionStatus::Running,
-                description: format!(
-                    "Iteration {} started, tool calls: {}",
-                    detail.iteration, detail.tool_call_count
-                ),
-                tool_calls: Some(detail.tool_call_count),
-            });
-        }
-        if let Some(end) = summary.end_time {
-            evolution.push(ContextEvolutionEntry {
-                timestamp: end,
-                iteration: summary.current_iteration,
-                status: summary.status.clone(),
-                description: format!("Execution {}", status_str(&summary.status)),
-                tool_calls: None,
-            });
-        }
-        Ok(evolution)
-    }
-
-    /// Aggregated execution statistics across all agent loops (live +
-    /// persisted).
-    pub async fn execution_statistics(&self) -> ApiResult<AgentExecutionStatistics> {
-        let summaries = self.all_summaries().await;
-        let now = wf_common::now();
-        let mut total_duration = 0i64;
-        let mut completed_count = 0usize;
-        let mut failed_count = 0usize;
-        let mut cancelled_count = 0usize;
-        let mut total_iterations = 0u32;
-        let mut total_tool_calls = 0u32;
-
-        for s in &summaries {
-            match s.status {
-                ExecutionStatus::Completed => completed_count += 1,
-                ExecutionStatus::Failed => failed_count += 1,
-                ExecutionStatus::Cancelled | ExecutionStatus::Stopped => cancelled_count += 1,
-                _ => {}
-            }
-            match (s.start_time, s.end_time) {
-                (Some(start), Some(end)) => total_duration += end - start,
-                (Some(start), None) if s.status == ExecutionStatus::Running => {
-                    total_duration += now - start;
-                }
-                _ => {}
-            }
-            total_iterations += s.current_iteration;
-            total_tool_calls += s.tool_call_count;
-        }
-
-        let total = summaries.len();
-        let avg_duration = if completed_count > 0 {
-            total_duration / completed_count as i64
-        } else {
-            0
-        };
-        let success_rate = if total > 0 {
-            (completed_count as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-        let avg_iterations = if total > 0 {
-            round2(total_iterations as f64 / total as f64)
-        } else {
-            0.0
-        };
-        let avg_tool_calls = if total > 0 {
-            round2(total_tool_calls as f64 / total as f64)
-        } else {
-            0.0
-        };
-
-        Ok(AgentExecutionStatistics {
-            total,
-            completed: completed_count,
-            failed: failed_count,
-            cancelled: cancelled_count,
-            success_rate: round2(success_rate),
-            avg_duration,
-            total_iterations,
-            avg_iterations_per_execution: avg_iterations,
-            total_tool_calls,
-            avg_tool_calls_per_execution: avg_tool_calls,
-        })
-    }
-
-    /// Execution path of an agent loop, or `None` when unknown.
-    pub async fn execution_path(&self, agent_loop_id: &str) -> ApiResult<Option<ExecutionPath>> {
-        let Some(summary) = self.summary(agent_loop_id).await? else {
-            return Ok(None);
-        };
-        let history = self.iteration_history(agent_loop_id).await?;
-        let iterations = history
+            .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+        return Ok(snapshot
+            .iteration_history
             .into_iter()
-            .map(|detail| {
-                let tool_calls = detail
-                    .tool_calls
-                    .iter()
-                    .map(|call| ToolCallInPath {
-                        name: call.name.clone(),
-                        status: if call.success {
-                            "completed".to_string()
-                        } else {
-                            "failed".to_string()
-                        },
-                        start_time: detail.start_time,
-                        end_time: Some(detail.end_time),
-                    })
-                    .collect::<Vec<_>>();
-                ExecutionPathIteration {
-                    iteration: detail.iteration,
-                    tool_calls,
-                    duration: (detail.end_time > detail.start_time)
-                        .then_some(detail.duration)
-                        .or(None),
-                }
-            })
-            .collect();
-        Ok(Some(ExecutionPath {
-            execution_id: agent_loop_id.to_string(),
+            .map(live_iteration_detail)
+            .collect());
+    }
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        return Ok(record
+            .iteration_history
+            .unwrap_or_default()
+            .into_iter()
+            .map(persisted_iteration_detail)
+            .collect());
+    }
+    Ok(Vec::new())
+}
+
+/// Iteration history summary, or `None` when the agent loop is unknown.
+pub async fn iteration_history_summary(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<IterationHistorySummary>> {
+    let Some(summary) = summary(ctx, agent_loop_id).await? else {
+        return Ok(None);
+    };
+    let history = iteration_history(ctx, agent_loop_id).await?;
+    let completed = history.iter().filter(|d| d.end_time > d.start_time).count();
+    let mut total_duration = 0i64;
+    let mut total_tool_calls = 0u32;
+    for detail in &history {
+        total_tool_calls += detail.tool_call_count;
+        if detail.end_time > detail.start_time {
+            total_duration += detail.duration.max(0);
+        }
+    }
+    let average_duration = if completed > 0 {
+        total_duration / completed as i64
+    } else {
+        0
+    };
+    Ok(Some(IterationHistorySummary {
+        total_iterations: history.len() as u32,
+        total_tool_calls,
+        total_duration,
+        average_duration,
+        status: summary.status,
+    }))
+}
+
+/// Execution timeline of an agent loop, sorted by timestamp.
+pub async fn execution_timeline(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<ExecutionTimelineEntry>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let snapshot = entity
+            .state
+            .read()
+            .await
+            .create_snapshot()
+            .await
+            .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+        let mut timeline = live_timeline(agent_loop_id, &snapshot);
+        timeline.sort_by_key(|e| e.timestamp);
+        return Ok(timeline);
+    }
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        let mut timeline = persisted_timeline(agent_loop_id, &record);
+        timeline.sort_by_key(|e| e.timestamp);
+        return Ok(timeline);
+    }
+    Ok(Vec::new())
+}
+
+/// Variable history of an agent loop. Live state retains only the latest
+/// snapshot per variable, so this yields the current value; persisted
+/// records do not retain the variable map.
+pub async fn variable_history(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    variable_name: &str,
+) -> ApiResult<Vec<VariableHistoryEntry>> {
+    let Some(entity) = ctx.agent_loop(agent_loop_id) else {
+        return Ok(Vec::new());
+    };
+    let snapshot = entity
+        .state
+        .read()
+        .await
+        .create_snapshot()
+        .await
+        .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+    let Some(value) = snapshot.variable_snapshots.get(variable_name) else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![VariableHistoryEntry {
+        timestamp: snapshot.start_time,
+        name: variable_name.to_string(),
+        value: value.clone(),
+        iteration: snapshot.current_iteration,
+        change: VariableChange {
+            from: None,
+            to: value.clone(),
+        },
+    }])
+}
+
+/// Context evolution of an agent loop: start, iteration boundaries and the
+/// terminal transition.
+pub async fn context_evolution(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<ContextEvolutionEntry>> {
+    let Some(summary) = summary(ctx, agent_loop_id).await? else {
+        return Ok(Vec::new());
+    };
+    let mut evolution = Vec::new();
+    if let Some(start) = summary.start_time {
+        evolution.push(ContextEvolutionEntry {
+            timestamp: start,
+            iteration: 0,
+            status: ExecutionStatus::Running,
+            description: "Execution started".to_string(),
+            tool_calls: None,
+        });
+    }
+    for detail in iteration_history(ctx, agent_loop_id).await? {
+        evolution.push(ContextEvolutionEntry {
+            timestamp: detail.start_time,
+            iteration: detail.iteration,
+            status: ExecutionStatus::Running,
+            description: format!(
+                "Iteration {} started, tool calls: {}",
+                detail.iteration, detail.tool_call_count
+            ),
+            tool_calls: Some(detail.tool_call_count),
+        });
+    }
+    if let Some(end) = summary.end_time {
+        evolution.push(ContextEvolutionEntry {
+            timestamp: end,
+            iteration: summary.current_iteration,
             status: summary.status.clone(),
-            total_iterations: summary.current_iteration,
-            iterations,
-            total_duration: match (summary.start_time, summary.end_time) {
-                (Some(start), Some(end)) => Some(end - start),
-                _ => None,
-            },
-        }))
+            description: format!("Execution {}", status_str(&summary.status)),
+            tool_calls: None,
+        });
+    }
+    Ok(evolution)
+}
+
+/// Aggregate execution statistics across a set of agent loop summaries
+/// (shared by `execution_statistics` in this module and
+/// `agent_execution_registry`).
+pub(crate) fn aggregate_execution_statistics(
+    summaries: &[AgentLoopSummary],
+) -> AgentExecutionStatistics {
+    let now = wf_common::now();
+    let mut total_duration = 0i64;
+    let mut completed_count = 0usize;
+    let mut failed_count = 0usize;
+    let mut cancelled_count = 0usize;
+    let mut total_iterations = 0u32;
+    let mut total_tool_calls = 0u32;
+
+    for s in summaries {
+        match s.status {
+            ExecutionStatus::Completed => completed_count += 1,
+            ExecutionStatus::Failed => failed_count += 1,
+            ExecutionStatus::Cancelled | ExecutionStatus::Stopped => cancelled_count += 1,
+            _ => {}
+        }
+        match (s.start_time, s.end_time) {
+            (Some(start), Some(end)) => total_duration += end - start,
+            (Some(start), None) if s.status == ExecutionStatus::Running => {
+                total_duration += now - start;
+            }
+            _ => {}
+        }
+        total_iterations += s.current_iteration;
+        total_tool_calls += s.tool_call_count;
     }
 
-    async fn all_summaries(&self) -> Vec<AgentLoopSummary> {
-        let mut by_id: BTreeMap<String, AgentLoopSummary> = BTreeMap::new();
+    let total = summaries.len();
+    let avg_duration = if completed_count > 0 {
+        total_duration / completed_count as i64
+    } else {
+        0
+    };
+    let success_rate = if total > 0 {
+        round2(completed_count as f64 / total as f64 * 100.0)
+    } else {
+        0.0
+    };
+    let avg_iterations = if total > 0 {
+        round2(total_iterations as f64 / total as f64)
+    } else {
+        0.0
+    };
+    let avg_tool_calls = if total > 0 {
+        round2(total_tool_calls as f64 / total as f64)
+    } else {
+        0.0
+    };
 
-        for id in self.ctx.agent_loops.get_all_ids() {
-            if let Some(entity) = self.ctx.agent_loop(&id.to_string()) {
-                by_id.insert(id.to_string(), live_summary(&entity).await);
+    AgentExecutionStatistics {
+        total,
+        completed: completed_count,
+        failed: failed_count,
+        cancelled: cancelled_count,
+        success_rate,
+        avg_duration,
+        total_iterations,
+        avg_iterations_per_execution: avg_iterations,
+        total_tool_calls,
+        avg_tool_calls_per_execution: avg_tool_calls,
+    }
+}
+
+/// Aggregated execution statistics across all agent loops (live +
+/// persisted).
+pub async fn execution_statistics(ctx: &ApiContext) -> ApiResult<AgentExecutionStatistics> {
+    let summaries = all_summaries(ctx).await;
+    Ok(aggregate_execution_statistics(&summaries))
+}
+
+/// Execution path of an agent loop, or `None` when unknown.
+pub async fn execution_path(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<ExecutionPath>> {
+    let Some(summary) = summary(ctx, agent_loop_id).await? else {
+        return Ok(None);
+    };
+    let history = iteration_history(ctx, agent_loop_id).await?;
+    let iterations = history
+        .into_iter()
+        .map(|detail| {
+            let tool_calls = detail
+                .tool_calls
+                .iter()
+                .map(|call| ToolCallInPath {
+                    name: call.name.clone(),
+                    status: if call.success {
+                        "completed".to_string()
+                    } else {
+                        "failed".to_string()
+                    },
+                    start_time: detail.start_time,
+                    end_time: Some(detail.end_time),
+                })
+                .collect::<Vec<_>>();
+            ExecutionPathIteration {
+                iteration: detail.iteration,
+                tool_calls,
+                duration: (detail.end_time > detail.start_time)
+                    .then_some(detail.duration)
+                    .or(None),
             }
-        }
+        })
+        .collect();
+    Ok(Some(ExecutionPath {
+        execution_id: agent_loop_id.to_string(),
+        status: summary.status.clone(),
+        total_iterations: summary.current_iteration,
+        iterations,
+        total_duration: match (summary.start_time, summary.end_time) {
+            (Some(start), Some(end)) => Some(end - start),
+            _ => None,
+        },
+    }))
+}
 
-        if let Ok(records) = self.ctx.storage.agent_execution.list(None).await {
-            for record in records {
-                by_id
-                    .entry(record.id.to_string())
-                    .or_insert_with(|| persisted_summary(&record));
-            }
-        }
+async fn all_summaries(ctx: &ApiContext) -> Vec<AgentLoopSummary> {
+    let mut by_id: BTreeMap<String, AgentLoopSummary> = BTreeMap::new();
 
-        if let Ok(metas) = self.ctx.storage.agent_loop.list(None).await {
-            for meta in metas {
-                by_id
-                    .entry(meta.id.to_string())
-                    .or_insert_with(|| meta_summary(&meta));
-            }
+    for id in ctx.agent_loops.get_all_ids() {
+        if let Some(entity) = ctx.agent_loop(&id.to_string()) {
+            by_id.insert(id.to_string(), live_summary(&entity).await);
         }
-
-        by_id.into_values().collect()
     }
 
-    async fn update_persisted_status(
-        &self,
-        agent_loop_id: &str,
-        status: ExecutionStatus,
-    ) -> ApiResult<()> {
-        if let Some(mut meta) = self.ctx.storage.agent_loop.load(agent_loop_id).await? {
-            meta.status = status_str(&status).to_string();
-            self.ctx.storage.agent_loop.save(&meta).await?;
-            return Ok(());
+    if let Ok(records) = ctx.storage.agent_execution.list(None).await {
+        for record in records {
+            by_id
+                .entry(record.id.to_string())
+                .or_insert_with(|| persisted_summary(&record));
         }
-        if let Some(mut record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            record.status = status;
-            self.ctx.storage.agent_execution.save(&record).await?;
-            return Ok(());
-        }
-        Err(ApiError::execution_not_found(agent_loop_id))
     }
+
+    if let Ok(metas) = ctx.storage.agent_loop.list(None).await {
+        for meta in metas {
+            by_id
+                .entry(meta.id.to_string())
+                .or_insert_with(|| meta_summary(&meta));
+        }
+    }
+
+    by_id.into_values().collect()
+}
+
+async fn update_persisted_status(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    status: ExecutionStatus,
+) -> ApiResult<()> {
+    if let Some(mut meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
+        meta.status = status_str(&status).to_string();
+        ctx.storage.agent_loop.save(&meta).await?;
+        return Ok(());
+    }
+    if let Some(mut record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        record.status = status;
+        ctx.storage.agent_execution.save(&record).await?;
+        return Ok(());
+    }
+    Err(ApiError::execution_not_found(agent_loop_id))
 }
 
 /// Statistics of the agent loop registry (TS `getAgentLoopStatistics`).
@@ -689,10 +714,7 @@ fn persisted_summary(record: &wf_types::AgentExecution) -> AgentLoopSummary {
             (Some(start), Some(end)) => Some(end - start),
             _ => None,
         },
-        profile_id: record
-            .context
-            .as_ref()
-            .and_then(|c| c.profile_id.clone()),
+        profile_id: record.context.as_ref().and_then(|c| c.profile_id.clone()),
     }
 }
 
@@ -813,10 +835,7 @@ fn live_timeline(
             description: format!("Error: {}", error_record.error),
             iteration: None,
             duration: None,
-            error_type: error_record
-                .error_type
-                .as_ref()
-                .map(|t| format!("{t:?}")),
+            error_type: error_record.error_type.as_ref().map(|t| format!("{t:?}")),
             error_severity: None,
         });
     }
@@ -917,41 +936,10 @@ fn persisted_timeline(
     timeline
 }
 
-/// Parse a persisted string status onto the typed contract, defaulting to
-/// `Created` for unknown values.
-pub(crate) fn parse_status(status: &str) -> ExecutionStatus {
-    match status {
-        "created" => ExecutionStatus::Created,
-        "running" => ExecutionStatus::Running,
-        "paused" => ExecutionStatus::Paused,
-        "stopped" => ExecutionStatus::Stopped,
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        _ => ExecutionStatus::Created,
-    }
-}
-
-/// The serialized status string (serde snake_case form).
-pub(crate) fn status_str(status: &ExecutionStatus) -> &'static str {
-    match status {
-        ExecutionStatus::Created => "created",
-        ExecutionStatus::Running => "running",
-        ExecutionStatus::Paused => "paused",
-        ExecutionStatus::Stopped => "stopped",
-        ExecutionStatus::Completed => "completed",
-        ExecutionStatus::Failed => "failed",
-        ExecutionStatus::Cancelled => "cancelled",
-    }
-}
-
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
@@ -996,24 +984,23 @@ mod tests {
         register_loop(&ctx, "loop-2", ExecutionStatus::Failed).await;
         register_loop(&ctx, "loop-3", ExecutionStatus::Running).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        let summaries = api.summaries(None).await.unwrap();
+        let summaries = summaries(&ctx, None).await.unwrap();
         assert_eq!(summaries.len(), 3);
 
-        let completed = api.completed().await.unwrap();
+        let completed = completed(&ctx).await.unwrap();
         assert_eq!(completed.len(), 1);
         assert_eq!(completed[0].id, "loop-1");
         assert_eq!(completed[0].tool_call_count, 1);
 
-        let running = api.list_by_status(ExecutionStatus::Running).await.unwrap();
+        let running = list_by_status(&ctx, ExecutionStatus::Running).await.unwrap();
         assert_eq!(running.len(), 1);
 
-        let by_id = api.summary("loop-2").await.unwrap().unwrap();
+        let by_id = summary(&ctx, "loop-2").await.unwrap().unwrap();
         assert_eq!(by_id.status, ExecutionStatus::Failed);
-        assert!(api.summary("missing").await.unwrap().is_none());
+        assert!(summary(&ctx, "missing").await.unwrap().is_none());
 
-        assert!(api.has("loop-1").await.unwrap());
-        assert_eq!(api.count().await.unwrap(), 3);
+        assert!(has(&ctx, "loop-1").await.unwrap());
+        assert_eq!(count(&ctx).await.unwrap(), 3);
     }
 
     #[tokio::test]
@@ -1021,15 +1008,20 @@ mod tests {
         let ctx = make_ctx();
         register_loop(&ctx, "loop-p", ExecutionStatus::Running).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        api.update_status("loop-p", ExecutionStatus::Paused).await.unwrap();
+        update_status(&ctx, "loop-p", ExecutionStatus::Paused)
+            .await
+            .unwrap();
         let entity = ctx.agent_loop("loop-p").unwrap();
         assert!(entity.state.read().await.is_paused());
 
-        api.update_status("loop-p", ExecutionStatus::Running).await.unwrap();
+        update_status(&ctx, "loop-p", ExecutionStatus::Running)
+            .await
+            .unwrap();
         assert!(!entity.interruption().is_interrupted());
 
-        api.update_status("loop-p", ExecutionStatus::Cancelled).await.unwrap();
+        update_status(&ctx, "loop-p", ExecutionStatus::Cancelled)
+            .await
+            .unwrap();
         assert!(entity.state.read().await.is_cancelled());
     }
 
@@ -1040,15 +1032,14 @@ mod tests {
         register_loop(&ctx, "loop-2", ExecutionStatus::Failed).await;
         register_loop(&ctx, "loop-3", ExecutionStatus::Running).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        let stats = api.statistics().await.unwrap();
+        let stats = statistics(&ctx).await.unwrap();
         assert_eq!(stats.total, 3);
         assert_eq!(stats.by_status.get("completed"), Some(&1));
         assert_eq!(stats.by_status.get("running"), Some(&1));
 
-        let removed = api.cleanup_completed().await.unwrap();
+        let removed = cleanup_completed(&ctx).await.unwrap();
         assert_eq!(removed, 2);
-        assert_eq!(api.count().await.unwrap(), 1);
+        assert_eq!(count(&ctx).await.unwrap(), 1);
     }
 
     #[tokio::test]
@@ -1056,23 +1047,24 @@ mod tests {
         let ctx = make_ctx();
         register_loop(&ctx, "loop-h", ExecutionStatus::Completed).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        let history = api.iteration_history("loop-h").await.unwrap();
+        let history = iteration_history(&ctx, "loop-h").await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].iteration, 1);
         assert_eq!(history[0].tool_call_count, 1);
         assert_eq!(history[0].tool_calls[0].name, "search");
         assert!(history[0].duration >= 0);
 
-        let summary = api
-            .iteration_history_summary("loop-h")
+        let summary = iteration_history_summary(&ctx, "loop-h")
             .await
             .unwrap()
             .unwrap();
         assert_eq!(summary.total_iterations, 1);
         assert_eq!(summary.total_tool_calls, 1);
         assert_eq!(summary.status, ExecutionStatus::Completed);
-        assert!(api.iteration_history_summary("missing").await.unwrap().is_none());
+        assert!(iteration_history_summary(&ctx, "missing")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -1080,26 +1072,26 @@ mod tests {
         let ctx = make_ctx();
         register_loop(&ctx, "loop-t", ExecutionStatus::Completed).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        let timeline = api.execution_timeline("loop-t").await.unwrap();
+        let timeline = execution_timeline(&ctx, "loop-t").await.unwrap();
         assert!(!timeline.is_empty());
-        assert!(timeline.windows(2).all(|w| w[0].timestamp <= w[1].timestamp));
-        assert!(timeline.iter().any(|e| matches!(e.r#type, ExecutionTimelineEntryType::ExecutionStart)));
-        assert!(timeline.iter().any(|e| matches!(e.r#type, ExecutionTimelineEntryType::ExecutionCompleted)));
+        assert!(timeline
+            .windows(2)
+            .all(|w| w[0].timestamp <= w[1].timestamp));
+        assert!(timeline
+            .iter()
+            .any(|e| matches!(e.r#type, ExecutionTimelineEntryType::ExecutionStart)));
+        assert!(timeline
+            .iter()
+            .any(|e| matches!(e.r#type, ExecutionTimelineEntryType::ExecutionCompleted)));
 
-        let path = api.execution_path("loop-t").await.unwrap().unwrap();
+        let path = execution_path(&ctx, "loop-t").await.unwrap().unwrap();
         assert_eq!(path.execution_id, "loop-t");
         assert_eq!(path.iterations.len(), 1);
         assert_eq!(path.iterations[0].tool_calls[0].name, "search");
         assert!(path.total_duration.is_some());
 
         // Timeline for a persisted record after the live entity is dropped.
-        let record = ctx
-            .storage
-            .agent_execution
-            .load("loop-t")
-            .await
-            .unwrap();
+        let record = ctx.storage.agent_execution.load("loop-t").await.unwrap();
         assert!(record.is_none());
     }
 
@@ -1109,8 +1101,7 @@ mod tests {
         register_loop(&ctx, "loop-1", ExecutionStatus::Completed).await;
         register_loop(&ctx, "loop-2", ExecutionStatus::Failed).await;
 
-        let api = AgentLoopRegistryApi::new(ctx.clone());
-        let stats = api.execution_statistics().await.unwrap();
+        let stats = execution_statistics(&ctx).await.unwrap();
         assert_eq!(stats.total, 2);
         assert_eq!(stats.completed, 1);
         assert_eq!(stats.failed, 1);
@@ -1147,16 +1138,15 @@ mod tests {
             Arc::new(Registries::new()),
             Arc::new(BundleRegistry::new()),
         ));
-        let api = AgentLoopRegistryApi::new(ctx);
-        let summary = api.summary("persisted-loop").await.unwrap().unwrap();
+        let summary = summary(&ctx, "persisted-loop").await.unwrap().unwrap();
         assert_eq!(summary.status, ExecutionStatus::Completed);
         assert_eq!(summary.current_iteration, 2);
 
-        let history = api.iteration_history("persisted-loop").await.unwrap();
+        let history = iteration_history(&ctx, "persisted-loop").await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].duration, 1000);
 
-        let stats = api.statistics().await.unwrap();
+        let stats = statistics(&ctx).await.unwrap();
         assert_eq!(stats.total, 1);
     }
 }

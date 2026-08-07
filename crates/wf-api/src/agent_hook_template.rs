@@ -1,4 +1,5 @@
-use std::sync::Arc;
+//! Agent hook template registry (TS `AgentHookTemplateRegistryAPI` counterpart).
+
 
 use serde::Serialize;
 
@@ -7,7 +8,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::AgentHookTemplateStorageMetadata;
 
 use crate::context::ApiContext;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{not_found, ApiError, ApiResult};
 
 /// Agent hook template filter (TS `AgentHookTemplateFilter`).
 #[derive(Debug, Clone, Default)]
@@ -33,170 +34,180 @@ pub struct AgentHookTemplateSummary {
     pub updated_at: i64,
 }
 
-/// Agent hook template registry (TS `AgentHookTemplateRegistryAPI` counterpart).
-pub struct AgentHookTemplateRegistryApi {
-    ctx: Arc<ApiContext>,
+/// Query hook templates with an optional filter.
+pub async fn query(
+    ctx: &ApiContext,
+    filter: Option<&AgentHookTemplateFilter>,
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    let options = filter.map(|f| AgentHookTemplateListOptions {
+        offset: None,
+        limit: None,
+        hook_type_filter: f.hook_type.clone(),
+        name_filter: f.name.clone(),
+        category_filter: f.category.clone(),
+    });
+    let mut templates = ctx.storage.agent_hook_template.list(options).await?;
+    if let Some(filter) = filter {
+        if let Some(tags) = &filter.tags {
+            templates.retain(|t| {
+                tags.is_empty()
+                    || t.tags
+                        .as_ref()
+                        .map(|existing| tags.iter().any(|tag| existing.contains(tag)))
+                        .unwrap_or(false)
+            });
+        }
+    }
+    Ok(templates)
 }
 
-impl AgentHookTemplateRegistryApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
-
-    /// Query hook templates with an optional filter.
-    pub async fn query(
-        &self,
-        filter: Option<&AgentHookTemplateFilter>,
-    ) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        let options = filter.map(|f| AgentHookTemplateListOptions {
-            offset: None,
-            limit: None,
-            hook_type_filter: f.hook_type.clone(),
-            name_filter: f.name.clone(),
-            category_filter: f.category.clone(),
-        });
-        let mut templates = self.ctx.storage.agent_hook_template.list(options).await?;
-        if let Some(filter) = filter {
-            if let Some(tags) = &filter.tags {
-                templates.retain(|t| {
-                    tags.is_empty()
-                        || t.tags
-                            .as_ref()
-                            .map(|existing| tags.iter().any(|tag| existing.contains(tag)))
-                            .unwrap_or(false)
-                });
-            }
-        }
-        Ok(templates)
-    }
-
-    pub async fn query_by_hook_type(&self, hook_type: &str) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        self.query(Some(&AgentHookTemplateFilter {
+pub async fn query_by_hook_type(
+    ctx: &ApiContext,
+    hook_type: &str,
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    query(
+        ctx,
+        Some(&AgentHookTemplateFilter {
             hook_type: Some(hook_type.to_string()),
             ..AgentHookTemplateFilter::default()
-        }))
-        .await
-    }
+        }),
+    )
+    .await
+}
 
-    pub async fn query_by_category(&self, category: &str) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        self.query(Some(&AgentHookTemplateFilter {
+pub async fn query_by_category(
+    ctx: &ApiContext,
+    category: &str,
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    query(
+        ctx,
+        Some(&AgentHookTemplateFilter {
             category: Some(category.to_string()),
             ..AgentHookTemplateFilter::default()
-        }))
-        .await
-    }
+        }),
+    )
+    .await
+}
 
-    pub async fn query_by_tags(&self, tags: &[String]) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        self.query(Some(&AgentHookTemplateFilter {
+pub async fn query_by_tags(
+    ctx: &ApiContext,
+    tags: &[String],
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    query(
+        ctx,
+        Some(&AgentHookTemplateFilter {
             tags: Some(tags.to_vec()),
             ..AgentHookTemplateFilter::default()
-        }))
+        }),
+    )
+    .await
+}
+
+/// Templates applicable to a hook type (alias for `query_by_hook_type`).
+pub async fn templates_for_hook(
+    ctx: &ApiContext,
+    hook_type: &str,
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    query_by_hook_type(ctx, hook_type).await
+}
+
+/// Template summaries, optionally filtered.
+pub async fn summaries(
+    ctx: &ApiContext,
+    filter: Option<&AgentHookTemplateFilter>,
+) -> ApiResult<Vec<AgentHookTemplateSummary>> {
+    Ok(query(ctx, filter)
+        .await?
+        .into_iter()
+        .map(|t| AgentHookTemplateSummary {
+            id: t.id.to_string(),
+            name: t.name,
+            hook_type: t.hook_type,
+            description: t.description,
+            category: t.category,
+            tags: t.tags,
+            updated_at: t.updated_at,
+        })
+        .collect())
+}
+
+/// Keyword search over template names / descriptions.
+pub async fn search(
+    ctx: &ApiContext,
+    keyword: &str,
+) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
+    let keyword = keyword.trim().to_lowercase();
+    let all = ctx.storage.agent_hook_template.list(None).await?;
+    Ok(all
+        .into_iter()
+        .filter(|t| {
+            t.name.to_lowercase().contains(&keyword)
+                || t.description
+                    .as_deref()
+                    .map(|d| d.to_lowercase().contains(&keyword))
+                    .unwrap_or(false)
+        })
+        .collect())
+}
+
+/// Validate a hook template: the hook type must be non-empty.
+pub fn validate(_ctx: &ApiContext, template: &AgentHookTemplateStorageMetadata) -> ApiResult<()> {
+    if template.name.trim().is_empty() {
+        return Err(ApiError::Validation("hook template name is empty".into()));
+    }
+    if template.hook_type.trim().is_empty() {
+        return Err(ApiError::Validation("hook template hook_type is empty".into()));
+    }
+    Ok(())
+}
+
+/// Register or overwrite a hook template.
+pub async fn save(ctx: &ApiContext, template: &AgentHookTemplateStorageMetadata) -> ApiResult<()> {
+    validate(ctx, template)?;
+    ctx.storage.agent_hook_template.save(template).await?;
+    Ok(())
+}
+
+pub async fn get(ctx: &ApiContext, id: &str) -> ApiResult<AgentHookTemplateStorageMetadata> {
+    ctx.storage
+        .agent_hook_template
+        .load(id)
+        .await?
+        .ok_or_else(|| not_found("agent_hook_template", id))
+}
+
+pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
+    ctx.storage
+        .agent_hook_template
+        .delete(id)
         .await
-    }
+        .map_err(Into::into)
+}
 
-    /// Templates applicable to a hook type (alias for `query_by_hook_type`).
-    pub async fn templates_for_hook(&self, hook_type: &str) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        self.query_by_hook_type(hook_type).await
-    }
+/// Export a template by name as a JSON string.
+pub async fn export_template(ctx: &ApiContext, name: &str) -> ApiResult<String> {
+    let template = ctx
+        .storage
+        .agent_hook_template
+        .list(None)
+        .await?
+        .into_iter()
+        .find(|t| t.name == name)
+        .ok_or_else(|| not_found("agent_hook_template", name))?;
+    serde_json::to_string_pretty(&template).map_err(Into::into)
+}
 
-    /// Template summaries, optionally filtered.
-    pub async fn summaries(
-        &self,
-        filter: Option<&AgentHookTemplateFilter>,
-    ) -> ApiResult<Vec<AgentHookTemplateSummary>> {
-        Ok(self
-            .query(filter)
-            .await?
-            .into_iter()
-            .map(|t| AgentHookTemplateSummary {
-                id: t.id.to_string(),
-                name: t.name,
-                hook_type: t.hook_type,
-                description: t.description,
-                category: t.category,
-                tags: t.tags,
-                updated_at: t.updated_at,
-            })
-            .collect())
-    }
-
-    /// Keyword search over template names / descriptions.
-    pub async fn search(&self, keyword: &str) -> ApiResult<Vec<AgentHookTemplateStorageMetadata>> {
-        let keyword = keyword.trim().to_lowercase();
-        let all = self.ctx.storage.agent_hook_template.list(None).await?;
-        Ok(all
-            .into_iter()
-            .filter(|t| {
-                t.name.to_lowercase().contains(&keyword)
-                    || t.description
-                        .as_deref()
-                        .map(|d| d.to_lowercase().contains(&keyword))
-                        .unwrap_or(false)
-            })
-            .collect())
-    }
-
-    /// Validate a hook template: the hook type must be non-empty.
-    pub fn validate(&self, template: &AgentHookTemplateStorageMetadata) -> ApiResult<()> {
-        if template.name.trim().is_empty() {
-            return Err(ApiError::Validation("hook template name is empty".into()));
-        }
-        if template.hook_type.trim().is_empty() {
-            return Err(ApiError::Validation("hook template hook_type is empty".into()));
-        }
-        Ok(())
-    }
-
-    /// Register or overwrite a hook template.
-    pub async fn save(&self, template: &AgentHookTemplateStorageMetadata) -> ApiResult<()> {
-        self.validate(template)?;
-        self.ctx.storage.agent_hook_template.save(template).await?;
-        Ok(())
-    }
-
-    pub async fn get(&self, id: &str) -> ApiResult<AgentHookTemplateStorageMetadata> {
-        self.ctx
-            .storage
-            .agent_hook_template
-            .load(id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("agent_hook_template", id))
-    }
-
-    pub async fn delete(&self, id: &str) -> ApiResult<bool> {
-        self.ctx
-            .storage
-            .agent_hook_template
-            .delete(id)
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Export a template by name as a JSON string.
-    pub async fn export_template(&self, name: &str) -> ApiResult<String> {
-        let template = self
-            .ctx
-            .storage
-            .agent_hook_template
-            .list(None)
-            .await?
-            .into_iter()
-            .find(|t| t.name == name)
-            .ok_or_else(|| ApiError::not_found("agent_hook_template", name))?;
-        serde_json::to_string_pretty(&template).map_err(Into::into)
-    }
-
-    /// Import a template from a JSON string; returns the imported id.
-    pub async fn import_template(&self, json: &str) -> ApiResult<String> {
-        let template: AgentHookTemplateStorageMetadata =
-            serde_json::from_str(json).map_err(ApiError::from)?;
-        self.save(&template).await?;
-        Ok(template.id.to_string())
-    }
+/// Import a template from a JSON string; returns the imported id.
+pub async fn import_template(ctx: &ApiContext, json: &str) -> ApiResult<String> {
+    let template: AgentHookTemplateStorageMetadata =
+        serde_json::from_str(json).map_err(ApiError::from)?;
+    save(ctx, &template).await?;
+    Ok(template.id.to_string())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
@@ -227,50 +238,48 @@ mod tests {
     #[tokio::test]
     async fn query_by_hook_type_category_tags_and_search() {
         let ctx = make_ctx();
-        let api = AgentHookTemplateRegistryApi::new(ctx.clone());
-        api.save(&make_template("h1", "before_iteration")).await.unwrap();
-        api.save(&make_template("h2", "after_tool_call")).await.unwrap();
+        save(&ctx, &make_template("h1", "before_iteration")).await.unwrap();
+        save(&ctx, &make_template("h2", "after_tool_call")).await.unwrap();
 
-        let all = api.query(None).await.unwrap();
+        let all = query(&ctx, None).await.unwrap();
         assert_eq!(all.len(), 2);
 
-        let before = api.query_by_hook_type("before_iteration").await.unwrap();
+        let before = query_by_hook_type(&ctx, "before_iteration").await.unwrap();
         assert_eq!(before.len(), 1);
 
-        let lifecycle = api.query_by_category("lifecycle").await.unwrap();
+        let lifecycle = query_by_category(&ctx, "lifecycle").await.unwrap();
         assert_eq!(lifecycle.len(), 2);
 
-        let tagged = api.query_by_tags(&["tag-h".to_string()]).await.unwrap();
+        let tagged = query_by_tags(&ctx, &["tag-h".to_string()]).await.unwrap();
         assert_eq!(tagged.len(), 2);
 
-        let for_hook = api.templates_for_hook("before_iteration").await.unwrap();
+        let for_hook = templates_for_hook(&ctx, "before_iteration").await.unwrap();
         assert_eq!(for_hook.len(), 1);
 
-        let matches = api.search("desc h2").await.unwrap();
+        let matches = search(&ctx, "desc h2").await.unwrap();
         assert_eq!(matches.len(), 1);
     }
 
     #[tokio::test]
     async fn validate_and_summaries_and_import_export() {
         let ctx = make_ctx();
-        let api = AgentHookTemplateRegistryApi::new(ctx.clone());
 
         let invalid = AgentHookTemplateStorageMetadata {
             name: "".into(),
             ..make_template("bad", "before_iteration")
         };
-        let err = api.save(&invalid).await.unwrap_err();
+        let err = save(&ctx, &invalid).await.unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
 
-        api.save(&make_template("h1", "before_iteration")).await.unwrap();
-        let summaries = api.summaries(None).await.unwrap();
+        save(&ctx, &make_template("h1", "before_iteration")).await.unwrap();
+        let summaries = summaries(&ctx, None).await.unwrap();
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].hook_type, "before_iteration");
 
-        let exported = api.export_template("hook-h1").await.unwrap();
-        let imported_id = api.import_template(&exported).await.unwrap();
+        let exported = export_template(&ctx, "hook-h1").await.unwrap();
+        let imported_id = import_template(&ctx, &exported).await.unwrap();
         assert_eq!(imported_id, "h1");
 
-        assert!(api.delete("h1").await.unwrap());
+        assert!(delete(&ctx, "h1").await.unwrap());
     }
 }

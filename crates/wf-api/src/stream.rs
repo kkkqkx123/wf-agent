@@ -107,21 +107,16 @@ pub fn spawn_execution_stream(
         return (ExecutionEventStream { rx }, ExecutionStreamSink { tx });
     };
     let mut sub = bus.subscribe();
-    let filter = execution_id.clone();
+    let filter = crate::subscription::EventSubscriptionOptions {
+        execution_id: Some(execution_id.clone()),
+        ..crate::subscription::EventSubscriptionOptions::default()
+    };
     tokio::spawn(async move {
         while let Ok(event) = sub.recv().await {
-            if event.execution_id.as_deref() != Some(filter.as_str()) {
+            if !filter.matches(&event) {
                 continue;
             }
-            let terminal = matches!(
-                event.r#type,
-                wf_types::events::EventType::WorkflowExecutionCompleted
-                    | wf_types::events::EventType::WorkflowExecutionFailed
-                    | wf_types::events::EventType::WorkflowExecutionCancelled
-                    | wf_types::events::EventType::AgentCompleted
-                    | wf_types::events::EventType::AgentFailed
-                    | wf_types::events::EventType::AgentCancelled
-            );
+            let terminal = crate::subscription::EventSubscriptionOptions::is_terminal(&event);
             if forward_tx
                 .send(ExecutionStreamEvent::Engine(event))
                 .await

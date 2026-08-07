@@ -28,7 +28,6 @@ pub use wf_config::processor::agent_loop::{
 pub use wf_config::processor::checkpoint::validate_checkpoint_config;
 pub use wf_config::processor::file_checkpoint::validate_file_checkpoint_config;
 pub use wf_config::processor::hook::validate_hook_template;
-pub use wf_config::processor::llm_profile::validate_llm_profile;
 pub use wf_config::processor::node_config::{
     validate_all_node_configs, validate_node_config, NodeConfigIssue,
 };
@@ -72,79 +71,70 @@ pub use wf_config::orchestrator::{
 };
 pub use wf_config::ConfigError;
 
-/// Stateless facade grouping the most common config operations.
-pub struct ConfigApi;
+/// Parse a workflow definition from TOML or JSON text.
+pub fn parse_workflow(content: &str, format: ConfigFormat) -> crate::ApiResult<WorkflowDefinition> {
+    parse_config(content, format).map_err(Into::into)
+}
 
-impl ConfigApi {
-    /// Parse a workflow definition from TOML or JSON text.
-    pub fn parse_workflow(
-        content: &str,
-        format: ConfigFormat,
-    ) -> crate::ApiResult<WorkflowDefinition> {
-        parse_config(content, format).map_err(Into::into)
-    }
+/// Parse a workflow definition from a config file.
+pub fn parse_workflow_file(path: &Path) -> crate::ApiResult<WorkflowDefinition> {
+    parse_config_file(path).map_err(Into::into)
+}
 
-    /// Parse a workflow definition from a config file.
-    pub fn parse_workflow_file(path: &Path) -> crate::ApiResult<WorkflowDefinition> {
-        parse_config_file(path).map_err(Into::into)
-    }
+/// Validate a workflow definition (config-level checks).
+pub fn validate_workflow(definition: &WorkflowDefinition) -> crate::ApiResult<()> {
+    validate_workflow_definition(definition).map_err(Into::into)
+}
 
-    /// Validate a workflow definition (config-level checks).
-    pub fn validate_workflow(&self, definition: &WorkflowDefinition) -> crate::ApiResult<()> {
-        validate_workflow_definition(definition).map_err(Into::into)
-    }
+/// Validate an LLM profile.
+pub fn validate_llm_profile(profile: &LlmProfile) -> crate::ApiResult<()> {
+    wf_config::processor::llm_profile::validate_llm_profile(profile).map_err(Into::into)
+}
 
-    /// Validate an LLM profile.
-    pub fn validate_llm_profile(&self, profile: &LlmProfile) -> crate::ApiResult<()> {
-        validate_llm_profile(profile).map_err(Into::into)
-    }
+/// Validate an agent definition.
+pub fn validate_agent(definition: &AgentDefinition) -> crate::ApiResult<()> {
+    validate_agent_definition(definition).map_err(Into::into)
+}
 
-    /// Validate an agent definition.
-    pub fn validate_agent(&self, definition: &AgentDefinition) -> crate::ApiResult<()> {
-        validate_agent_definition(definition).map_err(Into::into)
+/// Validate a single node config by node type.
+pub fn validate_node(
+    node_type: &str,
+    node_id: &str,
+    config: Option<&Value>,
+) -> crate::ApiResult<()> {
+    let issues = validate_node_config(node_type, node_id, config);
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        let detail = issues
+            .iter()
+            .map(|i| format!("{}: {}", i.field, i.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Err(crate::ApiError::Validation(detail))
     }
+}
 
-    /// Validate a single node config by node type.
-    pub fn validate_node(
-        &self,
-        node_type: &str,
-        node_id: &str,
-        config: Option<&Value>,
-    ) -> crate::ApiResult<()> {
-        let issues = validate_node_config(node_type, node_id, config);
-        if issues.is_empty() {
-            Ok(())
-        } else {
-            let detail = issues
-                .iter()
-                .map(|i| format!("{}: {}", i.field, i.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            Err(crate::ApiError::Validation(detail))
-        }
-    }
+/// Transform declarative node configs into static nodes.
+pub fn transform_workflow_nodes(nodes: &[WorkflowNodeConfig]) -> Vec<BaseStaticNode> {
+    transform_nodes(nodes)
+}
 
-    /// Transform declarative node configs into static nodes.
-    pub fn transform_workflow_nodes(&self, nodes: &[WorkflowNodeConfig]) -> Vec<BaseStaticNode> {
-        transform_nodes(nodes)
-    }
+/// Transform declarative edge configs into edges.
+pub fn transform_workflow_edges(edges: &[WorkflowEdgeConfig]) -> Vec<Edge> {
+    transform_edges(edges)
+}
 
-    /// Transform declarative edge configs into edges.
-    pub fn transform_workflow_edges(&self, edges: &[WorkflowEdgeConfig]) -> Vec<Edge> {
-        transform_edges(edges)
-    }
+/// Serialize a config value as pretty JSON.
+pub fn export_json<T: Serialize>(value: &T) -> crate::ApiResult<String> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| crate::ApiError::execution(format!("failed to serialize config: {e}")))
+}
 
-    /// Serialize a config value as pretty JSON.
-    pub fn export_json<T: Serialize>(&self, value: &T) -> crate::ApiResult<String> {
-        serde_json::to_string_pretty(value)
-            .map_err(|e| crate::ApiError::Execution(format!("failed to serialize config: {e}")))
-    }
-
-    /// Serialize a config value as pretty TOML.
-    pub fn export_toml<T: Serialize>(&self, value: &T) -> crate::ApiResult<String> {
-        toml::to_string_pretty(value)
-            .map_err(|e| crate::ApiError::Execution(format!("failed to serialize config: {e}")))
-    }
+/// Serialize a config value as pretty TOML.
+pub fn export_toml<T: Serialize>(value: &T) -> crate::ApiResult<String> {
+    toml::to_string_pretty(value)
+        .map_err(|e| crate::ApiError::execution(format!("failed to serialize config: {e}")))
 }
 
 #[cfg(test)]
@@ -166,15 +156,15 @@ mod tests {
             "created_at": 0,
             "updated_at": 0
         }"#;
-        let wf = ConfigApi::parse_workflow(content, ConfigFormat::Json).unwrap();
+        let wf = parse_workflow(content, ConfigFormat::Json).unwrap();
         assert_eq!(wf.id, "wf-1");
         assert_eq!(wf.nodes.len(), 2);
-        assert!(ConfigApi.validate_workflow(&wf).is_ok());
+        assert!(validate_workflow(&wf).is_ok());
     }
 
     #[test]
     fn rejects_malformed_json() {
-        let err = ConfigApi::parse_workflow("{not json", ConfigFormat::Json).unwrap_err();
+        let err = parse_workflow("{not json", ConfigFormat::Json).unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
@@ -187,7 +177,7 @@ mod tests {
             description: None,
             config: Some(serde_json::json!({"profile_id": "mock"})),
         }];
-        let built = ConfigApi.transform_workflow_nodes(&nodes);
+        let built = transform_workflow_nodes(&nodes);
         assert_eq!(built.len(), 1);
         assert_eq!(built[0].node_type, wf_types::node::StaticNodeType::Llm);
 
@@ -200,7 +190,7 @@ mod tests {
             description: None,
             weight: None,
         }];
-        let built = ConfigApi.transform_workflow_edges(&edges);
+        let built = transform_workflow_edges(&edges);
         assert_eq!(built.len(), 1);
         assert_eq!(built[0].r#type, wf_types::workflow::EdgeType::Default);
     }
@@ -208,24 +198,21 @@ mod tests {
     #[test]
     fn exports_json_and_toml() {
         let value = serde_json::json!({"name": "test", "nested": {"enabled": true}});
-        let json = ConfigApi.export_json(&value).unwrap();
+        let json = export_json(&value).unwrap();
         assert!(json.contains("\"name\": \"test\""));
 
-        let toml_out = ConfigApi.export_toml(&value).unwrap();
+        let toml_out = export_toml(&value).unwrap();
         assert!(toml_out.contains("enabled = true"));
     }
 
     #[test]
     fn validates_node_config() {
-        assert!(ConfigApi
-            .validate_node(
-                "LLM",
-                "n1",
-                Some(&serde_json::json!({"profile_id": "mock"}))
-            )
-            .is_ok());
-        assert!(ConfigApi
-            .validate_node("LLM", "n1", Some(&serde_json::json!({})))
-            .is_err());
+        assert!(validate_node(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({"profile_id": "mock"}))
+        )
+        .is_ok());
+        assert!(validate_node("LLM", "n1", Some(&serde_json::json!({}))).is_err());
     }
 }

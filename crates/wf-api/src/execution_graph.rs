@@ -9,7 +9,6 @@
 //! conditional edge a branching node actually took.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -17,7 +16,8 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::context::ApiContext;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{not_found, ApiError, ApiResult};
+use crate::util::round2;
 use crate::workflow_execution::definition_to_graph;
 
 /// Upper bound on enumerated paths to keep DFS bounded on dense graphs.
@@ -62,11 +62,6 @@ pub struct ExecutionPathAnalysis {
     pub decision_points: Vec<DecisionPoint>,
     /// Node ids that exist in the graph but were not executed.
     pub unexecuted_nodes: Vec<String>,
-}
-
-/// Execution-graph queries over workflow executions.
-pub struct ExecutionGraphApi {
-    ctx: Arc<ApiContext>,
 }
 
 /// One slow node above a duration percentile threshold (TS `getSlowNodes`).
@@ -131,421 +126,405 @@ pub struct PathProbabilityAnalysis {
     pub path_diversity: f64,
 }
 
-impl ExecutionGraphApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Enumerate execution paths, critical path, node-type distribution and
+/// decision points for an execution. Degrades gracefully to an empty
+/// analysis when neither the live entity nor a persisted graph is
+/// available.
+pub async fn analyze(ctx: &ApiContext, execution_id: &str) -> ApiResult<ExecutionPathAnalysis> {
+    let workflow_id = if let Some(entity) = ctx.workflow_execution(execution_id) {
+        Some(entity.workflow_id().to_string())
+    } else if let Some(record) = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+    {
+        Some(record.workflow_id.to_string())
+    } else {
+        None
+    };
+
+    let graph = resolve_graph(ctx, execution_id)
+        .await?
+        .unwrap_or_else(WorkflowGraphStructure::default_empty);
+    let paths = enumerate_paths(&graph);
+    let critical_path = paths
+        .iter()
+        .max_by_key(|path| path.length)
+        .cloned()
+        .unwrap_or(ExecutionPath {
+            nodes: Vec::new(),
+            length: 0,
+        });
+
+    let mut node_type_distribution = BTreeMap::new();
+    for node in &graph.nodes {
+        *node_type_distribution
+            .entry(node.node_type.clone())
+            .or_insert(0) += 1;
     }
 
-    /// Enumerate execution paths, critical path, node-type distribution and
-    /// decision points for an execution. Degrades gracefully to an empty
-    /// analysis when neither the live entity nor a persisted graph is
-    /// available.
-    pub async fn analyze(&self, execution_id: &str) -> ApiResult<ExecutionPathAnalysis> {
-        let workflow_id = if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            Some(entity.workflow_id().to_string())
-        } else if let Some(record) = self
-            .ctx
+    let executed_nodes = executed_nodes(ctx, execution_id).await;
+    let decision_points = analyze_decision_points(&graph, &executed_nodes);
+
+    let executed_set: HashSet<&str> = executed_nodes.iter().map(String::as_str).collect();
+    let unexecuted_nodes = graph
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .filter(|id| !executed_set.contains(id.as_str()))
+        .collect();
+
+    Ok(ExecutionPathAnalysis {
+        execution_id: execution_id.to_string(),
+        workflow_id,
+        paths,
+        critical_path,
+        node_type_distribution,
+        executed_nodes,
+        decision_points,
+        unexecuted_nodes,
+    })
+}
+
+/// Resolve the graph of an execution: the live entity has none, the
+/// persisted record may carry one, otherwise the workflow definition is
+/// converted (flat template semantics).
+async fn resolve_graph(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option<WorkflowGraphStructure>> {
+    if let Some(record) = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+    {
+        if let Some(graph) = record.graph {
+            return Ok(Some(graph));
+        }
+        let definition = ctx
             .storage
-            .workflow_execution
-            .load(execution_id)
+            .workflow
+            .load(&record.workflow_id)
             .await?
-        {
-            Some(record.workflow_id.to_string())
-        } else {
-            None
-        };
-
-        let graph = self
-            .resolve_graph(execution_id)
-            .await?
-            .unwrap_or_else(WorkflowGraphStructure::default_empty);
-        let paths = enumerate_paths(&graph);
-        let critical_path = paths
-            .iter()
-            .max_by_key(|path| path.length)
-            .cloned()
-            .unwrap_or(ExecutionPath {
-                nodes: Vec::new(),
-                length: 0,
-            });
-
-        let mut node_type_distribution = BTreeMap::new();
-        for node in &graph.nodes {
-            *node_type_distribution
-                .entry(node.node_type.clone())
-                .or_insert(0) += 1;
-        }
-
-        let executed_nodes = self.executed_nodes(execution_id).await;
-        let decision_points = analyze_decision_points(&graph, &executed_nodes);
-
-        let executed_set: HashSet<&str> = executed_nodes.iter().map(String::as_str).collect();
-        let unexecuted_nodes = graph
-            .nodes
-            .iter()
-            .map(|n| n.id.clone())
-            .filter(|id| !executed_set.contains(id.as_str()))
-            .collect();
-
-        Ok(ExecutionPathAnalysis {
-            execution_id: execution_id.to_string(),
-            workflow_id,
-            paths,
-            critical_path,
-            node_type_distribution,
-            executed_nodes,
-            decision_points,
-            unexecuted_nodes,
-        })
+            .ok_or_else(|| not_found("workflow", &record.workflow_id))?;
+        return Ok(Some(definition_to_graph(&definition)));
     }
+    Ok(None)
+}
 
-    /// Resolve the graph of an execution: the live entity has none, the
-    /// persisted record may carry one, otherwise the workflow definition is
-    /// converted (flat template semantics).
-    async fn resolve_graph(&self, execution_id: &str) -> ApiResult<Option<WorkflowGraphStructure>> {
-        if let Some(record) = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-        {
-            if let Some(graph) = record.graph {
-                return Ok(Some(graph));
-            }
-            let definition = self
-                .ctx
-                .storage
-                .workflow
-                .load(&record.workflow_id)
-                .await?
-                .ok_or_else(|| ApiError::not_found("workflow", &record.workflow_id))?;
-            return Ok(Some(definition_to_graph(&definition)));
-        }
-        Ok(None)
-    }
-
-    /// Actual execution order from the live entity's node execution history
-    /// (successful attempts only, in start-time order), falling back to the
-    /// persisted record's `node_results` after a restart.
-    async fn executed_nodes(&self, execution_id: &str) -> Vec<String> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let state = entity.state.read().await;
-            let mut records = state.node_execution_history().to_vec();
-            records.sort_by_key(|r| r.start_time);
-            return records
-                .into_iter()
-                .filter(|r| r.success)
-                .map(|r| r.node_id)
-                .collect();
-        }
-        let Ok(Some(record)) = self.ctx.storage.workflow_execution.load(execution_id).await else {
-            return Vec::new();
-        };
-        let mut results = record.node_results.unwrap_or_default();
-        results.sort_by_key(|r| r.started_at.unwrap_or(0));
-        results
+/// Actual execution order from the live entity's node execution history
+/// (successful attempts only, in start-time order), falling back to the
+/// persisted record's `node_results` after a restart.
+async fn executed_nodes(ctx: &ApiContext, execution_id: &str) -> Vec<String> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let state = entity.state.read().await;
+        let mut records = state.node_execution_history().to_vec();
+        records.sort_by_key(|r| r.start_time);
+        return records
             .into_iter()
-            .filter(|r| r.status == "completed")
+            .filter(|r| r.success)
             .map(|r| r.node_id)
-            .collect()
+            .collect();
     }
+    let Ok(Some(record)) = ctx.storage.workflow_execution.load(execution_id).await else {
+        return Vec::new();
+    };
+    let mut results = record.node_results.unwrap_or_default();
+    results.sort_by_key(|r| r.started_at.unwrap_or(0));
+    results
+        .into_iter()
+        .filter(|r| r.status == "completed")
+        .map(|r| r.node_id)
+        .collect()
+}
 
-    /// Node timing records of an execution: the live entity's node execution
-    /// history, otherwise the persisted record's `node_results`.
-    async fn node_timings(&self, execution_id: &str) -> Vec<NodeTiming> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let state = entity.state.read().await;
-            let mut records: Vec<_> = state
-                .node_execution_history()
-                .iter()
-                .map(|r| NodeTiming {
-                    node_id: r.node_id.clone(),
-                    node_name: r.node_name.clone(),
-                    node_type: r.node_type.clone(),
-                    duration_ms: r
-                        .end_time
-                        .map(|end| (end - r.start_time).max(0))
-                        .unwrap_or(0),
-                    success: r.success,
-                })
-                .collect();
-            records.sort_by_key(|r| r.node_id.clone());
-            return records;
-        }
-        let Ok(Some(record)) = self.ctx.storage.workflow_execution.load(execution_id).await else {
-            return Vec::new();
-        };
-        record
-            .node_results
-            .unwrap_or_default()
-            .into_iter()
-            .map(|result| NodeTiming {
-                node_id: result.node_id.clone(),
-                node_name: result.node_id.clone(),
-                node_type: "unknown".to_string(),
-                duration_ms: result
-                    .completed_at
-                    .zip(result.started_at)
-                    .map(|(end, start)| (end - start).max(0))
+/// Node timing records of an execution: the live entity's node execution
+/// history, otherwise the persisted record's `node_results`.
+async fn node_timings(ctx: &ApiContext, execution_id: &str) -> Vec<NodeTiming> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let state = entity.state.read().await;
+        let mut records: Vec<_> = state
+            .node_execution_history()
+            .iter()
+            .map(|r| NodeTiming {
+                node_id: r.node_id.clone(),
+                node_name: r.node_name.clone(),
+                node_type: r.node_type.clone(),
+                duration_ms: r
+                    .end_time
+                    .map(|end| (end - r.start_time).max(0))
                     .unwrap_or(0),
-                success: result.status == "completed",
-            })
-            .collect()
-    }
-
-    /// Resolve the graph of an execution and record it onto the persisted
-    /// `WorkflowExecution` record so the real per-execution graph survives a
-    /// restart (TS `recordExecutionGraph`).
-    pub async fn record_execution_graph(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<WorkflowGraphStructure> {
-        let graph = self
-            .resolve_graph(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        if let Some(mut record) = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-        {
-            record.graph = Some(graph.clone());
-            self.ctx.storage.workflow_execution.save(&record).await?;
-        }
-        Ok(graph)
-    }
-
-    /// Nodes whose duration ranks in the slowest `(1 - percentile)` fraction
-    /// of the execution (default percentile 0.8 = slowest 20%). Duration
-    /// comparisons are over positive durations only.
-    pub async fn get_slow_nodes(
-        &self,
-        execution_id: &str,
-        percentile: f64,
-    ) -> ApiResult<Vec<SlowNodeView>> {
-        let timings = self.node_timings(execution_id).await;
-        let percentile = percentile.clamp(0.0, 1.0);
-        let mut candidates: Vec<NodeTiming> =
-            timings.into_iter().filter(|t| t.duration_ms > 0).collect();
-        candidates.sort_by(|a, b| {
-            b.duration_ms
-                .cmp(&a.duration_ms)
-                .then_with(|| a.node_id.cmp(&b.node_id))
-        });
-        if candidates.is_empty() {
-            return Ok(Vec::new());
-        }
-        let keep = ((candidates.len() as f64) * (1.0 - percentile))
-            .ceil()
-            .max(1.0) as usize;
-        Ok(candidates
-            .into_iter()
-            .take(keep)
-            .map(|t| SlowNodeView {
-                node_id: t.node_id,
-                node_name: t.node_name,
-                node_type: t.node_type,
-                duration_ms: t.duration_ms,
-                success: t.success,
-            })
-            .collect())
-    }
-
-    /// Efficiency of the execution relative to the shortest structural path
-    /// through the graph (TS `analyzeEfficiency`).
-    pub async fn analyze_efficiency(&self, execution_id: &str) -> ApiResult<EfficiencyAnalysis> {
-        let graph = self
-            .resolve_graph(execution_id)
-            .await?
-            .unwrap_or_else(WorkflowGraphStructure::default_empty);
-        let paths = enumerate_paths(&graph);
-        let optimal_steps = paths
-            .iter()
-            .map(|p| p.length)
-            .min()
-            .unwrap_or(graph.nodes.len().max(1));
-
-        let timings = self.node_timings(execution_id).await;
-        let executed_steps = timings.iter().filter(|t| t.success).count();
-        let retry_count = timings.iter().filter(|t| !t.success).count();
-
-        let wasteful_nodes = executed_steps.saturating_sub(optimal_steps);
-        let efficiency_ratio = if optimal_steps > 0 {
-            round2(executed_steps as f64 / optimal_steps as f64)
-        } else {
-            0.0
-        };
-
-        Ok(EfficiencyAnalysis {
-            execution_id: execution_id.to_string(),
-            executed_steps,
-            optimal_steps,
-            efficiency_ratio,
-            wasteful_nodes,
-            retry_count,
-        })
-    }
-
-    /// Alternative branches that exist at decision points but were not taken
-    /// during this execution (TS `getAlternativePaths`).
-    pub async fn get_alternative_paths(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<AlternativeDecision>> {
-        let graph = self
-            .resolve_graph(execution_id)
-            .await?
-            .unwrap_or_else(WorkflowGraphStructure::default_empty);
-        let executed_nodes = self.executed_nodes(execution_id).await;
-        let decision_points = analyze_decision_points(&graph, &executed_nodes);
-
-        let mut alternatives = Vec::new();
-        for point in &decision_points {
-            let taken = point.taken_edge.clone();
-            for edge in &graph.edges {
-                if edge.source_node_id != point.node_id {
-                    continue;
-                }
-                if Some(edge.id.as_str()) == taken.as_deref() {
-                    continue;
-                }
-                let target_name = graph
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == edge.target_node_id)
-                    .and_then(|n| n.name.clone())
-                    .unwrap_or_else(|| edge.target_node_id.clone());
-                alternatives.push(AlternativeDecision {
-                    node_id: edge.target_node_id.clone(),
-                    node_name: Some(target_name.clone()),
-                    description: format!(
-                        "Path via {} through edge '{}'",
-                        target_name,
-                        edge.label.clone().unwrap_or_else(|| edge.id.clone())
-                    ),
-                    reason: edge.condition.clone(),
-                    success_probability: None,
-                    confidence: None,
-                });
-            }
-        }
-        alternatives.sort_by(|a, b| a.node_id.cmp(&b.node_id));
-        Ok(alternatives)
-    }
-
-    /// Probability analysis over all structural paths of the execution graph
-    /// (TS `getPathProbabilityAnalysis`).
-    pub async fn get_path_probability_analysis(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<PathProbabilityAnalysis> {
-        let graph = self
-            .resolve_graph(execution_id)
-            .await?
-            .unwrap_or_else(WorkflowGraphStructure::default_empty);
-        let paths = enumerate_paths(&graph);
-        if paths.is_empty() {
-            return Ok(PathProbabilityAnalysis {
-                execution_id: execution_id.to_string(),
-                paths: Vec::new(),
-                most_likely_path: None,
-                least_likely_taken_path: None,
-                path_diversity: 0.0,
-            });
-        }
-
-        let executed_nodes = self.executed_nodes(execution_id).await;
-        let executed_set: HashSet<&str> = executed_nodes.iter().map(String::as_str).collect();
-        let edge_probability = edge_probabilities(&graph);
-
-        let mut entries: Vec<PathProbabilityEntry> = paths
-            .iter()
-            .enumerate()
-            .map(|(index, path)| {
-                let mut probability = 1.0;
-                for window in path.nodes.windows(2) {
-                    let source = &window[0];
-                    let target = &window[1];
-                    probability *= edge_probability
-                        .get(&(source.clone(), target.clone()))
-                        .copied()
-                        .unwrap_or(1.0);
-                }
-                let is_taken = path
-                    .nodes
-                    .iter()
-                    .all(|id| executed_set.contains(id.as_str()));
-                PathProbabilityEntry {
-                    path_id: format!("path-{index}"),
-                    node_ids: path.nodes.clone(),
-                    probability: round3(probability),
-                    is_taken,
-                }
+                success: r.success,
             })
             .collect();
-        entries.sort_by(|a, b| {
-            b.probability
-                .partial_cmp(&a.probability)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        let most_likely_path = entries.first().map(|e| e.node_ids.clone());
-        let taken_paths: Vec<&PathProbabilityEntry> =
-            entries.iter().filter(|e| e.is_taken).collect();
-        let least_likely_taken_path = taken_paths
-            .iter()
-            .min_by(|a, b| {
-                a.probability
-                    .partial_cmp(&b.probability)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|e| e.node_ids.clone());
-
-        let total_probability: f64 = entries.iter().map(|e| e.probability).sum();
-        let path_diversity = if total_probability > 0.0 && entries.len() > 1 {
-            let entropy = -entries
-                .iter()
-                .map(|e| {
-                    let normalized = e.probability / total_probability;
-                    if normalized > 0.0 {
-                        normalized * normalized.log2()
-                    } else {
-                        0.0
-                    }
-                })
-                .sum::<f64>();
-            round3(entropy / (entries.len() as f64).log2())
-        } else {
-            0.0
-        };
-
-        Ok(PathProbabilityAnalysis {
-            execution_id: execution_id.to_string(),
-            paths: entries,
-            most_likely_path,
-            least_likely_taken_path,
-            path_diversity,
+        records.sort_by_key(|r| r.node_id.clone());
+        return records;
+    }
+    let Ok(Some(record)) = ctx.storage.workflow_execution.load(execution_id).await else {
+        return Vec::new();
+    };
+    record
+        .node_results
+        .unwrap_or_default()
+        .into_iter()
+        .map(|result| NodeTiming {
+            node_id: result.node_id.clone(),
+            node_name: result.node_id.clone(),
+            node_type: "unknown".to_string(),
+            duration_ms: result
+                .completed_at
+                .zip(result.started_at)
+                .map(|(end, start)| (end - start).max(0))
+                .unwrap_or(0),
+            success: result.status == "completed",
         })
+        .collect()
+}
+
+/// Resolve the graph of an execution and record it onto the persisted
+/// `WorkflowExecution` record so the real per-execution graph survives a
+/// restart (TS `recordExecutionGraph`).
+pub async fn record_execution_graph(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowGraphStructure> {
+    let graph = resolve_graph(ctx, execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    if let Some(mut record) = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+    {
+        record.graph = Some(graph.clone());
+        ctx.storage.workflow_execution.save(&record).await?;
+    }
+    Ok(graph)
+}
+
+/// Nodes whose duration ranks in the slowest `(1 - percentile)` fraction
+/// of the execution (default percentile 0.8 = slowest 20%). Duration
+/// comparisons are over positive durations only.
+pub async fn get_slow_nodes(
+    ctx: &ApiContext,
+    execution_id: &str,
+    percentile: f64,
+) -> ApiResult<Vec<SlowNodeView>> {
+    let timings = node_timings(ctx, execution_id).await;
+    let percentile = percentile.clamp(0.0, 1.0);
+    let mut candidates: Vec<NodeTiming> =
+        timings.into_iter().filter(|t| t.duration_ms > 0).collect();
+    candidates.sort_by(|a, b| {
+        b.duration_ms
+            .cmp(&a.duration_ms)
+            .then_with(|| a.node_id.cmp(&b.node_id))
+    });
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keep = ((candidates.len() as f64) * (1.0 - percentile))
+        .ceil()
+        .max(1.0) as usize;
+    Ok(candidates
+        .into_iter()
+        .take(keep)
+        .map(|t| SlowNodeView {
+            node_id: t.node_id,
+            node_name: t.node_name,
+            node_type: t.node_type,
+            duration_ms: t.duration_ms,
+            success: t.success,
+        })
+        .collect())
+}
+
+/// Efficiency of the execution relative to the shortest structural path
+/// through the graph (TS `analyzeEfficiency`).
+pub async fn analyze_efficiency(ctx: &ApiContext, execution_id: &str) -> ApiResult<EfficiencyAnalysis> {
+    let graph = resolve_graph(ctx, execution_id)
+        .await?
+        .unwrap_or_else(WorkflowGraphStructure::default_empty);
+    let paths = enumerate_paths(&graph);
+    let optimal_steps = paths
+        .iter()
+        .map(|p| p.length)
+        .min()
+        .unwrap_or(graph.nodes.len().max(1));
+
+    let timings = node_timings(ctx, execution_id).await;
+    let executed_steps = timings.iter().filter(|t| t.success).count();
+    let retry_count = timings.iter().filter(|t| !t.success).count();
+
+    let wasteful_nodes = executed_steps.saturating_sub(optimal_steps);
+    let efficiency_ratio = if optimal_steps > 0 {
+        round2(executed_steps as f64 / optimal_steps as f64)
+    } else {
+        0.0
+    };
+
+    Ok(EfficiencyAnalysis {
+        execution_id: execution_id.to_string(),
+        executed_steps,
+        optimal_steps,
+        efficiency_ratio,
+        wasteful_nodes,
+        retry_count,
+    })
+}
+
+/// Alternative branches that exist at decision points but were not taken
+/// during this execution (TS `getAlternativePaths`).
+pub async fn get_alternative_paths(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<AlternativeDecision>> {
+    let graph = resolve_graph(ctx, execution_id)
+        .await?
+        .unwrap_or_else(WorkflowGraphStructure::default_empty);
+    let executed_nodes = executed_nodes(ctx, execution_id).await;
+    let decision_points = analyze_decision_points(&graph, &executed_nodes);
+
+    let mut alternatives = Vec::new();
+    for point in &decision_points {
+        let taken = point.taken_edge.clone();
+        for edge in &graph.edges {
+            if edge.source_node_id != point.node_id {
+                continue;
+            }
+            if Some(edge.id.as_str()) == taken.as_deref() {
+                continue;
+            }
+            let target_name = graph
+                .nodes
+                .iter()
+                .find(|n| n.id == edge.target_node_id)
+                .and_then(|n| n.name.clone())
+                .unwrap_or_else(|| edge.target_node_id.clone());
+            alternatives.push(AlternativeDecision {
+                node_id: edge.target_node_id.clone(),
+                node_name: Some(target_name.clone()),
+                description: format!(
+                    "Path via {} through edge '{}'",
+                    target_name,
+                    edge.label.clone().unwrap_or_else(|| edge.id.clone())
+                ),
+                reason: edge.condition.clone(),
+                success_probability: None,
+                confidence: None,
+            });
+        }
+    }
+    alternatives.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+    Ok(alternatives)
+}
+
+/// Probability analysis over all structural paths of the execution graph
+/// (TS `getPathProbabilityAnalysis`).
+pub async fn get_path_probability_analysis(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<PathProbabilityAnalysis> {
+    let graph = resolve_graph(ctx, execution_id)
+        .await?
+        .unwrap_or_else(WorkflowGraphStructure::default_empty);
+    let paths = enumerate_paths(&graph);
+    if paths.is_empty() {
+        return Ok(PathProbabilityAnalysis {
+            execution_id: execution_id.to_string(),
+            paths: Vec::new(),
+            most_likely_path: None,
+            least_likely_taken_path: None,
+            path_diversity: 0.0,
+        });
     }
 
-    /// Clear the recorded execution data (persisted graph) of an execution
-    /// (TS `clearExecutionData`).
-    pub async fn clear_execution_data(&self, execution_id: &str) -> ApiResult<()> {
-        if let Some(mut record) = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-        {
-            record.graph = None;
-            self.ctx.storage.workflow_execution.save(&record).await?;
-        }
-        Ok(())
+    let executed_nodes = executed_nodes(ctx, execution_id).await;
+    let executed_set: HashSet<&str> = executed_nodes.iter().map(String::as_str).collect();
+    let edge_probability = edge_probabilities(&graph);
+
+    let mut entries: Vec<PathProbabilityEntry> = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let mut probability = 1.0;
+            for window in path.nodes.windows(2) {
+                let source = &window[0];
+                let target = &window[1];
+                probability *= edge_probability
+                    .get(&(source.clone(), target.clone()))
+                    .copied()
+                    .unwrap_or(1.0);
+            }
+            let is_taken = path
+                .nodes
+                .iter()
+                .all(|id| executed_set.contains(id.as_str()));
+            PathProbabilityEntry {
+                path_id: format!("path-{index}"),
+                node_ids: path.nodes.clone(),
+                probability: round3(probability),
+                is_taken,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b.probability
+            .partial_cmp(&a.probability)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let most_likely_path = entries.first().map(|e| e.node_ids.clone());
+    let taken_paths: Vec<&PathProbabilityEntry> =
+        entries.iter().filter(|e| e.is_taken).collect();
+    let least_likely_taken_path = taken_paths
+        .iter()
+        .min_by(|a, b| {
+            a.probability
+                .partial_cmp(&b.probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|e| e.node_ids.clone());
+
+    let total_probability: f64 = entries.iter().map(|e| e.probability).sum();
+    let path_diversity = if total_probability > 0.0 && entries.len() > 1 {
+        let entropy = -entries
+            .iter()
+            .map(|e| {
+                let normalized = e.probability / total_probability;
+                if normalized > 0.0 {
+                    normalized * normalized.log2()
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f64>();
+        round3(entropy / (entries.len() as f64).log2())
+    } else {
+        0.0
+    };
+
+    Ok(PathProbabilityAnalysis {
+        execution_id: execution_id.to_string(),
+        paths: entries,
+        most_likely_path,
+        least_likely_taken_path,
+        path_diversity,
+    })
+}
+
+/// Clear the recorded execution data (persisted graph) of an execution
+/// (TS `clearExecutionData`).
+pub async fn clear_execution_data(ctx: &ApiContext, execution_id: &str) -> ApiResult<()> {
+    if let Some(mut record) = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+    {
+        record.graph = None;
+        ctx.storage.workflow_execution.save(&record).await?;
     }
+    Ok(())
 }
 
 /// Normalized timing of one node execution.
@@ -582,10 +561,6 @@ fn edge_probabilities(graph: &WorkflowGraphStructure) -> HashMap<(String, String
         }
     }
     probabilities
-}
-
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
 }
 
 fn round3(value: f64) -> f64 {
@@ -817,14 +792,15 @@ mod tests {
 
     #[tokio::test]
     async fn analyze_degrades_gracefully() {
+        use std::sync::Arc;
+
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(Registries::new()),
             Arc::new(BundleRegistry::new()),
         ));
-        let api = ExecutionGraphApi::new(ctx);
         // No live entity and no persisted record: empty analysis, no error.
-        let analysis = api.analyze("missing-exec").await.unwrap();
+        let analysis = analyze(&ctx, "missing-exec").await.unwrap();
         assert!(analysis.paths.is_empty());
         assert!(analysis.executed_nodes.is_empty());
     }
@@ -905,6 +881,8 @@ mod tests {
 
     #[tokio::test]
     async fn record_and_clear_execution_graph() {
+        use std::sync::Arc;
+
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(Registries::new()),
@@ -912,8 +890,7 @@ mod tests {
         ));
         persist(&ctx, "exec-g", "wf-g").await;
 
-        let api = ExecutionGraphApi::new(ctx.clone());
-        let recorded = api.record_execution_graph("exec-g").await.unwrap();
+        let recorded = record_execution_graph(&ctx, "exec-g").await.unwrap();
         assert_eq!(recorded.nodes.len(), 5);
 
         let record = ctx
@@ -925,7 +902,7 @@ mod tests {
             .unwrap();
         assert!(record.graph.is_some());
 
-        api.clear_execution_data("exec-g").await.unwrap();
+        clear_execution_data(&ctx, "exec-g").await.unwrap();
         let record = ctx
             .storage
             .workflow_execution
@@ -938,6 +915,8 @@ mod tests {
 
     #[tokio::test]
     async fn slow_nodes_and_efficiency() {
+        use std::sync::Arc;
+
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(Registries::new()),
@@ -945,8 +924,7 @@ mod tests {
         ));
         persist(&ctx, "exec-eff", "wf-eff").await;
 
-        let api = ExecutionGraphApi::new(ctx);
-        let slow = api.get_slow_nodes("exec-eff", 0.8).await.unwrap();
+        let slow = get_slow_nodes(&ctx, "exec-eff", 0.8).await.unwrap();
         assert!(
             !slow.is_empty(),
             "b (2000ms) should exceed the 80th percentile"
@@ -954,7 +932,7 @@ mod tests {
         assert!(slow.iter().any(|s| s.node_id == "b"));
         assert!(slow.iter().all(|s| s.duration_ms > 0));
 
-        let efficiency = api.analyze_efficiency("exec-eff").await.unwrap();
+        let efficiency = analyze_efficiency(&ctx, "exec-eff").await.unwrap();
         // 5 successful executions across 4 distinct nodes; shortest path = 4.
         assert!(efficiency.optimal_steps >= 1);
         assert_eq!(efficiency.executed_steps, 5);
@@ -964,6 +942,8 @@ mod tests {
 
     #[tokio::test]
     async fn alternative_paths_and_probability() {
+        use std::sync::Arc;
+
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(Registries::new()),
@@ -971,13 +951,11 @@ mod tests {
         ));
         persist(&ctx, "exec-prob", "wf-prob").await;
 
-        let api = ExecutionGraphApi::new(ctx);
-        let alternatives = api.get_alternative_paths("exec-prob").await.unwrap();
+        let alternatives = get_alternative_paths(&ctx, "exec-prob").await.unwrap();
         assert_eq!(alternatives.len(), 1, "the untaken 'route -> a' branch");
         assert_eq!(alternatives[0].node_id, "a");
 
-        let probability = api
-            .get_path_probability_analysis("exec-prob")
+        let probability = get_path_probability_analysis(&ctx, "exec-prob")
             .await
             .unwrap();
         assert_eq!(probability.paths.len(), 2);

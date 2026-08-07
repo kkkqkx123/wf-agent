@@ -103,11 +103,7 @@ impl NodeHandler for PluginNodeAdapter {
     ) -> WorkflowResult<NodeHandlerResult> {
         let inputs = ctx.input.clone();
         let config = ctx.node_config.clone().unwrap_or(Value::Null);
-        match self
-            .executor
-            .execute(&ctx.node_id, &inputs, &config)
-            .await
-        {
+        match self.executor.execute(&ctx.node_id, &inputs, &config).await {
             Ok(output) => Ok(NodeHandlerResult {
                 output,
                 next_node_ids: Vec::new(),
@@ -155,7 +151,8 @@ impl NodeHandler for TemplateSubgraphHandler {
         &self,
         ctx: &mut wf_execution_shared::context::NodeExecutionContext,
     ) -> WorkflowResult<NodeHandlerResult> {
-        let options = WorkflowExecutionOptions {            input: Some(ctx.input.clone()),
+        let options = WorkflowExecutionOptions {
+            input: Some(ctx.input.clone()),
             max_steps: None,
             timeout: None,
             max_execution_time: None,
@@ -209,7 +206,12 @@ mod tests {
 
     #[async_trait]
     impl PluginNodeExecutor for EchoExecutor {
-        async fn execute(&self, _node_id: &str, inputs: &Value, _config: &Value) -> ApiResult<Value> {
+        async fn execute(
+            &self,
+            _node_id: &str,
+            inputs: &Value,
+            _config: &Value,
+        ) -> ApiResult<Value> {
             Ok(if self.0 == Value::Null {
                 inputs.clone()
             } else {
@@ -230,7 +232,8 @@ mod tests {
 
     #[tokio::test]
     async fn plugin_adapter_forwards_to_executor() {
-        let adapter = PluginNodeAdapter::new(Arc::new(EchoExecutor(Value::Null)), StaticNodeType::Llm);
+        let adapter =
+            PluginNodeAdapter::new(Arc::new(EchoExecutor(Value::Null)), StaticNodeType::Llm);
         assert_eq!(adapter.node_type(), StaticNodeType::Llm);
 
         let mut ctx = make_context(StaticNodeType::Llm, serde_json::json!({"x": 1}));
@@ -244,7 +247,7 @@ mod tests {
         #[async_trait]
         impl PluginNodeExecutor for Failing {
             async fn execute(&self, _n: &str, _i: &Value, _c: &Value) -> ApiResult<Value> {
-                Err(crate::ApiError::Execution("boom".into()))
+                Err(crate::ApiError::execution("boom"))
             }
         }
         let adapter = PluginNodeAdapter::new(Arc::new(Failing), StaticNodeType::Script);

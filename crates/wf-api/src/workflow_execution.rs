@@ -24,7 +24,7 @@ use wf_workflow::validation::GraphValidator;
 use wf_workflow::WorkflowCoordinator;
 
 use crate::context::ApiContext;
-use crate::error::ApiError;
+use crate::error::{not_found, ApiError};
 use crate::stream::{spawn_execution_stream, ExecutionEventStream};
 
 /// Default wall-clock timeout applied to a workflow execution when the caller
@@ -45,14 +45,14 @@ pub struct ExecuteWorkflowParams {
     pub options: Option<WorkflowExecutionOptions>,
 }
 
-/// Restored execution state returned by [`WorkflowApi::restore_checkpoint`]
+/// Restored execution state returned by [`crate::workflow_execution::restore_checkpoint`]
 /// (TS `RestoreCheckpointCommand` result view).
 ///
 /// Upgraded from a snapshot view into a runnable restore result: the restored
 /// snapshot's `current_node_id` / `node_results` / `variable_state` are
 /// backfilled into a fresh live entity registered in the context, so the
 /// restored execution can be driven to completion through
-/// [`WorkflowApi::resume`] / [`WorkflowApi::restore_and_resume`].
+/// [`crate::workflow_execution::resume`] / [`crate::workflow_execution::restore_and_resume`].
 #[derive(Clone, Serialize)]
 pub struct RestoredCheckpoint {
     pub checkpoint_id: String,
@@ -72,544 +72,522 @@ pub struct RestoredCheckpoint {
 /// Launches executions of stored workflows through the `wf-workflow` engine,
 /// keeps a live entity handle in the context so `pause` / `resume` / `cancel`
 /// and status queries work while the coordinator drives the same entity.
-pub struct WorkflowApi {
-    ctx: Arc<ApiContext>,
+/// Load a stored workflow definition and convert it into an executable
+/// graph, running the full graph validator (start/end, fork-join pairs,
+/// loop pairs, subgraph, sync nodes, isolated nodes, cycles).
+pub async fn resolve_graph(
+    ctx: &ApiContext,
+    workflow_id: &str,
+) -> crate::error::ApiResult<WorkflowGraphStructure> {
+    let definition = ctx
+        .storage
+        .workflow
+        .load(workflow_id)
+        .await?
+        .ok_or_else(|| not_found("workflow", workflow_id))?;
+    let graph = definition_to_graph(&definition);
+    GraphValidator::validate(&graph).map_err(|errors| {
+        let detail = errors
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        ApiError::Validation(format!(
+            "workflow graph validation failed ({} error(s)): {}",
+            errors.len(),
+            detail
+        ))
+    })?;
+    Ok(graph)
 }
 
-impl WorkflowApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Execute a workflow to completion and await its output.
+///
+/// Bounded by a wall-clock timeout: `options.timeout` (ms) when set,
+/// otherwise [`DEFAULT_EXECUTION_TIMEOUT_MS`] (5min). An elapse maps onto
+/// `ApiError::Timeout`.
+pub async fn execute(ctx: &ApiContext, params: ExecuteWorkflowParams) -> crate::error::ApiResult<WorkflowOutput> {
+    let graph = resolve_graph(ctx, &params.workflow_id).await?;
+    let entity = spawn_entity(ctx, &params.workflow_id);
+    let options = resolve_options(ctx, &entity, params.input, params.options);
+    let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
+    let result = crate::error::with_timeout(
+        Duration::from_millis(timeout_ms),
+        run_workflow(ctx, entity.clone(), graph, options),
+    )
+    .await;
+    match result {
+        Ok(output) => Ok(output),
+        Err(e) => {
+            finalize_failed(ctx, &entity).await;
+            Err(e)
+        }
     }
+}
 
-    /// Load a stored workflow definition and convert it into an executable
-    /// graph, running the full graph validator (start/end, fork-join pairs,
-    /// loop pairs, subgraph, sync nodes, isolated nodes, cycles).
-    pub async fn resolve_graph(
-        &self,
-        workflow_id: &str,
-    ) -> crate::error::ApiResult<WorkflowGraphStructure> {
-        let definition = self
-            .ctx
-            .storage
-            .workflow
-            .load(workflow_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("workflow", workflow_id))?;
-        let graph = definition_to_graph(&definition);
-        GraphValidator::validate(&graph).map_err(|errors| {
-            let detail = errors
-                .iter()
-                .map(|e| format!("{}: {}", e.field, e.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            ApiError::Validation(format!(
-                "workflow graph validation failed ({} error(s)): {}",
-                errors.len(),
-                detail
-            ))
-        })?;
-        Ok(graph)
-    }
-
-    /// Execute a workflow to completion and await its output.
-    ///
-    /// Bounded by a wall-clock timeout: `options.timeout` (ms) when set,
-    /// otherwise [`DEFAULT_EXECUTION_TIMEOUT_MS`] (5min). An elapse maps onto
-    /// `ApiError::Timeout`.
-    pub async fn execute(
-        &self,
-        params: ExecuteWorkflowParams,
-    ) -> crate::error::ApiResult<WorkflowOutput> {
-        let graph = self.resolve_graph(&params.workflow_id).await?;
-        let entity = self.spawn_entity(&params.workflow_id);
-        let options = self.resolve_options(&entity, params.input, params.options);
-        let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
-        let result = crate::error::with_timeout(
+/// Execute a workflow and stream engine events (`WorkflowExecutionStarted`,
+/// `NodeStarted`, `NodeCompleted`, `WorkflowExecutionCompleted`, ...)
+/// emitted for the execution, ending with `Completed` / `Failed`.
+///
+/// Returns the generated `execution_id` alongside the stream so the caller
+/// can `pause` / `cancel` the backing execution.
+pub async fn stream(
+    ctx: Arc<ApiContext>,
+    params: ExecuteWorkflowParams,
+) -> crate::error::ApiResult<(Id, ExecutionEventStream)> {
+    let graph = resolve_graph(&ctx, &params.workflow_id).await?;
+    let entity = spawn_entity(&ctx, &params.workflow_id);
+    let execution_id = entity.id().clone();
+    let (stream, sink) =
+        spawn_execution_stream(Some(ctx.event_bus.clone()), execution_id.to_string());
+    let options = resolve_options(&ctx, &entity, params.input, params.options);
+    let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
+    tokio::spawn(async move {
+        let outcome = crate::error::with_timeout(
             Duration::from_millis(timeout_ms),
-            run_workflow(&self.ctx, entity.clone(), graph, options),
+            run_workflow(&ctx, entity.clone(), graph, options),
         )
         .await;
-        match result {
-            Ok(output) => Ok(output),
+        match outcome {
+            Ok(output) => {
+                let iterations = entity.state.read().await.completed_nodes().len() as u32;
+                sink.completed(output.result, iterations).await;
+            }
             Err(e) => {
-                finalize_failed(&self.ctx, &entity).await;
-                Err(e)
+                finalize_failed(&ctx, &entity).await;
+                sink.failed(e.to_string()).await;
             }
         }
+    });
+    Ok((execution_id, stream))
+}
+
+/// Pause a running workflow execution (checked between nodes).
+pub async fn pause(ctx: &ApiContext, execution_id: &str) -> crate::error::ApiResult<()> {
+    let entity = live_entity(ctx, execution_id)?;
+    entity.interruption().pause()?;
+    entity.state.write().await.pause();
+    Ok(())
+}
+
+/// Resume a paused workflow execution and drive it to completion,
+/// returning the resumed execution result (aligned with TS
+/// `ResumeWorkflowCommand` returning `WorkflowExecutionResult`).
+///
+/// The coordinator is re-seeded from the entity's completed node outputs
+/// and current node, then runs the remaining graph. The resolved
+/// input/options captured at `execute` time are restored automatically.
+pub async fn resume(ctx: &ApiContext, execution_id: &str) -> crate::error::ApiResult<WorkflowOutput> {
+    let entity = live_entity(ctx, execution_id)?;
+    let workflow_id = entity.workflow_id().to_string();
+    let graph = resolve_graph(ctx, &workflow_id).await?;
+
+    let options = execution_options(ctx, &entity).await;
+    let mut exec_ctx = ExecutorContext::new(
+        entity.id().clone(),
+        entity.workflow_id().clone(),
+        Some(ctx.event_bus.clone()),
+        ctx.tool_registry.clone(),
+        options,
+    );
+    exec_ctx.variables = entity.variables().clone();
+    if let Some(ref metrics) = ctx.metrics {
+        metrics
+            .workflow()
+            .record_execution_start(entity.id(), entity.workflow_id());
+        exec_ctx = exec_ctx.with_metrics(metrics.clone());
     }
 
-    /// Execute a workflow and stream engine events (`WorkflowExecutionStarted`,
-    /// `NodeStarted`, `NodeCompleted`, `WorkflowExecutionCompleted`, ...)
-    /// emitted for the execution, ending with `Completed` / `Failed`.
-    ///
-    /// Returns the generated `execution_id` alongside the stream so the caller
-    /// can `pause` / `cancel` the backing execution.
-    pub async fn stream(
-        &self,
-        params: ExecuteWorkflowParams,
-    ) -> crate::error::ApiResult<(Id, ExecutionEventStream)> {
-        let graph = self.resolve_graph(&params.workflow_id).await?;
-        let entity = self.spawn_entity(&params.workflow_id);
-        let execution_id = entity.id().clone();
-        let (stream, sink) =
-            spawn_execution_stream(Some(self.ctx.event_bus.clone()), execution_id.to_string());
-        let ctx = self.ctx.clone();
-        let options = self.resolve_options(&entity, params.input, params.options);
-        let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
-        tokio::spawn(async move {
-            let outcome = crate::error::with_timeout(
-                Duration::from_millis(timeout_ms),
-                run_workflow(&ctx, entity.clone(), graph, options),
-            )
-            .await;
-            match outcome {
-                Ok(output) => {
-                    let iterations = entity.state.read().await.completed_nodes().len() as u32;
-                    sink.completed(output.result, iterations).await;
-                }
-                Err(e) => {
-                    finalize_failed(&ctx, &entity).await;
-                    sink.failed(e.to_string()).await;
-                }
-            }
-        });
-        Ok((execution_id, stream))
-    }
+    let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, ctx.handlers())?
+        .with_entity_arc(entity.clone())
+        .with_state_manager(ctx.state_manager.clone());
+    let snapshot = entity_resume_snapshot(&entity).await;
+    coordinator.resume_from(&snapshot);
 
-    /// Pause a running workflow execution (checked between nodes).
-    pub async fn pause(&self, execution_id: &str) -> crate::error::ApiResult<()> {
-        let entity = self.live_entity(execution_id)?;
-        entity.interruption().pause()?;
-        entity.state.write().await.pause();
-        Ok(())
-    }
+    entity.state.write().await.resume();
 
-    /// Resume a paused workflow execution and drive it to completion,
-    /// returning the resumed execution result (aligned with TS
-    /// `ResumeWorkflowCommand` returning `WorkflowExecutionResult`).
-    ///
-    /// The coordinator is re-seeded from the entity's completed node outputs
-    /// and current node, then runs the remaining graph. The resolved
-    /// input/options captured at `execute` time are restored automatically.
-    pub async fn resume(&self, execution_id: &str) -> crate::error::ApiResult<WorkflowOutput> {
-        let entity = self.live_entity(execution_id)?;
-        let workflow_id = entity.workflow_id().to_string();
-        let graph = self.resolve_graph(&workflow_id).await?;
-
-        let options = self.execution_options(&entity).await;
-        let mut exec_ctx = ExecutorContext::new(
-            entity.id().clone(),
-            entity.workflow_id().clone(),
-            Some(self.ctx.event_bus.clone()),
-            self.ctx.tool_registry.clone(),
-            options,
-        );
-        exec_ctx.variables = entity.variables().clone();
-        if let Some(ref metrics) = self.ctx.metrics {
-            metrics
-                .workflow()
-                .record_execution_start(entity.id(), entity.workflow_id());
-            exec_ctx = exec_ctx.with_metrics(metrics.clone());
-        }
-
-        let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, self.ctx.handlers())?
-            .with_entity_arc(entity.clone())
-            .with_state_manager(self.ctx.state_manager.clone());
-        let snapshot = self.entity_resume_snapshot(&entity).await;
-        coordinator.resume_from(&snapshot);
-
-        entity.state.write().await.resume();
-
-        match coordinator.execute().await {
-            Ok(result) => Ok(WorkflowOutput {
-                execution_id: entity.id().clone(),
-                result,
-            }),
-            Err(e) => {
-                mark_failed(&entity);
-                Err(e.into())
-            }
+    match coordinator.execute().await {
+        Ok(result) => Ok(WorkflowOutput {
+            execution_id: entity.id().clone(),
+            result,
+        }),
+        Err(e) => {
+            mark_failed(&entity);
+            Err(e.into())
         }
     }
+}
 
-    /// Create an execution checkpoint for a live workflow execution
-    /// (aligned with TS `CreateCheckpointCommand`).
-    ///
-    /// The snapshot is built from the entity's current variables, node
-    /// results and state, and persisted through the `wf-checkpoint`
-    /// coordinator onto `ctx.checkpoint_store`. Checkpoint commands only
-    /// take effect for persistent stores; the default in-memory store keeps
-    /// checkpoints for the process lifetime.
-    pub async fn create_checkpoint(&self, execution_id: &str) -> crate::error::ApiResult<String> {
-        let entity = self.live_entity(execution_id)?;
-        let snapshot = self.build_checkpoint_snapshot(&entity).await;
-        let coordinator = self.checkpoint_coordinator();
-        let checkpoint_id = coordinator
-            .create_checkpoint(CheckpointTrigger::Manual, execution_id, snapshot)
-            .await
-            .map_err(|e| ApiError::Execution(format!("checkpoint creation failed: {e}")))?;
-        Ok(checkpoint_id)
+/// Create an execution checkpoint for a live workflow execution
+/// (aligned with TS `CreateCheckpointCommand`).
+///
+/// The snapshot is built from the entity's current variables, node
+/// results and state, and persisted through the `wf-checkpoint`
+/// coordinator onto `ctx.checkpoint_store`. Checkpoint commands only
+/// take effect for persistent stores; the default in-memory store keeps
+/// checkpoints for the process lifetime.
+pub async fn create_checkpoint(ctx: &ApiContext, execution_id: &str) -> crate::error::ApiResult<String> {
+    let entity = live_entity(ctx, execution_id)?;
+    let snapshot = build_checkpoint_snapshot(ctx, &entity).await;
+    let coordinator = checkpoint_coordinator(ctx);
+    let checkpoint_id = coordinator
+        .create_checkpoint(CheckpointTrigger::Manual, execution_id, snapshot)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+    Ok(checkpoint_id)
+}
+
+/// Restore execution state from a checkpoint (aligned with TS
+/// `RestoreCheckpointCommand`).
+///
+/// The checkpoint's `current_node_id` / `node_results` / `variable_state` are
+/// backfilled into a fresh live entity (registered under the checkpoint's
+/// execution id) together with the captured execution options, so the
+/// restored execution continues through the standard [`resume`] coordinator
+/// path.
+pub async fn restore_checkpoint(
+    ctx: &ApiContext,
+    checkpoint_id: &str,
+) -> crate::error::ApiResult<RestoredCheckpoint> {
+    let coordinator = checkpoint_coordinator(ctx);
+    let restored = coordinator
+        .restore(checkpoint_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint restore failed: {e}")))?;
+    let snapshot = restored.snapshot;
+    let execution_id = snapshot.execution_id.clone();
+
+    // Resolve the workflow identity captured at checkpoint time; fall back
+    // to the persisted execution record (Stage 0) for older checkpoints.
+    let (workflow_id, options) = restored_identity(ctx, &snapshot).await?;
+
+    // Build a fresh live entity backfilled from the restored snapshot.
+    let mut entity =
+        WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
+    if let Some(parent_id) = snapshot
+        .hierarchy
+        .as_ref()
+        .and_then(|h| h.parent_execution_id.clone())
+    {
+        entity = entity.with_parent_execution_id(parent_id);
     }
-
-    /// Restore execution state from a checkpoint (aligned with TS
-    /// `RestoreCheckpointCommand`).
-    ///
-    /// Upgraded from a snapshot view to a runnable restore result: the
-    /// checkpoint's `current_node_id` / `node_results` / `variable_state` are
-    /// backfilled into a fresh live entity (registered under the checkpoint's
-    /// execution id) together with the captured execution options, so the
-    /// restored execution continues through the standard [`WorkflowApi::resume`]
-    /// coordinator path.
-    pub async fn restore_checkpoint(
-        &self,
-        checkpoint_id: &str,
-    ) -> crate::error::ApiResult<RestoredCheckpoint> {
-        let coordinator = self.checkpoint_coordinator();
-        let restored = coordinator
-            .restore(checkpoint_id)
-            .await
-            .map_err(|e| ApiError::Execution(format!("checkpoint restore failed: {e}")))?;
-        let snapshot = restored.snapshot;
-        let execution_id = snapshot.execution_id.clone();
-
-        // Resolve the workflow identity captured at checkpoint time; fall back
-        // to the persisted execution record (Stage 0) for older checkpoints.
-        let (workflow_id, options) = self.restored_identity(&snapshot).await?;
-
-        // Build a fresh live entity backfilled from the restored snapshot.
-        let mut entity =
-            WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
-        if let Some(parent_id) = snapshot
-            .hierarchy
-            .as_ref()
-            .and_then(|h| h.parent_execution_id.clone())
-        {
-            entity = entity.with_parent_execution_id(parent_id);
-        }
-        let entity = Arc::new(entity);
-        for (name, value) in &snapshot.variable_state.variables {
-            entity.set_variable(name.clone(), value.clone());
-        }
-        if let Some(node_results) = &snapshot.node_results {
-            for (node_id, output) in node_results {
-                entity.set_node_result(node_id.clone(), output.clone());
-            }
-        }
-        if let Some(node_id) = &snapshot.current_node_id {
-            entity
-                .state
-                .write()
-                .await
-                .set_current_node(Some(node_id.clone()));
-        }
-        // Restore the captured execution options so `resume` rebuilds the same
-        // input/options. Step/time budgets already consumed by the original run
-        // are not re-applied to the continuation (a restored continuation
-        // must run to completion, not re-limit itself at the old budget).
-        let mut continuation_options = options;
-        continuation_options.max_steps = None;
-        continuation_options.max_execution_time = None;
-        if let Ok(value) = serde_json::to_value(&continuation_options) {
-            entity.set_variable(EXECUTION_OPTIONS_VAR, value);
-        }
-
-        // Replace any stale live handle under the restored execution id.
-        let key = execution_id.to_string();
-        let _ = self.ctx.workflow_executions.unregister(&key);
-        let _ = self
-            .ctx
-            .workflow_executions
-            .register(key.clone(), entity.clone());
-
-        let mut variables = BTreeMap::new();
-        for (name, value) in &snapshot.variable_state.variables {
-            variables.insert(name.clone(), value.clone());
-        }
-        Ok(RestoredCheckpoint {
-            checkpoint_id: checkpoint_id.to_string(),
-            execution_id: key,
-            status: restored.status,
-            current_node_id: snapshot.current_node_id,
-            node_results: snapshot.node_results,
-            variables,
-            entity,
-        })
+    let entity = Arc::new(entity);
+    for (name, value) in &snapshot.variable_state.variables {
+        entity.set_variable(name.clone(), value.clone());
     }
-
-    /// Restore execution state from a checkpoint and immediately drive it to
-    /// completion, returning the final output (aligned with TS
-    /// `RestoreCheckpointCommand` + the `resume` continuation path).
-    ///
-    /// Equivalent to [`WorkflowApi::restore_checkpoint`] followed by
-    /// [`WorkflowApi::resume`] on the restored execution.
-    pub async fn restore_and_resume(
-        &self,
-        checkpoint_id: &str,
-    ) -> crate::error::ApiResult<WorkflowOutput> {
-        let restored = self.restore_checkpoint(checkpoint_id).await?;
-        self.resume(&restored.execution_id).await
+    if let Some(node_results) = &snapshot.node_results {
+        for (node_id, output) in node_results {
+            entity.set_node_result(node_id.clone(), output.clone());
+        }
     }
-
-    /// Cancel (stop) a running workflow execution.
-    pub async fn cancel(&self, execution_id: &str) -> crate::error::ApiResult<()> {
-        let entity = self.live_entity(execution_id)?;
-        entity.interruption().stop()?;
-        entity.state.write().await.cancel();
-        Ok(())
-    }
-
-    /// Query the live status of a workflow execution.
-    ///
-    /// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
-    /// contract) instead of a Debug string, so callers can match without
-    /// string parsing. A timeout in the engine state reads as `Failed`.
-    pub async fn status(
-        &self,
-        execution_id: &str,
-    ) -> crate::error::ApiResult<wf_types::ExecutionStatus> {
-        let entity = self.live_entity(execution_id)?;
-        let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
-        Ok(status)
-    }
-
-    fn live_entity(
-        &self,
-        execution_id: &str,
-    ) -> crate::error::ApiResult<Arc<WorkflowExecutionEntity>> {
-        self.ctx
-            .workflow_execution(execution_id)
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))
-    }
-
-    fn spawn_entity(&self, workflow_id: &str) -> Arc<WorkflowExecutionEntity> {
-        let execution_id = wf_common::generate_id();
-        let entity = Arc::new(WorkflowExecutionEntity::new(
-            wf_types::Id::from(execution_id.clone()),
-            wf_types::Id::from(workflow_id.to_string()),
-        ));
-        let _ = self
-            .ctx
-            .workflow_executions
-            .register(execution_id, entity.clone());
+    if let Some(node_id) = &snapshot.current_node_id {
         entity
+            .state
+            .write()
+            .await
+            .set_current_node(Some(node_id.clone()));
+    }
+    // Restore the captured execution options so `resume` rebuilds the same
+    // input/options. Step/time budgets already consumed by the original run
+    // are not re-applied to the continuation (a restored continuation
+    // must run to completion, not re-limit itself at the old budget).
+    let mut continuation_options = options;
+    continuation_options.max_steps = None;
+    continuation_options.max_execution_time = None;
+    if let Ok(value) = serde_json::to_value(&continuation_options) {
+        entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }
 
-    /// Resolve the effective execution options, storing them on the entity so
-    /// a later `resume` rebuilds the same input/options.
-    fn resolve_options(
-        &self,
-        entity: &WorkflowExecutionEntity,
-        input: Option<Value>,
-        options: Option<WorkflowExecutionOptions>,
-    ) -> WorkflowExecutionOptions {
-        let mut options = options.unwrap_or_else(default_options);
-        if options.input.is_none() {
-            options.input = input;
-        }
-        if let Ok(value) = serde_json::to_value(&options) {
-            entity.set_variable(EXECUTION_OPTIONS_VAR, value);
-        }
-        options
-    }
+    // Replace any stale live handle under the restored execution id.
+    let key = execution_id.to_string();
+    let _ = ctx.workflow_executions.unregister(&key);
+    let _ = ctx
+        .workflow_executions
+        .register(key.clone(), entity.clone());
 
-    /// Reconstruct the execution options captured at `execute` time.
-    async fn execution_options(
-        &self,
-        entity: &WorkflowExecutionEntity,
-    ) -> WorkflowExecutionOptions {
-        entity
-            .get_variable(EXECUTION_OPTIONS_VAR)
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or_else(default_options)
+    let mut variables = BTreeMap::new();
+    for (name, value) in &snapshot.variable_state.variables {
+        variables.insert(name.clone(), value.clone());
     }
+    Ok(RestoredCheckpoint {
+        checkpoint_id: checkpoint_id.to_string(),
+        execution_id: key,
+        status: restored.status,
+        current_node_id: snapshot.current_node_id,
+        node_results: snapshot.node_results,
+        variables,
+        entity,
+    })
+}
 
-    /// Build a resume snapshot from the entity's current completion state:
-    /// node results seed the coordinator's outputs and completed set, the
-    /// current node restarts execution from there.
-    async fn entity_resume_snapshot(
-        &self,
-        entity: &WorkflowExecutionEntity,
-    ) -> WorkflowExecutionStateSnapshot {
-        let state = entity.state.read().await;
-        let mut node_results = HashMap::new();
-        for entry in entity.node_results().iter() {
-            node_results.insert(entry.key().clone(), entry.value().clone());
-        }
-        let mut variables = HashMap::new();
-        for entry in entity.variables().iter() {
-            if entry.key() != EXECUTION_OPTIONS_VAR {
-                variables.insert(entry.key().clone(), entry.value().clone());
-            }
-        }
-        WorkflowExecutionStateSnapshot {
-            execution_id: entity.id().to_string(),
-            status: format!("{:?}", state.status()),
-            current_node_id: state.current_node_id().map(String::from),
-            node_results: Some(node_results),
-            variable_state: CheckpointVariableState { variables },
-            input: None,
-            output: None,
-            messages: None,
-            fork_join_context: None,
-            active_operations: None,
-            conversation_state: None,
-            trigger_states: None,
-            error_records: None,
-            interruption_records: None,
-            event_records: None,
-            hierarchy: None,
-            execution_config: None,
-            fork_join_aggregation_state: None,
-            hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
+/// Restore execution state from a checkpoint and immediately drive it to
+/// completion, returning the final output (aligned with TS
+/// `RestoreCheckpointCommand` + the `resume` continuation path).
+///
+/// Equivalent to [`restore_checkpoint`] followed by [`resume`] on the
+/// restored execution.
+pub async fn restore_and_resume(
+    ctx: &ApiContext,
+    checkpoint_id: &str,
+) -> crate::error::ApiResult<WorkflowOutput> {
+    let restored = restore_checkpoint(ctx, checkpoint_id).await?;
+    resume(ctx, &restored.execution_id).await
+}
+
+/// Cancel (stop) a running workflow execution.
+pub async fn cancel(ctx: &ApiContext, execution_id: &str) -> crate::error::ApiResult<()> {
+    let entity = live_entity(ctx, execution_id)?;
+    entity.interruption().stop()?;
+    entity.state.write().await.cancel();
+    Ok(())
+}
+
+/// Query the live status of a workflow execution.
+///
+/// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
+/// contract) instead of a Debug string, so callers can match without
+/// string parsing. A timeout in the engine state reads as `Failed`.
+pub async fn status(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> crate::error::ApiResult<wf_types::ExecutionStatus> {
+    let entity = live_entity(ctx, execution_id)?;
+    let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
+    Ok(status)
+}
+
+fn live_entity(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> crate::error::ApiResult<Arc<WorkflowExecutionEntity>> {
+    ctx.workflow_execution(execution_id)
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))
+}
+
+fn spawn_entity(ctx: &ApiContext, workflow_id: &str) -> Arc<WorkflowExecutionEntity> {
+    let execution_id = wf_common::generate_id();
+    let entity = Arc::new(WorkflowExecutionEntity::new(
+        wf_types::Id::from(execution_id.clone()),
+        wf_types::Id::from(workflow_id.to_string()),
+    ));
+    let _ = ctx
+        .workflow_executions
+        .register(execution_id, entity.clone());
+    entity
+}
+
+/// Resolve the effective execution options, storing them on the entity so
+/// a later `resume` rebuilds the same input/options.
+fn resolve_options(
+    ctx: &ApiContext,
+    entity: &WorkflowExecutionEntity,
+    input: Option<Value>,
+    options: Option<WorkflowExecutionOptions>,
+) -> WorkflowExecutionOptions {
+    let _ = ctx;
+    let mut options = options.unwrap_or_else(default_options);
+    if options.input.is_none() {
+        options.input = input;
+    }
+    if let Ok(value) = serde_json::to_value(&options) {
+        entity.set_variable(EXECUTION_OPTIONS_VAR, value);
+    }
+    options
+}
+
+/// Reconstruct the execution options captured at `execute` time.
+async fn execution_options(
+    ctx: &ApiContext,
+    entity: &WorkflowExecutionEntity,
+) -> WorkflowExecutionOptions {
+    let _ = ctx;
+    entity
+        .get_variable(EXECUTION_OPTIONS_VAR)
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_else(default_options)
+}
+
+/// Build a resume snapshot from the entity's current completion state:
+/// node results seed the coordinator's outputs and completed set, the
+/// current node restarts execution from there.
+async fn entity_resume_snapshot(
+    entity: &WorkflowExecutionEntity,
+) -> WorkflowExecutionStateSnapshot {
+    let state = entity.state.read().await;
+    let mut node_results = HashMap::new();
+    for entry in entity.node_results().iter() {
+        node_results.insert(entry.key().clone(), entry.value().clone());
+    }
+    let mut variables = HashMap::new();
+    for entry in entity.variables().iter() {
+        if entry.key() != EXECUTION_OPTIONS_VAR {
+            variables.insert(entry.key().clone(), entry.value().clone());
         }
     }
+    WorkflowExecutionStateSnapshot {
+        execution_id: entity.id().to_string(),
+        status: state.status().as_str().to_string(),
+        current_node_id: state.current_node_id().map(String::from),
+        node_results: Some(node_results),
+        variable_state: CheckpointVariableState { variables },
+        input: None,
+        output: None,
+        messages: None,
+        fork_join_context: None,
+        active_operations: None,
+        conversation_state: None,
+        trigger_states: None,
+        error_records: None,
+        interruption_records: None,
+        event_records: None,
+        hierarchy: None,
+        execution_config: None,
+        fork_join_aggregation_state: None,
+        hook_execution_context: None,
+        message_base_checkpoint_id: None,
+        message_total_count: None,
+    }
+}
 
-    /// Build a full checkpoint snapshot from the entity's live state.
-    ///
-    /// Enriched beyond the resume-view snapshot so a cross-process restore
-    /// reconstructs a runnable execution: the captured execution options
-    /// (input + options, used to rebuild the `ExecutorContext`), the execution
-    /// hierarchy (parent/children linkage) and the recorded error records are
-    /// all persisted. `fork_join_context` is not tracked on the entity and
-    /// stays `None`; the engine tracks fork/join only transiently.
-    async fn build_checkpoint_snapshot(
-        &self,
-        entity: &WorkflowExecutionEntity,
-    ) -> WorkflowExecutionStateSnapshot {
-        let state = entity.state.read().await;
-        let options = self.execution_options(entity).await;
-        let mut variables = HashMap::new();
-        for entry in entity.variables().iter() {
-            if entry.key() != EXECUTION_OPTIONS_VAR {
-                variables.insert(entry.key().clone(), entry.value().clone());
-            }
+/// Build a full checkpoint snapshot from the entity's live state.
+///
+/// Enriched beyond the resume-view snapshot so a cross-process restore
+/// reconstructs a runnable execution: the captured execution options
+/// (input + options, used to rebuild the `ExecutorContext`), the execution
+/// hierarchy (parent/children linkage) and the recorded error records are
+/// all persisted. `fork_join_context` is not tracked on the entity and
+/// stays `None`; the engine tracks fork/join only transiently.
+async fn build_checkpoint_snapshot(
+    ctx: &ApiContext,
+    entity: &WorkflowExecutionEntity,
+) -> WorkflowExecutionStateSnapshot {
+    let state = entity.state.read().await;
+    let options = execution_options(ctx, entity).await;
+    let mut variables = HashMap::new();
+    for entry in entity.variables().iter() {
+        if entry.key() != EXECUTION_OPTIONS_VAR {
+            variables.insert(entry.key().clone(), entry.value().clone());
         }
-        let mut node_results = HashMap::new();
-        for entry in entity.node_results().iter() {
-            node_results.insert(entry.key().clone(), entry.value().clone());
-        }
-        let error_records = if state.error_records().is_empty() {
-            None
-        } else {
+    }
+    let mut node_results = HashMap::new();
+    for entry in entity.node_results().iter() {
+        node_results.insert(entry.key().clone(), entry.value().clone());
+    }
+    let error_records = if state.error_records().is_empty() {
+        None
+    } else {
+        Some(
+            state
+                .error_records()
+                .iter()
+                .filter_map(|r| serde_json::to_value(r).ok())
+                .collect(),
+        )
+    };
+    let active_operations = state.operation_state().map(|op| vec![op.clone()]);
+    let hierarchy = build_hierarchy(entity).await;
+
+    WorkflowExecutionStateSnapshot {
+        execution_id: entity.id().to_string(),
+        status: state.status().as_str().to_string(),
+        current_node_id: state.current_node_id().map(String::from),
+        node_results: Some(node_results),
+        variable_state: CheckpointVariableState { variables },
+        input: options.input.clone(),
+        output: None,
+        messages: None,
+        fork_join_context: None,
+        active_operations,
+        conversation_state: None,
+        trigger_states: None,
+        error_records,
+        interruption_records: None,
+        event_records: None,
+        hierarchy,
+        execution_config: Some(serde_json::json!({
+            "workflow_id": entity.workflow_id().to_string(),
+            "options": options,
+        })),
+        fork_join_aggregation_state: None,
+        hook_execution_context: None,
+        message_base_checkpoint_id: None,
+        message_total_count: None,
+    }
+}
+
+/// Build the execution hierarchy captured at checkpoint time: the
+/// execution's workflow id / id plus the parent linkage and any registered
+/// child executions (fork paths / sub-workflows). Child types are not
+/// tracked on the entity, so they default to `Workflow`.
+async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHierarchy> {
+    let children = entity.child_execution_ids().read().await.clone();
+    let has_children = !children.is_empty();
+    let parent = entity.parent_execution_id().cloned();
+    if parent.is_none() && !has_children {
+        return None;
+    }
+    Some(ExecutionHierarchy {
+        workflow_id: entity.workflow_id().clone(),
+        execution_id: entity.id().clone(),
+        parent_execution_id: parent,
+        depth: 0,
+        root_execution_id: None,
+        children: if has_children {
             Some(
-                state
-                    .error_records()
-                    .iter()
-                    .filter_map(|r| serde_json::to_value(r).ok())
+                children
+                    .into_iter()
+                    .map(|child_id| ChildExecutionReference {
+                        child_type: ExecutionType::Workflow,
+                        child_id,
+                        created_at: wf_common::now(),
+                        fork_path_id: None,
+                    })
                     .collect(),
             )
-        };
-        let active_operations = state.operation_state().map(|op| vec![op.clone()]);
-        let hierarchy = self.build_hierarchy(entity).await;
+        } else {
+            None
+        },
+    })
+}
 
-        WorkflowExecutionStateSnapshot {
-            execution_id: entity.id().to_string(),
-            status: format!("{:?}", state.status()),
-            current_node_id: state.current_node_id().map(String::from),
-            node_results: Some(node_results),
-            variable_state: CheckpointVariableState { variables },
-            input: options.input.clone(),
-            output: None,
-            messages: None,
-            fork_join_context: None,
-            active_operations,
-            conversation_state: None,
-            trigger_states: None,
-            error_records,
-            interruption_records: None,
-            event_records: None,
-            hierarchy,
-            execution_config: Some(serde_json::json!({
-                "workflow_id": entity.workflow_id().to_string(),
-                "options": options,
-            })),
-            fork_join_aggregation_state: None,
-            hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
+/// Resolve the workflow identity and execution options needed to rebuild a
+/// runnable execution from a restored snapshot. Prefers the identity
+/// captured at checkpoint time (`execution_config.workflow_id` +
+/// `execution_config.options`); for checkpoints created before the
+/// enrichment, falls back to the persisted execution record (Stage 0) and
+/// default options.
+async fn restored_identity(
+    ctx: &ApiContext,
+    snapshot: &WorkflowExecutionStateSnapshot,
+) -> crate::error::ApiResult<(wf_types::Id, WorkflowExecutionOptions)> {
+    if let Some(config) = &snapshot.execution_config {
+        if let Some(workflow_id) = config.get("workflow_id").and_then(|v| v.as_str()) {
+            let options = config
+                .get("options")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(default_options);
+            return Ok((wf_types::Id::from(workflow_id.to_string()), options));
         }
     }
-
-    /// Build the execution hierarchy captured at checkpoint time: the
-    /// execution's workflow id / id plus the parent linkage and any registered
-    /// child executions (fork paths / sub-workflows). Child types are not
-    /// tracked on the entity, so they default to `Workflow`.
-    async fn build_hierarchy(
-        &self,
-        entity: &WorkflowExecutionEntity,
-    ) -> Option<ExecutionHierarchy> {
-        let children = entity.child_execution_ids().read().await.clone();
-        let has_children = !children.is_empty();
-        let parent = entity.parent_execution_id().cloned();
-        if parent.is_none() && !has_children {
-            return None;
-        }
-        Some(ExecutionHierarchy {
-            workflow_id: entity.workflow_id().clone(),
-            execution_id: entity.id().clone(),
-            parent_execution_id: parent,
-            depth: 0,
-            root_execution_id: None,
-            children: if has_children {
-                Some(
-                    children
-                        .into_iter()
-                        .map(|child_id| ChildExecutionReference {
-                            child_type: ExecutionType::Workflow,
-                            child_id,
-                            created_at: wf_common::now(),
-                            fork_path_id: None,
-                        })
-                        .collect(),
-                )
-            } else {
-                None
-            },
-        })
+    if let Ok(Some(record)) = ctx
+        .storage
+        .workflow_execution
+        .load(&snapshot.execution_id)
+        .await
+    {
+        return Ok((record.workflow_id, default_options()));
     }
+    Err(ApiError::execution(format!(
+        "cannot resolve workflow id for restored execution {}",
+        snapshot.execution_id
+    )))
+}
 
-    /// Resolve the workflow identity and execution options needed to rebuild a
-    /// runnable execution from a restored snapshot. Prefers the identity
-    /// captured at checkpoint time (`execution_config.workflow_id` +
-    /// `execution_config.options`); for checkpoints created before the
-    /// enrichment, falls back to the persisted execution record (Stage 0) and
-    /// default options.
-    async fn restored_identity(
-        &self,
-        snapshot: &WorkflowExecutionStateSnapshot,
-    ) -> crate::error::ApiResult<(wf_types::Id, WorkflowExecutionOptions)> {
-        if let Some(config) = &snapshot.execution_config {
-            if let Some(workflow_id) = config.get("workflow_id").and_then(|v| v.as_str()) {
-                let options = config
-                    .get("options")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_else(default_options);
-                return Ok((wf_types::Id::from(workflow_id.to_string()), options));
-            }
-        }
-        if let Ok(Some(record)) = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(&snapshot.execution_id)
-            .await
-        {
-            return Ok((record.workflow_id, default_options()));
-        }
-        Err(ApiError::Execution(format!(
-            "cannot resolve workflow id for restored execution {}",
-            snapshot.execution_id
-        )))
-    }
-
-    /// Build a `wf-checkpoint` workflow coordinator over the shared
-    /// checkpoint store (create and restore commands).
-    fn checkpoint_coordinator(&self) -> WorkflowCheckpointCoordinator {
-        let state_manager = WorkflowCheckpointStateManager::new(self.ctx.checkpoint_store.clone());
-        WorkflowCheckpointCoordinator::new(state_manager)
-    }
+/// Build a `wf-checkpoint` workflow coordinator over the shared
+/// checkpoint store (create and restore commands).
+fn checkpoint_coordinator(ctx: &ApiContext) -> WorkflowCheckpointCoordinator {
+    let state_manager = WorkflowCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    WorkflowCheckpointCoordinator::new(state_manager)
 }
 
 /// Run a workflow against the shared context, driving the given entity so
@@ -948,20 +926,20 @@ mod tests {
         let definition = make_definition("wf-exec-1");
         ctx.storage.workflow.save(&definition).await.unwrap();
 
-        let api = WorkflowApi::new(ctx.clone());
-        let output = api
-            .execute(ExecuteWorkflowParams {
+        let output = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-exec-1".into(),
                 input: Some(serde_json::json!({"greeting": "hello"})),
                 options: None,
-            })
-            .await
-            .expect("workflow should complete");
+            },
+        )
+        .await
+        .expect("workflow should complete");
         assert!(!output.execution_id.is_empty());
         assert_eq!(output.result, serde_json::json!({"greeting": "hello"}));
 
-        let status = api
-            .status(&output.execution_id.to_string())
+        let status = status(&ctx, &output.execution_id.to_string())
             .await
             .expect("status query");
         assert_eq!(status, wf_types::ExecutionStatus::Completed);
@@ -1023,15 +1001,17 @@ mod tests {
         ctx1 =
             ctx1.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
 
-        let api = WorkflowApi::new(Arc::new(ctx1));
-        let output = api
-            .execute(ExecuteWorkflowParams {
+        let ctx1 = Arc::new(ctx1);
+        let output = execute(
+            &ctx1,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-persist".into(),
                 input: Some(serde_json::json!({"greeting": "persist"})),
                 options: None,
-            })
-            .await
-            .expect("workflow completes");
+            },
+        )
+        .await
+        .expect("workflow completes");
         let execution_id = output.execution_id.to_string();
 
         // A fresh context over the same storage has empty live registries: the
@@ -1046,10 +1026,8 @@ mod tests {
             None,
         ));
 
-        use crate::execution_state::WorkflowExecutionStateApi;
-        let state_api = WorkflowExecutionStateApi::new(ctx2.clone());
-        let view = state_api
-            .get_state(&execution_id)
+        use crate::execution_state::workflow_execution_get_state;
+        let view = workflow_execution_get_state(&ctx2, &execution_id)
             .await
             .expect("persisted state query");
         assert_eq!(view.source, "persisted");
@@ -1064,18 +1042,17 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, output.execution_id);
 
-        use crate::search::{SearchOptions, SearchResourceType, Searcher};
-        let search = Searcher::new(ctx2);
-        let hits = search
-            .search(
-                "wf-persist",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Execution]),
-                    ..Default::default()
-                },
-            )
-            .await
-            .expect("search executions");
+        use crate::search::{SearchOptions, SearchResourceType};
+        let hits = crate::search::search(
+            &ctx2,
+            "wf-persist",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Execution]),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("search executions");
         assert!(
             hits.items.iter().any(|h| h.id == execution_id),
             "persisted execution must be searchable"
@@ -1085,9 +1062,9 @@ mod tests {
     #[tokio::test]
     async fn rejects_unknown_workflow() {
         let ctx = make_ctx();
-        let api = WorkflowApi::new(ctx);
-        let err = api
-            .execute(ExecuteWorkflowParams {
+        let err = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "missing".into(),
                 input: None,
                 options: None,
@@ -1103,21 +1080,21 @@ mod tests {
         let definition = make_definition("wf-cp-1");
         ctx.storage.workflow.save(&definition).await.unwrap();
 
-        let api = WorkflowApi::new(ctx.clone());
-        let output = api
-            .execute(ExecuteWorkflowParams {
+        let output = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-cp-1".into(),
                 input: Some(serde_json::json!({"greeting": "cp"})),
                 options: None,
-            })
-            .await
-            .expect("workflow completes");
+            },
+        )
+        .await
+        .expect("workflow completes");
 
         let id = output.execution_id.to_string();
-        let checkpoint_id = api.create_checkpoint(&id).await.expect("create checkpoint");
+        let checkpoint_id = create_checkpoint(&ctx, &id).await.expect("create checkpoint");
 
-        let restored = api
-            .restore_checkpoint(&checkpoint_id)
+        let restored = restore_checkpoint(&ctx, &checkpoint_id)
             .await
             .expect("restore checkpoint");
         assert_eq!(restored.execution_id, id);
@@ -1142,28 +1119,31 @@ mod tests {
         let definition = make_multi_step_definition("wf-cp-break");
         ctx.storage.workflow.save(&definition).await.unwrap();
 
-        let api = WorkflowApi::new(ctx.clone());
-        let full = api
-            .execute(ExecuteWorkflowParams {
+        let full = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-cp-break".into(),
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: None,
-            })
-            .await
-            .expect("full run completes");
+            },
+        )
+        .await
+        .expect("full run completes");
 
         // Stop partway (after start + v1) so the live entity holds a genuine
         // mid-execution state: v1's result is recorded, v2/end are not.
         let mut partial_options = default_options();
         partial_options.max_steps = Some(2);
-        let partial = api
-            .execute(ExecuteWorkflowParams {
+        let partial = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-cp-break".into(),
                 input: Some(serde_json::json!({"greeting": "hi"})),
                 options: Some(partial_options),
-            })
-            .await
-            .expect("partial run completes");
+            },
+        )
+        .await
+        .expect("partial run completes");
         let execution_id = partial.execution_id.to_string();
         let entity = ctx.workflow_execution(&execution_id).expect("live entity");
         let completed = entity.state.read().await.completed_nodes().to_vec();
@@ -1172,13 +1152,11 @@ mod tests {
             "partial run must stop after v1, got {completed:?}"
         );
 
-        let checkpoint_id = api
-            .create_checkpoint(&execution_id)
+        let checkpoint_id = create_checkpoint(&ctx, &execution_id)
             .await
             .expect("create mid-run checkpoint");
 
-        let restored = api
-            .restore_checkpoint(&checkpoint_id)
+        let restored = restore_checkpoint(&ctx, &checkpoint_id)
             .await
             .expect("restore checkpoint");
         assert_eq!(restored.execution_id, execution_id);
@@ -1196,8 +1174,7 @@ mod tests {
 
         // Restore-and-resume drives the restored entity to completion and the
         // final output matches the uninterrupted full run.
-        let resumed = api
-            .restore_and_resume(&checkpoint_id)
+        let resumed = restore_and_resume(&ctx, &checkpoint_id)
             .await
             .expect("restore and resume");
         assert_eq!(resumed.result, full.result);
@@ -1210,18 +1187,18 @@ mod tests {
         let definition = make_definition("wf-resume-1");
         ctx.storage.workflow.save(&definition).await.unwrap();
 
-        let api = WorkflowApi::new(ctx.clone());
-        let output = api
-            .execute(ExecuteWorkflowParams {
+        let output = execute(
+            &ctx,
+            ExecuteWorkflowParams {
                 workflow_id: "wf-resume-1".into(),
                 input: Some(serde_json::json!({"greeting": "r"})),
                 options: None,
-            })
-            .await
-            .expect("workflow completes");
+            },
+        )
+        .await
+        .expect("workflow completes");
 
-        let resumed = api
-            .resume(&output.execution_id.to_string())
+        let resumed = resume(&ctx, &output.execution_id.to_string())
             .await
             .expect("resume completed execution");
         assert_eq!(resumed.result, serde_json::json!({"greeting": "r"}));

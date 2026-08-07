@@ -125,7 +125,7 @@ pub async fn generate_report(registry: &MetricsRegistry, options: &ReportOptions
 /// Resolve the metrics registry carried by an `ApiContext`, if configured.
 pub fn registry(ctx: &ApiContext) -> ApiResult<&MetricsRegistry> {
     ctx.metrics.as_deref().ok_or_else(|| {
-        ApiError::Execution("metrics registry is not configured for this context".to_string())
+        ApiError::execution("metrics registry is not configured for this context".to_string())
     })
 }
 

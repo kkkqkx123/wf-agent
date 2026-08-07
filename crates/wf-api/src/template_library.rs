@@ -1,3 +1,9 @@
+//! Template library management (TS `WorkflowTemplateRegistryAPI` /
+//! `AgentTemplateRegistryAPI` counterparts).
+//!
+//! Reads the shared `wf-resource` registries (predefined + custom templates)
+//! and tracks usage counts in-memory on the shared context.
+
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -7,7 +13,7 @@ use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
 
 use crate::context::ApiContext;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{not_found, ApiError, ApiResult};
 
 /// Template kind addressed by the template library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,275 +62,270 @@ pub struct TemplateFilter {
     pub author: Option<String>,
 }
 
-/// Template library management (TS `WorkflowTemplateRegistryAPI` /
-/// `AgentTemplateRegistryAPI` counterparts).
-///
-/// Reads the shared `wf-resource` registries (predefined + custom templates)
-/// and tracks usage counts in-memory on the shared context.
-pub struct TemplateLibraryApi {
-    ctx: Arc<ApiContext>,
+// ── workflow templates ──────────────────────────────────────────
+
+pub fn get_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<WorkflowTemplate> {
+    ctx.registries
+        .workflows
+        .get(id)
+        .map(|t| t.as_ref().clone())
+        .ok_or_else(|| not_found("workflow_template", id))
 }
 
-impl TemplateLibraryApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+pub fn list_workflow_templates(ctx: &ApiContext) -> ApiResult<Vec<WorkflowTemplate>> {
+    let keys = ctx.registries.workflows.list();
+    let mut templates = Vec::new();
+    for key in keys {
+        if let Some(template) = ctx.registries.workflows.get(&key) {
+            templates.push(template.as_ref().clone());
+        }
+    }
+    Ok(templates)
+}
+
+/// Register a workflow template; errors with `AlreadyExists` when the id
+/// is already registered.
+pub fn register_workflow_template(ctx: &ApiContext, template: &WorkflowTemplate) -> ApiResult<()> {
+    let registries = &ctx.registries;
+    if registries.workflows.has(&template.id) {
+        return Err(ApiError::already_exists(
+            "workflow_template",
+            &template.id.to_string(),
+        ));
+    }
+    registries
+        .workflows
+        .register(template.id.to_string(), Arc::new(template.clone()))
+        .map_err(|e| ApiError::Conflict(e.to_string()))?;
+    Ok(())
+}
+
+pub fn delete_workflow_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    ctx.registries
+        .workflows
+        .unregister(id)
+        .map(|_| ())
+        .ok_or_else(|| not_found("workflow_template", id))
+}
+
+// ── agent templates ─────────────────────────────────────────────
+
+pub fn get_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<AgentTemplate> {
+    ctx.registries
+        .agent_templates
+        .get(id)
+        .map(|t| t.as_ref().clone())
+        .ok_or_else(|| not_found("agent_template", id))
+}
+
+pub fn list_agent_templates(ctx: &ApiContext) -> ApiResult<Vec<AgentTemplate>> {
+    let keys = ctx.registries.agent_templates.list();
+    let mut templates = Vec::new();
+    for key in keys {
+        if let Some(template) = ctx.registries.agent_templates.get(&key) {
+            templates.push(template.as_ref().clone());
+        }
+    }
+    Ok(templates)
+}
+
+pub fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
+    let registries = &ctx.registries;
+    if registries.agent_templates.has(&template.id) {
+        return Err(ApiError::already_exists(
+            "agent_template",
+            &template.id.to_string(),
+        ));
+    }
+    registries
+        .agent_templates
+        .register(template.id.to_string(), Arc::new(template.clone()))
+        .map_err(|e| ApiError::Conflict(e.to_string()))?;
+    Ok(())
+}
+
+pub fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    ctx.registries
+        .agent_templates
+        .unregister(id)
+        .map(|_| ())
+        .ok_or_else(|| not_found("agent_template", id))
+}
+
+// ── query ───────────────────────────────────────────────────────
+
+/// Query templates across both kinds with name / category / tags /
+/// author filters.
+pub fn query(ctx: &ApiContext, filter: &TemplateFilter) -> ApiResult<Vec<TemplateSummary>> {
+    let mut summaries = Vec::new();
+    let include_workflow = filter.kind.is_none_or(|k| k == TemplateKind::Workflow);
+    let include_agent = filter.kind.is_none_or(|k| k == TemplateKind::Agent);
+
+    if include_workflow {
+        summaries.extend(list_workflow_templates(ctx)?.into_iter().map(|t| {
+            let usage = usage_count(ctx, &t.id.to_string());
+            summary_from_workflow(t, usage)
+        }));
+    }
+    if include_agent {
+        summaries.extend(list_agent_templates(ctx)?.into_iter().map(|t| {
+            let usage = usage_count(ctx, &t.id.to_string());
+            summary_from_agent(t, usage)
+        }));
     }
 
-    // ── workflow templates ──────────────────────────────────────────
-
-    pub fn get_workflow_template(&self, id: &str) -> ApiResult<WorkflowTemplate> {
-        self.ctx
-            .registries
-            .workflows
-            .get(id)
-            .map(|t| t.as_ref().clone())
-            .ok_or_else(|| ApiError::not_found("workflow_template", id))
-    }
-
-    pub fn list_workflow_templates(&self) -> ApiResult<Vec<WorkflowTemplate>> {
-        let keys = self.ctx.registries.workflows.list();
-        let mut templates = Vec::new();
-        for key in keys {
-            if let Some(template) = self.ctx.registries.workflows.get(&key) {
-                templates.push(template.as_ref().clone());
+    Ok(summaries
+        .into_iter()
+        .filter(|s| {
+            if let Some(name) = &filter.name {
+                let name_lower = name.to_lowercase();
+                if !s.name.to_lowercase().contains(&name_lower) {
+                    return false;
+                }
             }
-        }
-        Ok(templates)
-    }
-
-    /// Register a workflow template; errors with `AlreadyExists` when the id
-    /// is already registered.
-    pub fn register_workflow_template(&self, template: &WorkflowTemplate) -> ApiResult<()> {
-        let registries = &self.ctx.registries;
-        if registries.workflows.has(&template.id) {
-            return Err(ApiError::already_exists(
-                "workflow_template",
-                &template.id.to_string(),
-            ));
-        }
-        registries
-            .workflows
-            .register(template.id.to_string(), Arc::new(template.clone()))
-            .map_err(|e| ApiError::Conflict(e.to_string()))?;
-        Ok(())
-    }
-
-    pub fn delete_workflow_template(&self, id: &str) -> ApiResult<()> {
-        self.ctx
-            .registries
-            .workflows
-            .unregister(id)
-            .map(|_| ())
-            .ok_or_else(|| ApiError::not_found("workflow_template", id))
-    }
-
-    // ── agent templates ─────────────────────────────────────────────
-
-    pub fn get_agent_template(&self, id: &str) -> ApiResult<AgentTemplate> {
-        self.ctx
-            .registries
-            .agent_templates
-            .get(id)
-            .map(|t| t.as_ref().clone())
-            .ok_or_else(|| ApiError::not_found("agent_template", id))
-    }
-
-    pub fn list_agent_templates(&self) -> ApiResult<Vec<AgentTemplate>> {
-        let keys = self.ctx.registries.agent_templates.list();
-        let mut templates = Vec::new();
-        for key in keys {
-            if let Some(template) = self.ctx.registries.agent_templates.get(&key) {
-                templates.push(template.as_ref().clone());
+            if let Some(category) = &filter.category {
+                if s.category.as_deref() != Some(category.as_str()) {
+                    return false;
+                }
             }
-        }
-        Ok(templates)
-    }
-
-    pub fn register_agent_template(&self, template: &AgentTemplate) -> ApiResult<()> {
-        let registries = &self.ctx.registries;
-        if registries.agent_templates.has(&template.id) {
-            return Err(ApiError::already_exists(
-                "agent_template",
-                &template.id.to_string(),
-            ));
-        }
-        registries
-            .agent_templates
-            .register(template.id.to_string(), Arc::new(template.clone()))
-            .map_err(|e| ApiError::Conflict(e.to_string()))?;
-        Ok(())
-    }
-
-    pub fn delete_agent_template(&self, id: &str) -> ApiResult<()> {
-        self.ctx
-            .registries
-            .agent_templates
-            .unregister(id)
-            .map(|_| ())
-            .ok_or_else(|| ApiError::not_found("agent_template", id))
-    }
-
-    // ── query ───────────────────────────────────────────────────────
-
-    /// Query templates across both kinds with name / category / tags /
-    /// author filters.
-    pub fn query(&self, filter: &TemplateFilter) -> ApiResult<Vec<TemplateSummary>> {
-        let mut summaries = Vec::new();
-        let include_workflow = filter.kind.is_none_or(|k| k == TemplateKind::Workflow);
-        let include_agent = filter.kind.is_none_or(|k| k == TemplateKind::Agent);
-
-        if include_workflow {
-            summaries.extend(self.list_workflow_templates()?.into_iter().map(|t| {
-                let usage = self.usage_count(&t.id.to_string());
-                summary_from_workflow(t, usage)
-            }));
-        }
-        if include_agent {
-            summaries.extend(self.list_agent_templates()?.into_iter().map(|t| {
-                let usage = self.usage_count(&t.id.to_string());
-                summary_from_agent(t, usage)
-            }));
-        }
-
-        Ok(summaries
-            .into_iter()
-            .filter(|s| {
-                if let Some(name) = &filter.name {
-                    let name_lower = name.to_lowercase();
-                    if !s.name.to_lowercase().contains(&name_lower) {
+            if let Some(tags) = &filter.tags {
+                if !tags.is_empty() {
+                    let has_any = s
+                        .tags
+                        .as_ref()
+                        .map(|t| tags.iter().any(|tag| t.iter().any(|v| v == tag)))
+                        .unwrap_or(false);
+                    if !has_any {
                         return false;
                     }
                 }
-                if let Some(category) = &filter.category {
-                    if s.category.as_deref() != Some(category.as_str()) {
-                        return false;
-                    }
+            }
+            if let Some(author) = &filter.author {
+                if s.author.as_deref() != Some(author.as_str()) {
+                    return false;
                 }
-                if let Some(tags) = &filter.tags {
-                    if !tags.is_empty() {
-                        let has_any = s
-                            .tags
-                            .as_ref()
-                            .map(|t| tags.iter().any(|tag| t.iter().any(|v| v == tag)))
-                            .unwrap_or(false);
-                        if !has_any {
-                            return false;
-                        }
-                    }
-                }
-                if let Some(author) = &filter.author {
-                    if s.author.as_deref() != Some(author.as_str()) {
-                        return false;
-                    }
-                }
-                true
-            })
-            .collect())
-    }
+            }
+            true
+        })
+        .collect())
+}
 
-    pub fn query_by_category(&self, category: &str) -> ApiResult<Vec<TemplateSummary>> {
-        self.query(&TemplateFilter {
+pub fn query_by_category(ctx: &ApiContext, category: &str) -> ApiResult<Vec<TemplateSummary>> {
+    query(
+        ctx,
+        &TemplateFilter {
             category: Some(category.to_string()),
             ..TemplateFilter::default()
-        })
-    }
+        },
+    )
+}
 
-    pub fn query_by_tags(&self, tags: &[String]) -> ApiResult<Vec<TemplateSummary>> {
-        self.query(&TemplateFilter {
+pub fn query_by_tags(ctx: &ApiContext, tags: &[String]) -> ApiResult<Vec<TemplateSummary>> {
+    query(
+        ctx,
+        &TemplateFilter {
             tags: Some(tags.to_vec()),
             ..TemplateFilter::default()
-        })
-    }
+        },
+    )
+}
 
-    pub fn query_by_author(&self, author: &str) -> ApiResult<Vec<TemplateSummary>> {
-        self.query(&TemplateFilter {
+pub fn query_by_author(ctx: &ApiContext, author: &str) -> ApiResult<Vec<TemplateSummary>> {
+    query(
+        ctx,
+        &TemplateFilter {
             author: Some(author.to_string()),
             ..TemplateFilter::default()
-        })
-    }
+        },
+    )
+}
 
-    /// Featured templates: public + enabled, most used first.
-    pub fn featured(&self, limit: usize) -> ApiResult<Vec<TemplateSummary>> {
-        let mut all = self
-            .query(&TemplateFilter::default())?
-            .into_iter()
-            .filter(|t| t.is_public && t.enabled)
-            .collect::<Vec<_>>();
-        all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
-        all.truncate(if limit == 0 { 10 } else { limit });
-        Ok(all)
-    }
+/// Featured templates: public + enabled, most used first.
+pub fn featured(ctx: &ApiContext, limit: usize) -> ApiResult<Vec<TemplateSummary>> {
+    let mut all = query(ctx, &TemplateFilter::default())?
+        .into_iter()
+        .filter(|t| t.is_public && t.enabled)
+        .collect::<Vec<_>>();
+    all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
+    all.truncate(if limit == 0 { 10 } else { limit });
+    Ok(all)
+}
 
-    /// Popular templates within a category, most used first.
-    pub fn popular_in_category(
-        &self,
-        category: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<TemplateSummary>> {
-        let mut all = self
-            .query_by_category(category)?
-            .into_iter()
-            .filter(|t| t.enabled)
-            .collect::<Vec<_>>();
-        all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
-        all.truncate(if limit == 0 { 10 } else { limit });
-        Ok(all)
-    }
+/// Popular templates within a category, most used first.
+pub fn popular_in_category(
+    ctx: &ApiContext,
+    category: &str,
+    limit: usize,
+) -> ApiResult<Vec<TemplateSummary>> {
+    let mut all = query_by_category(ctx, category)?
+        .into_iter()
+        .filter(|t| t.enabled)
+        .collect::<Vec<_>>();
+    all.sort_by_key(|t| std::cmp::Reverse(t.usage_count));
+    all.truncate(if limit == 0 { 10 } else { limit });
+    Ok(all)
+}
 
-    // ── usage tracking ──────────────────────────────────────────────
+// ── usage tracking ──────────────────────────────────────────────
 
-    /// Increment the usage counter of a template (any kind).
-    pub fn record_usage(&self, id: &str) {
-        *self.ctx.template_usage.entry(id.to_string()).or_insert(0) += 1;
-    }
+/// Increment the usage counter of a template (any kind).
+pub fn record_usage(ctx: &ApiContext, id: &str) {
+    *ctx.template_usage.entry(id.to_string()).or_insert(0) += 1;
+}
 
-    pub fn usage_count(&self, id: &str) -> u64 {
-        self.ctx
-            .template_usage
-            .get(id)
-            .map(|e| *e.value())
-            .unwrap_or(0)
-    }
+pub fn usage_count(ctx: &ApiContext, id: &str) -> u64 {
+    ctx.template_usage
+        .get(id)
+        .map(|e| *e.value())
+        .unwrap_or(0)
+}
 
-    // ── clone ───────────────────────────────────────────────────────
+// ── clone ───────────────────────────────────────────────────────
 
-    /// Clone a workflow template under a new id/name and register the clone.
-    pub fn clone_workflow_template(&self, id: &str, new_name: &str) -> ApiResult<WorkflowTemplate> {
-        let template = self.get_workflow_template(id)?;
-        let mut cloned = template.clone();
-        cloned.id = format!("cloned-{}", wf_common::generate_id());
-        cloned.name = new_name.to_string();
-        cloned.description = if template.description.is_empty() {
-            format!("Clone of {}", template.name)
-        } else {
-            format!("Clone of {}", template.description)
-        };
-        cloned.definition.id = cloned.id.clone();
-        cloned.definition.name = new_name.to_string();
-        cloned.definition.created_at = wf_common::now();
-        cloned.definition.updated_at = wf_common::now();
-        self.register_workflow_template(&cloned)?;
-        Ok(cloned)
-    }
+/// Clone a workflow template under a new id/name and register the clone.
+pub fn clone_workflow_template(
+    ctx: &ApiContext,
+    id: &str,
+    new_name: &str,
+) -> ApiResult<WorkflowTemplate> {
+    let template = get_workflow_template(ctx, id)?;
+    let mut cloned = template.clone();
+    cloned.id = format!("cloned-{}", wf_common::generate_id());
+    cloned.name = new_name.to_string();
+    cloned.description = if template.description.is_empty() {
+        format!("Clone of {}", template.name)
+    } else {
+        format!("Clone of {}", template.description)
+    };
+    cloned.definition.id = cloned.id.clone();
+    cloned.definition.name = new_name.to_string();
+    cloned.definition.created_at = wf_common::now();
+    cloned.definition.updated_at = wf_common::now();
+    register_workflow_template(ctx, &cloned)?;
+    Ok(cloned)
+}
 
-    /// Clone an agent template under a new id/name and register the clone.
-    pub fn clone_agent_template(&self, id: &str, new_name: &str) -> ApiResult<AgentTemplate> {
-        let template = self.get_agent_template(id)?;
-        let mut cloned = template.clone();
-        cloned.id = format!("cloned-{}", wf_common::generate_id());
-        cloned.name = new_name.to_string();
-        cloned.description = if template.description.is_empty() {
-            format!("Clone of {}", template.name)
-        } else {
-            format!("Clone of {}", template.description)
-        };
-        cloned.definition.id = cloned.id.clone();
-        cloned.definition.name = new_name.to_string();
-        cloned.definition.created_at = wf_common::now();
-        cloned.definition.updated_at = wf_common::now();
-        self.register_agent_template(&cloned)?;
-        Ok(cloned)
-    }
+/// Clone an agent template under a new id/name and register the clone.
+pub fn clone_agent_template(
+    ctx: &ApiContext,
+    id: &str,
+    new_name: &str,
+) -> ApiResult<AgentTemplate> {
+    let template = get_agent_template(ctx, id)?;
+    let mut cloned = template.clone();
+    cloned.id = format!("cloned-{}", wf_common::generate_id());
+    cloned.name = new_name.to_string();
+    cloned.description = if template.description.is_empty() {
+        format!("Clone of {}", template.name)
+    } else {
+        format!("Clone of {}", template.description)
+    };
+    cloned.definition.id = cloned.id.clone();
+    cloned.definition.name = new_name.to_string();
+    cloned.definition.created_at = wf_common::now();
+    cloned.definition.updated_at = wf_common::now();
+    register_agent_template(ctx, &cloned)?;
+    Ok(cloned)
 }
 
 fn summary_from_workflow(template: WorkflowTemplate, usage_count: u64) -> TemplateSummary {
@@ -473,53 +474,55 @@ mod tests {
     #[test]
     fn query_filters_and_kind() {
         let ctx = make_ctx();
-        let api = TemplateLibraryApi::new(ctx);
 
-        let all = api.query(&TemplateFilter::default()).unwrap();
+        let all = query(&ctx, &TemplateFilter::default()).unwrap();
         assert_eq!(all.len(), 3);
 
-        let by_category = api.query_by_category("analytics").unwrap();
+        let by_category = query_by_category(&ctx, "analytics").unwrap();
         assert_eq!(by_category.len(), 2);
         assert!(by_category.iter().all(|t| t.kind != "writing"));
 
-        let by_author = api.query_by_author("author-x").unwrap();
+        let by_author = query_by_author(&ctx, "author-x").unwrap();
         assert_eq!(by_author.len(), 1);
         assert_eq!(by_author[0].kind, "agent");
 
-        let by_tags = api.query_by_tags(&["tag-b".to_string()]).unwrap();
+        let by_tags = query_by_tags(&ctx, &["tag-b".to_string()]).unwrap();
         assert_eq!(by_tags.len(), 1);
 
-        let by_name = api
-            .query(&TemplateFilter {
+        let by_name = query(
+            &ctx,
+            &TemplateFilter {
                 name: Some("wf".into()),
                 ..TemplateFilter::default()
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert_eq!(by_name.len(), 2);
 
-        let workflows_only = api
-            .query(&TemplateFilter {
+        let workflows_only = query(
+            &ctx,
+            &TemplateFilter {
                 kind: Some(TemplateKind::Workflow),
                 ..TemplateFilter::default()
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert_eq!(workflows_only.len(), 2);
     }
 
     #[test]
     fn featured_and_usage_tracking() {
         let ctx = make_ctx();
-        let api = TemplateLibraryApi::new(ctx);
 
-        api.record_usage("wf-b");
-        api.record_usage("wf-b");
-        api.record_usage("wf-a");
+        record_usage(&ctx, "wf-b");
+        record_usage(&ctx, "wf-b");
+        record_usage(&ctx, "wf-a");
 
-        let featured = api.featured(10).unwrap();
+        let featured = featured(&ctx, 10).unwrap();
         assert_eq!(featured[0].id, "wf-b");
         assert_eq!(featured[0].usage_count, 2);
 
-        let popular = api.popular_in_category("analytics", 10).unwrap();
+        let popular = popular_in_category(&ctx, "analytics", 10).unwrap();
         assert_eq!(popular.len(), 2);
         assert_eq!(popular[0].id, "wf-a");
     }
@@ -527,17 +530,16 @@ mod tests {
     #[test]
     fn clone_registers_and_get() {
         let ctx = make_ctx();
-        let api = TemplateLibraryApi::new(ctx.clone());
 
-        let cloned = api.clone_workflow_template("wf-a", "My Clone").unwrap();
+        let cloned = clone_workflow_template(&ctx, "wf-a", "My Clone").unwrap();
         assert_ne!(cloned.id.to_string(), "wf-a");
         assert_eq!(cloned.name, "My Clone");
         assert!(ctx.registries.workflows.has(&cloned.id));
 
-        let cloned_agent = api.clone_agent_template("agent-a", "Agent Clone").unwrap();
+        let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone").unwrap();
         assert!(ctx.registries.agent_templates.has(&cloned_agent.id));
 
-        let err = api.get_workflow_template("missing").unwrap_err();
+        let err = get_workflow_template(&ctx, "missing").unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
     }
 }

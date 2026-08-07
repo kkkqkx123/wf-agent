@@ -1,3 +1,11 @@
+//! Direct script execution entry points (TS `ScriptRegistryAPI` +
+//! `ExecuteScriptCommand` counterparts).
+//!
+//! Execution renders the template (via `wf-script`) and runs the resulting
+//! command through the shared `wf-sandbox` runtime of the context, so ad-hoc
+//! executions get exactly the same sandbox profile routing and gate checks as
+//! `SCRIPT` nodes inside a workflow.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -46,161 +54,153 @@ pub struct ScriptExecuteParams {
     pub timeout_ms: Option<u64>,
 }
 
-/// Direct script execution entry points (TS `ScriptRegistryAPI` +
-/// `ExecuteScriptCommand` counterparts).
-///
-/// Execution renders the template (via `wf-script`) and runs the resulting
-/// command through the shared `wf-sandbox` runtime of the context, so ad-hoc
-/// executions get exactly the same sandbox profile routing and gate checks as
-/// `SCRIPT` nodes inside a workflow.
-pub struct ScriptApi {
-    ctx: Arc<ApiContext>,
+/// Execute a script. When neither `code` nor `template` is supplied, the
+/// script is resolved from the process-wide script registry (the same
+/// registry `ExecuteScript` trigger actions use); a stored-but-contentless
+/// metadata entry alone is rejected.
+pub async fn execute(
+    ctx: &ApiContext,
+    params: &ScriptExecuteParams,
+) -> ApiResult<ScriptExecutionResult> {
+    if params.name.trim().is_empty() {
+        return Err(ApiError::Validation("script name is required".into()));
+    }
+
+    let language = params
+        .language
+        .clone()
+        .or_else(|| lookup_registered_language(&params.name))
+        .unwrap_or_else(|| "shell".to_string());
+
+    let (code, template, arguments) = if let Some(code) = &params.code {
+        (Some(code.clone()), None, None)
+    } else if let Some(template) = &params.template {
+        (
+            None,
+            Some(template.clone()),
+            Some(default_arguments(params)),
+        )
+    } else if let Some(registered) = wf_workflow::lookup_script(&params.name) {
+        (Some(registered.code), None, None)
+    } else {
+        return Err(ApiError::Validation(format!(
+            "script '{}' has no inline code or template and is not registered",
+            params.name
+        )));
+    };
+
+    let script = ScriptDefinition {
+        name: params.name.clone(),
+        content: code,
+        template,
+        arguments,
+        language: Some(language.clone()),
+        executor_mode: None,
+    };
+
+    let options = ScriptExecutionOptions {
+        executor_mode: None,
+        working_directory: params.working_directory.clone(),
+        environment: params.environment.clone(),
+        timeout_ms: params.timeout_ms,
+    };
+    let engine_options = ScriptEngineOptions {
+        args: params.args.clone(),
+        context_variables: HashMap::new(),
+    };
+
+    let sandbox = ctx.sandbox.clone();
+    let sandbox_config = params
+        .sandbox
+        .clone()
+        .unwrap_or_else(|| default_sandbox_config(&language));
+    let script_name = params.name.clone();
+    let language_for_exec = language.clone();
+    // The script engine hands the rendered command to a closure; keep the
+    // full sandbox result (mode / strategy / violations) in a one-shot
+    // slot so the API can return it untouched. `OnceLock` is lock-free and
+    // written exactly once (the engine discards the closure's rich output).
+    let sandbox_result: Arc<std::sync::OnceLock<ScriptExecutionResult>> =
+        Arc::new(std::sync::OnceLock::new());
+    let sandbox_result_sink = sandbox_result.clone();
+
+    let engine_result = ScriptEngine
+        .execute(
+            &script,
+            Some(&options),
+            &engine_options,
+            move |command, options| {
+                let sandbox = sandbox.clone();
+                let sandbox_config = sandbox_config.clone();
+                let language = language_for_exec.clone();
+                let script_name = script_name.clone();
+                let env = options.and_then(|o| o.environment.clone());
+                let workdir = options.and_then(|o| o.working_directory.clone());
+                async move {
+                    let mut config = sandbox_config;
+                    if env.is_some() {
+                        config.env = env;
+                    }
+                    if workdir.is_some() {
+                        config.workdir = workdir;
+                    }
+                    let result = sandbox
+                        .execute_named(&language, &script_name, &command, &config)
+                        .await;
+                    let _ = sandbox_result_sink.set(result.clone());
+                    to_script_result(result)
+                }
+            },
+        )
+        .await;
+
+    if !engine_result.success {
+        let error = engine_result
+            .error
+            .unwrap_or_else(|| "script execution failed".into());
+        return Err(ApiError::execution(error));
+    }
+
+    let output = sandbox_result.get().cloned();
+    output.ok_or_else(|| ApiError::execution("sandbox produced no result"))
 }
 
-impl ScriptApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Validate a script definition without executing it: non-empty name and
+/// at least one source of code, plus a well-formed sandbox config.
+pub async fn validate(
+    _ctx: &ApiContext,
+    params: &ScriptExecuteParams,
+) -> ApiResult<ScriptValidation> {
+    let mut errors = Vec::new();
+    if params.name.trim().is_empty() {
+        errors.push("Script name is required".into());
     }
-
-    /// Execute a script. When neither `code` nor `template` is supplied, the
-    /// script is resolved from the process-wide script registry (the same
-    /// registry `ExecuteScript` trigger actions use); a stored-but-contentless
-    /// metadata entry alone is rejected.
-    pub async fn execute(&self, params: &ScriptExecuteParams) -> ApiResult<ScriptExecutionResult> {
-        if params.name.trim().is_empty() {
-            return Err(ApiError::Validation("script name is required".into()));
-        }
-
-        let language = params
-            .language
-            .clone()
-            .or_else(|| lookup_registered_language(&params.name))
-            .unwrap_or_else(|| "shell".to_string());
-
-        let (code, template, arguments) = if let Some(code) = &params.code {
-            (Some(code.clone()), None, None)
-        } else if let Some(template) = &params.template {
-            (None, Some(template.clone()), Some(default_arguments(params)))
-        } else if let Some(registered) = wf_workflow::lookup_script(&params.name) {
-            (Some(registered.code), None, None)
-        } else {
-            return Err(ApiError::Validation(format!(
-                "script '{}' has no inline code or template and is not registered",
-                params.name
-            )));
-        };
-
-        let script = ScriptDefinition {
-            name: params.name.clone(),
-            content: code,
-            template,
-            arguments,
-            language: Some(language.clone()),
-            executor_mode: None,
-        };
-
-        let options = ScriptExecutionOptions {
-            executor_mode: None,
-            working_directory: params.working_directory.clone(),
-            environment: params.environment.clone(),
-            timeout_ms: params.timeout_ms,
-        };
-        let engine_options = ScriptEngineOptions {
-            args: params.args.clone(),
-            context_variables: HashMap::new(),
-        };
-
-        let sandbox = self.ctx.sandbox.clone();
-        let sandbox_config = params
-            .sandbox
-            .clone()
-            .unwrap_or_else(|| default_sandbox_config(&language));
-        let script_name = params.name.clone();
-        let language_for_exec = language.clone();
-        // The script engine hands the rendered command to a closure; keep the
-        // full sandbox result (mode / strategy / violations) in a shared slot
-        // so the API can return it untouched.
-        let sandbox_result: Arc<std::sync::Mutex<Option<ScriptExecutionResult>>> =
-            Arc::new(std::sync::Mutex::new(None));
-        let sandbox_result_sink = sandbox_result.clone();
-
-        let engine_result = ScriptEngine
-            .execute(
-                &script,
-                Some(&options),
-                &engine_options,
-                move |command, options| {
-                    let sandbox = sandbox.clone();
-                    let sandbox_config = sandbox_config.clone();
-                    let language = language_for_exec.clone();
-                    let script_name = script_name.clone();
-                    let env = options.and_then(|o| o.environment.clone());
-                    let workdir = options.and_then(|o| o.working_directory.clone());
-                    let sink = sandbox_result_sink.clone();
-                    async move {
-                        let mut config = sandbox_config;
-                        if env.is_some() {
-                            config.env = env;
-                        }
-                        if workdir.is_some() {
-                            config.workdir = workdir;
-                        }
-                        let result = sandbox
-                            .execute_named(&language, &script_name, &command, &config)
-                            .await;
-                        *sink.lock().expect("script result sink lock") = Some(result.clone());
-                        to_script_result(result)
-                    }
-                },
-            )
-            .await;
-
-        if !engine_result.success {
-            let error = engine_result
-                .error
-                .unwrap_or_else(|| "script execution failed".into());
-            return Err(ApiError::Execution(error));
-        }
-
-        let mut guard = sandbox_result.lock().expect("script result lock");
-        let output = guard.take();
-        output.ok_or_else(|| ApiError::Execution("sandbox produced no result".into()))
+    if params.code.is_none()
+        && params.template.is_none()
+        && wf_workflow::lookup_script(&params.name).is_none()
+    {
+        errors.push("Script must provide inline code, a template, or be registered".into());
     }
-
-    /// Validate a script definition without executing it: non-empty name and
-    /// at least one source of code, plus a well-formed sandbox config.
-    pub async fn validate(&self, params: &ScriptExecuteParams) -> ApiResult<ScriptValidation> {
-        let mut errors = Vec::new();
-        if params.name.trim().is_empty() {
-            errors.push("Script name is required".into());
+    if let Some(template) = &params.template {
+        if template.trim().is_empty() {
+            errors.push("Script template must not be empty".into());
         }
-        if params.code.is_none()
-            && params.template.is_none()
-            && wf_workflow::lookup_script(&params.name).is_none()
-        {
-            errors.push("Script must provide inline code, a template, or be registered".into());
-        }
-        if let Some(template) = &params.template {
-            if template.trim().is_empty() {
-                errors.push("Script template must not be empty".into());
-            }
-        }
-        if let Some(config) = &params.sandbox {
-            if let Err(e) = serde_json::to_value(config) {
-                errors.push(format!("Invalid sandbox config: {e}"));
-            }
-        }
-        Ok(ScriptValidation {
-            valid: errors.is_empty(),
-            errors,
-        })
     }
-
-    /// Whether a stored script metadata entry is present and enabled (mirrors
-    /// the TS `isScriptEnabled`).
-    pub async fn is_enabled(&self, name: &str) -> ApiResult<bool> {
-        is_script_enabled(&self.ctx.storage, name).await
+    if let Some(config) = &params.sandbox {
+        if let Err(e) = serde_json::to_value(config) {
+            errors.push(format!("Invalid sandbox config: {e}"));
+        }
     }
+    Ok(ScriptValidation {
+        valid: errors.is_empty(),
+        errors,
+    })
+}
+
+/// Whether a stored script metadata entry is present and enabled (mirrors
+/// the TS `isScriptEnabled`).
+pub async fn is_enabled(ctx: &ApiContext, name: &str) -> ApiResult<bool> {
+    is_script_enabled(&ctx.storage, name).await
 }
 
 fn default_arguments(params: &ScriptExecuteParams) -> Vec<wf_script::ScriptArgument> {
@@ -502,8 +502,6 @@ mod tests {
         assert!(none.is_empty());
     }
 
-    // ── ScriptApi ───────────────────────────────────────────────────
-
     fn make_api_ctx() -> Arc<crate::ApiContext> {
         Arc::new(crate::ApiContext::new(
             StorageContext::new_memory(),
@@ -524,9 +522,7 @@ mod tests {
     #[tokio::test]
     async fn script_api_executes_inline_shell() {
         let ctx = make_api_ctx();
-        let api = ScriptApi::new(ctx);
-        let result = api
-            .execute(&shell_params("hello-script", "echo hello-api"))
+        let result = execute(&ctx, &shell_params("hello-script", "echo hello-api"))
             .await
             .unwrap();
         assert!(result.success, "stderr: {:?}", result.stderr);
@@ -540,18 +536,14 @@ mod tests {
     #[tokio::test]
     async fn script_api_renders_template_before_execution() {
         let ctx = make_api_ctx();
-        let api = ScriptApi::new(ctx);
         let params = ScriptExecuteParams {
             name: "greet-script".into(),
             language: Some("shell".into()),
             template: Some("echo {{greeting}}".into()),
-            args: HashMap::from([(
-                "greeting".to_string(),
-                serde_json::json!("hi-there"),
-            )]),
+            args: HashMap::from([("greeting".to_string(), serde_json::json!("hi-there"))]),
             ..ScriptExecuteParams::default()
         };
-        let result = api.execute(&params).await.unwrap();
+        let result = execute(&ctx, &params).await.unwrap();
         assert!(result.success, "stderr: {:?}", result.stderr);
         assert!(result
             .stdout
@@ -562,15 +554,14 @@ mod tests {
     #[tokio::test]
     async fn script_api_rejects_missing_code_source() {
         let ctx = make_api_ctx();
-        let api = ScriptApi::new(ctx);
         let params = ScriptExecuteParams {
             name: "no-source".into(),
             ..ScriptExecuteParams::default()
         };
-        let err = api.execute(&params).await.unwrap_err();
+        let err = execute(&ctx, &params).await.unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
 
-        let validation = api.validate(&params).await.unwrap();
+        let validation = validate(&ctx, &params).await.unwrap();
         assert!(!validation.valid);
         assert!(!validation.errors.is_empty());
     }
@@ -578,12 +569,12 @@ mod tests {
     #[tokio::test]
     async fn script_api_validate_accepts_valid_definition() {
         let ctx = make_api_ctx();
-        let api = ScriptApi::new(ctx);
-        let validation = api.validate(&shell_params("ok", "echo ok")).await.unwrap();
+        let validation = validate(&ctx, &shell_params("ok", "echo ok"))
+            .await
+            .unwrap();
         assert!(validation.valid, "errors: {:?}", validation.errors);
 
-        let bad_name = api
-            .validate(&ScriptExecuteParams::default())
+        let bad_name = validate(&ctx, &ScriptExecuteParams::default())
             .await
             .unwrap();
         assert!(!bad_name.valid);
@@ -593,12 +584,11 @@ mod tests {
     async fn script_api_falls_back_to_registered_script() {
         wf_workflow::register_script("api-registered-script", "shell", "echo from-registry");
         let ctx = make_api_ctx();
-        let api = ScriptApi::new(ctx);
         let params = ScriptExecuteParams {
             name: "api-registered-script".into(),
             ..ScriptExecuteParams::default()
         };
-        let result = api.execute(&params).await.unwrap();
+        let result = execute(&ctx, &params).await.unwrap();
         assert!(result.success, "stderr: {:?}", result.stderr);
         assert!(result
             .stdout

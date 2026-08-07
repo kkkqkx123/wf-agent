@@ -4,7 +4,7 @@ use std::future::Future;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::domain::Entity;
 
-use crate::error::{ApiError, ApiResult};
+use crate::error::{not_found, ApiResult};
 
 /// Uniform resource API over the storage adapters (TS `ResourceAPI` counterpart).
 ///
@@ -32,7 +32,7 @@ where
         async move {
             self.load(id)
                 .await?
-                .ok_or_else(|| ApiError::not_found(<TEntity as Entity>::entity_type(), id))
+                .ok_or_else(|| not_found(<TEntity as Entity>::entity_type(), id))
         }
     }
 

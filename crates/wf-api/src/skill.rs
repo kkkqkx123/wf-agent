@@ -1,3 +1,9 @@
+//! Skill resource management (TS `SkillRegistryAPI` counterpart).
+//!
+//! Backed by the shared `ToolRegistry` skill loader; when no loader is wired
+//! into the context (no skill paths configured), the metadata queries degrade
+//! to empty results instead of erroring.
+
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -6,7 +12,7 @@ use wf_tools::SkillLoader;
 use wf_types::skill::{SkillMetadata, SkillResourceType};
 
 use crate::context::ApiContext;
-use crate::error::{ApiError, ApiResult};
+use crate::error::{not_found, ApiError, ApiResult};
 
 /// Skill filter (mirrors the TS `SkillFilter`).
 #[derive(Debug, Clone, Default)]
@@ -26,206 +32,187 @@ pub struct SkillResourceEntry {
     pub content: String,
 }
 
-/// Skill resource management (TS `SkillRegistryAPI` counterpart).
-///
-/// Backed by the shared `ToolRegistry` skill loader; when no loader is wired
-/// into the context (no skill paths configured), the metadata queries degrade
-/// to empty results instead of erroring.
-pub struct SkillApi {
-    ctx: Arc<ApiContext>,
+/// Resolve the shared skill loader; errors with a descriptive message
+/// when no loader is configured.
+fn loader(ctx: &ApiContext) -> ApiResult<Arc<SkillLoader>> {
+    ctx.tool_registry.skill_loader().ok_or_else(|| {
+        ApiError::execution("Skill system is not available: no skill loader is configured")
+    })
 }
 
-impl SkillApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Whether the skill loader is present in this context.
+pub fn is_available(ctx: &ApiContext) -> bool {
+    ctx.tool_registry.skill_loader().is_some()
+}
+
+// ── metadata queries ────────────────────────────────────────────
+
+/// Metadata of all known skills (empty when no loader is configured).
+pub fn list_skills(ctx: &ApiContext) -> ApiResult<Vec<SkillMetadata>> {
+    match ctx.tool_registry.skill_loader() {
+        Some(loader) => Ok(loader.list_skills()),
+        None => Ok(Vec::new()),
     }
+}
 
-    /// Resolve the shared skill loader; errors with a descriptive message
-    /// when no loader is configured.
-    fn loader(&self) -> ApiResult<Arc<SkillLoader>> {
-        self.ctx.tool_registry.skill_loader().ok_or_else(|| {
-            ApiError::Execution(
-                "Skill system is not available: no skill loader is configured".into(),
-            )
-        })
-    }
+pub fn get_skill(ctx: &ApiContext, name: &str) -> ApiResult<SkillMetadata> {
+    let loader = loader(ctx)?;
+    loader
+        .get_skill(name)
+        .ok_or_else(|| not_found("skill", name))
+}
 
-    /// Whether the skill loader is present in this context.
-    pub fn is_available(&self) -> bool {
-        self.ctx.tool_registry.skill_loader().is_some()
-    }
+pub fn has_skill(ctx: &ApiContext, name: &str) -> bool {
+    ctx.tool_registry
+        .skill_loader()
+        .map(|loader| loader.has_skill(name))
+        .unwrap_or(false)
+}
 
-    // ── metadata queries ────────────────────────────────────────────
+pub fn get_enabled_skills(ctx: &ApiContext) -> ApiResult<Vec<SkillMetadata>> {
+    let loader = loader(ctx)?;
+    Ok(loader.get_enabled_skills())
+}
 
-    /// Metadata of all known skills (empty when no loader is configured).
-    pub fn list_skills(&self) -> ApiResult<Vec<SkillMetadata>> {
-        match self.ctx.tool_registry.skill_loader() {
-            Some(loader) => Ok(loader.list_skills()),
-            None => Ok(Vec::new()),
-        }
-    }
+pub fn get_disabled_skills(ctx: &ApiContext) -> ApiResult<Vec<SkillMetadata>> {
+    let loader = loader(ctx)?;
+    Ok(loader.get_disabled_skills())
+}
 
-    pub fn get_skill(&self, name: &str) -> ApiResult<SkillMetadata> {
-        let loader = self.loader()?;
-        loader
-            .get_skill(name)
-            .ok_or_else(|| ApiError::not_found("skill", name))
-    }
-
-    pub fn has_skill(&self, name: &str) -> bool {
-        self.ctx
-            .tool_registry
-            .skill_loader()
-            .map(|loader| loader.has_skill(name))
-            .unwrap_or(false)
-    }
-
-    pub fn get_enabled_skills(&self) -> ApiResult<Vec<SkillMetadata>> {
-        let loader = self.loader()?;
-        Ok(loader.get_enabled_skills())
-    }
-
-    pub fn get_disabled_skills(&self) -> ApiResult<Vec<SkillMetadata>> {
-        let loader = self.loader()?;
-        Ok(loader.get_disabled_skills())
-    }
-
-    /// Filter skills by name / version / tags.
-    pub fn query(&self, filter: &SkillFilter) -> ApiResult<Vec<SkillMetadata>> {
-        Ok(self
-            .list_skills()?
-            .into_iter()
-            .filter(|skill| {
-                if let Some(name) = &filter.name {
-                    if !skill.name.contains(name.as_str()) {
-                        return false;
-                    }
+/// Filter skills by name / version / tags.
+pub fn query(ctx: &ApiContext, filter: &SkillFilter) -> ApiResult<Vec<SkillMetadata>> {
+    Ok(list_skills(ctx)?
+        .into_iter()
+        .filter(|skill| {
+            if let Some(name) = &filter.name {
+                if !skill.name.contains(name.as_str()) {
+                    return false;
                 }
-                if let Some(version) = &filter.version {
-                    if skill.version.as_deref() != Some(version.as_str()) {
-                        return false;
-                    }
-                }
-                if let Some(tags) = &filter.tags {
-                    if !tags.is_empty() {
-                        let values: Vec<&String> = skill
-                            .metadata
-                            .as_ref()
-                            .map(|m| m.values().collect())
-                            .unwrap_or_default();
-                        if !tags
-                            .iter()
-                            .all(|tag| values.iter().any(|v| v.as_str() == tag))
-                        {
-                            return false;
-                        }
-                    }
-                }
-                true
-            })
-            .collect())
-    }
-
-    // ── enable / disable ────────────────────────────────────────────
-
-    pub fn enable(&self, name: &str) -> ApiResult<()> {
-        let loader = self.loader()?;
-        loader.enable_skill(name)?;
-        Ok(())
-    }
-
-    pub fn disable(&self, name: &str) -> ApiResult<()> {
-        let loader = self.loader()?;
-        loader.disable_skill(name)?;
-        Ok(())
-    }
-
-    pub fn is_enabled(&self, name: &str) -> ApiResult<bool> {
-        let loader = self.loader()?;
-        Ok(loader.is_skill_enabled(name))
-    }
-
-    // ── cache ───────────────────────────────────────────────────────
-
-    /// Clear the content/resource caches of the skill loader.
-    pub fn clear_cache(&self) -> ApiResult<()> {
-        let loader = self.loader()?;
-        loader.clear_cache();
-        Ok(())
-    }
-
-    // ── progressive disclosure ──────────────────────────────────────
-
-    /// Level 1: metadata prompt listing the enabled skills.
-    pub fn generate_metadata_prompt(&self) -> ApiResult<String> {
-        let loader = self.loader()?;
-        Ok(wf_tools::skill::generate_skill_metadata_prompt(
-            &loader.get_enabled_skills(),
-        ))
-    }
-
-    /// Level 1: inject the skill metadata prompt into a system prompt.
-    pub fn inject_skill_metadata(&self, system_prompt: &str) -> ApiResult<String> {
-        let loader = self.loader()?;
-        Ok(wf_tools::skill::inject_skill_metadata(
-            system_prompt,
-            &loader.get_enabled_skills(),
-        ))
-    }
-
-    /// Level 2: load the full skill body content.
-    pub fn load_content(&self, name: &str) -> ApiResult<String> {
-        let loader = self.loader()?;
-        loader.load_content(name).map_err(Into::into)
-    }
-
-    /// Level 3: list the relative paths of a skill resource directory.
-    pub fn list_resources(
-        &self,
-        name: &str,
-        resource_type: SkillResourceType,
-    ) -> ApiResult<Vec<String>> {
-        let loader = self.loader()?;
-        Ok(loader.list_skill_resources(name, resource_type))
-    }
-
-    /// Level 3: load one resource file of a skill.
-    pub fn load_resource(
-        &self,
-        name: &str,
-        resource_type: SkillResourceType,
-        path: &str,
-    ) -> ApiResult<String> {
-        let loader = self.loader()?;
-        match loader.load_skill_resource(name, resource_type, path)? {
-            wf_tools::skill::ResourceContent::Text(text) => Ok(text),
-            wf_tools::skill::ResourceContent::Binary(bytes) => {
-                Ok(String::from_utf8_lossy(&bytes).into_owned())
             }
+            if let Some(version) = &filter.version {
+                if skill.version.as_deref() != Some(version.as_str()) {
+                    return false;
+                }
+            }
+            if let Some(tags) = &filter.tags {
+                if !tags.is_empty() {
+                    let values: Vec<&String> = skill
+                        .metadata
+                        .as_ref()
+                        .map(|m| m.values().collect())
+                        .unwrap_or_default();
+                    if !tags
+                        .iter()
+                        .all(|tag| values.iter().any(|v| v.as_str() == tag))
+                    {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .collect())
+}
+
+// ── enable / disable ────────────────────────────────────────────
+
+pub fn enable(ctx: &ApiContext, name: &str) -> ApiResult<()> {
+    let loader = loader(ctx)?;
+    loader.enable_skill(name)?;
+    Ok(())
+}
+
+pub fn disable(ctx: &ApiContext, name: &str) -> ApiResult<()> {
+    let loader = loader(ctx)?;
+    loader.disable_skill(name)?;
+    Ok(())
+}
+
+pub fn is_enabled(ctx: &ApiContext, name: &str) -> ApiResult<bool> {
+    let loader = loader(ctx)?;
+    Ok(loader.is_skill_enabled(name))
+}
+
+// ── cache ───────────────────────────────────────────────────────
+
+/// Clear the content/resource caches of the skill loader.
+pub fn clear_cache(ctx: &ApiContext) -> ApiResult<()> {
+    let loader = loader(ctx)?;
+    loader.clear_cache();
+    Ok(())
+}
+
+// ── progressive disclosure ──────────────────────────────────────
+
+/// Level 1: metadata prompt listing the enabled skills.
+pub fn generate_metadata_prompt(ctx: &ApiContext) -> ApiResult<String> {
+    let loader = loader(ctx)?;
+    Ok(wf_tools::skill::generate_skill_metadata_prompt(
+        &loader.get_enabled_skills(),
+    ))
+}
+
+/// Level 1: inject the skill metadata prompt into a system prompt.
+pub fn inject_skill_metadata(ctx: &ApiContext, system_prompt: &str) -> ApiResult<String> {
+    let loader = loader(ctx)?;
+    Ok(wf_tools::skill::inject_skill_metadata(
+        system_prompt,
+        &loader.get_enabled_skills(),
+    ))
+}
+
+/// Level 2: load the full skill body content.
+pub fn load_content(ctx: &ApiContext, name: &str) -> ApiResult<String> {
+    let loader = loader(ctx)?;
+    loader.load_content(name).map_err(Into::into)
+}
+
+/// Level 3: list the relative paths of a skill resource directory.
+pub fn list_resources(
+    ctx: &ApiContext,
+    name: &str,
+    resource_type: SkillResourceType,
+) -> ApiResult<Vec<String>> {
+    let loader = loader(ctx)?;
+    Ok(loader.list_skill_resources(name, resource_type))
+}
+
+/// Level 3: load one resource file of a skill.
+pub fn load_resource(
+    ctx: &ApiContext,
+    name: &str,
+    resource_type: SkillResourceType,
+    path: &str,
+) -> ApiResult<String> {
+    let loader = loader(ctx)?;
+    match loader.load_skill_resource(name, resource_type, path)? {
+        wf_tools::skill::ResourceContent::Text(text) => Ok(text),
+        wf_tools::skill::ResourceContent::Binary(bytes) => {
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
         }
     }
+}
 
-    /// Level 3: load all resources of a skill directory.
-    pub fn load_resources(
-        &self,
-        name: &str,
-        resource_type: SkillResourceType,
-    ) -> ApiResult<Vec<SkillResourceEntry>> {
-        let loader = self.loader()?;
-        let contents = loader.load_resources(name, resource_type)?;
-        Ok(contents
-            .into_iter()
-            .map(|(path, content)| SkillResourceEntry {
-                path,
-                content: match content {
-                    wf_tools::skill::ResourceContent::Text(text) => text,
-                    wf_tools::skill::ResourceContent::Binary(bytes) => {
-                        String::from_utf8_lossy(&bytes).into_owned()
-                    }
-                },
-            })
-            .collect())
-    }
+/// Level 3: load all resources of a skill directory.
+pub fn load_resources(
+    ctx: &ApiContext,
+    name: &str,
+    resource_type: SkillResourceType,
+) -> ApiResult<Vec<SkillResourceEntry>> {
+    let loader = loader(ctx)?;
+    let contents = loader.load_resources(name, resource_type)?;
+    Ok(contents
+        .into_iter()
+        .map(|(path, content)| SkillResourceEntry {
+            path,
+            content: match content {
+                wf_tools::skill::ResourceContent::Text(text) => text,
+                wf_tools::skill::ResourceContent::Binary(bytes) => {
+                    String::from_utf8_lossy(&bytes).into_owned()
+                }
+            },
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -272,22 +259,23 @@ mod tests {
     #[test]
     fn skill_metadata_query_and_filter() {
         let ctx = make_ctx("meta");
-        let api = SkillApi::new(ctx);
 
-        let all = api.list_skills().unwrap();
+        let all = list_skills(&ctx).unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].name, "test-skill");
-        assert!(api.has_skill("test-skill"));
+        assert!(has_skill(&ctx, "test-skill"));
 
-        let matched = api
-            .query(&SkillFilter {
+        let matched = query(
+            &ctx,
+            &SkillFilter {
                 name: Some("test".into()),
                 ..SkillFilter::default()
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert_eq!(matched.len(), 1);
 
-        let err = api.get_skill("nope").unwrap_err();
+        let err = get_skill(&ctx, "nope").unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
 
         cleanup("meta");
@@ -296,18 +284,17 @@ mod tests {
     #[test]
     fn skill_enable_disable() {
         let ctx = make_ctx("enable");
-        let api = SkillApi::new(ctx);
 
-        assert!(api.is_enabled("test-skill").unwrap());
-        api.disable("test-skill").unwrap();
-        assert!(!api.is_enabled("test-skill").unwrap());
-        assert_eq!(api.get_disabled_skills().unwrap().len(), 1);
-        assert!(api.get_enabled_skills().unwrap().is_empty());
-        api.enable("test-skill").unwrap();
-        assert!(api.is_enabled("test-skill").unwrap());
+        assert!(is_enabled(&ctx, "test-skill").unwrap());
+        disable(&ctx, "test-skill").unwrap();
+        assert!(!is_enabled(&ctx, "test-skill").unwrap());
+        assert_eq!(get_disabled_skills(&ctx).unwrap().len(), 1);
+        assert!(get_enabled_skills(&ctx).unwrap().is_empty());
+        enable(&ctx, "test-skill").unwrap();
+        assert!(is_enabled(&ctx, "test-skill").unwrap());
 
-        let err = api.enable("missing-skill").unwrap_err();
-        assert!(matches!(err, ApiError::Execution(_)));
+        let err = enable(&ctx, "missing-skill").unwrap_err();
+        assert!(matches!(err, ApiError::Execution { .. }));
 
         cleanup("enable");
     }
@@ -315,30 +302,24 @@ mod tests {
     #[test]
     fn skill_progressive_disclosure() {
         let ctx = make_ctx("disclosure");
-        let api = SkillApi::new(ctx);
 
-        let prompt = api.generate_metadata_prompt().unwrap();
+        let prompt = generate_metadata_prompt(&ctx).unwrap();
         assert!(prompt.contains("test-skill"));
 
-        let injected = api.inject_skill_metadata("You are a helper.").unwrap();
+        let injected = inject_skill_metadata(&ctx, "You are a helper.").unwrap();
         assert!(injected.contains("test-skill"));
 
-        let content = api.load_content("test-skill").unwrap();
+        let content = load_content(&ctx, "test-skill").unwrap();
         assert!(content.contains("Test skill body"));
 
-        let resources = api
-            .list_resources("test-skill", SkillResourceType::References)
-            .unwrap();
+        let resources = list_resources(&ctx, "test-skill", SkillResourceType::References).unwrap();
         assert!(resources.iter().any(|p| p.ends_with("guide.md")));
 
-        let guide = api
-            .load_resource("test-skill", SkillResourceType::References, "guide.md")
-            .unwrap();
+        let guide =
+            load_resource(&ctx, "test-skill", SkillResourceType::References, "guide.md").unwrap();
         assert_eq!(guide, "reference content");
 
-        let all = api
-            .load_resources("test-skill", SkillResourceType::References)
-            .unwrap();
+        let all = load_resources(&ctx, "test-skill", SkillResourceType::References).unwrap();
         assert_eq!(all.len(), 1);
 
         cleanup("disclosure");
@@ -351,11 +332,10 @@ mod tests {
             Arc::new(Registries::new()),
             Arc::new(BundleRegistry::new()),
         ));
-        let api = SkillApi::new(ctx);
-        assert!(!api.is_available());
-        assert!(api.list_skills().unwrap().is_empty());
-        let err = api.get_skill("x").unwrap_err();
-        assert!(matches!(err, ApiError::Execution(_)));
+        assert!(!is_available(&ctx));
+        assert!(list_skills(&ctx).unwrap().is_empty());
+        let err = get_skill(&ctx, "x").unwrap_err();
+        assert!(matches!(err, ApiError::Execution { .. }));
         let _ = PathBuf::new();
     }
 }

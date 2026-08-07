@@ -1,6 +1,10 @@
+//! Error analysis over live entity error chains and persisted execution
+//! records. Lives on top of `wf-common::error_chain::ErrorRecord` (the shape
+//! the workflow/agent engines record on failure) and the `FailurePolicyManager`
+//! recovery semantics exposed through `RecoveryAction`.
+
 use std::collections::{BTreeMap, HashMap};
 use std::pin::Pin;
-use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -14,6 +18,7 @@ use wf_types::ExecutionStatus;
 use crate::agent_error_analysis::ExecutionErrorRecord;
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
+use crate::util::round2;
 
 /// Error hotspot: a node where errors concentrate (TS `WorkflowErrorHotspot`).
 #[derive(Debug, Clone, Serialize)]
@@ -76,7 +81,7 @@ pub struct RecoveryProposal {
     pub estimated_time_to_recover: Option<i64>,
 }
 
-/// Handle returned by [`ErrorAnalysisApi::subscribe_to_errors`]; dropping it
+/// Handle returned by [`subscribe_to_errors`]; dropping it
 /// stops the subscription.
 pub struct ErrorSubscription {
     handle: tokio::task::AbortHandle,
@@ -120,424 +125,412 @@ pub struct SimilarErrorGroup {
     pub nodes: Vec<String>,
 }
 
-/// Error analysis over live entity error chains and persisted execution
-/// records. Lives on top of `wf-common::error_chain::ErrorRecord` (the shape
-/// the workflow/agent engines record on failure) and the `FailurePolicyManager`
-/// recovery semantics exposed through `RecoveryAction`.
-pub struct ErrorAnalysisApi {
-    ctx: Arc<ApiContext>,
+/// Error statistics of a workflow execution.
+pub async fn workflow_error_stats(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowErrorStats> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    let mut stats = WorkflowErrorStats {
+        execution_id: execution_id.to_string(),
+        ..WorkflowErrorStats::default()
+    };
+    stats.total = records.len() as u32;
+    for record in &records {
+        let type_name = record
+            .error_type
+            .as_ref()
+            .map(|t| format!("{t:?}"))
+            .unwrap_or_else(|| "Unknown".to_string());
+        *stats.by_type.entry(type_name).or_insert(0) += 1;
+
+        let node = record
+            .node_id
+            .clone()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        *stats.by_node.entry(node).or_insert(0) += 1;
+
+        let severity = severity_of(record);
+        *stats.by_severity.entry(severity).or_insert(0) += 1;
+
+        if record.is_recoverable {
+            stats.recoverable += 1;
+        }
+    }
+    stats.root_cause = records
+        .iter()
+        .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
+        .map(|r| r.error.clone())
+        .or_else(|| records.first().map(|r| r.error.clone()));
+    Ok(stats)
 }
 
-impl ErrorAnalysisApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
-
-    /// Error statistics of a workflow execution.
-    pub async fn workflow_error_stats(&self, execution_id: &str) -> ApiResult<WorkflowErrorStats> {
-        let records = self.workflow_error_records(execution_id).await?;
-        let mut stats = WorkflowErrorStats {
-            execution_id: execution_id.to_string(),
-            ..WorkflowErrorStats::default()
-        };
-        stats.total = records.len() as u32;
-        for record in &records {
-            let type_name = record
-                .error_type
-                .as_ref()
-                .map(|t| format!("{t:?}"))
-                .unwrap_or_else(|| "Unknown".to_string());
-            *stats.by_type.entry(type_name).or_insert(0) += 1;
-
-            let node = record
-                .node_id
-                .clone()
-                .unwrap_or_else(|| "<unknown>".to_string());
-            *stats.by_node.entry(node).or_insert(0) += 1;
-
-            let severity = severity_of(record);
-            *stats.by_severity.entry(severity).or_insert(0) += 1;
-
-            if record.is_recoverable {
-                stats.recoverable += 1;
-            }
-        }
-        stats.root_cause = records
-            .iter()
-            .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
-            .map(|r| r.error.clone())
-            .or_else(|| records.first().map(|r| r.error.clone()));
-        Ok(stats)
-    }
-
-    /// Recovery recommendations of a workflow execution (one per error
-    /// record carrying a recovery action).
-    pub async fn recovery_recommendations(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<ErrorRecommendation>> {
-        let records = self.workflow_error_records(execution_id).await?;
-        Ok(records
-            .iter()
-            .filter_map(|record| {
-                let action = match &record.recovery_action {
-                    Some(action) => action_name(action),
-                    None if record.is_recoverable => "retry".to_string(),
-                    None => return None,
-                };
-                Some(ErrorRecommendation {
-                    execution_id: record.execution_id.clone(),
-                    error: record.error.clone(),
-                    node_id: record.node_id.clone(),
-                    recovery_action: action,
-                    timestamp: record.timestamp,
-                })
+/// Recovery recommendations of a workflow execution (one per error
+/// record carrying a recovery action).
+pub async fn recovery_recommendations(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ErrorRecommendation>> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    Ok(records
+        .iter()
+        .filter_map(|record| {
+            let action = match &record.recovery_action {
+                Some(action) => action_name(action),
+                None if record.is_recoverable => "retry".to_string(),
+                None => return None,
+            };
+            Some(ErrorRecommendation {
+                execution_id: record.execution_id.clone(),
+                error: record.error.clone(),
+                node_id: record.node_id.clone(),
+                recovery_action: action,
+                timestamp: record.timestamp,
             })
-            .collect())
+        })
+        .collect())
+}
+
+/// Errors similar to this execution's errors across all persisted
+/// workflow executions, clustered by normalized error message.
+pub async fn similar_errors(
+    ctx: &ApiContext,
+    execution_id: &str,
+    limit: usize,
+) -> ApiResult<Vec<SimilarErrorGroup>> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    if records.is_empty() {
+        return Ok(Vec::new());
     }
+    let query_messages: Vec<String> = records
+        .iter()
+        .map(|r| normalize_message(&r.error))
+        .collect();
 
-    /// Errors similar to this execution's errors across all persisted
-    /// workflow executions, clustered by normalized error message.
-    pub async fn similar_errors(
-        &self,
-        execution_id: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<SimilarErrorGroup>> {
-        let records = self.workflow_error_records(execution_id).await?;
-        if records.is_empty() {
-            return Ok(Vec::new());
-        }
-        let query_messages: Vec<String> = records
-            .iter()
-            .map(|r| normalize_message(&r.error))
-            .collect();
-
-        let mut clusters: HashMap<String, SimilarErrorGroup> = HashMap::new();
-        let mut others = self.ctx.storage.workflow_execution.list(None).await?;
-        others.retain(|e| e.id != execution_id && e.status == ExecutionStatus::Failed);
-        for execution in &others {
-            let messages = execution
-                .errors
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .chain(execution.error.clone());
-            for message in messages {
-                let normalized = normalize_message(&message);
-                if query_messages.contains(&normalized) {
-                    let group =
-                        clusters
-                            .entry(normalized.clone())
-                            .or_insert_with(|| SimilarErrorGroup {
-                                message: normalized.clone(),
-                                count: 0,
-                                executions: Vec::new(),
-                                nodes: Vec::new(),
-                            });
-                    group.count += 1;
-                    if !group.executions.contains(&execution.id) {
-                        group.executions.push(execution.id.clone());
-                    }
+    let mut clusters: HashMap<String, SimilarErrorGroup> = HashMap::new();
+    let mut others = ctx.storage.workflow_execution.list(None).await?;
+    others.retain(|e| e.id != execution_id && e.status == ExecutionStatus::Failed);
+    for execution in &others {
+        let messages = execution
+            .errors
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .chain(execution.error.clone());
+        for message in messages {
+            let normalized = normalize_message(&message);
+            if query_messages.contains(&normalized) {
+                let group =
+                    clusters
+                        .entry(normalized.clone())
+                        .or_insert_with(|| SimilarErrorGroup {
+                            message: normalized.clone(),
+                            count: 0,
+                            executions: Vec::new(),
+                            nodes: Vec::new(),
+                        });
+                group.count += 1;
+                if !group.executions.contains(&execution.id) {
+                    group.executions.push(execution.id.clone());
                 }
             }
         }
-        let mut groups: Vec<SimilarErrorGroup> = clusters.into_values().collect();
-        groups.sort_by_key(|group| std::cmp::Reverse(group.count));
-        groups.truncate(if limit == 0 { 20 } else { limit });
-        Ok(groups)
     }
+    let mut groups: Vec<SimilarErrorGroup> = clusters.into_values().collect();
+    groups.sort_by_key(|group| std::cmp::Reverse(group.count));
+    groups.truncate(if limit == 0 { 20 } else { limit });
+    Ok(groups)
+}
 
-    async fn workflow_error_records(&self, execution_id: &str) -> ApiResult<Vec<ErrorRecord>> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            return Ok(entity.state.read().await.error_records().to_vec());
-        }
-        let record = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        // Persisted boundary keeps only plain error strings; build minimal
-        // records so the analysis stays available after the entity is gone.
-        let mut records = Vec::new();
-        if let Some(error) = &record.error {
+async fn workflow_error_records(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<ErrorRecord>> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        return Ok(entity.state.read().await.error_records().to_vec());
+    }
+    let record = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    // Persisted boundary keeps only plain error strings; build minimal
+    // records so the analysis stays available after the entity is gone.
+    let mut records = Vec::new();
+    if let Some(error) = &record.error {
+        records.push(minimal_record(execution_id, error, None));
+    }
+    if let Some(errors) = &record.errors {
+        for error in errors {
             records.push(minimal_record(execution_id, error, None));
         }
-        if let Some(errors) = &record.errors {
-            for error in errors {
-                records.push(minimal_record(execution_id, error, None));
-            }
-        }
-        Ok(records)
     }
+    Ok(records)
+}
 
-    /// Error chain of a workflow execution from the root cause up to and
-    /// including the given error id (or the last error when omitted) (TS
-    /// `getErrorChain`).
-    pub async fn get_error_chain(
-        &self,
-        execution_id: &str,
-        from_error_id: Option<&str>,
-    ) -> ApiResult<Vec<ExecutionErrorRecord>> {
-        let records = self.workflow_error_records(execution_id).await?;
-        if records.is_empty() {
-            return Ok(Vec::new());
-        }
-        let target = from_error_id
-            .and_then(|id| records.iter().find(|r| r.id == id))
-            .or_else(|| records.last())
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        let chain_ids: Vec<&str> = target.error_chain.iter().map(String::as_str).collect();
-        let mut chain: Vec<ExecutionErrorRecord> = records
-            .iter()
-            .filter(|r| chain_ids.contains(&r.id.as_str()))
-            .map(workflow_record_view)
-            .collect();
-        chain.sort_by_key(|r| r.timestamp);
-        Ok(chain)
+/// Error chain of a workflow execution from the root cause up to and
+/// including the given error id (or the last error when omitted) (TS
+/// `getErrorChain`).
+pub async fn get_error_chain(
+    ctx: &ApiContext,
+    execution_id: &str,
+    from_error_id: Option<&str>,
+) -> ApiResult<Vec<ExecutionErrorRecord>> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    if records.is_empty() {
+        return Ok(Vec::new());
     }
+    let target = from_error_id
+        .and_then(|id| records.iter().find(|r| r.id == id))
+        .or_else(|| records.last())
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    let chain_ids: Vec<&str> = target.error_chain.iter().map(String::as_str).collect();
+    let mut chain: Vec<ExecutionErrorRecord> = records
+        .iter()
+        .filter(|r| chain_ids.contains(&r.id.as_str()))
+        .map(workflow_record_view)
+        .collect();
+    chain.sort_by_key(|r| r.timestamp);
+    Ok(chain)
+}
 
-    /// Advanced error analysis of a workflow execution: frequency by type,
-    /// node hotspots, temporal pattern and trend (TS `getAdvancedErrorAnalysis`).
-    pub async fn get_advanced_error_analysis(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<AdvancedWorkflowErrorAnalysis> {
-        let records = self.workflow_error_records(execution_id).await?;
-        if records.is_empty() {
-            return Ok(AdvancedWorkflowErrorAnalysis {
-                execution_id: execution_id.to_string(),
-                total_errors: 0,
-                error_frequency: BTreeMap::new(),
-                error_hotspots: Vec::new(),
-                temporal_pattern: "none".to_string(),
-                most_problematic_nodes: Vec::new(),
-                error_trend: "stable".to_string(),
-            });
-        }
-
-        let mut error_frequency: BTreeMap<String, u64> = BTreeMap::new();
-        let mut node_problems: BTreeMap<String, (u64, Vec<String>, Vec<String>, String)> =
-            BTreeMap::new();
-        let mut sorted = records.clone();
-        sorted.sort_by_key(|r| r.timestamp);
-
-        for record in &sorted {
-            let type_name = record
-                .error_type
-                .as_ref()
-                .map(|t| format!("{t:?}"))
-                .unwrap_or_else(|| "Unknown".to_string());
-            *error_frequency.entry(type_name.clone()).or_insert(0) += 1;
-
-            if let Some(node_id) = &record.node_id {
-                let entry = node_problems
-                    .entry(node_id.clone())
-                    .or_insert_with(|| (0, Vec::new(), Vec::new(), severity_of(record)));
-                entry.0 += 1;
-                if !entry.1.contains(&type_name) {
-                    entry.1.push(type_name);
-                }
-                let node_name = self.node_name(execution_id, node_id).await;
-                if let Some(name) = node_name {
-                    if !entry.2.contains(&name) {
-                        entry.2.push(name);
-                    }
-                }
-                if severity_rank(&severity_of(record)) > severity_rank(&entry.3) {
-                    entry.3 = severity_of(record);
-                }
-            }
-        }
-
-        let mut hotspots: Vec<WorkflowErrorHotspot> = node_problems
-            .into_iter()
-            .map(
-                |(node_id, (count, types, names, severity))| WorkflowErrorHotspot {
-                    node_id,
-                    node_name: names.first().cloned(),
-                    error_count: count,
-                    error_types: types,
-                    severity,
-                },
-            )
-            .collect();
-        hotspots.sort_by_key(|h| std::cmp::Reverse(h.error_count));
-
-        let most_problematic_nodes: Vec<ProblematicNode> = hotspots
-            .iter()
-            .take(5)
-            .map(|h| ProblematicNode {
-                node_id: h.node_id.clone(),
-                node_name: h.node_name.clone(),
-                error_count: h.error_count,
-                node_type: None,
-            })
-            .collect();
-
-        let temporal_pattern = analyze_temporal_pattern(&sorted);
-        let error_trend = analyze_error_trend(&sorted);
-
-        Ok(AdvancedWorkflowErrorAnalysis {
+/// Advanced error analysis of a workflow execution: frequency by type,
+/// node hotspots, temporal pattern and trend (TS `getAdvancedErrorAnalysis`).
+pub async fn get_advanced_error_analysis(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<AdvancedWorkflowErrorAnalysis> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    if records.is_empty() {
+        return Ok(AdvancedWorkflowErrorAnalysis {
             execution_id: execution_id.to_string(),
-            total_errors: records.len() as u32,
-            error_frequency,
-            error_hotspots: hotspots.into_iter().take(10).collect(),
-            temporal_pattern,
-            most_problematic_nodes,
-            error_trend,
-        })
+            total_errors: 0,
+            error_frequency: BTreeMap::new(),
+            error_hotspots: Vec::new(),
+            temporal_pattern: "none".to_string(),
+            most_problematic_nodes: Vec::new(),
+            error_trend: "stable".to_string(),
+        });
     }
 
-    /// Recovery proposal for a specific error of a workflow execution (TS
-    /// `getRecoveryProposal`).
-    pub async fn get_recovery_proposal(
-        &self,
-        execution_id: &str,
-        error_id: &str,
-    ) -> ApiResult<Option<RecoveryProposal>> {
-        let records = self.workflow_error_records(execution_id).await?;
-        let Some(record) = records.iter().find(|r| r.id == error_id) else {
-            return Ok(None);
-        };
-        let action = match &record.recovery_action {
-            Some(action) => action_name(action),
-            None => suggest_action(record),
-        };
-        let likelihood = estimate_likelihood(record, &action);
-        let steps = recovery_steps(&action);
-        let affected_node = match record.node_id.as_ref() {
-            Some(node_id) => Some(WorkflowNodeRef {
-                id: node_id.clone(),
-                name: self.node_name(execution_id, node_id).await,
-            }),
-            None => None,
-        };
-        let reason = record
-            .caused_by
+    let mut error_frequency: BTreeMap<String, u64> = BTreeMap::new();
+    let mut node_problems: BTreeMap<String, (u64, Vec<String>, Vec<String>, String)> =
+        BTreeMap::new();
+    let mut sorted = records.clone();
+    sorted.sort_by_key(|r| r.timestamp);
+
+    for record in &sorted {
+        let type_name = record
+            .error_type
             .as_ref()
-            .map(|c| c.reason.clone())
-            .unwrap_or_else(|| format!("error '{}' triggers {action}", record.error));
+            .map(|t| format!("{t:?}"))
+            .unwrap_or_else(|| "Unknown".to_string());
+        *error_frequency.entry(type_name.clone()).or_insert(0) += 1;
 
-        Ok(Some(RecoveryProposal {
-            error_id: record.id.clone(),
-            action: action.clone(),
-            affected_node,
-            reason,
-            likelihood: round2(likelihood),
-            steps,
-            estimated_time_to_recover: estimate_recovery_time(&action),
-        }))
-    }
-
-    /// Stream the error chain of a workflow execution one record at a time,
-    /// starting from the root cause (TS `streamErrorChain`).
-    pub async fn stream_error_chain(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Pin<Box<dyn Stream<Item = ExecutionErrorRecord> + Send>>> {
-        let records = self.workflow_error_records(execution_id).await?;
-        let mut sorted: Vec<ErrorRecord> = records;
-        sorted.sort_by_key(|r| r.timestamp);
-        let mut root_first: Vec<ExecutionErrorRecord> = Vec::with_capacity(sorted.len());
-        if let Some(root) = sorted
-            .iter()
-            .find(|r| r.parent_error_id.is_none() || r.root_cause_id == r.id)
-        {
-            root_first.push(workflow_record_view(root));
-            for record in &sorted {
-                if record.id != root.id && record.error_chain.contains(&root.id) {
-                    root_first.push(workflow_record_view(record));
+        if let Some(node_id) = &record.node_id {
+            let entry = node_problems
+                .entry(node_id.clone())
+                .or_insert_with(|| (0, Vec::new(), Vec::new(), severity_of(record)));
+            entry.0 += 1;
+            if !entry.1.contains(&type_name) {
+                entry.1.push(type_name);
+            }
+            let node_name = node_name(ctx, execution_id, node_id).await;
+            if let Some(name) = node_name {
+                if !entry.2.contains(&name) {
+                    entry.2.push(name);
                 }
             }
+            if severity_rank(&severity_of(record)) > severity_rank(&entry.3) {
+                entry.3 = severity_of(record);
+            }
         }
+    }
+
+    let mut hotspots: Vec<WorkflowErrorHotspot> = node_problems
+        .into_iter()
+        .map(
+            |(node_id, (count, types, names, severity))| WorkflowErrorHotspot {
+                node_id,
+                node_name: names.first().cloned(),
+                error_count: count,
+                error_types: types,
+                severity,
+            },
+        )
+        .collect();
+    hotspots.sort_by_key(|h| std::cmp::Reverse(h.error_count));
+
+    let most_problematic_nodes: Vec<ProblematicNode> = hotspots
+        .iter()
+        .take(5)
+        .map(|h| ProblematicNode {
+            node_id: h.node_id.clone(),
+            node_name: h.node_name.clone(),
+            error_count: h.error_count,
+            node_type: None,
+        })
+        .collect();
+
+    let temporal_pattern = analyze_temporal_pattern(&sorted);
+    let error_trend = analyze_error_trend(&sorted);
+
+    Ok(AdvancedWorkflowErrorAnalysis {
+        execution_id: execution_id.to_string(),
+        total_errors: records.len() as u32,
+        error_frequency,
+        error_hotspots: hotspots.into_iter().take(10).collect(),
+        temporal_pattern,
+        most_problematic_nodes,
+        error_trend,
+    })
+}
+
+/// Recovery proposal for a specific error of a workflow execution (TS
+/// `getRecoveryProposal`).
+pub async fn get_recovery_proposal(
+    ctx: &ApiContext,
+    execution_id: &str,
+    error_id: &str,
+) -> ApiResult<Option<RecoveryProposal>> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    let Some(record) = records.iter().find(|r| r.id == error_id) else {
+        return Ok(None);
+    };
+    let action = match &record.recovery_action {
+        Some(action) => action_name(action),
+        None => suggest_action(record),
+    };
+    let likelihood = estimate_likelihood(record, &action);
+    let steps = recovery_steps(&action);
+    let affected_node = match record.node_id.as_ref() {
+        Some(node_id) => Some(WorkflowNodeRef {
+            id: node_id.clone(),
+            name: node_name(ctx, execution_id, node_id).await,
+        }),
+        None => None,
+    };
+    let reason = record
+        .caused_by
+        .as_ref()
+        .map(|c| c.reason.clone())
+        .unwrap_or_else(|| format!("error '{}' triggers {action}", record.error));
+
+    Ok(Some(RecoveryProposal {
+        error_id: record.id.clone(),
+        action: action.clone(),
+        affected_node,
+        reason,
+        likelihood: round2(likelihood),
+        steps,
+        estimated_time_to_recover: estimate_recovery_time(&action),
+    }))
+}
+
+/// Stream the error chain of a workflow execution one record at a time,
+/// starting from the root cause (TS `streamErrorChain`).
+pub async fn stream_error_chain(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Pin<Box<dyn Stream<Item = ExecutionErrorRecord> + Send>>> {
+    let records = workflow_error_records(ctx, execution_id).await?;
+    let mut sorted: Vec<ErrorRecord> = records;
+    sorted.sort_by_key(|r| r.timestamp);
+    let mut root_first: Vec<ExecutionErrorRecord> = Vec::with_capacity(sorted.len());
+    if let Some(root) = sorted
+        .iter()
+        .find(|r| r.parent_error_id.is_none() || r.root_cause_id == r.id)
+    {
+        root_first.push(workflow_record_view(root));
         for record in &sorted {
-            if !root_first.iter().any(|r| r.id == record.id) {
+            if record.id != root.id && record.error_chain.contains(&root.id) {
                 root_first.push(workflow_record_view(record));
             }
         }
-        Ok(Box::pin(futures::stream::iter(root_first)))
     }
-
-    /// Subscribe to error events of a workflow execution published on the
-    /// shared event bus (TS `subscribeToErrors`). The returned guard aborts
-    /// the subscription when dropped.
-    pub fn subscribe_to_errors<F>(&self, execution_id: &str, callback: F) -> ErrorSubscription
-    where
-        F: Fn(ExecutionErrorRecord) + Send + Sync + 'static,
-    {
-        let bus = self.ctx.event_bus.clone();
-        let mut subscription = bus.subscribe();
-        let filter = execution_id.to_string();
-        let handle = tokio::spawn(async move {
-            while let Ok(event) = subscription.recv().await {
-                if event.execution_id.as_deref() != Some(filter.as_str()) {
-                    continue;
-                }
-                if event.r#type != EventType::Error {
-                    continue;
-                }
-                let message = event
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.get("message"))
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned)
-                    .or_else(|| {
-                        event
-                            .metadata
-                            .as_ref()
-                            .and_then(|metadata| metadata.get("error"))
-                            .and_then(|value| value.as_str())
-                            .map(ToOwned::to_owned)
-                    })
-                    .unwrap_or_else(|| "workflow execution error".to_string());
-                let node_id = event
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.get("node_id"))
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned);
-                let error_type = event
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.get("error_type"))
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned);
-                callback(ExecutionErrorRecord {
-                    id: event.id.to_string(),
-                    execution_id: filter.clone(),
-                    error: message,
-                    error_type,
-                    timestamp: event.timestamp,
-                    node_id,
-                    parent_error_id: None,
-                    error_chain: Vec::new(),
-                    root_cause_id: String::new(),
-                    caused_by: None,
-                    is_recoverable: false,
-                    recovery_action: None,
-                });
-            }
-        });
-        ErrorSubscription {
-            handle: handle.abort_handle(),
+    for record in &sorted {
+        if !root_first.iter().any(|r| r.id == record.id) {
+            root_first.push(workflow_record_view(record));
         }
     }
+    Ok(Box::pin(futures::stream::iter(root_first)))
+}
 
-    async fn node_name(&self, execution_id: &str, node_id: &str) -> Option<String> {
-        if let Ok(Some(record)) = self.ctx.storage.workflow_execution.load(execution_id).await {
-            if let Some(graph) = &record.graph {
-                return graph
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == node_id)
-                    .and_then(|n| n.name.clone());
+/// Subscribe to error events of a workflow execution published on the
+/// shared event bus (TS `subscribeToErrors`). The returned guard aborts
+/// the subscription when dropped.
+pub fn subscribe_to_errors<F>(ctx: &ApiContext, execution_id: &str, callback: F) -> ErrorSubscription
+where
+    F: Fn(ExecutionErrorRecord) + Send + Sync + 'static,
+{
+    let bus = ctx.event_bus.clone();
+    let mut subscription = bus.subscribe();
+    let filter = execution_id.to_string();
+    let handle = tokio::spawn(async move {
+        while let Ok(event) = subscription.recv().await {
+            if event.execution_id.as_deref() != Some(filter.as_str()) {
+                continue;
             }
+            if event.r#type != EventType::Error {
+                continue;
+            }
+            let message = event
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("message"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    event
+                        .metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("error"))
+                        .and_then(|value| value.as_str())
+                        .map(ToOwned::to_owned)
+                })
+                .unwrap_or_else(|| "workflow execution error".to_string());
+            let node_id = event
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("node_id"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+            let error_type = event
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("error_type"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+            callback(ExecutionErrorRecord {
+                id: event.id.to_string(),
+                execution_id: filter.clone(),
+                error: message,
+                error_type,
+                timestamp: event.timestamp,
+                node_id,
+                parent_error_id: None,
+                error_chain: Vec::new(),
+                root_cause_id: String::new(),
+                caused_by: None,
+                is_recoverable: false,
+                recovery_action: None,
+            });
         }
-        None
+    });
+    ErrorSubscription {
+        handle: handle.abort_handle(),
     }
+}
+
+async fn node_name(ctx: &ApiContext, execution_id: &str, node_id: &str) -> Option<String> {
+    if let Ok(Some(record)) = ctx.storage.workflow_execution.load(execution_id).await {
+        if let Some(graph) = &record.graph {
+            return graph
+                .nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .and_then(|n| n.name.clone());
+        }
+    }
+    None
 }
 
 /// Reuse the engine's structured error chains if a live entity is around,
@@ -759,13 +752,10 @@ fn severity_rank(severity: &str) -> u8 {
     }
 }
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_common::error_chain::ErrorRecord;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
@@ -825,14 +815,13 @@ mod tests {
             .register("exec-e".to_string(), entity.clone())
             .expect("register");
 
-        let api = ErrorAnalysisApi::new(ctx);
-        let stats = api.workflow_error_stats("exec-e").await.unwrap();
+        let stats = workflow_error_stats(&ctx, "exec-e").await.unwrap();
         assert_eq!(stats.total, 2);
         assert_eq!(stats.by_node.get("n1"), Some(&1));
         assert_eq!(stats.recoverable, 2);
         assert_eq!(stats.by_severity.get("warning"), Some(&2));
 
-        let recommendations = api.recovery_recommendations("exec-e").await.unwrap();
+        let recommendations = recovery_recommendations(&ctx, "exec-e").await.unwrap();
         assert_eq!(recommendations.len(), 2);
         assert!(recommendations.iter().all(|r| r.recovery_action == "retry"));
     }
@@ -861,8 +850,7 @@ mod tests {
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 
-        let api = ErrorAnalysisApi::new(ctx);
-        let stats = api.workflow_error_stats("exec-p2").await.unwrap();
+        let stats = workflow_error_stats(&ctx, "exec-p2").await.unwrap();
         assert_eq!(stats.total, 3);
     }
 
@@ -926,8 +914,7 @@ mod tests {
             .register("exec-target".to_string(), entity.clone())
             .expect("register");
 
-        let api = ErrorAnalysisApi::new(ctx);
-        let groups = api.similar_errors("exec-target", 10).await.unwrap();
+        let groups = similar_errors(&ctx, "exec-target", 10).await.unwrap();
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].count, 2);
     }
@@ -935,8 +922,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_execution_is_not_found() {
         let ctx = make_ctx();
-        let api = ErrorAnalysisApi::new(ctx);
-        let err = api.workflow_error_stats("missing").await.unwrap_err();
+        let err = workflow_error_stats(&ctx, "missing").await.unwrap_err();
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));
     }
 
@@ -981,26 +967,23 @@ mod tests {
             .register("exec-chain".to_string(), entity.clone())
             .expect("register");
 
-        let api = ErrorAnalysisApi::new(ctx);
-        let chain = api.get_error_chain("exec-chain", None).await.unwrap();
+        let chain = get_error_chain(&ctx, "exec-chain", None).await.unwrap();
         assert_eq!(chain.len(), 2);
 
-        let from_dependent = api
-            .get_error_chain("exec-chain", Some(&dependent_id))
+        let from_dependent = get_error_chain(&ctx, "exec-chain", Some(&dependent_id))
             .await
             .unwrap();
         assert!(!from_dependent.is_empty());
         assert_eq!(from_dependent[0].error, "root failure");
 
-        let advanced = api.get_advanced_error_analysis("exec-chain").await.unwrap();
+        let advanced = get_advanced_error_analysis(&ctx, "exec-chain").await.unwrap();
         assert_eq!(advanced.total_errors, 2);
         assert!(advanced.error_frequency.contains_key("ToolError"));
         assert_eq!(advanced.error_hotspots.len(), 1);
         assert_eq!(advanced.error_hotspots[0].node_id, "n1");
         assert_eq!(advanced.most_problematic_nodes.len(), 1);
 
-        let proposal = api
-            .get_recovery_proposal("exec-chain", &dependent_id)
+        let proposal = get_recovery_proposal(&ctx, "exec-chain", &dependent_id)
             .await
             .unwrap()
             .unwrap();
@@ -1009,7 +992,7 @@ mod tests {
         assert!(!proposal.steps.is_empty());
         assert!(proposal.likelihood >= 0.0);
 
-        let stream = api.stream_error_chain("exec-chain").await.unwrap();
+        let stream = stream_error_chain(&ctx, "exec-chain").await.unwrap();
         let collected: Vec<_> = futures::StreamExt::collect::<Vec<_>>(stream).await;
         assert_eq!(collected.len(), 2);
         assert_eq!(collected[0].error, "root failure", "root first");
@@ -1018,9 +1001,8 @@ mod tests {
     #[tokio::test]
     async fn subscribe_to_errors_forwards_bus_events() {
         let ctx = make_ctx();
-        let api = ErrorAnalysisApi::new(ctx.clone());
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        let _guard = api.subscribe_to_errors("exec-sub", move |record| {
+        let _guard = subscribe_to_errors(&ctx, "exec-sub", move |record| {
             let _ = tx.try_send(record);
         });
 

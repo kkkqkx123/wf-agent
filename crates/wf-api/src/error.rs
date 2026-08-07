@@ -19,8 +19,14 @@ pub enum ApiError {
     Validation(String),
     #[error("Already exists: {entity_type} [{id}]")]
     AlreadyExists { entity_type: String, id: String },
-    #[error("Execution error: {0}")]
-    Execution(String),
+    #[error("Execution error: {message}")]
+    Execution {
+        message: String,
+        /// The typed engine error that caused the failure, retained so callers
+        /// can inspect the cause without string parsing.
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
     #[error("Execution not found: {id}")]
     ExecutionNotFound { id: String },
     #[error("Timeout: {0}")]
@@ -50,14 +56,33 @@ impl ApiError {
     pub fn execution_not_found(id: &str) -> Self {
         ApiError::ExecutionNotFound { id: id.to_string() }
     }
+
+    /// Execution failure from a message only (no typed cause available).
+    pub fn execution(message: impl Into<String>) -> Self {
+        ApiError::Execution {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    /// Execution failure retaining the typed cause as `source`.
+    pub fn execution_with_source<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        ApiError::Execution {
+            message: err.to_string(),
+            source: Some(Box::new(err)),
+        }
+    }
 }
 
 /// Run `future` bounded by `duration`; an elapse maps onto `ApiError::Timeout`.
 ///
 /// Library-level timeout primitive (the design keeps execution "capabilities"
 /// such as timeout/cancel as reusable tools instead of a command layer). The
-/// default execution timeouts of `WorkflowApi::execute` / `AgentApi::run`
-/// compose through it.
+/// default execution timeouts of `workflow_execution::execute` /
+/// `agent_execution::run` compose through it.
 pub async fn with_timeout<F, T>(duration: Duration, future: F) -> ApiResult<T>
 where
     F: std::future::Future<Output = ApiResult<T>>,
@@ -81,38 +106,38 @@ impl From<wf_config::error::ConfigError> for ApiError {
         match e {
             wf_config::error::ConfigError::Parse(msg)
             | wf_config::error::ConfigError::Validation(msg) => ApiError::Validation(msg),
-            other => ApiError::Execution(other.to_string()),
+            other => ApiError::execution_with_source(other),
         }
     }
 }
 
 impl From<wf_workflow::error::WorkflowError> for ApiError {
     fn from(e: wf_workflow::error::WorkflowError) -> Self {
-        ApiError::Execution(e.to_string())
+        ApiError::execution_with_source(e)
     }
 }
 
 impl From<wf_agent::error::AgentError> for ApiError {
     fn from(e: wf_agent::error::AgentError) -> Self {
-        ApiError::Execution(e.to_string())
+        ApiError::execution_with_source(e)
     }
 }
 
 impl From<wf_core::error::CoreError> for ApiError {
     fn from(e: wf_core::error::CoreError) -> Self {
-        ApiError::Execution(e.to_string())
+        ApiError::execution_with_source(e)
     }
 }
 
 impl From<wf_core::error::EventError> for ApiError {
     fn from(e: wf_core::error::EventError) -> Self {
-        ApiError::Execution(e.to_string())
+        ApiError::execution_with_source(e)
     }
 }
 
 impl From<wf_tools::error::ToolError> for ApiError {
     fn from(e: wf_tools::error::ToolError) -> Self {
-        ApiError::Execution(e.to_string())
+        ApiError::execution_with_source(e)
     }
 }
 
@@ -128,7 +153,7 @@ impl From<wf_llm::error::LlmError> for ApiError {
             LlmError::Timeout(ms) => {
                 ApiError::Timeout(format!("LLM request timed out after {ms}ms"))
             }
-            other => ApiError::Execution(other.to_string()),
+            other => ApiError::execution_with_source(other),
         }
     }
 }

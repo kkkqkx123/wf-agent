@@ -16,6 +16,23 @@ pub enum ExecutionStatus {
     Timeout,
 }
 
+impl ExecutionStatus {
+    /// Wire representation (matches the serde output of this type, which has
+    /// no rename attribute — variant names verbatim).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "Created",
+            Self::Running => "Running",
+            Self::Paused => "Paused",
+            Self::Completed => "Completed",
+            Self::Failed => "Failed",
+            Self::Cancelled => "Cancelled",
+            Self::Stopped => "Stopped",
+            Self::Timeout => "Timeout",
+        }
+    }
+}
+
 impl From<ExecutionStatus> for wf_types::ExecutionStatus {
     /// Map the execution-engine status onto the persisted `wf-types` status.
     /// `Timeout` collapses onto `Failed`: the persisted contract has no

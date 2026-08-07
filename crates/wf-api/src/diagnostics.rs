@@ -32,62 +32,49 @@ pub struct StorageDiagnosticReport {
 ///
 /// A probe failure (e.g. a broken backend) degrades that store to
 /// `healthy: false` with the error text instead of failing the whole report.
-pub struct StorageDiagnosticsApi {
-    ctx: Arc<ApiContext>,
+pub async fn health(ctx: &ApiContext) -> ApiResult<StorageDiagnosticReport> {
+    health_for(&ctx.storage).await
 }
 
-impl StorageDiagnosticsApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+async fn health_for(storage: &Arc<StorageContext>) -> ApiResult<StorageDiagnosticReport> {
+    let mut stores = Vec::new();
+    let mut total_entries = 0u64;
+    let mut healthy = true;
+
+    macro_rules! probe {
+        ($name:literal, $store:expr) => {{
+            let diagnostic = probe_store($name, $store).await;
+            total_entries += diagnostic.entries;
+            healthy &= diagnostic.healthy;
+            stores.push(diagnostic);
+        }};
     }
 
-    pub async fn health(&self) -> ApiResult<StorageDiagnosticReport> {
-        self.health_for(&self.ctx.storage).await
-    }
+    probe!("workflow", &storage.workflow);
+    probe!("workflow_execution", &storage.workflow_execution);
+    probe!("checkpoint", &storage.checkpoint);
+    probe!("task", &storage.task);
+    probe!("agent_loop", &storage.agent_loop);
+    probe!("agent_execution", &storage.agent_execution);
+    probe!("agent_profile", &storage.agent_profile);
+    probe!("agent_hook_template", &storage.agent_hook_template);
+    probe!("trigger_template", &storage.trigger_template);
+    probe!("file_checkpoint", &storage.file_checkpoint);
+    probe!("trigger", &storage.trigger);
+    probe!("trigger_execution", &storage.trigger_execution);
+    probe!("user_interaction", &storage.user_interaction);
+    probe!("tool", &storage.tool);
+    probe!("script", &storage.script);
+    probe!("node_template", &storage.node_template);
+    probe!("hook_template", &storage.hook_template);
+    probe!("message", &storage.message);
+    probe!("variable", &storage.variable);
 
-    async fn health_for(
-        &self,
-        storage: &Arc<StorageContext>,
-    ) -> ApiResult<StorageDiagnosticReport> {
-        let mut stores = Vec::new();
-        let mut total_entries = 0u64;
-        let mut healthy = true;
-
-        macro_rules! probe {
-            ($name:literal, $store:expr) => {{
-                let diagnostic = probe_store($name, $store).await;
-                total_entries += diagnostic.entries;
-                healthy &= diagnostic.healthy;
-                stores.push(diagnostic);
-            }};
-        }
-
-        probe!("workflow", &storage.workflow);
-        probe!("workflow_execution", &storage.workflow_execution);
-        probe!("checkpoint", &storage.checkpoint);
-        probe!("task", &storage.task);
-        probe!("agent_loop", &storage.agent_loop);
-        probe!("agent_execution", &storage.agent_execution);
-        probe!("agent_profile", &storage.agent_profile);
-        probe!("agent_hook_template", &storage.agent_hook_template);
-        probe!("trigger_template", &storage.trigger_template);
-        probe!("file_checkpoint", &storage.file_checkpoint);
-        probe!("trigger", &storage.trigger);
-        probe!("trigger_execution", &storage.trigger_execution);
-        probe!("user_interaction", &storage.user_interaction);
-        probe!("tool", &storage.tool);
-        probe!("script", &storage.script);
-        probe!("node_template", &storage.node_template);
-        probe!("hook_template", &storage.hook_template);
-        probe!("message", &storage.message);
-        probe!("variable", &storage.variable);
-
-        Ok(StorageDiagnosticReport {
-            stores,
-            total_entries,
-            healthy,
-        })
-    }
+    Ok(StorageDiagnosticReport {
+        stores,
+        total_entries,
+        healthy,
+    })
 }
 
 async fn probe_store<E, F, A>(name: &'static str, adapter: &A) -> StoreDiagnostic
@@ -130,8 +117,7 @@ mod tests {
     #[tokio::test]
     async fn reports_healthy_empty_stores() {
         let ctx = make_ctx();
-        let api = StorageDiagnosticsApi::new(ctx);
-        let report = api.health().await.unwrap();
+        let report = health(&ctx).await.unwrap();
         assert!(report.healthy);
         assert_eq!(report.total_entries, 0);
         assert_eq!(report.stores.len(), 19);
@@ -150,8 +136,7 @@ mod tests {
         };
         ctx.storage.task.save(&task).await.unwrap();
 
-        let api = StorageDiagnosticsApi::new(ctx);
-        let report = api.health().await.unwrap();
+        let report = health(&ctx).await.unwrap();
         let task_diag = report.stores.iter().find(|s| s.name == "task").unwrap();
         assert_eq!(task_diag.entries, 1);
         assert_eq!(report.total_entries, 1);

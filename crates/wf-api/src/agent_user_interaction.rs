@@ -1,3 +1,6 @@
+//! User interaction queries and handler wiring scoped to agent loops (TS
+//! `AgentUserInteractionResourceAPI` counterpart).
+
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -43,112 +46,107 @@ pub trait UserInteractionHandler: Send + Sync {
     fn on_followup_question_requested(&self, _execution_id: &str, _request: &Value) {}
 }
 
-/// User interaction queries and handler wiring scoped to agent loops (TS
-/// `AgentUserInteractionResourceAPI` counterpart).
-pub struct AgentUserInteractionApi {
-    ctx: Arc<ApiContext>,
+/// Interactions of an agent loop, newest first.
+pub async fn list(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
+    let mut records = list_interactions_by_execution(&ctx.storage, agent_loop_id)
+        .await?
+        .into_iter()
+        .map(record_from_storage)
+        .collect::<Vec<_>>();
+    records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+    Ok(records)
 }
 
-impl AgentUserInteractionApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Interactions of an agent loop with an optional status filter.
+pub async fn list_filtered(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    status: Option<&str>,
+    limit: Option<usize>,
+) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
+    let mut records = list(ctx, agent_loop_id).await?;
+    if let Some(status) = status {
+        records.retain(|r| r.status == status);
     }
+    if let Some(limit) = limit {
+        records.truncate(limit);
+    }
+    Ok(records)
+}
 
-    /// Interactions of an agent loop, newest first.
-    pub async fn list(&self, agent_loop_id: &str) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
-        let mut records = list_interactions_by_execution(&self.ctx.storage, agent_loop_id)
-            .await?
-            .into_iter()
-            .map(record_from_storage)
-            .collect::<Vec<_>>();
-        records.sort_by_key(|r| std::cmp::Reverse(r.created_at));
-        Ok(records)
-    }
+/// One interaction by id.
+pub async fn get(ctx: &ApiContext, id: &str) -> ApiResult<AgentUserInteractionEventRecord> {
+    Ok(record_from_storage(get_interaction(&ctx.storage, id).await?))
+}
 
-    /// Interactions of an agent loop with an optional status filter.
-    pub async fn list_filtered(
-        &self,
-        agent_loop_id: &str,
-        status: Option<&str>,
-        limit: Option<usize>,
-    ) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
-        let mut records = self.list(agent_loop_id).await?;
-        if let Some(status) = status {
-            records.retain(|r| r.status == status);
-        }
-        if let Some(limit) = limit {
-            records.truncate(limit);
-        }
-        Ok(records)
+/// Respond to a pending interaction of an agent loop (TS
+/// `handleUserInteraction` counterpart).
+pub async fn respond(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    interaction_id: &str,
+    response_data: Option<Value>,
+    result_data: Option<Value>,
+) -> ApiResult<()> {
+    let interaction = get_interaction(&ctx.storage, interaction_id).await?;
+    if interaction.execution_id != agent_loop_id {
+        return Err(ApiError::Validation(format!(
+            "interaction {interaction_id} does not belong to agent loop {agent_loop_id}"
+        )));
     }
+    respond_interaction(&ctx.storage, interaction_id, response_data, result_data).await
+}
 
-    /// One interaction by id.
-    pub async fn get(&self, id: &str) -> ApiResult<AgentUserInteractionEventRecord> {
-        Ok(record_from_storage(get_interaction(&self.ctx.storage, id).await?))
-    }
+/// Register the shared handler for an agent config; a previous handler is
+/// replaced.
+pub async fn register_handler(ctx: &ApiContext, handler: Arc<dyn UserInteractionHandler>) {
+    *ctx.user_interaction_handler.write().await = Some(handler);
+}
 
-    /// Respond to a pending interaction of an agent loop (TS
-    /// `handleUserInteraction` counterpart).
-    pub async fn respond(
-        &self,
-        agent_loop_id: &str,
-        interaction_id: &str,
-        response_data: Option<Value>,
-        result_data: Option<Value>,
-    ) -> ApiResult<()> {
-        let interaction = get_interaction(&self.ctx.storage, interaction_id).await?;
-        if interaction.execution_id != agent_loop_id {
-            return Err(ApiError::Validation(format!(
-                "interaction {interaction_id} does not belong to agent loop {agent_loop_id}"
-            )));
-        }
-        respond_interaction(&self.ctx.storage, interaction_id, response_data, result_data).await
-    }
+/// Clear the registered handler.
+pub async fn clear_handler(ctx: &ApiContext) {
+    *ctx.user_interaction_handler.write().await = None;
+}
 
-    /// Register the shared handler for an agent config; a previous handler is
-    /// replaced.
-    pub async fn register_handler(&self, handler: Arc<dyn UserInteractionHandler>) {
-        *self.ctx.user_interaction_handler.write().await = Some(handler);
-    }
+/// Whether a handler is registered.
+pub async fn has_handler(ctx: &ApiContext) -> bool {
+    ctx.user_interaction_handler.read().await.is_some()
+}
 
-    /// Clear the registered handler.
-    pub async fn clear_handler(&self) {
-        *self.ctx.user_interaction_handler.write().await = None;
+/// Notify the registered handler (if any) of a new interaction.
+pub async fn on_interaction_created(ctx: &ApiContext, record: &AgentUserInteractionEventRecord) {
+    if let Some(handler) = ctx.user_interaction_handler.read().await.as_ref() {
+        handler.on_interaction(record);
     }
+}
 
-    /// Whether a handler is registered.
-    pub async fn has_handler(&self) -> bool {
-        self.ctx.user_interaction_handler.read().await.is_some()
+/// Notify the registered handler (if any) of a tool approval request.
+pub async fn notify_tool_approval_requested(ctx: &ApiContext, execution_id: &str, request: &Value) {
+    if let Some(handler) = ctx.user_interaction_handler.read().await.as_ref() {
+        handler.on_tool_approval_requested(execution_id, request);
     }
+}
 
-    /// Notify the registered handler (if any) of a new interaction.
-    pub async fn on_interaction_created(&self, record: &AgentUserInteractionEventRecord) {
-        if let Some(handler) = self.ctx.user_interaction_handler.read().await.as_ref() {
-            handler.on_interaction(record);
-        }
+/// Notify the registered handler (if any) of a follow-up question request.
+pub async fn notify_followup_question_requested(
+    ctx: &ApiContext,
+    execution_id: &str,
+    request: &Value,
+) {
+    if let Some(handler) = ctx.user_interaction_handler.read().await.as_ref() {
+        handler.on_followup_question_requested(execution_id, request);
     }
+}
 
-    /// Notify the registered handler (if any) of a tool approval request.
-    pub async fn notify_tool_approval_requested(&self, execution_id: &str, request: &Value) {
-        if let Some(handler) = self.ctx.user_interaction_handler.read().await.as_ref() {
-            handler.on_tool_approval_requested(execution_id, request);
-        }
-    }
-
-    /// Notify the registered handler (if any) of a follow-up question request.
-    pub async fn notify_followup_question_requested(&self, execution_id: &str, request: &Value) {
-        if let Some(handler) = self.ctx.user_interaction_handler.read().await.as_ref() {
-            handler.on_followup_question_requested(execution_id, request);
-        }
-    }
-
-    /// Interaction history of a config (agent loop), newest first.
-    pub async fn get_configuration_interaction_history(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
-        self.list(agent_loop_id).await
-    }
+/// Interaction history of a config (agent loop), newest first.
+pub async fn get_configuration_interaction_history(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentUserInteractionEventRecord>> {
+    list(ctx, agent_loop_id).await
 }
 
 fn record_from_storage(record: UserInteractionStorageMetadata) -> AgentUserInteractionEventRecord {
@@ -209,34 +207,33 @@ mod tests {
         save_interaction(&ctx.storage, "ui-2", "loop-ui", "pending").await;
         save_interaction(&ctx.storage, "ui-3", "other-loop", "pending").await;
 
-        let api = AgentUserInteractionApi::new(ctx.clone());
-        let records = api.list("loop-ui").await.unwrap();
+        let records = list(&ctx, "loop-ui").await.unwrap();
         assert_eq!(records.len(), 2);
         assert!(records.iter().all(|r| r.execution_id == "loop-ui"));
 
-        let filtered = api.list_filtered("loop-ui", Some("pending"), None).await.unwrap();
-        assert_eq!(filtered.len(), 2);
-
-        let one = api.get("ui-1").await.unwrap();
-        assert_eq!(one.interaction_type, "confirm");
-
-        api.respond("loop-ui", "ui-1", Some(json!({"value": "yes"})), None)
+        let filtered = list_filtered(&ctx, "loop-ui", Some("pending"), None)
             .await
             .unwrap();
-        let updated = api.get("ui-1").await.unwrap();
+        assert_eq!(filtered.len(), 2);
+
+        let one = get(&ctx, "ui-1").await.unwrap();
+        assert_eq!(one.interaction_type, "confirm");
+
+        respond(&ctx, "loop-ui", "ui-1", Some(json!({"value": "yes"})), None)
+            .await
+            .unwrap();
+        let updated = get(&ctx, "ui-1").await.unwrap();
         assert_eq!(updated.status, "responded");
         assert_eq!(updated.response_data, Some(json!({"value": "yes"})));
 
         // Responding an interaction of another loop is rejected.
-        let err = api
-            .respond("loop-ui", "ui-3", None, None)
+        let err = respond(&ctx, "loop-ui", "ui-3", None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
 
         // Double respond conflicts.
-        let err = api
-            .respond("loop-ui", "ui-1", None, None)
+        let err = respond(&ctx, "loop-ui", "ui-1", None, None)
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::Conflict(_)));
@@ -252,12 +249,11 @@ mod tests {
         }
 
         let ctx = make_ctx();
-        let api = AgentUserInteractionApi::new(ctx.clone());
-        assert!(!api.has_handler().await);
+        assert!(!has_handler(&ctx).await);
 
         let counter = Arc::new(AtomicUsize::new(0));
-        api.register_handler(Arc::new(CountingHandler(counter.clone()))).await;
-        assert!(api.has_handler().await);
+        register_handler(&ctx, Arc::new(CountingHandler(counter.clone()))).await;
+        assert!(has_handler(&ctx).await);
 
         let record = AgentUserInteractionEventRecord {
             id: "ui-h".into(),
@@ -270,12 +266,12 @@ mod tests {
             created_at: 1,
             responded_at: None,
         };
-        api.on_interaction_created(&record).await;
+        on_interaction_created(&ctx, &record).await;
         assert_eq!(counter.load(Ordering::SeqCst), 1);
 
-        api.clear_handler().await;
-        assert!(!api.has_handler().await);
-        api.on_interaction_created(&record).await;
+        clear_handler(&ctx).await;
+        assert!(!has_handler(&ctx).await);
+        on_interaction_created(&ctx, &record).await;
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 }

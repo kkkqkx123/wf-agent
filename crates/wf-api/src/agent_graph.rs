@@ -4,9 +4,10 @@
 //! per-iteration decision sequence (LLM-only vs. tool calls), the ordered
 //! tool-selection chain, explored vs. unexplored branches (registered tools
 //! never called) and a path-efficiency ratio (tool calls per iteration).
+//!
+//! Agent decision-graph queries.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -15,6 +16,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
+use crate::util::round2;
 
 /// Upper bound on enumerated paths to keep DFS bounded on dense graphs.
 const MAX_ENUMERATED_PATHS: usize = 1000;
@@ -51,11 +53,6 @@ pub struct AgentDecisionGraph {
     /// Tool calls per iteration (>= 1 means the agent leveraged tools; lower
     /// values hint at LLM-only loops).
     pub path_efficiency: f64,
-}
-
-/// Agent decision-graph queries.
-pub struct AgentGraphApi {
-    ctx: Arc<ApiContext>,
 }
 
 /// One node of the agent decision graph (TS `DecisionNode`).
@@ -242,823 +239,776 @@ pub struct AgentPathProbabilityAnalysisView {
     pub path_diversity: f64,
 }
 
-impl AgentGraphApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
-
-    /// Build the decision graph from the live entity's iteration history, or
-    /// the persisted `AgentExecution` record when the loop is gone.
-    pub async fn analyze(&self, agent_loop_id: &str) -> ApiResult<AgentDecisionGraph> {
-        let iterations = self.iteration_snapshots(agent_loop_id).await?;
-        let nodes: Vec<AgentDecisionNode> = iterations
-            .into_iter()
-            .map(|snapshot| {
-                let decision = snapshot
-                    .tool_calls
-                    .first()
-                    .map(|call| format!("tool:{}", call.name))
-                    .unwrap_or_else(|| "llm".to_string());
-                AgentDecisionNode {
-                    iteration: snapshot.iteration,
-                    decision,
-                    tool_calls: snapshot.tool_calls,
-                    duration_ms: snapshot.duration,
-                }
-            })
-            .collect();
-
-        let tool_sequence: Vec<String> = nodes
-            .iter()
-            .flat_map(|node| node.tool_calls.iter().map(|call| call.name.clone()))
-            .collect();
-        let explored: std::collections::BTreeSet<String> = tool_sequence.iter().cloned().collect();
-        let explored_branches = explored.len() as u32;
-
-        let unexplored_branches = self.unexplored_tools(agent_loop_id, &explored).await;
-
-        let total_tool_calls = tool_sequence.len();
-        let total_iterations = nodes.len().max(1) as f64;
-        let path_efficiency = total_tool_calls as f64 / total_iterations;
-
-        Ok(AgentDecisionGraph {
-            agent_loop_id: agent_loop_id.to_string(),
-            iterations: nodes,
-            tool_sequence,
-            explored_branches,
-            unexplored_branches,
-            path_efficiency,
-        })
-    }
-
-    /// Tools registered in the shared registry (restricted by the loop's
-    /// available set when the live entity carries one) that were never called.
-    async fn unexplored_tools(
-        &self,
-        agent_loop_id: &str,
-        explored: &std::collections::BTreeSet<String>,
-    ) -> Vec<String> {
-        let available: Vec<String> = match self.ctx.agent_loop(agent_loop_id) {
-            Some(entity) => {
-                let names = entity.available_tool_names();
-                if names.is_empty() {
-                    self.ctx
-                        .tool_registry
-                        .list_tools()
-                        .into_iter()
-                        .map(|tool| tool.name)
-                        .collect()
-                } else {
-                    names.to_vec()
-                }
+/// Build the decision graph from the live entity's iteration history, or
+/// the persisted `AgentExecution` record when the loop is gone.
+pub async fn analyze(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<AgentDecisionGraph> {
+    let iterations = iteration_snapshots(ctx, agent_loop_id).await?;
+    let nodes: Vec<AgentDecisionNode> = iterations
+        .into_iter()
+        .map(|snapshot| {
+            let decision = snapshot
+                .tool_calls
+                .first()
+                .map(|call| format!("tool:{}", call.name))
+                .unwrap_or_else(|| "llm".to_string());
+            AgentDecisionNode {
+                iteration: snapshot.iteration,
+                decision,
+                tool_calls: snapshot.tool_calls,
+                duration_ms: snapshot.duration,
             }
-            None => self
-                .ctx
-                .tool_registry
-                .list_tools()
-                .into_iter()
-                .map(|tool| tool.name)
-                .collect(),
-        };
-        let mut unexplored: Vec<String> = available
-            .into_iter()
-            .filter(|name| !explored.contains(name))
-            .collect();
-        unexplored.sort();
-        unexplored
-    }
+        })
+        .collect();
 
-    /// Tool-call frequency across the iterations (for the analysis views).
-    pub fn tool_frequency(&self, graph: &AgentDecisionGraph) -> BTreeMap<String, u32> {
-        let mut frequency = BTreeMap::new();
-        for name in &graph.tool_sequence {
-            *frequency.entry(name.clone()).or_insert(0) += 1;
-        }
-        frequency
-    }
+    let tool_sequence: Vec<String> = nodes
+        .iter()
+        .flat_map(|node| node.tool_calls.iter().map(|call| call.name.clone()))
+        .collect();
+    let explored: std::collections::BTreeSet<String> = tool_sequence.iter().cloned().collect();
+    let explored_branches = explored.len() as u32;
 
-    /// Iteration snapshots of an agent loop (live entity first, persisted
-    /// `AgentExecution` record otherwise).
-    async fn iteration_snapshots(&self, agent_loop_id: &str) -> ApiResult<Vec<IterationSnapshot>> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let state = entity.state.read().await;
-            return Ok(state
-                .iteration_history()
-                .iter()
-                .map(|record| IterationSnapshot {
-                    iteration: record.iteration,
-                    start_time: record.start_time,
-                    end_time: record.end_time,
-                    duration: record
-                        .end_time
-                        .map(|end| (end - record.start_time).max(0))
-                        .unwrap_or(0),
-                    tool_calls: record
-                        .tool_calls
-                        .iter()
-                        .map(|call| ToolCallView {
-                            name: call.name.clone(),
-                            duration_ms: call.duration_ms,
-                            success: call.success,
-                        })
-                        .collect(),
-                })
-                .collect());
-        }
-        let record = self
-            .ctx
-            .storage
-            .agent_execution
-            .load(agent_loop_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))?;
-        Ok(record
-            .iteration_history
-            .unwrap_or_default()
-            .into_iter()
-            .map(|iteration| IterationSnapshot {
-                iteration: iteration.iteration,
-                start_time: iteration.started_at,
-                end_time: iteration.completed_at,
-                duration: iteration
-                    .completed_at
-                    .map(|end| (end - iteration.started_at).max(0))
-                    .unwrap_or(0),
-                tool_calls: iteration
-                    .tool_calls
-                    .unwrap_or_default()
+    let unexplored_branches = unexplored_tools(ctx, agent_loop_id, &explored).await;
+
+    let total_tool_calls = tool_sequence.len();
+    let total_iterations = nodes.len().max(1) as f64;
+    let path_efficiency = total_tool_calls as f64 / total_iterations;
+
+    Ok(AgentDecisionGraph {
+        agent_loop_id: agent_loop_id.to_string(),
+        iterations: nodes,
+        tool_sequence,
+        explored_branches,
+        unexplored_branches,
+        path_efficiency,
+    })
+}
+
+/// Tools registered in the shared registry (restricted by the loop's
+/// available set when the live entity carries one) that were never called.
+async fn unexplored_tools(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    explored: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    let available: Vec<String> = match ctx.agent_loop(agent_loop_id) {
+        Some(entity) => {
+            let names = entity.available_tool_names();
+            if names.is_empty() {
+                ctx.tool_registry
+                    .list_tools()
                     .into_iter()
+                    .map(|tool| tool.name)
+                    .collect()
+            } else {
+                names.to_vec()
+            }
+        }
+        None => ctx
+            .tool_registry
+            .list_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect(),
+    };
+    let mut unexplored: Vec<String> = available
+        .into_iter()
+        .filter(|name| !explored.contains(name))
+        .collect();
+    unexplored.sort();
+    unexplored
+}
+
+/// Tool-call frequency across the iterations (for the analysis views).
+pub fn tool_frequency(_ctx: &ApiContext, graph: &AgentDecisionGraph) -> BTreeMap<String, u32> {
+    let mut frequency = BTreeMap::new();
+    for name in &graph.tool_sequence {
+        *frequency.entry(name.clone()).or_insert(0) += 1;
+    }
+    frequency
+}
+
+/// Iteration snapshots of an agent loop (live entity first, persisted
+/// `AgentExecution` record otherwise).
+async fn iteration_snapshots(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<IterationSnapshot>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let state = entity.state.read().await;
+        return Ok(state
+            .iteration_history()
+            .iter()
+            .map(|record| IterationSnapshot {
+                iteration: record.iteration,
+                start_time: record.start_time,
+                end_time: record.end_time,
+                duration: record
+                    .end_time
+                    .map(|end| (end - record.start_time).max(0))
+                    .unwrap_or(0),
+                tool_calls: record
+                    .tool_calls
+                    .iter()
                     .map(|call| ToolCallView {
-                        name: call.name,
-                        duration_ms: call
-                            .completed_at
-                            .map(|end| (end - call.started_at).max(0))
-                            .unwrap_or(0),
-                        success: call.error.is_none(),
+                        name: call.name.clone(),
+                        duration_ms: call.duration_ms,
+                        success: call.success,
                     })
                     .collect(),
             })
-            .collect())
+            .collect());
     }
-
-    /// Complete decision graph of an agent loop (TS `getDecisionGraph`).
-    pub async fn decision_graph(&self, agent_loop_id: &str) -> ApiResult<AgentDecisionGraphView> {
-        let (nodes, edges, start_node_id, end_node_id, error_node_ids) =
-            self.build_decision_graph(agent_loop_id).await?;
-        let all_paths = graph_paths(
-            &nodes,
-            &edges,
-            &start_node_id,
-            &end_node_id,
-            &error_node_ids,
-        );
-        let executed_paths = count_executed_paths(&nodes, &edges);
-
-        let total_paths = all_paths.len();
-        let graph_density = if nodes.len() > 1 {
-            let max_edges = nodes.len() * (nodes.len() - 1);
-            Some(round3(edges.len() as f64 / max_edges.max(1) as f64))
-        } else {
-            None
-        };
-
-        Ok(AgentDecisionGraphView {
-            agent_loop_id: agent_loop_id.to_string(),
-            nodes,
-            edges,
-            start_node_id,
-            end_node_id,
-            error_node_ids,
-            total_paths,
-            executed_paths,
-            graph_density,
+    let record = ctx
+        .storage
+        .agent_execution
+        .load(agent_loop_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))?;
+    Ok(record
+        .iteration_history
+        .unwrap_or_default()
+        .into_iter()
+        .map(|iteration| IterationSnapshot {
+            iteration: iteration.iteration,
+            start_time: iteration.started_at,
+            end_time: iteration.completed_at,
+            duration: iteration
+                .completed_at
+                .map(|end| (end - iteration.started_at).max(0))
+                .unwrap_or(0),
+            tool_calls: iteration
+                .tool_calls
+                .unwrap_or_default()
+                .into_iter()
+                .map(|call| ToolCallView {
+                    name: call.name,
+                    duration_ms: call
+                        .completed_at
+                        .map(|end| (end - call.started_at).max(0))
+                        .unwrap_or(0),
+                    success: call.error.is_none(),
+                })
+                .collect(),
         })
-    }
+        .collect())
+}
 
-    /// Decision nodes of an agent loop (TS `getDecisionNodes`).
-    pub async fn decision_nodes(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentDecisionNodeView>> {
-        let (nodes, ..) = self.build_decision_graph(agent_loop_id).await?;
-        Ok(nodes)
-    }
+/// Complete decision graph of an agent loop (TS `getDecisionGraph`).
+pub async fn decision_graph(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<AgentDecisionGraphView> {
+    let (nodes, edges, start_node_id, end_node_id, error_node_ids) =
+        build_decision_graph(ctx, agent_loop_id).await?;
+    let all_paths = graph_paths(
+        &nodes,
+        &edges,
+        &start_node_id,
+        &end_node_id,
+        &error_node_ids,
+    );
+    let executed_paths = count_executed_paths(&nodes, &edges);
 
-    /// Decision edges of an agent loop (TS `getDecisionEdges`).
-    pub async fn decision_edges(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentDecisionEdgeView>> {
-        let (_, edges, ..) = self.build_decision_graph(agent_loop_id).await?;
-        Ok(edges)
-    }
+    let total_paths = all_paths.len();
+    let graph_density = if nodes.len() > 1 {
+        let max_edges = nodes.len() * (nodes.len() - 1);
+        Some(round3(edges.len() as f64 / max_edges.max(1) as f64))
+    } else {
+        None
+    };
 
-    /// Outgoing edges of a decision graph node (TS `getOutgoingEdges`).
-    pub async fn outgoing_edges(
-        &self,
-        agent_loop_id: &str,
-        node_id: &str,
-    ) -> ApiResult<Vec<AgentDecisionEdgeView>> {
-        let (_, edges, ..) = self.build_decision_graph(agent_loop_id).await?;
-        Ok(edges
-            .into_iter()
-            .filter(|e| e.from_node_id == node_id)
-            .collect())
-    }
+    Ok(AgentDecisionGraphView {
+        agent_loop_id: agent_loop_id.to_string(),
+        nodes,
+        edges,
+        start_node_id,
+        end_node_id,
+        error_node_ids,
+        total_paths,
+        executed_paths,
+        graph_density,
+    })
+}
 
-    /// Incoming edges of a decision graph node (TS `getIncomingEdges`).
-    pub async fn incoming_edges(
-        &self,
-        agent_loop_id: &str,
-        node_id: &str,
-    ) -> ApiResult<Vec<AgentDecisionEdgeView>> {
-        let (_, edges, ..) = self.build_decision_graph(agent_loop_id).await?;
-        Ok(edges
-            .into_iter()
-            .filter(|e| e.to_node_id == node_id)
-            .collect())
-    }
+/// Decision nodes of an agent loop (TS `getDecisionNodes`).
+pub async fn decision_nodes(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentDecisionNodeView>> {
+    let (nodes, ..) = build_decision_graph(ctx, agent_loop_id).await?;
+    Ok(nodes)
+}
 
-    /// All structural paths of the decision graph from start to end (TS
-    /// `getAllPaths`).
-    pub async fn all_paths(&self, agent_loop_id: &str) -> ApiResult<Vec<Vec<String>>> {
-        let (nodes, edges, start, end, error_nodes) =
-            self.build_decision_graph(agent_loop_id).await?;
-        Ok(graph_paths(&nodes, &edges, &start, &end, &error_nodes)
-            .into_iter()
-            .map(|path| path.nodes)
-            .collect())
-    }
+/// Decision edges of an agent loop (TS `getDecisionEdges`).
+pub async fn decision_edges(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentDecisionEdgeView>> {
+    let (_, edges, ..) = build_decision_graph(ctx, agent_loop_id).await?;
+    Ok(edges)
+}
 
-    /// Execution path of an agent loop (TS `getExecutionPath`).
-    pub async fn execution_path(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentExecutionPathView>> {
-        let snapshots = self.iteration_snapshots(agent_loop_id).await?;
-        if snapshots.is_empty() {
-            return Ok(None);
-        }
-        let status = self.loop_status(agent_loop_id).await?;
-        let mut steps: Vec<AgentExecutionPathStepView> = Vec::new();
-        let mut step_no = 1u32;
-        let mut total_duration = 0i64;
-        for snapshot in &snapshots {
+/// Outgoing edges of a decision graph node (TS `getOutgoingEdges`).
+pub async fn outgoing_edges(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    node_id: &str,
+) -> ApiResult<Vec<AgentDecisionEdgeView>> {
+    let (_, edges, ..) = build_decision_graph(ctx, agent_loop_id).await?;
+    Ok(edges
+        .into_iter()
+        .filter(|e| e.from_node_id == node_id)
+        .collect())
+}
+
+/// Incoming edges of a decision graph node (TS `getIncomingEdges`).
+pub async fn incoming_edges(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    node_id: &str,
+) -> ApiResult<Vec<AgentDecisionEdgeView>> {
+    let (_, edges, ..) = build_decision_graph(ctx, agent_loop_id).await?;
+    Ok(edges
+        .into_iter()
+        .filter(|e| e.to_node_id == node_id)
+        .collect())
+}
+
+/// All structural paths of the decision graph from start to end (TS
+/// `getAllPaths`).
+pub async fn all_paths(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<Vec<String>>> {
+    let (nodes, edges, start, end, error_nodes) = build_decision_graph(ctx, agent_loop_id).await?;
+    Ok(graph_paths(&nodes, &edges, &start, &end, &error_nodes)
+        .into_iter()
+        .map(|path| path.nodes)
+        .collect())
+}
+
+/// Execution path of an agent loop (TS `getExecutionPath`).
+pub async fn execution_path(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentExecutionPathView>> {
+    let snapshots = iteration_snapshots(ctx, agent_loop_id).await?;
+    if snapshots.is_empty() {
+        return Ok(None);
+    }
+    let is_successful = loop_completed(ctx, agent_loop_id).await?;
+    let mut steps: Vec<AgentExecutionPathStepView> = Vec::new();
+    let mut step_no = 1u32;
+    let mut total_duration = 0i64;
+    for snapshot in &snapshots {
+        steps.push(AgentExecutionPathStepView {
+            step_no,
+            node_id: format!("iter:{}:decision", snapshot.iteration),
+            node_type: "decision".to_string(),
+            description: format!("Iteration {} decision", snapshot.iteration),
+            iteration: snapshot.iteration,
+            timestamp: snapshot.start_time,
+            duration: Some(snapshot.duration),
+        });
+        step_no += 1;
+        total_duration += snapshot.duration;
+        for call in &snapshot.tool_calls {
             steps.push(AgentExecutionPathStepView {
                 step_no,
-                node_id: format!("iter:{}:decision", snapshot.iteration),
-                node_type: "decision".to_string(),
-                description: format!("Iteration {} decision", snapshot.iteration),
+                node_id: format!("iter:{}:tool:{}", snapshot.iteration, call.name),
+                node_type: "tool_call".to_string(),
+                description: format!("Tool call {}", call.name),
                 iteration: snapshot.iteration,
                 timestamp: snapshot.start_time,
-                duration: Some(snapshot.duration),
+                duration: Some(call.duration_ms),
             });
             step_no += 1;
-            total_duration += snapshot.duration;
-            for call in &snapshot.tool_calls {
-                steps.push(AgentExecutionPathStepView {
-                    step_no,
-                    node_id: format!("iter:{}:tool:{}", snapshot.iteration, call.name),
-                    node_type: "tool_call".to_string(),
-                    description: format!("Tool call {}", call.name),
-                    iteration: snapshot.iteration,
-                    timestamp: snapshot.start_time,
-                    duration: Some(call.duration_ms),
-                });
-                step_no += 1;
-            }
         }
-
-        let is_successful = status == "Completed";
-        let complexity_score = round3(step_no as f64);
-        let optimality_score = round2(if step_no > 0 { 1.0 } else { 0.0 });
-
-        Ok(Some(AgentExecutionPathView {
-            path_id: format!("path-{agent_loop_id}"),
-            agent_loop_id: agent_loop_id.to_string(),
-            steps,
-            is_successful,
-            end_reason: None,
-            total_duration,
-            complexity_score: Some(complexity_score),
-            optimality_score: Some(optimality_score),
-        }))
     }
 
-    /// Execution path steps of an agent loop (TS `getExecutionPathSteps`).
-    pub async fn execution_path_steps(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentExecutionPathStepView>> {
-        Ok(self
-            .execution_path(agent_loop_id)
-            .await?
-            .map(|path| path.steps)
-            .unwrap_or_default())
-    }
+    let complexity_score = round3(step_no as f64);
+    let optimality_score = round2(if step_no > 0 { 1.0 } else { 0.0 });
 
-    /// Path statistics of an agent loop (TS `getPathStatistics`).
-    pub async fn path_statistics(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentPathStatisticsView>> {
-        let Some(path) = self.execution_path(agent_loop_id).await? else {
-            return Ok(None);
-        };
-        let steps_count = path.steps.len();
-        let average = if steps_count > 0 {
-            path.total_duration / steps_count as i64
-        } else {
-            0
-        };
-        Ok(Some(AgentPathStatisticsView {
-            steps_count,
-            total_duration: path.total_duration,
-            average_iteration_duration: average,
-            complexity_score: path.complexity_score.unwrap_or(0.0),
-            optimality_score: path.optimality_score.unwrap_or(0.0),
-        }))
-    }
+    Ok(Some(AgentExecutionPathView {
+        path_id: format!("path-{agent_loop_id}"),
+        agent_loop_id: agent_loop_id.to_string(),
+        steps,
+        is_successful,
+        end_reason: None,
+        total_duration,
+        complexity_score: Some(complexity_score),
+        optimality_score: Some(optimality_score),
+    }))
+}
 
-    /// Alternatives available at a specific iteration's decision point (TS
-    /// `getAlternativeDecisions`).
-    pub async fn alternative_decisions(
-        &self,
-        agent_loop_id: &str,
-        iteration: u32,
-    ) -> ApiResult<Option<AgentIterationAlternativesView>> {
-        let all = self.all_alternatives(agent_loop_id).await?;
-        Ok(all.into_iter().find(|a| a.iteration == iteration))
-    }
+/// Execution path steps of an agent loop (TS `getExecutionPathSteps`).
+pub async fn execution_path_steps(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentExecutionPathStepView>> {
+    Ok(execution_path(ctx, agent_loop_id)
+        .await?
+        .map(|path| path.steps)
+        .unwrap_or_default())
+}
 
-    /// All alternatives at every iteration decision point (TS
-    /// `getAllAlternatives`).
-    pub async fn all_alternatives(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentIterationAlternativesView>> {
-        let snapshots = self.iteration_snapshots(agent_loop_id).await?;
-        let unexplored = self.unexplored_tools(agent_loop_id, &BTreeSet::new()).await;
-        let mut views = Vec::new();
-        for snapshot in snapshots {
-            let chosen = snapshot
-                .tool_calls
-                .first()
-                .map(|call| format!("Called tool '{}'", call.name))
-                .unwrap_or_else(|| "LLM reasoning without a tool call".to_string());
-            let alternatives: Vec<AgentAlternativeDecisionView> = unexplored
-                .iter()
-                .map(|name| AgentAlternativeDecisionView {
-                    option_id: format!("alt:{name}"),
-                    description: format!("Use tool '{name}' instead"),
-                    reason: Some("tool registered but not called in this iteration".to_string()),
-                    estimated_outcome: None,
-                    success_probability: Some(0.5),
-                    confidence: None,
-                    pros: Vec::new(),
-                    cons: Vec::new(),
-                })
-                .collect();
-            views.push(AgentIterationAlternativesView {
-                iteration: snapshot.iteration,
-                timestamp: snapshot.start_time,
-                node_id: format!("iter:{}:decision", snapshot.iteration),
-                chosen_decision: AgentChosenDecisionView {
-                    description: chosen,
-                    reasoning: None,
-                },
-                total_alternatives: alternatives.len(),
-                alternatives,
-            });
-        }
-        Ok(views)
-    }
+/// Path statistics of an agent loop (TS `getPathStatistics`).
+pub async fn path_statistics(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentPathStatisticsView>> {
+    let Some(path) = execution_path(ctx, agent_loop_id).await? else {
+        return Ok(None);
+    };
+    let steps_count = path.steps.len();
+    let average = if steps_count > 0 {
+        path.total_duration / steps_count as i64
+    } else {
+        0
+    };
+    Ok(Some(AgentPathStatisticsView {
+        steps_count,
+        total_duration: path.total_duration,
+        average_iteration_duration: average,
+        complexity_score: path.complexity_score.unwrap_or(0.0),
+        optimality_score: path.optimality_score.unwrap_or(0.0),
+    }))
+}
 
-    /// Alternatives that were never chosen across all decision points (TS
-    /// `getUnexploredAlternatives`).
-    pub async fn unexplored_alternatives(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<AgentAlternativeDecisionView>> {
-        let explored = self.explored_tools(agent_loop_id).await;
-        let unexplored = self.unexplored_tools(agent_loop_id, &explored).await;
-        Ok(unexplored
-            .into_iter()
+/// Alternatives available at a specific iteration's decision point (TS
+/// `getAlternativeDecisions`).
+pub async fn alternative_decisions(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    iteration: u32,
+) -> ApiResult<Option<AgentIterationAlternativesView>> {
+    let all = all_alternatives(ctx, agent_loop_id).await?;
+    Ok(all.into_iter().find(|a| a.iteration == iteration))
+}
+
+/// All alternatives at every iteration decision point (TS
+/// `getAllAlternatives`).
+pub async fn all_alternatives(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentIterationAlternativesView>> {
+    let snapshots = iteration_snapshots(ctx, agent_loop_id).await?;
+    let unexplored = unexplored_tools(ctx, agent_loop_id, &BTreeSet::new()).await;
+    let mut views = Vec::new();
+    for snapshot in snapshots {
+        let chosen = snapshot
+            .tool_calls
+            .first()
+            .map(|call| format!("Called tool '{}'", call.name))
+            .unwrap_or_else(|| "LLM reasoning without a tool call".to_string());
+        let alternatives: Vec<AgentAlternativeDecisionView> = unexplored
+            .iter()
             .map(|name| AgentAlternativeDecisionView {
                 option_id: format!("alt:{name}"),
-                description: format!("Use tool '{name}'"),
-                reason: Some("tool never called during the loop".to_string()),
+                description: format!("Use tool '{name}' instead"),
+                reason: Some("tool registered but not called in this iteration".to_string()),
                 estimated_outcome: None,
-                success_probability: Some(0.5),
+                success_probability: None,
                 confidence: None,
                 pros: Vec::new(),
                 cons: Vec::new(),
             })
-            .collect())
-    }
-
-    /// The most promising unexplored alternative (highest success
-    /// probability) (TS `getMostPromisingUnexplored`).
-    pub async fn most_promising_unexplored(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentAlternativeDecisionView>> {
-        let unexplored = self.unexplored_alternatives(agent_loop_id).await?;
-        Ok(unexplored.into_iter().max_by(|a, b| {
-            a.success_probability
-                .unwrap_or(0.0)
-                .partial_cmp(&b.success_probability.unwrap_or(0.0))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        }))
-    }
-
-    /// Decision sequence of an agent loop (TS `getDecisionSequence`).
-    pub async fn decision_sequence(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentDecisionSequenceView>> {
-        let snapshots = self.iteration_snapshots(agent_loop_id).await?;
-        if snapshots.is_empty() {
-            return Ok(None);
-        }
-        let mut decisions = Vec::new();
-        for (sequence_no, snapshot) in (1u32..).zip(snapshots.iter()) {
-            let (description, decision_type) = if snapshot.tool_calls.is_empty() {
-                (
-                    format!("Iteration {}: LLM reasoning", snapshot.iteration),
-                    "iteration_control".to_string(),
-                )
-            } else {
-                (
-                    format!(
-                        "Iteration {}: selected {}",
-                        snapshot.iteration, snapshot.tool_calls[0].name
-                    ),
-                    "tool_selection".to_string(),
-                )
-            };
-            decisions.push(AgentDecisionRecordView {
-                sequence_no,
-                iteration: snapshot.iteration,
-                timestamp: snapshot.start_time,
-                description,
-                decision_type,
+            .collect();
+        views.push(AgentIterationAlternativesView {
+            iteration: snapshot.iteration,
+            timestamp: snapshot.start_time,
+            node_id: format!("iter:{}:decision", snapshot.iteration),
+            chosen_decision: AgentChosenDecisionView {
+                description: chosen,
                 reasoning: None,
-                alternatives_count: Some(snapshot.tool_calls.len() as u32),
-                confidence: None,
-                result: None,
-            });
-        }
-
-        let patterns = Some(analyze_decision_patterns(&decisions));
-        Ok(Some(AgentDecisionSequenceView {
-            agent_loop_id: agent_loop_id.to_string(),
-            total_decisions: decisions.len(),
-            decisions,
-            patterns,
-        }))
-    }
-
-    /// Decisions made in a specific iteration (TS `getDecisionsInIteration`).
-    pub async fn decisions_in_iteration(
-        &self,
-        agent_loop_id: &str,
-        iteration: u32,
-    ) -> ApiResult<Vec<AgentDecisionRecordView>> {
-        Ok(self
-            .decision_sequence(agent_loop_id)
-            .await?
-            .map(|sequence| {
-                sequence
-                    .decisions
-                    .into_iter()
-                    .filter(|d| d.iteration == iteration)
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    /// Decisions of a specific type (TS `getDecisionsByType`).
-    pub async fn decisions_by_type(
-        &self,
-        agent_loop_id: &str,
-        decision_type: &str,
-    ) -> ApiResult<Vec<AgentDecisionRecordView>> {
-        Ok(self
-            .decision_sequence(agent_loop_id)
-            .await?
-            .map(|sequence| {
-                sequence
-                    .decisions
-                    .into_iter()
-                    .filter(|d| d.decision_type == decision_type)
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    /// Decisions with confidence above a threshold (TS `getHighConfidenceDecisions`).
-    pub async fn high_confidence_decisions(
-        &self,
-        agent_loop_id: &str,
-        threshold: f64,
-    ) -> ApiResult<Vec<AgentDecisionRecordView>> {
-        Ok(self
-            .decision_sequence(agent_loop_id)
-            .await?
-            .map(|sequence| {
-                sequence
-                    .decisions
-                    .into_iter()
-                    .filter(|d| d.confidence.unwrap_or(0.0) >= threshold)
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    /// Decisions with confidence below a threshold (TS `getLowConfidenceDecisions`).
-    pub async fn low_confidence_decisions(
-        &self,
-        agent_loop_id: &str,
-        threshold: f64,
-    ) -> ApiResult<Vec<AgentDecisionRecordView>> {
-        Ok(self
-            .decision_sequence(agent_loop_id)
-            .await?
-            .map(|sequence| {
-                sequence
-                    .decisions
-                    .into_iter()
-                    .filter(|d| d.confidence.unwrap_or(1.0) < threshold)
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    /// Decision pattern analysis of an agent loop (TS `analyzeDecisionPatterns`).
-    pub async fn analyze_decision_patterns(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentDecisionPatternsView>> {
-        let Some(sequence) = self.decision_sequence(agent_loop_id).await? else {
-            return Ok(None);
-        };
-        Ok(sequence.patterns)
-    }
-
-    /// Path efficiency of an agent loop relative to the shortest structural
-    /// path (TS `analyzePathEfficiency`).
-    pub async fn analyze_path_efficiency(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentEfficiencyAnalysis>> {
-        let (nodes, edges, start, end, error_nodes) =
-            self.build_decision_graph(agent_loop_id).await?;
-        if nodes.is_empty() {
-            return Ok(None);
-        }
-        let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
-        let optimal_steps = paths
-            .iter()
-            .map(|p| p.nodes.len())
-            .min()
-            .unwrap_or(nodes.len());
-        // The executed path traverses every recorded node in the linear chain.
-        let executed_steps = nodes.len().max(1);
-        Ok(Some(AgentEfficiencyAnalysis {
-            executed_steps,
-            optimal_steps,
-            efficiency_ratio: round2(executed_steps as f64 / optimal_steps.max(1) as f64),
-            wasteful_decisions: executed_steps.saturating_sub(optimal_steps),
-        }))
-    }
-
-    /// Critical (longest) path through the decision graph (TS `getCriticalPath`).
-    pub async fn critical_path(&self, agent_loop_id: &str) -> ApiResult<Option<Vec<String>>> {
-        let (nodes, edges, start, end, error_nodes) =
-            self.build_decision_graph(agent_loop_id).await?;
-        let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
-        Ok(paths
-            .into_iter()
-            .max_by_key(|path| path.nodes.len())
-            .map(|path| path.nodes))
-    }
-
-    /// Path probability analysis of an agent loop (TS `getPathProbabilityAnalysis`).
-    pub async fn path_probability_analysis(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Option<AgentPathProbabilityAnalysisView>> {
-        let (nodes, edges, start, end, error_nodes) =
-            self.build_decision_graph(agent_loop_id).await?;
-        if nodes.is_empty() {
-            return Ok(None);
-        }
-        let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
-        if paths.is_empty() {
-            return Ok(None);
-        }
-
-        let taken_ids: BTreeSet<String> = self
-            .execution_path_steps(agent_loop_id)
-            .await?
-            .into_iter()
-            .map(|s| s.node_id)
-            .collect();
-
-        let mut entries: Vec<AgentPathProbabilityEntryView> = paths
-            .iter()
-            .enumerate()
-            .map(|(index, path)| {
-                let mut probability = 1.0;
-                for window in path.nodes.windows(2) {
-                    probability *= edge_probability(&edges, &window[0], &window[1]);
-                }
-                let is_taken = path
-                    .nodes
-                    .iter()
-                    .all(|id| taken_ids.contains(id) || id == "start" || id == "end");
-                AgentPathProbabilityEntryView {
-                    path_id: format!("path-{index}"),
-                    node_ids: path.nodes.clone(),
-                    probability: round3(probability),
-                    is_taken,
-                }
-            })
-            .collect();
-        entries.sort_by(|a, b| {
-            b.probability
-                .partial_cmp(&a.probability)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            },
+            total_alternatives: alternatives.len(),
+            alternatives,
         });
+    }
+    Ok(views)
+}
 
-        let most_likely_path = entries.first().map(|e| e.node_ids.clone());
-        let total_probability: f64 = entries.iter().map(|e| e.probability).sum();
-        let path_diversity = if total_probability > 0.0 && entries.len() > 1 {
-            let entropy = -entries
-                .iter()
-                .map(|e| {
-                    let normalized = e.probability / total_probability;
-                    if normalized > 0.0 {
-                        normalized * normalized.log2()
-                    } else {
-                        0.0
-                    }
-                })
-                .sum::<f64>();
-            round3(entropy / (entries.len() as f64).log2())
+/// Alternatives that were never chosen across all decision points (TS
+/// `getUnexploredAlternatives`).
+pub async fn unexplored_alternatives(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<AgentAlternativeDecisionView>> {
+    let explored = explored_tools(ctx, agent_loop_id).await;
+    let unexplored = unexplored_tools(ctx, agent_loop_id, &explored).await;
+    Ok(unexplored
+        .into_iter()
+        .map(|name| AgentAlternativeDecisionView {
+            option_id: format!("alt:{name}"),
+            description: format!("Use tool '{name}'"),
+            reason: Some("tool never called during the loop".to_string()),
+            estimated_outcome: None,
+            success_probability: None,
+            confidence: None,
+            pros: Vec::new(),
+            cons: Vec::new(),
+        })
+        .collect())
+}
+
+/// The most promising unexplored alternative (highest recorded success
+/// probability). Probabilities are not recorded by the state boundary, so
+/// in practice this falls back to the first unexplored alternative.
+pub async fn most_promising_unexplored(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentAlternativeDecisionView>> {
+    let unexplored = unexplored_alternatives(ctx, agent_loop_id).await?;
+    let mut with_probability: Vec<(&AgentAlternativeDecisionView, f64)> = unexplored
+        .iter()
+        .filter_map(|a| a.success_probability.map(|p| (a, p)))
+        .collect();
+    with_probability
+        .sort_by(|(_, pa), (_, pb)| pb.partial_cmp(pa).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(with_probability
+        .into_iter()
+        .map(|(a, _)| a.clone())
+        .next()
+        .or_else(|| unexplored.into_iter().next()))
+}
+
+/// Decision sequence of an agent loop (TS `getDecisionSequence`).
+pub async fn decision_sequence(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentDecisionSequenceView>> {
+    let snapshots = iteration_snapshots(ctx, agent_loop_id).await?;
+    if snapshots.is_empty() {
+        return Ok(None);
+    }
+    let mut decisions = Vec::new();
+    for (sequence_no, snapshot) in (1u32..).zip(snapshots.iter()) {
+        let (description, decision_type) = if snapshot.tool_calls.is_empty() {
+            (
+                format!("Iteration {}: LLM reasoning", snapshot.iteration),
+                "iteration_control".to_string(),
+            )
         } else {
-            0.0
+            (
+                format!(
+                    "Iteration {}: selected {}",
+                    snapshot.iteration, snapshot.tool_calls[0].name
+                ),
+                "tool_selection".to_string(),
+            )
         };
-
-        Ok(Some(AgentPathProbabilityAnalysisView {
-            agent_loop_id: agent_loop_id.to_string(),
-            paths: entries,
-            most_likely_path,
-            path_diversity,
-        }))
+        decisions.push(AgentDecisionRecordView {
+            sequence_no,
+            iteration: snapshot.iteration,
+            timestamp: snapshot.start_time,
+            description,
+            decision_type,
+            reasoning: None,
+            alternatives_count: Some(snapshot.tool_calls.len() as u32),
+            confidence: None,
+            result: None,
+        });
     }
 
-    /// Build the decision graph (nodes + edges) from the iteration history.
-    async fn build_decision_graph(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<(
-        Vec<AgentDecisionNodeView>,
-        Vec<AgentDecisionEdgeView>,
-        String,
-        Option<String>,
-        Vec<String>,
-    )> {
-        let snapshots = self.iteration_snapshots(agent_loop_id).await?;
-        let mut nodes: Vec<AgentDecisionNodeView> = Vec::new();
-        let mut edges: Vec<AgentDecisionEdgeView> = Vec::new();
-        let mut error_nodes = Vec::new();
+    let patterns = Some(derive_decision_patterns(&decisions));
+    Ok(Some(AgentDecisionSequenceView {
+        agent_loop_id: agent_loop_id.to_string(),
+        total_decisions: decisions.len(),
+        decisions,
+        patterns,
+    }))
+}
 
-        let start_node_id = "start".to_string();
+/// Decisions made in a specific iteration (TS `getDecisionsInIteration`).
+pub async fn decisions_in_iteration(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    iteration: u32,
+) -> ApiResult<Vec<AgentDecisionRecordView>> {
+    Ok(decision_sequence(ctx, agent_loop_id)
+        .await?
+        .map(|sequence| {
+            sequence
+                .decisions
+                .into_iter()
+                .filter(|d| d.iteration == iteration)
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Decisions of a specific type (TS `getDecisionsByType`).
+pub async fn decisions_by_type(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    decision_type: &str,
+) -> ApiResult<Vec<AgentDecisionRecordView>> {
+    Ok(decision_sequence(ctx, agent_loop_id)
+        .await?
+        .map(|sequence| {
+            sequence
+                .decisions
+                .into_iter()
+                .filter(|d| d.decision_type == decision_type)
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Decision pattern analysis of an agent loop (TS `analyzeDecisionPatterns`).
+pub async fn analyze_decision_patterns(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentDecisionPatternsView>> {
+    let Some(sequence) = decision_sequence(ctx, agent_loop_id).await? else {
+        return Ok(None);
+    };
+    Ok(sequence.patterns)
+}
+
+/// Path efficiency of an agent loop relative to the shortest structural
+/// path (TS `analyzePathEfficiency`).
+pub async fn analyze_path_efficiency(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentEfficiencyAnalysis>> {
+    let (nodes, edges, start, end, error_nodes) = build_decision_graph(ctx, agent_loop_id).await?;
+    if nodes.is_empty() {
+        return Ok(None);
+    }
+    let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
+    let optimal_steps = paths
+        .iter()
+        .map(|p| p.nodes.len())
+        .min()
+        .unwrap_or(nodes.len());
+    // The executed path traverses every recorded node in the linear chain.
+    let executed_steps = nodes.len().max(1);
+    Ok(Some(AgentEfficiencyAnalysis {
+        executed_steps,
+        optimal_steps,
+        efficiency_ratio: round2(executed_steps as f64 / optimal_steps.max(1) as f64),
+        wasteful_decisions: executed_steps.saturating_sub(optimal_steps),
+    }))
+}
+
+/// Critical (longest) path through the decision graph (TS `getCriticalPath`).
+pub async fn critical_path(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<Vec<String>>> {
+    let (nodes, edges, start, end, error_nodes) = build_decision_graph(ctx, agent_loop_id).await?;
+    let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
+    Ok(paths
+        .into_iter()
+        .max_by_key(|path| path.nodes.len())
+        .map(|path| path.nodes))
+}
+
+/// Path probability analysis of an agent loop (TS `getPathProbabilityAnalysis`).
+pub async fn path_probability_analysis(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Option<AgentPathProbabilityAnalysisView>> {
+    let (nodes, edges, start, end, error_nodes) = build_decision_graph(ctx, agent_loop_id).await?;
+    if nodes.is_empty() {
+        return Ok(None);
+    }
+    let paths = graph_paths(&nodes, &edges, &start, &end, &error_nodes);
+    if paths.is_empty() {
+        return Ok(None);
+    }
+
+    let taken_ids: BTreeSet<String> = execution_path_steps(ctx, agent_loop_id)
+        .await?
+        .into_iter()
+        .map(|s| s.node_id)
+        .collect();
+
+    let mut entries: Vec<AgentPathProbabilityEntryView> = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let mut probability = 1.0;
+            for window in path.nodes.windows(2) {
+                probability *= edge_probability(&edges, &window[0], &window[1]);
+            }
+            let is_taken = path
+                .nodes
+                .iter()
+                .all(|id| taken_ids.contains(id) || id == "start" || id == "end");
+            AgentPathProbabilityEntryView {
+                path_id: format!("path-{index}"),
+                node_ids: path.nodes.clone(),
+                probability: round3(probability),
+                is_taken,
+            }
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b.probability
+            .partial_cmp(&a.probability)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let most_likely_path = entries.first().map(|e| e.node_ids.clone());
+    let total_probability: f64 = entries.iter().map(|e| e.probability).sum();
+    let path_diversity = if total_probability > 0.0 && entries.len() > 1 {
+        let entropy = -entries
+            .iter()
+            .map(|e| {
+                let normalized = e.probability / total_probability;
+                if normalized > 0.0 {
+                    normalized * normalized.log2()
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f64>();
+        round3(entropy / (entries.len() as f64).log2())
+    } else {
+        0.0
+    };
+
+    Ok(Some(AgentPathProbabilityAnalysisView {
+        agent_loop_id: agent_loop_id.to_string(),
+        paths: entries,
+        most_likely_path,
+        path_diversity,
+    }))
+}
+
+/// Build the decision graph (nodes + edges) from the iteration history.
+async fn build_decision_graph(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<(
+    Vec<AgentDecisionNodeView>,
+    Vec<AgentDecisionEdgeView>,
+    String,
+    Option<String>,
+    Vec<String>,
+)> {
+    let snapshots = iteration_snapshots(ctx, agent_loop_id).await?;
+    let mut nodes: Vec<AgentDecisionNodeView> = Vec::new();
+    let mut edges: Vec<AgentDecisionEdgeView> = Vec::new();
+    let mut error_nodes = Vec::new();
+
+    let start_node_id = "start".to_string();
+    nodes.push(AgentDecisionNodeView {
+        node_id: start_node_id.clone(),
+        r#type: "start".to_string(),
+        description: "Agent loop started".to_string(),
+        iteration: 0,
+        timestamp: snapshots
+            .first()
+            .map(|s| s.start_time)
+            .unwrap_or(wf_common::now()),
+        confidence: None,
+    });
+
+    let mut previous: Option<String> = None;
+    for snapshot in &snapshots {
+        let decision_node_id = format!("iter:{}:decision", snapshot.iteration);
         nodes.push(AgentDecisionNodeView {
-            node_id: start_node_id.clone(),
-            r#type: "start".to_string(),
-            description: "Agent loop started".to_string(),
-            iteration: 0,
-            timestamp: snapshots
-                .first()
-                .map(|s| s.start_time)
-                .unwrap_or(wf_common::now()),
+            node_id: decision_node_id.clone(),
+            r#type: "decision".to_string(),
+            description: format!("Iteration {} decision", snapshot.iteration),
+            iteration: snapshot.iteration,
+            timestamp: snapshot.start_time,
             confidence: None,
         });
+        let from = previous.clone().unwrap_or_else(|| start_node_id.clone());
+        edges.push(AgentDecisionEdgeView {
+            edge_id: format!("edge:{from}:{decision_node_id}"),
+            from_node_id: from,
+            to_node_id: decision_node_id.clone(),
+            reason: Some("iteration advanced".to_string()),
+            condition: None,
+            was_taken: true,
+            probability: Some(1.0),
+            weight: Some(1.0),
+        });
 
-        let mut previous: Option<String> = None;
-        for snapshot in &snapshots {
-            let decision_node_id = format!("iter:{}:decision", snapshot.iteration);
+        let mut last_tool_node: Option<String> = None;
+        for call in &snapshot.tool_calls {
+            let tool_node_id = format!("iter:{}:tool:{}", snapshot.iteration, call.name);
+            let success = call.success;
             nodes.push(AgentDecisionNodeView {
-                node_id: decision_node_id.clone(),
-                r#type: "decision".to_string(),
-                description: format!("Iteration {} decision", snapshot.iteration),
+                node_id: tool_node_id.clone(),
+                r#type: if success {
+                    "action".to_string()
+                } else {
+                    "error".to_string()
+                },
+                description: format!("Tool call '{}'", call.name),
                 iteration: snapshot.iteration,
                 timestamp: snapshot.start_time,
                 confidence: None,
             });
-            let from = previous.clone().unwrap_or_else(|| start_node_id.clone());
+            let from_tool = last_tool_node
+                .clone()
+                .unwrap_or_else(|| decision_node_id.clone());
             edges.push(AgentDecisionEdgeView {
-                edge_id: format!("edge:{from}:{decision_node_id}"),
-                from_node_id: from,
-                to_node_id: decision_node_id.clone(),
-                reason: Some("iteration advanced".to_string()),
+                edge_id: format!("edge:{from_tool}:{tool_node_id}"),
+                from_node_id: from_tool,
+                to_node_id: tool_node_id.clone(),
+                reason: Some(format!("executed tool '{}'", call.name)),
                 condition: None,
                 was_taken: true,
                 probability: Some(1.0),
                 weight: Some(1.0),
             });
-
-            let mut last_tool_node: Option<String> = None;
-            for call in &snapshot.tool_calls {
-                let tool_node_id = format!("iter:{}:tool:{}", snapshot.iteration, call.name);
-                let success = call.success;
-                nodes.push(AgentDecisionNodeView {
-                    node_id: tool_node_id.clone(),
-                    r#type: if success {
-                        "action".to_string()
-                    } else {
-                        "error".to_string()
-                    },
-                    description: format!("Tool call '{}'", call.name),
-                    iteration: snapshot.iteration,
-                    timestamp: snapshot.start_time,
-                    confidence: None,
-                });
-                let from_tool = last_tool_node
-                    .clone()
-                    .unwrap_or_else(|| decision_node_id.clone());
-                edges.push(AgentDecisionEdgeView {
-                    edge_id: format!("edge:{from_tool}:{tool_node_id}"),
-                    from_node_id: from_tool,
-                    to_node_id: tool_node_id.clone(),
-                    reason: Some(format!("executed tool '{}'", call.name)),
-                    condition: None,
-                    was_taken: true,
-                    probability: Some(1.0),
-                    weight: Some(1.0),
-                });
-                if !success {
-                    error_nodes.push(tool_node_id.clone());
-                }
-                last_tool_node = Some(tool_node_id);
+            if !success {
+                error_nodes.push(tool_node_id.clone());
             }
-            previous = last_tool_node.or(Some(decision_node_id));
+            last_tool_node = Some(tool_node_id);
         }
+        previous = last_tool_node.or(Some(decision_node_id));
+    }
 
-        let end_node_id = "end".to_string();
-        nodes.push(AgentDecisionNodeView {
-            node_id: end_node_id.clone(),
-            r#type: "end".to_string(),
-            description: "Agent loop ended".to_string(),
-            iteration: snapshots.last().map(|s| s.iteration).unwrap_or(0),
-            timestamp: snapshots
-                .last()
-                .and_then(|s| s.end_time)
-                .unwrap_or(wf_common::now()),
-            confidence: None,
+    let end_node_id = "end".to_string();
+    nodes.push(AgentDecisionNodeView {
+        node_id: end_node_id.clone(),
+        r#type: "end".to_string(),
+        description: "Agent loop ended".to_string(),
+        iteration: snapshots.last().map(|s| s.iteration).unwrap_or(0),
+        timestamp: snapshots
+            .last()
+            .and_then(|s| s.end_time)
+            .unwrap_or(wf_common::now()),
+        confidence: None,
+    });
+    if let Some(previous) = previous {
+        edges.push(AgentDecisionEdgeView {
+            edge_id: format!("edge:{previous}:{end_node_id}"),
+            from_node_id: previous,
+            to_node_id: end_node_id.clone(),
+            reason: Some("loop terminated".to_string()),
+            condition: None,
+            was_taken: true,
+            probability: Some(1.0),
+            weight: Some(1.0),
         });
-        if let Some(previous) = previous {
-            edges.push(AgentDecisionEdgeView {
-                edge_id: format!("edge:{previous}:{end_node_id}"),
-                from_node_id: previous,
-                to_node_id: end_node_id.clone(),
-                reason: Some("loop terminated".to_string()),
-                condition: None,
-                was_taken: true,
-                probability: Some(1.0),
-                weight: Some(1.0),
-            });
-        }
-
-        Ok((nodes, edges, start_node_id, Some(end_node_id), error_nodes))
     }
 
-    /// Tools actually called during the loop.
-    async fn explored_tools(&self, agent_loop_id: &str) -> BTreeSet<String> {
-        let snapshots = self
-            .iteration_snapshots(agent_loop_id)
-            .await
-            .unwrap_or_default();
-        snapshots
-            .iter()
-            .flat_map(|s| s.tool_calls.iter().map(|c| c.name.clone()))
-            .collect()
-    }
+    Ok((nodes, edges, start_node_id, Some(end_node_id), error_nodes))
+}
 
-    /// Serialized loop status for terminal-state reporting.
-    async fn loop_status(&self, agent_loop_id: &str) -> ApiResult<String> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
-            return Ok(format!("{status:?}"));
-        }
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            return Ok(format!("{:?}", record.status));
-        }
-        Err(ApiError::execution_not_found(agent_loop_id))
+/// Tools actually called during the loop.
+async fn explored_tools(ctx: &ApiContext, agent_loop_id: &str) -> BTreeSet<String> {
+    let snapshots = iteration_snapshots(ctx, agent_loop_id)
+        .await
+        .unwrap_or_default();
+    snapshots
+        .iter()
+        .flat_map(|s| s.tool_calls.iter().map(|c| c.name.clone()))
+        .collect()
+}
+
+/// Whether the loop reached the `Completed` terminal state (typed check,
+/// not a string comparison).
+async fn loop_completed(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<bool> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let status: wf_types::ExecutionStatus = entity.state.read().await.status().into();
+        return Ok(matches!(status, wf_types::ExecutionStatus::Completed));
     }
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        return Ok(matches!(
+            record.status,
+            wf_types::ExecutionStatus::Completed
+        ));
+    }
+    Err(ApiError::execution_not_found(agent_loop_id))
 }
 
 /// One iteration snapshot used across the graph queries.
@@ -1160,7 +1110,7 @@ fn edge_probability(edges: &[AgentDecisionEdgeView], from: &str, to: &str) -> f6
 }
 
 /// Derive the decision-sequence pattern analysis.
-fn analyze_decision_patterns(decisions: &[AgentDecisionRecordView]) -> AgentDecisionPatternsView {
+fn derive_decision_patterns(decisions: &[AgentDecisionRecordView]) -> AgentDecisionPatternsView {
     let mut frequency: BTreeMap<String, u64> = BTreeMap::new();
     for decision in decisions {
         *frequency.entry(decision.decision_type.clone()).or_insert(0) += 1;
@@ -1193,16 +1143,13 @@ fn analyze_decision_patterns(decisions: &[AgentDecisionRecordView]) -> AgentDeci
     }
 }
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
-}
-
 fn round3(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registrar::Registries;
@@ -1235,8 +1182,7 @@ mod tests {
         entity.state.write().await.end_iteration();
         ctx.agent_loops.register(entity.clone());
 
-        let api = AgentGraphApi::new(ctx);
-        let graph = api.analyze("agent-graph-1").await.unwrap();
+        let graph = analyze(&ctx, "agent-graph-1").await.unwrap();
         assert_eq!(graph.iterations.len(), 2);
         assert_eq!(graph.iterations[0].decision, "tool:http");
         assert_eq!(graph.iterations[1].decision, "llm");
@@ -1248,8 +1194,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_loop_is_not_found() {
         let ctx = make_ctx();
-        let api = AgentGraphApi::new(ctx);
-        let err = api.analyze("missing").await.unwrap_err();
+        let err = analyze(&ctx, "missing").await.unwrap_err();
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));
     }
 
@@ -1271,8 +1216,7 @@ mod tests {
         }
         ctx.agent_loops.register(entity.clone());
 
-        let api = AgentGraphApi::new(ctx);
-        let graph = api.decision_graph("agent-graph-2").await.unwrap();
+        let graph = decision_graph(&ctx, "agent-graph-2").await.unwrap();
         assert_eq!(graph.start_node_id, "start");
         assert_eq!(graph.end_node_id.as_deref(), Some("end"));
         // start + 2 decisions + 1 tool + end
@@ -1281,37 +1225,37 @@ mod tests {
         assert_eq!(graph.executed_paths, 1);
         assert!(graph.graph_density.is_some());
 
-        let nodes = api.decision_nodes("agent-graph-2").await.unwrap();
+        let nodes = decision_nodes(&ctx, "agent-graph-2").await.unwrap();
         assert!(nodes.iter().any(|n| n.r#type == "start"));
         assert!(nodes.iter().any(|n| n.r#type == "decision"));
 
-        let edges = api.decision_edges("agent-graph-2").await.unwrap();
+        let edges = decision_edges(&ctx, "agent-graph-2").await.unwrap();
         assert!(!edges.is_empty());
 
-        let outgoing = api.outgoing_edges("agent-graph-2", "start").await.unwrap();
+        let outgoing = outgoing_edges(&ctx, "agent-graph-2", "start").await.unwrap();
         assert_eq!(outgoing.len(), 1);
 
-        let incoming = api.incoming_edges("agent-graph-2", "end").await.unwrap();
+        let incoming = incoming_edges(&ctx, "agent-graph-2", "end").await.unwrap();
         assert_eq!(incoming.len(), 1);
 
-        let paths = api.all_paths("agent-graph-2").await.unwrap();
+        let paths = all_paths(&ctx, "agent-graph-2").await.unwrap();
         assert!(!paths.is_empty());
         assert!(paths
             .iter()
             .all(|p| p.first() == Some(&"start".to_string())));
 
-        let path = api.execution_path("agent-graph-2").await.unwrap().unwrap();
+        let path = execution_path(&ctx, "agent-graph-2").await.unwrap().unwrap();
         assert!(path.is_successful);
         assert_eq!(path.steps.len(), 3, "2 decisions + 1 tool call");
         assert!(path.total_duration >= 0);
 
-        let steps = api.execution_path_steps("agent-graph-2").await.unwrap();
+        let steps = execution_path_steps(&ctx, "agent-graph-2").await.unwrap();
         assert_eq!(steps.len(), 3);
 
-        let stats = api.path_statistics("agent-graph-2").await.unwrap().unwrap();
+        let stats = path_statistics(&ctx, "agent-graph-2").await.unwrap().unwrap();
         assert_eq!(stats.steps_count, 3);
 
-        let critical = api.critical_path("agent-graph-2").await.unwrap().unwrap();
+        let critical = critical_path(&ctx, "agent-graph-2").await.unwrap().unwrap();
         assert_eq!(critical.first().map(String::as_str), Some("start"));
     }
 
@@ -1345,8 +1289,7 @@ mod tests {
             default_timeout_ms: None,
         });
 
-        let api = AgentGraphApi::new(ctx);
-        let alternatives = api.all_alternatives("agent-graph-3").await.unwrap();
+        let alternatives = all_alternatives(&ctx, "agent-graph-3").await.unwrap();
         assert_eq!(alternatives.len(), 1);
         assert_eq!(alternatives[0].iteration, 1);
         assert_eq!(
@@ -1354,22 +1297,20 @@ mod tests {
             "Called tool 'http'"
         );
 
-        let at_iter = api.alternative_decisions("agent-graph-3", 1).await.unwrap();
+        let at_iter = alternative_decisions(&ctx, "agent-graph-3", 1).await.unwrap();
         assert!(at_iter.is_some());
-        assert!(api
-            .alternative_decisions("agent-graph-3", 99)
+        assert!(alternative_decisions(&ctx, "agent-graph-3", 99)
             .await
             .unwrap()
             .is_none());
 
-        let unexplored = api.unexplored_alternatives("agent-graph-3").await.unwrap();
+        let unexplored = unexplored_alternatives(&ctx, "agent-graph-3").await.unwrap();
         assert!(
             !unexplored.is_empty(),
             "registry has no tools, but unused names remain derivable"
         );
 
-        let sequence = api
-            .decision_sequence("agent-graph-3")
+        let sequence = decision_sequence(&ctx, "agent-graph-3")
             .await
             .unwrap()
             .unwrap();
@@ -1383,23 +1324,20 @@ mod tests {
             "tool_selection"
         );
 
-        let patterns = api
-            .analyze_decision_patterns("agent-graph-3")
+        let patterns = analyze_decision_patterns(&ctx, "agent-graph-3")
             .await
             .unwrap()
             .unwrap();
         assert!(patterns.consistency_score >= 0.0);
 
-        let efficiency = api
-            .analyze_path_efficiency("agent-graph-3")
+        let efficiency = analyze_path_efficiency(&ctx, "agent-graph-3")
             .await
             .unwrap()
             .unwrap();
         assert!(efficiency.executed_steps >= 1);
         assert!(efficiency.efficiency_ratio >= 1.0);
 
-        let probability = api
-            .path_probability_analysis("agent-graph-3")
+        let probability = path_probability_analysis(&ctx, "agent-graph-3")
             .await
             .unwrap()
             .unwrap();

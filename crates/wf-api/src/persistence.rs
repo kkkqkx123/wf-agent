@@ -184,9 +184,9 @@ impl StorePersistenceLayer {
     pub fn sqlite(path: &str) -> ApiResult<Self> {
         let store = wf_storage::store::sqlite::SqliteStorage::new(path, "persistence")?;
         Ok(Self {
-            store: StorageBackend::Sqlite(wf_storage::decorator::instrumented::InstrumentedStore::new(
-                store,
-            )),
+            store: StorageBackend::Sqlite(
+                wf_storage::decorator::instrumented::InstrumentedStore::new(store),
+            ),
             name: "sqlite".into(),
         })
     }
@@ -204,9 +204,7 @@ impl StorePersistenceLayer {
     }
 
     fn strip(prefix: &str, key: &str) -> String {
-        key.strip_prefix(prefix)
-            .unwrap_or(key)
-            .to_string()
+        key.strip_prefix(prefix).unwrap_or(key).to_string()
     }
 }
 
@@ -316,7 +314,7 @@ impl PersistenceLayer for StorePersistenceLayer {
         let mut snapshots = Vec::new();
         for (id, payload, _) in records {
             if let Ok(value) = serde_json::from_slice::<Value>(&payload) {
-                snapshots.push((Self::strip(&SNAPSHOT_KEY_PREFIX, &id), value));
+                snapshots.push((Self::strip(SNAPSHOT_KEY_PREFIX, &id), value));
             }
         }
         snapshots.sort_by(|a, b| b.0.cmp(&a.0));
@@ -359,7 +357,7 @@ impl PersistenceLayer for StorePersistenceLayer {
         let mut metrics = Vec::new();
         for (id, payload, _) in records {
             if let Ok(value) = serde_json::from_slice::<Value>(&payload) {
-                metrics.push((Self::strip(&METRIC_KEY_PREFIX, &id), value));
+                metrics.push((Self::strip(METRIC_KEY_PREFIX, &id), value));
             }
         }
         metrics.sort_by(|a, b| b.0.cmp(&a.0));
@@ -438,12 +436,12 @@ impl BufferedPersistenceLayer {
     }
 
     fn spawn_flusher(&self) {
-        let mut handle = self.flush_handle.lock().expect("flush handle lock");
+        let mut handle = lock_ok(self.flush_handle.lock());
         if handle.is_some() {
             return;
         }
         let (tx, rx) = watch::channel(false);
-        *self.shutdown_tx.lock().expect("shutdown tx lock") = Some(tx);
+        *lock_ok(self.shutdown_tx.lock()) = Some(tx);
 
         let inner = self.inner.clone();
         let event_buffer = self.event_buffer.clone();
@@ -474,16 +472,22 @@ impl BufferedPersistenceLayer {
                 if let Err(err) = write_batch(&*inner, &events, &snapshots, &metrics).await {
                     tracing::warn!(target: "wf_api", error = %err, "persistence flush failed; re-buffering");
                     // Re-buffer so a transient backend failure does not lose data.
-                    event_buffer.lock().expect("event buffer lock").splice(0..0, events);
-                    snapshot_buffer.lock().expect("snapshot buffer lock").splice(0..0, snapshots);
-                    metric_buffer.lock().expect("metric buffer lock").splice(0..0, metrics);
+                    lock_ok(event_buffer.lock()).splice(0..0, events);
+                    lock_ok(snapshot_buffer.lock()).splice(0..0, snapshots);
+                    lock_ok(metric_buffer.lock()).splice(0..0, metrics);
                     empty = false;
                 }
                 if empty && *rx.borrow() {
                     break;
                 }
             }
-            let _ = write_batch(&*inner, &drain(&event_buffer), &drain(&snapshot_buffer), &drain(&metric_buffer)).await;
+            let _ = write_batch(
+                &*inner,
+                &drain(&event_buffer),
+                &drain(&snapshot_buffer),
+                &drain(&metric_buffer),
+            )
+            .await;
         });
         *handle = Some(task);
     }
@@ -507,8 +511,15 @@ async fn write_batch(
     Ok(())
 }
 
+/// Drain `buffer` without panicking on a poisoned lock (a panicked holder is
+/// unrecoverable anyway; the buffered data is still taken).
 fn drain<T>(buffer: &Mutex<Vec<T>>) -> Vec<T> {
-    std::mem::take(&mut *buffer.lock().expect("buffer lock"))
+    std::mem::take(&mut *buffer.lock().unwrap_or_else(|p| p.into_inner()))
+}
+
+/// Recover from a poisoned lock rather than panicking library callers.
+fn lock_ok<T>(result: std::sync::LockResult<T>) -> T {
+    result.unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[async_trait]
@@ -518,24 +529,24 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn initialize(&self) -> ApiResult<()> {
-        if *self.initialized.lock().expect("initialized lock") {
+        if *lock_ok(self.initialized.lock()) {
             return Ok(());
         }
         self.inner.initialize().await?;
         self.spawn_flusher();
-        *self.initialized.lock().expect("initialized lock") = true;
+        *lock_ok(self.initialized.lock()) = true;
         Ok(())
     }
 
     async fn shutdown(&self) -> ApiResult<()> {
-        if !*self.initialized.lock().expect("initialized lock") {
+        if !*lock_ok(self.initialized.lock()) {
             return Ok(());
         }
-        let shutdown_signal = self.shutdown_tx.lock().expect("shutdown tx lock").take();
+        let shutdown_signal = lock_ok(self.shutdown_tx.lock()).take();
         if let Some(tx) = shutdown_signal {
             let _ = tx.send(true);
         }
-        let handle = self.flush_handle.lock().expect("flush handle lock").take();
+        let handle = lock_ok(self.flush_handle.lock()).take();
         if let Some(handle) = handle {
             let _ = tokio::time::timeout(self.flush_interval, handle).await;
         }
@@ -545,18 +556,18 @@ impl PersistenceLayer for BufferedPersistenceLayer {
         let metrics = drain(&self.metric_buffer);
         let _ = write_batch(&*self.inner, &events, &snapshots, &metrics).await;
         self.inner.shutdown().await?;
-        *self.initialized.lock().expect("initialized lock") = false;
+        *lock_ok(self.initialized.lock()) = false;
         Ok(())
     }
 
     fn pending_writes(&self) -> usize {
-        self.event_buffer.lock().expect("event buffer lock").len()
-            + self.snapshot_buffer.lock().expect("snapshot buffer lock").len()
-            + self.metric_buffer.lock().expect("metric buffer lock").len()
+        lock_ok(self.event_buffer.lock()).len()
+            + lock_ok(self.snapshot_buffer.lock()).len()
+            + lock_ok(self.metric_buffer.lock()).len()
     }
 
     async fn save_event(&self, event: &BaseEvent) -> ApiResult<()> {
-        let mut buffer = self.event_buffer.lock().expect("event buffer lock");
+        let mut buffer = lock_ok(self.event_buffer.lock());
         buffer.push(event.clone());
         let full = buffer.len() >= self.event_buffer_size;
         if full {
@@ -570,7 +581,7 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn save_events(&self, events: &[BaseEvent]) -> ApiResult<()> {
-        let mut buffer = self.event_buffer.lock().expect("event buffer lock");
+        let mut buffer = lock_ok(self.event_buffer.lock());
         buffer.extend_from_slice(events);
         Ok(())
     }
@@ -584,12 +595,12 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn clear_events(&self) -> ApiResult<()> {
-        self.event_buffer.lock().expect("event buffer lock").clear();
+        lock_ok(self.event_buffer.lock()).clear();
         self.inner.clear_events().await
     }
 
     async fn save_snapshot(&self, key: &str, snapshot: &Value) -> ApiResult<()> {
-        let mut buffer = self.snapshot_buffer.lock().expect("snapshot buffer lock");
+        let mut buffer = lock_ok(self.snapshot_buffer.lock());
         buffer.push((key.to_string(), snapshot.clone()));
         if buffer.len() >= self.snapshot_buffer_size {
             let drained = std::mem::take(&mut *buffer);
@@ -612,12 +623,12 @@ impl PersistenceLayer for BufferedPersistenceLayer {
     }
 
     async fn clear_snapshots(&self, prefix: &str) -> ApiResult<()> {
-        self.snapshot_buffer.lock().expect("snapshot buffer lock").clear();
+        lock_ok(self.snapshot_buffer.lock()).clear();
         self.inner.clear_snapshots(prefix).await
     }
 
     async fn save_metric(&self, key: &str, value: &Value) -> ApiResult<()> {
-        let mut buffer = self.metric_buffer.lock().expect("metric buffer lock");
+        let mut buffer = lock_ok(self.metric_buffer.lock());
         buffer.push((key.to_string(), value.clone()));
         if buffer.len() >= self.metric_buffer_size {
             let drained = std::mem::take(&mut *buffer);

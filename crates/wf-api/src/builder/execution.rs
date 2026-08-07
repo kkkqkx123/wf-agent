@@ -1,7 +1,7 @@
 //! Workflow execution builder.
 //!
 //! Mirrors the TS `ExecutionBuilder` (`packages/sdk/api/workflow/builders`):
-//! a fluent executor over [`crate::workflow_execution::WorkflowApi`] with
+//! a fluent executor over [`crate::workflow_execution`] free functions with
 //! execution options and `on_node_executed` / `on_progress` / `on_error`
 //! callbacks, plus `execute` / `execute_stream` / `cancel` entry points.
 
@@ -12,7 +12,7 @@ use serde_json::Value;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::workflow_execution::WorkflowExecutionOptions;
 
-use crate::workflow_execution::{ExecuteWorkflowParams, WorkflowApi};
+use crate::workflow_execution::ExecuteWorkflowParams;
 use crate::{ApiContext, ApiResult};
 
 /// Info handed to the `on_node_executed` callback.
@@ -29,7 +29,7 @@ pub type NodeExecutedCallback = Arc<dyn Fn(&NodeExecutedInfo) + Send + Sync>;
 pub type ProgressCallback = Arc<dyn Fn(f64) + Send + Sync>;
 pub type ErrorCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
-/// Consuming workflow execution builder reusing [`WorkflowApi`].
+/// Consuming workflow execution builder over the workflow execution module.
 pub struct ExecutionBuilder {
     workflow_id: String,
     input: Option<Value>,
@@ -117,8 +117,7 @@ impl ExecutionBuilder {
             input: self.input,
             options: Some(self.options),
         };
-        let api = WorkflowApi::new(ctx.clone());
-        let (execution_id, mut stream) = api.stream(params).await?;
+        let (execution_id, mut stream) = crate::workflow_execution::stream(ctx.clone(), params).await?;
         let execution_id_filter = execution_id.to_string();
 
         // Dispatch engine events from the bus for this execution, and
@@ -140,7 +139,7 @@ impl ExecutionBuilder {
                         }
                         Some(crate::stream::ExecutionStreamEvent::Failed { error }) => {
                             callbacks.dispatch_error(&error);
-                            return Err(crate::ApiError::Execution(error));
+                            return Err(crate::ApiError::execution(error));
                         }
                         _ => {}
                     }
@@ -154,7 +153,7 @@ impl ExecutionBuilder {
                 result,
             })
             .ok_or_else(|| {
-                crate::ApiError::Execution("stream ended without a terminal event".to_string())
+                crate::ApiError::execution("stream ended without a terminal event".to_string())
             })
     }
 
@@ -174,14 +173,15 @@ impl ExecutionBuilder {
         // Subscribe ahead of the execution so no engine event is missed.
         let bus = ctx.event_bus.clone();
         let mut sub = bus.subscribe();
-        let api = WorkflowApi::new(ctx.clone());
-        let (execution_id, stream) = api
-            .stream(ExecuteWorkflowParams {
+        let (execution_id, stream) = crate::workflow_execution::stream(
+            ctx.clone(),
+            ExecuteWorkflowParams {
                 workflow_id: self.workflow_id,
                 input: self.input,
                 options: Some(self.options),
-            })
-            .await?;
+            },
+        )
+        .await?;
 
         // Forward matching engine events onto the callbacks.
         let execution_id_filter = execution_id.to_string();
@@ -198,14 +198,9 @@ impl ExecutionBuilder {
     }
 
     /// Cancel a running workflow execution by its id (delegates to
-    /// [`WorkflowApi::cancel`]).
-    pub async fn cancel(
-        &self,
-        ctx: &Arc<ApiContext>,
-        execution_id: &str,
-    ) -> ApiResult<()> {
-        let api = WorkflowApi::new(ctx.clone());
-        api.cancel(execution_id).await
+    /// [`crate::workflow_execution::cancel`]).
+    pub async fn cancel(&self, ctx: &Arc<ApiContext>, execution_id: &str) -> ApiResult<()> {
+        crate::workflow_execution::cancel(ctx, execution_id).await
     }
 
     fn callbacks(&self) -> CallbackPack {
@@ -396,7 +391,11 @@ mod tests {
     #[tokio::test]
     async fn executes_workflow_and_fires_callbacks() {
         let ctx = make_ctx();
-        ctx.storage.workflow.save(&make_workflow("wf-builder-exec-1")).await.unwrap();
+        ctx.storage
+            .workflow
+            .save(&make_workflow("wf-builder-exec-1"))
+            .await
+            .unwrap();
 
         let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let progress = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -427,7 +426,11 @@ mod tests {
     #[tokio::test]
     async fn execute_stream_returns_execution_id() {
         let ctx = make_ctx();
-        ctx.storage.workflow.save(&make_workflow("wf-builder-exec-2")).await.unwrap();
+        ctx.storage
+            .workflow
+            .save(&make_workflow("wf-builder-exec-2"))
+            .await
+            .unwrap();
 
         let (execution_id, mut stream) = ExecutionBuilder::new("wf-builder-exec-2")
             .with_input(serde_json::json!({"greeting": "stream"}))
@@ -448,7 +451,11 @@ mod tests {
     #[tokio::test]
     async fn cancel_running_execution() {
         let ctx = make_ctx();
-        ctx.storage.workflow.save(&make_workflow("wf-builder-exec-3")).await.unwrap();
+        ctx.storage
+            .workflow
+            .save(&make_workflow("wf-builder-exec-3"))
+            .await
+            .unwrap();
 
         let (execution_id, _stream) = ExecutionBuilder::new("wf-builder-exec-3")
             .with_input(serde_json::json!({"greeting": "x"}))
@@ -460,8 +467,6 @@ mod tests {
         // Cancelling a completed execution is tolerated by the entity layer;
         // the call must not error for an unknown id.
         let result = builder.cancel(&ctx, &execution_id.to_string()).await;
-        assert!(
-            result.is_ok() || matches!(result, Err(crate::ApiError::ExecutionNotFound { .. }))
-        );
+        assert!(result.is_ok() || matches!(result, Err(crate::ApiError::ExecutionNotFound { .. })));
     }
 }

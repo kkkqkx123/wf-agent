@@ -1,12 +1,12 @@
-use std::sync::Arc;
 
 use serde::Serialize;
 
 use wf_types::ExecutionStatus;
 
-use crate::agent_loop_registry::{AgentLoopRegistryApi, ExecutionTimelineEntry};
+use crate::agent_loop_registry::ExecutionTimelineEntry;
 use crate::context::ApiContext;
 use crate::error::{ApiError, ApiResult};
+use crate::util::round2;
 
 /// Timing of one agent iteration (TS iteration-timeline counterpart).
 #[derive(Debug, Clone, Serialize)]
@@ -46,152 +46,137 @@ pub struct IterationComparison {
     pub variation: f64,
 }
 
-/// Agent performance analysis (TS `AgentPerformanceAnalysisAPI` counterpart).
-///
-/// Builds the profile from the live agent loop iteration history first and
-/// falls back to the persisted `AgentExecution` record after a restart.
-pub struct AgentPerformanceAnalysisApi {
-    ctx: Arc<ApiContext>,
+/// Performance profile of an agent loop, or `None` when unknown.
+pub async fn analyze_performance(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Option<AgentPerformanceProfile>> {
+    let details = crate::agent_loop_registry::iteration_history(ctx, execution_id).await?;
+    let Some(summary) = crate::agent_loop_registry::summary(ctx, execution_id).await? else {
+        return Ok(None);
+    };
+
+    let timeline = details
+        .into_iter()
+        .map(|d| AgentIterationTiming {
+            iteration: d.iteration,
+            start_time: d.start_time,
+            end_time: d.end_time,
+            duration_ms: d.duration.max(0),
+            tool_call_count: d.tool_call_count,
+        })
+        .collect::<Vec<_>>();
+
+    let total_duration_ms = match (summary.start_time, summary.end_time) {
+        (Some(start), Some(end)) => (end - start).max(0),
+        _ => 0,
+    };
+    let total_tool_calls = summary.tool_call_count;
+    let iteration_count = timeline.len() as u32;
+
+    let completed_durations: Vec<i64> = timeline
+        .iter()
+        .map(|t| t.duration_ms)
+        .filter(|d| *d >= 0)
+        .collect();
+    let avg_iteration_duration_ms = if !completed_durations.is_empty() {
+        completed_durations.iter().sum::<i64>() / completed_durations.len() as i64
+    } else {
+        0
+    };
+    let avg_tool_calls_per_iteration = if iteration_count > 0 {
+        round2(total_tool_calls as f64 / iteration_count as f64)
+    } else {
+        0.0
+    };
+
+    let mut bottlenecks = timeline.clone();
+    bottlenecks.sort_by_key(|t| std::cmp::Reverse(t.duration_ms));
+    bottlenecks.truncate(3);
+
+    Ok(Some(AgentPerformanceProfile {
+        execution_id: execution_id.to_string(),
+        status: summary.status,
+        total_duration_ms,
+        iteration_count,
+        total_tool_calls,
+        avg_iteration_duration_ms,
+        avg_tool_calls_per_iteration,
+        timeline,
+        bottlenecks,
+    }))
 }
 
-impl AgentPerformanceAnalysisApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Execution timeline of an agent loop (reused from the loop registry).
+pub async fn execution_timeline(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ExecutionTimelineEntry>> {
+    crate::agent_loop_registry::execution_timeline(ctx, execution_id).await
+}
 
-    /// Performance profile of an agent loop, or `None` when unknown.
-    pub async fn analyze_performance(&self, execution_id: &str) -> ApiResult<Option<AgentPerformanceProfile>> {
-        let details = AgentLoopRegistryApi::new(self.ctx.clone())
-            .iteration_history(execution_id)
-            .await?;
-        let Some(summary) = AgentLoopRegistryApi::new(self.ctx.clone())
-            .summary(execution_id)
-            .await?
-        else {
-            return Ok(None);
-        };
-
-        let timeline = details
-            .into_iter()
-            .map(|d| AgentIterationTiming {
-                iteration: d.iteration,
-                start_time: d.start_time,
-                end_time: d.end_time,
-                duration_ms: d.duration.max(0),
-                tool_call_count: d.tool_call_count,
-            })
-            .collect::<Vec<_>>();
-
-        let total_duration_ms = match (summary.start_time, summary.end_time) {
-            (Some(start), Some(end)) => (end - start).max(0),
-            _ => 0,
-        };
-        let total_tool_calls = summary.tool_call_count;
-        let iteration_count = timeline.len() as u32;
-
-        let completed_durations: Vec<i64> = timeline
-            .iter()
-            .map(|t| t.duration_ms)
-            .filter(|d| *d >= 0)
-            .collect();
-        let avg_iteration_duration_ms = if !completed_durations.is_empty() {
-            completed_durations.iter().sum::<i64>() / completed_durations.len() as i64
-        } else {
-            0
-        };
-        let avg_tool_calls_per_iteration = if iteration_count > 0 {
-            round2(total_tool_calls as f64 / iteration_count as f64)
-        } else {
-            0.0
-        };
-
-        let mut bottlenecks = timeline.clone();
-        bottlenecks.sort_by_key(|t| std::cmp::Reverse(t.duration_ms));
-        bottlenecks.truncate(3);
-
-        Ok(Some(AgentPerformanceProfile {
-            execution_id: execution_id.to_string(),
-            status: summary.status,
-            total_duration_ms,
-            iteration_count,
-            total_tool_calls,
-            avg_iteration_duration_ms,
-            avg_tool_calls_per_iteration,
-            timeline,
-            bottlenecks,
-        }))
-    }
-
-    /// Execution timeline of an agent loop (reused from the loop registry).
-    pub async fn execution_timeline(&self, execution_id: &str) -> ApiResult<Vec<ExecutionTimelineEntry>> {
-        AgentLoopRegistryApi::new(self.ctx.clone())
-            .execution_timeline(execution_id)
-            .await
-    }
-
-    /// Iteration-level duration comparison of an agent loop.
-    pub async fn iteration_comparison(&self, execution_id: &str) -> ApiResult<IterationComparison> {
-        let timeline = match self.analyze_performance(execution_id).await? {
-            Some(profile) => profile.timeline,
-            None => {
-                return Err(ApiError::execution_not_found(execution_id));
-            }
-        };
-        let durations: Vec<i64> = timeline
-            .iter()
-            .map(|t| t.duration_ms)
-            .filter(|d| *d >= 0)
-            .collect();
-        let total_iterations = timeline.len() as u32;
-        if durations.is_empty() {
-            return Ok(IterationComparison {
-                execution_id: execution_id.to_string(),
-                total_iterations,
-                fastest_iteration: None,
-                slowest_iteration: None,
-                range_ms: 0,
-                variation: 0.0,
-            });
+/// Iteration-level duration comparison of an agent loop.
+pub async fn iteration_comparison(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<IterationComparison> {
+    let timeline = match analyze_performance(ctx, execution_id).await? {
+        Some(profile) => profile.timeline,
+        None => {
+            return Err(ApiError::execution_not_found(execution_id));
         }
-
-        let min = durations.iter().copied().min().unwrap_or(0);
-        let max = durations.iter().copied().max().unwrap_or(0);
-        let fastest = timeline
-            .iter()
-            .find(|t| t.duration_ms == min)
-            .map(|t| t.iteration);
-        let slowest = timeline
-            .iter()
-            .find(|t| t.duration_ms == max)
-            .map(|t| t.iteration);
-
-        let mean = durations.iter().sum::<i64>() as f64 / durations.len() as f64;
-        let variance = durations
-            .iter()
-            .map(|d| {
-                let diff = *d as f64 - mean;
-                diff * diff
-            })
-            .sum::<f64>()
-            / durations.len() as f64;
-
-        Ok(IterationComparison {
+    };
+    let durations: Vec<i64> = timeline
+        .iter()
+        .map(|t| t.duration_ms)
+        .filter(|d| *d >= 0)
+        .collect();
+    let total_iterations = timeline.len() as u32;
+    if durations.is_empty() {
+        return Ok(IterationComparison {
             execution_id: execution_id.to_string(),
             total_iterations,
-            fastest_iteration: fastest,
-            slowest_iteration: slowest,
-            range_ms: max - min,
-            variation: round2(if mean > 0.0 { variance.sqrt() / mean } else { 0.0 }),
-        })
+            fastest_iteration: None,
+            slowest_iteration: None,
+            range_ms: 0,
+            variation: 0.0,
+        });
     }
-}
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
+    let min = durations.iter().copied().min().unwrap_or(0);
+    let max = durations.iter().copied().max().unwrap_or(0);
+    let fastest = timeline
+        .iter()
+        .find(|t| t.duration_ms == min)
+        .map(|t| t.iteration);
+    let slowest = timeline
+        .iter()
+        .find(|t| t.duration_ms == max)
+        .map(|t| t.iteration);
+
+    let mean = durations.iter().sum::<i64>() as f64 / durations.len() as f64;
+    let variance = durations
+        .iter()
+        .map(|d| {
+            let diff = *d as f64 - mean;
+            diff * diff
+        })
+        .sum::<f64>()
+        / durations.len() as f64;
+
+    Ok(IterationComparison {
+        execution_id: execution_id.to_string(),
+        total_iterations,
+        fastest_iteration: fastest,
+        slowest_iteration: slowest,
+        range_ms: max - min,
+        variation: round2(if mean > 0.0 { variance.sqrt() / mean } else { 0.0 }),
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registrar::Registries;
@@ -230,8 +215,7 @@ mod tests {
         let ctx = make_ctx();
         register_loop(&ctx, "loop-perf").await;
 
-        let api = AgentPerformanceAnalysisApi::new(ctx);
-        let profile = api.analyze_performance("loop-perf").await.unwrap().unwrap();
+        let profile = analyze_performance(&ctx, "loop-perf").await.unwrap().unwrap();
         assert_eq!(profile.execution_id, "loop-perf");
         assert_eq!(profile.status, ExecutionStatus::Completed);
         assert_eq!(profile.iteration_count, 2);
@@ -241,7 +225,7 @@ mod tests {
         assert!(profile.total_duration_ms >= 0);
         assert!(profile.avg_iteration_duration_ms >= 0);
 
-        assert!(api.analyze_performance("missing").await.unwrap().is_none());
+        assert!(analyze_performance(&ctx, "missing").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -249,11 +233,10 @@ mod tests {
         let ctx = make_ctx();
         register_loop(&ctx, "loop-perf2").await;
 
-        let api = AgentPerformanceAnalysisApi::new(ctx);
-        let timeline = api.execution_timeline("loop-perf2").await.unwrap();
+        let timeline = execution_timeline(&ctx, "loop-perf2").await.unwrap();
         assert!(!timeline.is_empty());
 
-        let comparison = api.iteration_comparison("loop-perf2").await.unwrap();
+        let comparison = iteration_comparison(&ctx, "loop-perf2").await.unwrap();
         assert_eq!(comparison.total_iterations, 2);
         assert!(comparison.fastest_iteration.is_some());
         assert!(comparison.slowest_iteration.is_some());

@@ -10,7 +10,7 @@
 //! [`AvailableTools`](wf_types::tool::AvailableTools), [`AgentHookConfig`],
 //! [`TriggerDefinition`], agent definitions and loop configs. Value builders
 //! are pure; the execution builder drives a loop through
-//! [`crate::agent_execution::AgentApi`].
+//! [`crate::agent_execution`].
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use wf_types::tool::AvailableTools;
 use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerDefinition};
 use wf_types::Metadata;
 
-use crate::agent_execution::{AgentApi, RunAgentLoopParams};
+use crate::agent_execution::RunAgentLoopParams;
 use crate::ApiContext;
 
 /// Marker: no model has been assigned to the agent loop config.
@@ -622,7 +622,7 @@ impl<S> AgentLoopConfigBuilder<S> {
 }
 
 impl AgentLoopConfigBuilder<LoopConfigured> {
-    /// Build the runtime loop config consumed by `AgentApi::run`.
+    /// Build the runtime loop config consumed by [`crate::agent_execution::run`].
     pub fn build(self) -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: self.agent_id,
@@ -640,7 +640,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
 }
 
 /// Consuming builder that runs an agent loop against an [`ApiContext`]
-/// through [`AgentApi`].
+/// through [`crate::agent_execution`].
 pub struct AgentExecutionBuilder {
     config: AgentLoopConfig,
     message: String,
@@ -674,23 +674,24 @@ impl AgentExecutionBuilder {
         self
     }
 
-    /// Run the loop to completion through `AgentApi::run`.
+    /// Run the loop to completion through [`crate::agent_execution::run`].
     pub async fn execute(
         self,
         ctx: &Arc<ApiContext>,
     ) -> crate::ApiResult<wf_tools::callback::AgentLoopOutput> {
-        let api = AgentApi::new(ctx.clone());
         let input = AgentLoopInput {
             message: self.message,
             context: self.context,
             conversation: Vec::new(),
         };
-        let output = api
-            .run(RunAgentLoopParams {
+        let output = crate::agent_execution::run(
+            ctx,
+            RunAgentLoopParams {
                 config: self.config.clone(),
                 input,
-            })
-            .await?;
+            },
+        )
+        .await?;
         if let Some(callback) = &self.on_completed {
             callback(&output.agent_loop_id.to_string());
         }

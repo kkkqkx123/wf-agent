@@ -1,11 +1,10 @@
-use std::sync::Arc;
 
 use serde::Serialize;
 
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::ExecutionStatus;
 
-use crate::agent_loop_registry::{AgentExecutionStatistics, AgentLoopRegistryApi, AgentLoopStatistics};
+use crate::agent_loop_registry::{AgentExecutionStatistics, AgentLoopStatistics};
 use crate::context::ApiContext;
 use crate::error::ApiResult;
 
@@ -31,234 +30,155 @@ pub struct AgentExecutionSummary {
     pub parent_execution_id: Option<String>,
 }
 
-/// Execution registry queries (TS `AgentExecutionRegistryAPI` counterpart).
-///
-/// Reads live [`wf_agent::registry::AgentLoopRegistry`] entities first and
-/// falls back to the persisted `AgentExecution` records.
-pub struct AgentExecutionRegistryApi {
-    ctx: Arc<ApiContext>,
-}
-
-impl AgentExecutionRegistryApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
-
-    /// Execution summaries, optionally filtered.
-    pub async fn summaries(&self, filter: Option<&AgentExecutionFilter>) -> ApiResult<Vec<AgentExecutionSummary>> {
-        let mut records = self.live_records().await;
-        if let Ok(persisted) = self.ctx.storage.agent_execution.list(None).await {
-            for record in persisted {
-                records.push(AgentExecutionSummary {
-                    execution_id: record.id.to_string(),
-                    status: record.status.clone(),
-                    current_iteration: record.current_iteration,
-                    tool_call_count: record.tool_call_count,
-                    start_time: record.started_at,
-                    end_time: record.completed_at,
-                    error: record.error.clone(),
-                    parent_execution_id: None,
-                });
-            }
-        }
-        records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
-
-        if let Some(filter) = filter {
-            records.retain(|r| {
-                if let Some(status) = &filter.status {
-                    if &r.status != status {
-                        return false;
-                    }
-                }
-                if let Some(agent_id) = &filter.agent_id {
-                    let matches = self
-                        .definition_of(&r.execution_id)
-                        .map(|d| d == *agent_id)
-                        .unwrap_or(false);
-                    if !matches {
-                        return false;
-                    }
-                }
-                if let Some(parent_id) = &filter.parent_execution_id {
-                    if r.parent_execution_id.as_deref() != Some(parent_id.as_str()) {
-                        return false;
-                    }
-                }
-                true
+/// Execution summaries, optionally filtered.
+pub async fn summaries(
+    ctx: &ApiContext,
+    filter: Option<&AgentExecutionFilter>,
+) -> ApiResult<Vec<AgentExecutionSummary>> {
+    let mut records = live_records(ctx).await;
+    if let Ok(persisted) = ctx.storage.agent_execution.list(None).await {
+        for record in persisted {
+            records.push(AgentExecutionSummary {
+                execution_id: record.id.to_string(),
+                status: record.status.clone(),
+                current_iteration: record.current_iteration,
+                tool_call_count: record.tool_call_count,
+                start_time: record.started_at,
+                end_time: record.completed_at,
+                error: record.error.clone(),
+                parent_execution_id: None,
             });
         }
-
-        Ok(records)
     }
+    records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
 
-    /// Status of one execution, or `None` when unknown.
-    pub async fn get_status(&self, agent_loop_id: &str) -> ApiResult<Option<ExecutionStatus>> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let status: ExecutionStatus = entity.state.read().await.status().into();
-            return Ok(Some(status));
-        }
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            return Ok(Some(record.status));
-        }
-        Ok(None)
-    }
-
-    pub async fn running(&self) -> ApiResult<Vec<AgentExecutionSummary>> {
-        self.list_by_status(ExecutionStatus::Running).await
-    }
-
-    pub async fn paused(&self) -> ApiResult<Vec<AgentExecutionSummary>> {
-        self.list_by_status(ExecutionStatus::Paused).await
-    }
-
-    pub async fn completed(&self) -> ApiResult<Vec<AgentExecutionSummary>> {
-        self.list_by_status(ExecutionStatus::Completed).await
-    }
-
-    pub async fn failed(&self) -> ApiResult<Vec<AgentExecutionSummary>> {
-        self.list_by_status(ExecutionStatus::Failed).await
-    }
-
-    /// Aggregated statistics (TS `getExecutionStatistics`).
-    pub async fn execution_statistics(&self) -> ApiResult<AgentExecutionStatistics> {
-        let summaries = self.registry().summaries(None).await?;
-        let total = summaries.len();
-        let mut completed = 0usize;
-        let mut failed = 0usize;
-        let mut cancelled = 0usize;
-        let mut total_iterations = 0u32;
-        let mut total_tool_calls = 0u32;
-        let mut total_duration = 0i64;
-        let now = wf_common::now();
-
-        for summary in &summaries {
-            match summary.status {
-                ExecutionStatus::Completed => completed += 1,
-                ExecutionStatus::Failed => failed += 1,
-                ExecutionStatus::Cancelled | ExecutionStatus::Stopped => cancelled += 1,
-                _ => {}
-            }
-            match (summary.start_time, summary.end_time) {
-                (Some(start), Some(end)) => total_duration += end - start,
-                (Some(start), None) if summary.status == ExecutionStatus::Running => {
-                    total_duration += now - start;
+    if let Some(filter) = filter {
+        records.retain(|r| {
+            if let Some(status) = &filter.status {
+                if &r.status != status {
+                    return false;
                 }
-                _ => {}
             }
-            total_iterations += summary.current_iteration;
-            total_tool_calls += summary.tool_call_count;
-        }
-
-        let avg_duration = if completed > 0 {
-            total_duration / completed as i64
-        } else {
-            0
-        };
-        let success_rate = if total > 0 {
-            round2(completed as f64 / total as f64 * 100.0)
-        } else {
-            0.0
-        };
-        let avg_iterations = if total > 0 {
-            round2(total_iterations as f64 / total as f64)
-        } else {
-            0.0
-        };
-        let avg_tool_calls = if total > 0 {
-            round2(total_tool_calls as f64 / total as f64)
-        } else {
-            0.0
-        };
-
-        Ok(AgentExecutionStatistics {
-            total,
-            completed,
-            failed,
-            cancelled,
-            success_rate,
-            avg_duration,
-            total_iterations,
-            avg_iterations_per_execution: avg_iterations,
-            total_tool_calls,
-            avg_tool_calls_per_execution: avg_tool_calls,
-        })
-    }
-
-    /// Whether an execution exists (live or persisted).
-    pub async fn has(&self, agent_loop_id: &str) -> ApiResult<bool> {
-        Ok(self.ctx.agent_loops.has(&wf_types::Id::from(agent_loop_id.to_string()))
-            || self
-                .ctx
-                .storage
-                .agent_execution
-                .load(agent_loop_id)
-                .await?
-                .is_some())
-    }
-
-    /// Number of known executions (live + persisted).
-    pub async fn count(&self) -> ApiResult<usize> {
-        Ok(self
-            .ctx
-            .agent_loops
-            .size()
-            + self.ctx.storage.agent_execution.list(None).await?.len())
-    }
-
-    /// Counts by status across all known executions.
-    pub async fn status_statistics(&self) -> ApiResult<AgentLoopStatistics> {
-        self.registry().statistics().await
-    }
-
-    /// The underlying agent loop registry.
-    pub fn registry(&self) -> AgentLoopRegistryApi {
-        AgentLoopRegistryApi::new(self.ctx.clone())
-    }
-
-    async fn live_records(&self) -> Vec<AgentExecutionSummary> {
-        let mut records = Vec::new();
-        for id in self.ctx.agent_loops.get_all_ids() {
-            if let Some(entity) = self.ctx.agent_loop(&id.to_string()) {
-                let state = entity.state.read().await;
-                records.push(AgentExecutionSummary {
-                    execution_id: id.to_string(),
-                    status: state.status().into(),
-                    current_iteration: state.current_iteration(),
-                    tool_call_count: state.tool_call_count(),
-                    start_time: state.start_time(),
-                    end_time: state.end_time(),
-                    error: state.error().map(String::from),
-                    parent_execution_id: entity
-                        .parent_execution_id()
-                        .map(|p| p.to_string()),
-                });
+            if let Some(agent_id) = &filter.agent_id {
+                let matches = definition_of(ctx, &r.execution_id)
+                    .map(|d| d == *agent_id)
+                    .unwrap_or(false);
+                if !matches {
+                    return false;
+                }
             }
-        }
-        records
+            if let Some(parent_id) = &filter.parent_execution_id {
+                if r.parent_execution_id.as_deref() != Some(parent_id.as_str()) {
+                    return false;
+                }
+            }
+            true
+        });
     }
 
-    fn definition_of(&self, agent_loop_id: &str) -> Option<String> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            return Some(entity.definition_id().to_string());
-        }
-        None
-    }
-
-    async fn list_by_status(&self, status: ExecutionStatus) -> ApiResult<Vec<AgentExecutionSummary>> {
-        self.summaries(Some(&AgentExecutionFilter {
-            status: Some(status),
-            ..AgentExecutionFilter::default()
-        }))
-        .await
-    }
+    Ok(records)
 }
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
+/// Status of one execution, or `None` when unknown.
+pub async fn get_status(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Option<ExecutionStatus>> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let status: ExecutionStatus = entity.state.read().await.status().into();
+        return Ok(Some(status));
+    }
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        return Ok(Some(record.status));
+    }
+    Ok(None)
+}
+
+pub async fn running(ctx: &ApiContext) -> ApiResult<Vec<AgentExecutionSummary>> {
+    list_by_status(ctx, ExecutionStatus::Running).await
+}
+
+pub async fn paused(ctx: &ApiContext) -> ApiResult<Vec<AgentExecutionSummary>> {
+    list_by_status(ctx, ExecutionStatus::Paused).await
+}
+
+pub async fn completed(ctx: &ApiContext) -> ApiResult<Vec<AgentExecutionSummary>> {
+    list_by_status(ctx, ExecutionStatus::Completed).await
+}
+
+pub async fn failed(ctx: &ApiContext) -> ApiResult<Vec<AgentExecutionSummary>> {
+    list_by_status(ctx, ExecutionStatus::Failed).await
+}
+
+/// Aggregated statistics (TS `getExecutionStatistics`).
+pub async fn execution_statistics(ctx: &ApiContext) -> ApiResult<AgentExecutionStatistics> {
+    let summaries = crate::agent_loop_registry::summaries(ctx, None).await?;
+    Ok(crate::agent_loop_registry::aggregate_execution_statistics(
+        &summaries,
+    ))
+}
+
+/// Whether an execution exists (live or persisted).
+pub async fn has(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<bool> {
+    Ok(ctx.agent_loops.has(&wf_types::Id::from(agent_loop_id.to_string()))
+        || ctx
+            .storage
+            .agent_execution
+            .load(agent_loop_id)
+            .await?
+            .is_some())
+}
+
+/// Number of known executions (live + persisted).
+pub async fn count(ctx: &ApiContext) -> ApiResult<usize> {
+    Ok(ctx
+        .agent_loops
+        .size()
+        + ctx.storage.agent_execution.list(None).await?.len())
+}
+
+/// Counts by status across all known executions.
+pub async fn status_statistics(ctx: &ApiContext) -> ApiResult<AgentLoopStatistics> {
+    crate::agent_loop_registry::statistics(ctx).await
+}
+
+async fn live_records(ctx: &ApiContext) -> Vec<AgentExecutionSummary> {
+    let mut records = Vec::new();
+    for id in ctx.agent_loops.get_all_ids() {
+        if let Some(entity) = ctx.agent_loop(&id.to_string()) {
+            let state = entity.state.read().await;
+            records.push(AgentExecutionSummary {
+                execution_id: id.to_string(),
+                status: state.status().into(),
+                current_iteration: state.current_iteration(),
+                tool_call_count: state.tool_call_count(),
+                start_time: state.start_time(),
+                end_time: state.end_time(),
+                error: state.error().map(String::from),
+                parent_execution_id: entity
+                    .parent_execution_id()
+                    .map(|p| p.to_string()),
+            });
+        }
+    }
+    records
+}
+
+fn definition_of(ctx: &ApiContext, agent_loop_id: &str) -> Option<String> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        return Some(entity.definition_id().to_string());
+    }
+    None
+}
+
+async fn list_by_status(ctx: &ApiContext, status: ExecutionStatus) -> ApiResult<Vec<AgentExecutionSummary>> {
+    summaries(ctx, Some(&AgentExecutionFilter {
+        status: Some(status),
+        ..AgentExecutionFilter::default()
+    }))
+    .await
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registrar::Registries;
@@ -306,43 +226,43 @@ mod tests {
         register_loop(&ctx, "run-2", ExecutionStatus::Running).await;
         register_loop(&ctx, "run-3", ExecutionStatus::Failed).await;
 
-        let api = AgentExecutionRegistryApi::new(ctx.clone());
-        let all = api.summaries(None).await.unwrap();
+        let all = summaries(&ctx, None).await.unwrap();
         assert_eq!(all.len(), 3);
 
-        let running = api.running().await.unwrap();
+        let running = running(&ctx).await.unwrap();
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].execution_id, "run-2");
 
-        let by_agent = api
-            .summaries(Some(&AgentExecutionFilter {
+        let by_agent = summaries(
+            &ctx,
+            Some(&AgentExecutionFilter {
                 agent_id: Some("agent-def-1".to_string()),
                 ..AgentExecutionFilter::default()
-            }))
-            .await
-            .unwrap();
+            }),
+        )
+        .await
+        .unwrap();
         assert_eq!(by_agent.len(), 3);
 
-        let status = api.get_status("run-1").await.unwrap().unwrap();
+        let status = get_status(&ctx, "run-1").await.unwrap().unwrap();
         assert_eq!(status, ExecutionStatus::Completed);
-        assert!(api.has("run-1").await.unwrap());
-        assert_eq!(api.count().await.unwrap(), 3);
+        assert!(has(&ctx, "run-1").await.unwrap());
+        assert_eq!(count(&ctx).await.unwrap(), 3);
     }
 
     #[tokio::test]
-    async fn execution_statistics() {
+    async fn execution_statistics_query() {
         let ctx = make_ctx();
         register_loop(&ctx, "run-1", ExecutionStatus::Completed).await;
         register_loop(&ctx, "run-2", ExecutionStatus::Failed).await;
 
-        let api = AgentExecutionRegistryApi::new(ctx);
-        let stats = api.execution_statistics().await.unwrap();
+        let stats = execution_statistics(&ctx).await.unwrap();
         assert_eq!(stats.total, 2);
         assert_eq!(stats.completed, 1);
         assert_eq!(stats.failed, 1);
         assert_eq!(stats.total_tool_calls, 1);
 
-        let by_status = api.status_statistics().await.unwrap();
+        let by_status = status_statistics(&ctx).await.unwrap();
         assert_eq!(by_status.total, 2);
         assert_eq!(by_status.by_status.get("completed"), Some(&1));
     }

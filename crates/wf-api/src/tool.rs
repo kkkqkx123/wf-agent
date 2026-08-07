@@ -1,5 +1,14 @@
+//! Tool execution and management entry points (TS `ToolRegistryAPI` +
+//! `ExecuteToolCommand` counterparts).
+//!
+//! Execution runs through the live `ToolRegistry` shared by workflow / agent
+//! executions, so a tool executed here behaves exactly as inside an engine:
+//! disabled tools are rejected, built-in handlers apply, and the same timeout
+//! / retry semantics hold. Management (list / enable / disable) is backed by
+//! the persisted tool metadata, and the live registry is kept in sync so the
+//! two views never drift.
+
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -22,116 +31,93 @@ pub struct ToolParameterValidation {
     pub errors: Vec<String>,
 }
 
-/// Tool execution and management entry points (TS `ToolRegistryAPI` +
-/// `ExecuteToolCommand` counterparts).
-///
-/// Execution runs through the live `ToolRegistry` shared by workflow / agent
-/// executions, so a tool executed here behaves exactly as inside an engine:
-/// disabled tools are rejected, built-in handlers apply, and the same timeout
-/// / retry semantics hold. Management (list / enable / disable) is backed by
-/// the persisted tool metadata, and the live registry is kept in sync so the
-/// two views never drift.
-pub struct ToolApi {
-    ctx: Arc<ApiContext>,
+/// Execute a registered tool. `execution_id` is attached to the execution
+/// context so tool calls are attributable to a workflow / agent run (or a
+/// caller-provided id for ad-hoc invocations).
+pub async fn execute(
+    ctx: &ApiContext,
+    tool_id: &str,
+    parameters: &serde_json::Value,
+    options: Option<ToolExecutionOptions>,
+    execution_id: &str,
+) -> ApiResult<ToolExecutionResult> {
+    let options = options.unwrap_or(ToolExecutionOptions {
+        timeout: Some(30000),
+        retries: None,
+        retry_delay: None,
+        exponential_backoff: None,
+    });
+    let context =
+        wf_tools::executor::trait_def::ToolExecutionContext::new(execution_id.to_string());
+    ctx.tool_registry
+        .execute_tool(tool_id, parameters, &options, &context)
+        .await
+        .map_err(|e| match e {
+            wf_tools::error::ToolError::NotFound(id) => not_found("tool", &id),
+            other => ApiError::execution_with_source(other),
+        })
 }
 
-impl ToolApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Search the registered tools by name / description (fuzzy, case
+/// insensitive).
+pub async fn search_tools(ctx: &ApiContext, query: &str) -> ApiResult<Vec<Tool>> {
+    Ok(ctx.tool_registry.search(query))
+}
 
-    /// Execute a registered tool. `execution_id` is attached to the execution
-    /// context so tool calls are attributable to a workflow / agent run (or a
-    /// caller-provided id for ad-hoc invocations).
-    pub async fn execute(
-        &self,
-        tool_id: &str,
-        parameters: &serde_json::Value,
-        options: Option<ToolExecutionOptions>,
-        execution_id: &str,
-    ) -> ApiResult<ToolExecutionResult> {
-        let options = options.unwrap_or(ToolExecutionOptions {
-            timeout: Some(30000),
-            retries: None,
-            retry_delay: None,
-            exponential_backoff: None,
-        });
-        let context =
-            wf_tools::executor::trait_def::ToolExecutionContext::new(execution_id.to_string());
-        self.ctx
-            .tool_registry
-            .execute_tool(tool_id, parameters, &options, &context)
-            .await
-            .map_err(|e| match e {
-                wf_tools::error::ToolError::NotFound(id) => ApiError::not_found("tool", &id),
-                other => ApiError::Execution(other.to_string()),
-            })
-    }
+/// Validate tool parameters against the tool's JSON schema.
+pub async fn validate_parameters(
+    ctx: &ApiContext,
+    tool_id: &str,
+    parameters: &serde_json::Value,
+) -> ApiResult<ToolParameterValidation> {
+    let tool = ctx
+        .tool_registry
+        .get_tool(tool_id)
+        .ok_or_else(|| not_found("tool", tool_id))?;
+    let (valid, errors) = match BaseExecutor::validate_parameters(&tool, parameters) {
+        Ok(()) => (true, Vec::new()),
+        Err(e) => (false, vec![e.to_string()]),
+    };
+    Ok(ToolParameterValidation { valid, errors })
+}
 
-    /// Search the registered tools by name / description (fuzzy, case
-    /// insensitive).
-    pub async fn search_tools(&self, query: &str) -> ApiResult<Vec<Tool>> {
-        Ok(self.ctx.tool_registry.search(query))
-    }
+/// All registered tools with their full definitions.
+pub async fn list(ctx: &ApiContext) -> ApiResult<Vec<Tool>> {
+    Ok(ctx.tool_registry.list_tools())
+}
 
-    /// Validate tool parameters against the tool's JSON schema.
-    pub async fn validate_parameters(
-        &self,
-        tool_id: &str,
-        parameters: &serde_json::Value,
-    ) -> ApiResult<ToolParameterValidation> {
-        let tool = self
-            .ctx
-            .tool_registry
-            .get_tool(tool_id)
-            .ok_or_else(|| ApiError::not_found("tool", tool_id))?;
-        let (valid, errors) = match BaseExecutor::validate_parameters(&tool, parameters) {
-            Ok(()) => (true, Vec::new()),
-            Err(e) => (false, vec![e.to_string()]),
-        };
-        Ok(ToolParameterValidation { valid, errors })
-    }
+/// One registered tool definition.
+pub async fn get(ctx: &ApiContext, tool_id: &str) -> ApiResult<Tool> {
+    ctx.tool_registry
+        .get_tool(tool_id)
+        .ok_or_else(|| not_found("tool", tool_id))
+}
 
-    /// All registered tools with their full definitions.
-    pub async fn list(&self) -> ApiResult<Vec<Tool>> {
-        Ok(self.ctx.tool_registry.list_tools())
-    }
+/// Whether a tool is enabled for execution.
+pub async fn is_enabled(ctx: &ApiContext, tool_id: &str) -> ApiResult<bool> {
+    is_tool_enabled(&ctx.storage, tool_id).await
+}
 
-    /// One registered tool definition.
-    pub async fn get(&self, tool_id: &str) -> ApiResult<Tool> {
-        self.ctx
-            .tool_registry
-            .get_tool(tool_id)
-            .ok_or_else(|| ApiError::not_found("tool", tool_id))
-    }
+/// Enable a tool: persist the flag and flip the live registry entry so
+/// both views agree.
+pub async fn enable(ctx: &ApiContext, tool_id: &str) -> ApiResult<()> {
+    set_tool_enabled(&ctx.storage, tool_id, true).await?;
+    sync_registry_enabled(ctx, tool_id, true);
+    Ok(())
+}
 
-    /// Whether a tool is enabled for execution.
-    pub async fn is_enabled(&self, tool_id: &str) -> ApiResult<bool> {
-        let tool = self.get(tool_id).await?;
-        Ok(tool.enabled != Some(false))
-    }
+/// Disable a tool: persist the flag and flip the live registry entry so
+/// both views agree.
+pub async fn disable(ctx: &ApiContext, tool_id: &str) -> ApiResult<()> {
+    set_tool_enabled(&ctx.storage, tool_id, false).await?;
+    sync_registry_enabled(ctx, tool_id, false);
+    Ok(())
+}
 
-    /// Enable a tool: persist the flag and flip the live registry entry so
-    /// both views agree.
-    pub async fn enable(&self, tool_id: &str) -> ApiResult<()> {
-        set_tool_enabled(&self.ctx.storage, tool_id, true).await?;
-        self.sync_registry_enabled(tool_id, true);
-        Ok(())
-    }
-
-    /// Disable a tool: persist the flag and flip the live registry entry so
-    /// both views agree.
-    pub async fn disable(&self, tool_id: &str) -> ApiResult<()> {
-        set_tool_enabled(&self.ctx.storage, tool_id, false).await?;
-        self.sync_registry_enabled(tool_id, false);
-        Ok(())
-    }
-
-    fn sync_registry_enabled(&self, tool_id: &str, enabled: bool) {
-        if let Some(mut tool) = self.ctx.tool_registry.get_tool(tool_id) {
-            tool.enabled = Some(enabled);
-            self.ctx.tool_registry.register_tool(tool);
-        }
+fn sync_registry_enabled(ctx: &ApiContext, tool_id: &str, enabled: bool) {
+    if let Some(mut tool) = ctx.tool_registry.get_tool(tool_id) {
+        tool.enabled = Some(enabled);
+        ctx.tool_registry.register_tool(tool);
     }
 }
 
@@ -198,6 +184,7 @@ pub async fn get_tool_enabled_stats(ctx: &StorageContext) -> crate::ApiResult<(u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn make_tool(id: &str, tool_type: &str) -> ToolStorageMetadata {
         ToolStorageMetadata {
@@ -275,13 +262,9 @@ mod tests {
         assert!(matches!(err, crate::ApiError::NotFound { .. }));
     }
 
-    // ── ToolApi ─────────────────────────────────────────────────────
+    // ── Tool API ────────────────────────────────────────────────────
 
-    fn tool_def(
-        id: &str,
-        name: &str,
-        schema: Option<wf_types::tool::ToolParameterSchema>,
-    ) -> Tool {
+    fn tool_def(id: &str, name: &str, schema: Option<wf_types::tool::ToolParameterSchema>) -> Tool {
         Tool {
             id: id.into(),
             name: name.into(),
@@ -332,23 +315,24 @@ mod tests {
             .register_tool(tool_def("echo-tool", "echo_tool", Some(schema)));
         register_echo(&ctx.tool_registry, "echo-tool");
 
-        let api = ToolApi::new(ctx);
-        let result = api
-            .execute(
-                "echo-tool",
-                &serde_json::json!({ "value": "ping" }),
-                None,
-                "exec-api-1",
-            )
-            .await
-            .unwrap();
+        let result = execute(
+            &ctx,
+            "echo-tool",
+            &serde_json::json!({ "value": "ping" }),
+            None,
+            "exec-api-1",
+        )
+        .await
+        .unwrap();
         assert!(result.success);
-        assert_eq!(result.result, Some(serde_json::json!({ "echo": { "value": "ping" } })));
+        assert_eq!(
+            result.result,
+            Some(serde_json::json!({ "echo": { "value": "ping" } }))
+        );
 
         // Missing required parameter -> validation error list, execution is
         // left to the caller.
-        let validation = api
-            .validate_parameters("echo-tool", &serde_json::json!({}))
+        let validation = validate_parameters(&ctx, "echo-tool", &serde_json::json!({}))
             .await
             .unwrap();
         assert!(!validation.valid);
@@ -359,8 +343,7 @@ mod tests {
         );
 
         // Unknown tool execution is a NotFound.
-        let err = api
-            .execute("missing", &serde_json::json!({}), None, "x")
+        let err = execute(&ctx, "missing", &serde_json::json!({}), None, "x")
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
@@ -374,15 +357,14 @@ mod tests {
         ctx.tool_registry
             .register_tool(tool_def("t-write", "write_file", None));
 
-        let api = ToolApi::new(ctx);
-        let all = api.list().await.unwrap();
+        let all = list(&ctx).await.unwrap();
         assert_eq!(all.len(), 2);
 
-        let found = api.search_tools("READ").await.unwrap();
+        let found = search_tools(&ctx, "READ").await.unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, "t-read");
 
-        let none = api.search_tools("zzz").await.unwrap();
+        let none = search_tools(&ctx, "zzz").await.unwrap();
         assert!(none.is_empty());
     }
 
@@ -397,11 +379,10 @@ mod tests {
             .await
             .unwrap();
 
-        let api = ToolApi::new(ctx.clone());
-        assert!(api.is_enabled("t-flag").await.unwrap());
+        assert!(is_enabled(&ctx, "t-flag").await.unwrap());
 
-        api.disable("t-flag").await.unwrap();
-        assert!(!api.is_enabled("t-flag").await.unwrap());
+        disable(&ctx, "t-flag").await.unwrap();
+        assert!(!is_enabled(&ctx, "t-flag").await.unwrap());
         // The live registry entry must reflect the disabled flag so the
         // engine-level execute path rejects it.
         assert_eq!(
@@ -409,14 +390,14 @@ mod tests {
             Some(false)
         );
 
-        api.enable("t-flag").await.unwrap();
-        assert!(api.is_enabled("t-flag").await.unwrap());
+        enable(&ctx, "t-flag").await.unwrap();
+        assert!(is_enabled(&ctx, "t-flag").await.unwrap());
         assert_eq!(
             ctx.tool_registry.get_tool("t-flag").unwrap().enabled,
             Some(true)
         );
 
-        let err = api.disable("t-missing").await.unwrap_err();
+        let err = disable(&ctx, "t-missing").await.unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
     }
 }

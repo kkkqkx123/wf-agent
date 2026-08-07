@@ -157,15 +157,14 @@ async fn handle_execute_workflow(
     Path(path): Path<WorkflowPath>,
     Json(body): Json<ExecuteBody>,
 ) -> impl IntoResponse {
-    let api = wf_api::WorkflowApi::new(state.ctx.clone());
     let params = wf_api::workflow_execution::ExecuteWorkflowParams {
         workflow_id: path.id,
         input: body.input,
         options: None,
     };
-    match api.execute(params).await {
+    match wf_api::workflow_execution::execute(&state.ctx, params).await {
         Ok(output) => ok(ExecuteView {
-            execution_id: output.execution_id,
+            execution_id: output.execution_id.to_string(),
             result: output.result,
         })
         .into_response(),
@@ -216,7 +215,6 @@ async fn handle_list_events(
     State(state): State<ApiState>,
     Query(query): Query<ListEventsQuery>,
 ) -> impl IntoResponse {
-    let api = wf_api::EventApi::new(state.ctx.clone());
     let options = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
@@ -224,18 +222,14 @@ async fn handle_list_events(
         limit: query.limit.unwrap_or(100),
         event_types: None,
     };
-    match api.history(&options).await {
+    match wf_api::events::history(&state.ctx, &options).await {
         Ok(events) => ok(events).into_response(),
         Err(e) => crate::http::error_response(e),
     }
 }
 
 async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse {
-    let api = wf_api::EventApi::new(state.ctx.clone());
-    match api
-        .get_event_stats(&wf_api::EventQueryOptions::default())
-        .await
-    {
+    match wf_api::events::get_event_stats(&state.ctx, &wf_api::EventQueryOptions::default()).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -252,14 +246,13 @@ async fn handle_event_stream(
     State(state): State<ApiState>,
     Query(query): Query<StreamEventsQuery>,
 ) -> Response {
-    let api = wf_api::EventApi::new(state.ctx.clone());
     let options = EventSubscriptionOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
         event_types: None,
     };
-    let sub = api.subscribe(options);
+    let sub = wf_api::events::subscribe(&state.ctx, options);
     let stream = futures::stream::unfold(sub, |mut sub| async move {
         match sub.next().await {
             Some(event) => {
@@ -285,8 +278,7 @@ async fn handle_event_stream(
 }
 
 async fn handle_agent_executions(State(state): State<ApiState>) -> impl IntoResponse {
-    let api = wf_api::AgentExecutionRegistryApi::new(state.ctx.clone());
-    match api.summaries(None).await {
+    match wf_api::agent_execution_registry::summaries(&state.ctx, None).await {
         Ok(summaries) => ok(summaries).into_response(),
         Err(e) => crate::http::error_response(e),
     }
@@ -359,16 +351,18 @@ use futures::StreamExt;
     #[tokio::test]
     async fn events_endpoints_work() {
         let ctx = make_ctx();
-        let api = wf_api::EventApi::new(ctx.clone());
-        api.dispatch(wf_types::events::BaseEvent {
-            id: wf_common::generate_id(),
-            r#type: wf_types::events::EventType::Heartbeat,
-            timestamp: 1,
-            workflow_id: None,
-            execution_id: None,
-            agent_loop_id: None,
-            metadata: None,
-        })
+        wf_api::events::dispatch(
+            &ctx,
+            wf_types::events::BaseEvent {
+                id: wf_common::generate_id(),
+                r#type: wf_types::events::EventType::Heartbeat,
+                timestamp: 1,
+                workflow_id: None,
+                execution_id: None,
+                agent_loop_id: None,
+                metadata: None,
+            },
+        )
         .await
         .unwrap();
 
@@ -384,7 +378,6 @@ use futures::StreamExt;
     #[tokio::test]
     async fn event_stream_emits_sse_frames() {
         let ctx = make_ctx();
-        let api = wf_api::EventApi::new(ctx.clone());
 
         let client = tokio::spawn({
             let ctx = ctx.clone();
@@ -402,15 +395,18 @@ use futures::StreamExt;
         });
 
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-        api.dispatch(wf_types::events::BaseEvent {
-            id: wf_common::generate_id(),
-            r#type: wf_types::events::EventType::NodeStarted,
-            timestamp: 1,
-            workflow_id: None,
-            execution_id: Some("exec-stream".into()),
-            agent_loop_id: None,
-            metadata: None,
-        })
+        wf_api::events::dispatch(
+            &ctx,
+            wf_types::events::BaseEvent {
+                id: wf_common::generate_id(),
+                r#type: wf_types::events::EventType::NodeStarted,
+                timestamp: 1,
+                workflow_id: None,
+                execution_id: Some("exec-stream".into()),
+                agent_loop_id: None,
+                metadata: None,
+            },
+        )
         .await
         .unwrap();
 

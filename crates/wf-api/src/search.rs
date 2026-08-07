@@ -1,6 +1,13 @@
+//! Unified cross-resource search over workflows, executions, tasks,
+//! checkpoints, events and agent loops.
+//!
+//! Types are searched in parallel; a failure of one resource type degrades to
+//! empty results for that type instead of failing the whole search. Results
+//! are collected first and then sorted, so the outcome never depends on
+//! registry iteration order.
+
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use futures::future::join_all;
 
@@ -97,276 +104,264 @@ pub struct SearchResult {
     pub truncated: bool,
 }
 
-/// Unified cross-resource search over workflows, executions, tasks,
-/// checkpoints, events and agent loops.
-///
-/// Types are searched in parallel; a failure of one resource type degrades to
-/// empty results for that type instead of failing the whole search. Results
-/// are collected first and then sorted, so the outcome never depends on
-/// registry iteration order.
-pub struct Searcher {
-    ctx: Arc<ApiContext>,
-}
-
-impl Searcher {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+pub async fn search(
+    ctx: &ApiContext,
+    query: &str,
+    options: &SearchOptions,
+) -> ApiResult<SearchResult> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Ok(SearchResult {
+            query,
+            items: Vec::new(),
+            by_type: BTreeMap::new(),
+            total: 0,
+            truncated: false,
+        });
     }
+    let (types, per_type, total_limit) = options.effective();
 
-    pub async fn search(&self, query: &str, options: &SearchOptions) -> ApiResult<SearchResult> {
-        let query = query.trim().to_lowercase();
-        if query.is_empty() {
-            return Ok(SearchResult {
-                query,
-                items: Vec::new(),
-                by_type: BTreeMap::new(),
-                total: 0,
-                truncated: false,
-            });
-        }
-        let (types, per_type, total_limit) = options.effective();
-
-        let futures = types
-            .iter()
-            .copied()
-            .map(|resource_type| {
-                let searcher = self;
-                let query_ref = &query;
-                async move {
-                    let result = searcher
-                        .search_type(query_ref, resource_type, per_type)
-                        .await;
-                    match result {
-                        Ok(items) => items,
-                        Err(err) => {
-                            tracing::warn!(
-                                target: "wf_api",
-                                resource_type = resource_type.as_str(),
-                                error = %err,
-                                "resource search failed, degrading to empty results"
-                            );
-                            Vec::new()
-                        }
+    let futures = types
+        .iter()
+        .copied()
+        .map(|resource_type| {
+            let query_ref = &query;
+            async move {
+                let result = search_type(ctx, query_ref, resource_type, per_type).await;
+                match result {
+                    Ok(items) => items,
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "wf_api",
+                            resource_type = resource_type.as_str(),
+                            error = %err,
+                            "resource search failed, degrading to empty results"
+                        );
+                        Vec::new()
                     }
                 }
-            })
-            .collect::<Vec<_>>();
-
-        let mut results: Vec<SearchResultItem> =
-            join_all(futures).await.into_iter().flatten().collect();
-        results.sort_by(|a, b| {
-            b.score
-                .cmp(&a.score)
-                .then_with(|| a.r#type.cmp(&b.r#type))
-                .then_with(|| a.id.cmp(&b.id))
-        });
-
-        let truncated = results.len() > total_limit;
-        results.truncate(total_limit);
-
-        let mut by_type: BTreeMap<String, Vec<SearchResultItem>> = BTreeMap::new();
-        for item in &results {
-            by_type
-                .entry(item.r#type.clone())
-                .or_default()
-                .push(item.clone());
-        }
-
-        let total = results.len();
-        Ok(SearchResult {
-            query,
-            items: results,
-            by_type,
-            total,
-            truncated,
+            }
         })
+        .collect::<Vec<_>>();
+
+    let mut results: Vec<SearchResultItem> =
+        join_all(futures).await.into_iter().flatten().collect();
+    results.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            .then_with(|| a.r#type.cmp(&b.r#type))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let truncated = results.len() > total_limit;
+    results.truncate(total_limit);
+
+    let mut by_type: BTreeMap<String, Vec<SearchResultItem>> = BTreeMap::new();
+    for item in &results {
+        by_type
+            .entry(item.r#type.clone())
+            .or_default()
+            .push(item.clone());
     }
 
-    async fn search_type(
-        &self,
-        query: &str,
-        resource_type: SearchResourceType,
-        limit: usize,
-    ) -> ApiResult<Vec<SearchResultItem>> {
-        match resource_type {
-            SearchResourceType::Workflow => self.search_workflows(query, limit).await,
-            SearchResourceType::Execution => self.search_executions(query, limit).await,
-            SearchResourceType::Task => self.search_tasks(query, limit).await,
-            SearchResourceType::Checkpoint => self.search_checkpoints(query, limit).await,
-            SearchResourceType::Event => Ok(self.search_events(query, limit).await),
-            SearchResourceType::AgentLoop => self.search_agent_loops(query, limit).await,
+    let total = results.len();
+    Ok(SearchResult {
+        query,
+        items: results,
+        by_type,
+        total,
+        truncated,
+    })
+}
+
+async fn search_type(
+    ctx: &ApiContext,
+    query: &str,
+    resource_type: SearchResourceType,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    match resource_type {
+        SearchResourceType::Workflow => search_workflows(ctx, query, limit).await,
+        SearchResourceType::Execution => search_executions(ctx, query, limit).await,
+        SearchResourceType::Task => search_tasks(ctx, query, limit).await,
+        SearchResourceType::Checkpoint => search_checkpoints(ctx, query, limit).await,
+        SearchResourceType::Event => Ok(search_events(ctx, query, limit).await),
+        SearchResourceType::AgentLoop => search_agent_loops(ctx, query, limit).await,
+    }
+}
+
+async fn search_workflows(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let mut out = Vec::new();
+    for id in ctx.registries.workflows.list() {
+        let Some(template) = ctx.registries.workflows.get(&id) else {
+            continue;
+        };
+
+        let mut fields = vec![id.clone(), template.name.clone()];
+        if !template.description.is_empty() {
+            fields.push(template.description.clone());
+        }
+        if let Some(desc) = &template.definition.description {
+            fields.push(desc.clone());
+        }
+        for tag in workflow_tags(&template) {
+            fields.push(tag);
+        }
+
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: id.clone(),
+                r#type: "workflow".into(),
+                label: template.name.clone(),
+                score,
+                matches: matched_fields(query, &fields),
+            });
         }
     }
+    Ok(sorted_truncated(out, limit))
+}
 
-    async fn search_workflows(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<SearchResultItem>> {
-        let mut out = Vec::new();
-        for id in self.ctx.registries.workflows.list() {
-            let Some(template) = self.ctx.registries.workflows.get(&id) else {
-                continue;
-            };
-
-            let mut fields = vec![id.clone(), template.name.clone()];
-            if !template.description.is_empty() {
-                fields.push(template.description.clone());
-            }
-            if let Some(desc) = &template.definition.description {
-                fields.push(desc.clone());
-            }
-            for tag in workflow_tags(&template) {
-                fields.push(tag);
-            }
-
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: id.clone(),
-                    r#type: "workflow".into(),
-                    label: template.name.clone(),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+async fn search_executions(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let entities = ctx.storage.workflow_execution.list(None).await?;
+    let mut out = Vec::new();
+    for entity in entities {
+        let fields = [
+            entity.id.clone(),
+            entity.workflow_id.clone(),
+            entity.status.as_str().to_string(),
+        ];
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: entity.id.clone(),
+                r#type: "execution".into(),
+                label: format!("{} (workflow {})", entity.id, entity.workflow_id),
+                score,
+                matches: matched_fields(query, &fields),
+            });
         }
-        Ok(sorted_truncated(out, limit))
     }
+    Ok(sorted_truncated(out, limit))
+}
 
-    async fn search_executions(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<SearchResultItem>> {
-        let entities = self.ctx.storage.workflow_execution.list(None).await?;
-        let mut out = Vec::new();
-        for entity in entities {
-            let fields = [
-                entity.id.clone(),
-                entity.workflow_id.clone(),
-                format!("{:?}", entity.status),
-            ];
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: entity.id.clone(),
-                    r#type: "execution".into(),
-                    label: format!("{} (workflow {})", entity.id, entity.workflow_id),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+async fn search_tasks(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let entities = ctx.storage.task.list(None).await?;
+    let mut out = Vec::new();
+    for entity in entities {
+        let fields = [
+            entity.id.clone(),
+            entity.task_type.clone(),
+            entity.status.clone(),
+        ];
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: entity.id.clone(),
+                r#type: "task".into(),
+                label: format!("{} ({})", entity.task_type, entity.status),
+                score,
+                matches: matched_fields(query, &fields),
+            });
         }
-        Ok(sorted_truncated(out, limit))
     }
+    Ok(sorted_truncated(out, limit))
+}
 
-    async fn search_tasks(&self, query: &str, limit: usize) -> ApiResult<Vec<SearchResultItem>> {
-        let entities = self.ctx.storage.task.list(None).await?;
-        let mut out = Vec::new();
-        for entity in entities {
-            let fields = [
-                entity.id.clone(),
-                entity.task_type.clone(),
-                entity.status.clone(),
-            ];
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: entity.id.clone(),
-                    r#type: "task".into(),
-                    label: format!("{} ({})", entity.task_type, entity.status),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+async fn search_checkpoints(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let entities = ctx.storage.checkpoint.list(None).await?;
+    let mut out = Vec::new();
+    for entity in entities {
+        let fields = [
+            entity.id.clone(),
+            entity.entity_id.clone(),
+            entity.entity_type.clone(),
+        ];
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: entity.id.clone(),
+                r#type: "checkpoint".into(),
+                label: format!("{} (entity {})", entity.id, entity.entity_id),
+                score,
+                matches: matched_fields(query, &fields),
+            });
         }
-        Ok(sorted_truncated(out, limit))
     }
+    Ok(sorted_truncated(out, limit))
+}
 
-    async fn search_checkpoints(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<SearchResultItem>> {
-        let entities = self.ctx.storage.checkpoint.list(None).await?;
-        let mut out = Vec::new();
-        for entity in entities {
-            let fields = [
-                entity.id.clone(),
-                entity.entity_id.clone(),
-                entity.entity_type.clone(),
-            ];
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: entity.id.clone(),
-                    r#type: "checkpoint".into(),
-                    label: format!("{} (entity {})", entity.id, entity.entity_id),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+/// Search the recent events retained by the shared event bus.
+async fn search_events(ctx: &ApiContext, query: &str, limit: usize) -> Vec<SearchResultItem> {
+    let mut out = Vec::new();
+    for event in ctx.event_bus.recent_events() {
+        let type_name = event.r#type.as_str().to_lowercase();
+        let mut fields = vec![type_name.clone(), event.id.clone()];
+        if let Some(workflow_id) = &event.workflow_id {
+            fields.push(workflow_id.clone());
         }
-        Ok(sorted_truncated(out, limit))
-    }
-
-    /// Search the recent events retained by the shared event bus.
-    async fn search_events(&self, query: &str, limit: usize) -> Vec<SearchResultItem> {
-        let mut out = Vec::new();
-        for event in self.ctx.event_bus.recent_events() {
-            let type_name = event.r#type.as_str().to_lowercase();
-            let mut fields = vec![type_name.clone(), event.id.clone()];
-            if let Some(workflow_id) = &event.workflow_id {
-                fields.push(workflow_id.clone());
-            }
-            if let Some(execution_id) = &event.execution_id {
-                fields.push(execution_id.clone());
-            }
-            if let Some(agent_loop_id) = &event.agent_loop_id {
-                fields.push(agent_loop_id.clone());
-            }
-
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: event.id.clone(),
-                    r#type: "event".into(),
-                    label: format!("Event {}", event.r#type.as_str()),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+        if let Some(execution_id) = &event.execution_id {
+            fields.push(execution_id.clone());
         }
-        sorted_truncated(out, limit)
-    }
-
-    async fn search_agent_loops(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> ApiResult<Vec<SearchResultItem>> {
-        let entities = self.ctx.storage.agent_loop.list(None).await?;
-        let mut out = Vec::new();
-        for entity in entities {
-            let fields = [
-                entity.id.clone(),
-                entity.definition_id.clone(),
-                entity.status.clone(),
-            ];
-            let score = score(query, &fields);
-            if score > 0 {
-                out.push(SearchResultItem {
-                    id: entity.id.clone(),
-                    r#type: "agent_loop".into(),
-                    label: format!("{} (definition {})", entity.id, entity.definition_id),
-                    score,
-                    matches: matched_fields(query, &fields),
-                });
-            }
+        if let Some(agent_loop_id) = &event.agent_loop_id {
+            fields.push(agent_loop_id.clone());
         }
-        Ok(sorted_truncated(out, limit))
+
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: event.id.clone(),
+                r#type: "event".into(),
+                label: format!("Event {}", event.r#type.as_str()),
+                score,
+                matches: matched_fields(query, &fields),
+            });
+        }
     }
+    sorted_truncated(out, limit)
+}
+
+async fn search_agent_loops(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let entities = ctx.storage.agent_loop.list(None).await?;
+    let mut out = Vec::new();
+    for entity in entities {
+        let fields = [
+            entity.id.clone(),
+            entity.definition_id.clone(),
+            entity.status.clone(),
+        ];
+        let score = score(query, &fields);
+        if score > 0 {
+            out.push(SearchResultItem {
+                id: entity.id.clone(),
+                r#type: "agent_loop".into(),
+                label: format!("{} (definition {})", entity.id, entity.definition_id),
+                score,
+                matches: matched_fields(query, &fields),
+            });
+        }
+    }
+    Ok(sorted_truncated(out, limit))
 }
 
 /// Tags of a workflow template, from both template-level and definition-level
@@ -530,9 +525,7 @@ mod tests {
             .await
             .unwrap();
 
-        let searcher = Searcher::new(ctx);
-        let result = searcher
-            .search("target", &SearchOptions::default())
+        let result = search(&ctx, "target", &SearchOptions::default())
             .await
             .unwrap();
 
@@ -560,17 +553,16 @@ mod tests {
             .await
             .unwrap();
 
-        let searcher = Searcher::new(ctx);
-        let result = searcher
-            .search(
-                "target",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Execution]),
-                    ..SearchOptions::default()
-                },
-            )
-            .await
-            .unwrap();
+        let result = search(
+            &ctx,
+            "target",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Execution]),
+                ..SearchOptions::default()
+            },
+        )
+        .await
+        .unwrap();
 
         assert!(result.items.iter().all(|i| i.r#type == "execution"));
         assert_eq!(result.items.len(), 1);
@@ -594,30 +586,28 @@ mod tests {
             )
             .expect("register workflow");
 
-        let searcher = Searcher::new(ctx);
-
-        let by_description = searcher
-            .search(
-                "desc-target",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Workflow]),
-                    ..SearchOptions::default()
-                },
-            )
-            .await
-            .unwrap();
+        let by_description = search(
+            &ctx,
+            "desc-target",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Workflow]),
+                ..SearchOptions::default()
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(by_description.items.len(), 1);
 
-        let by_tag = searcher
-            .search(
-                "salesforce",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Workflow]),
-                    ..SearchOptions::default()
-                },
-            )
-            .await
-            .unwrap();
+        let by_tag = search(
+            &ctx,
+            "salesforce",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Workflow]),
+                ..SearchOptions::default()
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(by_tag.items.len(), 1);
     }
 
@@ -636,17 +626,16 @@ mod tests {
         };
         ctx.event_bus.publish(event).unwrap();
 
-        let searcher = Searcher::new(ctx);
-        let result = searcher
-            .search(
-                "workflow_execution_started",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Event]),
-                    ..SearchOptions::default()
-                },
-            )
-            .await
-            .unwrap();
+        let result = search(
+            &ctx,
+            "workflow_execution_started",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Event]),
+                ..SearchOptions::default()
+            },
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.items.len(), 1);
         assert_eq!(result.items[0].r#type, "event");
@@ -666,18 +655,17 @@ mod tests {
             ctx.storage.task.save(&task).await.unwrap();
         }
 
-        let searcher = Searcher::new(ctx);
-        let result = searcher
-            .search(
-                "match",
-                &SearchOptions {
-                    types: Some(vec![SearchResourceType::Task]),
-                    limit_per_type: 5,
-                    limit_total: 3,
-                },
-            )
-            .await
-            .unwrap();
+        let result = search(
+            &ctx,
+            "match",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Task]),
+                limit_per_type: 5,
+                limit_total: 3,
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(result.total, 3);
         assert!(result.truncated);
     }
@@ -701,14 +689,13 @@ mod tests {
                 .expect("register workflow");
         }
 
-        let searcher = Searcher::new(ctx);
         let options = SearchOptions {
             types: Some(vec![SearchResourceType::Workflow]),
             limit_per_type: 5,
             ..SearchOptions::default()
         };
-        let first = searcher.search("flow", &options).await.unwrap();
-        let second = searcher.search("flow", &options).await.unwrap();
+        let first = search(&ctx, "flow", &options).await.unwrap();
+        let second = search(&ctx, "flow", &options).await.unwrap();
         let first_ids: Vec<String> = first.items.iter().map(|i| i.id.clone()).collect();
         let second_ids: Vec<String> = second.items.iter().map(|i| i.id.clone()).collect();
         assert_eq!(first_ids, second_ids);

@@ -33,7 +33,7 @@ impl EventSubscriptionOptions {
         }
     }
 
-    fn matches(&self, event: &BaseEvent) -> bool {
+    pub(crate) fn matches(&self, event: &BaseEvent) -> bool {
         if let Some(execution_id) = &self.execution_id {
             if event.execution_id.as_deref() != Some(execution_id.as_str()) {
                 return false;
@@ -57,7 +57,7 @@ impl EventSubscriptionOptions {
         true
     }
 
-    fn is_terminal(event: &BaseEvent) -> bool {
+    pub(crate) fn is_terminal(event: &BaseEvent) -> bool {
         matches!(
             event.r#type,
             EventType::WorkflowExecutionCompleted

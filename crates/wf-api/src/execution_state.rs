@@ -1,5 +1,8 @@
+//! Execution-state queries over workflow executions.
+//!
+//! Execution-state queries over agent loops.
+
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -224,575 +227,575 @@ pub struct WorkflowStateTransitionAnalysisView {
     pub average_time_in_state: BTreeMap<String, i64>,
 }
 
-/// Execution-state queries over workflow executions.
-pub struct WorkflowExecutionStateApi {
-    ctx: Arc<ApiContext>,
-}
-
-impl WorkflowExecutionStateApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
+/// Full state view of an execution: live entity when present, otherwise
+/// the persisted record.
+pub async fn workflow_execution_get_state(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowExecutionStateView> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let snapshot = entity
+            .state
+            .read()
+            .await
+            .create_snapshot()
+            .await
+            .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+        let mut variables = BTreeMap::new();
+        for entry in entity.variables().iter() {
+            variables.insert(entry.key().clone(), entry.value().clone());
+        }
+        return Ok(WorkflowExecutionStateView {
+            execution_id: execution_id.to_string(),
+            workflow_id: Some(entity.workflow_id().to_string()),
+            status: snapshot.status.into(),
+            current_node_id: snapshot.current_node_id,
+            completed_nodes: snapshot.completed_nodes,
+            node_execution_history: snapshot
+                .node_execution_history
+                .into_iter()
+                .map(|r| NodeExecutionRecordView {
+                    node_id: r.node_id,
+                    node_name: r.node_name,
+                    node_type: r.node_type,
+                    start_time: r.start_time,
+                    end_time: r.end_time,
+                    success: r.success,
+                    error: r.error,
+                })
+                .collect(),
+            variables,
+            start_time: snapshot.start_time,
+            end_time: snapshot.end_time,
+            error: snapshot.error,
+            source: "live".into(),
+        });
     }
 
-    /// Full state view of an execution: live entity when present, otherwise
-    /// the persisted record.
-    pub async fn get_state(&self, execution_id: &str) -> ApiResult<WorkflowExecutionStateView> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let snapshot = entity
-                .state
-                .read()
-                .await
-                .create_snapshot()
-                .await
-                .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-            let mut variables = BTreeMap::new();
-            for entry in entity.variables().iter() {
-                variables.insert(entry.key().clone(), entry.value().clone());
+    let record = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    Ok(WorkflowExecutionStateView {
+        execution_id: record.id.clone(),
+        workflow_id: Some(record.workflow_id.clone()),
+        status: record.status,
+        current_node_id: record.current_node_id,
+        completed_nodes: Vec::new(),
+        node_execution_history: Vec::new(),
+        variables: record_variable_map(record.variables),
+        start_time: record.started_at,
+        end_time: record.completed_at,
+        error: record.error,
+        source: "persisted".into(),
+    })
+}
+
+/// Variable snapshot of an execution (live when present, persisted
+/// otherwise). Never errors on missing live state; returns what the
+/// current boundary holds.
+pub async fn workflow_execution_variables(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<BTreeMap<String, Value>> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let mut variables = BTreeMap::new();
+        for entry in entity.variables().iter() {
+            variables.insert(entry.key().clone(), entry.value().clone());
+        }
+        return Ok(variables);
+    }
+    let record = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    Ok(record_variable_map(record.variables))
+}
+
+/// State transition sequence of an execution, reconstructed from the
+/// lifecycle events retained by the event bus.
+pub async fn workflow_execution_status_transitions(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<StateTransitionView>> {
+    let mut events: Vec<BaseEvent> = ctx
+        .event_bus
+        .recent_events()
+        .into_iter()
+        .filter(|e| e.execution_id.as_deref() == Some(execution_id))
+        .filter(|e| transition_status(&e.r#type).is_some())
+        .collect();
+    events.sort_by_key(|e| e.timestamp);
+
+    let mut transitions = Vec::new();
+    let mut previous: Option<String> = None;
+    for event in events {
+        let to = transition_status(&event.r#type).unwrap_or_default();
+        if previous.as_deref() == Some(to.as_str()) {
+            continue;
+        }
+        transitions.push(StateTransitionView {
+            from: previous.unwrap_or_else(|| "Created".to_string()),
+            to: to.clone(),
+            timestamp: event.timestamp,
+        });
+        previous = Some(to);
+    }
+    Ok(transitions)
+}
+
+/// Execution context snapshot of a workflow execution. Reconstructed from
+/// the live entity's state (variables, completed nodes, current node) and
+/// the resolved execution graph for pending nodes; degrades to the
+/// persisted record after a restart.
+pub async fn workflow_execution_get_execution_context(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ExecutionContextSnapshotView> {
+    let state = workflow_execution_get_state(ctx, execution_id).await?;
+    let now = wf_common::now();
+    let graph = execution_graph(ctx, execution_id).await;
+
+    let completed_set: BTreeSet<&str> =
+        state.completed_nodes.iter().map(String::as_str).collect();
+    let (pending_nodes, skipped_nodes) = match &graph {
+        Some(graph) => {
+            let all: Vec<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+            let mut pending = Vec::new();
+            let mut skipped = Vec::new();
+            for id in all {
+                if completed_set.contains(id) {
+                    continue;
+                }
+                if state.current_node_id.as_deref() == Some(id) {
+                    continue;
+                }
+                pending.push(id.to_string());
             }
-            return Ok(WorkflowExecutionStateView {
-                execution_id: execution_id.to_string(),
-                workflow_id: Some(entity.workflow_id().to_string()),
-                status: snapshot.status.into(),
-                current_node_id: snapshot.current_node_id,
-                completed_nodes: snapshot.completed_nodes,
-                node_execution_history: snapshot
-                    .node_execution_history
-                    .into_iter()
-                    .map(|r| NodeExecutionRecordView {
-                        node_id: r.node_id,
-                        node_name: r.node_name,
-                        node_type: r.node_type,
-                        start_time: r.start_time,
-                        end_time: r.end_time,
-                        success: r.success,
-                        error: r.error,
-                    })
-                    .collect(),
-                variables,
-                start_time: snapshot.start_time,
-                end_time: snapshot.end_time,
-                error: snapshot.error,
-                source: "live".into(),
+            // Nodes outside the reachable set are treated as skipped
+            // (never scheduled) when a start node is present.
+            if graph.start_node_id.is_some() {
+                let reachable = crate::execution_graph::reachable_nodes(graph);
+                let reachable_set: BTreeSet<&str> =
+                    reachable.iter().map(String::as_str).collect();
+                pending.retain(|id| reachable_set.contains(id.as_str()));
+                let mut skipped_from_unreachable = Vec::new();
+                for id in &pending {
+                    if !reachable_set.contains(id.as_str()) {
+                        skipped_from_unreachable.push(id.clone());
+                    }
+                }
+                pending.retain(|id| !skipped_from_unreachable.contains(id));
+                skipped.extend(skipped_from_unreachable);
+            }
+            (pending, skipped)
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+
+    let total_nodes = graph
+        .as_ref()
+        .map(|g| g.nodes.len())
+        .unwrap_or(state.completed_nodes.len().max(1)) as f64;
+    let execution_progress = if total_nodes > 0.0 {
+        (state.completed_nodes.len() as f64 / total_nodes) * 100.0
+    } else {
+        0.0
+    };
+
+    let current_node_name = match (&state.current_node_id, &graph) {
+        (Some(node_id), Some(graph)) => graph
+            .nodes
+            .iter()
+            .find(|n| n.id == *node_id)
+            .and_then(|n| n.name.clone())
+            .or_else(|| Some(node_id.clone())),
+        (Some(node_id), None) => Some(node_id.clone()),
+        _ => None,
+    };
+
+    let call_stack = build_call_stack(&state, &graph, now);
+    let memory_usage = Some(estimate_memory_usage(&state));
+
+    Ok(ExecutionContextSnapshotView {
+        execution_id: execution_id.to_string(),
+        timestamp: now,
+        current_node_id: state.current_node_id,
+        current_node_name,
+        global_variables: state.variables,
+        completed_nodes: state.completed_nodes,
+        pending_nodes,
+        skipped_nodes,
+        execution_progress: round1(execution_progress),
+        call_stack,
+        memory_usage,
+    })
+}
+
+/// Call stack of a workflow execution at the current point of execution.
+///
+/// Frames are reconstructed from the node execution history: the active
+/// (latest unclosed) node is the top of the stack, with its ancestors in
+/// execution order below it.
+pub async fn workflow_execution_get_call_stack(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowCallStackView> {
+    let state = workflow_execution_get_state(ctx, execution_id).await?;
+    let graph = execution_graph(ctx, execution_id).await;
+    let frames = build_call_stack(&state, &graph, wf_common::now());
+    Ok(WorkflowCallStackView {
+        execution_id: execution_id.to_string(),
+        timestamp: wf_common::now(),
+        depth: frames.len(),
+        frames,
+        current_node_id: state.current_node_id,
+    })
+}
+
+/// Estimated memory usage of the execution state in bytes (heuristic:
+/// serialized variables + node execution records + per-node bookkeeping).
+pub async fn workflow_execution_get_memory_usage(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Option<i64>> {
+    let state = workflow_execution_get_state(ctx, execution_id).await?;
+    Ok(Some(estimate_memory_usage(&state)))
+}
+
+/// All reconstructed variable snapshots of an execution, in time order.
+pub async fn workflow_execution_get_variable_snapshots(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<VariableSnapshotView>> {
+    Ok(build_variable_snapshots(ctx, execution_id).await?.1)
+}
+
+/// Variable snapshots of an execution within a time range.
+pub async fn workflow_execution_get_variable_snapshots_by_time_range(
+    ctx: &ApiContext,
+    execution_id: &str,
+    start: i64,
+    end: i64,
+) -> ApiResult<Vec<VariableSnapshotView>> {
+    let (_, snapshots) = build_variable_snapshots(ctx, execution_id).await?;
+    Ok(snapshots
+        .into_iter()
+        .filter(|s| s.timestamp >= start && s.timestamp <= end)
+        .collect())
+}
+
+/// Context evolution of an execution: the node transition sequence built
+/// from the node execution history plus the terminal transition.
+pub async fn workflow_execution_get_context_evolution(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ContextEvolutionView> {
+    let (node_order, mut transitions) = build_context_transitions(ctx, execution_id).await?;
+    let state = workflow_execution_get_state(ctx, execution_id).await?;
+    let variable_changes = state.variables.len() as u64;
+
+    if let Some(end_time) = state.end_time {
+        let last = node_order.last().cloned().unwrap_or_default();
+        let transition_id = format!("{execution_id}:completion");
+        let already_has_completion =
+            transitions.iter().any(|t| t.transition_id == transition_id);
+        if !already_has_completion {
+            transitions.push(ContextStateTransitionView {
+                transition_id,
+                from_node: Some(last),
+                to_node: None,
+                transition_type: "completion".to_string(),
+                condition: None,
+                timestamp: end_time,
             });
         }
+    }
 
-        let record = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        Ok(WorkflowExecutionStateView {
-            execution_id: record.id.clone(),
-            workflow_id: Some(record.workflow_id.clone()),
+    Ok(ContextEvolutionView {
+        execution_id: execution_id.to_string(),
+        start_time: state.start_time,
+        end_time: state.end_time,
+        transitions,
+        total_variable_changes: variable_changes,
+    })
+}
+
+/// State-transition analysis over the reconstructed node transitions:
+/// total count, most common consecutive transitions and per-node entry /
+/// residency statistics.
+pub async fn workflow_execution_analyze_state_transitions(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<WorkflowStateTransitionAnalysisView> {
+    let (node_order, transitions) = build_context_transitions(ctx, execution_id).await?;
+    if transitions.is_empty() {
+        return Ok(WorkflowStateTransitionAnalysisView {
+            total_transitions: 0,
+            common_transitions: Vec::new(),
+            state_entry_count: BTreeMap::new(),
+            average_time_in_state: BTreeMap::new(),
+        });
+    }
+
+    let mut transition_map: BTreeMap<(String, String), u64> = BTreeMap::new();
+    for transition in &transitions {
+        let from = transition
+            .from_node
+            .clone()
+            .unwrap_or_else(|| "start".to_string());
+        let to = transition
+            .to_node
+            .clone()
+            .unwrap_or_else(|| "end".to_string());
+        *transition_map.entry((from, to)).or_insert(0) += 1;
+    }
+    let total = transitions.len() as u64;
+    let mut common_transitions: Vec<CommonTransitionView> = transition_map
+        .into_iter()
+        .map(|((from, to), count)| CommonTransitionView {
+            from,
+            to,
+            count,
+            frequency: round3(count as f64 / total as f64),
+        })
+        .collect();
+    common_transitions.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.from.cmp(&b.from))
+            .then_with(|| a.to.cmp(&b.to))
+    });
+    common_transitions.truncate(10);
+
+    let mut state_entry_count = BTreeMap::new();
+    for transition in &transitions {
+        if let Some(to) = &transition.to_node {
+            *state_entry_count.entry(to.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let mut time_in_state: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    for window in node_order.windows(2) {
+        if let Some(record) = node_record(ctx, execution_id, &window[0]).await {
+            if let Some(end_time) = record.end_time {
+                let duration = (end_time - record.start_time).max(0);
+                time_in_state
+                    .entry(window[0].clone())
+                    .or_default()
+                    .push(duration);
+            }
+        }
+    }
+    let average_time_in_state = time_in_state
+        .into_iter()
+        .map(|(node, durations)| {
+            let average = durations.iter().sum::<i64>() / durations.len() as i64;
+            (node, average)
+        })
+        .collect();
+
+    Ok(WorkflowStateTransitionAnalysisView {
+        total_transitions: total,
+        common_transitions,
+        state_entry_count,
+        average_time_in_state,
+    })
+}
+
+/// Reconstruct the ordered node execution sequence plus the context
+/// transitions between them (deduplicated consecutive retries).
+async fn build_context_transitions(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<(Vec<String>, Vec<ContextStateTransitionView>)> {
+    let records = node_records(ctx, execution_id).await?;
+    let mut order: Vec<String> = Vec::new();
+    for record in &records {
+        if !record.success {
+            continue;
+        }
+        if order.last().map(String::as_str) != Some(record.node_id.as_str()) {
+            order.push(record.node_id.clone());
+        }
+    }
+
+    let mut transitions = Vec::new();
+    for (index, node_id) in order.iter().enumerate() {
+        let record = records.iter().find(|r| r.node_id == *node_id);
+        let timestamp = record.map(|r| r.start_time).unwrap_or(wf_common::now());
+        let from_node = index.checked_sub(1).and_then(|i| order.get(i).cloned());
+        transitions.push(ContextStateTransitionView {
+            transition_id: format!("{execution_id}:{index}:{node_id}"),
+            from_node,
+            to_node: Some(node_id.clone()),
+            transition_type: "sequential".to_string(),
+            condition: None,
+            timestamp,
+        });
+    }
+    Ok((order, transitions))
+}
+
+/// Reconstruct variable snapshots over the node execution timeline.
+async fn build_variable_snapshots(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<(i64, Vec<VariableSnapshotView>)> {
+    let state = workflow_execution_get_state(ctx, execution_id).await?;
+    let records = node_records(ctx, execution_id).await?;
+
+    let mut snapshots = Vec::new();
+    let initial = variable_snapshot(
+        execution_id,
+        state.start_time,
+        Some("Execution started".to_string()),
+        None,
+        &state.variables,
+        state.start_time,
+        0,
+    );
+    snapshots.push(initial);
+
+    for (sequence, record) in (1u32..).zip(records) {
+        let snapshot = variable_snapshot(
+            execution_id,
+            record.start_time,
+            Some(format!(
+                "Executing {} ({})",
+                record.node_name, record.node_type
+            )),
+            Some(&record.node_id),
+            &state.variables,
+            record.start_time,
+            sequence,
+        );
+        snapshots.push(snapshot);
+    }
+
+    snapshots.sort_by_key(|s| s.timestamp);
+    snapshots.dedup_by(|a, b| a.timestamp == b.timestamp);
+    Ok((state.start_time, snapshots))
+}
+
+async fn node_records(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<NodeExecutionRecordView>> {
+    Ok(workflow_execution_get_state(ctx, execution_id)
+        .await?
+        .node_execution_history)
+}
+
+async fn node_record(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_id: &str,
+) -> Option<NodeExecutionRecordView> {
+    node_records(ctx, execution_id)
+        .await
+        .ok()?
+        .into_iter()
+        .find(|r| r.node_id == node_id)
+}
+
+/// Full state view of an agent loop: live entity when present, otherwise
+/// the persisted record.
+pub async fn agent_execution_get_state(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<AgentLoopStateView> {
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let snapshot = entity
+            .state
+            .read()
+            .await
+            .create_snapshot()
+            .await
+            .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
+        let mut variables = BTreeMap::new();
+        for (name, value) in snapshot.variable_snapshots {
+            variables.insert(name, value);
+        }
+        return Ok(AgentLoopStateView {
+            agent_loop_id: agent_loop_id.to_string(),
+            status: snapshot.status.into(),
+            current_iteration: snapshot.current_iteration,
+            tool_call_count: snapshot.tool_call_count,
+            iteration_history: snapshot
+                .iteration_history
+                .into_iter()
+                .map(iteration_record_view)
+                .collect(),
+            variables,
+            start_time: snapshot.start_time,
+            end_time: snapshot.end_time,
+            error: snapshot.error,
+            source: "live".into(),
+        });
+    }
+
+    if let Some(record) = ctx.storage.agent_execution.load(agent_loop_id).await? {
+        return Ok(AgentLoopStateView {
+            agent_loop_id: record.id.clone(),
             status: record.status,
-            current_node_id: record.current_node_id,
-            completed_nodes: Vec::new(),
-            node_execution_history: Vec::new(),
-            variables: record_variable_map(record.variables),
+            current_iteration: record.current_iteration,
+            tool_call_count: record.tool_call_count,
+            iteration_history: record
+                .iteration_history
+                .unwrap_or_default()
+                .into_iter()
+                .map(persisted_iteration_view)
+                .collect(),
+            variables: BTreeMap::new(),
             start_time: record.started_at,
             end_time: record.completed_at,
             error: record.error,
             source: "persisted".into(),
-        })
-    }
-
-    /// Variable snapshot of an execution (live when present, persisted
-    /// otherwise). Never errors on missing live state; returns what the
-    /// current boundary holds.
-    pub async fn variables(&self, execution_id: &str) -> ApiResult<BTreeMap<String, Value>> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let mut variables = BTreeMap::new();
-            for entry in entity.variables().iter() {
-                variables.insert(entry.key().clone(), entry.value().clone());
-            }
-            return Ok(variables);
-        }
-        let record = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        Ok(record_variable_map(record.variables))
-    }
-
-    /// State transition sequence of an execution, reconstructed from the
-    /// lifecycle events retained by the event bus.
-    pub async fn status_transitions(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<StateTransitionView>> {
-        let mut events: Vec<BaseEvent> = self
-            .ctx
-            .event_bus
-            .recent_events()
-            .into_iter()
-            .filter(|e| e.execution_id.as_deref() == Some(execution_id))
-            .filter(|e| transition_status(&e.r#type).is_some())
-            .collect();
-        events.sort_by_key(|e| e.timestamp);
-
-        let mut transitions = Vec::new();
-        let mut previous: Option<String> = None;
-        for event in events {
-            let to = transition_status(&event.r#type).unwrap_or_default();
-            if previous.as_deref() == Some(to.as_str()) {
-                continue;
-            }
-            transitions.push(StateTransitionView {
-                from: previous.unwrap_or_else(|| "Created".to_string()),
-                to: to.clone(),
-                timestamp: event.timestamp,
-            });
-            previous = Some(to);
-        }
-        Ok(transitions)
-    }
-
-    /// Execution context snapshot of a workflow execution. Reconstructed from
-    /// the live entity's state (variables, completed nodes, current node) and
-    /// the resolved execution graph for pending nodes; degrades to the
-    /// persisted record after a restart.
-    pub async fn get_execution_context(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<ExecutionContextSnapshotView> {
-        let state = self.get_state(execution_id).await?;
-        let now = wf_common::now();
-        let graph = execution_graph(&self.ctx, execution_id).await;
-
-        let completed_set: BTreeSet<&str> =
-            state.completed_nodes.iter().map(String::as_str).collect();
-        let (pending_nodes, skipped_nodes) = match &graph {
-            Some(graph) => {
-                let all: Vec<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
-                let mut pending = Vec::new();
-                let mut skipped = Vec::new();
-                for id in all {
-                    if completed_set.contains(id) {
-                        continue;
-                    }
-                    if state.current_node_id.as_deref() == Some(id) {
-                        continue;
-                    }
-                    pending.push(id.to_string());
-                }
-                // Nodes outside the reachable set are treated as skipped
-                // (never scheduled) when a start node is present.
-                if graph.start_node_id.is_some() {
-                    let reachable = crate::execution_graph::reachable_nodes(graph);
-                    let reachable_set: BTreeSet<&str> =
-                        reachable.iter().map(String::as_str).collect();
-                    pending.retain(|id| reachable_set.contains(id.as_str()));
-                    let mut skipped_from_unreachable = Vec::new();
-                    for id in &pending {
-                        if !reachable_set.contains(id.as_str()) {
-                            skipped_from_unreachable.push(id.clone());
-                        }
-                    }
-                    pending.retain(|id| !skipped_from_unreachable.contains(id));
-                    skipped.extend(skipped_from_unreachable);
-                }
-                (pending, skipped)
-            }
-            None => (Vec::new(), Vec::new()),
-        };
-
-        let total_nodes = graph
-            .as_ref()
-            .map(|g| g.nodes.len())
-            .unwrap_or(state.completed_nodes.len().max(1)) as f64;
-        let execution_progress = if total_nodes > 0.0 {
-            (state.completed_nodes.len() as f64 / total_nodes) * 100.0
-        } else {
-            0.0
-        };
-
-        let current_node_name = match (&state.current_node_id, &graph) {
-            (Some(node_id), Some(graph)) => graph
-                .nodes
-                .iter()
-                .find(|n| n.id == *node_id)
-                .and_then(|n| n.name.clone())
-                .or_else(|| Some(node_id.clone())),
-            (Some(node_id), None) => Some(node_id.clone()),
-            _ => None,
-        };
-
-        let call_stack = build_call_stack(&state, &graph, now);
-        let memory_usage = Some(estimate_memory_usage(&state));
-
-        Ok(ExecutionContextSnapshotView {
-            execution_id: execution_id.to_string(),
-            timestamp: now,
-            current_node_id: state.current_node_id,
-            current_node_name,
-            global_variables: state.variables,
-            completed_nodes: state.completed_nodes,
-            pending_nodes,
-            skipped_nodes,
-            execution_progress: round1(execution_progress),
-            call_stack,
-            memory_usage,
-        })
-    }
-
-    /// Call stack of a workflow execution at the current point of execution.
-    ///
-    /// Frames are reconstructed from the node execution history: the active
-    /// (latest unclosed) node is the top of the stack, with its ancestors in
-    /// execution order below it.
-    pub async fn get_call_stack(&self, execution_id: &str) -> ApiResult<WorkflowCallStackView> {
-        let state = self.get_state(execution_id).await?;
-        let graph = execution_graph(&self.ctx, execution_id).await;
-        let frames = build_call_stack(&state, &graph, wf_common::now());
-        Ok(WorkflowCallStackView {
-            execution_id: execution_id.to_string(),
-            timestamp: wf_common::now(),
-            depth: frames.len(),
-            frames,
-            current_node_id: state.current_node_id,
-        })
-    }
-
-    /// Estimated memory usage of the execution state in bytes (heuristic:
-    /// serialized variables + node execution records + per-node bookkeeping).
-    pub async fn get_memory_usage(&self, execution_id: &str) -> ApiResult<Option<i64>> {
-        let state = self.get_state(execution_id).await?;
-        Ok(Some(estimate_memory_usage(&state)))
-    }
-
-    /// All reconstructed variable snapshots of an execution, in time order.
-    pub async fn get_variable_snapshots(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<VariableSnapshotView>> {
-        Ok(self.build_variable_snapshots(execution_id).await?.1)
-    }
-
-    /// Variable snapshots of an execution within a time range.
-    pub async fn get_variable_snapshots_by_time_range(
-        &self,
-        execution_id: &str,
-        start: i64,
-        end: i64,
-    ) -> ApiResult<Vec<VariableSnapshotView>> {
-        let (_, snapshots) = self.build_variable_snapshots(execution_id).await?;
-        Ok(snapshots
-            .into_iter()
-            .filter(|s| s.timestamp >= start && s.timestamp <= end)
-            .collect())
-    }
-
-    /// Context evolution of an execution: the node transition sequence built
-    /// from the node execution history plus the terminal transition.
-    pub async fn get_context_evolution(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<ContextEvolutionView> {
-        let (node_order, mut transitions) = self.build_context_transitions(execution_id).await?;
-        let state = self.get_state(execution_id).await?;
-        let variable_changes = state.variables.len() as u64;
-
-        if let Some(end_time) = state.end_time {
-            let last = node_order.last().cloned().unwrap_or_default();
-            let transition_id = format!("{execution_id}:completion");
-            let already_has_completion =
-                transitions.iter().any(|t| t.transition_id == transition_id);
-            if !already_has_completion {
-                transitions.push(ContextStateTransitionView {
-                    transition_id,
-                    from_node: Some(last),
-                    to_node: None,
-                    transition_type: "completion".to_string(),
-                    condition: None,
-                    timestamp: end_time,
-                });
-            }
-        }
-
-        Ok(ContextEvolutionView {
-            execution_id: execution_id.to_string(),
-            start_time: state.start_time,
-            end_time: state.end_time,
-            transitions,
-            total_variable_changes: variable_changes,
-        })
-    }
-
-    /// State-transition analysis over the reconstructed node transitions:
-    /// total count, most common consecutive transitions and per-node entry /
-    /// residency statistics.
-    pub async fn analyze_state_transitions(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<WorkflowStateTransitionAnalysisView> {
-        let (node_order, transitions) = self.build_context_transitions(execution_id).await?;
-        if transitions.is_empty() {
-            return Ok(WorkflowStateTransitionAnalysisView {
-                total_transitions: 0,
-                common_transitions: Vec::new(),
-                state_entry_count: BTreeMap::new(),
-                average_time_in_state: BTreeMap::new(),
-            });
-        }
-
-        let mut transition_map: BTreeMap<(String, String), u64> = BTreeMap::new();
-        for transition in &transitions {
-            let from = transition
-                .from_node
-                .clone()
-                .unwrap_or_else(|| "start".to_string());
-            let to = transition
-                .to_node
-                .clone()
-                .unwrap_or_else(|| "end".to_string());
-            *transition_map.entry((from, to)).or_insert(0) += 1;
-        }
-        let total = transitions.len() as u64;
-        let mut common_transitions: Vec<CommonTransitionView> = transition_map
-            .into_iter()
-            .map(|((from, to), count)| CommonTransitionView {
-                from,
-                to,
-                count,
-                frequency: round3(count as f64 / total as f64),
-            })
-            .collect();
-        common_transitions.sort_by(|a, b| {
-            b.count
-                .cmp(&a.count)
-                .then_with(|| a.from.cmp(&b.from))
-                .then_with(|| a.to.cmp(&b.to))
         });
-        common_transitions.truncate(10);
-
-        let mut state_entry_count = BTreeMap::new();
-        for transition in &transitions {
-            if let Some(to) = &transition.to_node {
-                *state_entry_count.entry(to.clone()).or_insert(0) += 1;
-            }
-        }
-
-        let mut time_in_state: BTreeMap<String, Vec<i64>> = BTreeMap::new();
-        for window in node_order.windows(2) {
-            if let Some(record) = self.node_record(execution_id, &window[0]).await {
-                if let Some(end_time) = record.end_time {
-                    let duration = (end_time - record.start_time).max(0);
-                    time_in_state
-                        .entry(window[0].clone())
-                        .or_default()
-                        .push(duration);
-                }
-            }
-        }
-        let average_time_in_state = time_in_state
-            .into_iter()
-            .map(|(node, durations)| {
-                let average = durations.iter().sum::<i64>() / durations.len() as i64;
-                (node, average)
-            })
-            .collect();
-
-        Ok(WorkflowStateTransitionAnalysisView {
-            total_transitions: total,
-            common_transitions,
-            state_entry_count,
-            average_time_in_state,
-        })
     }
 
-    /// Reconstruct the ordered node execution sequence plus the context
-    /// transitions between them (deduplicated consecutive retries).
-    async fn build_context_transitions(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<(Vec<String>, Vec<ContextStateTransitionView>)> {
-        let records = self.node_records(execution_id).await?;
-        let mut order: Vec<String> = Vec::new();
-        for record in &records {
-            if !record.success {
-                continue;
-            }
-            if order.last().map(String::as_str) != Some(record.node_id.as_str()) {
-                order.push(record.node_id.clone());
-            }
-        }
-
-        let mut transitions = Vec::new();
-        for (index, node_id) in order.iter().enumerate() {
-            let record = records.iter().find(|r| r.node_id == *node_id);
-            let timestamp = record.map(|r| r.start_time).unwrap_or(wf_common::now());
-            let from_node = index.checked_sub(1).and_then(|i| order.get(i).cloned());
-            transitions.push(ContextStateTransitionView {
-                transition_id: format!("{execution_id}:{index}:{node_id}"),
-                from_node,
-                to_node: Some(node_id.clone()),
-                transition_type: "sequential".to_string(),
-                condition: None,
-                timestamp,
-            });
-        }
-        Ok((order, transitions))
+    if let Some(meta) = ctx.storage.agent_loop.load(agent_loop_id).await? {
+        return Ok(AgentLoopStateView {
+            agent_loop_id: meta.id.clone(),
+            status: parse_status(&meta.status),
+            current_iteration: meta.current_iteration,
+            tool_call_count: 0,
+            iteration_history: Vec::new(),
+            variables: BTreeMap::new(),
+            start_time: meta.started_at,
+            end_time: None,
+            error: None,
+            source: "persisted".into(),
+        });
     }
 
-    /// Reconstruct variable snapshots over the node execution timeline.
-    async fn build_variable_snapshots(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<(i64, Vec<VariableSnapshotView>)> {
-        let state = self.get_state(execution_id).await?;
-        let records = self.node_records(execution_id).await?;
-
-        let mut snapshots = Vec::new();
-        let initial = variable_snapshot(
-            execution_id,
-            state.start_time,
-            Some("Execution started".to_string()),
-            None,
-            &state.variables,
-            state.start_time,
-            0,
-        );
-        snapshots.push(initial);
-
-        for (sequence, record) in (1u32..).zip(records) {
-            let snapshot = variable_snapshot(
-                execution_id,
-                record.start_time,
-                Some(format!(
-                    "Executing {} ({})",
-                    record.node_name, record.node_type
-                )),
-                Some(&record.node_id),
-                &state.variables,
-                record.start_time,
-                sequence,
-            );
-            snapshots.push(snapshot);
-        }
-
-        snapshots.sort_by_key(|s| s.timestamp);
-        snapshots.dedup_by(|a, b| a.timestamp == b.timestamp);
-        Ok((state.start_time, snapshots))
-    }
-
-    async fn node_records(&self, execution_id: &str) -> ApiResult<Vec<NodeExecutionRecordView>> {
-        Ok(self.get_state(execution_id).await?.node_execution_history)
-    }
-
-    async fn node_record(
-        &self,
-        execution_id: &str,
-        node_id: &str,
-    ) -> Option<NodeExecutionRecordView> {
-        self.node_records(execution_id)
-            .await
-            .ok()?
-            .into_iter()
-            .find(|r| r.node_id == node_id)
-    }
+    Err(ApiError::execution_not_found(agent_loop_id))
 }
 
-/// Execution-state queries over agent loops.
-pub struct AgentExecutionStateApi {
-    ctx: Arc<ApiContext>,
+/// Variable snapshot of an agent loop (live only; persisted records do
+/// not retain the variable map).
+pub async fn agent_execution_variables(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<BTreeMap<String, Value>> {
+    let view = agent_execution_get_state(ctx, agent_loop_id).await?;
+    Ok(view.variables)
 }
 
-impl AgentExecutionStateApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
-
-    /// Full state view of an agent loop: live entity when present, otherwise
-    /// the persisted record.
-    pub async fn get_state(&self, agent_loop_id: &str) -> ApiResult<AgentLoopStateView> {
-        if let Some(entity) = self.ctx.agent_loop(agent_loop_id) {
-            let snapshot = entity
-                .state
-                .read()
-                .await
-                .create_snapshot()
-                .await
-                .map_err(|e| ApiError::Execution(format!("state snapshot failed: {e}")))?;
-            let mut variables = BTreeMap::new();
-            for (name, value) in snapshot.variable_snapshots {
-                variables.insert(name, value);
-            }
-            return Ok(AgentLoopStateView {
-                agent_loop_id: agent_loop_id.to_string(),
-                status: snapshot.status.into(),
-                current_iteration: snapshot.current_iteration,
-                tool_call_count: snapshot.tool_call_count,
-                iteration_history: snapshot
-                    .iteration_history
-                    .into_iter()
-                    .map(iteration_record_view)
-                    .collect(),
-                variables,
-                start_time: snapshot.start_time,
-                end_time: snapshot.end_time,
-                error: snapshot.error,
-                source: "live".into(),
-            });
-        }
-
-        if let Some(record) = self.ctx.storage.agent_execution.load(agent_loop_id).await? {
-            return Ok(AgentLoopStateView {
-                agent_loop_id: record.id.clone(),
-                status: record.status,
-                current_iteration: record.current_iteration,
-                tool_call_count: record.tool_call_count,
-                iteration_history: record
-                    .iteration_history
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(persisted_iteration_view)
-                    .collect(),
-                variables: BTreeMap::new(),
-                start_time: record.started_at,
-                end_time: record.completed_at,
-                error: record.error,
-                source: "persisted".into(),
-            });
-        }
-
-        if let Some(meta) = self.ctx.storage.agent_loop.load(agent_loop_id).await? {
-            return Ok(AgentLoopStateView {
-                agent_loop_id: meta.id.clone(),
-                status: parse_status(&meta.status),
-                current_iteration: meta.current_iteration,
-                tool_call_count: 0,
-                iteration_history: Vec::new(),
-                variables: BTreeMap::new(),
-                start_time: meta.started_at,
-                end_time: None,
-                error: None,
-                source: "persisted".into(),
-            });
-        }
-
-        Err(ApiError::execution_not_found(agent_loop_id))
-    }
-
-    /// Variable snapshot of an agent loop (live only; persisted records do
-    /// not retain the variable map).
-    pub async fn variables(&self, agent_loop_id: &str) -> ApiResult<BTreeMap<String, Value>> {
-        let view = self.get_state(agent_loop_id).await?;
-        Ok(view.variables)
-    }
-
-    /// Iteration history of an agent loop (live when present, persisted
-    /// otherwise).
-    pub async fn iteration_history(
-        &self,
-        agent_loop_id: &str,
-    ) -> ApiResult<Vec<IterationRecordView>> {
-        Ok(self.get_state(agent_loop_id).await?.iteration_history)
-    }
+/// Iteration history of an agent loop (live when present, persisted
+/// otherwise).
+pub async fn agent_execution_iteration_history(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+) -> ApiResult<Vec<IterationRecordView>> {
+    Ok(agent_execution_get_state(ctx, agent_loop_id)
+        .await?
+        .iteration_history)
 }
 
 fn record_variable_map(
@@ -809,7 +812,7 @@ fn record_variable_map(
 
 /// Parse the persisted string status of an `AgentLoopStorageMetadata` onto
 /// the typed contract, defaulting to `Created` for unknown values.
-fn parse_status(status: &str) -> ExecutionStatus {
+pub(crate) fn parse_status(status: &str) -> ExecutionStatus {
     match status {
         "created" => ExecutionStatus::Created,
         "running" => ExecutionStatus::Running,
@@ -819,6 +822,19 @@ fn parse_status(status: &str) -> ExecutionStatus {
         "failed" => ExecutionStatus::Failed,
         "cancelled" => ExecutionStatus::Cancelled,
         _ => ExecutionStatus::Created,
+    }
+}
+
+/// The serialized status string (serde snake_case form).
+pub(crate) fn status_str(status: &ExecutionStatus) -> &'static str {
+    match status {
+        ExecutionStatus::Created => "created",
+        ExecutionStatus::Running => "running",
+        ExecutionStatus::Paused => "paused",
+        ExecutionStatus::Stopped => "stopped",
+        ExecutionStatus::Completed => "completed",
+        ExecutionStatus::Failed => "failed",
+        ExecutionStatus::Cancelled => "cancelled",
     }
 }
 
@@ -1021,6 +1037,7 @@ fn transition_status(event_type: &EventType) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
     use wf_storage::context::StorageContext;
@@ -1036,8 +1053,9 @@ mod tests {
     #[tokio::test]
     async fn unknown_execution_is_not_found() {
         let ctx = make_ctx();
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let err = api.get_state("missing").await.unwrap_err();
+        let err = workflow_execution_get_state(&ctx, "missing")
+            .await
+            .unwrap_err();
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));
     }
 
@@ -1073,14 +1091,13 @@ mod tests {
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let view = api.get_state("exec-p").await.unwrap();
+        let view = workflow_execution_get_state(&ctx, "exec-p").await.unwrap();
         assert_eq!(view.source, "persisted");
         assert_eq!(view.status, ExecutionStatus::Completed);
         assert_eq!(view.variables.get("x"), Some(&serde_json::json!(1)));
         assert!(view.node_execution_history.is_empty());
 
-        let variables = api.variables("exec-p").await.unwrap();
+        let variables = workflow_execution_variables(&ctx, "exec-p").await.unwrap();
         assert_eq!(variables.get("x"), Some(&serde_json::json!(1)));
     }
 
@@ -1099,12 +1116,13 @@ mod tests {
             .register("exec-live".to_string(), entity.clone())
             .expect("register");
 
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let view = api.get_state("exec-live").await.unwrap();
+        let view = workflow_execution_get_state(&ctx, "exec-live").await.unwrap();
         assert_eq!(view.source, "live");
         assert_eq!(view.variables.get("a"), Some(&serde_json::json!({"n": 1})));
 
-        let transitions = api.status_transitions("exec-live").await.unwrap();
+        let transitions = workflow_execution_status_transitions(&ctx, "exec-live")
+            .await
+            .unwrap();
         assert!(transitions.is_empty(), "no lifecycle events published");
     }
 
@@ -1120,8 +1138,7 @@ mod tests {
         entity.state.write().await.start_iteration();
         ctx.agent_loops.register(entity.clone());
 
-        let api = AgentExecutionStateApi::new(ctx);
-        let view = api.get_state("agent-live").await.unwrap();
+        let view = agent_execution_get_state(&ctx, "agent-live").await.unwrap();
         assert_eq!(view.source, "live");
         assert_eq!(view.current_iteration, 1);
         assert_eq!(view.status, ExecutionStatus::Running);
@@ -1140,8 +1157,7 @@ mod tests {
         };
         ctx.storage.agent_loop.save(&meta).await.unwrap();
 
-        let api = AgentExecutionStateApi::new(ctx);
-        let view = api.get_state("agent-p").await.unwrap();
+        let view = agent_execution_get_state(&ctx, "agent-p").await.unwrap();
         assert_eq!(view.source, "persisted");
         assert_eq!(view.current_iteration, 3);
         assert_eq!(view.status, ExecutionStatus::Completed);
@@ -1188,8 +1204,9 @@ mod tests {
             .register("exec-ctx".to_string(), entity.clone())
             .expect("register");
 
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let context = api.get_execution_context("exec-ctx").await.unwrap();
+        let context = workflow_execution_get_execution_context(&ctx, "exec-ctx")
+            .await
+            .unwrap();
         assert_eq!(context.current_node_id.as_deref(), Some("n2"));
         assert_eq!(context.completed_nodes, vec!["n1"]);
         assert!(context.global_variables.contains_key("a"));
@@ -1199,11 +1216,14 @@ mod tests {
         assert_eq!(context.call_stack[0].node_id.as_deref(), Some("n1"));
         assert_eq!(context.call_stack[1].node_id.as_deref(), Some("n2"));
 
-        let stack = api.get_call_stack("exec-ctx").await.unwrap();
+        let stack = workflow_execution_get_call_stack(&ctx, "exec-ctx").await.unwrap();
         assert_eq!(stack.depth, 2);
         assert_eq!(stack.current_node_id.as_deref(), Some("n2"));
 
-        let memory = api.get_memory_usage("exec-ctx").await.unwrap().unwrap();
+        let memory = workflow_execution_get_memory_usage(&ctx, "exec-ctx")
+            .await
+            .unwrap()
+            .unwrap();
         assert!(memory > 0);
     }
 
@@ -1250,11 +1270,11 @@ mod tests {
             .register("exec-evo".to_string(), entity.clone())
             .expect("register");
 
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let snapshots = api
-            .get_variable_snapshots_by_time_range("exec-evo", now, now + 120)
-            .await
-            .unwrap();
+        let snapshots = workflow_execution_get_variable_snapshots_by_time_range(
+            &ctx, "exec-evo", now, now + 120,
+        )
+        .await
+        .unwrap();
         assert!(!snapshots.is_empty());
         assert!(snapshots
             .iter()
@@ -1263,7 +1283,9 @@ mod tests {
             .iter()
             .any(|s| s.variables.iter().any(|v| v.name == "x")));
 
-        let all = api.get_variable_snapshots("exec-evo").await.unwrap();
+        let all = workflow_execution_get_variable_snapshots(&ctx, "exec-evo")
+            .await
+            .unwrap();
         assert!(
             all.len() >= 2,
             "initial + per-node snapshots (timestamps may coalesce within a millisecond)"
@@ -1276,7 +1298,9 @@ mod tests {
             "per-node snapshots present"
         );
 
-        let evolution = api.get_context_evolution("exec-evo").await.unwrap();
+        let evolution = workflow_execution_get_context_evolution(&ctx, "exec-evo")
+            .await
+            .unwrap();
         assert!(
             evolution.transitions.len() >= 3,
             "node transitions + completion"
@@ -1287,7 +1311,9 @@ mod tests {
             .any(|t| t.transition_type == "completion"));
         assert_eq!(evolution.total_variable_changes, 1);
 
-        let analysis = api.analyze_state_transitions("exec-evo").await.unwrap();
+        let analysis = workflow_execution_analyze_state_transitions(&ctx, "exec-evo")
+            .await
+            .unwrap();
         assert!(analysis.total_transitions >= 2);
         assert!(!analysis.state_entry_count.is_empty());
         assert!(!analysis.common_transitions.is_empty());
@@ -1324,13 +1350,16 @@ mod tests {
         };
         ctx.storage.workflow_execution.save(&record).await.unwrap();
 
-        let api = WorkflowExecutionStateApi::new(ctx);
-        let context = api.get_execution_context("exec-deep").await.unwrap();
+        let context = workflow_execution_get_execution_context(&ctx, "exec-deep")
+            .await
+            .unwrap();
         assert!(context.global_variables.contains_key("v"));
         assert!(context.pending_nodes.is_empty(), "no graph available");
         assert_eq!(context.completed_nodes.len(), 0);
 
-        let evolution = api.get_context_evolution("exec-deep").await.unwrap();
+        let evolution = workflow_execution_get_context_evolution(&ctx, "exec-deep")
+            .await
+            .unwrap();
         assert_eq!(evolution.end_time, Some(3000));
         assert_eq!(evolution.total_variable_changes, 1);
         assert!(evolution

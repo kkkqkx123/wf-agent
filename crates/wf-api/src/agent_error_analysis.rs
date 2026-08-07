@@ -1,5 +1,8 @@
+//! Error analysis scoped to agent loop executions (TS `AgentErrorAnalysisAPI`
+//! counterpart). Reads the live agent loop error chains first and degrades to
+//! the persisted `AgentExecution.error` text after a restart.
+
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -78,221 +81,220 @@ pub struct ErrorRecoveryProposal {
     pub caused_by: Option<String>,
 }
 
-/// Error analysis scoped to agent loop executions (TS `AgentErrorAnalysisAPI`
-/// counterpart). Reads the live agent loop error chains first and degrades to
-/// the persisted `AgentExecution.error` text after a restart.
-pub struct AgentErrorAnalysisApi {
-    ctx: Arc<ApiContext>,
+/// Error records of an agent loop, oldest first.
+pub async fn get_execution_error_records(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ExecutionErrorRecord>> {
+    let records = error_records(ctx, execution_id).await?;
+    Ok(records.iter().map(record_view).collect())
 }
 
-impl AgentErrorAnalysisApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Error chain of an agent loop, optionally starting from a specific
+/// error id. `None` selects the full chain.
+pub async fn get_error_chain(
+    ctx: &ApiContext,
+    execution_id: &str,
+    from_error_id: Option<&str>,
+) -> ApiResult<Vec<ExecutionErrorRecord>> {
+    let records = error_records(ctx, execution_id).await?;
+    let start = from_error_id
+        .and_then(|id| records.iter().position(|r| r.id == id))
+        .unwrap_or(0);
+    Ok(records[start..].iter().map(record_view).collect())
+}
 
-    /// Error records of an agent loop, oldest first.
-    pub async fn get_execution_error_records(&self, execution_id: &str) -> ApiResult<Vec<ExecutionErrorRecord>> {
-        let records = self.error_records(execution_id).await?;
-        Ok(records.iter().map(record_view).collect())
+/// Root cause analysis of an agent loop's error chain.
+pub async fn analyze_root_cause(ctx: &ApiContext, execution_id: &str) -> ApiResult<RootCauseAnalysis> {
+    let records = error_records(ctx, execution_id).await?;
+    if records.is_empty() {
+        return Err(ApiError::execution(format!(
+            "no error records for agent loop {execution_id}"
+        )));
     }
+    let root = records
+        .iter()
+        .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
+        .unwrap_or(&records[0]);
+    Ok(RootCauseAnalysis {
+        root_cause_id: root.id.clone(),
+        error: root.error.clone(),
+        chain_length: records.len(),
+        suggested_action: root
+            .recovery_action
+            .as_ref()
+            .map(action_name)
+            .or_else(|| root.is_recoverable.then(|| "retry".to_string())),
+    })
+}
 
-    /// Error chain of an agent loop, optionally starting from a specific
-    /// error id. `None` selects the full chain.
-    pub async fn get_error_chain(
-        &self,
-        execution_id: &str,
-        from_error_id: Option<&str>,
-    ) -> ApiResult<Vec<ExecutionErrorRecord>> {
-        let records = self.error_records(execution_id).await?;
-        let start = from_error_id
-            .and_then(|id| records.iter().position(|r| r.id == id))
-            .unwrap_or(0);
-        Ok(records[start..].iter().map(record_view).collect())
-    }
-
-    /// Root cause analysis of an agent loop's error chain.
-    pub async fn analyze_root_cause(&self, execution_id: &str) -> ApiResult<RootCauseAnalysis> {
-        let records = self.error_records(execution_id).await?;
-        if records.is_empty() {
-            return Err(ApiError::Execution(format!(
-                "no error records for agent loop {execution_id}"
-            )));
-        }
-        let root = records
-            .iter()
-            .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
-            .unwrap_or(&records[0]);
-        Ok(RootCauseAnalysis {
-            root_cause_id: root.id.clone(),
-            error: root.error.clone(),
-            chain_length: records.len(),
-            suggested_action: root
-                .recovery_action
-                .as_ref()
-                .map(action_name)
-                .or_else(|| root.is_recoverable.then(|| "retry".to_string())),
-        })
-    }
-
-    /// Error statistics of an agent loop.
-    pub async fn get_error_statistics(&self, execution_id: &str) -> ApiResult<AgentErrorStatistics> {
-        let records = self.error_records(execution_id).await?;
-        let mut stats = AgentErrorStatistics {
-            execution_id: execution_id.to_string(),
-            ..AgentErrorStatistics::default()
+/// Error statistics of an agent loop.
+pub async fn get_error_statistics(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<AgentErrorStatistics> {
+    let records = error_records(ctx, execution_id).await?;
+    let mut stats = AgentErrorStatistics {
+        execution_id: execution_id.to_string(),
+        ..AgentErrorStatistics::default()
+    };
+    stats.total = records.len() as u32;
+    for record in &records {
+        let type_name = record
+            .error_type
+            .as_ref()
+            .map(|t| format!("{t:?}"))
+            .unwrap_or_else(|| "Unknown".to_string());
+        *stats.by_type.entry(type_name).or_insert(0) += 1;
+        let severity = if record.is_recoverable {
+            "warning"
+        } else {
+            "critical"
         };
-        stats.total = records.len() as u32;
-        for record in &records {
-            let type_name = record
-                .error_type
-                .as_ref()
-                .map(|t| format!("{t:?}"))
-                .unwrap_or_else(|| "Unknown".to_string());
-            *stats.by_type.entry(type_name).or_insert(0) += 1;
-            let severity = if record.is_recoverable { "warning" } else { "critical" };
-            *stats.by_severity.entry(severity.to_string()).or_insert(0) += 1;
-            if record.is_recoverable {
-                stats.recoverable += 1;
-            }
+        *stats.by_severity.entry(severity.to_string()).or_insert(0) += 1;
+        if record.is_recoverable {
+            stats.recoverable += 1;
         }
-        stats.root_cause = records
+    }
+    stats.root_cause = records
+        .iter()
+        .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
+        .map(|r| r.error.clone())
+        .or_else(|| records.first().map(|r| r.error.clone()));
+    Ok(stats)
+}
+
+/// Advanced error analysis of an agent loop.
+pub async fn get_advanced_error_analysis(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<AdvancedErrorAnalysis> {
+    let records = error_records(ctx, execution_id).await?;
+    let mut error_types: BTreeMap<String, u64> = BTreeMap::new();
+    let mut first = None;
+    let mut last = None;
+    for record in &records {
+        let type_name = record
+            .error_type
+            .as_ref()
+            .map(|t| format!("{t:?}"))
+            .unwrap_or_else(|| "Unknown".to_string());
+        *error_types.entry(type_name).or_insert(0) += 1;
+        first = Some(first.map_or(record.timestamp, |f: i64| f.min(record.timestamp)));
+        last = Some(last.map_or(record.timestamp, |l: i64| l.max(record.timestamp)));
+    }
+    let recurring = records.len() > 1;
+    Ok(AdvancedErrorAnalysis {
+        execution_id: execution_id.to_string(),
+        total_errors: records.len() as u32,
+        root_cause: records
             .iter()
             .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
             .map(|r| r.error.clone())
-            .or_else(|| records.first().map(|r| r.error.clone()));
-        Ok(stats)
+            .or_else(|| records.first().map(|r| r.error.clone())),
+        first_error_timestamp: first,
+        last_error_timestamp: last,
+        error_types,
+        recurring,
+    })
+}
+
+/// Recovery proposal for a specific error id, or `None` when the error is
+/// unknown or unrecoverable.
+pub async fn get_recovery_proposal(
+    ctx: &ApiContext,
+    execution_id: &str,
+    error_id: &str,
+) -> ApiResult<Option<ErrorRecoveryProposal>> {
+    let records = error_records(ctx, execution_id).await?;
+    let Some(record) = records.iter().find(|r| r.id == error_id) else {
+        return Ok(None);
+    };
+    if !record.is_recoverable && record.recovery_action.is_none() {
+        return Ok(None);
     }
+    Ok(Some(ErrorRecoveryProposal {
+        error_id: record.id.clone(),
+        recovery_action: record
+            .recovery_action
+            .as_ref()
+            .map(action_name)
+            .unwrap_or_else(|| "retry".to_string()),
+        is_recoverable: record.is_recoverable,
+        caused_by: record.caused_by.as_ref().map(|c| c.reason.clone()),
+    }))
+}
 
-    /// Advanced error analysis of an agent loop.
-    pub async fn get_advanced_error_analysis(&self, execution_id: &str) -> ApiResult<AdvancedErrorAnalysis> {
-        let records = self.error_records(execution_id).await?;
-        let mut error_types: BTreeMap<String, u64> = BTreeMap::new();
-        let mut first = None;
-        let mut last = None;
-        for record in &records {
-            let type_name = record
-                .error_type
-                .as_ref()
-                .map(|t| format!("{t:?}"))
-                .unwrap_or_else(|| "Unknown".to_string());
-            *error_types.entry(type_name).or_insert(0) += 1;
-            first = Some(first.map_or(record.timestamp, |f: i64| f.min(record.timestamp)));
-            last = Some(last.map_or(record.timestamp, |l: i64| l.max(record.timestamp)));
-        }
-        let recurring = records.len() > 1;
-        Ok(AdvancedErrorAnalysis {
-            execution_id: execution_id.to_string(),
-            total_errors: records.len() as u32,
-            root_cause: records
-                .iter()
-                .find(|r| r.root_cause_id == r.id || r.parent_error_id.is_none())
-                .map(|r| r.error.clone())
-                .or_else(|| records.first().map(|r| r.error.clone())),
-            first_error_timestamp: first,
-            last_error_timestamp: last,
-            error_types,
-            recurring,
-        })
-    }
+/// Errors similar to an error of this agent loop across all persisted
+/// failed agent executions, clustered by normalized message.
+pub async fn get_similar_errors(
+    ctx: &ApiContext,
+    execution_id: &str,
+    error_id: &str,
+) -> ApiResult<Vec<ExecutionErrorRecord>> {
+    let records = error_records(ctx, execution_id).await?;
+    let Some(target) = records.iter().find(|r| r.id == error_id) else {
+        return Ok(Vec::new());
+    };
+    let target_normalized = normalize_message(&target.error);
 
-    /// Recovery proposal for a specific error id, or `None` when the error is
-    /// unknown or unrecoverable.
-    pub async fn get_recovery_proposal(
-        &self,
-        execution_id: &str,
-        error_id: &str,
-    ) -> ApiResult<Option<ErrorRecoveryProposal>> {
-        let records = self.error_records(execution_id).await?;
-        let Some(record) = records.iter().find(|r| r.id == error_id) else {
-            return Ok(None);
-        };
-        if !record.is_recoverable && record.recovery_action.is_none() {
-            return Ok(None);
-        }
-        Ok(Some(ErrorRecoveryProposal {
-            error_id: record.id.clone(),
-            recovery_action: record
-                .recovery_action
-                .as_ref()
-                .map(action_name)
-                .unwrap_or_else(|| "retry".to_string()),
-            is_recoverable: record.is_recoverable,
-            caused_by: record.caused_by.as_ref().map(|c| c.reason.clone()),
-        }))
-    }
-
-    /// Errors similar to an error of this agent loop across all persisted
-    /// failed agent executions, clustered by normalized message.
-    pub async fn get_similar_errors(
-        &self,
-        execution_id: &str,
-        error_id: &str,
-    ) -> ApiResult<Vec<ExecutionErrorRecord>> {
-        let records = self.error_records(execution_id).await?;
-        let Some(target) = records.iter().find(|r| r.id == error_id) else {
-            return Ok(Vec::new());
-        };
-        let target_normalized = normalize_message(&target.error);
-
-        let mut similar = Vec::new();
-        let persisted = self.ctx.storage.agent_execution.list(None).await?;
-        for record in persisted {
-            if record.id != execution_id && record.status == ExecutionStatus::Failed {
-                if let Some(error) = &record.error {
-                    if normalize_message(error) == target_normalized {
-                        similar.push(record_view(&ErrorRecord {
-                            id: wf_common::generate_id(),
-                            execution_id: record.id.to_string(),
-                            error: error.clone(),
-                            error_type: None,
-                            timestamp: record.completed_at.unwrap_or(record.started_at),
-                            node_id: None,
-                            parent_error_id: None,
-                            error_chain: Vec::new(),
-                            root_cause_id: String::new(),
-                            caused_by: None,
-                            is_recoverable: false,
-                            recovery_action: None,
-                        }));
-                    }
+    let mut similar = Vec::new();
+    let persisted = ctx.storage.agent_execution.list(None).await?;
+    for record in persisted {
+        if record.id != execution_id && record.status == ExecutionStatus::Failed {
+            if let Some(error) = &record.error {
+                if normalize_message(error) == target_normalized {
+                    similar.push(record_view(&ErrorRecord {
+                        id: wf_common::generate_id(),
+                        execution_id: record.id.to_string(),
+                        error: error.clone(),
+                        error_type: None,
+                        timestamp: record.completed_at.unwrap_or(record.started_at),
+                        node_id: None,
+                        parent_error_id: None,
+                        error_chain: Vec::new(),
+                        root_cause_id: String::new(),
+                        caused_by: None,
+                        is_recoverable: false,
+                        recovery_action: None,
+                    }));
                 }
             }
         }
-        similar.sort_by_key(|r| std::cmp::Reverse(r.timestamp));
-        similar.truncate(20);
-        Ok(similar)
     }
+    similar.sort_by_key(|r| std::cmp::Reverse(r.timestamp));
+    similar.truncate(20);
+    Ok(similar)
+}
 
-    async fn error_records(&self, execution_id: &str) -> ApiResult<Vec<ErrorRecord>> {
-        if let Some(entity) = self.ctx.agent_loop(execution_id) {
-            return Ok(entity.state.read().await.error_records().to_vec());
-        }
-        let record = self
-            .ctx
-            .storage
-            .agent_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        let mut records = Vec::new();
-        if let Some(error) = &record.error {
-            records.push(ErrorRecord {
-                id: wf_common::generate_id(),
-                execution_id: execution_id.to_string(),
-                error: error.clone(),
-                error_type: None,
-                timestamp: record.completed_at.unwrap_or(record.started_at),
-                node_id: None,
-                parent_error_id: None,
-                error_chain: Vec::new(),
-                root_cause_id: String::new(),
-                caused_by: None,
-                is_recoverable: false,
-                recovery_action: None,
-            });
-        }
-        Ok(records)
+async fn error_records(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<ErrorRecord>> {
+    if let Some(entity) = ctx.agent_loop(execution_id) {
+        return Ok(entity.state.read().await.error_records().to_vec());
     }
+    let record = ctx
+        .storage
+        .agent_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    let mut records = Vec::new();
+    if let Some(error) = &record.error {
+        records.push(ErrorRecord {
+            id: wf_common::generate_id(),
+            execution_id: execution_id.to_string(),
+            error: error.clone(),
+            error_type: None,
+            timestamp: record.completed_at.unwrap_or(record.started_at),
+            node_id: None,
+            parent_error_id: None,
+            error_chain: Vec::new(),
+            root_cause_id: String::new(),
+            caused_by: None,
+            is_recoverable: false,
+            recovery_action: None,
+        });
+    }
+    Ok(records)
 }
 
 fn record_view(record: &ErrorRecord) -> ExecutionErrorRecord {
@@ -333,6 +335,7 @@ fn normalize_message(message: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use super::*;
     use wf_agent::entity::AgentLoopEntity;
     use wf_common::error_chain::ErrorRecord;
@@ -375,37 +378,31 @@ mod tests {
         let ctx = make_ctx();
         let entity = Arc::new(AgentLoopEntity::new(Id::from("exec-e".to_string())));
         let record = make_record("exec-e", "tool boom");
-        entity
-            .state
-            .write()
-            .await
-            .record_error(record.clone());
+        entity.state.write().await.record_error(record.clone());
         ctx.agent_loops.register(entity);
 
-        let api = AgentErrorAnalysisApi::new(ctx);
-        let records = api.get_execution_error_records("exec-e").await.unwrap();
+        let records = get_execution_error_records(&ctx, "exec-e").await.unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].error, "tool boom");
 
-        let chain = api.get_error_chain("exec-e", None).await.unwrap();
+        let chain = get_error_chain(&ctx, "exec-e", None).await.unwrap();
         assert_eq!(chain.len(), 1);
 
-        let root = api.analyze_root_cause("exec-e").await.unwrap();
+        let root = analyze_root_cause(&ctx, "exec-e").await.unwrap();
         assert_eq!(root.error, "tool boom");
         assert_eq!(root.chain_length, 1);
         assert_eq!(root.suggested_action.as_deref(), Some("retry"));
 
-        let stats = api.get_error_statistics("exec-e").await.unwrap();
+        let stats = get_error_statistics(&ctx, "exec-e").await.unwrap();
         assert_eq!(stats.total, 1);
         assert_eq!(stats.recoverable, 1);
         assert!(stats.by_type.contains_key("ToolError"));
 
-        let advanced = api.get_advanced_error_analysis("exec-e").await.unwrap();
+        let advanced = get_advanced_error_analysis(&ctx, "exec-e").await.unwrap();
         assert_eq!(advanced.total_errors, 1);
         assert_eq!(advanced.root_cause.as_deref(), Some("tool boom"));
 
-        let proposal = api
-            .get_recovery_proposal("exec-e", &record.id)
+        let proposal = get_recovery_proposal(&ctx, "exec-e", &record.id)
             .await
             .unwrap()
             .unwrap();
@@ -429,21 +426,18 @@ mod tests {
         };
         ctx.storage.agent_execution.save(&record).await.unwrap();
 
-        let api = AgentErrorAnalysisApi::new(ctx);
-        let records = api.get_execution_error_records("exec-p").await.unwrap();
+        let records = get_execution_error_records(&ctx, "exec-p").await.unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].error, "fatal timeout");
 
-        let stats = api.get_error_statistics("exec-p").await.unwrap();
+        let stats = get_error_statistics(&ctx, "exec-p").await.unwrap();
         assert_eq!(stats.total, 1);
     }
 
     #[tokio::test]
     async fn unknown_execution_is_not_found() {
         let ctx = make_ctx();
-        let api = AgentErrorAnalysisApi::new(ctx);
-        let err = api
-            .get_execution_error_records("missing")
+        let err = get_execution_error_records(&ctx, "missing")
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));

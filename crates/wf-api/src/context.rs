@@ -161,8 +161,8 @@ impl ApiContext {
         self
     }
 
-    /// Swap in a custom persistence layer (e.g. buffered + sqlite from
-    /// `create_sdk`).
+    /// Swap in a custom persistence layer (e.g. buffered + sqlite from the
+    /// runtime bootstrap).
     pub fn with_persistence(mut self, persistence: Arc<dyn PersistenceLayer>) -> Self {
         self.persistence = persistence;
         self

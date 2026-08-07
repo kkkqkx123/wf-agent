@@ -7,9 +7,11 @@
 //!
 //! Data is derived from the live entity's node execution history first and
 //! degrades to the persisted record's `node_results` after a restart.
+//!
+//! Node-level workflow iteration analysis (TS `WorkflowIterationAnalysisAPI`
+//! counterpart).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -109,299 +111,265 @@ pub struct OptimizationOpportunity {
     pub estimated_improvement: Option<String>,
 }
 
-/// Node-level workflow iteration analysis (TS `WorkflowIterationAnalysisAPI`
-/// counterpart).
-pub struct WorkflowIterationAnalysisApi {
-    ctx: Arc<ApiContext>,
+/// All extended node execution records of a workflow execution, one per
+/// distinct node (the latest attempt wins), in start-time order.
+pub async fn get_execution_node_analyses(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
+    let mut by_node: BTreeMap<String, Vec<RawNodeAttempt>> = BTreeMap::new();
+    for attempt in raw_attempts(ctx, execution_id).await? {
+        by_node
+            .entry(attempt.node_id.clone())
+            .or_default()
+            .push(attempt);
+    }
+
+    let mut records: Vec<ExtendedNodeExecutionRecordView> = by_node
+        .into_iter()
+        .map(|(node_id, attempts)| collapse_node(execution_id, node_id, attempts))
+        .collect();
+    records.sort_by_key(|r| r.start_time);
+    Ok(records)
 }
 
-impl WorkflowIterationAnalysisApi {
-    pub fn new(ctx: Arc<ApiContext>) -> Self {
-        Self { ctx }
-    }
+/// Extended record of a specific node of an execution, or `None` when the
+/// node was never executed.
+pub async fn get_node_analysis(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_id: &str,
+) -> ApiResult<Option<ExtendedNodeExecutionRecordView>> {
+    Ok(get_execution_node_analyses(ctx, execution_id)
+        .await?
+        .into_iter()
+        .find(|record| record.node_id == node_id))
+}
 
-    /// All extended node execution records of a workflow execution, one per
-    /// distinct node (the latest attempt wins), in start-time order.
-    pub async fn get_execution_node_analyses(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
-        let mut by_node: BTreeMap<String, Vec<RawNodeAttempt>> = BTreeMap::new();
-        for attempt in self.raw_attempts(execution_id).await? {
-            by_node
-                .entry(attempt.node_id.clone())
-                .or_default()
-                .push(attempt);
+/// Tool dependencies of a node (inferred from the node type).
+pub async fn get_tool_dependency_chain(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_id: &str,
+) -> ApiResult<Vec<ToolDependencyView>> {
+    Ok(get_node_analysis(ctx, execution_id, node_id)
+        .await?
+        .map(|record| record.tool_dependencies)
+        .unwrap_or_default())
+}
+
+/// Reconstructed execution path of a workflow execution, or `None` when
+/// no node has executed yet.
+pub async fn get_execution_path(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Option<WorkflowExecutionPathView>> {
+    let records = get_execution_node_analyses(ctx, execution_id).await?;
+    if records.is_empty() {
+        return Ok(None);
+    }
+    let steps: Vec<ExecutionPathStepView> = records
+        .iter()
+        .map(|record| ExecutionPathStepView {
+            step_id: record.node_id.clone(),
+            r#type: "node_execution".to_string(),
+            description: format!("Execute {} ({})", record.node_name, record.node_type),
+            result: record.output.clone(),
+            timestamp: record.start_time,
+        })
+        .collect();
+    let is_optimal = records.iter().all(|r| r.status == "completed") && {
+        let total_retries: u32 = records.iter().map(|r| r.retry_count).sum();
+        total_retries == 0
+    };
+    Ok(Some(WorkflowExecutionPathView {
+        path_id: format!("path-{execution_id}"),
+        description: format!("Execution path for workflow {execution_id}"),
+        steps,
+        is_optimal,
+    }))
+}
+
+/// Optimization opportunities for a workflow execution, derived from node
+/// durations and retry counts.
+pub async fn get_optimization_opportunities(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<OptimizationOpportunity>> {
+    let records = get_execution_node_analyses(ctx, execution_id).await?;
+    let mut opportunities = Vec::new();
+
+    for record in &records {
+        if record.duration.map(|d| d > 5000).unwrap_or(false) {
+            opportunities.push(OptimizationOpportunity {
+                node_id: record.node_id.clone(),
+                node_name: record.node_name.clone(),
+                description: format!(
+                    "Node execution took {}ms - consider optimization",
+                    record.duration.unwrap_or(0)
+                ),
+                impact_level: "medium".to_string(),
+                estimated_improvement: Some(format!(
+                    "Reduce duration from {}ms",
+                    record.duration.unwrap_or(0)
+                )),
+            });
         }
-
-        let mut records: Vec<ExtendedNodeExecutionRecordView> = by_node
-            .into_iter()
-            .map(|(node_id, attempts)| collapse_node(execution_id, node_id, attempts))
-            .collect();
-        records.sort_by_key(|r| r.start_time);
-        Ok(records)
-    }
-
-    /// Extended record of a specific node of an execution, or `None` when the
-    /// node was never executed.
-    pub async fn get_node_analysis(
-        &self,
-        execution_id: &str,
-        node_id: &str,
-    ) -> ApiResult<Option<ExtendedNodeExecutionRecordView>> {
-        Ok(self
-            .get_execution_node_analyses(execution_id)
-            .await?
-            .into_iter()
-            .find(|record| record.node_id == node_id))
-    }
-
-    /// Tool dependencies of a node (inferred from the node type).
-    pub async fn get_tool_dependency_chain(
-        &self,
-        execution_id: &str,
-        node_id: &str,
-    ) -> ApiResult<Vec<ToolDependencyView>> {
-        Ok(self
-            .get_node_analysis(execution_id, node_id)
-            .await?
-            .map(|record| record.tool_dependencies)
-            .unwrap_or_default())
-    }
-
-    /// Reconstructed execution path of a workflow execution, or `None` when
-    /// no node has executed yet.
-    pub async fn get_execution_path(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Option<WorkflowExecutionPathView>> {
-        let records = self.get_execution_node_analyses(execution_id).await?;
-        if records.is_empty() {
-            return Ok(None);
+        if record.retry_count > 2 {
+            opportunities.push(OptimizationOpportunity {
+                node_id: record.node_id.clone(),
+                node_name: record.node_name.clone(),
+                description: format!(
+                    "Node retried {} times - review error handling",
+                    record.retry_count
+                ),
+                impact_level: "high".to_string(),
+                estimated_improvement: Some("Improve error handling or node logic".to_string()),
+            });
         }
-        let steps: Vec<ExecutionPathStepView> = records
-            .iter()
-            .map(|record| ExecutionPathStepView {
-                step_id: record.node_id.clone(),
-                r#type: "node_execution".to_string(),
-                description: format!("Execute {} ({})", record.node_name, record.node_type),
-                result: record.output.clone(),
-                timestamp: record.start_time,
-            })
-            .collect();
-        let is_optimal = records.iter().all(|r| r.status == "completed") && {
-            let total_retries: u32 = records.iter().map(|r| r.retry_count).sum();
-            total_retries == 0
-        };
-        Ok(Some(WorkflowExecutionPathView {
-            path_id: format!("path-{execution_id}"),
-            description: format!("Execution path for workflow {execution_id}"),
-            steps,
-            is_optimal,
-        }))
+        if record.tool_dependencies.len() > 5 {
+            opportunities.push(OptimizationOpportunity {
+                node_id: record.node_id.clone(),
+                node_name: record.node_name.clone(),
+                description: format!(
+                    "{} tool dependencies - consider simplification",
+                    record.tool_dependencies.len()
+                ),
+                impact_level: "medium".to_string(),
+                estimated_improvement: Some("Reduce tool dependency complexity".to_string()),
+            });
+        }
     }
 
-    /// LLM reasoning steps of an LLM node. Reasoning transcripts are not
-    /// retained by the state boundary, so this is always empty.
-    pub async fn get_llm_reasoning_path(
-        &self,
-        execution_id: &str,
-        node_id: &str,
-    ) -> ApiResult<Vec<String>> {
-        let _ = (execution_id, node_id);
-        Ok(Vec::new())
+    let impact_order = |level: &str| match level {
+        "high" => 0,
+        "medium" => 1,
+        _ => 2,
+    };
+    opportunities.sort_by_key(|o| impact_order(&o.impact_level));
+    Ok(opportunities)
+}
+
+/// Aggregated node execution statistics of a workflow execution, filtered
+/// when a filter is supplied.
+pub async fn get_node_execution_stats(
+    ctx: &ApiContext,
+    execution_id: &str,
+    filter: Option<&ExtendedNodeExecutionFilter>,
+) -> ApiResult<NodeExecutionStats> {
+    let mut records = get_execution_node_analyses(ctx, execution_id).await?;
+    if let Some(filter) = filter {
+        records.retain(|r| filter_matches(r, filter));
     }
 
-    /// Optimization opportunities for a workflow execution, derived from node
-    /// durations and retry counts.
-    pub async fn get_optimization_opportunities(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<OptimizationOpportunity>> {
-        let records = self.get_execution_node_analyses(execution_id).await?;
-        let mut opportunities = Vec::new();
+    let mut stats = NodeExecutionStats {
+        total_executions: records.len(),
+        success_count: 0,
+        failure_count: 0,
+        average_execution_time: 0,
+        min_execution_time: i64::MAX,
+        max_execution_time: 0,
+        retry_total: 0,
+    };
 
-        for record in &records {
-            if record.duration.map(|d| d > 5000).unwrap_or(false) {
-                opportunities.push(OptimizationOpportunity {
-                    node_id: record.node_id.clone(),
-                    node_name: record.node_name.clone(),
-                    description: format!(
-                        "Node execution took {}ms - consider optimization",
-                        record.duration.unwrap_or(0)
-                    ),
-                    impact_level: "medium".to_string(),
-                    estimated_improvement: Some(format!(
-                        "Reduce duration from {}ms",
-                        record.duration.unwrap_or(0)
-                    )),
-                });
-            }
-            if record.retry_count > 2 {
-                opportunities.push(OptimizationOpportunity {
-                    node_id: record.node_id.clone(),
-                    node_name: record.node_name.clone(),
-                    description: format!(
-                        "Node retried {} times - review error handling",
-                        record.retry_count
-                    ),
-                    impact_level: "high".to_string(),
-                    estimated_improvement: Some("Improve error handling or node logic".to_string()),
-                });
-            }
-            if record.tool_dependencies.len() > 5 {
-                opportunities.push(OptimizationOpportunity {
-                    node_id: record.node_id.clone(),
-                    node_name: record.node_name.clone(),
-                    description: format!(
-                        "{} tool dependencies - consider simplification",
-                        record.tool_dependencies.len()
-                    ),
-                    impact_level: "medium".to_string(),
-                    estimated_improvement: Some("Reduce tool dependency complexity".to_string()),
-                });
-            }
+    let mut duration_sum = 0i64;
+    for record in &records {
+        match record.status.as_str() {
+            "completed" => stats.success_count += 1,
+            "failed" => stats.failure_count += 1,
+            _ => {}
         }
-
-        let impact_order = |level: &str| match level {
-            "high" => 0,
-            "medium" => 1,
-            _ => 2,
-        };
-        opportunities.sort_by_key(|o| impact_order(&o.impact_level));
-        Ok(opportunities)
+        stats.retry_total += record.retry_count;
+        if let Some(duration) = record.duration {
+            duration_sum += duration;
+            stats.min_execution_time = stats.min_execution_time.min(duration);
+            stats.max_execution_time = stats.max_execution_time.max(duration);
+        }
     }
-
-    /// Aggregated node execution statistics of a workflow execution, filtered
-    /// when a filter is supplied.
-    pub async fn get_node_execution_stats(
-        &self,
-        execution_id: &str,
-        filter: Option<&ExtendedNodeExecutionFilter>,
-    ) -> ApiResult<NodeExecutionStats> {
-        let mut records = self.get_execution_node_analyses(execution_id).await?;
-        if let Some(filter) = filter {
-            records.retain(|r| filter_matches(r, filter));
-        }
-
-        let mut stats = NodeExecutionStats {
-            total_executions: records.len(),
-            success_count: 0,
-            failure_count: 0,
-            average_execution_time: 0,
-            min_execution_time: i64::MAX,
-            max_execution_time: 0,
-            retry_total: 0,
-        };
-
-        let mut duration_sum = 0i64;
-        for record in &records {
-            match record.status.as_str() {
-                "completed" => stats.success_count += 1,
-                "failed" => stats.failure_count += 1,
-                _ => {}
-            }
-            stats.retry_total += record.retry_count;
-            if let Some(duration) = record.duration {
-                duration_sum += duration;
-                stats.min_execution_time = stats.min_execution_time.min(duration);
-                stats.max_execution_time = stats.max_execution_time.max(duration);
-            }
-        }
-        if stats.total_executions > 0 {
-            stats.average_execution_time = duration_sum / stats.total_executions as i64;
-        }
-        if stats.min_execution_time == i64::MAX {
-            stats.min_execution_time = 0;
-        }
-        Ok(stats)
+    if stats.total_executions > 0 {
+        stats.average_execution_time = duration_sum / stats.total_executions as i64;
     }
-
-    /// Extended node execution records of a specific node type.
-    pub async fn get_node_executions_by_type(
-        &self,
-        execution_id: &str,
-        node_type: &str,
-    ) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
-        Ok(self
-            .get_execution_node_analyses(execution_id)
-            .await?
-            .into_iter()
-            .filter(|r| r.node_type == node_type)
-            .collect())
+    if stats.min_execution_time == i64::MAX {
+        stats.min_execution_time = 0;
     }
+    Ok(stats)
+}
 
-    /// Failed node executions of a workflow execution, newest first.
-    pub async fn get_failed_nodes(
-        &self,
-        execution_id: &str,
-    ) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
-        let mut records: Vec<ExtendedNodeExecutionRecordView> = self
-            .get_execution_node_analyses(execution_id)
+/// Extended node execution records of a specific node type.
+pub async fn get_node_executions_by_type(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_type: &str,
+) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
+    Ok(get_execution_node_analyses(ctx, execution_id)
+        .await?
+        .into_iter()
+        .filter(|r| r.node_type == node_type)
+        .collect())
+}
+
+/// Failed node executions of a workflow execution, newest first.
+pub async fn get_failed_nodes(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Vec<ExtendedNodeExecutionRecordView>> {
+    let mut records: Vec<ExtendedNodeExecutionRecordView> =
+        get_execution_node_analyses(ctx, execution_id)
             .await?
             .into_iter()
             .filter(|r| r.status == "failed")
             .collect();
-        records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
-        Ok(records)
-    }
+    records.sort_by_key(|r| std::cmp::Reverse(r.start_time));
+    Ok(records)
+}
 
-    /// Clear node analysis data of an execution. Analysis is derived from the
-    /// entity state on each query, so this is a no-op kept for API parity.
-    pub async fn clear_execution_analysis(&self, execution_id: &str) -> ApiResult<()> {
-        let _ = execution_id;
-        Ok(())
-    }
-
-    /// Raw node attempts: live entity's node execution history first, then the
-    /// persisted record's `node_results`.
-    async fn raw_attempts(&self, execution_id: &str) -> ApiResult<Vec<RawNodeAttempt>> {
-        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
-            let state = entity.state.read().await;
-            let mut records: Vec<RawNodeAttempt> = state
-                .node_execution_history()
-                .iter()
-                .map(|r| RawNodeAttempt {
-                    node_id: r.node_id.clone(),
-                    node_name: r.node_name.clone(),
-                    node_type: r.node_type.clone(),
-                    start_time: r.start_time,
-                    end_time: r.end_time,
-                    success: r.success,
-                    error: r.error.clone(),
-                    input: None,
-                    output: None,
-                })
-                .collect();
-            records.sort_by_key(|r| r.start_time);
-            return Ok(records);
-        }
-        let record = self
-            .ctx
-            .storage
-            .workflow_execution
-            .load(execution_id)
-            .await?
-            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
-        let mut records: Vec<RawNodeAttempt> = record
-            .node_results
-            .unwrap_or_default()
-            .into_iter()
-            .map(|result| RawNodeAttempt {
-                node_id: result.node_id.clone(),
-                node_name: result.node_id,
-                node_type: "unknown".to_string(),
-                start_time: result.started_at.unwrap_or(record.started_at),
-                end_time: result.completed_at,
-                success: result.status == "completed",
-                error: result.error.clone(),
-                input: result.input,
-                output: result.output,
+/// Raw node attempts: live entity's node execution history first, then the
+/// persisted record's `node_results`.
+async fn raw_attempts(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<RawNodeAttempt>> {
+    if let Some(entity) = ctx.workflow_execution(execution_id) {
+        let state = entity.state.read().await;
+        let mut records: Vec<RawNodeAttempt> = state
+            .node_execution_history()
+            .iter()
+            .map(|r| RawNodeAttempt {
+                node_id: r.node_id.clone(),
+                node_name: r.node_name.clone(),
+                node_type: r.node_type.clone(),
+                start_time: r.start_time,
+                end_time: r.end_time,
+                success: r.success,
+                error: r.error.clone(),
+                input: None,
+                output: None,
             })
             .collect();
         records.sort_by_key(|r| r.start_time);
-        Ok(records)
+        return Ok(records);
     }
+    let record = ctx
+        .storage
+        .workflow_execution
+        .load(execution_id)
+        .await?
+        .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+    let mut records: Vec<RawNodeAttempt> = record
+        .node_results
+        .unwrap_or_default()
+        .into_iter()
+        .map(|result| RawNodeAttempt {
+            node_id: result.node_id.clone(),
+            node_name: result.node_id,
+            node_type: "unknown".to_string(),
+            start_time: result.started_at.unwrap_or(record.started_at),
+            end_time: result.completed_at,
+            success: result.status == "completed",
+            error: result.error.clone(),
+            input: result.input,
+            output: result.output,
+        })
+        .collect();
+    records.sort_by_key(|r| r.start_time);
+    Ok(records)
 }
 
 /// One raw node execution attempt before per-node collapsing.
@@ -519,6 +487,7 @@ fn filter_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_core::registry::MutableRegistry;
     use wf_resource::registrar::Registries;
     use wf_resource::starter::BundleRegistry;
@@ -581,8 +550,7 @@ mod tests {
             .register("exec-wi".to_string(), entity.clone())
             .expect("register");
 
-        let api = WorkflowIterationAnalysisApi::new(ctx);
-        let records = api.get_execution_node_analyses("exec-wi").await.unwrap();
+        let records = get_execution_node_analyses(&ctx, "exec-wi").await.unwrap();
         assert_eq!(records.len(), 2);
         let n1 = records.iter().find(|r| r.node_id == "n1").unwrap();
         assert_eq!(n1.retry_count, 1);
@@ -593,41 +561,40 @@ mod tests {
         assert_eq!(n2.tool_dependencies.len(), 1);
         assert_eq!(n2.tool_dependencies[0].tool_name, "http_call");
 
-        let specific = api
-            .get_node_analysis("exec-wi", "n1")
+        let specific = get_node_analysis(&ctx, "exec-wi", "n1")
             .await
             .unwrap()
             .unwrap();
         assert_eq!(specific.node_id, "n1");
 
-        let path = api.get_execution_path("exec-wi").await.unwrap().unwrap();
+        let path = get_execution_path(&ctx, "exec-wi").await.unwrap().unwrap();
         assert_eq!(path.steps.len(), 2);
         assert!(!path.is_optimal, "n1 had a retry");
 
-        let stats = api.get_node_execution_stats("exec-wi", None).await.unwrap();
+        let stats = get_node_execution_stats(&ctx, "exec-wi", None)
+            .await
+            .unwrap();
         assert_eq!(stats.total_executions, 2);
         assert_eq!(stats.success_count, 2);
         assert_eq!(stats.retry_total, 1);
         assert_eq!(stats.max_execution_time, 6000);
 
-        let opportunities = api.get_optimization_opportunities("exec-wi").await.unwrap();
+        let opportunities = get_optimization_opportunities(&ctx, "exec-wi")
+            .await
+            .unwrap();
         assert!(opportunities.iter().any(|o| o.node_id == "n1"));
 
-        let by_type = api
-            .get_node_executions_by_type("exec-wi", "HTTP")
+        let by_type = get_node_executions_by_type(&ctx, "exec-wi", "HTTP")
             .await
             .unwrap();
         assert_eq!(by_type.len(), 1);
-        assert!(api.get_failed_nodes("exec-wi").await.unwrap().is_empty());
-        assert!(api.clear_execution_analysis("exec-wi").await.is_ok());
+        assert!(get_failed_nodes(&ctx, "exec-wi").await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn unknown_execution_is_not_found() {
         let ctx = make_ctx();
-        let api = WorkflowIterationAnalysisApi::new(ctx);
-        let err = api
-            .get_execution_node_analyses("missing")
+        let err = get_execution_node_analyses(&ctx, "missing")
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));

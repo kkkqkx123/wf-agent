@@ -65,9 +65,9 @@ impl WfPluginHandlerSource {
 
 impl PluginHandlerSource for WfPluginHandlerSource {
     fn node_executor(&self, type_name: &str) -> Option<Arc<dyn PluginNodeExecutor>> {
-        self.manager.get_node_handler(type_name).map(|handler| {
-            Arc::new(WfPluginNodeExecutor(handler)) as Arc<dyn PluginNodeExecutor>
-        })
+        self.manager
+            .get_node_handler(type_name)
+            .map(|handler| Arc::new(WfPluginNodeExecutor(handler)) as Arc<dyn PluginNodeExecutor>)
     }
 
     fn hook_handlers(&self, hook_type: &str) -> Vec<Arc<dyn PluginHookBridge>> {
@@ -94,7 +94,12 @@ struct WfPluginNodeExecutor(Arc<dyn wf_plugin::PluginNodeHandler>);
 
 #[async_trait]
 impl PluginNodeExecutor for WfPluginNodeExecutor {
-    async fn execute(&self, node_id: &str, inputs: &Value, config: &Value) -> wf_api::ApiResult<Value> {
+    async fn execute(
+        &self,
+        node_id: &str,
+        inputs: &Value,
+        config: &Value,
+    ) -> wf_api::ApiResult<Value> {
         let ctx = wf_plugin::PluginExecutionContext {
             node_id: node_id.to_string(),
             inputs: inputs.clone(),
@@ -104,7 +109,7 @@ impl PluginNodeExecutor for WfPluginNodeExecutor {
             .0
             .execute(ctx)
             .await
-            .map_err(|e| wf_api::ApiError::Execution(e.to_string()))?;
+            .map_err(|e| wf_api::ApiError::execution_with_source(e))?;
         Ok(result.outputs)
     }
 }
@@ -117,7 +122,7 @@ impl PluginHookBridge for WfPluginHookBridge {
         self.0
             .handle(context.clone())
             .await
-            .map_err(|e| wf_api::ApiError::Execution(e.to_string()))
+            .map_err(wf_api::ApiError::execution_with_source)
     }
 }
 
@@ -129,6 +134,6 @@ impl PluginMiddlewareBridge for WfPluginMiddlewareRunner {
         self.0
             .run_middleware(phase, context.clone())
             .await
-            .map_err(|e| wf_api::ApiError::Execution(e.to_string()))
+            .map_err(wf_api::ApiError::execution_with_source)
     }
 }

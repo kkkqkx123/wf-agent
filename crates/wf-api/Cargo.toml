@@ -32,3 +32,8 @@ wf-sandbox = { path = "../wf-sandbox" }
 
 [dev-dependencies]
 wf-llm = { path = "../wf-llm", features = ["mock"] }
+
+[features]
+default = []
+sqlite = ["wf-storage/sqlite"]
+postgres = ["wf-storage/postgres"]

@@ -1,10 +1,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use serde::Serialize;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::context::ApiContext;
 use crate::error::ApiResult;
+use crate::subscription::{
+    spawn_event_subscription, wait_for_event, EventSubscription, EventSubscriptionOptions,
+};
 
 /// Query options for the event history / timeline endpoints.
 #[derive(Debug, Clone, Default)]
@@ -31,13 +36,107 @@ impl EventQueryOptions {
     }
 }
 
+/// Aggregate event statistics (TS `EventStats` counterpart).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EventStats {
+    pub total: usize,
+    pub by_type: BTreeMap<String, u64>,
+    pub by_execution: BTreeMap<String, u64>,
+    pub by_workflow: BTreeMap<String, u64>,
+}
+
+/// One lifecycle phase of an execution timeline.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecutionTimelinePhase {
+    pub name: String,
+    pub start_event: EventType,
+    pub end_event: EventType,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub duration: i64,
+    pub events: Vec<BaseEvent>,
+}
+
+/// Structured execution timeline grouped into lifecycle phases.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecutionTimeline {
+    pub execution_id: String,
+    pub workflow_id: Option<String>,
+    pub status: String,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub total_elapsed: i64,
+    pub phases: Vec<ExecutionTimelinePhase>,
+    pub events: Vec<BaseEvent>,
+}
+
+/// Phase definition pairs driving timeline phase construction.
+const PHASE_DEFINITIONS: &[(&str, EventType, EventType)] = &[
+    (
+        "Execution",
+        EventType::WorkflowExecutionStarted,
+        EventType::WorkflowExecutionCompleted,
+    ),
+    ("Node Execution", EventType::NodeStarted, EventType::NodeCompleted),
+    (
+        "Tool Call",
+        EventType::ToolCallStarted,
+        EventType::ToolCallCompleted,
+    ),
+    ("Agent Turn", EventType::AgentTurnStarted, EventType::AgentTurnCompleted),
+    (
+        "Agent Iteration",
+        EventType::AgentIterationStarted,
+        EventType::AgentIterationCompleted,
+    ),
+    (
+        "Checkpoint",
+        EventType::CheckpointCreated,
+        EventType::CheckpointRestored,
+    ),
+];
+
+/// Apply `options` to a set of events, honoring the limit.
+pub(crate) fn filter_events(events: Vec<BaseEvent>, options: &EventQueryOptions) -> Vec<BaseEvent> {
+    let limit = options.effective_limit();
+    let mut out = Vec::new();
+    for event in events {
+        if let Some(execution_id) = &options.execution_id {
+            if event.execution_id.as_deref() != Some(execution_id.as_str()) {
+                continue;
+            }
+        }
+        if let Some(agent_loop_id) = &options.agent_loop_id {
+            if event.agent_loop_id.as_deref() != Some(agent_loop_id.as_str()) {
+                continue;
+            }
+        }
+        if let Some(workflow_id) = &options.workflow_id {
+            if event.workflow_id.as_deref() != Some(workflow_id.as_str()) {
+                continue;
+            }
+        }
+        if let Some(types) = &options.event_types {
+            if !types.contains(&event.r#type) {
+                continue;
+            }
+        }
+        out.push(event);
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
 /// Event history, timeline and statistics over the shared `EventBus` recent
-/// history (TS `EventResourceAPI` counterpart).
+/// history plus the [`crate::persistence::PersistenceLayer`] (TS
+/// `EventResourceAPI` counterpart).
 ///
-/// The bus retains a bounded ring buffer of recent events (see
-/// `wf-core::EventBus`); history queries therefore cover only the retained
-/// window. Events are returned newest-first unless sorted by the timeline
-/// endpoint.
+/// History endpoints merge the durable persisted events with the bounded
+/// in-memory `EventBus` window (newest-first unless sorted by the timeline
+/// endpoints). Events published through [`EventApi::dispatch`] are persisted
+/// and survive restarts.
 pub struct EventApi {
     ctx: Arc<ApiContext>,
 }
@@ -47,35 +146,43 @@ impl EventApi {
         Self { ctx }
     }
 
+    /// Publish an event on the shared bus and persist it through the
+    /// persistence layer (durable event dispatch). Publishing with no active
+    /// subscribers is not an error — the event is already persisted.
+    pub async fn dispatch(&self, event: BaseEvent) -> ApiResult<()> {
+        self.ctx.persistence.save_event(&event).await?;
+        let _ = self.ctx.event_bus.publish(event);
+        Ok(())
+    }
+
     /// Recent events matching the query options, newest first.
     pub async fn history(&self, options: &EventQueryOptions) -> ApiResult<Vec<BaseEvent>> {
-        let events = self.ctx.event_bus.recent_events();
-        let filtered = self.filter(events, options);
-        Ok(filtered)
+        let events = self.merge(options).await;
+        let mut events = filter_events(events, options);
+        events.reverse();
+        Ok(events)
     }
 
     /// Event timeline of a single workflow execution, oldest first.
     pub async fn timeline(&self, execution_id: &str) -> ApiResult<Vec<BaseEvent>> {
-        let mut events: Vec<BaseEvent> = self
-            .ctx
-            .event_bus
-            .recent_events()
-            .into_iter()
-            .filter(|e| e.execution_id.as_deref() == Some(execution_id))
-            .collect();
+        let options = EventQueryOptions {
+            execution_id: Some(execution_id.to_string()),
+            limit: 0,
+            ..Default::default()
+        };
+        let mut events = filter_events(self.merge(&options).await, &options);
         events.sort_by_key(|e| e.timestamp);
         Ok(events)
     }
 
     /// Event timeline of a single agent loop, oldest first.
     pub async fn agent_timeline(&self, agent_loop_id: &str) -> ApiResult<Vec<BaseEvent>> {
-        let mut events: Vec<BaseEvent> = self
-            .ctx
-            .event_bus
-            .recent_events()
-            .into_iter()
-            .filter(|e| e.agent_loop_id.as_deref() == Some(agent_loop_id))
-            .collect();
+        let options = EventQueryOptions {
+            agent_loop_id: Some(agent_loop_id.to_string()),
+            limit: 0,
+            ..Default::default()
+        };
+        let mut events = filter_events(self.merge(&options).await, &options);
         events.sort_by_key(|e| e.timestamp);
         Ok(events)
     }
@@ -83,43 +190,210 @@ impl EventApi {
     /// Count of retained events grouped by event type.
     pub async fn stats(&self) -> ApiResult<BTreeMap<String, u64>> {
         let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-        for event in self.ctx.event_bus.recent_events() {
+        for event in self.merge(&EventQueryOptions::default()).await {
             *counts.entry(event.r#type.as_str().to_string()).or_insert(0) += 1;
         }
         Ok(counts)
     }
 
-    fn filter(&self, events: Vec<BaseEvent>, options: &EventQueryOptions) -> Vec<BaseEvent> {
-        let limit = options.effective_limit();
-        let mut out = Vec::new();
+    /// Aggregate statistics (total, by type, by execution, by workflow).
+    pub async fn get_event_stats(&self, options: &EventQueryOptions) -> ApiResult<EventStats> {
+        let events = filter_events(self.merge(options).await, options);
+        let mut stats = EventStats {
+            total: events.len(),
+            ..Default::default()
+        };
         for event in events {
-            if let Some(execution_id) = &options.execution_id {
-                if event.execution_id.as_deref() != Some(execution_id.as_str()) {
-                    continue;
-                }
+            *stats
+                .by_type
+                .entry(event.r#type.as_str().to_string())
+                .or_insert(0) += 1;
+            if let Some(execution_id) = event.execution_id.as_deref() {
+                *stats
+                    .by_execution
+                    .entry(execution_id.to_string())
+                    .or_insert(0) += 1;
             }
-            if let Some(agent_loop_id) = &options.agent_loop_id {
-                if event.agent_loop_id.as_deref() != Some(agent_loop_id.as_str()) {
-                    continue;
-                }
-            }
-            if let Some(workflow_id) = &options.workflow_id {
-                if event.workflow_id.as_deref() != Some(workflow_id.as_str()) {
-                    continue;
-                }
-            }
-            if let Some(types) = &options.event_types {
-                if !types.contains(&event.r#type) {
-                    continue;
-                }
-            }
-            out.push(event);
-            if out.len() >= limit {
-                break;
+            if let Some(workflow_id) = event.workflow_id.as_deref() {
+                *stats
+                    .by_workflow
+                    .entry(workflow_id.to_string())
+                    .or_insert(0) += 1;
             }
         }
-        out
+        Ok(stats)
     }
+
+    /// Search events by keyword over type / execution / workflow identifiers.
+    pub async fn search_events(
+        &self,
+        query: &str,
+        options: &EventQueryOptions,
+    ) -> ApiResult<Vec<BaseEvent>> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut events = filter_events(self.merge(options).await, options);
+        events.sort_by_key(|e| e.timestamp);
+        events.reverse();
+        Ok(events
+            .into_iter()
+            .filter(|event| {
+                event.r#type.as_str().to_lowercase().contains(&query)
+                    || event
+                        .execution_id
+                        .as_deref()
+                        .map(|id| id.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+                    || event
+                        .workflow_id
+                        .as_deref()
+                        .map(|id| id.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+                    || event
+                        .agent_loop_id
+                        .as_deref()
+                        .map(|id| id.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    /// Structured execution timeline with lifecycle phases for an execution.
+    pub async fn get_execution_timeline(&self, execution_id: &str) -> ApiResult<Option<ExecutionTimeline>> {
+        let events = self.timeline(execution_id).await?;
+        if events.is_empty() {
+            return Ok(None);
+        }
+
+        let status = determine_status(&events);
+        let start_time = events[0].timestamp;
+        let end_time = events[events.len() - 1].timestamp;
+        let workflow_id = events.iter().find_map(|e| e.workflow_id.clone());
+        let phases = build_phases(&events);
+
+        Ok(Some(ExecutionTimeline {
+            execution_id: execution_id.to_string(),
+            workflow_id,
+            status: status.to_string(),
+            start_time,
+            end_time,
+            total_elapsed: end_time - start_time,
+            phases,
+            events,
+        }))
+    }
+
+    /// Clear persisted event history (the bounded bus window self-truncates).
+    pub async fn clear_event_history(&self) -> ApiResult<usize> {
+        let count = self.ctx.persistence.count_events(&EventQueryOptions::default()).await?;
+        self.ctx.persistence.clear_events().await?;
+        Ok(count)
+    }
+
+    /// Subscribe to matching events, delivered as an async stream.
+    pub fn subscribe(&self, options: EventSubscriptionOptions) -> EventSubscription {
+        spawn_event_subscription(self.ctx.event_bus.clone(), &options)
+    }
+
+    /// Await the first matching event, bounded by `timeout`.
+    pub async fn wait_for_event(
+        &self,
+        options: EventSubscriptionOptions,
+        timeout: Duration,
+    ) -> ApiResult<Option<BaseEvent>> {
+        wait_for_event(self.ctx.event_bus.clone(), &options, timeout).await
+    }
+
+    /// Merge persisted events with the bounded bus window, deduplicated by id.
+    async fn merge(&self, options: &EventQueryOptions) -> Vec<BaseEvent> {
+        let mut events: Vec<BaseEvent> = self.ctx.event_bus.recent_events();
+        if let Ok(persisted) = self.ctx.persistence.query_events(options).await {
+            events.extend(persisted);
+        }
+        events.sort_by_key(|e| e.timestamp);
+        events.dedup_by_key(|e| e.id.clone());
+        events
+    }
+}
+
+fn determine_status(events: &[BaseEvent]) -> &'static str {
+    for event in events.iter().rev() {
+        match event.r#type {
+            EventType::WorkflowExecutionCompleted => return "completed",
+            EventType::WorkflowExecutionFailed => return "failed",
+            EventType::WorkflowExecutionPaused => return "paused",
+            EventType::WorkflowExecutionCancelled => return "cancelled",
+            _ => {}
+        }
+    }
+    "running"
+}
+
+fn build_phases(events: &[BaseEvent]) -> Vec<ExecutionTimelinePhase> {
+    let mut phases = Vec::new();
+    for (name, start_event, end_event) in PHASE_DEFINITIONS {
+        let start_event = start_event.clone();
+        let end_event = end_event.clone();
+        let starts: Vec<&BaseEvent> = events
+            .iter()
+            .filter(|e| e.r#type == start_event)
+            .collect();
+        if starts.is_empty() {
+            continue;
+        }
+        let ends: Vec<&BaseEvent> = events.iter().filter(|e| e.r#type == end_event).collect();
+        let mut used_starts = std::collections::HashSet::new();
+        let mut used_ends = std::collections::HashSet::new();
+        for (si, start) in starts.iter().enumerate() {
+            if used_starts.contains(&si) {
+                continue;
+            }
+            let mut matched = false;
+            for (ei, end) in ends.iter().enumerate() {
+                if used_ends.contains(&ei) || end.timestamp < start.timestamp {
+                    continue;
+                }
+                used_starts.insert(si);
+                used_ends.insert(ei);
+                phases.push(ExecutionTimelinePhase {
+                    name: (*name).to_string(),
+                    start_event: start_event.clone(),
+                    end_event: end_event.clone(),
+                    start_time: start.timestamp,
+                    end_time: end.timestamp,
+                    duration: end.timestamp - start.timestamp,
+                    events: events
+                        .iter()
+                        .filter(|e| {
+                            e.timestamp >= start.timestamp && e.timestamp <= end.timestamp
+                        })
+                        .cloned()
+                        .collect(),
+                });
+                matched = true;
+                break;
+            }
+            if !matched {
+                phases.push(ExecutionTimelinePhase {
+                    name: (*name).to_string(),
+                    start_event: start_event.clone(),
+                    end_event: end_event.clone(),
+                    start_time: start.timestamp,
+                    end_time: 0,
+                    duration: -1,
+                    events: events
+                        .iter()
+                        .filter(|e| e.timestamp >= start.timestamp)
+                        .cloned()
+                        .collect(),
+                });
+            }
+        }
+    }
+    phases.sort_by_key(|p| p.start_time);
+    phases
 }
 
 #[cfg(test)]
@@ -275,5 +549,176 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(limited.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn dispatch_persists_and_publishes() {
+        let ctx = make_ctx();
+        let mut sub = ctx.event_bus.subscribe();
+        let api = EventApi::new(ctx.clone());
+
+        api.dispatch(make_event(Some("exec-d"), None, EventType::NodeStarted, 1))
+            .await
+            .unwrap();
+
+        // Published on the bus.
+        let received = sub.recv().await.unwrap();
+        assert_eq!(received.r#type, EventType::NodeStarted);
+
+        // Persisted through the default memory-backed layer.
+        let persisted = ctx
+            .persistence
+            .query_events(&EventQueryOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].r#type, EventType::NodeStarted);
+    }
+
+    #[tokio::test]
+    async fn search_events_matches_identifiers() {
+        let ctx = make_ctx();
+        let api = EventApi::new(ctx);
+        api.dispatch(make_event(Some("exec-s1"), None, EventType::NodeStarted, 1))
+            .await
+            .unwrap();
+        api.dispatch(make_event(Some("exec-s2"), None, EventType::NodeFailed, 2))
+            .await
+            .unwrap();
+
+        let results = api
+            .search_events("exec-s2", &EventQueryOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].execution_id.as_deref(), Some("exec-s2"));
+    }
+
+    #[tokio::test]
+    async fn execution_timeline_builds_phases_and_status() {
+        let ctx = make_ctx();
+        let api = EventApi::new(ctx);
+        api.dispatch(make_event(
+            Some("exec-tl"),
+            None,
+            EventType::WorkflowExecutionStarted,
+            100,
+        ))
+        .await
+        .unwrap();
+        api.dispatch(make_event(Some("exec-tl"), None, EventType::NodeStarted, 150))
+            .await
+            .unwrap();
+        api.dispatch(make_event(
+            Some("exec-tl"),
+            None,
+            EventType::NodeCompleted,
+            200,
+        ))
+            .await
+            .unwrap();
+        api.dispatch(make_event(
+            Some("exec-tl"),
+            None,
+            EventType::WorkflowExecutionCompleted,
+            300,
+        ))
+        .await
+        .unwrap();
+
+        let timeline = api
+            .get_execution_timeline("exec-tl")
+            .await
+            .unwrap()
+            .expect("timeline present");
+        assert_eq!(timeline.status, "completed");
+        assert_eq!(timeline.total_elapsed, 200);
+        assert!(
+            timeline.phases.iter().any(|p| p.name == "Execution"),
+            "execution phase must be built"
+        );
+        let execution_phase = timeline
+            .phases
+            .iter()
+            .find(|p| p.name == "Execution")
+            .unwrap();
+        assert_eq!(execution_phase.duration, 200);
+    }
+
+    #[tokio::test]
+    async fn event_stats_aggregates() {
+        let ctx = make_ctx();
+        let api = EventApi::new(ctx);
+        api.dispatch(make_event(Some("e1"), None, EventType::NodeStarted, 1))
+            .await
+            .unwrap();
+        api.dispatch(make_event(Some("e1"), None, EventType::NodeCompleted, 2))
+            .await
+            .unwrap();
+        api.dispatch(make_event(Some("e2"), None, EventType::NodeStarted, 3))
+            .await
+            .unwrap();
+
+        let stats = api
+            .get_event_stats(&EventQueryOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.total, 3);
+        assert_eq!(stats.by_type.get("NODE_STARTED"), Some(&2));
+        assert_eq!(stats.by_execution.get("e1"), Some(&2));
+    }
+
+    #[tokio::test]
+    async fn clear_event_history_empties_persisted_events() {
+        let ctx = make_ctx();
+        let api = EventApi::new(ctx.clone());
+        api.dispatch(make_event(Some("e1"), None, EventType::NodeStarted, 1))
+            .await
+            .unwrap();
+
+        let cleared = api.clear_event_history().await.unwrap();
+        assert_eq!(cleared, 1);
+        // The durable store is emptied; the bounded bus window may still hold
+        // the recently published event, so assert against the store directly.
+        let persisted = ctx
+            .persistence
+            .query_events(&EventQueryOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(persisted.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn subscribe_and_wait_for_event_work() {
+        let ctx = make_ctx();
+        let api = EventApi::new(ctx.clone());
+        let mut sub = api.subscribe(EventSubscriptionOptions::for_execution("exec-sub"));
+
+        api.dispatch(make_event(Some("exec-sub"), None, EventType::NodeStarted, 1))
+            .await
+            .unwrap();
+        let event = sub.next().await.unwrap();
+        assert_eq!(event.r#type, EventType::NodeStarted);
+
+        // A fresh subscription only observes future broadcasts (no replay), so
+        // the waiting subscription must be established before the publish.
+        let waiter = tokio::spawn({
+            let ctx = ctx.clone();
+            async move {
+                EventApi::new(ctx)
+                    .wait_for_event(
+                        EventSubscriptionOptions::for_execution("exec-sub"),
+                        Duration::from_millis(500),
+                    )
+                    .await
+                    .unwrap()
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        api.dispatch(make_event(Some("exec-sub"), None, EventType::NodeCompleted, 2))
+            .await
+            .unwrap();
+        let waited = waiter.await.unwrap().expect("event within window");
+        assert_eq!(waited.r#type, EventType::NodeCompleted);
     }
 }

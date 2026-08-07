@@ -69,6 +69,68 @@ pub struct ExecutionGraphApi {
     ctx: Arc<ApiContext>,
 }
 
+/// One slow node above a duration percentile threshold (TS `getSlowNodes`).
+#[derive(Debug, Clone, Serialize)]
+pub struct SlowNodeView {
+    pub node_id: String,
+    pub node_name: String,
+    pub node_type: String,
+    pub duration_ms: i64,
+    pub success: bool,
+}
+
+/// Efficiency analysis comparing the executed steps to the shortest structural
+/// path (TS `analyzeEfficiency`).
+#[derive(Debug, Clone, Serialize)]
+pub struct EfficiencyAnalysis {
+    pub execution_id: String,
+    pub executed_steps: usize,
+    pub optimal_steps: usize,
+    /// executed / optimal (>= 1.0; larger = more wasteful).
+    pub efficiency_ratio: f64,
+    pub wasteful_nodes: usize,
+    pub retry_count: usize,
+}
+
+/// An alternative branch considered but not taken at a decision point (TS
+/// `AlternativeDecision`).
+#[derive(Debug, Clone, Serialize)]
+pub struct AlternativeDecision {
+    pub node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_name: Option<String>,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_probability: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
+/// One structural path with its estimated probability (TS
+/// `getPathProbabilityAnalysis` path entry).
+#[derive(Debug, Clone, Serialize)]
+pub struct PathProbabilityEntry {
+    pub path_id: String,
+    pub node_ids: Vec<String>,
+    pub probability: f64,
+    pub is_taken: bool,
+}
+
+/// Path probability analysis of a workflow execution (TS
+/// `PathProbabilityAnalysis`). Edge probabilities are inferred: conditional
+/// outgoing edges of a branching node share its probability mass uniformly.
+#[derive(Debug, Clone, Serialize)]
+pub struct PathProbabilityAnalysis {
+    pub execution_id: String,
+    pub paths: Vec<PathProbabilityEntry>,
+    pub most_likely_path: Option<Vec<String>>,
+    pub least_likely_taken_path: Option<Vec<String>>,
+    /// Normalized entropy of the path probabilities (0.0 - 1.0).
+    pub path_diversity: f64,
+}
+
 impl ExecutionGraphApi {
     pub fn new(ctx: Arc<ApiContext>) -> Self {
         Self { ctx }
@@ -164,20 +226,370 @@ impl ExecutionGraphApi {
     }
 
     /// Actual execution order from the live entity's node execution history
-    /// (successful attempts only, in start-time order).
+    /// (successful attempts only, in start-time order), falling back to the
+    /// persisted record's `node_results` after a restart.
     async fn executed_nodes(&self, execution_id: &str) -> Vec<String> {
-        let Some(entity) = self.ctx.workflow_execution(execution_id) else {
+        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
+            let state = entity.state.read().await;
+            let mut records = state.node_execution_history().to_vec();
+            records.sort_by_key(|r| r.start_time);
+            return records
+                .into_iter()
+                .filter(|r| r.success)
+                .map(|r| r.node_id)
+                .collect();
+        }
+        let Ok(Some(record)) = self.ctx.storage.workflow_execution.load(execution_id).await else {
             return Vec::new();
         };
-        let state = entity.state.read().await;
-        let mut records = state.node_execution_history().to_vec();
-        records.sort_by_key(|r| r.start_time);
-        records
+        let mut results = record.node_results.unwrap_or_default();
+        results.sort_by_key(|r| r.started_at.unwrap_or(0));
+        results
             .into_iter()
-            .filter(|r| r.success)
+            .filter(|r| r.status == "completed")
             .map(|r| r.node_id)
             .collect()
     }
+
+    /// Node timing records of an execution: the live entity's node execution
+    /// history, otherwise the persisted record's `node_results`.
+    async fn node_timings(&self, execution_id: &str) -> Vec<NodeTiming> {
+        if let Some(entity) = self.ctx.workflow_execution(execution_id) {
+            let state = entity.state.read().await;
+            let mut records: Vec<_> = state
+                .node_execution_history()
+                .iter()
+                .map(|r| NodeTiming {
+                    node_id: r.node_id.clone(),
+                    node_name: r.node_name.clone(),
+                    node_type: r.node_type.clone(),
+                    duration_ms: r
+                        .end_time
+                        .map(|end| (end - r.start_time).max(0))
+                        .unwrap_or(0),
+                    success: r.success,
+                })
+                .collect();
+            records.sort_by_key(|r| r.node_id.clone());
+            return records;
+        }
+        let Ok(Some(record)) = self.ctx.storage.workflow_execution.load(execution_id).await else {
+            return Vec::new();
+        };
+        record
+            .node_results
+            .unwrap_or_default()
+            .into_iter()
+            .map(|result| NodeTiming {
+                node_id: result.node_id.clone(),
+                node_name: result.node_id.clone(),
+                node_type: "unknown".to_string(),
+                duration_ms: result
+                    .completed_at
+                    .zip(result.started_at)
+                    .map(|(end, start)| (end - start).max(0))
+                    .unwrap_or(0),
+                success: result.status == "completed",
+            })
+            .collect()
+    }
+
+    /// Resolve the graph of an execution and record it onto the persisted
+    /// `WorkflowExecution` record so the real per-execution graph survives a
+    /// restart (TS `recordExecutionGraph`).
+    pub async fn record_execution_graph(
+        &self,
+        execution_id: &str,
+    ) -> ApiResult<WorkflowGraphStructure> {
+        let graph = self
+            .resolve_graph(execution_id)
+            .await?
+            .ok_or_else(|| ApiError::execution_not_found(execution_id))?;
+        if let Some(mut record) = self
+            .ctx
+            .storage
+            .workflow_execution
+            .load(execution_id)
+            .await?
+        {
+            record.graph = Some(graph.clone());
+            self.ctx.storage.workflow_execution.save(&record).await?;
+        }
+        Ok(graph)
+    }
+
+    /// Nodes whose duration ranks in the slowest `(1 - percentile)` fraction
+    /// of the execution (default percentile 0.8 = slowest 20%). Duration
+    /// comparisons are over positive durations only.
+    pub async fn get_slow_nodes(
+        &self,
+        execution_id: &str,
+        percentile: f64,
+    ) -> ApiResult<Vec<SlowNodeView>> {
+        let timings = self.node_timings(execution_id).await;
+        let percentile = percentile.clamp(0.0, 1.0);
+        let mut candidates: Vec<NodeTiming> =
+            timings.into_iter().filter(|t| t.duration_ms > 0).collect();
+        candidates.sort_by(|a, b| {
+            b.duration_ms
+                .cmp(&a.duration_ms)
+                .then_with(|| a.node_id.cmp(&b.node_id))
+        });
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keep = ((candidates.len() as f64) * (1.0 - percentile))
+            .ceil()
+            .max(1.0) as usize;
+        Ok(candidates
+            .into_iter()
+            .take(keep)
+            .map(|t| SlowNodeView {
+                node_id: t.node_id,
+                node_name: t.node_name,
+                node_type: t.node_type,
+                duration_ms: t.duration_ms,
+                success: t.success,
+            })
+            .collect())
+    }
+
+    /// Efficiency of the execution relative to the shortest structural path
+    /// through the graph (TS `analyzeEfficiency`).
+    pub async fn analyze_efficiency(&self, execution_id: &str) -> ApiResult<EfficiencyAnalysis> {
+        let graph = self
+            .resolve_graph(execution_id)
+            .await?
+            .unwrap_or_else(WorkflowGraphStructure::default_empty);
+        let paths = enumerate_paths(&graph);
+        let optimal_steps = paths
+            .iter()
+            .map(|p| p.length)
+            .min()
+            .unwrap_or(graph.nodes.len().max(1));
+
+        let timings = self.node_timings(execution_id).await;
+        let executed_steps = timings.iter().filter(|t| t.success).count();
+        let retry_count = timings.iter().filter(|t| !t.success).count();
+
+        let wasteful_nodes = executed_steps.saturating_sub(optimal_steps);
+        let efficiency_ratio = if optimal_steps > 0 {
+            round2(executed_steps as f64 / optimal_steps as f64)
+        } else {
+            0.0
+        };
+
+        Ok(EfficiencyAnalysis {
+            execution_id: execution_id.to_string(),
+            executed_steps,
+            optimal_steps,
+            efficiency_ratio,
+            wasteful_nodes,
+            retry_count,
+        })
+    }
+
+    /// Alternative branches that exist at decision points but were not taken
+    /// during this execution (TS `getAlternativePaths`).
+    pub async fn get_alternative_paths(
+        &self,
+        execution_id: &str,
+    ) -> ApiResult<Vec<AlternativeDecision>> {
+        let graph = self
+            .resolve_graph(execution_id)
+            .await?
+            .unwrap_or_else(WorkflowGraphStructure::default_empty);
+        let executed_nodes = self.executed_nodes(execution_id).await;
+        let decision_points = analyze_decision_points(&graph, &executed_nodes);
+
+        let mut alternatives = Vec::new();
+        for point in &decision_points {
+            let taken = point.taken_edge.clone();
+            for edge in &graph.edges {
+                if edge.source_node_id != point.node_id {
+                    continue;
+                }
+                if Some(edge.id.as_str()) == taken.as_deref() {
+                    continue;
+                }
+                let target_name = graph
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == edge.target_node_id)
+                    .and_then(|n| n.name.clone())
+                    .unwrap_or_else(|| edge.target_node_id.clone());
+                alternatives.push(AlternativeDecision {
+                    node_id: edge.target_node_id.clone(),
+                    node_name: Some(target_name.clone()),
+                    description: format!(
+                        "Path via {} through edge '{}'",
+                        target_name,
+                        edge.label.clone().unwrap_or_else(|| edge.id.clone())
+                    ),
+                    reason: edge.condition.clone(),
+                    success_probability: None,
+                    confidence: None,
+                });
+            }
+        }
+        alternatives.sort_by(|a, b| a.node_id.cmp(&b.node_id));
+        Ok(alternatives)
+    }
+
+    /// Probability analysis over all structural paths of the execution graph
+    /// (TS `getPathProbabilityAnalysis`).
+    pub async fn get_path_probability_analysis(
+        &self,
+        execution_id: &str,
+    ) -> ApiResult<PathProbabilityAnalysis> {
+        let graph = self
+            .resolve_graph(execution_id)
+            .await?
+            .unwrap_or_else(WorkflowGraphStructure::default_empty);
+        let paths = enumerate_paths(&graph);
+        if paths.is_empty() {
+            return Ok(PathProbabilityAnalysis {
+                execution_id: execution_id.to_string(),
+                paths: Vec::new(),
+                most_likely_path: None,
+                least_likely_taken_path: None,
+                path_diversity: 0.0,
+            });
+        }
+
+        let executed_nodes = self.executed_nodes(execution_id).await;
+        let executed_set: HashSet<&str> = executed_nodes.iter().map(String::as_str).collect();
+        let edge_probability = edge_probabilities(&graph);
+
+        let mut entries: Vec<PathProbabilityEntry> = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                let mut probability = 1.0;
+                for window in path.nodes.windows(2) {
+                    let source = &window[0];
+                    let target = &window[1];
+                    probability *= edge_probability
+                        .get(&(source.clone(), target.clone()))
+                        .copied()
+                        .unwrap_or(1.0);
+                }
+                let is_taken = path
+                    .nodes
+                    .iter()
+                    .all(|id| executed_set.contains(id.as_str()));
+                PathProbabilityEntry {
+                    path_id: format!("path-{index}"),
+                    node_ids: path.nodes.clone(),
+                    probability: round3(probability),
+                    is_taken,
+                }
+            })
+            .collect();
+        entries.sort_by(|a, b| {
+            b.probability
+                .partial_cmp(&a.probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let most_likely_path = entries.first().map(|e| e.node_ids.clone());
+        let taken_paths: Vec<&PathProbabilityEntry> =
+            entries.iter().filter(|e| e.is_taken).collect();
+        let least_likely_taken_path = taken_paths
+            .iter()
+            .min_by(|a, b| {
+                a.probability
+                    .partial_cmp(&b.probability)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|e| e.node_ids.clone());
+
+        let total_probability: f64 = entries.iter().map(|e| e.probability).sum();
+        let path_diversity = if total_probability > 0.0 && entries.len() > 1 {
+            let entropy = -entries
+                .iter()
+                .map(|e| {
+                    let normalized = e.probability / total_probability;
+                    if normalized > 0.0 {
+                        normalized * normalized.log2()
+                    } else {
+                        0.0
+                    }
+                })
+                .sum::<f64>();
+            round3(entropy / (entries.len() as f64).log2())
+        } else {
+            0.0
+        };
+
+        Ok(PathProbabilityAnalysis {
+            execution_id: execution_id.to_string(),
+            paths: entries,
+            most_likely_path,
+            least_likely_taken_path,
+            path_diversity,
+        })
+    }
+
+    /// Clear the recorded execution data (persisted graph) of an execution
+    /// (TS `clearExecutionData`).
+    pub async fn clear_execution_data(&self, execution_id: &str) -> ApiResult<()> {
+        if let Some(mut record) = self
+            .ctx
+            .storage
+            .workflow_execution
+            .load(execution_id)
+            .await?
+        {
+            record.graph = None;
+            self.ctx.storage.workflow_execution.save(&record).await?;
+        }
+        Ok(())
+    }
+}
+
+/// Normalized timing of one node execution.
+#[derive(Debug, Clone)]
+struct NodeTiming {
+    node_id: String,
+    node_name: String,
+    node_type: String,
+    duration_ms: i64,
+    success: bool,
+}
+
+/// Estimated probability of each directed edge. A node with `k` conditional
+/// outgoing edges splits its probability mass evenly (`1/k`); unconditional
+/// edges keep `1.0`.
+fn edge_probabilities(graph: &WorkflowGraphStructure) -> HashMap<(String, String), f64> {
+    let mut probabilities = HashMap::new();
+    for node in &graph.nodes {
+        let conditional: Vec<&wf_types::workflow_execution::WorkflowEdge> = graph
+            .edges
+            .iter()
+            .filter(|e| e.source_node_id == node.id && e.condition.is_some())
+            .collect();
+        let share = if conditional.is_empty() {
+            1.0
+        } else {
+            1.0 / conditional.len() as f64
+        };
+        for edge in graph.edges.iter().filter(|e| e.source_node_id == node.id) {
+            probabilities.insert(
+                (edge.source_node_id.clone(), edge.target_node_id.clone()),
+                share,
+            );
+        }
+    }
+    probabilities
+}
+
+fn round2(value: f64) -> f64 {
+    (value * 100.0).round() / 100.0
+}
+
+fn round3(value: f64) -> f64 {
+    (value * 1000.0).round() / 1000.0
 }
 
 /// Enumerate all start-to-end paths of the graph via DFS (bounded).
@@ -415,5 +827,168 @@ mod tests {
         let analysis = api.analyze("missing-exec").await.unwrap();
         assert!(analysis.paths.is_empty());
         assert!(analysis.executed_nodes.is_empty());
+    }
+
+    async fn persist(ctx: &ApiContext, execution_id: &str, workflow_id: &str) {
+        let record = wf_types::WorkflowExecution {
+            id: execution_id.into(),
+            workflow_id: workflow_id.into(),
+            workflow_version: None,
+            status: wf_types::ExecutionStatus::Completed,
+            current_node_id: None,
+            graph: Some(graph()),
+            variables: None,
+            input: None,
+            output: None,
+            node_results: Some(vec![
+                wf_types::workflow_execution::NodeExecutionResult {
+                    node_id: "start".into(),
+                    status: "completed".into(),
+                    input: None,
+                    output: None,
+                    error: None,
+                    started_at: Some(1000),
+                    completed_at: Some(1100),
+                    retry_count: 0,
+                },
+                wf_types::workflow_execution::NodeExecutionResult {
+                    node_id: "route".into(),
+                    status: "completed".into(),
+                    input: None,
+                    output: None,
+                    error: None,
+                    started_at: Some(1100),
+                    completed_at: Some(1200),
+                    retry_count: 0,
+                },
+                wf_types::workflow_execution::NodeExecutionResult {
+                    node_id: "b".into(),
+                    status: "completed".into(),
+                    input: None,
+                    output: None,
+                    error: None,
+                    started_at: Some(1200),
+                    completed_at: Some(1500),
+                    retry_count: 1,
+                },
+                wf_types::workflow_execution::NodeExecutionResult {
+                    node_id: "b".into(),
+                    status: "completed".into(),
+                    input: None,
+                    output: None,
+                    error: None,
+                    started_at: Some(1500),
+                    completed_at: Some(3500),
+                    retry_count: 0,
+                },
+                wf_types::workflow_execution::NodeExecutionResult {
+                    node_id: "end".into(),
+                    status: "completed".into(),
+                    input: None,
+                    output: None,
+                    error: None,
+                    started_at: Some(3500),
+                    completed_at: Some(3600),
+                    retry_count: 0,
+                },
+            ]),
+            errors: None,
+            error: None,
+            started_at: 1000,
+            completed_at: Some(3600),
+            execution_type: None,
+            fork_join_context: None,
+            hierarchy: None,
+        };
+        ctx.storage.workflow_execution.save(&record).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn record_and_clear_execution_graph() {
+        let ctx = Arc::new(ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(Registries::new()),
+            Arc::new(BundleRegistry::new()),
+        ));
+        persist(&ctx, "exec-g", "wf-g").await;
+
+        let api = ExecutionGraphApi::new(ctx.clone());
+        let recorded = api.record_execution_graph("exec-g").await.unwrap();
+        assert_eq!(recorded.nodes.len(), 5);
+
+        let record = ctx
+            .storage
+            .workflow_execution
+            .load("exec-g")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(record.graph.is_some());
+
+        api.clear_execution_data("exec-g").await.unwrap();
+        let record = ctx
+            .storage
+            .workflow_execution
+            .load("exec-g")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(record.graph.is_none());
+    }
+
+    #[tokio::test]
+    async fn slow_nodes_and_efficiency() {
+        let ctx = Arc::new(ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(Registries::new()),
+            Arc::new(BundleRegistry::new()),
+        ));
+        persist(&ctx, "exec-eff", "wf-eff").await;
+
+        let api = ExecutionGraphApi::new(ctx);
+        let slow = api.get_slow_nodes("exec-eff", 0.8).await.unwrap();
+        assert!(
+            !slow.is_empty(),
+            "b (2000ms) should exceed the 80th percentile"
+        );
+        assert!(slow.iter().any(|s| s.node_id == "b"));
+        assert!(slow.iter().all(|s| s.duration_ms > 0));
+
+        let efficiency = api.analyze_efficiency("exec-eff").await.unwrap();
+        // 5 successful executions across 4 distinct nodes; shortest path = 4.
+        assert!(efficiency.optimal_steps >= 1);
+        assert_eq!(efficiency.executed_steps, 5);
+        assert!(efficiency.efficiency_ratio >= 1.0);
+        assert_eq!(efficiency.retry_count, 0, "persisted results all completed");
+    }
+
+    #[tokio::test]
+    async fn alternative_paths_and_probability() {
+        let ctx = Arc::new(ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(Registries::new()),
+            Arc::new(BundleRegistry::new()),
+        ));
+        persist(&ctx, "exec-prob", "wf-prob").await;
+
+        let api = ExecutionGraphApi::new(ctx);
+        let alternatives = api.get_alternative_paths("exec-prob").await.unwrap();
+        assert_eq!(alternatives.len(), 1, "the untaken 'route -> a' branch");
+        assert_eq!(alternatives[0].node_id, "a");
+
+        let probability = api
+            .get_path_probability_analysis("exec-prob")
+            .await
+            .unwrap();
+        assert_eq!(probability.paths.len(), 2);
+        for path in &probability.paths {
+            assert!(
+                (path.probability - 0.5).abs() < 0.001,
+                "uniform branch split"
+            );
+        }
+        assert!(probability.most_likely_path.is_some());
+        assert!(probability.path_diversity >= 0.0);
+        assert!(probability.paths.iter().any(|p| p.is_taken));
     }
 }

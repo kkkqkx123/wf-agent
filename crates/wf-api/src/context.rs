@@ -18,6 +18,13 @@ use wf_workflow::entity::WorkflowExecutionEntity;
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::registry::WorkflowExecutionRegistry;
 
+use crate::handler_chain::{
+    node_type_name, NoopPluginHandlerSource, PluginHandlerSource, PluginNodeAdapter,
+    TemplateSubgraphHandler,
+};
+use crate::persistence::{PersistenceLayer, StorePersistenceLayer};
+use crate::ApiResult;
+
 /// Assembled application-facing API context.
 ///
 /// Composes the storage layer (persistent source) with the execution engines
@@ -58,6 +65,13 @@ pub struct ApiContext {
     /// (`WorkflowExecution` / `AgentExecution`). Wired to the storage
     /// adapters; the engines persist through it and `wf-api` stays read-only.
     pub state_manager: ExecutionStateManager,
+    /// Durable event / snapshot / metric persistence (buffered + backend).
+    /// History/timeline/stats queries in `EventApi` read through this layer.
+    pub persistence: Arc<dyn PersistenceLayer>,
+    /// Plugin contribution source (node executors / hooks / middleware)
+    /// injected by `wf-runtime`. `wf-api` stays independent of `wf-plugin` by
+    /// consuming contributions through this trait.
+    pub plugin_source: Arc<dyn PluginHandlerSource>,
 }
 
 impl ApiContext {
@@ -87,6 +101,8 @@ impl ApiContext {
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
                 .with_agent_store(Arc::new(storage.agent_execution.clone())),
+            persistence: Arc::new(StorePersistenceLayer::memory()),
+            plugin_source: Arc::new(NoopPluginHandlerSource),
             handlers,
         }
     }
@@ -121,6 +137,8 @@ impl ApiContext {
             state_manager: ExecutionStateManager::new()
                 .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
                 .with_agent_store(Arc::new(storage.agent_execution.clone())),
+            persistence: Arc::new(StorePersistenceLayer::memory()),
+            plugin_source: Arc::new(NoopPluginHandlerSource),
             handlers,
         }
     }
@@ -143,8 +161,112 @@ impl ApiContext {
         self
     }
 
+    /// Swap in a custom persistence layer (e.g. buffered + sqlite from
+    /// `create_sdk`).
+    pub fn with_persistence(mut self, persistence: Arc<dyn PersistenceLayer>) -> Self {
+        self.persistence = persistence;
+        self
+    }
+
+    /// Inject the plugin contribution source (built by `wf-runtime` over the
+    /// plugin engine's `ContributionManager`).
+    pub fn with_plugin_source(mut self, plugin_source: Arc<dyn PluginHandlerSource>) -> Self {
+        self.plugin_source = plugin_source;
+        self
+    }
+
     pub fn handlers(&self) -> Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>> {
         self.handlers.clone()
+    }
+
+    /// Resolve the handler for `node_type` through the plugin-aware chain:
+    /// **builtin → plugin → template fallback**.
+    ///
+    /// 1. Builtin handlers (the standard engine handler set) win first.
+    /// 2. Plugin contributions registered under the node type's canonical name
+    ///    serve types without a builtin handler.
+    /// 3. Stored node templates back the type as a subgraph: the template id is
+    ///    treated as a workflow id in the execution registry and executed as a
+    ///    sub-workflow.
+    pub async fn resolve_handler(
+        &self,
+        node_type: StaticNodeType,
+        config: Option<&serde_json::Value>,
+    ) -> Option<Arc<dyn NodeHandler>> {
+        // 1. Builtin.
+        if let Some(handler) = self.handlers.get(&node_type).cloned() {
+            return Some(handler);
+        }
+        let type_name = node_type_name(&node_type);
+        // 2. Plugin contribution.
+        if let Some(executor) = self.plugin_source.node_executor(&type_name) {
+            return Some(Arc::new(PluginNodeAdapter::new(executor, node_type)));
+        }
+        // 3. Template fallback: stored node template → registered workflow.
+        self.template_fallback(node_type, config).await
+    }
+
+    /// Template fallback tier of the handler chain. A stored node template
+    /// whose `node_type` matches and whose id is a registered workflow id backs
+    /// the node as a subgraph execution.
+    async fn template_fallback(
+        &self,
+        node_type: StaticNodeType,
+        config: Option<&serde_json::Value>,
+    ) -> Option<Arc<dyn NodeHandler>> {
+        // A config that already pins a subgraph is handled by the builtin
+        // SUBGRAPH handler; the fallback only serves template-backed types.
+        if let Some(config) = config {
+            if let Some(id) = config.get("subgraph_id").or_else(|| config.get("embed_id")) {
+                if let Some(id) = id.as_str() {
+                    let templates =
+                        crate::node_template::list_node_templates(&self.storage, None).await.ok()?;
+                    if templates.iter().any(|t| t.id == id) {
+                        return None;
+                    }
+                }
+            }
+        }
+        let type_name = node_type_name(&node_type);
+        let templates =
+            crate::node_template::list_node_templates_by_type(&self.storage, &type_name)
+                .await
+                .ok()?;
+        let template = templates.into_iter().next()?;
+        let template_workflow = self.registries.workflows.get(&template.id)?;
+        let graph = crate::workflow_execution::definition_to_graph(&template_workflow.definition);
+        Some(Arc::new(TemplateSubgraphHandler::new(
+            template.id.to_string(),
+            graph,
+            self.handlers.clone(),
+        )))
+    }
+
+    /// Run plugin hook handlers registered for `hook_type`.
+    pub async fn run_hooks(&self, hook_type: &str, context: &serde_json::Value) -> ApiResult<()> {
+        for hook in self.plugin_source.hook_handlers(hook_type) {
+            hook.handle(hook_type, context).await?;
+        }
+        Ok(())
+    }
+
+    /// Run plugin middleware handlers registered for `phase` in priority order.
+    pub async fn run_middleware(
+        &self,
+        phase: &str,
+        context: &serde_json::Value,
+    ) -> ApiResult<()> {
+        for middleware in self.plugin_source.middleware(phase) {
+            middleware.handle(phase, context).await?;
+        }
+        Ok(())
+    }
+
+    /// Whether any plugin node executor is registered for `node_type`.
+    pub fn has_plugin_node_executor(&self, node_type: &StaticNodeType) -> bool {
+        self.plugin_source
+            .node_executor(&node_type_name(node_type))
+            .is_some()
     }
 
     /// Look up a live workflow execution handle by id.

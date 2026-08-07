@@ -322,7 +322,8 @@ impl Runtime {
                 .storage_manager
                 .shared_context()
                 .unwrap_or_else(|| Arc::new(wf_storage::context::StorageContext::new_memory()));
-            wf_api::ApiContext::from_runtime_parts(
+            #[allow(unused_mut)]
+            let mut ctx = wf_api::ApiContext::from_runtime_parts(
                 storage,
                 self.registries.clone(),
                 self.bundles.clone(),
@@ -330,7 +331,19 @@ impl Runtime {
                 self.llm_gateway.clone(),
                 self.tool_registry.clone(),
                 self.metrics.as_ref().map(|m| m.registry().clone()),
-            )
+            );
+            // Plugin contributions (node-type / hook / middleware) are injected
+            // into the handler resolution chain (builtin → plugin → template
+            // fallback) when the plugin engine is enabled.
+            #[cfg(feature = "plugins")]
+            if let Some(engine) = &self.plugin_engine {
+                ctx = ctx.with_plugin_source(Arc::new(
+                    crate::plugin_bridge::WfPluginHandlerSource::new(
+                        engine.contribution_manager().clone(),
+                    ),
+                ));
+            }
+            ctx
         })
     }
 

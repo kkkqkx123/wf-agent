@@ -81,19 +81,19 @@ impl ApiError {
 }
 
 #[derive(Serialize)]
-struct ApiErrorBody {
+pub(crate) struct ApiErrorBody {
     code: String,
     message: String,
 }
 
 #[derive(Serialize)]
-struct ApiEnvelope<T: Serialize> {
+pub(crate) struct ApiEnvelope<T: Serialize> {
     success: bool,
     data: Option<T>,
     error: Option<ApiErrorBody>,
 }
 
-fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
+pub(crate) fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
     Json(ApiEnvelope {
         success: true,
         data: Some(data),
@@ -113,6 +113,54 @@ fn err<T: Serialize>(e: ApiError) -> (StatusCode, Json<ApiEnvelope<T>>) {
             }),
         }),
     )
+}
+
+/// Map a `wf-api` error onto the response envelope used by the metrics and
+/// API routers.
+pub(crate) fn api_error_response_internal(
+    e: wf_api::ApiError,
+) -> (StatusCode, Json<ApiEnvelope<ApiErrorBody>>) {
+    use wf_api::ApiError;
+    let (status, code, message) = match &e {
+        ApiError::NotFound { entity_type, id } => (
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            format!("{entity_type} [{id}] not found"),
+        ),
+        ApiError::ExecutionNotFound { id } => {
+            (StatusCode::NOT_FOUND, "NOT_FOUND", format!("execution [{id}] not found"))
+        }
+        ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, "INVALID_PARAMS", msg.clone()),
+        ApiError::AlreadyExists { entity_type, id } => (
+            StatusCode::CONFLICT,
+            "ALREADY_EXISTS",
+            format!("{entity_type} [{id}] already exists"),
+        ),
+        ApiError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.clone()),
+        ApiError::Timeout(msg) => (StatusCode::GATEWAY_TIMEOUT, "TIMEOUT", msg.clone()),
+        ApiError::Storage(err) => (StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_ERROR", err.to_string()),
+        ApiError::Execution(msg) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            msg.clone(),
+        ),
+    };
+    (
+        status,
+        Json(ApiEnvelope {
+            success: false,
+            data: None,
+            error: Some(ApiErrorBody {
+                code: code.to_string(),
+                message,
+            }),
+        }),
+    )
+}
+
+/// Render a `wf-api` error through the envelope.
+pub(crate) fn error_response(e: wf_api::ApiError) -> Response {
+    api_error_response_internal(e).into_response()
 }
 
 #[derive(Clone)]
@@ -137,9 +185,9 @@ pub fn router(registry: Arc<MetricsRegistry>) -> Router {
 /// a graceful shutdown signal. Dropping the handle without `shutdown` lets
 /// the server task keep running until the runtime stops.
 pub struct ServerHandle {
-    addr: SocketAddr,
-    shutdown: oneshot::Sender<()>,
-    task: JoinHandle<()>,
+    pub(crate) addr: SocketAddr,
+    pub(crate) shutdown: oneshot::Sender<()>,
+    pub(crate) task: JoinHandle<()>,
 }
 
 impl ServerHandle {

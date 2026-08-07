@@ -11,8 +11,14 @@ serde_json.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 http.workspace = true
+futures.workspace = true
 wf-metrics = { path = "../wf-metrics" }
+wf-api = { path = "../wf-api" }
+wf-types = { path = "../wf-types" }
 
 [dev-dependencies]
 tower = { workspace = true }
 tokio = { workspace = true, features = ["io-util"] }
+wf-common = { path = "../wf-common" }
+wf-resource = { path = "../wf-resource" }
+wf-storage = { path = "../wf-storage" }
